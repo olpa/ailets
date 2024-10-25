@@ -92,8 +92,8 @@ Developers: Start using ailets in your code. Quick start for languages: TODO pyt
 
 Contributors:
 
-- Go to the [project tickets](https://github.com/olpa/ailets/issues) and filter by "good first issue"
 - Read the [technical thoughts](./docs/technical-thoughts.md)
+- Follow [contribution guidelines MOOC hackathon](https://github.com/olpa/ailets/wiki/Contribution-guidelines-MOOC-hackathon)
 
 Sponsors: For a small amount (up to $100), pay to the GeWoVa project: <https://gewova.com/buy.html>. For a larger amount, schedule a meeting with me by sending an invitation link to <olpa@uucode.com>.
 
