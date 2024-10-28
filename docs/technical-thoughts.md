@@ -1,10 +1,12 @@
 # Technical thoughts
 
-## Actors
+## Actors mixed with the unix style
 
 Follow the [actor model](https://en.wikipedia.org/wiki/Actor_model) as closely as possible:
 
 > In response to a message it receives, an actor can: make local decisions, create more actors, send more messages, and determine how to respond to the next message received. Actors may modify their own private state, but can only affect each other indirectly through messaging
+
+After decomposing user use cases, communication can be simplified: use "stdin" for incoming messages and "stdout" for outgoing messages. Furthermore, instead of multiple messages, it's enough to have one message with a streaming body.
 
 
 ## Format of messages
@@ -14,6 +16,85 @@ Like an HTTP request:
 - Message name
 - Message headers: map from strings to strings
 - Body
+
+
+## Examples of messaging
+
+### "stdin" runtime actor
+
+Input: read text from the user.
+
+Message to "stdlog":
+
+```
+POST /trace
+trace-id: workflow-123
+span-id: prompt-456
+```
+
+Message to "stdout":
+
+```
+trace-id: workflow-123
+from-span-id: prompt-456
+
+hello
+```
+
+### "prompt2gpt" actor
+
+Message to "stdlog":
+
+```
+POST /trace
+trace-id: workflow-123
+parent-id: prompt-456
+span-id: gpt-789
+```
+
+There are two messages to "stdout". First message is to get credentials:
+
+```
+RUN /tool/auth-key
+trace-id: workflow-123
+from-span-id: gpt-789
+output-stream: auth-https://api.openai.com/v1/chat/completions
+
+{
+  "url": "https://api.openai.com/v1/chat/completions",
+  "outputPrefix": "Bearer "
+}
+```
+
+Second message is the definition of the call to the model. Inside, it uses the output of the "auth-key" actor.
+
+```
+RUN /tool/http-call
+trace-id: workflow-123
+from-span-id: gpt-789
+
+{
+  "url": "https://api.openai.com/v1/chat/completions",
+  "method": "POST",
+  "headers": {
+    "Content-type": "application/json",
+    "Authorization": { "$stream": "auth-https://api.openai.com/v1/chat/completions" }
+  },
+  body: {
+    "model": "gpt-3.5-turbo",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hello"
+      }
+    ]
+  }
+};
+```
+
+### "auth-key" runtime actor
+
+TODO
 
 
 ## Content types
@@ -43,7 +124,7 @@ Furthermore, if we want to minimize the size of ailets, we should provide basic 
 Finally, we should orchestrate ailets to run together. There should be several levels of complexity, starting with the minimal glue and going towards an operating system.
 
 
-## Ailets operating system for agents
+## Future: Ailets operating system for agents
 
 If the future of AI is multi-agent systems, then we will have a special case of microservices. We have to adapt the knowledge and the tools to our special case.
 

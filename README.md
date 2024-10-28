@@ -15,8 +15,6 @@ Second, the frameworks are designed for top-level abstractions such as chains or
 
 We provide the lowest possible abstraction that generalizes the specifics of AI vendors.
 
-Third, ailets are being designed for the upcoming project, a multi-agent orchestration system. This system will be the first to be built on modern DevOps principles for distributed systems.
-
 
 ## Quote from you
 
