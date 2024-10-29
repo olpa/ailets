@@ -92,9 +92,45 @@ from-span-id: gpt-789
 };
 ```
 
+TODO FIXME: The generation of "auth" is in the wrong place. It should not be generated on "prompt2query" step, but it's a sort of deendency of "query".
+
+
 ### "auth-key" runtime actor
 
-TODO
+A message to "stdlog", starting from here we don't mention it anymore.
+
+The actor can be:
+
+- get the value of an environment variable, or
+- using the OS keyring to get the value
+
+The content of "stdout" should be the auth header.
+
+
+### "query" runtime actor
+
+Make an http call. Stream the output to "stdout".
+
+
+### "response2gpt"
+
+It needs to use a streamning json input. To define yet.
+
+Without "tools", the output is markdown. Further, we consider the case when "tools" are used.
+
+At the moment, the llm models generate only one response item and stop. But let's generalize and imagine this chat:
+
+- system message
+- user message 1
+- assistant message 1
+- user message 2
+- assistant message 2a
+- unresolved tool message 1a
+- unresolved tool message 1b
+- assistant message 2b
+- unresolved tool message 1c
+
+The actor should trigger the resolution of tool messages and restart with "query" actor.
 
 
 ## Content types
