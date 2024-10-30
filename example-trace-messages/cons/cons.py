@@ -27,25 +27,35 @@ class Environment:
         return node
 
     def get_node(self, name: str) -> Any:
-        """Get the result of a node, building its dependencies first."""
+        """Get the cached result of a node. Does not build."""
         if name not in self.nodes:
             raise KeyError(f"Node {name} not found")
 
         node = self.nodes[name]
-        if not node.dirty and node.cache is not None:
-            return node.cache
+        if node.dirty or node.cache is None:
+            raise RuntimeError(f"Node {name} is not built yet")
+        return node.cache
+
+    def build_node(self, name: str) -> Any:
+        """Build a node and its dependencies if needed."""
+        if name not in self.nodes:
+            raise KeyError(f"Node {name} not found")
+
+        node = self.nodes[name]
 
         # Build dependencies first
-        dep_results = [self.get_node(dep_name) for dep_name in node.deps]
+        dep_results = []
+        for dep_name in node.deps:
+            if (self.nodes[dep_name].dirty or
+                    self.nodes[dep_name].cache is None):
+                self.build_node(dep_name)
+            dep_results.append(self.get_node(dep_name))
 
         # Execute the node's function with dependency results
         result = node.func(*dep_results)
         # Since Node is frozen, we need to create a new one with updated cache
         self.nodes[name] = Node(
-            func=node.func,
-            deps=node.deps,
-            cache=result,
-            dirty=False
+            func=node.func, deps=node.deps, cache=result, dirty=False
         )
         return result
 
