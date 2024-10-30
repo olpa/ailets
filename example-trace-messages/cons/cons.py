@@ -1,7 +1,7 @@
 class Environment:
-    def dump_nodes(self):
+    def dump_nodes(self) -> None:
         pass
 
 
-def mkenv():
+def mkenv() -> Environment:
     return Environment()

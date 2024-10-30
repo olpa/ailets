@@ -3,10 +3,12 @@ all: final-messaging-file
 final-messaging-file: messages/25_query.json
 
 lint:
-	flake8 code/*py
+	flake8 code/*py nodes/*py cons/*py
+	mypy -m nodes
+	mypy -m cons
 
 fix:
-	black code/*y
+	black code/*y nodes/*py cons/*py
 
 messages/15_messages.json: code/10_stdin_to_prompt.py messages/05_stdin.txt
 	python $^ $@
