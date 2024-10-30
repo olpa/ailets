@@ -2,5 +2,6 @@ from nodes import prompt_to_md
 from cons import mkenv
 
 env = mkenv()
-node = prompt_to_md(env)
+result = prompt_to_md(env)  # Now returns the final markdown
+print(result)  # Let's see the output
 env.dump_nodes()
