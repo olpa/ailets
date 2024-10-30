@@ -3,7 +3,7 @@ all: final-messaging-file
 final-messaging-file: messages/25_query.json
 
 lint:
-	flake8 code/*py nodes/*py cons/*py
+	flake8 --max-line-length=88 code/*py nodes/*py cons/*py
 	mypy -m nodes
 	mypy -m cons
 
