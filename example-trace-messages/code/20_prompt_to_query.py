@@ -27,7 +27,7 @@ query = {
         "Content-type": "application/json",
         "Authorization": {"$stream": f"auth-{url}"},
     },
-    'body': {"model": "gpt-3.5-turbo", "messages": prompt},
+    "body": {"model": "gpt-3.5-turbo", "messages": prompt},
 }
 
 with open(out_file, "w") as h:
