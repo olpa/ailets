@@ -1,5 +1,5 @@
 from typing import List, Dict
-from cons.cons import Environment
+from cons.cons import Environment, Node
 
 
 def prompt_to_messages(prompt: str) -> List[Dict[str, str]]:
@@ -24,7 +24,7 @@ def response_to_markdown(response: str) -> str:
 
 def prompt_to_md(
     env: Environment, initial_prompt: str = "Hello, how can I help you?"
-) -> str:
+) -> Node:
     """Create a chain of nodes that process a prompt into markdown."""
     # Define nodes and their dependencies
     env.add_node("initial_prompt", lambda: initial_prompt)
@@ -33,5 +33,5 @@ def prompt_to_md(
     env.add_node("query", query, {"messages_to_query"})
     env.add_node("response_to_markdown", response_to_markdown, {"query"})
 
-    # Return the final node result
+    # Return the final node
     return env.get_node("response_to_markdown")

@@ -1,13 +1,25 @@
 from dataclasses import dataclass, field
-from typing import Dict, Any, Callable, Set, Optional
+from typing import Dict, Any, Callable, Set, Optional, TextIO
+import json
 
 
 @dataclass(frozen=True)
 class Node:
+    name: str
     func: Callable[..., Any]
     deps: Set[str] = field(default_factory=set)
     cache: Any = field(default=None, compare=False)
     dirty: bool = field(default=True, compare=False)
+
+    def to_json(self) -> Dict[str, Any]:
+        """Convert node state to a JSON-serializable dict."""
+        return {
+            "name": self.name,
+            "dirty": self.dirty,
+            "deps": list(self.deps),  # Convert set to list for JSON
+            "cache": None if self.cache is None else str(self.cache),
+            # Skip func as it's not serializable
+        }
 
 
 class Environment:
@@ -19,39 +31,33 @@ class Environment:
     ) -> Node:
         """Add a build node with its dependencies."""
         deps = deps or set()
-        node = Node(func=func, deps=deps)
+        node = Node(name=name, func=func, deps=deps)
         self.nodes[name] = node
         return node
 
-    def get_node(self, name: str) -> Any:
-        """Get the cached result of a node. Does not build."""
+    def get_node(self, name: str) -> Node:
+        """Get a node by name. Does not build."""
         if name not in self.nodes:
             raise KeyError(f"Node {name} not found")
-
-        node = self.nodes[name]
-        if node.dirty or node.cache is None:
-            raise RuntimeError(f"Node {name} is not built yet")
-        return node.cache
+        return self.nodes[name]
 
     def build_node(self, name: str) -> Any:
         """Build a node and its dependencies if needed."""
-        if name not in self.nodes:
-            raise KeyError(f"Node {name} not found")
-
-        node = self.nodes[name]
+        node = self.get_node(name)
 
         # Build dependencies first
         dep_results = []
         for dep_name in node.deps:
-            if self.nodes[dep_name].dirty or self.nodes[dep_name].cache is None:
+            dep_node = self.get_node(dep_name)
+            if dep_node.dirty or dep_node.cache is None:
                 self.build_node(dep_name)
-            dep_results.append(self.get_node(dep_name))
+            dep_results.append(dep_node.cache)
 
         # Execute the node's function with dependency results
         result = node.func(*dep_results)
         # Since Node is frozen, we need to create a new one with updated cache
         self.nodes[name] = Node(
-            func=node.func, deps=node.deps, cache=result, dirty=False
+            name=node.name, func=node.func, deps=node.deps, cache=result, dirty=False
         )
         return result
 
@@ -93,6 +99,14 @@ class Environment:
 
         visit(target)
         return build_order
+
+    def serialize_node(self, name: str, stream: TextIO) -> None:
+        """Serialize a node's state to a JSON stream."""
+        if name not in self.nodes:
+            raise KeyError(f"Node {name} not found")
+
+        json.dump(self.nodes[name].to_json(), stream, indent=2)
+        stream.write("\n")
 
 
 def mkenv() -> Environment:
