@@ -7,7 +7,7 @@ import json
 class Node:
     name: str
     func: Callable[..., Any]
-    deps: Set[str] = field(default_factory=set)
+    deps: list[str] = field(default_factory=list)
     cache: Any = field(default=None, compare=False)
     dirty: bool = field(default=True, compare=False)
 
@@ -16,7 +16,7 @@ class Node:
         return {
             "name": self.name,
             "dirty": self.dirty,
-            "deps": list(self.deps),  # Convert set to list for JSON
+            "deps": self.deps,
             "cache": None if self.cache is None else str(self.cache),
             # Skip func as it's not serializable
         }
@@ -27,10 +27,10 @@ class Environment:
         self.nodes: Dict[str, Node] = {}
 
     def add_node(
-        self, name: str, func: Callable[..., Any], deps: Optional[Set[str]] = None
+        self, name: str, func: Callable[..., Any], deps: Optional[list[str]] = None
     ) -> Node:
         """Add a build node with its dependencies."""
-        deps = deps or set()
+        deps = deps or []
         node = Node(name=name, func=func, deps=deps)
         self.nodes[name] = node
         return node
