@@ -54,7 +54,14 @@ class Environment:
             dep_results.append(dep_node.cache)
 
         # Execute the node's function with dependency results
-        result = node.func(*dep_results)
+        try:
+            result = node.func(*dep_results)
+        except Exception:
+            print(f"Error building node '{name}' with {len(dep_results)} dependencies")
+            print(f"Function: {node.func.__name__}")
+            print(f"Dependencies: {list(node.deps)}")
+            raise
+
         # Since Node is frozen, we need to create a new one with updated cache
         self.nodes[name] = Node(
             name=node.name, func=node.func, deps=node.deps, cache=result, dirty=False
