@@ -3,15 +3,27 @@ from cons import mkenv
 import os
 import json
 
+def dump_nodes(env, path: str) -> None:
+    """Dump all nodes to a JSON file."""
+    with open(path, "w") as f:
+        for node in env.nodes.values():
+            json.dump(node.to_json(), f, indent=2)
+            f.write("\n")
+
+def build_plan(env, target: str) -> None:
+    """Build nodes in order, saving state after each build."""
+    plan = env.plan(target)
+    
+    # Initial state
+    os.makedirs("messages", exist_ok=True)
+    dump_nodes(env, "messages/010_plan.json")
+    
+    # Build each node and save state
+    for i, node_name in enumerate(plan, start=2):
+        env.build_node(node_name)
+        state_file = f"messages/{i:02}0_state.json"
+        dump_nodes(env, state_file)
+
 env = mkenv()
-result = prompt_to_md(env)
-
-# Create messages directory if it doesn't exist
-os.makedirs("messages", exist_ok=True)
-
-# Get the plan and serialize nodes
-plan = env.plan(result.name)
-with open("messages/10_plan.json", "w") as f:
-    for node_name in plan:
-        json.dump(env.nodes[node_name].to_json(), f, indent=2)
-        f.write("\n")
+node = prompt_to_md(env)
+build_plan(env, node.name)

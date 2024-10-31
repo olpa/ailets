@@ -22,9 +22,7 @@ def response_to_markdown(response: str) -> str:
     return f"# Response\n\n{response}"
 
 
-def prompt_to_md(
-    env: Environment, initial_prompt: str = "Hello, how can I help you?"
-) -> Node:
+def prompt_to_md(env: Environment, initial_prompt: str = "hello") -> Node:
     """Create a chain of nodes that process a prompt into markdown."""
     # Define nodes and their dependencies
     env.add_node("initial_prompt", lambda: initial_prompt)
