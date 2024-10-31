@@ -1,0 +1,46 @@
+{
+  "name": "initial_prompt",
+  "dirty": false,
+  "deps": [],
+  "cache": "hello"
+}
+{
+  "name": "prompt_to_messages",
+  "dirty": false,
+  "deps": [
+    "initial_prompt"
+  ],
+  "cache": "[{'role': 'user', 'content': 'hello'}]"
+}
+{
+  "name": "messages_to_query",
+  "dirty": true,
+  "deps": [
+    "prompt_to_messages"
+  ],
+  "cache": null
+}
+{
+  "name": "query",
+  "dirty": true,
+  "deps": [
+    "messages_to_query"
+  ],
+  "cache": null
+}
+{
+  "name": "response_to_markdown",
+  "dirty": true,
+  "deps": [
+    "query"
+  ],
+  "cache": null
+}
+{
+  "name": "stdout",
+  "dirty": true,
+  "deps": [
+    "response_to_markdown"
+  ],
+  "cache": null
+}
