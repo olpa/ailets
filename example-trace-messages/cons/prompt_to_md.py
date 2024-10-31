@@ -1,10 +1,10 @@
-from cons.cons import Environment, Node
-from cons.prompt_to_messages import prompt_to_messages
-from cons.messages_to_query import messages_to_query
-from cons.query import query
-from cons.response_to_markdown import response_to_markdown
-from cons.stdout import stdout
-from cons.credentials import credentials
+from .cons import Environment, Node
+from .nodes.prompt_to_messages import prompt_to_messages
+from .nodes.messages_to_query import messages_to_query
+from .nodes.query import query
+from .nodes.response_to_markdown import response_to_markdown
+from .nodes.stdout import stdout
+from .nodes.credentials import credentials
 
 
 def prompt_to_md(env: Environment, initial_prompt: str = "hello") -> Node:

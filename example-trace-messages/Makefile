@@ -3,12 +3,12 @@ all: final-messaging-file
 final-messaging-file: messages/25_query.json
 
 lint:
-	flake8 --max-line-length=88 code/*py nodes/*py cons/*py
-	mypy -m nodes
+	flake8 --max-line-length=88 code/*py cons/*py cons/nodes/*py
 	mypy -m cons
+	mypy -m cons.nodes
 
 fix:
-	black code/*y nodes/*py cons/*py
+	black code/*y cons/*py cons/nodes/*py
 
 messages/15_messages.json: code/10_stdin_to_prompt.py messages/05_stdin.txt
 	python $^ $@
