@@ -14,18 +14,18 @@
 }
 {
   "name": "credentials",
-  "dirty": true,
+  "dirty": false,
   "deps": [],
-  "cache": null
+  "cache": "{'Authorization': 'Bearer ##OPENAI_API_KEY##'}"
 }
 {
   "name": "messages_to_query",
-  "dirty": true,
+  "dirty": false,
   "deps": [
     "prompt_to_messages",
     "credentials"
   ],
-  "cache": null
+  "cache": "{'url': 'https://api.openai.com/v1/chat/completions', 'method': 'POST', 'headers': {'Content-type': 'application/json', 'Authorization': 'Bearer ##OPENAI_API_KEY##'}, 'body': [{'role': 'user', 'content': 'hello'}]}"
 }
 {
   "name": "query",

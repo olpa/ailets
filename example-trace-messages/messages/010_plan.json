@@ -13,10 +13,17 @@
   "cache": null
 }
 {
+  "name": "credentials",
+  "dirty": true,
+  "deps": [],
+  "cache": null
+}
+{
   "name": "messages_to_query",
   "dirty": true,
   "deps": [
-    "prompt_to_messages"
+    "prompt_to_messages",
+    "credentials"
   ],
   "cache": null
 }
