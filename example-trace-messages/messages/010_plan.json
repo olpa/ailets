@@ -36,3 +36,11 @@
   ],
   "cache": null
 }
+{
+  "name": "stdout",
+  "dirty": true,
+  "deps": [
+    "response_to_markdown"
+  ],
+  "cache": null
+}

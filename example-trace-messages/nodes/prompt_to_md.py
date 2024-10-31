@@ -1,25 +1,9 @@
-from typing import List, Dict
 from cons.cons import Environment, Node
-
-
-def prompt_to_messages(prompt: str) -> List[Dict[str, str]]:
-    """Convert a prompt into a list of chat messages."""
-    return [{"role": "user", "content": prompt}]
-
-
-def messages_to_query(messages: List[Dict[str, str]]) -> str:
-    """Convert chat messages into a query string."""
-    return " ".join(msg["content"] for msg in messages)
-
-
-def query(query_str: str) -> str:
-    """Perform the actual query (placeholder)."""
-    return f"Response to: {query_str}"
-
-
-def response_to_markdown(response: str) -> str:
-    """Convert the response to markdown format."""
-    return f"# Response\n\n{response}"
+from cons.prompt_to_messages import prompt_to_messages
+from cons.messages_to_query import messages_to_query
+from cons.query import query
+from cons.response_to_markdown import response_to_markdown
+from cons.stdout import stdout
 
 
 def prompt_to_md(env: Environment, initial_prompt: str = "hello") -> Node:
@@ -30,6 +14,7 @@ def prompt_to_md(env: Environment, initial_prompt: str = "hello") -> Node:
     env.add_node("messages_to_query", messages_to_query, {"prompt_to_messages"})
     env.add_node("query", query, {"messages_to_query"})
     env.add_node("response_to_markdown", response_to_markdown, {"query"})
+    env.add_node("stdout", stdout, {"response_to_markdown"})
 
     # Return the final node
     return env.get_node("response_to_markdown")
