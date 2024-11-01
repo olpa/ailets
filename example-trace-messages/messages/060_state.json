@@ -29,11 +29,11 @@
 }
 {
   "name": "query",
-  "dirty": true,
+  "dirty": false,
   "deps": [
     "messages_to_query"
   ],
-  "cache": null
+  "cache": "{'id': 'chatcmpl-AOcbPsuylGg6borCmIVLCbwvD0YNm', 'object': 'chat.completion', 'created': 1730431623, 'model': 'gpt-4o-mini-2024-07-18', 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': 'Hello! How can I assist you today?', 'refusal': None}, 'logprobs': None, 'finish_reason': 'stop'}], 'usage': {'prompt_tokens': 8, 'completion_tokens': 9, 'total_tokens': 17, 'prompt_tokens_details': {'cached_tokens': 0}, 'completion_tokens_details': {'reasoning_tokens': 0}}, 'system_fingerprint': 'fp_9b78b61c52'}"
 }
 {
   "name": "response_to_markdown",

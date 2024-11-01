@@ -13,5 +13,8 @@ def messages_to_query(
         "url": url,
         "method": method,
         "headers": {**headers, **credentials},
-        "body": messages,
+        "body": {
+            "model": "gpt-4o-mini",
+            "messages": messages,
+        },
     }
