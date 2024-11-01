@@ -6,7 +6,7 @@ headers = {"Content-type": "application/json"}
 
 
 def messages_to_query(
-    messages: List[Dict[str, str]], credentials: Dict[str, str]
+    messages: List[Dict[str, str]], credentials: Dict[str, str], tools: List[str]
 ) -> Dict[str, Any]:
     """Convert chat messages into a query."""
     return {

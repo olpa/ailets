@@ -88,7 +88,7 @@ class Environment:
             deps=node.deps,
             named_deps=node.named_deps,
             cache=result,
-            dirty=False
+            dirty=False,
         )
         return result
 

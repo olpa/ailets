@@ -2,6 +2,7 @@
   "name": "initial_prompt",
   "dirty": true,
   "deps": [],
+  "named_deps": {},
   "cache": null
 }
 {
@@ -10,12 +11,21 @@
   "deps": [
     "initial_prompt"
   ],
+  "named_deps": {},
   "cache": null
 }
 {
   "name": "credentials",
   "dirty": true,
   "deps": [],
+  "named_deps": {},
+  "cache": null
+}
+{
+  "name": "tool/get_user_name",
+  "dirty": true,
+  "deps": [],
+  "named_deps": {},
   "cache": null
 }
 {
@@ -25,5 +35,10 @@
     "prompt_to_messages",
     "credentials"
   ],
+  "named_deps": {
+    "tools": [
+      "tool/get_user_name"
+    ]
+  },
   "cache": null
 }
