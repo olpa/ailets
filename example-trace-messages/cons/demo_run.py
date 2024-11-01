@@ -9,14 +9,15 @@ def dump_nodes(env, path: str) -> None:
             json.dump(node.to_json(), f, indent=2)
             f.write("\n")
 
+
 def build_plan_writing_trace(env, target: str, trace_dir: str) -> None:
     """Build nodes in order, saving state after each build."""
     plan = env.plan(target)
-    
+
     # Initial state
     os.makedirs(trace_dir, exist_ok=True)
     dump_nodes(env, f"{trace_dir}/010_plan.json")
-    
+
     # Build each node and save state
     for i, node_name in enumerate(plan, start=2):
         env.build_node(node_name)
