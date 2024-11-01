@@ -1,0 +1,29 @@
+{
+  "name": "initial_prompt",
+  "dirty": true,
+  "deps": [],
+  "cache": null
+}
+{
+  "name": "prompt_to_messages",
+  "dirty": true,
+  "deps": [
+    "initial_prompt"
+  ],
+  "cache": null
+}
+{
+  "name": "credentials",
+  "dirty": true,
+  "deps": [],
+  "cache": null
+}
+{
+  "name": "messages_to_query",
+  "dirty": true,
+  "deps": [
+    "prompt_to_messages",
+    "credentials"
+  ],
+  "cache": null
+}
