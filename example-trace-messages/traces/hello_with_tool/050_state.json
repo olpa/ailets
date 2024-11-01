@@ -1,32 +1,32 @@
 {
   "name": "initial_prompt",
-  "dirty": true,
+  "dirty": false,
   "deps": [],
   "named_deps": {},
-  "cache": null
+  "cache": "hello"
 }
 {
   "name": "prompt_to_messages",
-  "dirty": true,
+  "dirty": false,
   "deps": [
     "initial_prompt"
   ],
   "named_deps": {},
-  "cache": null
+  "cache": "[{'role': 'user', 'content': 'hello'}]"
 }
 {
   "name": "credentials",
-  "dirty": true,
+  "dirty": false,
   "deps": [],
   "named_deps": {},
-  "cache": null
+  "cache": "{'Authorization': 'Bearer ##OPENAI_API_KEY##'}"
 }
 {
   "name": "tool/get_user_name",
-  "dirty": true,
+  "dirty": false,
   "deps": [],
   "named_deps": {},
-  "cache": null
+  "cache": "{'name': 'get_user_name', 'description': \"Get the user's name. Call this whenever you need to know the name of the user.\", 'parameters': {'type': 'object', 'additionalProperties': False}}"
 }
 {
   "name": "messages_to_query",
@@ -40,5 +40,14 @@
       "tool/get_user_name"
     ]
   },
+  "cache": null
+}
+{
+  "name": "query",
+  "dirty": true,
+  "deps": [
+    "messages_to_query"
+  ],
+  "named_deps": {},
   "cache": null
 }

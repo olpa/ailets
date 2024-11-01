@@ -1,9 +1,9 @@
 {
   "name": "initial_prompt",
-  "dirty": true,
+  "dirty": false,
   "deps": [],
   "named_deps": {},
-  "cache": null
+  "cache": "hello"
 }
 {
   "name": "prompt_to_messages",
@@ -40,5 +40,14 @@
       "tool/get_user_name"
     ]
   },
+  "cache": null
+}
+{
+  "name": "query",
+  "dirty": true,
+  "deps": [
+    "messages_to_query"
+  ],
+  "named_deps": {},
   "cache": null
 }

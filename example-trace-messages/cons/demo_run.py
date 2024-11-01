@@ -25,4 +25,5 @@ def build_plan_writing_trace(env: Environment, target: str, trace_dir: str) -> N
         env.build_node(node_name)
         state_file = f"{trace_dir}/{i:02}0_state.json"
         # Only dump nodes that are in the plan
+        plan_nodes = [env.nodes[name] for name in plan]
         dump_nodes(plan_nodes, state_file)
