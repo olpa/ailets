@@ -37,17 +37,17 @@
 }
 {
   "name": "response_to_markdown",
-  "dirty": true,
+  "dirty": false,
   "deps": [
     "query"
   ],
-  "cache": null
+  "cache": "Hello! How can I assist you today?"
 }
 {
   "name": "stdout",
-  "dirty": true,
+  "dirty": false,
   "deps": [
     "response_to_markdown"
   ],
-  "cache": null
+  "cache": "Hello! How can I assist you today?"
 }

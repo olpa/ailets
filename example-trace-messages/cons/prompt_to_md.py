@@ -21,4 +21,4 @@ def prompt_to_md(env: Environment, initial_prompt: str = "hello") -> Node:
     env.add_node("stdout", stdout, ["response_to_markdown"])
 
     # Return the final node
-    return env.get_node("response_to_markdown")
+    return env.get_node("stdout")
