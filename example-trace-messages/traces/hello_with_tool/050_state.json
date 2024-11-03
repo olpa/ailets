@@ -26,7 +26,7 @@
   "dirty": false,
   "deps": [],
   "named_deps": {},
-  "cache": "{'name': 'get_user_name', 'description': \"Get the user's name. Call this whenever you need to know the name of the user.\", 'parameters': {'type': 'object', 'additionalProperties': False}}"
+  "cache": "{'name': 'get_user_name', 'description': \"Get the user's name. Call this whenever you need to know the name of the user.\", 'parameters': {'type': 'object', 'properties': {}, 'additionalProperties': False}}"
 }
 {
   "name": "messages_to_query",

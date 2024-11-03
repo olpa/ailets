@@ -6,5 +6,9 @@ def get_spec_for_get_user_name():
             "Get the user's name. Call this whenever you need to know the name "
             "of the user."
         ),
-        "parameters": {"type": "object", "additionalProperties": False},
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": False,
+        },
     }

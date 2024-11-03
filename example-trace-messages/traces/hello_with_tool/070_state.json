@@ -44,10 +44,10 @@
 }
 {
   "name": "query",
-  "dirty": true,
+  "dirty": false,
   "deps": [
     "messages_to_query"
   ],
   "named_deps": {},
-  "cache": null
+  "cache": "{'id': 'chatcmpl-APXIudHpW0azvG7VlVRV7TFfXs1nj', 'object': 'chat.completion', 'created': 1730649584, 'model': 'gpt-4o-mini-2024-07-18', 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': None, 'tool_calls': [{'id': 'call_W5PVi5HKrq95AzcgVMx5TCYw', 'type': 'function', 'function': {'name': 'get_user_name', 'arguments': '{}'}}], 'refusal': None}, 'logprobs': None, 'finish_reason': 'tool_calls'}], 'usage': {'prompt_tokens': 51, 'completion_tokens': 11, 'total_tokens': 62, 'prompt_tokens_details': {'cached_tokens': 0}, 'completion_tokens_details': {'reasoning_tokens': 0}}, 'system_fingerprint': 'fp_0ba0d124f1'}"
 }
