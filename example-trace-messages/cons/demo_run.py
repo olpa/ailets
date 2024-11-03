@@ -17,17 +17,20 @@ def build_plan_writing_trace(env: Environment, target: str, trace_dir: str) -> N
     plan = env.plan(target)
     plan_nodes = [env.nodes[name] for name in plan]
 
-    # Initial state - dump just the plan
-    os.makedirs(trace_dir, exist_ok=True)
-    dump_nodes(plan_nodes, f"{trace_dir}/010_plan.json")
+    # Initial state - dump plan only if all nodes are dirty
+    if all(node.dirty for node in plan_nodes):
+        os.makedirs(trace_dir, exist_ok=True)
+        dump_nodes(plan_nodes, f"{trace_dir}/010_plan.json")
 
     # Build each node and save state
     for i, node_name in enumerate(plan, start=2):
-        env.build_node(node_name)
-        state_file = f"{trace_dir}/{i:02}0_state.json"
-        # Only dump nodes that are in the plan
-        plan_nodes = [env.nodes[name] for name in plan]
-        dump_nodes(plan_nodes, state_file)
+        node = env.get_node(node_name)
+        if node.dirty or node.cache is None:
+            env.build_node(node_name)
+            state_file = f"{trace_dir}/{i:02}0_state.json"
+            # Only dump nodes that are in the plan
+            plan_nodes = [env.nodes[name] for name in plan]
+            dump_nodes(plan_nodes, state_file)
 
 
 def load_state_from_trace(

@@ -52,6 +52,10 @@ class Environment:
         """Build a node and its dependencies if needed."""
         node = self.get_node(name)
 
+        # If node is already built and clean, return cached result
+        if not node.dirty and node.cache is not None:
+            return node.cache
+
         # Build default dependencies first
         dep_results = []
         for dep_name in node.deps:
