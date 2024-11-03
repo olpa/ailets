@@ -139,6 +139,49 @@ class Environment:
         json.dump(self.nodes[name].to_json(), stream, indent=2)
         stream.write("\n")
 
+    def print_dependency_tree(
+        self, node_name: str, indent: str = "", visited: Optional[Set[str]] = None
+    ) -> None:
+        """Print a tree showing node dependencies and build status.
+
+        Args:
+            node_name: Name of the node to print
+            indent: Current indentation string (used for recursion)
+            visited: Set of visited nodes to prevent cycles
+        """
+        if visited is None:
+            visited = set()
+
+        node = self.get_node(node_name)
+        status = (
+            "✓ built" if not node.dirty and node.cache is not None else "⋯ not built"
+        )
+
+        # Print current node
+        print(f"{indent}├── {node.name} [{status}]")
+
+        # Track visited nodes to prevent cycles
+        if node_name in visited:
+            print(f"{indent}│   └── (cycle detected)")
+            return
+        visited.add(node_name)
+
+        # Print default dependencies
+        if node.deps:
+            print(f"{indent}│   ├── deps:")
+            for dep in node.deps:
+                self.print_dependency_tree(dep, f"{indent}│   │   ", visited)
+
+        # Print named dependencies
+        if node.named_deps:
+            print(f"{indent}│   └── named deps:")
+            for param_name, dep_list in node.named_deps.items():
+                print(f"{indent}│       ├── {param_name}:")
+                for dep in dep_list:
+                    self.print_dependency_tree(dep, f"{indent}│       │   ", visited)
+
+        visited.remove(node_name)
+
 
 def mkenv() -> Environment:
     return Environment()
