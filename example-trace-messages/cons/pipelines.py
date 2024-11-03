@@ -5,6 +5,21 @@ from .nodes.query import query
 from .nodes.response_to_markdown import response_to_markdown
 from .nodes.stdout import stdout
 from .nodes.credentials import credentials
+from .nodes.tool_get_user_name import get_spec_for_get_user_name
+
+
+def get_func_map():
+    """Create mapping of node names to their functions."""
+    return {
+        "initial_prompt": lambda: "hello",
+        "prompt_to_messages": prompt_to_messages,
+        "credentials": credentials,
+        "messages_to_query": messages_to_query,
+        "query": query,
+        "response_to_markdown": response_to_markdown,
+        "stdout": stdout,
+        "tool/get_user_name": get_spec_for_get_user_name,
+    }
 
 
 def prompt_to_md(

@@ -1,5 +1,17 @@
-from .cons import Environment, mkenv
+from .cons import Environment, Node
+from .demo_run import build_plan_writing_trace, load_state_from_trace
 from .pipelines import prompt_to_md
-from .demo_run import build_plan_writing_trace
 
-__all__ = ["Environment", "mkenv", "prompt_to_md", "build_plan_writing_trace"]
+
+def mkenv() -> Environment:
+    return Environment()
+
+
+__all__ = [
+    "Environment",
+    "Node",
+    "mkenv",
+    "prompt_to_md",
+    "build_plan_writing_trace",
+    "load_state_from_trace",
+]

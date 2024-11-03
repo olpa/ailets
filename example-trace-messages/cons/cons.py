@@ -182,6 +182,30 @@ class Environment:
 
         visited.remove(node_name)
 
+    def load_node_state(
+        self, node_data: Dict[str, Any], func_map: Dict[str, Callable[..., Any]]
+    ) -> None:
+        """Load a node's state from JSON data.
+
+        Args:
+            node_data: Node state from JSON
+            func_map: Mapping from node names to their functions
+        """
+        name = node_data["name"]
+        if name not in func_map:
+            raise KeyError(f"No function provided for node: {name}")
+
+        # Create new node with loaded state
+        cache_str = node_data["cache"]
+        self.nodes[name] = Node(
+            name=name,
+            func=func_map[name],
+            deps=node_data["deps"],
+            named_deps=node_data["named_deps"],
+            cache=None if cache_str is None else cache_str,
+            dirty=node_data["dirty"],
+        )
+
 
 def mkenv() -> Environment:
     return Environment()

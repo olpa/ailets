@@ -1,6 +1,7 @@
 import argparse
-from cons import mkenv, prompt_to_md, build_plan_writing_trace
+from cons import mkenv, prompt_to_md, build_plan_writing_trace, load_state_from_trace
 from cons.nodes.tool_get_user_name import get_spec_for_get_user_name
+from cons.pipelines import get_func_map
 
 TARGET = "query"
 
@@ -19,8 +20,7 @@ def main():
     env = mkenv()
 
     if args.load_plan_from_trace:
-        # TODO: Implement plan loading from trace
-        pass
+        load_state_from_trace(env, args.load_plan_from_trace, get_func_map())
     else:
         tool_get_user_name = env.add_node("tool/get_user_name", get_spec_for_get_user_name)
         prompt_to_md(env, tools=[tool_get_user_name])
