@@ -191,10 +191,10 @@ class Environment:
 
         # Print named dependencies with their parameter names
         for param_name, dep_list in node.named_deps.items():
+            print(f"{next_indent}├── (param: {param_name})")
+            param_indent = f"{next_indent}│   "
             for dep in dep_list:
-                self.print_dependency_tree(dep, next_indent, visited.copy())
-                # Add parameter name to the last printed line
-                print(f"{next_indent}   └── (param: {param_name})")
+                self.print_dependency_tree(dep, param_indent, visited.copy())
 
         visited.remove(node_name)
 
