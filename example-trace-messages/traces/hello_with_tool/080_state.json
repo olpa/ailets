@@ -61,6 +61,42 @@
   "cache": "\"\""
 }
 {
+  "name": "tool/get_user_name/call",
+  "dirty": true,
+  "deps": [],
+  "named_deps": {},
+  "cache": null
+}
+{
+  "name": "messages_to_query.2",
+  "dirty": true,
+  "deps": [
+    "tool/get_user_name/call"
+  ],
+  "named_deps": {
+    "tools": []
+  },
+  "cache": null
+}
+{
+  "name": "query.2",
+  "dirty": true,
+  "deps": [
+    "messages_to_query.2"
+  ],
+  "named_deps": {},
+  "cache": null
+}
+{
+  "name": "response_to_markdown.2",
+  "dirty": true,
+  "deps": [
+    "query.2"
+  ],
+  "named_deps": {},
+  "cache": null
+}
+{
   "name": "stdout",
   "dirty": true,
   "deps": [

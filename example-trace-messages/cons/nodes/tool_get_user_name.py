@@ -1,3 +1,6 @@
+import os
+
+
 def get_spec_for_get_user_name():
     """Return the specification for the get_user_name tool."""
     return {
@@ -12,3 +15,8 @@ def get_spec_for_get_user_name():
             "additionalProperties": False,
         },
     }
+
+
+def run_get_user_name() -> str:
+    """Run the get_user_name tool."""
+    return os.environ["USER"]

@@ -5,7 +5,7 @@ from .nodes.query import query
 from .nodes.response_to_markdown import response_to_markdown
 from .nodes.stdout import stdout
 from .nodes.credentials import credentials
-from .nodes.tool_get_user_name import get_spec_for_get_user_name
+from .nodes.tool_get_user_name import get_spec_for_get_user_name, run_get_user_name
 
 
 def get_func_map():
@@ -19,6 +19,7 @@ def get_func_map():
         "response_to_markdown": response_to_markdown,
         "stdout": stdout,
         "tool/get_user_name": get_spec_for_get_user_name,
+        "tool/get_user_name/call": run_get_user_name,
     }
 
 

@@ -208,14 +208,24 @@ class Environment:
             func_map: Mapping from node names to their functions
         """
         name = node_data["name"]
-        if name not in func_map:
-            raise KeyError(f"No function provided for node: {name}")
+
+        # Try to get function from map, if not found and name has a number suffix,
+        # try without the suffix
+        if name not in func_map and "." in name:
+            base_name = name.rsplit(".", 1)[0]  # Get name without the suffix
+            func = func_map.get(base_name)
+            if func is None:
+                raise KeyError(f"No function provided for node: {name} or {base_name}")
+        else:
+            func = func_map.get(name)
+            if func is None:
+                raise KeyError(f"No function provided for node: {name}")
 
         # Create new node with loaded state
         cache_str = node_data["cache"]
         self.nodes[name] = Node(
             name=name,
-            func=func_map[name],
+            func=func,
             deps=node_data["deps"],
             named_deps=node_data["named_deps"],
             cache=None if cache_str is None else json.loads(cache_str),
