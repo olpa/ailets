@@ -182,19 +182,19 @@ class Environment:
             return
         visited.add(node_name)
 
-        # Print default dependencies
-        if node.deps:
-            print(f"{indent}│   ├── deps:")
-            for dep in node.deps:
-                self.print_dependency_tree(dep, f"{indent}│   │   ", visited)
+        # Print all dependencies with proper indentation
+        next_indent = f"{indent}│   "
 
-        # Print named dependencies
-        if node.named_deps:
-            print(f"{indent}│   └── named deps:")
-            for param_name, dep_list in node.named_deps.items():
-                print(f"{indent}│       ├── {param_name}:")
-                for dep in dep_list:
-                    self.print_dependency_tree(dep, f"{indent}│       │   ", visited)
+        # Print regular dependencies
+        for dep in node.deps:
+            self.print_dependency_tree(dep, next_indent, visited)
+
+        # Print named dependencies with their parameter names
+        for param_name, dep_list in node.named_deps.items():
+            for dep in dep_list:
+                self.print_dependency_tree(dep, next_indent, visited.copy())
+                # Add parameter name to the last printed line
+                print(f"{next_indent}   └── (param: {param_name})")
 
         visited.remove(node_name)
 
