@@ -222,8 +222,42 @@ class Environment:
         )
 
     def clone_path(self, start: str, end: str) -> list[Node]:
-        """Return a two-element list containing the start and end nodes."""
-        return [self.get_node(start), self.get_node(end)]
+        """Clone a path of nodes from start to end.
+
+        Args:
+            start: Name of starting node
+            end: Name of ending node
+
+        Returns:
+            List of nodes in the path from start to end
+        """
+        # Get start and end nodes
+        start_node = self.get_node(start)
+        end_node = self.get_node(end)
+
+        # Create new nodes with same functions but no dependencies
+        path = []
+        current = start_node
+        while current.name != end_node.name:
+            # Create clone of current node
+            clone = self.add_node(f"{current.name}_clone", current.func)
+            path.append(clone)
+
+            # Find next node in path to end
+            next_nodes = self.get_next_nodes(current)
+            if not next_nodes:
+                break
+            current = next_nodes[0]
+
+            # Connect nodes in path
+            if path:
+                path[-1].deps.append(current.name)
+
+        # Add end node to path
+        clone = self.add_node(f"{end_node.name}_clone", end_node.func)
+        path.append(clone)
+
+        return path
 
     def get_next_nodes(self, node: Node) -> list[Node]:
         """Return list of nodes that depend on the given node."""
