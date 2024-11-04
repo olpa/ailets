@@ -251,6 +251,23 @@ class Environment:
         to_clone: Set[str] = {start}
         cloned: Set[str] = set()
 
+        # Track which dependencies should be named in the cloned graph
+        named_deps_mapping: Dict[str, Set[tuple[str, str]]] = (
+            {}
+        )  # target -> set of (dep, param_name)
+
+        # First, clone the start node's dependencies
+        start_node = self.get_node(start)
+        for dep in start_node.deps:
+            to_clone.add(dep)
+        for param_name, dep_list in start_node.named_deps.items():
+            for dep in dep_list:
+                to_clone.add(dep)
+                # Record that this dependency should be named in the clone
+                if start not in named_deps_mapping:
+                    named_deps_mapping[start] = set()
+                named_deps_mapping[start].add((dep, param_name))
+
         while to_clone:
             # Get next node to clone
             current_name = to_clone.pop()
@@ -279,19 +296,26 @@ class Environment:
             original = self.get_node(original_name)
             clone = self.get_node(clone_name)
 
-            # Create new dependencies lists
-            new_deps = [
-                original_to_clone[dep]
-                for dep in original.deps
-                if dep in original_to_clone
-            ]
-
-            new_named_deps = {
-                param: [
-                    original_to_clone[dep] for dep in deps if dep in original_to_clone
+            if original_name == start:
+                # For start node, keep original dependencies
+                new_deps = list(original.deps)
+                new_named_deps = dict(original.named_deps)
+            else:
+                # For other nodes, use cloned dependencies
+                new_deps = [
+                    original_to_clone[dep]
+                    for dep in original.deps
+                    if dep in original_to_clone
                 ]
-                for param, deps in original.named_deps.items()
-            }
+
+                new_named_deps = {
+                    param: [
+                        original_to_clone[dep]
+                        for dep in deps
+                        if dep in original_to_clone
+                    ]
+                    for param, deps in original.named_deps.items()
+                }
 
             # Create new node with dependencies
             self.nodes[clone_name] = Node(

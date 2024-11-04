@@ -71,10 +71,14 @@
   "name": "messages_to_query.2",
   "dirty": true,
   "deps": [
+    "prompt_to_messages",
+    "credentials",
     "tool/get_user_name/call"
   ],
   "named_deps": {
-    "tools": []
+    "tools": [
+      "tool/get_user_name"
+    ]
   },
   "cache": null
 }
