@@ -13,6 +13,8 @@ def parse_args():
                        help="Print the build plan")
     parser.add_argument("--load-plan-from-trace", type=str,
                        help="Load build plan from a trace file")
+    parser.add_argument("--one-step", action="store_true",
+                       help="Build only one step at a time")
     return parser.parse_args()
 
 def main():
@@ -29,7 +31,8 @@ def main():
         env.print_dependency_tree(TARGET)
         
     if not args.dry_run:
-        build_plan_writing_trace(env, TARGET, "traces/hello_with_tool")
+        build_plan_writing_trace(env, TARGET, "traces/hello_with_tool", one_step=args.one_step)
 
 if __name__ == "__main__":
     main()
+

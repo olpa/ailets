@@ -12,8 +12,17 @@ def dump_nodes(nodes: list, path: str) -> None:
             f.write("\n")
 
 
-def build_plan_writing_trace(env: Environment, target: str, trace_dir: str) -> None:
-    """Build nodes in order, saving state after each build."""
+def build_plan_writing_trace(
+    env: Environment, target: str, trace_dir: str, one_step: bool = False
+) -> None:
+    """Build nodes in order, saving state after each build.
+
+    Args:
+        env: Environment to build in
+        target: Target node to build
+        trace_dir: Directory to write trace files to
+        one_step: If True, build only one step and exit
+    """
     plan = env.plan(target)
     plan_nodes = [env.nodes[name] for name in plan]
 
@@ -31,6 +40,9 @@ def build_plan_writing_trace(env: Environment, target: str, trace_dir: str) -> N
             # Only dump nodes that are in the plan
             plan_nodes = [env.nodes[name] for name in plan]
             dump_nodes(plan_nodes, state_file)
+
+            if one_step:  # Exit after building one node
+                break
 
 
 def load_state_from_trace(
