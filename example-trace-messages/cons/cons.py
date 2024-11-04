@@ -28,6 +28,7 @@ class Node:
 class Environment:
     def __init__(self) -> None:
         self.nodes: Dict[str, Node] = {}
+        self._clone_counter: int = 1  # Add counter for clone_path calls
 
     def add_node(
         self,
@@ -229,35 +230,81 @@ class Environment:
             end: Name of ending node
 
         Returns:
-            List of nodes in the path from start to end
+            List of nodes in the cloned path. First element is the cloned start node,
+            last element is the cloned end node. Order of other nodes is not guaranteed.
         """
-        # Get start and end nodes
-        start_node = self.get_node(start)
-        end_node = self.get_node(end)
+        self._clone_counter += 1
+        clone_suffix = f".{self._clone_counter}"
 
-        # Create new nodes with same functions but no dependencies
-        path = []
-        current = start_node
-        while current.name != end_node.name:
-            # Create clone of current node
-            clone = self.add_node(f"{current.name}_clone", current.func)
-            path.append(clone)
+        # Track which nodes have been cloned and their clones
+        original_to_clone: Dict[str, str] = {}
+        to_clone: Set[str] = {start}
+        cloned: Set[str] = set()
 
-            # Find next node in path to end
+        while to_clone:
+            # Get next node to clone
+            current_name = to_clone.pop()
+            if current_name in cloned:
+                continue
+
+            current = self.get_node(current_name)
+
+            # Create clone (initially without dependencies)
+            clone_name = f"{current_name}{clone_suffix}"
+            clone = self.add_node(clone_name, current.func)
+            original_to_clone[current_name] = clone_name
+            cloned.add(current_name)
+
+            # Stop expanding at end node
+            if current_name == end:
+                continue
+
+            # Add all next nodes to the to_clone set
             next_nodes = self.get_next_nodes(current)
-            if not next_nodes:
-                break
-            current = next_nodes[0]
+            for next_node in next_nodes:
+                to_clone.add(next_node.name)
 
-            # Connect nodes in path
-            if path:
-                path[-1].deps.append(current.name)
+        # Recreate dependencies between cloned nodes by creating new nodes
+        for original_name, clone_name in original_to_clone.items():
+            original = self.get_node(original_name)
+            clone = self.get_node(clone_name)
 
-        # Add end node to path
-        clone = self.add_node(f"{end_node.name}_clone", end_node.func)
-        path.append(clone)
+            # Create new dependencies lists
+            new_deps = [
+                original_to_clone[dep]
+                for dep in original.deps
+                if dep in original_to_clone
+            ]
 
-        return path
+            new_named_deps = {
+                param: [
+                    original_to_clone[dep] for dep in deps if dep in original_to_clone
+                ]
+                for param, deps in original.named_deps.items()
+            }
+
+            # Create new node with dependencies
+            self.nodes[clone_name] = Node(
+                name=clone_name,
+                func=clone.func,
+                deps=new_deps,
+                named_deps=new_named_deps,
+                cache=clone.cache,
+                dirty=clone.dirty,
+            )
+
+        # Create return list with start and end nodes in correct positions
+        result = []
+        # Add start node first
+        result.append(self.nodes[original_to_clone[start]])
+        # Add middle nodes in any order
+        for original_name, clone_name in original_to_clone.items():
+            if original_name not in (start, end):
+                result.append(self.nodes[clone_name])
+        # Add end node last
+        result.append(self.nodes[original_to_clone[end]])
+
+        return result
 
     def get_next_nodes(self, node: Node) -> list[Node]:
         """Return list of nodes that depend on the given node."""
