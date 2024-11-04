@@ -26,8 +26,10 @@ def response_to_markdown(response: dict, env: Environment, node: Node) -> str:
 
         env.add_node(node_name, lambda: tool_call_result_to_chat_message(tool_call))
 
-        # Add as dependency of start node
-        start_node.deps.append(node_name)
+        # Add as named dependency "toolcalls"
+        if "toolcalls" not in start_node.named_deps:
+            start_node.named_deps["toolcalls"] = []
+        start_node.named_deps["toolcalls"].append(node_name)
 
     # Connect end node to next in pipeline
     env.get_next_nodes(node)[0].deps.append(end_node.name)

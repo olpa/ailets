@@ -26,7 +26,7 @@ def main():
         state_num = int(args.load_plan_from_trace.split('/')[-1].split('_')[0])
         initial_counter = (state_num // 10) + 1
     else:
-        tool_get_user_name = env.add_node("tool/get_user_name", get_spec_for_get_user_name)
+        tool_get_user_name = env.add_node("tool/get_user_name/spec", get_spec_for_get_user_name)
         prompt_to_md(env, tools=[tool_get_user_name])
         initial_counter = 1
     

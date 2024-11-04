@@ -18,7 +18,7 @@ def get_func_map():
         "query": query,
         "response_to_markdown": response_to_markdown,
         "stdout": stdout,
-        "tool/get_user_name": get_spec_for_get_user_name,
+        "tool/get_user_name/spec": get_spec_for_get_user_name,
         "tool/get_user_name/call": run_get_user_name,
     }
 
@@ -35,7 +35,7 @@ def prompt_to_md(
         "messages_to_query",
         messages_to_query,
         ["prompt_to_messages", "credentials"],
-        {"tools": [tool.name for tool in tools]},
+        {"toolspecs": [tool.name for tool in tools]},
     )
     env.add_node("query", query, ["messages_to_query"])
     env.add_node("response_to_markdown", response_to_markdown, ["query"])

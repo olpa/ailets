@@ -22,7 +22,7 @@
   "cache": "{\"Authorization\": \"Bearer ##OPENAI_API_KEY##\"}"
 }
 {
-  "name": "tool/get_user_name",
+  "name": "tool/get_user_name/spec",
   "dirty": false,
   "deps": [],
   "named_deps": {},
@@ -36,8 +36,8 @@
     "credentials"
   ],
   "named_deps": {
-    "tools": [
-      "tool/get_user_name"
+    "toolspecs": [
+      "tool/get_user_name/spec"
     ]
   },
   "cache": "{\"url\": \"https://api.openai.com/v1/chat/completions\", \"method\": \"POST\", \"headers\": {\"Content-type\": \"application/json\", \"Authorization\": \"Bearer ##OPENAI_API_KEY##\"}, \"body\": {\"model\": \"gpt-4o-mini\", \"messages\": [{\"role\": \"user\", \"content\": \"hello\"}], \"tools\": [{\"type\": \"function\", \"function\": {\"name\": \"get_user_name\", \"description\": \"Get the user's name. Call this whenever you need to know the name of the user.\", \"parameters\": {\"type\": \"object\", \"properties\": {}, \"additionalProperties\": false}}}]}}"
@@ -49,7 +49,7 @@
     "messages_to_query"
   ],
   "named_deps": {},
-  "cache": "{\"id\": \"chatcmpl-APilF9jqiq4yQ9igpcAEmrH61yBNc\", \"object\": \"chat.completion\", \"created\": 1730693625, \"model\": \"gpt-4o-mini-2024-07-18\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": null, \"tool_calls\": [{\"id\": \"call_reDNW6rf03E24CqSzMCQwx4w\", \"type\": \"function\", \"function\": {\"name\": \"get_user_name\", \"arguments\": \"{}\"}}], \"refusal\": null}, \"logprobs\": null, \"finish_reason\": \"tool_calls\"}], \"usage\": {\"prompt_tokens\": 51, \"completion_tokens\": 11, \"total_tokens\": 62, \"prompt_tokens_details\": {\"cached_tokens\": 0}, \"completion_tokens_details\": {\"reasoning_tokens\": 0}}, \"system_fingerprint\": \"fp_0ba0d124f1\"}"
+  "cache": "{\"id\": \"chatcmpl-APlFyjlhGG5YI6R5WeNHV4wStiBNk\", \"object\": \"chat.completion\", \"created\": 1730703218, \"model\": \"gpt-4o-mini-2024-07-18\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": null, \"tool_calls\": [{\"id\": \"call_uIntMAap0sKUNx5uwWMn9Ygg\", \"type\": \"function\", \"function\": {\"name\": \"get_user_name\", \"arguments\": \"{}\"}}], \"refusal\": null}, \"logprobs\": null, \"finish_reason\": \"tool_calls\"}], \"usage\": {\"prompt_tokens\": 51, \"completion_tokens\": 11, \"total_tokens\": 62, \"prompt_tokens_details\": {\"cached_tokens\": 0}, \"completion_tokens_details\": {\"reasoning_tokens\": 0}}, \"system_fingerprint\": \"fp_0ba0d124f1\"}"
 }
 {
   "name": "response_to_markdown",
@@ -72,12 +72,14 @@
   "dirty": true,
   "deps": [
     "prompt_to_messages",
-    "credentials",
-    "tool/get_user_name/call"
+    "credentials"
   ],
   "named_deps": {
-    "tools": [
-      "tool/get_user_name"
+    "toolspecs": [
+      "tool/get_user_name/spec"
+    ],
+    "toolcalls": [
+      "tool/get_user_name/call"
     ]
   },
   "cache": null

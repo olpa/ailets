@@ -22,7 +22,7 @@
   "cache": null
 }
 {
-  "name": "tool/get_user_name",
+  "name": "tool/get_user_name/spec",
   "dirty": true,
   "deps": [],
   "named_deps": {},
@@ -36,8 +36,8 @@
     "credentials"
   ],
   "named_deps": {
-    "tools": [
-      "tool/get_user_name"
+    "toolspecs": [
+      "tool/get_user_name/spec"
     ]
   },
   "cache": null

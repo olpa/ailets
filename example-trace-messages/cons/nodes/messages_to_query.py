@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 url = "https://api.openai.com/v1/chat/completions"
 method = "POST"
@@ -6,10 +6,14 @@ headers = {"Content-type": "application/json"}
 
 
 def messages_to_query(
-    messages: List[Dict[str, str]], credentials: Dict[str, str], tools: List[str]
+    messages: List[Dict[str, str]],
+    credentials: Dict[str, str],
+    toolspecs: List[str],
+    toolcalls: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Convert chat messages into a query."""
-    formatted_tools = [{"type": "function", "function": tool} for tool in tools]
+    print("TODO: toolcalls:", toolcalls)  # FIXME
+    formatted_tools = [{"type": "function", "function": tool} for tool in toolspecs]
     return {
         "url": url,
         "method": method,
