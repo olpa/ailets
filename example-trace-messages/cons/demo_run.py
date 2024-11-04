@@ -13,7 +13,11 @@ def dump_nodes(nodes: list, path: str) -> None:
 
 
 def build_plan_writing_trace(
-    env: Environment, target: str, trace_dir: str, one_step: bool = False
+    env: Environment,
+    target: str,
+    trace_dir: str,
+    one_step: bool = False,
+    initial_counter: int = 1,
 ) -> None:
     """Build nodes in order, saving state after each build.
 
@@ -22,27 +26,52 @@ def build_plan_writing_trace(
         target: Target node to build
         trace_dir: Directory to write trace files to
         one_step: If True, build only one step and exit
+        initial_counter: Starting value for state counter
     """
+    os.makedirs(trace_dir, exist_ok=True)
+    state_counter = initial_counter
+
+    # Get initial plan
     plan = env.plan(target)
     plan_nodes = [env.nodes[name] for name in plan]
+    current_node_count = len(env.nodes)
 
-    # Initial state - dump plan only if all nodes are dirty
-    if all(node.dirty for node in plan_nodes):
-        os.makedirs(trace_dir, exist_ok=True)
+    # Dump initial plan if starting fresh
+    if state_counter == 1:
         dump_nodes(plan_nodes, f"{trace_dir}/010_plan.json")
+        state_counter += 1
 
-    # Build each node and save state
-    for i, node_name in enumerate(plan, start=2):
-        node = env.get_node(node_name)
-        if node.dirty or node.cache is None:
-            env.build_node(node_name)
-            state_file = f"{trace_dir}/{i:02}0_state.json"
-            # Only dump nodes that are in the plan
-            plan_nodes = [env.nodes[name] for name in plan]
-            dump_nodes(plan_nodes, state_file)
-
-            if one_step:  # Exit after building one node
+    while True:
+        # Find next dirty node to build
+        next_node = None
+        for node_name in plan:
+            node = env.get_node(node_name)
+            if node.dirty or node.cache is None:
+                next_node = node
                 break
+
+        # If no dirty nodes, we're done
+        if next_node is None:
+            break
+
+        # Build the node
+        env.build_node(next_node.name)
+
+        # Check if number of nodes changed
+        new_node_count = len(env.nodes)
+        if new_node_count != current_node_count:
+            # Recalculate plan
+            plan = env.plan(target)
+            current_node_count = new_node_count
+
+        # Save state after build
+        state_file = f"{trace_dir}/{state_counter:02}0_state.json"
+        plan_nodes = [env.nodes[name] for name in plan]
+        dump_nodes(plan_nodes, state_file)
+        state_counter += 1
+
+        if one_step:  # Exit after building one node if requested
+            break
 
 
 def load_state_from_trace(

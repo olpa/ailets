@@ -23,15 +23,24 @@ def main():
 
     if args.load_plan_from_trace:
         load_state_from_trace(env, args.load_plan_from_trace, get_func_map())
+        state_num = int(args.load_plan_from_trace.split('/')[-1].split('_')[0])
+        initial_counter = (state_num // 10) + 1
     else:
         tool_get_user_name = env.add_node("tool/get_user_name", get_spec_for_get_user_name)
         prompt_to_md(env, tools=[tool_get_user_name])
+        initial_counter = 1
     
     if args.print_plan or args.dry_run:
         env.print_dependency_tree(TARGET)
         
     if not args.dry_run:
-        build_plan_writing_trace(env, TARGET, "traces/hello_with_tool", one_step=args.one_step)
+        build_plan_writing_trace(
+            env, 
+            TARGET, 
+            "traces/hello_with_tool", 
+            one_step=args.one_step,
+            initial_counter=initial_counter
+        )
 
 if __name__ == "__main__":
     main()

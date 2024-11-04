@@ -24,7 +24,7 @@ def response_to_markdown(response: dict, env: Environment, node: Node) -> str:
         def tool_call_result_to_chat_message(x):
             return x
 
-        env.add_node(node_name, lambda _: tool_call_result_to_chat_message(tool_call))
+        env.add_node(node_name, lambda: tool_call_result_to_chat_message(tool_call))
 
         # Add as dependency of start node
         start_node.deps.append(node_name)
