@@ -20,7 +20,7 @@ class Node:
             "dirty": self.dirty,
             "deps": self.deps,
             "named_deps": self.named_deps,
-            "cache": None if self.cache is None else str(self.cache),
+            "cache": None if self.cache is None else json.dumps(self.cache),
             # Skip func as it's not serializable
         }
 
@@ -217,7 +217,7 @@ class Environment:
             func=func_map[name],
             deps=node_data["deps"],
             named_deps=node_data["named_deps"],
-            cache=None if cache_str is None else cache_str,
+            cache=None if cache_str is None else json.loads(cache_str),
             dirty=node_data["dirty"],
         )
 

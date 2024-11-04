@@ -51,3 +51,21 @@
   "named_deps": {},
   "cache": null
 }
+{
+  "name": "response_to_markdown",
+  "dirty": true,
+  "deps": [
+    "query"
+  ],
+  "named_deps": {},
+  "cache": null
+}
+{
+  "name": "stdout",
+  "dirty": true,
+  "deps": [
+    "response_to_markdown"
+  ],
+  "named_deps": {},
+  "cache": null
+}

@@ -3,7 +3,7 @@
   "dirty": false,
   "deps": [],
   "named_deps": {},
-  "cache": "hello"
+  "cache": "\"hello\""
 }
 {
   "name": "prompt_to_messages",
@@ -12,21 +12,21 @@
     "initial_prompt"
   ],
   "named_deps": {},
-  "cache": "[{'role': 'user', 'content': 'hello'}]"
+  "cache": "[{\"role\": \"user\", \"content\": \"hello\"}]"
 }
 {
   "name": "credentials",
   "dirty": false,
   "deps": [],
   "named_deps": {},
-  "cache": "{'Authorization': 'Bearer ##OPENAI_API_KEY##'}"
+  "cache": "{\"Authorization\": \"Bearer ##OPENAI_API_KEY##\"}"
 }
 {
   "name": "tool/get_user_name",
   "dirty": false,
   "deps": [],
   "named_deps": {},
-  "cache": "{'name': 'get_user_name', 'description': \"Get the user's name. Call this whenever you need to know the name of the user.\", 'parameters': {'type': 'object', 'properties': {}, 'additionalProperties': False}}"
+  "cache": "{\"name\": \"get_user_name\", \"description\": \"Get the user's name. Call this whenever you need to know the name of the user.\", \"parameters\": {\"type\": \"object\", \"properties\": {}, \"additionalProperties\": false}}"
 }
 {
   "name": "messages_to_query",
@@ -40,7 +40,7 @@
       "tool/get_user_name"
     ]
   },
-  "cache": "{'url': 'https://api.openai.com/v1/chat/completions', 'method': 'POST', 'headers': {'Content-type': 'application/json', 'Authorization': 'Bearer ##OPENAI_API_KEY##'}, 'body': {'model': 'gpt-4o-mini', 'messages': [{'role': 'user', 'content': 'hello'}], 'tools': [{'type': 'function', 'function': {'name': 'get_user_name', 'description': \"Get the user's name. Call this whenever you need to know the name of the user.\", 'parameters': {'type': 'object', 'properties': {}, 'additionalProperties': False}}}]}}"
+  "cache": "{\"url\": \"https://api.openai.com/v1/chat/completions\", \"method\": \"POST\", \"headers\": {\"Content-type\": \"application/json\", \"Authorization\": \"Bearer ##OPENAI_API_KEY##\"}, \"body\": {\"model\": \"gpt-4o-mini\", \"messages\": [{\"role\": \"user\", \"content\": \"hello\"}], \"tools\": [{\"type\": \"function\", \"function\": {\"name\": \"get_user_name\", \"description\": \"Get the user's name. Call this whenever you need to know the name of the user.\", \"parameters\": {\"type\": \"object\", \"properties\": {}, \"additionalProperties\": false}}}]}}"
 }
 {
   "name": "query",
@@ -49,5 +49,23 @@
     "messages_to_query"
   ],
   "named_deps": {},
-  "cache": "{'id': 'chatcmpl-APXIudHpW0azvG7VlVRV7TFfXs1nj', 'object': 'chat.completion', 'created': 1730649584, 'model': 'gpt-4o-mini-2024-07-18', 'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': None, 'tool_calls': [{'id': 'call_W5PVi5HKrq95AzcgVMx5TCYw', 'type': 'function', 'function': {'name': 'get_user_name', 'arguments': '{}'}}], 'refusal': None}, 'logprobs': None, 'finish_reason': 'tool_calls'}], 'usage': {'prompt_tokens': 51, 'completion_tokens': 11, 'total_tokens': 62, 'prompt_tokens_details': {'cached_tokens': 0}, 'completion_tokens_details': {'reasoning_tokens': 0}}, 'system_fingerprint': 'fp_0ba0d124f1'}"
+  "cache": "{\"id\": \"chatcmpl-APilF9jqiq4yQ9igpcAEmrH61yBNc\", \"object\": \"chat.completion\", \"created\": 1730693625, \"model\": \"gpt-4o-mini-2024-07-18\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": null, \"tool_calls\": [{\"id\": \"call_reDNW6rf03E24CqSzMCQwx4w\", \"type\": \"function\", \"function\": {\"name\": \"get_user_name\", \"arguments\": \"{}\"}}], \"refusal\": null}, \"logprobs\": null, \"finish_reason\": \"tool_calls\"}], \"usage\": {\"prompt_tokens\": 51, \"completion_tokens\": 11, \"total_tokens\": 62, \"prompt_tokens_details\": {\"cached_tokens\": 0}, \"completion_tokens_details\": {\"reasoning_tokens\": 0}}, \"system_fingerprint\": \"fp_0ba0d124f1\"}"
+}
+{
+  "name": "response_to_markdown",
+  "dirty": true,
+  "deps": [
+    "query"
+  ],
+  "named_deps": {},
+  "cache": null
+}
+{
+  "name": "stdout",
+  "dirty": true,
+  "deps": [
+    "response_to_markdown"
+  ],
+  "named_deps": {},
+  "cache": null
 }

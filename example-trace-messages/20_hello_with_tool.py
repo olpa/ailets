@@ -3,7 +3,7 @@ from cons import mkenv, prompt_to_md, build_plan_writing_trace, load_state_from_
 from cons.nodes.tool_get_user_name import get_spec_for_get_user_name
 from cons.pipelines import get_func_map
 
-TARGET = "query"
+TARGET = "stdout"
 
 def parse_args():
     parser = argparse.ArgumentParser()

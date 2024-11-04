@@ -44,27 +44,28 @@
 }
 {
   "name": "query",
-  "dirty": true,
+  "dirty": false,
   "deps": [
     "messages_to_query"
   ],
   "named_deps": {},
-  "cache": null
+  "cache": "{\"id\": \"chatcmpl-APilF9jqiq4yQ9igpcAEmrH61yBNc\", \"object\": \"chat.completion\", \"created\": 1730693625, \"model\": \"gpt-4o-mini-2024-07-18\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": null, \"tool_calls\": [{\"id\": \"call_reDNW6rf03E24CqSzMCQwx4w\", \"type\": \"function\", \"function\": {\"name\": \"get_user_name\", \"arguments\": \"{}\"}}], \"refusal\": null}, \"logprobs\": null, \"finish_reason\": \"tool_calls\"}], \"usage\": {\"prompt_tokens\": 51, \"completion_tokens\": 11, \"total_tokens\": 62, \"prompt_tokens_details\": {\"cached_tokens\": 0}, \"completion_tokens_details\": {\"reasoning_tokens\": 0}}, \"system_fingerprint\": \"fp_0ba0d124f1\"}"
 }
 {
   "name": "response_to_markdown",
-  "dirty": true,
+  "dirty": false,
   "deps": [
     "query"
   ],
   "named_deps": {},
-  "cache": null
+  "cache": "\"\""
 }
 {
   "name": "stdout",
   "dirty": true,
   "deps": [
-    "response_to_markdown"
+    "response_to_markdown",
+    "response_to_markdown_clone"
   ],
   "named_deps": {},
   "cache": null

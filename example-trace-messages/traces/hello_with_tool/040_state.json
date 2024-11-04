@@ -3,7 +3,7 @@
   "dirty": false,
   "deps": [],
   "named_deps": {},
-  "cache": "hello"
+  "cache": "\"hello\""
 }
 {
   "name": "prompt_to_messages",
@@ -12,14 +12,14 @@
     "initial_prompt"
   ],
   "named_deps": {},
-  "cache": "[{'role': 'user', 'content': 'hello'}]"
+  "cache": "[{\"role\": \"user\", \"content\": \"hello\"}]"
 }
 {
   "name": "credentials",
   "dirty": false,
   "deps": [],
   "named_deps": {},
-  "cache": "{'Authorization': 'Bearer ##OPENAI_API_KEY##'}"
+  "cache": "{\"Authorization\": \"Bearer ##OPENAI_API_KEY##\"}"
 }
 {
   "name": "tool/get_user_name",
@@ -47,6 +47,24 @@
   "dirty": true,
   "deps": [
     "messages_to_query"
+  ],
+  "named_deps": {},
+  "cache": null
+}
+{
+  "name": "response_to_markdown",
+  "dirty": true,
+  "deps": [
+    "query"
+  ],
+  "named_deps": {},
+  "cache": null
+}
+{
+  "name": "stdout",
+  "dirty": true,
+  "deps": [
+    "response_to_markdown"
   ],
   "named_deps": {},
   "cache": null
