@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Dict, Any, Callable, Set, Optional, TextIO
+import inspect
 import json
 
 
@@ -77,7 +78,17 @@ class Environment:
 
         # Execute the node's function with all dependencies
         try:
-            result = node.func(*dep_results, **named_results)
+            # Get function signature to check for env/node params
+            sig = inspect.signature(node.func)
+            kwargs: Dict[str, Any] = named_results.copy()
+
+            # Add env and node parameters if the function accepts them
+            if "env" in sig.parameters:
+                kwargs["env"] = self
+            if "node" in sig.parameters:
+                kwargs["node"] = node
+
+            result = node.func(*dep_results, **kwargs)
         except Exception:
             print(f"Error building node '{name}'")
             print(f"Function: {node.func.__name__}")
@@ -209,6 +220,24 @@ class Environment:
             cache=None if cache_str is None else cache_str,
             dirty=node_data["dirty"],
         )
+
+    def clone_path(self, start: str, end: str) -> list[Node]:
+        """Return a two-element list containing the start and end nodes."""
+        return [self.get_node(start), self.get_node(end)]
+
+    def get_next_nodes(self, node: Node) -> list[Node]:
+        """Return list of nodes that depend on the given node."""
+        next_nodes = []
+        for other_node in self.nodes.values():
+            # Check regular dependencies
+            if node.name in other_node.deps:
+                next_nodes.append(other_node)
+            # Check named dependencies
+            for dep_list in other_node.named_deps.values():
+                if node.name in dep_list:
+                    next_nodes.append(other_node)
+                    break
+        return next_nodes
 
 
 def mkenv() -> Environment:
