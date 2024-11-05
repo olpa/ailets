@@ -303,7 +303,6 @@ class Environment:
         """
         # Track which nodes have been cloned and their clones
         original_to_clone: Dict[str, str] = {}
-        to_clone: Set[str] = {start}
         cloned: Set[str] = set()
 
         # First, get the start node
@@ -312,6 +311,7 @@ class Environment:
         except KeyError:
             start_node = self.get_node_by_base_name(start)
             start = start_node.name
+        to_clone: Set[str] = {start}
 
         # Add start node's dependencies to clone set
         for dep_name, _ in start_node.deps:
@@ -379,14 +379,9 @@ class Environment:
         """Return list of nodes that depend on the given node."""
         next_nodes = []
         for other_node in self.nodes.values():
-            # Check regular dependencies
-            if node.name in other_node.deps:
+            # Check if node.name appears as a dependency in other_node's deps list
+            if any(dep_name == node.name for dep_name, _ in other_node.deps):
                 next_nodes.append(other_node)
-            # Check named dependencies
-            for dep_list in other_node.named_deps.values():
-                if node.name in dep_list:
-                    next_nodes.append(other_node)
-                    break
         return next_nodes
 
 

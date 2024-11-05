@@ -13,7 +13,6 @@ def messages_to_query(
 ) -> Dict[str, Any]:
     """Convert chat messages into a query."""
     print("TODO: toolcalls:", toolcalls)  # FIXME
-    print("TODO: credentials:", credentials)  # FIXME
 
     body = {
         "model": "gpt-4o-mini",
