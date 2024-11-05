@@ -4,26 +4,24 @@ import os
 from typing import Dict, Any, List
 
 
-def query(query_params: List[Dict[str, Any]]) -> str:
+def query(query_params: List[Dict[str, Any]]) -> Any:
     """Perform the HTTP request to the API."""
     assert len(query_params) == 1, "Expected exactly one query params dict"
-    query_params = query_params[0]
+    params = query_params[0]  # Get the single params dict
 
     try:
         # Replace placeholder in Authorization header if it exists
-        headers = query_params[
-            "headers"
-        ].copy()  # Make a copy to avoid modifying original
+        headers = params["headers"].copy()  # Make a copy to avoid modifying original
         if "Authorization" in headers:
             headers["Authorization"] = headers["Authorization"].replace(
                 "##OPENAI_API_KEY##", os.environ["OPENAI_API_KEY"]
             )
 
         response = requests.request(
-            method=query_params["method"],
-            url=query_params["url"],
+            method=params["method"],
+            url=params["url"],
             headers=headers,
-            json=query_params["body"],
+            json=params["body"],
         )
         response.raise_for_status()  # Raise an exception for bad status codes
         return response.json()

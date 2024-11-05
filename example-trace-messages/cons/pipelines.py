@@ -36,7 +36,7 @@ def prompt_to_md(
         messages_to_query,
         [
             node_ptm.name,
-            [node_creds.name, "credentials"],
+            (node_creds.name, "credentials"),
             *[(tool.name, "toolspecs") for tool in tools],
         ],
     )

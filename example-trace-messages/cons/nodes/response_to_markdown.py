@@ -1,11 +1,8 @@
 from cons.cons import Environment, Node
 
 
-def response_to_markdown(response: list[dict], env: Environment, node: Node) -> str:
-    """Convert the response to markdown format."""
-    assert len(response) == 1, "Expected exactly one response"
-    response = response[0]
-
+def _process_single_response(response: dict, env: Environment, node: Node) -> str:
+    """Process a single response and convert it to markdown."""
     message = response["choices"][0]["message"]
     content = message.get("content")
     tool_calls = message.get("tool_calls")
@@ -23,14 +20,12 @@ def response_to_markdown(response: list[dict], env: Environment, node: Node) -> 
         tool_name = tool_call["function"]["name"]
         short_node_name = f"tool/{tool_name}/call"
 
-        # Create node with tool call as fixed input
         def tool_call_result_to_chat_message(x):
             return x
 
         tool_node = env.add_node(
             short_node_name, lambda _: tool_call_result_to_chat_message(tool_call)
         )
-
         start_node.deps.append((tool_node.name, "toolcalls"))
 
     # Connect end node to next in pipeline
@@ -38,3 +33,14 @@ def response_to_markdown(response: list[dict], env: Environment, node: Node) -> 
         next_node.deps.append((end_node.name, None))
 
     return ""
+
+
+def response_to_markdown(responses: list[dict], env: Environment, node: Node) -> str:
+    """Convert multiple responses to markdown format."""
+    results = []
+    for response in responses:
+        result = _process_single_response(response, env, node)
+        if result:  # Only add non-empty results
+            results.append(result)
+
+    return "\n\n".join(results)

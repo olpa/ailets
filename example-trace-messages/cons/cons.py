@@ -121,9 +121,9 @@ class Environment:
 
             # Add env and node parameters if the function accepts them
             if "env" in sig.parameters:
-                kwargs["env"] = self
+                kwargs["env"] = self  # type: ignore[assignment]
             if "node" in sig.parameters:
-                kwargs["node"] = node
+                kwargs["node"] = node  # type: ignore[assignment]
 
             result = node.func(dep_results, **kwargs)
         except Exception:
