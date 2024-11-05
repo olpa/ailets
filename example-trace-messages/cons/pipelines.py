@@ -28,18 +28,17 @@ def prompt_to_md(
 ) -> Node:
     """Create a chain of nodes that process a prompt into markdown."""
     # Define nodes and their dependencies
-    env.add_node("initial_prompt", lambda: initial_prompt)
-    env.add_node("prompt_to_messages", prompt_to_messages, ["initial_prompt"])
-    env.add_node("credentials", credentials)
-    env.add_node(
+    node_v = env.add_node("value", lambda: initial_prompt)
+    node_ptm = env.add_node("prompt_to_messages", prompt_to_messages, [node_v.name])
+    node_creds = env.add_node("credentials", credentials)
+    node_mtq = env.add_node(
         "messages_to_query",
         messages_to_query,
-        ["prompt_to_messages", "credentials"],
+        [node_ptm.name, node_creds.name],
         {"toolspecs": [tool.name for tool in tools]},
     )
-    env.add_node("query", query, ["messages_to_query"])
-    env.add_node("response_to_markdown", response_to_markdown, ["query"])
-    env.add_node("stdout", stdout, ["response_to_markdown"])
+    node_q = env.add_node("query", query, [node_mtq.name])
+    node_rtm = env.add_node("response_to_markdown", response_to_markdown, [node_q.name])
+    final_node = env.add_node("stdout", stdout, [node_rtm.name])
 
-    # Return the final node
-    return env.get_node("stdout")
+    return final_node

@@ -29,14 +29,16 @@ def main():
         tool_get_user_name = env.add_node("tool/get_user_name/spec", get_spec_for_get_user_name)
         prompt_to_md(env, tools=[tool_get_user_name])
         initial_counter = 1
+
+    target_node_name = env.get_node_by_base_name("stdout").name
     
     if args.print_plan or args.dry_run:
-        env.print_dependency_tree(TARGET)
+        env.print_dependency_tree(target_node_name)
         
     if not args.dry_run:
         build_plan_writing_trace(
             env, 
-            TARGET, 
+            target_node_name, 
             "traces/hello_with_tool", 
             one_step=args.one_step,
             initial_counter=initial_counter

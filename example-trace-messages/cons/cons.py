@@ -28,7 +28,7 @@ class Node:
 class Environment:
     def __init__(self) -> None:
         self.nodes: Dict[str, Node] = {}
-        self._clone_counter: int = 1  # Add counter for clone_path calls
+        self._node_counter: int = 0  # Single counter for all nodes
 
     def add_node(
         self,
@@ -37,11 +37,19 @@ class Environment:
         deps: Optional[list[str]] = None,
         named_deps: Optional[Dict[str, list[str]]] = None,
     ) -> Node:
-        """Add a build node with its dependencies."""
+        """Add a build node with its dependencies.
+
+        The node name will automatically get a suffix '.N' where N is an incrementing
+        number shared across all nodes.
+        """
+        self._node_counter += 1
+        full_name = f"{name}.{self._node_counter}"
+
+        # Create and add node
         deps = deps or []
         named_deps = named_deps or {}
-        node = Node(name=name, func=func, deps=deps, named_deps=named_deps)
-        self.nodes[name] = node
+        node = Node(name=full_name, func=func, deps=deps, named_deps=named_deps)
+        self.nodes[full_name] = node
         return node
 
     def get_node(self, name: str) -> Node:
@@ -49,6 +57,23 @@ class Environment:
         if name not in self.nodes:
             raise KeyError(f"Node {name} not found")
         return self.nodes[name]
+
+    def get_node_by_base_name(self, base_name: str) -> Node:
+        """Get a node by its base name (without the numeric suffix).
+
+        Args:
+            base_name: Name of node without the numeric suffix
+
+        Returns:
+            The node with the given base name
+
+        Raises:
+            KeyError: If no node with the given base name exists
+        """
+        for name, node in self.nodes.items():
+            if name.rsplit(".", 1)[0] == base_name:
+                return node
+        raise KeyError(f"No node found with base name {base_name}")
 
     def build_node(self, name: str) -> Any:
         """Build a node and its dependencies if needed."""
@@ -243,9 +268,6 @@ class Environment:
             List of nodes in the cloned path. First element is the cloned start node,
             last element is the cloned end node. Order of other nodes is not guaranteed.
         """
-        self._clone_counter += 1
-        clone_suffix = f".{self._clone_counter}"
-
         # Track which nodes have been cloned and their clones
         original_to_clone: Dict[str, str] = {}
         to_clone: Set[str] = {start}
@@ -277,9 +299,10 @@ class Environment:
             current = self.get_node(current_name)
 
             # Create clone (initially without dependencies)
-            clone_name = f"{current_name}{clone_suffix}"
-            clone = self.add_node(clone_name, current.func)
-            original_to_clone[current_name] = clone_name
+            clone = self.add_node(
+                current_name, current.func
+            )  # Will get next number automatically
+            original_to_clone[current_name] = clone.name
             cloned.add(current_name)
 
             # Stop expanding at end node
@@ -295,6 +318,7 @@ class Environment:
         for original_name, clone_name in original_to_clone.items():
             original = self.get_node(original_name)
             clone = self.get_node(clone_name)
+            new_named_deps: Dict[str, list[str]] = {}
 
             if original_name == start:
                 # For start node, keep original dependencies
@@ -308,14 +332,25 @@ class Environment:
                     if dep in original_to_clone
                 ]
 
-                new_named_deps = {
-                    param: [
+                # First, copy existing named dependencies that were cloned
+                for param_name, deps in original.named_deps.items():
+                    cloned_deps = [
                         original_to_clone[dep]
                         for dep in deps
                         if dep in original_to_clone
                     ]
-                    for param, deps in original.named_deps.items()
-                }
+                    if cloned_deps:
+                        new_named_deps[param_name] = cloned_deps
+
+                # Then add any dependencies that should be named in this clone
+                if original_name in named_deps_mapping:
+                    for dep, param_name in named_deps_mapping[original_name]:
+                        if (
+                            dep in original_to_clone
+                        ):  # Only if the dependency was cloned
+                            if param_name not in new_named_deps:
+                                new_named_deps[param_name] = []
+                            new_named_deps[param_name].append(original_to_clone[dep])
 
             # Create new node with dependencies
             self.nodes[clone_name] = Node(
