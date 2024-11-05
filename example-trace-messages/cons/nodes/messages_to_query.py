@@ -9,10 +9,8 @@ def messages_to_query(
     messages: List[List[Dict[str, str]]],
     credentials: List[Dict[str, str]],
     toolspecs: Optional[List[str]] = None,
-    toolcalls: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """Convert chat messages into a query."""
-    print("TODO: toolcalls:", toolcalls)  # FIXME
 
     body = {
         "model": "gpt-4o-mini",

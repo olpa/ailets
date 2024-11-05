@@ -1,4 +1,5 @@
 from cons.cons import Environment, Node
+from .toolcall_to_message import toolcall_to_message
 
 
 def _process_single_response(response: dict, env: Environment, node: Node) -> str:
@@ -19,14 +20,17 @@ def _process_single_response(response: dict, env: Environment, node: Node) -> st
     for tool_call in tool_calls:
         tool_name = tool_call["function"]["name"]
         short_node_name = f"tool/{tool_name}/call"
+        tool_func = env.get_tool_func(tool_name)
 
-        def tool_call_result_to_chat_message(x):
-            return x
-
-        tool_node = env.add_node(
-            short_node_name, lambda _: tool_call_result_to_chat_message(tool_call)
+        tool_spec_node = env.add_node("value", lambda _: tool_call)
+        tool_call_node = env.add_node(short_node_name, tool_func, [tool_spec_node.name])
+        tool_msg_node = env.add_node(
+            "toolcall_to_message",
+            toolcall_to_message,
+            [tool_call_node.name, (tool_spec_node.name, "llm_spec")],
         )
-        start_node.deps.append((tool_node.name, "toolcalls"))
+
+        start_node.deps.append((tool_msg_node.name, None))
 
     # Connect end node to next in pipeline
     for next_node in env.get_next_nodes(node):
