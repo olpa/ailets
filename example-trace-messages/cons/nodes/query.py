@@ -1,11 +1,14 @@
 import json
 import requests
 import os
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 
-def query(query_params: Dict[str, Any]) -> str:
+def query(query_params: List[Dict[str, Any]]) -> str:
     """Perform the HTTP request to the API."""
+    assert len(query_params) == 1, "Expected exactly one query params dict"
+    query_params = query_params[0]
+
     try:
         # Replace placeholder in Authorization header if it exists
         headers = query_params[

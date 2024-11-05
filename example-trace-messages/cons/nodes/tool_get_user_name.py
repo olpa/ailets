@@ -1,7 +1,7 @@
 import os
 
 
-def get_spec_for_get_user_name():
+def get_spec_for_get_user_name(_: list[str]) -> dict:
     """Return the specification for the get_user_name tool."""
     return {
         "name": "get_user_name",
@@ -17,6 +17,6 @@ def get_spec_for_get_user_name():
     }
 
 
-def run_get_user_name() -> str:
+def run_get_user_name(_: list[str]) -> str:
     """Run the get_user_name tool."""
     return os.environ["USER"]

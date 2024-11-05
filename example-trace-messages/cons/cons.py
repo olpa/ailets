@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Dict, Any, Callable, Set, Optional, TextIO
+from typing import Dict, Any, Callable, Set, Optional, TextIO, Union
 import inspect
 import json
 
@@ -8,8 +8,9 @@ import json
 class Node:
     name: str
     func: Callable[..., Any]
-    deps: list[str] = field(default_factory=list)
-    named_deps: Dict[str, list[str]] = field(default_factory=dict)
+    deps: list[tuple[str, Optional[str]]] = field(
+        default_factory=list
+    )  # [(node_name, dep_name)]
     cache: Any = field(default=None, compare=False)
     dirty: bool = field(default=True, compare=False)
 
@@ -19,7 +20,6 @@ class Node:
             "name": self.name,
             "dirty": self.dirty,
             "deps": self.deps,
-            "named_deps": self.named_deps,
             "cache": None if self.cache is None else json.dumps(self.cache),
             # Skip func as it's not serializable
         }
@@ -34,21 +34,34 @@ class Environment:
         self,
         name: str,
         func: Callable[..., Any],
-        deps: Optional[list[str]] = None,
-        named_deps: Optional[Dict[str, list[str]]] = None,
+        deps: Optional[list[Union[str, tuple[str, str]]]] = None,
     ) -> Node:
         """Add a build node with its dependencies.
 
         The node name will automatically get a suffix '.N' where N is an incrementing
         number shared across all nodes.
+
+        Args:
+            name: Base name for the node
+            func: Function to execute for this node
+            deps: List of dependencies. Each dependency can be either:
+                - str: node name (for default/unnamed dependencies)
+                - tuple[str, str]: (node name, dependency name)
+
+        Returns:
+            The created node
         """
         self._node_counter += 1
         full_name = f"{name}.{self._node_counter}"
 
+        # Convert all deps to tuples with Optional[str]
+        normalized_deps: list[tuple[str, Optional[str]]] = []
+        if deps:
+            normalized_deps = [
+                (dep, None) if isinstance(dep, str) else dep for dep in deps
+            ]
         # Create and add node
-        deps = deps or []
-        named_deps = named_deps or {}
-        node = Node(name=full_name, func=func, deps=deps, named_deps=named_deps)
+        node = Node(name=full_name, func=func, deps=normalized_deps)
         self.nodes[full_name] = node
         return node
 
@@ -83,30 +96,28 @@ class Environment:
         if not node.dirty and node.cache is not None:
             return node.cache
 
-        # Build default dependencies first
+        # Build dependencies first
         dep_results = []
-        for dep_name in node.deps:
-            dep_node = self.get_node(dep_name)
-            if dep_node.dirty or dep_node.cache is None:
-                self.build_node(dep_name)
-            dep_results.append(dep_node.cache)
+        named_results: Dict[str, list[Any]] = {}
 
-        # Build named dependencies
-        named_results = {}
-        for param_name, dep_list in node.named_deps.items():
-            param_results = []
-            for dep_name in dep_list:
-                dep_node = self.get_node(dep_name)
-                if dep_node.dirty or dep_node.cache is None:
-                    self.build_node(dep_name)
-                param_results.append(dep_node.cache)
-            named_results[param_name] = param_results
+        for dep_name, dep_param in node.deps:
+            dep_node = self.get_node(dep_name)
+            if dep_node.dirty:
+                raise ValueError(f"Dependency node '{dep_name}' is dirty")
+            if dep_param is None:
+                # Default dependency - add to positional args
+                dep_results.append(dep_node.cache)
+            else:
+                # Named dependency - group by parameter name
+                if dep_param not in named_results:
+                    named_results[dep_param] = []
+                named_results[dep_param].append(dep_node.cache)
 
         # Execute the node's function with all dependencies
         try:
             # Get function signature to check for env/node params
             sig = inspect.signature(node.func)
-            kwargs: Dict[str, Any] = named_results.copy()
+            kwargs = named_results.copy()
 
             # Add env and node parameters if the function accepts them
             if "env" in sig.parameters:
@@ -114,12 +125,15 @@ class Environment:
             if "node" in sig.parameters:
                 kwargs["node"] = node
 
-            result = node.func(*dep_results, **kwargs)
+            result = node.func(dep_results, **kwargs)
         except Exception:
             print(f"Error building node '{name}'")
             print(f"Function: {node.func.__name__}")
-            print(f"Default dependencies: {list(node.deps)}")
-            print(f"Named dependencies: {dict(node.named_deps)}")
+            print(
+                f"Default dependencies: "
+                f"{[dep for dep, param in node.deps if param is None]}"
+            )
+            print(f"Named dependencies: {named_results}")
             raise
 
         # Since Node is frozen, we need to create a new one with updated cache
@@ -127,14 +141,24 @@ class Environment:
             name=node.name,
             func=node.func,
             deps=node.deps,
-            named_deps=node.named_deps,
             cache=result,
             dirty=False,
         )
         return result
 
     def plan(self, target: str) -> list[str]:
-        """Return nodes in build order for the target."""
+        """Return nodes in build order for the target.
+
+        Args:
+            target: Name of the target node
+
+        Returns:
+            List of node names in build order
+
+        Raises:
+            KeyError: If target node not found
+            RuntimeError: If dependency cycle detected
+        """
         if target not in self.nodes:
             raise KeyError(f"Node {target} not found")
 
@@ -155,11 +179,8 @@ class Environment:
 
             # Visit all dependencies (both default and named)
             node = self.nodes[name]
-            for dep in node.deps:
-                visit(dep)
-            for dep_list in node.named_deps.values():
-                for dep in dep_list:
-                    visit(dep)
+            for dep_name, _ in node.deps:
+                visit(dep_name)
 
             visiting.remove(name)
             visiting_list.pop()
@@ -207,19 +228,26 @@ class Environment:
             return
         visited.add(node_name)
 
-        # Print all dependencies with proper indentation
+        # Group dependencies by parameter name
+        deps_by_param: Dict[Optional[str], list[str]] = {}
+        for dep_name, param_name in node.deps:
+            if param_name not in deps_by_param:
+                deps_by_param[param_name] = []
+            deps_by_param[param_name].append(dep_name)
+
         next_indent = f"{indent}│   "
 
-        # Print regular dependencies
-        for dep in node.deps:
-            self.print_dependency_tree(dep, next_indent, visited)
+        # Print default dependencies (param_name is None)
+        for dep_name in deps_by_param.get(None, []):
+            self.print_dependency_tree(dep_name, next_indent, visited.copy())
 
-        # Print named dependencies with their parameter names
-        for param_name, dep_list in node.named_deps.items():
-            print(f"{next_indent}├── (param: {param_name})")
-            param_indent = f"{next_indent}│   "
-            for dep in dep_list:
-                self.print_dependency_tree(dep, param_indent, visited.copy())
+        # Print named dependencies grouped by parameter
+        for param_name, dep_names in deps_by_param.items():
+            if param_name is not None:  # Skip None group as it's already printed
+                print(f"{next_indent}├── (param: {param_name})")
+                param_indent = f"{next_indent}│   "
+                for dep_name in dep_names:
+                    self.print_dependency_tree(dep_name, param_indent, visited.copy())
 
         visited.remove(node_name)
 
@@ -258,7 +286,6 @@ class Environment:
             name=name,
             func=func,
             deps=node_data["deps"],
-            named_deps=node_data["named_deps"],
             cache=None if cache_str is None else json.loads(cache_str),
             dirty=node_data["dirty"],
         )
@@ -276,31 +303,19 @@ class Environment:
         """
         # Track which nodes have been cloned and their clones
         original_to_clone: Dict[str, str] = {}
-        to_clone: Set[str] = set()
+        to_clone: Set[str] = {start}
         cloned: Set[str] = set()
 
-        # Track which dependencies should be named in the cloned graph
-        named_deps_mapping: Dict[str, Set[tuple[str, str]]] = (
-            {}
-        )  # target -> set of (dep, param_name)
-
-        # First, clone the start node's dependencies
+        # First, get the start node
         try:
             start_node = self.get_node(start)
         except KeyError:
             start_node = self.get_node_by_base_name(start)
             start = start_node.name
 
-        to_clone.add(start)
-        for dep in start_node.deps:
-            to_clone.add(dep)
-        for param_name, dep_list in start_node.named_deps.items():
-            for dep in dep_list:
-                to_clone.add(dep)
-                # Record that this dependency should be named in the clone
-                if start not in named_deps_mapping:
-                    named_deps_mapping[start] = set()
-                named_deps_mapping[start].add((dep, param_name))
+        # Add start node's dependencies to clone set
+        for dep_name, _ in start_node.deps:
+            to_clone.add(dep_name)
 
         while to_clone:
             # Get next node to clone
@@ -309,10 +324,7 @@ class Environment:
                 continue
 
             current = self.get_node(current_name)
-            base_name = current_name.rsplit(".", 1)[0]
-
-            # Create clone using base name
-            clone = self.add_node(base_name, current.func)
+            clone = self.add_node(current_name.rsplit(".", 1)[0], current.func)
             original_to_clone[current_name] = clone.name
             cloned.add(current_name)
 
@@ -329,46 +341,23 @@ class Environment:
         for original_name, clone_name in original_to_clone.items():
             original = self.get_node(original_name)
             clone = self.get_node(clone_name)
-            new_named_deps: Dict[str, list[str]] = {}
 
             if original_name == start:
-                # For start node, keep original dependencies
+                # For start node, create new list from original dependencies
                 new_deps = list(original.deps)
-                new_named_deps = dict(original.named_deps)
             else:
                 # For other nodes, use cloned dependencies
                 new_deps = [
-                    original_to_clone[dep]
-                    for dep in original.deps
-                    if dep in original_to_clone
+                    (original_to_clone[dep_name], dep_param)
+                    for dep_name, dep_param in original.deps
+                    if dep_name in original_to_clone
                 ]
-
-                # First, copy existing named dependencies that were cloned
-                for param_name, deps in original.named_deps.items():
-                    cloned_deps = [
-                        original_to_clone[dep]
-                        for dep in deps
-                        if dep in original_to_clone
-                    ]
-                    if cloned_deps:
-                        new_named_deps[param_name] = cloned_deps
-
-                # Then add any dependencies that should be named in this clone
-                if original_name in named_deps_mapping:
-                    for dep, param_name in named_deps_mapping[original_name]:
-                        if (
-                            dep in original_to_clone
-                        ):  # Only if the dependency was cloned
-                            if param_name not in new_named_deps:
-                                new_named_deps[param_name] = []
-                            new_named_deps[param_name].append(original_to_clone[dep])
 
             # Create new node with dependencies
             self.nodes[clone_name] = Node(
                 name=clone_name,
                 func=clone.func,
                 deps=new_deps,
-                named_deps=new_named_deps,
                 cache=clone.cache,
                 dirty=clone.dirty,
             )

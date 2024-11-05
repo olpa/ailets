@@ -28,14 +28,17 @@ def prompt_to_md(
 ) -> Node:
     """Create a chain of nodes that process a prompt into markdown."""
     # Define nodes and their dependencies
-    node_v = env.add_node("value", lambda: initial_prompt)
+    node_v = env.add_node("value", lambda _: initial_prompt)
     node_ptm = env.add_node("prompt_to_messages", prompt_to_messages, [node_v.name])
     node_creds = env.add_node("credentials", credentials)
     node_mtq = env.add_node(
         "messages_to_query",
         messages_to_query,
-        [node_ptm.name, node_creds.name],
-        {"toolspecs": [tool.name for tool in tools]},
+        [
+            node_ptm.name,
+            [node_creds.name, "credentials"],
+            *[(tool.name, "toolspecs") for tool in tools],
+        ],
     )
     node_q = env.add_node("query", query, [node_mtq.name])
     node_rtm = env.add_node("response_to_markdown", response_to_markdown, [node_q.name])

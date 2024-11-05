@@ -1,4 +1,5 @@
-def stdout(value: str) -> str:
-    """Print the value to stdout and return it unchanged."""
-    print(value)
+def stdout(value: list[str]) -> list[str]:
+    """Print each value to stdout and return them unchanged."""
+    for v in value:
+        print(v)
     return value
