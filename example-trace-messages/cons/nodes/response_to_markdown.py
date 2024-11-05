@@ -18,18 +18,20 @@ def response_to_markdown(response: dict, env: Environment, node: Node) -> str:
 
     for tool_call in tool_calls:
         tool_name = tool_call["function"]["name"]
-        node_name = f"tool/{tool_name}/call"
+        short_node_name = f"tool/{tool_name}/call"
 
         # Create node with tool call as fixed input
         def tool_call_result_to_chat_message(x):
             return x
 
-        env.add_node(node_name, lambda: tool_call_result_to_chat_message(tool_call))
+        tool_node = env.add_node(
+            short_node_name, lambda: tool_call_result_to_chat_message(tool_call)
+        )
 
         # Add as named dependency "toolcalls"
         if "toolcalls" not in start_node.named_deps:
             start_node.named_deps["toolcalls"] = []
-        start_node.named_deps["toolcalls"].append(node_name)
+        start_node.named_deps["toolcalls"].append(tool_node.name)
 
     # Connect end node to next in pipeline
     env.get_next_nodes(node)[0].deps.append(end_node.name)

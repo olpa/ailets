@@ -11,7 +11,7 @@ from .nodes.tool_get_user_name import get_spec_for_get_user_name, run_get_user_n
 def get_func_map():
     """Create mapping of node names to their functions."""
     return {
-        "initial_prompt": lambda: "hello",
+        "value": lambda node: node.cache,
         "prompt_to_messages": prompt_to_messages,
         "credentials": credentials,
         "messages_to_query": messages_to_query,

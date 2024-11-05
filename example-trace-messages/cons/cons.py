@@ -246,6 +246,12 @@ class Environment:
             if func is None:
                 raise KeyError(f"No function provided for node: {name}")
 
+        # Update counter if needed to stay above loaded node's suffix
+        if "." in name:
+            loaded_suffix = int(name.split(".")[-1])
+            if self._node_counter <= loaded_suffix:
+                self._node_counter = loaded_suffix + 1
+
         # Create new node with loaded state
         cache_str = node_data["cache"]
         self.nodes[name] = Node(
@@ -261,7 +267,7 @@ class Environment:
         """Clone a path of nodes from start to end.
 
         Args:
-            start: Name of starting node
+            start: Name of starting node (can be short name without suffix)
             end: Name of ending node
 
         Returns:
@@ -270,7 +276,7 @@ class Environment:
         """
         # Track which nodes have been cloned and their clones
         original_to_clone: Dict[str, str] = {}
-        to_clone: Set[str] = {start}
+        to_clone: Set[str] = set()
         cloned: Set[str] = set()
 
         # Track which dependencies should be named in the cloned graph
@@ -279,7 +285,13 @@ class Environment:
         )  # target -> set of (dep, param_name)
 
         # First, clone the start node's dependencies
-        start_node = self.get_node(start)
+        try:
+            start_node = self.get_node(start)
+        except KeyError:
+            start_node = self.get_node_by_base_name(start)
+            start = start_node.name
+
+        to_clone.add(start)
         for dep in start_node.deps:
             to_clone.add(dep)
         for param_name, dep_list in start_node.named_deps.items():
@@ -297,11 +309,10 @@ class Environment:
                 continue
 
             current = self.get_node(current_name)
+            base_name = current_name.rsplit(".", 1)[0]
 
-            # Create clone (initially without dependencies)
-            clone = self.add_node(
-                current_name, current.func
-            )  # Will get next number automatically
+            # Create clone using base name
+            clone = self.add_node(base_name, current.func)
             original_to_clone[current_name] = clone.name
             cloned.add(current_name)
 

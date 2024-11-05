@@ -1,70 +1,70 @@
 {
-  "name": "initial_prompt",
+  "name": "value.2",
   "dirty": true,
   "deps": [],
   "named_deps": {},
   "cache": null
 }
 {
-  "name": "prompt_to_messages",
+  "name": "prompt_to_messages.3",
   "dirty": true,
   "deps": [
-    "initial_prompt"
+    "value.2"
   ],
   "named_deps": {},
   "cache": null
 }
 {
-  "name": "credentials",
+  "name": "credentials.4",
   "dirty": true,
   "deps": [],
   "named_deps": {},
   "cache": null
 }
 {
-  "name": "tool/get_user_name/spec",
+  "name": "tool/get_user_name/spec.1",
   "dirty": true,
   "deps": [],
   "named_deps": {},
   "cache": null
 }
 {
-  "name": "messages_to_query",
+  "name": "messages_to_query.5",
   "dirty": true,
   "deps": [
-    "prompt_to_messages",
-    "credentials"
+    "prompt_to_messages.3",
+    "credentials.4"
   ],
   "named_deps": {
     "toolspecs": [
-      "tool/get_user_name/spec"
+      "tool/get_user_name/spec.1"
     ]
   },
   "cache": null
 }
 {
-  "name": "query",
+  "name": "query.6",
   "dirty": true,
   "deps": [
-    "messages_to_query"
+    "messages_to_query.5"
   ],
   "named_deps": {},
   "cache": null
 }
 {
-  "name": "response_to_markdown",
+  "name": "response_to_markdown.7",
   "dirty": true,
   "deps": [
-    "query"
+    "query.6"
   ],
   "named_deps": {},
   "cache": null
 }
 {
-  "name": "stdout",
+  "name": "stdout.8",
   "dirty": true,
   "deps": [
-    "response_to_markdown"
+    "response_to_markdown.7"
   ],
   "named_deps": {},
   "cache": null
