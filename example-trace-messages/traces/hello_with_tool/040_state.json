@@ -2,70 +2,80 @@
   "name": "value.2",
   "dirty": false,
   "deps": [],
-  "named_deps": {},
   "cache": "\"hello\""
 }
 {
   "name": "prompt_to_messages.3",
   "dirty": false,
   "deps": [
-    "value.2"
+    [
+      "value.2",
+      null
+    ]
   ],
-  "named_deps": {},
   "cache": "[{\"role\": \"user\", \"content\": \"hello\"}]"
 }
 {
   "name": "credentials.4",
   "dirty": false,
   "deps": [],
-  "named_deps": {},
   "cache": "{\"Authorization\": \"Bearer ##OPENAI_API_KEY##\"}"
 }
 {
   "name": "tool/get_user_name/spec.1",
   "dirty": true,
   "deps": [],
-  "named_deps": {},
   "cache": null
 }
 {
   "name": "messages_to_query.5",
   "dirty": true,
   "deps": [
-    "prompt_to_messages.3",
-    "credentials.4"
-  ],
-  "named_deps": {
-    "toolspecs": [
-      "tool/get_user_name/spec.1"
+    [
+      "prompt_to_messages.3",
+      null
+    ],
+    [
+      "credentials.4",
+      "credentials"
+    ],
+    [
+      "tool/get_user_name/spec.1",
+      "toolspecs"
     ]
-  },
+  ],
   "cache": null
 }
 {
   "name": "query.6",
   "dirty": true,
   "deps": [
-    "messages_to_query.5"
+    [
+      "messages_to_query.5",
+      null
+    ]
   ],
-  "named_deps": {},
   "cache": null
 }
 {
   "name": "response_to_markdown.7",
   "dirty": true,
   "deps": [
-    "query.6"
+    [
+      "query.6",
+      null
+    ]
   ],
-  "named_deps": {},
   "cache": null
 }
 {
   "name": "stdout.8",
   "dirty": true,
   "deps": [
-    "response_to_markdown.7"
+    [
+      "response_to_markdown.7",
+      null
+    ]
   ],
-  "named_deps": {},
   "cache": null
 }

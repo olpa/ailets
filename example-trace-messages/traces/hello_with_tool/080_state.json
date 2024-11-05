@@ -2,113 +2,135 @@
   "name": "value.2",
   "dirty": false,
   "deps": [],
-  "named_deps": {},
   "cache": "\"hello\""
 }
 {
   "name": "prompt_to_messages.3",
   "dirty": false,
   "deps": [
-    "value.2"
+    [
+      "value.2",
+      null
+    ]
   ],
-  "named_deps": {},
   "cache": "[{\"role\": \"user\", \"content\": \"hello\"}]"
 }
 {
   "name": "credentials.4",
   "dirty": false,
   "deps": [],
-  "named_deps": {},
   "cache": "{\"Authorization\": \"Bearer ##OPENAI_API_KEY##\"}"
 }
 {
   "name": "tool/get_user_name/spec.1",
   "dirty": false,
   "deps": [],
-  "named_deps": {},
   "cache": "{\"name\": \"get_user_name\", \"description\": \"Get the user's name. Call this whenever you need to know the name of the user.\", \"parameters\": {\"type\": \"object\", \"properties\": {}, \"additionalProperties\": false}}"
 }
 {
   "name": "messages_to_query.5",
   "dirty": false,
   "deps": [
-    "prompt_to_messages.3",
-    "credentials.4"
-  ],
-  "named_deps": {
-    "toolspecs": [
-      "tool/get_user_name/spec.1"
+    [
+      "prompt_to_messages.3",
+      null
+    ],
+    [
+      "credentials.4",
+      "credentials"
+    ],
+    [
+      "tool/get_user_name/spec.1",
+      "toolspecs"
     ]
-  },
+  ],
   "cache": "{\"url\": \"https://api.openai.com/v1/chat/completions\", \"method\": \"POST\", \"headers\": {\"Content-type\": \"application/json\", \"Authorization\": \"Bearer ##OPENAI_API_KEY##\"}, \"body\": {\"model\": \"gpt-4o-mini\", \"messages\": [{\"role\": \"user\", \"content\": \"hello\"}], \"tools\": [{\"type\": \"function\", \"function\": {\"name\": \"get_user_name\", \"description\": \"Get the user's name. Call this whenever you need to know the name of the user.\", \"parameters\": {\"type\": \"object\", \"properties\": {}, \"additionalProperties\": false}}}]}}"
 }
 {
   "name": "query.6",
   "dirty": false,
   "deps": [
-    "messages_to_query.5"
+    [
+      "messages_to_query.5",
+      null
+    ]
   ],
-  "named_deps": {},
-  "cache": "{\"id\": \"chatcmpl-AQ4dolkr12YkpDRmfaxW5bzmxZz5i\", \"object\": \"chat.completion\", \"created\": 1730777732, \"model\": \"gpt-4o-mini-2024-07-18\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": null, \"tool_calls\": [{\"id\": \"call_ji7GhvPqXDHK1mJfPnz3OwLc\", \"type\": \"function\", \"function\": {\"name\": \"get_user_name\", \"arguments\": \"{}\"}}], \"refusal\": null}, \"logprobs\": null, \"finish_reason\": \"tool_calls\"}], \"usage\": {\"prompt_tokens\": 51, \"completion_tokens\": 11, \"total_tokens\": 62, \"prompt_tokens_details\": {\"cached_tokens\": 0}, \"completion_tokens_details\": {\"reasoning_tokens\": 0, \"accepted_prediction_tokens\": 0, \"rejected_prediction_tokens\": 0}}, \"system_fingerprint\": \"fp_0ba0d124f1\"}"
+  "cache": "{\"id\": \"chatcmpl-AQ6v8f0j2P8Z6kfC2WgK1voxZ8DTk\", \"object\": \"chat.completion\", \"created\": 1730786494, \"model\": \"gpt-4o-mini-2024-07-18\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": null, \"tool_calls\": [{\"id\": \"call_D6s9ajZPwpRnHZpX5OYHkPk1\", \"type\": \"function\", \"function\": {\"name\": \"get_user_name\", \"arguments\": \"{}\"}}], \"refusal\": null}, \"logprobs\": null, \"finish_reason\": \"tool_calls\"}], \"usage\": {\"prompt_tokens\": 51, \"completion_tokens\": 11, \"total_tokens\": 62, \"prompt_tokens_details\": {\"cached_tokens\": 0}, \"completion_tokens_details\": {\"reasoning_tokens\": 0, \"accepted_prediction_tokens\": 0, \"rejected_prediction_tokens\": 0}}, \"system_fingerprint\": \"fp_9b78b61c52\"}"
 }
 {
   "name": "response_to_markdown.7",
   "dirty": false,
   "deps": [
-    "query.6"
+    [
+      "query.6",
+      null
+    ]
   ],
-  "named_deps": {},
   "cache": "\"\""
 }
 {
-  "name": "tool/get_user_name/call.16",
+  "name": "tool/get_user_name/call.15",
   "dirty": true,
   "deps": [],
-  "named_deps": {},
   "cache": null
 }
 {
-  "name": "messages_to_query.11",
+  "name": "messages_to_query.9",
   "dirty": true,
   "deps": [
-    "prompt_to_messages.3",
-    "credentials.4"
-  ],
-  "named_deps": {
-    "toolspecs": [
-      "tool/get_user_name/spec.1"
+    [
+      "prompt_to_messages.3",
+      null
     ],
-    "toolcalls": [
-      "tool/get_user_name/call.16"
+    [
+      "credentials.4",
+      "credentials"
+    ],
+    [
+      "tool/get_user_name/spec.1",
+      "toolspecs"
+    ],
+    [
+      "tool/get_user_name/call.15",
+      "toolcalls"
     ]
-  },
+  ],
   "cache": null
 }
 {
-  "name": "query.14",
+  "name": "query.13",
   "dirty": true,
   "deps": [
-    "messages_to_query.11"
+    [
+      "messages_to_query.9",
+      null
+    ]
   ],
-  "named_deps": {},
   "cache": null
 }
 {
-  "name": "response_to_markdown.15",
+  "name": "response_to_markdown.14",
   "dirty": true,
   "deps": [
-    "query.14"
+    [
+      "query.13",
+      null
+    ]
   ],
-  "named_deps": {},
   "cache": null
 }
 {
   "name": "stdout.8",
   "dirty": true,
   "deps": [
-    "response_to_markdown.7",
-    "response_to_markdown.15"
+    [
+      "response_to_markdown.7",
+      null
+    ],
+    [
+      "response_to_markdown.14",
+      null
+    ]
   ],
-  "named_deps": {},
   "cache": null
 }
