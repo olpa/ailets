@@ -20,7 +20,7 @@ def _process_single_response(response: dict, env: Environment, node: Node) -> st
     for tool_call in tool_calls:
         tool_name = tool_call["function"]["name"]
         short_node_name = f"tool/{tool_name}/call"
-        tool_func = env.get_tool_func(tool_name)
+        (_, tool_func) = env.get_tool(tool_name)
 
         tool_spec_node = env.add_node("value", lambda _: tool_call)
         tool_call_node = env.add_node(short_node_name, tool_func, [tool_spec_node.name])

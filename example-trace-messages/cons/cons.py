@@ -29,6 +29,7 @@ class Environment:
     def __init__(self) -> None:
         self.nodes: Dict[str, Node] = {}
         self._node_counter: int = 0  # Single counter for all nodes
+        self._tools: Dict[str, tuple[Callable, Callable]] = {}  # New tools dictionary
 
     def add_node(
         self,
@@ -383,6 +384,33 @@ class Environment:
             if any(dep_name == node.name for dep_name, _ in other_node.deps):
                 next_nodes.append(other_node)
         return next_nodes
+
+    def add_tool(self, name: str, funcs: tuple[Callable, Callable]) -> None:
+        """Add a tool with its associated functions.
+
+        Args:
+            name: Name of the tool
+            funcs: Tuple of (execute_func, validate_func) for the tool
+        """
+        if name in self._tools:
+            raise ValueError(f"Tool {name} already exists")
+        self._tools[name] = funcs
+
+    def get_tool(self, name: str) -> tuple[Callable, Callable]:
+        """Get the functions associated with a tool.
+
+        Args:
+            name: Name of the tool
+
+        Returns:
+            Tuple of (execute_func, validate_func) for the tool
+
+        Raises:
+            KeyError: If tool not found
+        """
+        if name not in self._tools:
+            raise KeyError(f"Tool {name} not found")
+        return self._tools[name]
 
 
 def mkenv() -> Environment:

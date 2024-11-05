@@ -1,6 +1,6 @@
 import argparse
 from cons import mkenv, prompt_to_md, build_plan_writing_trace, load_state_from_trace
-from cons.nodes.tool_get_user_name import get_spec_for_get_user_name
+from cons.nodes.tool_get_user_name import get_spec_for_get_user_name, run_get_user_name
 from cons.pipelines import get_func_map
 
 TARGET = "stdout"
@@ -20,6 +20,7 @@ def parse_args():
 def main():
     args = parse_args()
     env = mkenv()
+    env.add_tool("get_user_name", (get_spec_for_get_user_name, run_get_user_name))
 
     if args.load_plan_from_trace:
         load_state_from_trace(env, args.load_plan_from_trace, get_func_map())
