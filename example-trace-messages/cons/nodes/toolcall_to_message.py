@@ -14,9 +14,15 @@ def toolcall_to_message(inputs: list[Any], llm_spec: list[dict]) -> dict[str, st
     function_name = spec["function"]["name"]
     tool_call_id = spec["id"]
 
+    # Parse arguments string to dict, handling JSON errors
+    try:
+        arguments = json.loads(spec["function"]["arguments"])
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Failed to parse tool arguments as JSON: {e}") from e
+
     # Construct response content by combining params with tool result
     content = {
-        **spec["function"]["parameters"],  # Include all original parameters
+        **arguments,  # Include all original parameters
         function_name: tool_result,  # Add tool result under function name
     }
 
