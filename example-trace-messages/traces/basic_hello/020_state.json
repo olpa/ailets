@@ -1,53 +1,78 @@
 {
-  "name": "initial_prompt",
+  "name": "value.1",
   "dirty": false,
   "deps": [],
-  "cache": "hello"
+  "cache": "\"hello\"",
+  "explain": "Initial prompt"
 }
 {
-  "name": "prompt_to_messages",
-  "dirty": true,
+  "name": "prompt_to_messages.2",
+  "dirty": false,
   "deps": [
-    "initial_prompt"
+    [
+      "value.1",
+      null
+    ]
   ],
-  "cache": null
+  "cache": "[{\"role\": \"user\", \"content\": \"hello\"}]",
+  "explain": null
 }
 {
-  "name": "credentials",
+  "name": "credentials.3",
   "dirty": true,
   "deps": [],
-  "cache": null
+  "cache": null,
+  "explain": null
 }
 {
-  "name": "messages_to_query",
+  "name": "messages_to_query.4",
   "dirty": true,
   "deps": [
-    "prompt_to_messages",
-    "credentials"
+    [
+      "prompt_to_messages.2",
+      null
+    ],
+    [
+      "credentials.3",
+      "credentials"
+    ]
   ],
-  "cache": null
+  "cache": null,
+  "explain": null
 }
 {
-  "name": "query",
+  "name": "query.5",
   "dirty": true,
   "deps": [
-    "messages_to_query"
+    [
+      "messages_to_query.4",
+      null
+    ]
   ],
-  "cache": null
+  "cache": null,
+  "explain": null
 }
 {
-  "name": "response_to_markdown",
+  "name": "response_to_markdown.6",
   "dirty": true,
   "deps": [
-    "query"
+    [
+      "query.5",
+      null
+    ]
   ],
-  "cache": null
+  "cache": null,
+  "explain": null
 }
 {
-  "name": "stdout",
+  "name": "stdout.7",
   "dirty": true,
   "deps": [
-    "response_to_markdown"
+    [
+      "response_to_markdown.6",
+      null
+    ]
   ],
-  "cache": null
+  "cache": null,
+  "explain": null
 }
