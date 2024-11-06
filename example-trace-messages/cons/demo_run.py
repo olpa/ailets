@@ -46,7 +46,7 @@ def build_plan_writing_trace(
         next_node = None
         for node_name in plan:
             node = env.get_node(node_name)
-            if node.dirty or node.cache is None:
+            if node.dirty:
                 next_node = node
                 break
 

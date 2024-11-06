@@ -3,9 +3,18 @@ import requests
 import os
 from typing import Dict, Any, List
 
+MAX_RUNS = 3  # Maximum number of runs allowed
+_run_count = 0  # Track number of runs
+
 
 def query(query_params: List[Dict[str, Any]]) -> Any:
     """Perform the HTTP request to the API."""
+    global _run_count
+    _run_count += 1
+
+    if _run_count > MAX_RUNS:
+        raise RuntimeError(f"Exceeded maximum number of runs ({MAX_RUNS})")
+
     assert len(query_params) == 1, "Expected exactly one query params dict"
     params = query_params[0]  # Get the single params dict
 
@@ -27,13 +36,11 @@ def query(query_params: List[Dict[str, Any]]) -> Any:
         return response.json()
     except requests.exceptions.RequestException as e:
         print(f"HTTP Request failed: {str(e)}")
-        if (
-            hasattr(e, "response") and e.response is not None
-        ):  # Check if response exists
+        if hasattr(e, "response") and e.response is not None:
             print(f"Response text: {e.response.text}")
         raise
     except json.JSONDecodeError as e:
         print(f"Failed to decode JSON response: {str(e)}")
-        if response is not None:  # Check if response exists
+        if response is not None:
             print(f"Raw response: {response.text}")
         raise

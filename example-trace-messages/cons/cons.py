@@ -95,7 +95,7 @@ class Environment:
         node = self.get_node(name)
 
         # If node is already built and clean, return cached result
-        if not node.dirty and node.cache is not None:
+        if not node.dirty:
             return node.cache
 
         # Build dependencies first
@@ -219,9 +219,7 @@ class Environment:
 
         node = self.get_node(node_name)
         status = (
-            "\033[32m✓ built\033[0m"
-            if not node.dirty and node.cache is not None
-            else "\033[33m⋯ not built\033[0m"
+            "\033[32m✓ built\033[0m" if not node.dirty else "\033[33m⋯ not built\033[0m"
         )
 
         # Print current node with explanation if it exists
