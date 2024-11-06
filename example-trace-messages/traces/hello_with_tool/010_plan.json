@@ -1,8 +1,9 @@
 {
   "name": "value.2",
-  "dirty": true,
+  "dirty": false,
   "deps": [],
-  "cache": null
+  "cache": "\"hello\"",
+  "explain": "Initial prompt"
 }
 {
   "name": "prompt_to_messages.3",
@@ -13,19 +14,22 @@
       null
     ]
   ],
-  "cache": null
+  "cache": null,
+  "explain": null
 }
 {
   "name": "credentials.4",
   "dirty": true,
   "deps": [],
-  "cache": null
+  "cache": null,
+  "explain": null
 }
 {
   "name": "tool/get_user_name/spec.1",
   "dirty": true,
   "deps": [],
-  "cache": null
+  "cache": null,
+  "explain": null
 }
 {
   "name": "messages_to_query.5",
@@ -44,7 +48,8 @@
       "toolspecs"
     ]
   ],
-  "cache": null
+  "cache": null,
+  "explain": null
 }
 {
   "name": "query.6",
@@ -55,7 +60,8 @@
       null
     ]
   ],
-  "cache": null
+  "cache": null,
+  "explain": null
 }
 {
   "name": "response_to_markdown.7",
@@ -66,7 +72,8 @@
       null
     ]
   ],
-  "cache": null
+  "cache": null,
+  "explain": null
 }
 {
   "name": "stdout.8",
@@ -77,5 +84,6 @@
       null
     ]
   ],
-  "cache": null
+  "cache": null,
+  "explain": null
 }

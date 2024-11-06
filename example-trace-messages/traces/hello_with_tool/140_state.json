@@ -91,19 +91,19 @@
 }
 {
   "name": "tool/get_user_name/call.17",
-  "dirty": true,
+  "dirty": false,
   "deps": [
     [
       "value.16",
       null
     ]
   ],
-  "cache": null,
+  "cache": "\"olpa\"",
   "explain": null
 }
 {
   "name": "toolcall_to_messages.18",
-  "dirty": true,
+  "dirty": false,
   "deps": [
     [
       "tool/get_user_name/call.17",
@@ -114,12 +114,12 @@
       "llm_spec"
     ]
   ],
-  "cache": null,
+  "cache": "[{\"role\": \"tool\", \"tool_call_id\": \"call_7Dq5stn1K9jmHTB2gVMTJMuS\", \"content\": \"{\\\"get_user_name\\\": \\\"olpa\\\"}\"}]",
   "explain": null
 }
 {
   "name": "messages_to_query.11",
-  "dirty": true,
+  "dirty": false,
   "deps": [
     [
       "prompt_to_messages.3",
@@ -142,36 +142,36 @@
       null
     ]
   ],
-  "cache": null,
+  "cache": "{\"url\": \"https://api.openai.com/v1/chat/completions\", \"method\": \"POST\", \"headers\": {\"Content-type\": \"application/json\", \"Authorization\": \"Bearer ##OPENAI_API_KEY##\"}, \"body\": {\"model\": \"gpt-4o-mini\", \"messages\": [{\"role\": \"user\", \"content\": \"hello\"}, {\"role\": \"assistant\", \"tool_calls\": [{\"id\": \"call_7Dq5stn1K9jmHTB2gVMTJMuS\", \"type\": \"function\", \"function\": {\"name\": \"get_user_name\", \"arguments\": \"{}\"}}]}, {\"role\": \"tool\", \"tool_call_id\": \"call_7Dq5stn1K9jmHTB2gVMTJMuS\", \"content\": \"{\\\"get_user_name\\\": \\\"olpa\\\"}\"}], \"tools\": [{\"type\": \"function\", \"function\": {\"name\": \"get_user_name\", \"description\": \"Get the user's name. Call this whenever you need to know the name of the user.\", \"strict\": true, \"parameters\": {\"type\": \"object\", \"properties\": {}, \"additionalProperties\": false}}}]}}",
   "explain": null
 }
 {
   "name": "query.12",
-  "dirty": true,
+  "dirty": false,
   "deps": [
     [
       "messages_to_query.11",
       null
     ]
   ],
-  "cache": null,
+  "cache": "{\"id\": \"chatcmpl-AQSh2SudaiIT9uLukw7anas1Utz9P\", \"object\": \"chat.completion\", \"created\": 1730870188, \"model\": \"gpt-4o-mini-2024-07-18\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"Hello, Olpa! How can I assist you today?\", \"refusal\": null}, \"logprobs\": null, \"finish_reason\": \"stop\"}], \"usage\": {\"prompt_tokens\": 80, \"completion_tokens\": 13, \"total_tokens\": 93, \"prompt_tokens_details\": {\"cached_tokens\": 0, \"audio_tokens\": 0}, \"completion_tokens_details\": {\"reasoning_tokens\": 0, \"audio_tokens\": 0, \"accepted_prediction_tokens\": 0, \"rejected_prediction_tokens\": 0}}, \"system_fingerprint\": \"fp_0ba0d124f1\"}",
   "explain": null
 }
 {
   "name": "response_to_markdown.14",
-  "dirty": true,
+  "dirty": false,
   "deps": [
     [
       "query.12",
       null
     ]
   ],
-  "cache": null,
+  "cache": "\"Hello, Olpa! How can I assist you today?\"",
   "explain": null
 }
 {
   "name": "stdout.8",
-  "dirty": true,
+  "dirty": false,
   "deps": [
     [
       "response_to_markdown.7",
@@ -182,6 +182,6 @@
       null
     ]
   ],
-  "cache": null,
+  "cache": "[\"\", \"Hello, Olpa! How can I assist you today?\"]",
   "explain": null
 }

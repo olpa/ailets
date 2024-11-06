@@ -65,10 +65,104 @@
 }
 {
   "name": "response_to_markdown.7",
-  "dirty": true,
+  "dirty": false,
   "deps": [
     [
       "query.6",
+      null
+    ]
+  ],
+  "cache": "\"\"",
+  "explain": null
+}
+{
+  "name": "value.15",
+  "dirty": false,
+  "deps": [],
+  "cache": "[{\"role\": \"assistant\", \"tool_calls\": [{\"id\": \"call_7Dq5stn1K9jmHTB2gVMTJMuS\", \"type\": \"function\", \"function\": {\"name\": \"get_user_name\", \"arguments\": \"{}\"}}]}]",
+  "explain": "Feed \"tool_calls\" from output to input"
+}
+{
+  "name": "value.16",
+  "dirty": false,
+  "deps": [],
+  "cache": "{\"id\": \"call_7Dq5stn1K9jmHTB2gVMTJMuS\", \"type\": \"function\", \"function\": {\"name\": \"get_user_name\", \"arguments\": \"{}\"}}",
+  "explain": "Tool call spec from llm"
+}
+{
+  "name": "tool/get_user_name/call.17",
+  "dirty": false,
+  "deps": [
+    [
+      "value.16",
+      null
+    ]
+  ],
+  "cache": "\"olpa\"",
+  "explain": null
+}
+{
+  "name": "toolcall_to_messages.18",
+  "dirty": false,
+  "deps": [
+    [
+      "tool/get_user_name/call.17",
+      null
+    ],
+    [
+      "value.16",
+      "llm_spec"
+    ]
+  ],
+  "cache": "[{\"role\": \"tool\", \"tool_call_id\": \"call_7Dq5stn1K9jmHTB2gVMTJMuS\", \"content\": \"{\\\"get_user_name\\\": \\\"olpa\\\"}\"}]",
+  "explain": null
+}
+{
+  "name": "messages_to_query.11",
+  "dirty": true,
+  "deps": [
+    [
+      "prompt_to_messages.3",
+      null
+    ],
+    [
+      "credentials.4",
+      "credentials"
+    ],
+    [
+      "tool/get_user_name/spec.1",
+      "toolspecs"
+    ],
+    [
+      "value.15",
+      null
+    ],
+    [
+      "toolcall_to_messages.18",
+      null
+    ]
+  ],
+  "cache": null,
+  "explain": null
+}
+{
+  "name": "query.12",
+  "dirty": true,
+  "deps": [
+    [
+      "messages_to_query.11",
+      null
+    ]
+  ],
+  "cache": null,
+  "explain": null
+}
+{
+  "name": "response_to_markdown.14",
+  "dirty": true,
+  "deps": [
+    [
+      "query.12",
       null
     ]
   ],
@@ -81,6 +175,10 @@
   "deps": [
     [
       "response_to_markdown.7",
+      null
+    ],
+    [
+      "response_to_markdown.14",
       null
     ]
   ],
