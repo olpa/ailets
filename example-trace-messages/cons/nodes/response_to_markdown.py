@@ -20,12 +20,7 @@ def _process_single_response(response: dict, env: Environment, node: Node) -> st
     idref_messages = [
         {
             "role": message["role"],
-            "tool_calls": [
-                {
-                    "id": tool_call["id"],
-                }
-                for tool_call in tool_calls
-            ],
+            "tool_calls": tool_calls,
         }
     ]
     idref_node = env.add_value_node(
