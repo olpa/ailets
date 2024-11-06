@@ -17,6 +17,14 @@ def _process_single_response(response: dict, env: Environment, node: Node) -> st
     start_node = pipeline[0]
     end_node = pipeline[-1]
 
+    idref_messages = [
+        {
+            "tool_calls": [{"id": tool_call["id"]} for tool_call in tool_calls],
+        }
+    ]
+    idref_node = env.add_node("value", lambda _: idref_messages)
+    start_node.deps.append((idref_node.name, None))
+
     for tool_call in tool_calls:
         tool_name = tool_call["function"]["name"]
         short_node_name = f"tool/{tool_name}/call"

@@ -2,7 +2,9 @@ import json
 from typing import Any
 
 
-def toolcall_to_messages(inputs: list[Any], llm_spec: list[dict]) -> dict[str, str]:
+def toolcall_to_messages(
+    inputs: list[Any], llm_spec: list[dict]
+) -> list[dict[str, str]]:
     """Convert tool result and spec into a chat message."""
     assert len(inputs) == 1, "Expected exactly one tool result"
     assert len(llm_spec) == 1, "Expected exactly one tool spec"
@@ -26,8 +28,10 @@ def toolcall_to_messages(inputs: list[Any], llm_spec: list[dict]) -> dict[str, s
         function_name: tool_result,  # Add tool result under function name
     }
 
-    return [{
-        "role": "tool",
-        "tool_call_id": tool_call_id,
-        "content": json.dumps(content),  # Content must be string for OpenAI API
-    }]
+    return [
+        {
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "content": json.dumps(content),  # Content must be string for OpenAI API
+        }
+    ]
