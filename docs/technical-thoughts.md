@@ -1,12 +1,39 @@
 # Technical thoughts
 
-## Actors mixed with the unix style
+## Architecture
 
-Follow the [actor model](https://en.wikipedia.org/wiki/Actor_model) as closely as possible:
+Ailets is a mixture of several styles:
+
+- actor model
+- everything is a file
+- build system
+
+Here are the features of the [actor model](https://en.wikipedia.org/wiki/Actor_model):
 
 > In response to a message it receives, an actor can: make local decisions, create more actors, send more messages, and determine how to respond to the next message received. Actors may modify their own private state, but can only affect each other indirectly through messaging
 
-After decomposing user use cases, communication can be simplified: use "stdin" for incoming messages and "stdout" for outgoing messages. Furthermore, instead of multiple messages, it's enough to have one message with a streaming body.
+For steps in llm pipelines, the communication can be simplified: use "stdin" for incoming messages and "stdout" for outgoing messages. Furthermore, instead of multiple messages, it's enough to have one message with a streaming body.
+
+When using llm with tools, the workflow is no more a straight pipeline. Instead, there is branching, and it makes sense to have features of the build systems.
+
+### Components
+
+- ailets itself:
+  - calls to llms
+  - llm tools
+- shared library
+- orchestrator
+- host support
+  - to drive orchestrator
+  - tools exposed as aitlets
+
+
+## Build system
+
+In the first approximation, the ailets orchestrator is a build system.
+
+Sample dependency tree for a simple request to a llm:
+
 
 
 ## Format of messages
