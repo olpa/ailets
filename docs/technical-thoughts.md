@@ -105,140 +105,21 @@ Processing the result of `query`, the step `response_to_markdown` will notice th
 The path to `response_to_markdown` is cloned and extended to call the tools before calling the llm.
 
 
-## Format of messages
+## Streaming and orchestration
 
-Like an HTTP request:
+We should support streaming: User should get the result incrementally while updates are being generated in some intermediate step.
 
-- Message name
-- Message headers: map from strings to strings
-- Body
-
-
-## Examples of messaging
-
-### "stdin" runtime actor
-
-Input: read text from the user.
-
-Message to "stdlog":
-
-```
-POST /trace
-trace-id: workflow-123
-span-id: prompt-456
-```
-
-Message to "stdout":
-
-```
-trace-id: workflow-123
-from-span-id: prompt-456
-
-hello
-```
-
-### "prompt2gpt" actor
-
-Message to "stdlog":
-
-```
-POST /trace
-trace-id: workflow-123
-parent-id: prompt-456
-span-id: gpt-789
-```
-
-There are two messages to "stdout". First message is to get credentials:
-
-```
-RUN /tool/auth-key
-trace-id: workflow-123
-from-span-id: gpt-789
-output-stream: auth-https://api.openai.com/v1/chat/completions
-
-{
-  "url": "https://api.openai.com/v1/chat/completions",
-  "outputPrefix": "Bearer "
-}
-```
-
-Second message is the definition of the call to the model. Inside, it uses the output of the "auth-key" actor.
-
-```
-RUN /tool/http-call
-trace-id: workflow-123
-from-span-id: gpt-789
-
-{
-  "url": "https://api.openai.com/v1/chat/completions",
-  "method": "POST",
-  "headers": {
-    "Content-type": "application/json",
-    "Authorization": { "$stream": "auth-https://api.openai.com/v1/chat/completions" }
-  },
-  body: {
-    "model": "gpt-3.5-turbo",
-    "messages": [
-      {
-        "role": "user",
-        "content": "hello"
-      }
-    ]
-  }
-};
-```
-
-TODO FIXME: The generation of "auth" is in the wrong place. It should not be generated on "prompt2query" step, but it's a sort of deendency of "query".
-
-
-### "auth-key" runtime actor
-
-A message to "stdlog", starting from here we don't mention it anymore.
-
-The actor can be:
-
-- get the value of an environment variable, or
-- using the OS keyring to get the value
-
-The content of "stdout" should be the auth header.
-
-
-### "query" runtime actor
-
-Make an http call. Stream the output to "stdout".
-
-
-### "response2gpt"
-
-It needs to use a streamning json input. To define yet.
-
-Without "tools", the output is markdown. Further, we consider the case when "tools" are used.
-
-At the moment, the llm models generate only one response item and stop. But let's generalize and imagine this chat:
-
-- system message
-- user message 1
-- assistant message 1
-- user message 2
-- assistant message 2a
-- unresolved tool message 1a
-- unresolved tool message 1b
-- assistant message 2b
-- unresolved tool message 1c
-
-The actor should trigger the resolution of tool messages and restart with "query" actor.
+Therefore: Instead of a traditional build system with a step-by-step workflow, we should implement a sophisticated orchestrator.
 
 
 ## Content types
 
 A helper library may be required to process formats:
 
-1. plain text
-2. json
-3. streamed json or parsed json
-4. streamed rich text
-5. host stream
-6. chat history
+1. json
+2. markdown
+3. rich text
+4. link host resources
 
 For (3): The format of the streamed json has yet to be defined. Let's use protobuf's [JSON mapping](https://protobuf.dev/programming-guides/proto3/#json) for inspiration.
 
