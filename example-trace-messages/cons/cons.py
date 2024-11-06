@@ -13,6 +13,7 @@ class Node:
     )  # [(node_name, dep_name)]
     cache: Any = field(default=None, compare=False)
     dirty: bool = field(default=True, compare=False)
+    explain: Optional[str] = field(default=None)  # New field for explanation
 
     def to_json(self) -> Dict[str, Any]:
         """Convert node state to a JSON-serializable dict."""
@@ -21,6 +22,7 @@ class Node:
             "dirty": self.dirty,
             "deps": self.deps,
             "cache": None if self.cache is None else json.dumps(self.cache),
+            "explain": self.explain,  # Add explain field to JSON
             # Skip func as it's not serializable
         }
 
@@ -36,11 +38,9 @@ class Environment:
         name: str,
         func: Callable[..., Any],
         deps: Optional[list[Union[str, tuple[str, str]]]] = None,
+        explain: Optional[str] = None,  # New parameter
     ) -> Node:
         """Add a build node with its dependencies.
-
-        The node name will automatically get a suffix '.N' where N is an incrementing
-        number shared across all nodes.
 
         Args:
             name: Base name for the node
@@ -48,6 +48,7 @@ class Environment:
             deps: List of dependencies. Each dependency can be either:
                 - str: node name (for default/unnamed dependencies)
                 - tuple[str, str]: (node name, dependency name)
+            explain: Optional explanation of what the node does
 
         Returns:
             The created node
@@ -62,7 +63,7 @@ class Environment:
                 (dep, None) if isinstance(dep, str) else dep for dep in deps
             ]
         # Create and add node
-        node = Node(name=full_name, func=func, deps=normalized_deps)
+        node = Node(name=full_name, func=func, deps=normalized_deps, explain=explain)
         self.nodes[full_name] = node
         return node
 
@@ -144,6 +145,7 @@ class Environment:
             deps=node.deps,
             cache=result,
             dirty=False,
+            explain=node.explain,
         )
         return result
 
@@ -217,11 +219,16 @@ class Environment:
 
         node = self.get_node(node_name)
         status = (
-            "✓ built" if not node.dirty and node.cache is not None else "⋯ not built"
+            "\033[32m✓ built\033[0m"
+            if not node.dirty and node.cache is not None
+            else "\033[33m⋯ not built\033[0m"
         )
 
-        # Print current node
-        print(f"{indent}├── {node.name} [{status}]")
+        # Print current node with explanation if it exists
+        node_text = f"{indent}├── {node.name} [{status}]"
+        if node.explain:
+            node_text += f" ({node.explain})"
+        print(node_text)
 
         # Track visited nodes to prevent cycles
         if node_name in visited:
@@ -289,6 +296,7 @@ class Environment:
             deps=node_data["deps"],
             cache=None if cache_str is None else json.loads(cache_str),
             dirty=node_data["dirty"],
+            explain=node_data.get("explain"),  # Load explain field if present
         )
 
     def clone_path(self, start: str, end: str) -> list[Node]:
@@ -361,6 +369,7 @@ class Environment:
                 deps=new_deps,
                 cache=clone.cache,
                 dirty=clone.dirty,
+                explain=clone.explain,
             )
 
         # Create return list with start and end nodes in correct positions

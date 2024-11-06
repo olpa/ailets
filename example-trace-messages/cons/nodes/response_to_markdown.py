@@ -22,7 +22,11 @@ def _process_single_response(response: dict, env: Environment, node: Node) -> st
             "tool_calls": [{"id": tool_call["id"]} for tool_call in tool_calls],
         }
     ]
-    idref_node = env.add_node("value", lambda _: idref_messages)
+    idref_node = env.add_node(
+        "value",
+        lambda _: idref_messages,
+        explain='Feed "tool_calls" from output to input',
+    )
     start_node.deps.append((idref_node.name, None))
 
     for tool_call in tool_calls:
