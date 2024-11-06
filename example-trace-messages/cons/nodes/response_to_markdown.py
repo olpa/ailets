@@ -28,9 +28,8 @@ def _process_single_response(response: dict, env: Environment, node: Node) -> st
             ],
         }
     ]
-    idref_node = env.add_node(
-        "value",
-        lambda _: idref_messages,
+    idref_node = env.add_value_node(
+        idref_messages,
         explain='Feed "tool_calls" from output to input',
     )
     start_node.deps.append((idref_node.name, None))

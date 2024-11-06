@@ -419,6 +419,32 @@ class Environment:
             raise KeyError(f"Tool {name} not found")
         return self._tools[name]
 
+    def add_value_node(self, value: Any, explain: Optional[str] = None) -> Node:
+        """Add a node that contains a pre-built value.
+
+        Args:
+            value: The value to store in the node
+            explain: Optional explanation of what the value represents
+
+        Returns:
+            The created node in a built (not dirty) state
+        """
+        self._node_counter += 1
+        full_name = f"value.{self._node_counter}"
+
+        # Create node with the value pre-cached and marked as clean
+        node = Node(
+            name=full_name,
+            func=lambda _: value,  # Simple function that returns the value
+            deps=[],  # No dependencies
+            cache=value,  # Pre-cache the value
+            dirty=False,  # Mark as built
+            explain=explain,
+        )
+
+        self.nodes[full_name] = node
+        return node
+
 
 def mkenv() -> Environment:
     return Environment()

@@ -30,7 +30,7 @@ def prompt_to_md(
 ) -> Node:
     """Create a chain of nodes that process a prompt into markdown."""
     # Define nodes and their dependencies
-    node_v = env.add_node("value", lambda _: initial_prompt, explain="Initial prompt")
+    node_v = env.add_value_node(initial_prompt, explain="Initial prompt")
     node_ptm = env.add_node("prompt_to_messages", prompt_to_messages, [node_v.name])
     node_creds = env.add_node("credentials", credentials)
     node_mtq = env.add_node(
