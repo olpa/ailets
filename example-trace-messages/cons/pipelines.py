@@ -12,7 +12,7 @@ from .nodes.toolcall_to_messages import toolcall_to_messages
 def get_func_map():
     """Create mapping of node names to their functions."""
     return {
-        "value": lambda node: node.cache,
+        "value": lambda _, node: node.cache,
         "prompt_to_messages": prompt_to_messages,
         "credentials": credentials,
         "messages_to_query": messages_to_query,
