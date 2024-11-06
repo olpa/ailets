@@ -34,7 +34,9 @@ def _process_single_response(response: dict, env: Environment, node: Node) -> st
         short_node_name = f"tool/{tool_name}/call"
         (_, tool_func) = env.get_tool(tool_name)
 
-        tool_spec_node = env.add_node("value", lambda _: tool_call)
+        tool_spec_node = env.add_node(
+            "value", lambda _: tool_call, explain="Tool call spec from llm"
+        )
         tool_call_node = env.add_node(short_node_name, tool_func, [tool_spec_node.name])
         tool_msg_node = env.add_node(
             "toolcall_to_messages",
