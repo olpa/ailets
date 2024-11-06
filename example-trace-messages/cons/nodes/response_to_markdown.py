@@ -1,5 +1,5 @@
 from cons.cons import Environment, Node
-from .toolcall_to_message import toolcall_to_message
+from .toolcall_to_messages import toolcall_to_messages
 
 
 def _process_single_response(response: dict, env: Environment, node: Node) -> str:
@@ -25,8 +25,8 @@ def _process_single_response(response: dict, env: Environment, node: Node) -> st
         tool_spec_node = env.add_node("value", lambda _: tool_call)
         tool_call_node = env.add_node(short_node_name, tool_func, [tool_spec_node.name])
         tool_msg_node = env.add_node(
-            "toolcall_to_message",
-            toolcall_to_message,
+            "toolcall_to_messages",
+            toolcall_to_messages,
             [tool_call_node.name, (tool_spec_node.name, "llm_spec")],
         )
 

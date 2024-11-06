@@ -6,7 +6,7 @@ from .nodes.response_to_markdown import response_to_markdown
 from .nodes.stdout import stdout
 from .nodes.credentials import credentials
 from .nodes.tool_get_user_name import get_spec_for_get_user_name, run_get_user_name
-from .nodes.toolcall_to_message import toolcall_to_message
+from .nodes.toolcall_to_messages import toolcall_to_messages
 
 
 def get_func_map():
@@ -21,7 +21,7 @@ def get_func_map():
         "stdout": stdout,
         "tool/get_user_name/spec": get_spec_for_get_user_name,
         "tool/get_user_name/call": run_get_user_name,
-        "toolcall_to_message": toolcall_to_message,
+        "toolcall_to_messages": toolcall_to_messages,
     }
 
 
