@@ -6,7 +6,6 @@ Ailets is a mixture of several styles:
 
 - actor model
 - everything is a file
-- build system
 
 Here are the features of the [actor model](https://en.wikipedia.org/wiki/Actor_model):
 
@@ -14,7 +13,6 @@ Here are the features of the [actor model](https://en.wikipedia.org/wiki/Actor_m
 
 For steps in llm pipelines, the communication can be simplified: use "stdin" for incoming messages and "stdout" for outgoing messages. Furthermore, instead of multiple messages, it's enough to have one message with a streaming body.
 
-When using llm with tools, the workflow is no more a straight pipeline. Instead, there is branching, and it makes sense to have features of the build systems.
 
 ### Components
 
@@ -30,10 +28,81 @@ When using llm with tools, the workflow is no more a straight pipeline. Instead,
 
 ## Build system
 
-In the first approximation, the ailets orchestrator is a build system.
+When using llm with tools, the workflow is no more a straight pipeline. Instead, there is branching, and it makes sense to have features of the build systems.
 
 Sample dependency tree for a simple request to a llm:
 
+```
+├── stdout.7 [⋯ not built]
+│   ├── response_to_markdown.6 [⋯ not built]
+│   │   ├── query.5 [⋯ not built]
+│   │   │   ├── messages_to_query.4 [⋯ not built]
+│   │   │   │   ├── prompt_to_messages.2 [⋯ not built]
+│   │   │   │   │   ├── value.1 [✓ built] (Initial prompt)
+│   │   │   │   ├── (param: credentials)
+│   │   │   │   │   ├── credentials.3 [⋯ not built]
+```
+
+The steps flow from the inners of the tree to outside.
+
+- `prompt_to_messages` converts a user prompt from `value.1` to a llm json
+- In parallel, `credentials.3` gets an api key from somewhere
+- Then `messages_to_query.4` combines the user message and the credentials to a specification of an http request
+- `query.5` executes the http request
+- `response_to_markdown.6`
+- `stdout.7` prints the result
+
+Below is another dependency tree, for the use of llm with tools. The tree is taken just before executing `response_to_markdown` step.
+
+```
+├── stdout.8 [⋯ not built]
+│   ├── response_to_markdown.7 [⋯ not built]
+│   │   ├── query.6 [✓ built]
+│   │   │   ├── messages_to_query.5 [✓ built]
+│   │   │   │   ├── prompt_to_messages.3 [✓ built]
+│   │   │   │   │   ├── value.2 [✓ built] (Initial prompt)
+│   │   │   │   ├── (param: credentials)
+│   │   │   │   │   ├── credentials.4 [✓ built]
+│   │   │   │   ├── (param: toolspecs)
+│   │   │   │   │   ├── tool/get_user_name/spec.1 [✓ built]
+```
+
+The tree is similar to one of the basic llm use. The additions is:
+
+- node `tool/get_user_name/spec`
+- the parameter `toolspecs` of `messages_to_query`
+
+Processing the result of `query`, the step `response_to_markdown` will notice that llm haven't generated content but want to use a tool instead. The step steps being an actor, and communicates with the orchestrator  to build a new dependency tree:
+
+```
+├── stdout.8 [⋯ not built]
+│   ├── response_to_markdown.7 [✓ built]
+│   │   ├── query.6 [✓ built]
+│   │   │   ├── messages_to_query.5 [✓ built]
+│   │   │   │   ├── prompt_to_messages.3 [✓ built]
+│   │   │   │   │   ├── value.2 [✓ built] (Initial prompt)
+│   │   │   │   ├── (param: credentials)
+│   │   │   │   │   ├── credentials.4 [✓ built]
+│   │   │   │   ├── (param: toolspecs)
+│   │   │   │   │   ├── tool/get_user_name/spec.1 [✓ built]
+│   ├── response_to_markdown.14 [⋯ not built]
+│   │   ├── query.12 [⋯ not built]
+│   │   │   ├── messages_to_query.11 [⋯ not built]
+│   │   │   │   ├── prompt_to_messages.3 [✓ built]
+│   │   │   │   │   ├── value.2 [✓ built] (Initial prompt)
+│   │   │   │   ├── value.15 [✓ built] (Feed "tool_calls" from output to input)
+│   │   │   │   ├── toolcall_to_messages.18 [⋯ not built]
+│   │   │   │   │   ├── tool/get_user_name/call.17 [⋯ not built]
+│   │   │   │   │   │   ├── value.16 [⋯ not built] (Tool call spec from llm)
+│   │   │   │   │   ├── (param: llm_spec)
+│   │   │   │   │   │   ├── value.16 [⋯ not built] (Tool call spec from llm)
+│   │   │   │   ├── (param: credentials)
+│   │   │   │   │   ├── credentials.4 [✓ built]
+│   │   │   │   ├── (param: toolspecs)
+│   │   │   │   │   ├── tool/get_user_name/spec.1 [✓ built]
+```
+
+The path to `response_to_markdown` is cloned and extended to call the tools before calling the llm.
 
 
 ## Format of messages
