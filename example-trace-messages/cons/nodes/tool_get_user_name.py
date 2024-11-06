@@ -9,6 +9,7 @@ def get_spec_for_get_user_name(_: list[str]) -> dict:
             "Get the user's name. Call this whenever you need to know the name "
             "of the user."
         ),
+        "strict": True,
         "parameters": {
             "type": "object",
             "properties": {},
