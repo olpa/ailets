@@ -10,9 +10,11 @@ from cons import (
     build_plan_writing_trace,
     load_state_from_trace,
     Environment,
+    Node,
 )
 from cons.pipelines import get_func_map
 import json
+from cons.nodes.tool_get_user_name import get_spec_for_get_user_name, run_get_user_name
 
 
 def parse_args():
@@ -38,7 +40,13 @@ def parse_args():
     )
     parser.add_argument("--one-step", action="store_true", help="Execute only one step")
     parser.add_argument("--stop-at", help="Stop execution at specified point")
-
+    parser.add_argument(
+        "--tool",
+        nargs="+",
+        dest="tools",
+        default=[],
+        help="List of tools to use (e.g. get_user_name)",
+    )
     return parser.parse_args()
 
 
@@ -57,17 +65,25 @@ def save_state(file_name: str, env: Environment, target_node_name: str):
             f.write("\n")
 
 
+def must_get_tool_spec(env: Environment, tool_name: str) -> Node:
+    node_name = f"tool/{tool_name}/spec"
+    (tool_spec_func, _) = env.get_tool(tool_name)
+    return env.add_node(node_name, tool_spec_func)
+
+
 def main():
     args = parse_args()
     assert args.model == "gpt4o", "At the moment, only gpt4o is supported"
 
     env = mkenv()
+    env.add_tool("get_user_name", (get_spec_for_get_user_name, run_get_user_name))
 
     if args.load_state:
         node = load_state_from_trace(env, args.load_state, get_func_map())
     else:
         prompt = get_prompt(args.prompt)
-        node = prompt_to_md(env, prompt)
+        tools_specs = [must_get_tool_spec(env, tool) for tool in args.tools]
+        node = prompt_to_md(env, prompt, tools_specs)
 
     target_node_name = node.name
     stop_node_name = args.stop_at or target_node_name
