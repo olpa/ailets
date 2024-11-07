@@ -2,33 +2,31 @@
 
 ## Architecture
 
-Ailets are a mix of:
+Ailets are a combination of the actor model and the "everything is a file" paradigm.
 
-- the [actor model](https://en.wikipedia.org/wiki/Actor_model), and
-- [everything is a file](https://en.wikipedia.org/wiki/Everything_is_a_file).
+- [actor model](https://en.wikipedia.org/wiki/Actor_model)
+- [everything is a file](https://en.wikipedia.org/wiki/Everything_is_a_file)
 
 > In response to a message it receives, an actor can: make local decisions, create more actors, send more messages, and determine how to respond to the next message received. Actors may modify their own private state, but can only affect each other indirectly through messaging
 
-For steps in llm pipelines, the communication can be simplified: use "stdin" for incoming messages and "stdout" for outgoing messages. Furthermore, instead of multiple messages, it's enough to have one message with a streaming body.
+For steps in LLM pipelines, communication can be simplified by using standard input (stdin) for incoming messages and standard output (stdout) for outgoing messages.  Instead of multiple discrete messages, a single message with a streaming body is sufficient.
 
 
 ### Components
 
-- ailets itself:
-  - calls to llms
-  - llm tools
-- shared library
-- orchestrator
-- host support
-  - to drive orchestrator
-  - tools exposed as aitlets
+- Ailets itself
+- Shared library of functions
+- Orchestrator
+- Host support
+  - For driving the orchestrator
+  - Tools exposed as Aitlets actors
 
 
 ## Build system
 
-When using llm with tools, the workflow is no more a straight pipeline. Instead, there is branching, and it makes sense to have features of the build systems.
+When using LLMs with tools, the workflow is no longer a straight pipeline. Instead, branching occurs, making features of build systems beneficial.
 
-Sample dependency tree for a simple request to a llm:
+A sample dependency tree for a simple request to an LLM is shown below:
 
 ```
 ├── stdout.7 [⋯ not built]
@@ -41,14 +39,14 @@ Sample dependency tree for a simple request to a llm:
 │   │   │   │   │   ├── credentials.3 [⋯ not built]
 ```
 
-The steps flow from the inners of the tree to outside.
+The steps proceed outward from the innermost part of the tree.
 
-- `prompt_to_messages` converts a user prompt from `value.1` to a llm json
-- In parallel, `credentials.3` gets an api key from somewhere
-- Then `messages_to_query.4` combines the user message and the credentials to a specification of an http request
-- `query.5` executes the http request
+- `prompt_to_messages` converts a user prompt from `value.1` to an LLM JSON object.
+- Concurrently, `credentials.3` retrieves an API key.
+- Then, `messages_to_query.4` combines the user message and the credentials into an HTTP request specification.
+- `query.5` executes the HTTP request.
 - `response_to_markdown.6`
-- `stdout.7` prints the result
+- `stdout.7` prints the result.
 
 Below is another dependency tree, for the use of llm with tools. The tree is taken just before executing `response_to_markdown` step.
 
@@ -65,12 +63,12 @@ Below is another dependency tree, for the use of llm with tools. The tree is tak
 │   │   │   │   │   ├── tool/get_user_name/spec.1 [✓ built]
 ```
 
-The tree is similar to one of the basic llm use. The additions is:
+The tree structure is similar to one used in basic LLMs. The additions are:
 
-- node `tool/get_user_name/spec`
-- the parameter `toolspecs` of `messages_to_query`
+- the `tool/get_user_name/spec` node
+- the `toolspecs` parameter of the `messages_to_query` function
 
-Processing the result of `query`, the step `response_to_markdown` will notice that llm haven't generated content but want to use a tool instead. The step steps being an actor, and communicates with the orchestrator  to build a new dependency tree:
+When processing the result of `query`, the `response_to_markdown` step will detect that the language model hasn't generated content but instead intends to use a tool. At this point, the step stops to act as an agent and communicates with the orchestrator to construct a new dependency tree.
 
 ```
 ├── stdout.8 [⋯ not built]
@@ -105,9 +103,9 @@ The path to `response_to_markdown` is cloned and extended to call the tools befo
 
 ## Streaming and orchestration
 
-We should support streaming: User should get the result incrementally while updates are being generated in some intermediate step.
+We should support streaming, allowing users to receive results incrementally as updates are generated during intermediate processing.
 
-Therefore: Instead of a traditional build system with a step-by-step workflow, we should implement a sophisticated orchestrator.
+Therefore, instead of a traditional, step-by-step build system, we should implement a sophisticated orchestrator.
 
 
 ## Actor interface
@@ -121,13 +119,12 @@ Preliminary version.
 int n_of_streams(const char *param_name);
 ```
 
-Actors get input through named parameters, each named parameters is an array of streams. The function returns the number of them.
+Return the number of input streams associated with a given parameter.
 
-The `param_name` can be `NULL`, it means the default input parameter.
+-  If `param_name` is `NULL`, the function assumes the default input parameter.
+-  If the parameter name is unknown, the function returns -1 and sets `errno` to indicate the error.
 
-Return `-1` and set `errno` if the parameter name is unknown.
-
-The number of input streams may change dynamically.
+The number of input streams associated with a parameter may change dynamically during program execution.
 
 
 *open*
@@ -136,9 +133,9 @@ The number of input streams may change dynamically.
 int open(const char *param_name, unsigned int idx);
 ```
 
-Get a file descriptor to `idx`th stream of the parameter `param_name`.
+Open the `idx`th stream associated with the parameter `param_name`.
 
-Return `-1` and set `errno` in case of error.
+Return a file descriptor on success, or `-1` on error.  In case of error, `errno` is set.
 
 
 *read*
@@ -147,11 +144,9 @@ Return `-1` and set `errno` in case of error.
 int read(int fd, voif buffer[count], int count)
 ```
 
-Read up to `count` bytes from the file descriptor `fd` into `buffer`.
+Read up to `count` bytes from the file descriptor `fd` into the `buffer`.
 
-Return `0` if the stream is ended.
-
-Return `-1` and set `errno` in case of error.
+Return the number of bytes read.  If the end of the file is encountered, `0` is returned.  On error, `-1` is returned, and `errno` is set appropriately.
 
 
 *write*
@@ -160,18 +155,16 @@ Return `-1` and set `errno` in case of error.
 int write(int fd, const void buffer[count], int count);
 ```
 
-Write up to `count` bytes from `buffer`to the stream referred to by the file descriptor `fd`.
+Writes up to `count` bytes from the `buffer` to the file descriptor `fd`.
 
-The number of bytes written may be less than `count`.
+Return the number of bytes written, which might be less than `count`.  On error, return `-1` and sets `errno` appropriately.
 
-Return `-1` and set `errno` in case of error.
+The following file descriptors are predefined:
 
-There is a fixed set of file descriptors:
-
-- `stdout=1`
-- `log=2`
-- `metrics=3`
-- `trace=4`
+- `STDOUT_FILENO = 1` (Standard output)
+- `STDERR_FILENO = 2` (Standard error; conventionally used for logging)
+- `METRICS_FD = 3` (Metrics output stream)
+- `TRACE_FD = 4` (Traces output stream)
 
 
 *errno, strerror*
