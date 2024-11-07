@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+import sys
 import setup  # noqa: F401
 from cons import mkenv, prompt_to_md, build_plan_writing_trace
 
@@ -33,12 +34,19 @@ def parse_args():
     return parser.parse_args()
 
 
+def get_prompt(prompt_arg: str) -> str:
+    if prompt_arg == "-":
+        return sys.stdin.read()
+    return prompt_arg
+
+
 def main():
     args = parse_args()
     assert args.model == "gpt4o", "At the moment, only gpt4o is supported"
 
     env = mkenv()
-    node = prompt_to_md(env)
+    prompt = get_prompt(args.prompt)
+    node = prompt_to_md(env, prompt)
     build_plan_writing_trace(env, node.name, one_step=args.one_step)
 
 
