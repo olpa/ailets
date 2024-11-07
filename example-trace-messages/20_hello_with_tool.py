@@ -1,4 +1,5 @@
 import argparse
+import setup
 from cons import mkenv, prompt_to_md, build_plan_writing_trace, load_state_from_trace
 from cons.nodes.tool_get_user_name import get_spec_for_get_user_name, run_get_user_name
 from cons.pipelines import get_func_map
