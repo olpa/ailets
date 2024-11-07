@@ -2,12 +2,10 @@
 
 ## Architecture
 
-Ailets is a mixture of several styles:
+Ailets are a mix of:
 
-- actor model
-- everything is a file
-
-Here are the features of the [actor model](https://en.wikipedia.org/wiki/Actor_model):
+- the [actor model](https://en.wikipedia.org/wiki/Actor_model), and
+- [everything is a file](https://en.wikipedia.org/wiki/Everything_is_a_file).
 
 > In response to a message it receives, an actor can: make local decisions, create more actors, send more messages, and determine how to respond to the next message received. Actors may modify their own private state, but can only affect each other indirectly through messaging
 
@@ -199,13 +197,13 @@ A helper library may be required to process formats:
 1. json
 2. markdown
 3. rich text
-4. link to host resources
+4. link to a host resource
 
-For (3): The format of the streamed json has yet to be defined. Let's use protobuf's [JSON mapping](https://protobuf.dev/programming-guides/proto3/#json) for inspiration.
+For (1): The format of the streamed json has yet to be defined. Let's use protobuf's [JSON mapping](https://protobuf.dev/programming-guides/proto3/#json) for inspiration.
 
-For (4): The document format should to be based on (3) and [ProseMirror's document model](https://github.com/ProseMirror/prosemirror-model).
+For (3): The document format should to be based on (1) and [ProseMirror's document model](https://github.com/ProseMirror/prosemirror-model).
 
-An example of (5) is a WebSocket connection.
+An example of a host resource is a WebSocket connection.
 
 
 ## Runtime library
@@ -217,7 +215,7 @@ Furthermore, if we want to minimize the size of ailets, we should provide basic 
 Finally, we should orchestrate ailets to run together. There should be several levels of complexity, starting with the minimal glue and going towards an operating system.
 
 
-## Future: Ailets operating system for agents
+## Far future: Ailets operating system for agents
 
 If the future of AI is multi-agent systems, then we will have a special case of microservices. We have to adapt the knowledge and the tools to our special case.
 
