@@ -112,6 +112,86 @@ We should support streaming: User should get the result incrementally while upda
 Therefore: Instead of a traditional build system with a step-by-step workflow, we should implement a sophisticated orchestrator.
 
 
+## Actor interface
+
+Preliminary version.
+
+
+*n_of_streams*
+
+```
+int n_of_streams(const char *param_name);
+```
+
+Actors get input through named parameters, each named parameters is an array of streams. The function returns the number of them.
+
+The `param_name` can be `NULL`, it means the default input parameter.
+
+Return `-1` and set `errno` if the parameter name is unknown.
+
+The number of input streams may change dynamically.
+
+
+*open*
+
+```
+int open(const char *param_name, unsigned int idx);
+```
+
+Get a file descriptor to `idx`th stream of the parameter `param_name`.
+
+Return `-1` and set `errno` in case of error.
+
+
+*read*
+
+```
+int read(int fd, voif buffer[count], int count)
+```
+
+Read up to `count` bytes from the file descriptor `fd` into `buffer`.
+
+Return `0` if the stream is ended.
+
+Return `-1` and set `errno` in case of error.
+
+
+*write*
+
+```
+int write(int fd, const void buffer[count], int count);
+```
+
+Write up to `count` bytes from `buffer`to the stream referred to by the file descriptor `fd`.
+
+The number of bytes written may be less than `count`.
+
+Return `-1` and set `errno` in case of error.
+
+There is a fixed set of file descriptors:
+
+- `stdout=1`
+- `log=2`
+- `metrics=3`
+- `trace=4`
+
+
+*errno, strerror*
+
+```
+int errno;
+char *strerror(int errnum);
+void perror(const char *s);
+```
+
+As seen in POSIX.
+
+
+### Communication with the orchestrator
+
+To be defined after collecting experience
+
+
 ## Content types
 
 A helper library may be required to process formats:
@@ -119,7 +199,7 @@ A helper library may be required to process formats:
 1. json
 2. markdown
 3. rich text
-4. link host resources
+4. link to host resources
 
 For (3): The format of the streamed json has yet to be defined. Let's use protobuf's [JSON mapping](https://protobuf.dev/programming-guides/proto3/#json) for inspiration.
 
