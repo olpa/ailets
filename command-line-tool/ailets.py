@@ -4,7 +4,8 @@
 import argparse
 import sys
 import setup  # noqa: F401
-from cons import mkenv, prompt_to_md, build_plan_writing_trace
+from cons import mkenv, prompt_to_md, build_plan_writing_trace, Environment
+import json
 
 
 def parse_args():
@@ -40,6 +41,15 @@ def get_prompt(prompt_arg: str) -> str:
     return prompt_arg
 
 
+def save_state(file_name: str, env: Environment, target_node_name: str):
+    plan = env.plan(target_node_name)
+    plan_nodes = [env.nodes[name] for name in plan]
+    with open(file_name, "w") as f:
+        for node in plan_nodes:
+            json.dump(node.to_json(), f, indent=2)
+            f.write("\n")
+
+
 def main():
     args = parse_args()
     assert args.model == "gpt4o", "At the moment, only gpt4o is supported"
@@ -47,7 +57,13 @@ def main():
     env = mkenv()
     prompt = get_prompt(args.prompt)
     node = prompt_to_md(env, prompt)
-    build_plan_writing_trace(env, node.name, one_step=args.one_step)
+
+    target_node_name = node.name
+
+    build_plan_writing_trace(env, target_node_name, one_step=args.one_step)
+
+    if args.save_state:
+        save_state(args.save_state, env, target_node_name)
 
 
 if __name__ == "__main__":
