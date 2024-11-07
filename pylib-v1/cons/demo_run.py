@@ -1,7 +1,7 @@
 import os
 import json
-from cons import Environment
-from typing import Dict, Callable, Any
+from cons import Environment, Node
+from typing import Dict, Callable, Any, Optional
 
 
 def dump_nodes(nodes: list, path: str) -> None:
@@ -78,14 +78,18 @@ def build_plan_writing_trace(
 
 def load_state_from_trace(
     env: Environment, trace_file: str, func_map: Dict[str, Callable[..., Any]]
-) -> None:
+) -> Optional[Node]:
     """Load environment state from a trace file.
 
     Args:
         env: Environment to load state into
         trace_file: Path to the trace file
         func_map: Mapping from node names to their functions
+
+    Returns:
+        The last loaded node, or None if no nodes were loaded
     """
+    last_node = None
     with open(trace_file) as f:
         content = f.read()
         decoder = json.JSONDecoder()
@@ -102,7 +106,9 @@ def load_state_from_trace(
             # Decode next object
             try:
                 node_data, pos = decoder.raw_decode(content, pos)
-                env.load_node_state(node_data, func_map)
+                last_node = env.load_node_state(node_data, func_map)
             except json.JSONDecodeError as e:
                 print(f"Error decoding JSON at position {pos}: {e}")
                 raise
+
+    return last_node

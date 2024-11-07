@@ -4,7 +4,14 @@
 import argparse
 import sys
 import setup  # noqa: F401
-from cons import mkenv, prompt_to_md, build_plan_writing_trace, Environment
+from cons import (
+    mkenv,
+    prompt_to_md,
+    build_plan_writing_trace,
+    load_state_from_trace,
+    Environment,
+)
+from cons.pipelines import get_func_map
 import json
 
 
@@ -55,12 +62,19 @@ def main():
     assert args.model == "gpt4o", "At the moment, only gpt4o is supported"
 
     env = mkenv()
-    prompt = get_prompt(args.prompt)
-    node = prompt_to_md(env, prompt)
+
+    if args.load_state:
+        node = load_state_from_trace(env, args.load_state, get_func_map())
+    else:
+        prompt = get_prompt(args.prompt)
+        node = prompt_to_md(env, prompt)
 
     target_node_name = node.name
 
-    build_plan_writing_trace(env, target_node_name, one_step=args.one_step)
+    if args.dry_run:
+        env.print_dependency_tree(target_node_name)
+    else:
+        build_plan_writing_trace(env, target_node_name, one_step=args.one_step)
 
     if args.save_state:
         save_state(args.save_state, env, target_node_name)
