@@ -1,7 +1,7 @@
 lint:
-	flake8 --max-line-length=88 code/*py cons/*py cons/nodes/*py
+	flake8 --max-line-length=88 cons/*py cons/nodes/*py
 	mypy -m cons
 	mypy -m cons.nodes
 
 fix:
-	black code/*y cons/*py cons/nodes/*py
+	black cons/*py cons/nodes/*py

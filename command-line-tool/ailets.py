@@ -2,8 +2,8 @@
 # -*- coding: utf-8 -*-
 
 import argparse
-import setup
-from cons import mkenv, prompt_to_md
+import setup  # noqa: F401
+from cons import mkenv, prompt_to_md, build_plan_writing_trace
 
 
 def parse_args():
@@ -39,7 +39,7 @@ def main():
 
     env = mkenv()
     node = prompt_to_md(env)
-    env.print_dependency_tree(node.name)
+    build_plan_writing_trace(env, node.name, one_step=args.one_step)
 
 
 if __name__ == "__main__":

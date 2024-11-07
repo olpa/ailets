@@ -1,6 +1,6 @@
 lint:
 	flake8 --max-line-length=88 *.py
-	mypy *.py
+	MYPYPATH=../pylib-v1 mypy *.py
 
 fix:
 	black *.py
