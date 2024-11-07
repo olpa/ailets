@@ -70,11 +70,12 @@ def main():
         node = prompt_to_md(env, prompt)
 
     target_node_name = node.name
+    stop_node_name = args.stop_at or target_node_name
 
     if args.dry_run:
         env.print_dependency_tree(target_node_name)
     else:
-        build_plan_writing_trace(env, target_node_name, one_step=args.one_step)
+        build_plan_writing_trace(env, stop_node_name, one_step=args.one_step)
 
     if args.save_state:
         save_state(args.save_state, env, target_node_name)
