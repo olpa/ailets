@@ -1,0 +1,187 @@
+{
+  "name": "value.2",
+  "dirty": false,
+  "deps": [],
+  "cache": "\"hello\"",
+  "explain": "Initial prompt"
+}
+{
+  "name": "prompt_to_messages.3",
+  "dirty": false,
+  "deps": [
+    [
+      "value.2",
+      null
+    ]
+  ],
+  "cache": "[{\"role\": \"user\", \"content\": \"hello\"}]",
+  "explain": null
+}
+{
+  "name": "credentials.4",
+  "dirty": false,
+  "deps": [],
+  "cache": "{\"Authorization\": \"Bearer ##OPENAI_API_KEY##\"}",
+  "explain": null
+}
+{
+  "name": "tool/get_user_name/spec.1",
+  "dirty": false,
+  "deps": [],
+  "cache": "{\"name\": \"get_user_name\", \"description\": \"Get the user's name. Call this whenever you need to know the name of the user.\", \"strict\": true, \"parameters\": {\"type\": \"object\", \"properties\": {}, \"additionalProperties\": false}}",
+  "explain": null
+}
+{
+  "name": "messages_to_query.5",
+  "dirty": false,
+  "deps": [
+    [
+      "prompt_to_messages.3",
+      null
+    ],
+    [
+      "credentials.4",
+      "credentials"
+    ],
+    [
+      "tool/get_user_name/spec.1",
+      "toolspecs"
+    ]
+  ],
+  "cache": "{\"url\": \"https://api.openai.com/v1/chat/completions\", \"method\": \"POST\", \"headers\": {\"Content-type\": \"application/json\", \"Authorization\": \"Bearer ##OPENAI_API_KEY##\"}, \"body\": {\"model\": \"gpt-4o-mini\", \"messages\": [{\"role\": \"user\", \"content\": \"hello\"}], \"tools\": [{\"type\": \"function\", \"function\": {\"name\": \"get_user_name\", \"description\": \"Get the user's name. Call this whenever you need to know the name of the user.\", \"strict\": true, \"parameters\": {\"type\": \"object\", \"properties\": {}, \"additionalProperties\": false}}}]}}",
+  "explain": null
+}
+{
+  "name": "query.6",
+  "dirty": false,
+  "deps": [
+    [
+      "messages_to_query.5",
+      null
+    ]
+  ],
+  "cache": "{\"id\": \"chatcmpl-AQSh1fJafpoe7SQolk7CZeurnPuZr\", \"object\": \"chat.completion\", \"created\": 1730870187, \"model\": \"gpt-4o-mini-2024-07-18\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": null, \"tool_calls\": [{\"id\": \"call_7Dq5stn1K9jmHTB2gVMTJMuS\", \"type\": \"function\", \"function\": {\"name\": \"get_user_name\", \"arguments\": \"{}\"}}], \"refusal\": null}, \"logprobs\": null, \"finish_reason\": \"tool_calls\"}], \"usage\": {\"prompt_tokens\": 51, \"completion_tokens\": 11, \"total_tokens\": 62, \"prompt_tokens_details\": {\"cached_tokens\": 0, \"audio_tokens\": 0}, \"completion_tokens_details\": {\"reasoning_tokens\": 0, \"audio_tokens\": 0, \"accepted_prediction_tokens\": 0, \"rejected_prediction_tokens\": 0}}, \"system_fingerprint\": \"fp_0ba0d124f1\"}",
+  "explain": null
+}
+{
+  "name": "response_to_markdown.7",
+  "dirty": false,
+  "deps": [
+    [
+      "query.6",
+      null
+    ]
+  ],
+  "cache": "\"\"",
+  "explain": null
+}
+{
+  "name": "value.15",
+  "dirty": false,
+  "deps": [],
+  "cache": "[{\"role\": \"assistant\", \"tool_calls\": [{\"id\": \"call_7Dq5stn1K9jmHTB2gVMTJMuS\", \"type\": \"function\", \"function\": {\"name\": \"get_user_name\", \"arguments\": \"{}\"}}]}]",
+  "explain": "Feed \"tool_calls\" from output to input"
+}
+{
+  "name": "value.16",
+  "dirty": false,
+  "deps": [],
+  "cache": "{\"id\": \"call_7Dq5stn1K9jmHTB2gVMTJMuS\", \"type\": \"function\", \"function\": {\"name\": \"get_user_name\", \"arguments\": \"{}\"}}",
+  "explain": "Tool call spec from llm"
+}
+{
+  "name": "tool/get_user_name/call.17",
+  "dirty": false,
+  "deps": [
+    [
+      "value.16",
+      null
+    ]
+  ],
+  "cache": "\"olpa\"",
+  "explain": null
+}
+{
+  "name": "toolcall_to_messages.18",
+  "dirty": false,
+  "deps": [
+    [
+      "tool/get_user_name/call.17",
+      null
+    ],
+    [
+      "value.16",
+      "llm_spec"
+    ]
+  ],
+  "cache": "[{\"role\": \"tool\", \"tool_call_id\": \"call_7Dq5stn1K9jmHTB2gVMTJMuS\", \"content\": \"{\\\"get_user_name\\\": \\\"olpa\\\"}\"}]",
+  "explain": null
+}
+{
+  "name": "messages_to_query.11",
+  "dirty": false,
+  "deps": [
+    [
+      "prompt_to_messages.3",
+      null
+    ],
+    [
+      "credentials.4",
+      "credentials"
+    ],
+    [
+      "tool/get_user_name/spec.1",
+      "toolspecs"
+    ],
+    [
+      "value.15",
+      null
+    ],
+    [
+      "toolcall_to_messages.18",
+      null
+    ]
+  ],
+  "cache": "{\"url\": \"https://api.openai.com/v1/chat/completions\", \"method\": \"POST\", \"headers\": {\"Content-type\": \"application/json\", \"Authorization\": \"Bearer ##OPENAI_API_KEY##\"}, \"body\": {\"model\": \"gpt-4o-mini\", \"messages\": [{\"role\": \"user\", \"content\": \"hello\"}, {\"role\": \"assistant\", \"tool_calls\": [{\"id\": \"call_7Dq5stn1K9jmHTB2gVMTJMuS\", \"type\": \"function\", \"function\": {\"name\": \"get_user_name\", \"arguments\": \"{}\"}}]}, {\"role\": \"tool\", \"tool_call_id\": \"call_7Dq5stn1K9jmHTB2gVMTJMuS\", \"content\": \"{\\\"get_user_name\\\": \\\"olpa\\\"}\"}], \"tools\": [{\"type\": \"function\", \"function\": {\"name\": \"get_user_name\", \"description\": \"Get the user's name. Call this whenever you need to know the name of the user.\", \"strict\": true, \"parameters\": {\"type\": \"object\", \"properties\": {}, \"additionalProperties\": false}}}]}}",
+  "explain": null
+}
+{
+  "name": "query.12",
+  "dirty": false,
+  "deps": [
+    [
+      "messages_to_query.11",
+      null
+    ]
+  ],
+  "cache": "{\"id\": \"chatcmpl-AQSh2SudaiIT9uLukw7anas1Utz9P\", \"object\": \"chat.completion\", \"created\": 1730870188, \"model\": \"gpt-4o-mini-2024-07-18\", \"choices\": [{\"index\": 0, \"message\": {\"role\": \"assistant\", \"content\": \"Hello, Olpa! How can I assist you today?\", \"refusal\": null}, \"logprobs\": null, \"finish_reason\": \"stop\"}], \"usage\": {\"prompt_tokens\": 80, \"completion_tokens\": 13, \"total_tokens\": 93, \"prompt_tokens_details\": {\"cached_tokens\": 0, \"audio_tokens\": 0}, \"completion_tokens_details\": {\"reasoning_tokens\": 0, \"audio_tokens\": 0, \"accepted_prediction_tokens\": 0, \"rejected_prediction_tokens\": 0}}, \"system_fingerprint\": \"fp_0ba0d124f1\"}",
+  "explain": null
+}
+{
+  "name": "response_to_markdown.14",
+  "dirty": false,
+  "deps": [
+    [
+      "query.12",
+      null
+    ]
+  ],
+  "cache": "\"Hello, Olpa! How can I assist you today?\"",
+  "explain": null
+}
+{
+  "name": "stdout.8",
+  "dirty": false,
+  "deps": [
+    [
+      "response_to_markdown.7",
+      null
+    ],
+    [
+      "response_to_markdown.14",
+      null
+    ]
+  ],
+  "cache": "[\"\", \"Hello, Olpa! How can I assist you today?\"]",
+  "explain": null
+}

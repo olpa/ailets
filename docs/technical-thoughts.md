@@ -1,118 +1,202 @@
 # Technical thoughts
 
-## Actors mixed with the unix style
+## Architecture
 
-Follow the [actor model](https://en.wikipedia.org/wiki/Actor_model) as closely as possible:
+Ailets are a combination of the actor model and the "everything is a file" paradigm.
+
+- [actor model](https://en.wikipedia.org/wiki/Actor_model)
+- [everything is a file](https://en.wikipedia.org/wiki/Everything_is_a_file)
 
 > In response to a message it receives, an actor can: make local decisions, create more actors, send more messages, and determine how to respond to the next message received. Actors may modify their own private state, but can only affect each other indirectly through messaging
 
-After decomposing user use cases, communication can be simplified: use "stdin" for incoming messages and "stdout" for outgoing messages. Furthermore, instead of multiple messages, it's enough to have one message with a streaming body.
+For steps in LLM pipelines, communication can be simplified by using standard input (stdin) for incoming messages and standard output (stdout) for outgoing messages.  Instead of multiple discrete messages, a single message with a streaming body is sufficient.
 
 
-## Format of messages
+### Components
 
-Like an HTTP request:
+- Ailets itself
+- Shared library of functions
+- Orchestrator
+- Host support
+  - For driving the orchestrator
+  - Tools exposed as Aitlets actors
 
-- Message name
-- Message headers: map from strings to strings
-- Body
 
+## Build system
 
-## Examples of messaging
+When using LLMs with tools, the workflow is no longer a straight pipeline. Instead, branching occurs, making features of build systems beneficial.
 
-### "stdin" runtime actor
-
-Input: read text from the user.
-
-Message to "stdlog":
-
-```
-POST /trace
-trace-id: workflow-123
-span-id: prompt-456
-```
-
-Message to "stdout":
+A sample dependency tree for a simple request to an LLM is shown below:
 
 ```
-trace-id: workflow-123
-from-span-id: prompt-456
-
-hello
+├── stdout.7 [⋯ not built]
+│   ├── response_to_markdown.6 [⋯ not built]
+│   │   ├── query.5 [⋯ not built]
+│   │   │   ├── messages_to_query.4 [⋯ not built]
+│   │   │   │   ├── prompt_to_messages.2 [⋯ not built]
+│   │   │   │   │   ├── value.1 [✓ built] (Initial prompt)
+│   │   │   │   ├── (param: credentials)
+│   │   │   │   │   ├── credentials.3 [⋯ not built]
 ```
 
-### "prompt2gpt" actor
+The steps proceed outward from the innermost part of the tree.
 
-Message to "stdlog":
+- `prompt_to_messages` converts a user prompt from `value.1` to an LLM JSON object.
+- Concurrently, `credentials.3` retrieves an API key.
+- Then, `messages_to_query.4` combines the user message and the credentials into an HTTP request specification.
+- `query.5` executes the HTTP request.
+- `response_to_markdown.6`
+- `stdout.7` prints the result.
 
-```
-POST /trace
-trace-id: workflow-123
-parent-id: prompt-456
-span-id: gpt-789
-```
-
-There are two messages to "stdout". First message is to get credentials:
+Below is another dependency tree, for the use of llm with tools. The tree is taken just before executing `response_to_markdown` step.
 
 ```
-RUN /tool/auth-key
-trace-id: workflow-123
-from-span-id: gpt-789
-output-stream: auth-https://api.openai.com/v1/chat/completions
-
-{
-  "url": "https://api.openai.com/v1/chat/completions",
-  "outputPrefix": "Bearer "
-}
+├── stdout.8 [⋯ not built]
+│   ├── response_to_markdown.7 [⋯ not built]
+│   │   ├── query.6 [✓ built]
+│   │   │   ├── messages_to_query.5 [✓ built]
+│   │   │   │   ├── prompt_to_messages.3 [✓ built]
+│   │   │   │   │   ├── value.2 [✓ built] (Initial prompt)
+│   │   │   │   ├── (param: credentials)
+│   │   │   │   │   ├── credentials.4 [✓ built]
+│   │   │   │   ├── (param: toolspecs)
+│   │   │   │   │   ├── tool/get_user_name/spec.1 [✓ built]
 ```
 
-Second message is the definition of the call to the model. Inside, it uses the output of the "auth-key" actor.
+The tree structure is similar to one used in basic LLMs. The additions are:
+
+- the `tool/get_user_name/spec` node
+- the `toolspecs` parameter of the `messages_to_query` function
+
+When processing the result of `query`, the `response_to_markdown` step will detect that the language model hasn't generated content but instead intends to use a tool. At this point, the step stops to act as an agent and communicates with the orchestrator to construct a new dependency tree.
 
 ```
-RUN /tool/http-call
-trace-id: workflow-123
-from-span-id: gpt-789
-
-{
-  "url": "https://api.openai.com/v1/chat/completions",
-  "method": "POST",
-  "headers": {
-    "Content-type": "application/json",
-    "Authorization": { "$stream": "auth-https://api.openai.com/v1/chat/completions" }
-  },
-  body: {
-    "model": "gpt-3.5-turbo",
-    "messages": [
-      {
-        "role": "user",
-        "content": "hello"
-      }
-    ]
-  }
-};
+├── stdout.8 [⋯ not built]
+│   ├── response_to_markdown.7 [✓ built]
+│   │   ├── query.6 [✓ built]
+│   │   │   ├── messages_to_query.5 [✓ built]
+│   │   │   │   ├── prompt_to_messages.3 [✓ built]
+│   │   │   │   │   ├── value.2 [✓ built] (Initial prompt)
+│   │   │   │   ├── (param: credentials)
+│   │   │   │   │   ├── credentials.4 [✓ built]
+│   │   │   │   ├── (param: toolspecs)
+│   │   │   │   │   ├── tool/get_user_name/spec.1 [✓ built]
+│   ├── response_to_markdown.14 [⋯ not built]
+│   │   ├── query.12 [⋯ not built]
+│   │   │   ├── messages_to_query.11 [⋯ not built]
+│   │   │   │   ├── prompt_to_messages.3 [✓ built]
+│   │   │   │   │   ├── value.2 [✓ built] (Initial prompt)
+│   │   │   │   ├── value.15 [✓ built] (Feed "tool_calls" from output to input)
+│   │   │   │   ├── toolcall_to_messages.18 [⋯ not built]
+│   │   │   │   │   ├── tool/get_user_name/call.17 [⋯ not built]
+│   │   │   │   │   │   ├── value.16 [⋯ not built] (Tool call spec from llm)
+│   │   │   │   │   ├── (param: llm_spec)
+│   │   │   │   │   │   ├── value.16 [⋯ not built] (Tool call spec from llm)
+│   │   │   │   ├── (param: credentials)
+│   │   │   │   │   ├── credentials.4 [✓ built]
+│   │   │   │   ├── (param: toolspecs)
+│   │   │   │   │   ├── tool/get_user_name/spec.1 [✓ built]
 ```
 
-### "auth-key" runtime actor
+The path to `response_to_markdown` is cloned and extended to call the tools before calling the llm.
 
-TODO
+
+## Streaming and orchestration
+
+We should support streaming, allowing users to receive results incrementally as updates are generated during intermediate processing.
+
+Therefore, instead of a traditional, step-by-step build system, we should implement a sophisticated orchestrator.
+
+
+## Actor interface
+
+Preliminary version.
+
+
+*n_of_streams*
+
+```
+int n_of_streams(const char *param_name);
+```
+
+Return the number of input streams associated with a given parameter.
+
+-  If `param_name` is `NULL`, the function assumes the default input parameter.
+-  If the parameter name is unknown, the function returns -1 and sets `errno` to indicate the error.
+
+The number of input streams associated with a parameter may change dynamically during program execution.
+
+
+*open*
+
+```
+int open(const char *param_name, unsigned int idx);
+```
+
+Open the `idx`th stream associated with the parameter `param_name`.
+
+Return a file descriptor on success, or `-1` on error.  In case of error, `errno` is set.
+
+
+*read*
+
+```
+int read(int fd, voif buffer[count], int count)
+```
+
+Read up to `count` bytes from the file descriptor `fd` into the `buffer`.
+
+Return the number of bytes read.  If the end of the file is encountered, `0` is returned.  On error, `-1` is returned, and `errno` is set appropriately.
+
+
+*write*
+
+```
+int write(int fd, const void buffer[count], int count);
+```
+
+Writes up to `count` bytes from the `buffer` to the file descriptor `fd`.
+
+Return the number of bytes written, which might be less than `count`.  On error, return `-1` and sets `errno` appropriately.
+
+The following file descriptors are predefined:
+
+- `STDOUT_FILENO = 1` (Standard output)
+- `STDERR_FILENO = 2` (Standard error; conventionally used for logging)
+- `METRICS_FD = 3` (Metrics output stream)
+- `TRACE_FD = 4` (Traces output stream)
+
+
+*errno, strerror*
+
+```
+int errno;
+char *strerror(int errnum);
+void perror(const char *s);
+```
+
+As seen in POSIX.
+
+
+### Communication with the orchestrator
+
+To be defined after collecting experience
 
 
 ## Content types
 
 A helper library may be required to process formats:
 
-1. plain text
-2. json
-3. streamed json or parsed json
-4. streamed rich text
-5. host stream
-6. chat history
+1. json
+2. markdown
+3. rich text
+4. link to a host resource
 
-For (3): The format of the streamed json has yet to be defined. Let's use protobuf's [JSON mapping](https://protobuf.dev/programming-guides/proto3/#json) for inspiration.
+For (1): The format of the streamed json has yet to be defined. Let's use protobuf's [JSON mapping](https://protobuf.dev/programming-guides/proto3/#json) for inspiration.
 
-For (4): The document format should to be based on (3) and [ProseMirror's document model](https://github.com/ProseMirror/prosemirror-model).
+For (3): The document format should to be based on (1) and [ProseMirror's document model](https://github.com/ProseMirror/prosemirror-model).
 
-An example of (5) is a WebSocket connection.
+An example of a host resource is a WebSocket connection.
 
 
 ## Runtime library
@@ -124,7 +208,7 @@ Furthermore, if we want to minimize the size of ailets, we should provide basic 
 Finally, we should orchestrate ailets to run together. There should be several levels of complexity, starting with the minimal glue and going towards an operating system.
 
 
-## Future: Ailets operating system for agents
+## Far future: Ailets operating system for agents
 
 If the future of AI is multi-agent systems, then we will have a special case of microservices. We have to adapt the knowledge and the tools to our special case.
 

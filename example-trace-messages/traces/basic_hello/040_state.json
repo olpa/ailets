@@ -1,0 +1,78 @@
+{
+  "name": "value.1",
+  "dirty": false,
+  "deps": [],
+  "cache": "\"hello\"",
+  "explain": "Initial prompt"
+}
+{
+  "name": "prompt_to_messages.2",
+  "dirty": false,
+  "deps": [
+    [
+      "value.1",
+      null
+    ]
+  ],
+  "cache": "[{\"role\": \"user\", \"content\": \"hello\"}]",
+  "explain": null
+}
+{
+  "name": "credentials.3",
+  "dirty": false,
+  "deps": [],
+  "cache": "{\"Authorization\": \"Bearer ##OPENAI_API_KEY##\"}",
+  "explain": null
+}
+{
+  "name": "messages_to_query.4",
+  "dirty": false,
+  "deps": [
+    [
+      "prompt_to_messages.2",
+      null
+    ],
+    [
+      "credentials.3",
+      "credentials"
+    ]
+  ],
+  "cache": "{\"url\": \"https://api.openai.com/v1/chat/completions\", \"method\": \"POST\", \"headers\": {\"Content-type\": \"application/json\", \"Authorization\": \"Bearer ##OPENAI_API_KEY##\"}, \"body\": {\"model\": \"gpt-4o-mini\", \"messages\": [{\"role\": \"user\", \"content\": \"hello\"}]}}",
+  "explain": null
+}
+{
+  "name": "query.5",
+  "dirty": true,
+  "deps": [
+    [
+      "messages_to_query.4",
+      null
+    ]
+  ],
+  "cache": null,
+  "explain": null
+}
+{
+  "name": "response_to_markdown.6",
+  "dirty": true,
+  "deps": [
+    [
+      "query.5",
+      null
+    ]
+  ],
+  "cache": null,
+  "explain": null
+}
+{
+  "name": "stdout.7",
+  "dirty": true,
+  "deps": [
+    [
+      "response_to_markdown.6",
+      null
+    ]
+  ],
+  "cache": null,
+  "explain": null
+}
