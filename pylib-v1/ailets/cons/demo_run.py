@@ -1,6 +1,6 @@
 import os
 import json
-from cons import Environment, Node
+from . import Environment, Node
 from typing import Dict, Callable, Any, Optional
 
 

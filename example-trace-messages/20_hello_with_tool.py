@@ -1,8 +1,8 @@
 import argparse
-import setup
-from cons import mkenv, prompt_to_md, build_plan_writing_trace, load_state_from_trace
-from cons.nodes.tool_get_user_name import get_spec_for_get_user_name, run_get_user_name
-from cons.pipelines import get_func_map
+import localsetup
+from ailets.cons import mkenv, prompt_to_md, build_plan_writing_trace, load_state_from_trace
+from ailets.cons.nodes.tool_get_user_name import get_spec_for_get_user_name, run_get_user_name
+from ailets.cons.pipelines import get_func_map
 
 TARGET = "stdout"
 
@@ -28,8 +28,7 @@ def main():
         state_num = int(args.load_plan_from_trace.split('/')[-1].split('_')[0])
         initial_counter = (state_num // 10) + 1
     else:
-        tool_get_user_name = env.add_node("tool/get_user_name/spec", get_spec_for_get_user_name)
-        prompt_to_md(env, tools=[tool_get_user_name])
+        prompt_to_md(env, tools=['get_user_name'])
         initial_counter = 1
 
     target_node_name = env.get_node_by_base_name("stdout").name

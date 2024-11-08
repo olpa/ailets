@@ -1,5 +1,5 @@
-import setup
-from cons import mkenv, prompt_to_md, build_plan_writing_trace
+import localsetup
+from ailets.cons import mkenv, prompt_to_md, build_plan_writing_trace
 
 
 env = mkenv()

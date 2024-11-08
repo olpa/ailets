@@ -3,17 +3,20 @@
 
 import argparse
 import sys
-import setup  # noqa: F401
-from cons import (
+import localsetup  # noqa: F401
+from ailets.cons import (
     mkenv,
     prompt_to_md,
     build_plan_writing_trace,
     load_state_from_trace,
     Environment,
 )
-from cons.pipelines import get_func_map
+from ailets.cons.pipelines import get_func_map
 import json
-from cons.nodes.tool_get_user_name import get_spec_for_get_user_name, run_get_user_name
+from ailets.cons.nodes.tool_get_user_name import (
+    get_spec_for_get_user_name,
+    run_get_user_name,
+)
 
 
 def parse_args():
