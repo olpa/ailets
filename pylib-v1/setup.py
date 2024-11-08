@@ -5,7 +5,7 @@ setup(
     version="0.1.0",
     packages=find_packages(),
     install_requires=[
-        # Add your dependencies here
+        'requests',
     ],
     author="Oleg Parashchenko",
     author_email="olpa@uucode.com",
