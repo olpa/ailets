@@ -4,3 +4,6 @@ lint:
 
 fix:
 	black *.py
+
+build-docker-image:
+	docker build -t olpa/ailets .
