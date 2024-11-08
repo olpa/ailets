@@ -5,3 +5,6 @@ lint:
 
 fix:
 	black ailets/cons/*py ailets/cons/nodes/*py
+
+build-docker-image:
+	docker build -t ailets-pymodule .

@@ -1,8 +1,13 @@
+import re
 from setuptools import setup, find_packages
+
+
+with open('ailets/_version.py', 'r') as f:
+    version = re.search(r'__version__\s*=\s*[\'"]([^\'"]*)[\'"]', f.read()).group(1)
 
 setup(
     name="ailets",
-    version="0.1.0",
+    version=version,
     packages=find_packages(),
     install_requires=[
         'requests',
