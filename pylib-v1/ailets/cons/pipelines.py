@@ -32,12 +32,14 @@ def must_get_tool_spec(env: Environment, tool_name: str) -> Node:
 
 
 def prompt_to_md(
-    env: Environment, initial_prompt: str = "hello", tools: list[str] = []
+    env: Environment, prompt: list[str] = ["hello"], tools: list[str] = []
 ) -> Node:
     """Create a chain of nodes that process a prompt into markdown."""
     # Define nodes and their dependencies
-    node_v = env.add_value_node(initial_prompt, explain="Initial prompt")
-    node_ptm = env.add_node("prompt_to_messages", prompt_to_messages, [node_v.name])
+    nodes_p = [env.add_value_node(p, explain="Initial prompt") for p in prompt]
+    node_ptm = env.add_node(
+        "prompt_to_messages", prompt_to_messages, [node.name for node in nodes_p]
+    )
     node_creds = env.add_node("credentials", credentials)
 
     # Get tool spec nodes from tool names

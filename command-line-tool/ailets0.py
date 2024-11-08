@@ -27,7 +27,10 @@ def parse_args():
 
     # Optional arguments
     parser.add_argument(
-        "--prompt", default="-", help='Input prompt (default: "-" for stdin)'
+        "--prompt",
+        action="append",
+        default=[],
+        help='Input prompt (default: "-" for stdin). Can be specified multiple times',
     )
     parser.add_argument(
         "--dry-run",
@@ -52,10 +55,24 @@ def parse_args():
     return parser.parse_args()
 
 
-def get_prompt(prompt_arg: str) -> str:
-    if prompt_arg == "-":
-        return sys.stdin.read()
-    return prompt_arg
+def get_prompt(prompt_args: list[str]) -> list[str]:
+    """Get prompt from arguments or stdin.
+
+    Args:
+        prompt_args: List of prompt arguments
+
+    Returns:
+        List of prompt strings
+    """
+    if not prompt_args:
+        prompt = ["-"]
+    prompt = []
+    for prompt_arg in prompt_args:
+        if prompt_arg == "-":
+            prompt.append(sys.stdin.read())
+        else:
+            prompt.append(prompt_arg)
+    return prompt
 
 
 def save_state(file_name: str, env: Environment, target_node_name: str):
@@ -78,7 +95,7 @@ def main():
         node = load_state_from_trace(env, args.load_state, get_func_map())
     else:
         prompt = get_prompt(args.prompt)
-        node = prompt_to_md(env, prompt, tools=args.tools)
+        node = prompt_to_md(env, prompt=prompt, tools=args.tools)
 
     target_node_name = node.name
     stop_node_name = args.stop_at or target_node_name
