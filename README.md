@@ -25,19 +25,20 @@ We provide the lowest possible abstraction that generalizes the specifics of AI 
 
 ### User playground on the command line
 
-Start the ailets shell:
-
 ```
-$ docker run -it olpa/ailets-shell
+# One-time setup
+OPENAI_API_KEY=sk-.....
+ailets() {
+  docker run --rm -e OPENAI_API_KEY=$OPENAI_API_KEY olpa/ailets "$@"
+}
 
-$ pass add openai
-Enter password for openai: ****************
-Retype password for openai: ****************
-$ echo 'hello' \
-    | text2query --curl gpt4 \
-    | curl -K - \
-    | response2text gpt4
-Hello! How can I assist you today?
+# Sample usage
+
+echo "Hello!" | ailets gpt4o
+# Output: Hello! How can I assist you today?
+
+ailets gpt4o --prompt "Hello!" --tool get_user_name
+# Output: Hello, ailets! How can I assist you today?
 ```
 
 ### User playground in the browser
@@ -48,36 +49,7 @@ The shell in the browser is the same as in the Docker container. Run the same co
 
 ### Sample Python code
 
-Here is the contents of `example.py`:
-
-```
-import sys, os, io, ailets
-al = ailets.Env()
-
-prompt = io.StringIO("hello")
-t2q = al.get('text2query-gpt4').run(stdin=prompt)
-q = al.get('query').run(stdin=t2q.stdout,
-        env={'API_KEY': os.environ['OPENAI_API_KEY']})
-r2t = al.get('response2text-gpt4', stdin=q.stdout)
-
-while True:
-        chunk = r2t.stdout.read(8)
-        if not chunk:
-            break
-        sys.stdout.write(chunk)
-```
-
-Run the code:
-
-```
-$ docker run -it \
-    -e OPENAI_API_KEY="$OPENAI_API_KEY" \
-    -v $(pwd)/example.py:/code/example.py \
-    olpa/ailets-shell \
-    python /code/example.py
-Hello! How can I assist you today?
-```
-
+Too unstable to show yet.
 
 ## Customer quote
 
@@ -99,7 +71,8 @@ Sponsors: For a small amount (up to $100), pay to the GeWoVa project: <https://g
 ## FAQ
 
 * Q: Does it really work?
-* A: Not yet. A proof of concept is expected in mid-December 2024.
+* A1: Not yet. A proof of concept is expected in mid-December 2024.
+* A2: The command-line tool works already. https://hub.docker.com/r/olpa/ailets, https://github.com/olpa/ailets/blob/master/docs/command-line-tool.md
 
 
 ## Contact

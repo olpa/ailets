@@ -25,21 +25,31 @@ def get_func_map():
     }
 
 
+def must_get_tool_spec(env: Environment, tool_name: str) -> Node:
+    node_name = f"tool/{tool_name}/spec"
+    (tool_spec_func, _) = env.get_tool(tool_name)
+    return env.add_node(node_name, tool_spec_func)
+
+
 def prompt_to_md(
-    env: Environment, initial_prompt: str = "hello", tools: list[Node] = []
+    env: Environment, initial_prompt: str = "hello", tools: list[str] = []
 ) -> Node:
     """Create a chain of nodes that process a prompt into markdown."""
     # Define nodes and their dependencies
     node_v = env.add_value_node(initial_prompt, explain="Initial prompt")
     node_ptm = env.add_node("prompt_to_messages", prompt_to_messages, [node_v.name])
     node_creds = env.add_node("credentials", credentials)
+
+    # Get tool spec nodes from tool names
+    tool_specs = [must_get_tool_spec(env, tool_name) for tool_name in tools]
+
     node_mtq = env.add_node(
         "messages_to_query",
         messages_to_query,
         [
             node_ptm.name,
             (node_creds.name, "credentials"),
-            *[(tool.name, "toolspecs") for tool in tools],
+            *[(tool_spec.name, "toolspecs") for tool_spec in tool_specs],
         ],
     )
     node_q = env.add_node("query", query, [node_mtq.name])

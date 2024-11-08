@@ -259,12 +259,15 @@ class Environment:
 
     def load_node_state(
         self, node_data: Dict[str, Any], func_map: Dict[str, Callable[..., Any]]
-    ) -> None:
+    ) -> Node:
         """Load a node's state from JSON data.
 
         Args:
             node_data: Node state from JSON
             func_map: Mapping from node names to their functions
+
+        Returns:
+            The loaded node
         """
         name = node_data["name"]
 
@@ -288,7 +291,7 @@ class Environment:
 
         # Create new node with loaded state
         cache_str = node_data["cache"]
-        self.nodes[name] = Node(
+        node = Node(
             name=name,
             func=func,
             deps=node_data["deps"],
@@ -296,6 +299,8 @@ class Environment:
             dirty=node_data["dirty"],
             explain=node_data.get("explain"),  # Load explain field if present
         )
+        self.nodes[name] = node
+        return node
 
     def clone_path(self, start: str, end: str) -> list[Node]:
         """Clone a path of nodes from start to end.
