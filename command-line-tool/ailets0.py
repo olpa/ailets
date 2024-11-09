@@ -4,6 +4,7 @@
 import argparse
 import sys
 import localsetup  # noqa: F401
+from typing import Union, Tuple
 from ailets.cons import (
     mkenv,
     prompt_to_md,
@@ -55,23 +56,27 @@ def parse_args():
     return parser.parse_args()
 
 
-def get_prompt(prompt_args: list[str]) -> list[str]:
+def get_prompt(prompt_args: list[str]) -> list[Union[str, Tuple[str, str]]]:
     """Get prompt from arguments or stdin.
 
     Args:
         prompt_args: List of prompt arguments
 
     Returns:
-        List of prompt strings
+        List of prompts. Each prompt can be either:
+        - str: treated as a regular prompt
+        - tuple[str, str]: (text, type) where type creates a named dependency
     """
+    prompt: list[Union[str, Tuple[str, str]]] = []
     if not prompt_args:
         prompt = ["-"]
-    prompt = []
     for prompt_arg in prompt_args:
         if prompt_arg == "-":
-            prompt.append(sys.stdin.read())
-        else:
+            prompt_arg = sys.stdin.read()
+        if prompt_arg[0] != "@":
             prompt.append(prompt_arg)
+        else:
+            prompt.append((prompt_arg[1:], "image_url"))
     return prompt
 
 
