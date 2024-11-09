@@ -7,7 +7,7 @@ from .nodes.stdout import stdout
 from .nodes.credentials import credentials
 from .nodes.tool_get_user_name import get_spec_for_get_user_name, run_get_user_name
 from .nodes.toolcall_to_messages import toolcall_to_messages
-from typing import Union, List, Tuple
+from typing import Union, Tuple, Sequence
 
 
 def get_func_map():
@@ -35,17 +35,17 @@ def must_get_tool_spec(env: Environment, tool_name: str) -> Node:
 
 def prompt_to_md(
     env: Environment,
-    prompt: List[Union[str, Tuple[str, str]]] = ["Hello!"],
-    tools: list[str] = [],
+    prompt: Sequence[Union[str, Tuple[str, str]]] = ["Hello!"],
+    tools: Sequence[str] = [],
 ) -> Node:
     """Create a chain of nodes that process prompts into markdown.
 
     Args:
         env: The environment
-        prompts: List of prompts. Each prompt can be either:
+        prompts: Sequence of prompts. Each prompt can be either:
                 - str: treated as a regular message
                 - tuple[str, str]: (text, type) for typed messages
-        tools: List of tool names to use
+        tools: Sequence of tool names to use
 
     Returns:
         The final node in the chain
@@ -61,7 +61,9 @@ def prompt_to_md(
         node_tv = env.add_typed_value_node(prompt_text, prompt_type, explain="Prompt")
         return node_tv.name
 
-    nodes_ptm = [prompt_to_node(prompt_item) for prompt_item in prompt]
+    nodes_tvs: Sequence[str] = [prompt_to_node(prompt_item) for prompt_item in prompt]
+
+    node_ptm = env.add_node("prompt_to_messages", prompt_to_messages, nodes_tvs)
 
     # Get tool spec nodes
     tool_specs = [must_get_tool_spec(env, tool_name) for tool_name in tools]
@@ -74,7 +76,7 @@ def prompt_to_md(
         "messages_to_query",
         messages_to_query,
         [
-            *nodes_ptm,
+            node_ptm.name,
             (node_creds.name, "credentials"),
             *[(spec.name, "toolspecs") for spec in tool_specs],
         ],
