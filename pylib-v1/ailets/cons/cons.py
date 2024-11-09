@@ -450,6 +450,38 @@ class Environment:
         self.nodes[full_name] = node
         return node
 
+    def add_typed_value_node(
+        self, value: str, value_type: str, explain: Optional[str] = None
+    ) -> Node:
+        """Add a typed value node to the environment.
+
+        Args:
+            value: The value to store
+            value_type: The type of the value
+            explain: Optional explanation of what the value represents
+
+        Returns:
+            The created node in a built (not dirty) state
+        """
+        self._node_counter += 1
+        full_name = f"typed_value.{self._node_counter}"
+
+        # Create node with the value pre-cached and marked as clean
+        node = Node(
+            name=full_name,
+            func=lambda _: (
+                value,
+                value_type,
+            ),  # Function returns tuple of value and type
+            deps=[],  # No dependencies
+            cache=(value, value_type),  # Pre-cache the tuple
+            dirty=False,  # Mark as built
+            explain=explain,
+        )
+
+        self.nodes[full_name] = node
+        return node
+
 
 def mkenv() -> Environment:
     return Environment()

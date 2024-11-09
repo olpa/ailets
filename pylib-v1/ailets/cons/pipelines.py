@@ -14,6 +14,7 @@ def get_func_map():
     """Create mapping of node names to their functions."""
     return {
         "value": lambda _, node: node.cache,
+        "typed_value": lambda _, node: {"value": node.cache[0], "type": node.cache[1]},
         "prompt_to_messages": prompt_to_messages,
         "credentials": credentials,
         "messages_to_query": messages_to_query,
@@ -42,29 +43,25 @@ def prompt_to_md(
     Args:
         env: The environment
         prompts: List of prompts. Each prompt can be either:
-                - str: treated as a regular dependency
-                - tuple[str, str]: (text, type) where type creates a named dependency
+                - str: treated as a regular message
+                - tuple[str, str]: (text, type) for typed messages
         tools: List of tool names to use
 
     Returns:
         The final node in the chain
     """
+
     # Create nodes for each prompt item
-    nodes_ptm = []
-    for prompt_item in prompt:
+    def prompt_to_node(prompt_item: Union[str, Tuple[str, str]]) -> str:
         if isinstance(prompt_item, str):
             prompt_text = prompt_item
-            type_deps = []
+            prompt_type = "text"
         else:
             prompt_text, prompt_type = prompt_item
-            node_type = env.add_value_node({"type": prompt_type}, explain="Prompt type")
-            type_deps = [(node_type.name, "type")]
+        node_tv = env.add_typed_value_node(prompt_text, prompt_type, explain="Prompt")
+        return node_tv.name
 
-        node_v = env.add_value_node(prompt_text, explain="Prompt")
-        node_ptm = env.add_node(
-            "prompt_to_messages", prompt_to_messages, [node_v.name] + type_deps
-        )
-        nodes_ptm.append(node_ptm.name)
+    nodes_ptm = [prompt_to_node(prompt_item) for prompt_item in prompt]
 
     # Get tool spec nodes
     tool_specs = [must_get_tool_spec(env, tool_name) for tool_name in tools]
