@@ -70,7 +70,7 @@ class Stream:
     """
 
     node_name: str
-    stream_name: str
+    stream_name: Optional[str]
     is_finished: bool
     content: StringIO
 
@@ -79,7 +79,7 @@ class Stream:
         return {
             "node": self.node_name,
             "name": self.stream_name,
-            "finished": self.is_finished,
+            "is_finished": self.is_finished,
             "content": self.content.getvalue(),
         }
 
@@ -89,7 +89,7 @@ class Stream:
         return cls(
             node_name=data["node"],
             stream_name=data["name"],
-            is_finished=data["finished"],
+            is_finished=data["is_finished"],
             content=StringIO(data["content"]),
         )
 
@@ -107,7 +107,7 @@ class Environment:
         """Get the list of streams."""
         return self._streams
 
-    def add_stream(self, node_name: str, stream_name: str) -> StringIO:
+    def add_stream(self, node_name: str, stream_name: Optional[str]) -> Stream:
         """Add a new stream.
 
         Args:
@@ -115,17 +115,16 @@ class Environment:
             stream_name: Name of the stream
 
         Returns:
-            The created StringIO object
+            The created stream
         """
-        stream = StringIO()
-        self._streams.append(
-            Stream(
-                node_name=node_name,
-                stream_name=stream_name,
-                is_finished=False,
-                content=stream,
-            )
+        iostream = StringIO()
+        stream = Stream(
+            node_name=node_name,
+            stream_name=stream_name,
+            is_finished=False,
+            content=iostream,
         )
+        self._streams.append(stream)
         return stream
 
     def add_node(
@@ -516,32 +515,6 @@ class Environment:
             raise KeyError(f"Tool {name} not found")
         return self._tools[name]
 
-    def add_value_node(self, value: Any, explain: Optional[str] = None) -> Node:
-        """Add a node that contains a pre-built value.
-
-        Args:
-            value: The value to store in the node
-            explain: Optional explanation of what the value represents
-
-        Returns:
-            The created node in a built (not dirty) state
-        """
-        self._node_counter += 1
-        full_name = f"value.{self._node_counter}"
-
-        # Create node with the value pre-cached and marked as clean
-        node = Node(
-            name=full_name,
-            func=lambda _: value,  # Simple function that returns the value
-            deps=[],  # No dependencies
-            cache=value,  # Pre-cache the value
-            dirty=False,  # Mark as built
-            explain=explain,
-        )
-
-        self.nodes[full_name] = node
-        return node
-
     def add_typed_value_node(
         self, value: str, value_type: str, explain: Optional[str] = None
     ) -> Node:
@@ -572,6 +545,16 @@ class Environment:
         )
 
         self.nodes[full_name] = node
+
+        # Add streams for value and type
+        value_stream = self.add_stream(full_name, None)
+        value_stream.content.write(value)
+        value_stream.is_finished = True
+
+        type_stream = self.add_stream(full_name, "type")
+        type_stream.content.write(value_type)
+        type_stream.is_finished = True
+
         return node
 
     def to_json(self, f: TextIO) -> None:

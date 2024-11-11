@@ -1,3 +1,4 @@
+import json
 from ailets.cons import Environment, Node
 from ailets.cons.cons import Dependency
 from .toolcall_to_messages import toolcall_to_messages
@@ -24,8 +25,9 @@ def _process_single_response(response: dict, env: Environment, node: Node) -> st
             "tool_calls": tool_calls,
         }
     ]
-    idref_node = env.add_value_node(
-        idref_messages,
+    idref_node = env.add_typed_value_node(
+        json.dumps(idref_messages),
+        "",
         explain='Feed "tool_calls" from output to input',
     )
     start_node.deps.append(
