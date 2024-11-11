@@ -1,4 +1,5 @@
 from ailets.cons import Environment, Node
+from ailets.cons.cons import Dependency
 from .toolcall_to_messages import toolcall_to_messages
 
 
@@ -27,7 +28,9 @@ def _process_single_response(response: dict, env: Environment, node: Node) -> st
         idref_messages,
         explain='Feed "tool_calls" from output to input',
     )
-    start_node.deps.append((idref_node.name, None))
+    start_node.deps.append(
+        Dependency(dep_name=None, node_name=idref_node.name, stream_name=None)
+    )
 
     for tool_call in tool_calls:
         tool_name = tool_call["function"]["name"]
@@ -37,18 +40,37 @@ def _process_single_response(response: dict, env: Environment, node: Node) -> st
         tool_spec_node = env.add_node(
             "value", lambda _: tool_call, explain="Tool call spec from llm"
         )
-        tool_call_node = env.add_node(short_node_name, tool_func, [tool_spec_node.name])
+        tool_call_node = env.add_node(
+            short_node_name,
+            tool_func,
+            [
+                Dependency(
+                    dep_name=None, node_name=tool_spec_node.name, stream_name=None
+                )
+            ],
+        )
         tool_msg_node = env.add_node(
             "toolcall_to_messages",
             toolcall_to_messages,
-            [tool_call_node.name, (tool_spec_node.name, "llm_spec")],
+            [
+                Dependency(
+                    dep_name=None, node_name=tool_call_node.name, stream_name=None
+                ),
+                Dependency(
+                    dep_name="llm_spec", node_name=tool_spec_node.name, stream_name=None
+                ),
+            ],
         )
 
-        start_node.deps.append((tool_msg_node.name, None))
+        start_node.deps.append(
+            Dependency(dep_name=None, node_name=tool_msg_node.name, stream_name=None)
+        )
 
     # Connect end node to next in pipeline
     for next_node in env.get_next_nodes(node):
-        next_node.deps.append((end_node.name, None))
+        next_node.deps.append(
+            Dependency(dep_name=None, node_name=end_node.name, stream_name=None)
+        )
 
     return ""
 

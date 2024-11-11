@@ -1,17 +1,47 @@
 from dataclasses import dataclass, field
-from typing import Dict, Any, Callable, Set, Optional, TextIO, Union, Sequence, List
+from typing import Dict, Any, Callable, Set, Optional, TextIO, Sequence, List
 import inspect
 import json
 from io import StringIO
+
+
+@dataclass
+class Dependency:
+    """A dependency of a node on another node's stream.
+
+    Attributes:
+        dep_name: Optional name of the dependency (e.g., "credentials")
+        node_name: Name of the dependency node
+        stream_name: Name of the stream from the dependency node
+    """
+
+    dep_name: Optional[str]
+    node_name: str
+    stream_name: Optional[str]
+
+    def to_json(self) -> list:
+        """Convert to JSON-serializable format.
+
+        Returns:
+            List of [dep_name, node_name, stream_name]
+        """
+        return [self.dep_name, self.node_name, self.stream_name]
+
+    @classmethod
+    def from_json(cls, data: list) -> "Dependency":
+        """Create dependency from JSON data.
+
+        Args:
+            data: List of [dep_name, node_name, stream_name]
+        """
+        return cls(dep_name=data[0], node_name=data[1], stream_name=data[2])
 
 
 @dataclass(frozen=True)
 class Node:
     name: str
     func: Callable[..., Any]
-    deps: List[tuple[str, Optional[str]]] = field(
-        default_factory=list
-    )  # [(node_name, dep_name)]
+    deps: List[Dependency] = field(default_factory=list)  # [(node_name, dep_name)]
     cache: Any = field(default=None, compare=False)
     dirty: bool = field(default=True, compare=False)
     explain: Optional[str] = field(default=None)  # New field for explanation
@@ -21,7 +51,7 @@ class Node:
         return {
             "name": self.name,
             "dirty": self.dirty,
-            "deps": self.deps,
+            "deps": [dep.to_json() for dep in self.deps],
             "cache": None if self.cache is None else json.dumps(self.cache),
             "explain": self.explain,  # Add explain field to JSON
             # Skip func as it's not serializable
@@ -102,7 +132,7 @@ class Environment:
         self,
         name: str,
         func: Callable[..., Any],
-        deps: Optional[Sequence[Union[str, tuple[str, str]]]] = None,
+        deps: Optional[Sequence[Dependency]] = None,
         explain: Optional[str] = None,  # New parameter
     ) -> Node:
         """Add a build node with its dependencies.
@@ -120,15 +150,7 @@ class Environment:
         """
         self._node_counter += 1
         full_name = f"{name}.{self._node_counter}"
-
-        # Convert all deps to tuples with Optional[str]
-        normalized_deps: List[tuple[str, Optional[str]]] = []
-        if deps:
-            normalized_deps = [
-                (dep, None) if isinstance(dep, str) else dep for dep in deps
-            ]
-        # Create and add node
-        node = Node(name=full_name, func=func, deps=normalized_deps, explain=explain)
+        node = Node(name=full_name, func=func, deps=list(deps or []), explain=explain)
         self.nodes[full_name] = node
         return node
 
@@ -167,18 +189,19 @@ class Environment:
         dep_results = []
         named_results: Dict[str, List[Node]] = {}
 
-        for dep_name, dep_param in node.deps:
-            dep_node = self.get_node(dep_name)
+        for dep in node.deps:
+            dep_node_name, dep_name = dep.node_name, dep.dep_name
+            dep_node = self.get_node(dep_node_name)
             if dep_node.dirty:
-                raise ValueError(f"Dependency node '{dep_name}' is dirty")
-            if dep_param is None:
+                raise ValueError(f"Dependency node '{dep_node_name}' is dirty")
+            if dep_name is None:
                 # Default dependency - add to positional args
                 dep_results.append(dep_node.cache)
             else:
                 # Named dependency - group by parameter name
-                if dep_param not in named_results:
-                    named_results[dep_param] = []
-                named_results[dep_param].append(dep_node.cache)
+                if dep_name not in named_results:
+                    named_results[dep_name] = []
+                named_results[dep_name].append(dep_node.cache)
 
         # Execute the node's function with all dependencies
         try:
@@ -198,7 +221,7 @@ class Environment:
             print(f"Function: {node.func.__name__}")
             print(
                 f"Default dependencies: "
-                f"{[dep for dep, param in node.deps if param is None]}"
+                f"{[dep for dep in node.deps if dep.dep_name is None]}"
             )
             print(f"Named dependencies: {named_results}")
             raise
@@ -247,8 +270,8 @@ class Environment:
 
             # Visit all dependencies (both default and named)
             node = self.nodes[name]
-            for dep_name, _ in node.deps:
-                visit(dep_name)
+            for dep in node.deps:
+                visit(dep.node_name)
 
             visiting.remove(name)
             visiting_list.pop()
@@ -301,10 +324,10 @@ class Environment:
 
         # Group dependencies by parameter name
         deps_by_param: Dict[Optional[str], List[str]] = {}
-        for dep_name, param_name in node.deps:
-            if param_name not in deps_by_param:
-                deps_by_param[param_name] = []
-            deps_by_param[param_name].append(dep_name)
+        for dep in node.deps:
+            if dep.dep_name not in deps_by_param:
+                deps_by_param[dep.dep_name] = []
+            deps_by_param[dep.dep_name].append(dep.node_name)
 
         next_indent = f"{indent}│   "
 
@@ -359,7 +382,7 @@ class Environment:
         node = Node(
             name=name,
             func=func,
-            deps=node_data["deps"],
+            deps=[Dependency.from_json(dep) for dep in node_data["deps"]],
             cache=None if cache_str is None else json.loads(cache_str),
             dirty=node_data["dirty"],
             explain=node_data.get("explain"),  # Load explain field if present
@@ -391,8 +414,8 @@ class Environment:
         to_clone: Set[str] = {start}
 
         # Add start node's dependencies to clone set
-        for dep_name, _ in start_node.deps:
-            to_clone.add(dep_name)
+        for dep in start_node.deps:
+            to_clone.add(dep.node_name)
 
         while to_clone:
             # Get next node to clone
@@ -425,9 +448,13 @@ class Environment:
             else:
                 # For other nodes, use cloned dependencies
                 new_deps = [
-                    (original_to_clone[dep_name], dep_param)
-                    for dep_name, dep_param in original.deps
-                    if dep_name in original_to_clone
+                    Dependency(
+                        dep_name=dep.dep_name,
+                        node_name=original_to_clone[dep.node_name],
+                        stream_name=dep.stream_name,
+                    )
+                    for dep in original.deps
+                    if dep.node_name in original_to_clone
                 ]
 
             # Create new node with dependencies
@@ -458,7 +485,7 @@ class Environment:
         next_nodes = []
         for other_node in self.nodes.values():
             # Check if node.name appears as a dependency in other_node's deps list
-            if any(dep_name == node.name for dep_name, _ in other_node.deps):
+            if any(dep.node_name == node.name for dep in other_node.deps):
                 next_nodes.append(other_node)
         return next_nodes
 
