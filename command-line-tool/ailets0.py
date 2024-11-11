@@ -10,10 +10,8 @@ from ailets.cons import (
     prompt_to_md,
     build_plan_writing_trace,
     load_state_from_trace,
-    Environment,
 )
 from ailets.cons.pipelines import get_func_map
-import json
 from ailets.cons.nodes.tool_get_user_name import (
     get_spec_for_get_user_name,
     run_get_user_name,
@@ -150,15 +148,6 @@ def get_prompt(prompt_args: list[str]) -> list[Union[str, Tuple[str, str]]]:
     return prompt
 
 
-def save_state(file_name: str, env: Environment, target_node_name: str):
-    plan = env.plan(target_node_name)
-    plan_nodes = [env.nodes[name] for name in plan]
-    with open(file_name, "w") as f:
-        for node in plan_nodes:
-            json.dump(node.to_json(), f, indent=2)
-            f.write("\n")
-
-
 def main():
     args = parse_args()
     assert args.model == "gpt4o", "At the moment, only gpt4o is supported"
@@ -181,7 +170,8 @@ def main():
         build_plan_writing_trace(env, stop_node_name, one_step=args.one_step)
 
     if args.save_state:
-        save_state(args.save_state, env, target_node_name)
+        with open(args.save_state, "w") as f:
+            env.to_json(f)
 
 
 if __name__ == "__main__":

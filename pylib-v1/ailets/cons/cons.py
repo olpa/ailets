@@ -574,12 +574,17 @@ class Environment:
         self.nodes[full_name] = node
         return node
 
-    def to_json(self) -> dict:
+    def to_json(self, f: TextIO) -> None:
         """Convert environment to JSON-serializable dict."""
-        return {
-            "nodes": {name: node.to_json() for name, node in self.nodes.items()},
-            "streams": [stream.to_json() for stream in self._streams],
-        }
+        # Save nodes
+        for node in self.nodes.values():
+            json.dump(node.to_json(), f, indent=2)
+            f.write("\n")
+
+        # Save streams
+        for stream in self._streams:
+            json.dump(stream.to_json(), f, indent=2)
+            f.write("\n")
 
     @classmethod
     def from_json(
