@@ -35,7 +35,16 @@ def parse_args():
         "--prompt",
         action="append",
         default=[],
-        help='Input prompt (default: "-" for stdin). Can be specified multiple times',
+        help="""Input prompt. Can be specified multiple times. Formats:\\\\
+
+            - text: regular text\\\\
+            - "-": read from stdin\\\\
+            - "@path/to/file": local file with auto-detected type\\\\
+            - "@{type}path/to/file": local file with explicit type\\\\
+            - "@http://...": URL with auto-detected type\\\\
+            - "@{type}http://...": URL with explicit type\\\\
+
+            Supported types: text, image_url""",
     )
     parser.add_argument(
         "--dry-run",
