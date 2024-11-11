@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from typing import Dict, Any, Callable, Set, Optional, TextIO, Union, Sequence, List
 import inspect
 import json
+from io import StringIO
 
 
 @dataclass(frozen=True)
@@ -27,11 +28,75 @@ class Node:
         }
 
 
+@dataclass
+class Stream:
+    """A stream of data associated with a node.
+
+    Attributes:
+        node_name: Name of the node this stream belongs to
+        stream_name: Name of the stream
+        is_finished: Whether the stream is complete
+        content: The StringIO buffer containing the stream data
+    """
+
+    node_name: str
+    stream_name: str
+    is_finished: bool
+    content: StringIO
+
+    def to_json(self) -> dict:
+        """Convert stream to JSON-serializable dict."""
+        return {
+            "node": self.node_name,
+            "name": self.stream_name,
+            "finished": self.is_finished,
+            "content": self.content.getvalue(),
+        }
+
+    @classmethod
+    def from_json(cls, data: dict) -> "Stream":
+        """Create stream from JSON data."""
+        return cls(
+            node_name=data["node"],
+            stream_name=data["name"],
+            is_finished=data["finished"],
+            content=StringIO(data["content"]),
+        )
+
+
 class Environment:
     def __init__(self) -> None:
         self.nodes: Dict[str, Node] = {}
         self._node_counter: int = 0  # Single counter for all nodes
         self._tools: Dict[str, tuple[Callable, Callable]] = {}  # New tools dictionary
+        self._streams: list[Stream] = []
+        self._next_id = 1
+
+    @property
+    def streams(self) -> Sequence[Stream]:
+        """Get the list of streams."""
+        return self._streams
+
+    def add_stream(self, node_name: str, stream_name: str) -> StringIO:
+        """Add a new stream.
+
+        Args:
+            node_name: Name of the node this stream belongs to
+            stream_name: Name of the stream
+
+        Returns:
+            The created StringIO object
+        """
+        stream = StringIO()
+        self._streams.append(
+            Stream(
+                node_name=node_name,
+                stream_name=stream_name,
+                is_finished=False,
+                content=stream,
+            )
+        )
+        return stream
 
     def add_node(
         self,
@@ -481,6 +546,30 @@ class Environment:
 
         self.nodes[full_name] = node
         return node
+
+    def to_json(self) -> dict:
+        """Convert environment to JSON-serializable dict."""
+        return {
+            "nodes": {name: node.to_json() for name, node in self.nodes.items()},
+            "streams": [stream.to_json() for stream in self._streams],
+        }
+
+    @classmethod
+    def from_json(
+        cls, data: dict, func_map: Dict[str, Callable[..., Any]]
+    ) -> "Environment":
+        """Create environment from JSON data."""
+        env = cls()
+
+        # Load nodes
+        for name, node_data in data["nodes"].items():
+            env.load_node_state(node_data, func_map)
+
+        # Load streams
+        for stream_data in data.get("streams", []):
+            env._streams.append(Stream.from_json(stream_data))
+
+        return env
 
 
 def mkenv() -> Environment:
