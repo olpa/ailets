@@ -73,10 +73,14 @@ def guess_content_type(content: str) -> str:
     """Guess content type from content or URL."""
     # Common image extensions
     image_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+    # Text extensions
+    text_extensions = {".txt", ".md", ".text"}
 
     ext = os.path.splitext(urlparse(content).path)[1].lower()
     if ext in image_extensions:
         return "image_url"
+    if ext in text_extensions:
+        return "text"
     raise ValueError(f"Could not determine content type for: {content}")
 
 
