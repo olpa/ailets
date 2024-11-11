@@ -18,6 +18,10 @@ from ailets.cons.nodes.tool_get_user_name import (
     get_spec_for_get_user_name,
     run_get_user_name,
 )
+import re
+import base64
+import os
+from urllib.parse import urlparse
 
 
 def parse_args():
@@ -56,6 +60,26 @@ def parse_args():
     return parser.parse_args()
 
 
+def is_url(s: str) -> bool:
+    """Check if string is a valid URL."""
+    try:
+        result = urlparse(s)
+        return all([result.scheme, result.netloc])
+    except ValueError:
+        return False
+
+
+def guess_content_type(content: str) -> str:
+    """Guess content type from content or URL."""
+    # Common image extensions
+    image_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
+
+    ext = os.path.splitext(urlparse(content).path)[1].lower()
+    if ext in image_extensions:
+        return "image_url"
+    raise ValueError(f"Could not determine content type for: {content}")
+
+
 def get_prompt(prompt_args: list[str]) -> list[Union[str, Tuple[str, str]]]:
     """Get prompt from arguments or stdin.
 
@@ -64,19 +88,52 @@ def get_prompt(prompt_args: list[str]) -> list[Union[str, Tuple[str, str]]]:
 
     Returns:
         List of prompts. Each prompt can be either:
-        - str: treated as a regular prompt
-        - tuple[str, str]: (text, type) where type creates a named dependency
+            - str: treated as a regular prompt
+            - tuple[str, str]: (text, type) for typed content like images
     """
     prompt: list[Union[str, Tuple[str, str]]] = []
     if not prompt_args:
         prompt = ["-"]
+
     for prompt_arg in prompt_args:
         if prompt_arg == "-":
-            prompt_arg = sys.stdin.read()
-        if prompt_arg[0] != "@":
+            prompt.append(sys.stdin.read())
+            continue
+
+        if not prompt_arg.startswith("@"):
             prompt.append(prompt_arg)
-        else:
-            prompt.append((prompt_arg[1:], "image_url"))
+            continue
+
+        # Parse @{type}content format
+        match = re.match(r"^@({\w+})?(.+)$", prompt_arg)
+        if not match:
+            raise ValueError(f"Invalid format for typed content: {prompt_arg}")
+
+        content_type, content = match.groups()
+
+        # If type not specified, try to guess it
+        if content_type is None:
+            content_type = guess_content_type(content)
+
+        # Handle URLs vs files
+        if not is_url(content):
+            # Read file and convert to data URL
+            with open(content, "rb") as f:
+                file_content = f.read()
+            content = (
+                f"data:image/jpeg;base64,{base64.b64encode(file_content).decode()}"
+            )
+
+        supported_content_types = ["text", "image_url"]
+        content_type_stripped = content_type.strip("{}")
+        error_msg = (
+            f"Unknown content type: {content_type_stripped}, "
+            f"expected: {supported_content_types}"
+        )
+        assert content_type_stripped in supported_content_types, error_msg
+
+        prompt.append((content, content_type))
+
     return prompt
 
 
