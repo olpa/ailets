@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Dict, Any, Callable, Set, Optional, TextIO, Union
+from typing import Dict, Any, Callable, Set, Optional, TextIO, Union, Sequence, List
 import inspect
 import json
 
@@ -8,7 +8,7 @@ import json
 class Node:
     name: str
     func: Callable[..., Any]
-    deps: list[tuple[str, Optional[str]]] = field(
+    deps: List[tuple[str, Optional[str]]] = field(
         default_factory=list
     )  # [(node_name, dep_name)]
     cache: Any = field(default=None, compare=False)
@@ -37,7 +37,7 @@ class Environment:
         self,
         name: str,
         func: Callable[..., Any],
-        deps: Optional[list[Union[str, tuple[str, str]]]] = None,
+        deps: Optional[Sequence[Union[str, tuple[str, str]]]] = None,
         explain: Optional[str] = None,  # New parameter
     ) -> Node:
         """Add a build node with its dependencies.
@@ -57,7 +57,7 @@ class Environment:
         full_name = f"{name}.{self._node_counter}"
 
         # Convert all deps to tuples with Optional[str]
-        normalized_deps: list[tuple[str, Optional[str]]] = []
+        normalized_deps: List[tuple[str, Optional[str]]] = []
         if deps:
             normalized_deps = [
                 (dep, None) if isinstance(dep, str) else dep for dep in deps
@@ -100,7 +100,7 @@ class Environment:
 
         # Build dependencies first
         dep_results = []
-        named_results: Dict[str, list[Any]] = {}
+        named_results: Dict[str, List[Node]] = {}
 
         for dep_name, dep_param in node.deps:
             dep_node = self.get_node(dep_name)
@@ -149,7 +149,7 @@ class Environment:
         )
         return result
 
-    def plan(self, target: str) -> list[str]:
+    def plan(self, target: str) -> Sequence[str]:
         """Return nodes in build order for the target.
 
         Args:
@@ -166,7 +166,7 @@ class Environment:
             raise KeyError(f"Node {target} not found")
 
         visited: Set[str] = set()
-        build_order: list[str] = []
+        build_order: List[str] = []
 
         def visit(name: str) -> None:
             """DFS helper to build topological sort."""
@@ -191,7 +191,7 @@ class Environment:
             build_order.append(name)
 
         visiting: Set[str] = set()
-        visiting_list: list[str] = []
+        visiting_list: List[str] = []
 
         visit(target)
         return build_order
@@ -235,7 +235,7 @@ class Environment:
         visited.add(node_name)
 
         # Group dependencies by parameter name
-        deps_by_param: Dict[Optional[str], list[str]] = {}
+        deps_by_param: Dict[Optional[str], List[str]] = {}
         for dep_name, param_name in node.deps:
             if param_name not in deps_by_param:
                 deps_by_param[param_name] = []
@@ -302,7 +302,7 @@ class Environment:
         self.nodes[name] = node
         return node
 
-    def clone_path(self, start: str, end: str) -> list[Node]:
+    def clone_path(self, start: str, end: str) -> Sequence[Node]:
         """Clone a path of nodes from start to end.
 
         Args:
@@ -388,7 +388,7 @@ class Environment:
 
         return result
 
-    def get_next_nodes(self, node: Node) -> list[Node]:
+    def get_next_nodes(self, node: Node) -> Sequence[Node]:
         """Return list of nodes that depend on the given node."""
         next_nodes = []
         for other_node in self.nodes.values():
@@ -443,6 +443,38 @@ class Environment:
             func=lambda _: value,  # Simple function that returns the value
             deps=[],  # No dependencies
             cache=value,  # Pre-cache the value
+            dirty=False,  # Mark as built
+            explain=explain,
+        )
+
+        self.nodes[full_name] = node
+        return node
+
+    def add_typed_value_node(
+        self, value: str, value_type: str, explain: Optional[str] = None
+    ) -> Node:
+        """Add a typed value node to the environment.
+
+        Args:
+            value: The value to store
+            value_type: The type of the value
+            explain: Optional explanation of what the value represents
+
+        Returns:
+            The created node in a built (not dirty) state
+        """
+        self._node_counter += 1
+        full_name = f"typed_value.{self._node_counter}"
+
+        # Create node with the value pre-cached and marked as clean
+        node = Node(
+            name=full_name,
+            func=lambda _: (
+                value,
+                value_type,
+            ),  # Function returns tuple of value and type
+            deps=[],  # No dependencies
+            cache=(value, value_type),  # Pre-cache the tuple
             dirty=False,  # Mark as built
             explain=explain,
         )
