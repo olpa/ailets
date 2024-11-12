@@ -26,3 +26,7 @@ class NodeRuntime:
         stream = self._env.create_new_stream(self._node_name, stream_name)
         self._write_streams[stream_name] = stream
         return stream.content
+
+    def close_write(self, stream_name: str) -> None:
+        stream = self._write_streams.pop(stream_name)
+        self._env.close_stream(stream)
