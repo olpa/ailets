@@ -117,8 +117,8 @@ class Environment:
                 return node
         raise KeyError(f"No node found with base name {base_name}")
 
-    def build_node(self, name: str) -> Any:
-        """Build a node and its dependencies if needed."""
+    def build_node_alone(self, name: str) -> Any:
+        """Build a node. Does not build its dependencies."""
         node = self.get_node(name)
 
         # If node is already built and clean, return cached result
@@ -137,20 +137,17 @@ class Environment:
             if dep_node.dirty:
                 raise ValueError(f"Dependency node '{dep_node_name}' is dirty")
 
-            dep_stream = self.get_stream(dep_node_name, dep_stream_name)
+            dep_stream = self._streams.get(dep_node_name, dep_stream_name)
             if not dep_stream.is_finished:
                 raise ValueError(
                     f"Stream '{dep_stream_name}' for node '{dep_node_name}' is not finished"
                 )
 
-            if dep_name is None:
-                dep_name = ""
-
             if dep_name not in in_streams:
                 in_streams[dep_name] = []
             in_streams[dep_name].append(dep_stream)
 
-        runtime = NodeRuntime(self, self.env, self.env._streams, node.name)
+        runtime = NodeRuntime(self._streams, node.name)
 
         # Execute the node's function with all dependencies
         try:
@@ -174,6 +171,49 @@ class Environment:
             explain=node.explain,
         )
         return result
+
+    def build_target(
+        self,
+        target: str,
+        one_step: bool = False,
+    ) -> None:
+        """Build nodes in order.
+
+        Args:
+            env: Environment to build in
+            target: Target node to build
+            one_step: If True, build only one step and exit
+        """
+
+        # Get initial plan
+        plan = self.plan(target)
+        current_node_count = len(self.nodes)
+
+        while True:
+            # Find next dirty node to build
+            next_node = None
+            for node_name in plan:
+                node = self.get_node(node_name)
+                if node.dirty:
+                    next_node = node
+                    break
+
+            # If no dirty nodes, we're done
+            if next_node is None:
+                break
+
+            # Build the node
+            self.build_node_alone(next_node.name)
+
+            # Check if number of nodes changed
+            new_node_count = len(self.nodes)
+            if new_node_count != current_node_count:
+                # Recalculate plan
+                plan = self.plan(target)
+                current_node_count = new_node_count
+
+            if one_step:  # Exit after building one node if requested
+                break
 
     def plan(self, target: str) -> Sequence[str]:
         """Return nodes in build order for the target.
@@ -486,11 +526,11 @@ class Environment:
         self.nodes[full_name] = node
 
         # Add streams for value and type
-        value_stream = self.add_stream(full_name, None)
+        value_stream = self._streams.create(full_name, None)
         value_stream.content.write(value)
         value_stream.is_finished = True
 
-        type_stream = self.add_stream(full_name, "type")
+        type_stream = self._streams.create(full_name, "type")
         type_stream.content.write(value_type)
         type_stream.is_finished = True
 
@@ -503,28 +543,38 @@ class Environment:
             json.dump(node.to_json(), f, indent=2)
             f.write("\n")
 
-        # Save streams
-        for stream in self._streams:
-            json.dump(stream.to_json(), f, indent=2)
-            f.write("\n")
+        self._streams.to_json(f)
 
     @classmethod
     def from_json(
-        cls, data: dict, func_map: Dict[str, Callable[..., Any]]
+        cls, f: TextIO, func_map: Dict[str, Callable[..., Any]]
     ) -> "Environment":
         """Create environment from JSON data."""
         env = cls()
 
-        # Load nodes
-        for name, node_data in data["nodes"].items():
-            env.load_node_state(node_data, func_map)
+        content = f.read()
+        decoder = json.JSONDecoder()
+        pos = 0
 
-        # Load streams
-        for stream_data in data.get("streams", []):
-            env._streams.append(Stream.from_json(stream_data))
+        # Decode multiple JSON objects from the content
+        while pos < len(content):
+            # Skip whitespace
+            while pos < len(content) and content[pos].isspace():
+                pos += 1
+            if pos >= len(content):
+                break
+
+            # Decode next object
+            try:
+                node_data, pos = decoder.raw_decode(content, pos)
+                if "deps" in node_data:
+                    last_node = env.load_node_state(node_data, func_map)
+                elif "is_finished" in node_data:
+                    env.load_stream_state(node_data)
+                else:
+                    raise ValueError(f"Unknown node data: {node_data}")
+            except json.JSONDecodeError as e:
+                print(f"Error decoding JSON at position {pos}: {e}")
+                raise
 
         return env
-
-
-def mkenv() -> Environment:
-    return Environment()

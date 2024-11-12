@@ -76,7 +76,7 @@ class Streams:
             raise ValueError(f"Stream not found: {node_name}.{stream_name}")
         return stream
 
-    def add(self, node_name: str, stream_name: str) -> StringIO:
+    def create(self, node_name: str, stream_name: str) -> Stream:
         """Add a new stream."""
         if self._find_stream(node_name, stream_name) is not None:
             raise ValueError(f"Stream already exists: {node_name}.{stream_name}")
@@ -88,7 +88,7 @@ class Streams:
             content=StringIO(),
         )
         self._streams.append(stream)
-        return stream.content
+        return stream
 
     def mark_finished(self, node_name: str, stream_name: str) -> None:
         """Mark a stream as finished."""
