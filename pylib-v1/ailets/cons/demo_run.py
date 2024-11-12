@@ -106,7 +106,12 @@ def load_state_from_trace(
             # Decode next object
             try:
                 node_data, pos = decoder.raw_decode(content, pos)
-                last_node = env.load_node_state(node_data, func_map)
+                if "deps" in node_data:
+                    last_node = env.load_node_state(node_data, func_map)
+                elif "is_finished" in node_data:
+                    env.load_stream_state(node_data)
+                else:
+                    raise ValueError(f"Unknown node data: {node_data}")
             except json.JSONDecodeError as e:
                 print(f"Error decoding JSON at position {pos}: {e}")
                 raise

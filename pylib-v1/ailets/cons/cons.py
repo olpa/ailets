@@ -389,6 +389,33 @@ class Environment:
         self.nodes[name] = node
         return node
 
+    def load_stream_state(self, stream_data: Dict[str, Any]) -> Stream:
+        """Load a stream's state from JSON data.
+
+        Args:
+            stream_data: Stream state from JSON
+
+        Returns:
+            The loaded stream
+
+        Raises:
+            ValueError: If stream data is invalid
+        """
+        if not all(
+            k in stream_data for k in ["node", "name", "is_finished", "content"]
+        ):
+            raise ValueError("Invalid stream data: missing required fields")
+
+        stream = Stream(
+            node_name=stream_data["node"],
+            stream_name=stream_data["name"],
+            is_finished=stream_data["is_finished"],
+            content=StringIO(stream_data["content"]),
+        )
+
+        self._streams.append(stream)
+        return stream
+
     def clone_path(self, start: str, end: str) -> Sequence[Node]:
         """Clone a path of nodes from start to end.
 
