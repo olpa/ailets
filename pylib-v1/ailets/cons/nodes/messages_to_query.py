@@ -12,7 +12,7 @@ def messages_to_query(runtime: NodeRuntime) -> None:
     messages = []
     for i in range(runtime.n_of_streams(None)):
         stream = runtime.open_read(None, i)
-        messages.append(json.loads(stream.read()))
+        messages.extend(json.loads(stream.read()))
 
     tools = []
     for i in range(runtime.n_of_streams("tools")):
@@ -24,6 +24,7 @@ def messages_to_query(runtime: NodeRuntime) -> None:
                 "function": toolspec,
             }
         )
+    tools_param = {"tools": tools} if tools else {}
 
     creds = {}
     for i in range(runtime.n_of_streams("credentials")):
@@ -40,7 +41,7 @@ def messages_to_query(runtime: NodeRuntime) -> None:
         "body": {
             "model": "gpt-4o-mini",
             "messages": messages,
-            "tools": tools,
+            **tools_param,
         },
     }
 
