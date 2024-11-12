@@ -167,7 +167,7 @@ def main():
     if args.dry_run:
         env.print_dependency_tree(target_node_name)
     else:
-        env.build_target(env, stop_node_name, one_step=args.one_step)
+        env.build_target(stop_node_name, one_step=args.one_step)
 
     if args.save_state:
         with open(args.save_state, "w") as f:

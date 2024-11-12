@@ -578,3 +578,38 @@ class Environment:
                 raise
 
         return env
+
+    def find_final_node(self) -> Optional[Node]:
+        """Find the final node in the environment.
+        
+        A final node is a node that no other node depends on.
+        If there are multiple such nodes, returns any one of them.
+        
+        Returns:
+            The final node, or None if no nodes exist
+        """
+        if not self.nodes:
+            return None
+        
+        # Create set of all nodes that are dependencies
+        dependency_nodes = {
+            dep.node_name 
+            for node in self.nodes.values()
+            for dep in node.deps
+        }
+        
+        # Find nodes that aren't dependencies of any other node
+        final_nodes = [
+            node 
+            for name, node in self.nodes.items()
+            if name not in dependency_nodes
+        ]
+        
+        if not final_nodes:
+            raise ValueError("No final node found - dependency cycle detected")
+        
+        if len(final_nodes) > 1:
+            node_names = [node.name for node in final_nodes]
+            raise ValueError(f"Multiple final nodes found: {node_names}")
+        
+        return final_nodes[0]
