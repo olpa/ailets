@@ -128,7 +128,11 @@ class Environment:
         in_streams: Dict[str, List[Node]] = {}
 
         for dep in node.deps:
-            dep_node_name, dep_name, dep_stream_name = dep.node_name, dep.dep_name, dep.stream_name
+            dep_node_name, dep_name, dep_stream_name = (
+                dep.node_name,
+                dep.dep_name,
+                dep.stream_name,
+            )
             dep_node = self.get_node(dep_node_name)
             if dep_node.dirty:
                 raise ValueError(f"Dependency node '{dep_node_name}' is dirty")
@@ -145,7 +149,7 @@ class Environment:
             if dep_name not in in_streams:
                 in_streams[dep_name] = []
             in_streams[dep_name].append(dep_stream)
-        
+
         runtime = NodeRuntime(self, self.env, self.env._streams, node.name)
 
         # Execute the node's function with all dependencies
@@ -155,8 +159,7 @@ class Environment:
             print(f"Error building node '{name}'")
             print(f"Function: {node.func.__name__}")
             print(
-                f"Default dependencies: "
-                f"{[s for s in in_streams.keys() if s == '']}"
+                f"Default dependencies: " f"{[s for s in in_streams.keys() if s == '']}"
             )
             print(f"Named dependencies: {[s for s in in_streams.keys() if s != '']}")
             raise

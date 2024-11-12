@@ -4,7 +4,9 @@ from .cons import Environment, Stream
 
 
 class NodeRuntime:
-    def __init__(self, env: Environment, streams: Dict[str, Sequence[Stream]], node_name: str):
+    def __init__(
+        self, env: Environment, streams: Dict[str, Sequence[Stream]], node_name: str
+    ):
         self._env = env
         self._streams = streams
         self._node_name = node_name

@@ -6,13 +6,14 @@ from io import StringIO
 @dataclass
 class Stream:
     """A stream of data associated with a node.
-    
+
     Attributes:
         node_name: Name of the node this stream belongs to
         stream_name: Name of the stream
         is_finished: Whether the stream is complete
         content: The StringIO buffer containing the stream data
     """
+
     node_name: str
     stream_name: str
     is_finished: bool
@@ -24,7 +25,7 @@ class Stream:
             "node": self.node_name,
             "name": self.stream_name,
             "finished": self.is_finished,
-            "content": self.content.getvalue()
+            "content": self.content.getvalue(),
         }
 
     @classmethod
@@ -34,13 +35,13 @@ class Stream:
             node_name=data["node"],
             stream_name=data["name"],
             is_finished=data["finished"],
-            content=StringIO(data["content"])
+            content=StringIO(data["content"]),
         )
 
 
 class Streams:
     """Manages streams for an environment."""
-    
+
     def __init__(self):
         self._streams: list[Stream] = []
 
@@ -51,18 +52,21 @@ class Streams:
 
     def _find_stream(self, node_name: str, stream_name: str) -> Optional[Stream]:
         """Find a stream by node name and stream name.
-        
+
         Args:
             node_name: Name of the node
             stream_name: Name of the stream
-            
+
         Returns:
             The stream if found, None otherwise
         """
         return next(
-            (s for s in self._streams 
-             if s.node_name == node_name and s.stream_name == stream_name),
-            None
+            (
+                s
+                for s in self._streams
+                if s.node_name == node_name and s.stream_name == stream_name
+            ),
+            None,
         )
 
     def get(self, node_name: str, stream_name: str) -> Stream:
@@ -76,12 +80,12 @@ class Streams:
         """Add a new stream."""
         if self._find_stream(node_name, stream_name) is not None:
             raise ValueError(f"Stream already exists: {node_name}.{stream_name}")
-            
+
         stream = Stream(
             node_name=node_name,
             stream_name=stream_name,
             is_finished=False,
-            content=StringIO()
+            content=StringIO(),
         )
         self._streams.append(stream)
         return stream.content
@@ -99,12 +103,12 @@ class Streams:
         """Load a stream's state from JSON data."""
         if not all(k in stream_data for k in ["node", "name", "finished", "content"]):
             raise ValueError("Invalid stream data: missing required fields")
-            
+
         stream = Stream(
             node_name=stream_data["node"],
             stream_name=stream_data["name"],
             is_finished=stream_data["finished"],
-            content=StringIO(stream_data["content"])
+            content=StringIO(stream_data["content"]),
         )
 
         self._streams.append(stream)
