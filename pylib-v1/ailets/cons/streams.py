@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from typing import Optional, Sequence
+import json
+from typing import Optional, Sequence, TextIO
 from io import StringIO
 
 
@@ -24,7 +25,7 @@ class Stream:
         return {
             "node": self.node_name,
             "name": self.stream_name,
-            "finished": self.is_finished,
+            "is_finished": self.is_finished,
             "content": self.content.getvalue(),
         }
 
@@ -34,7 +35,7 @@ class Stream:
         return cls(
             node_name=data["node"],
             stream_name=data["name"],
-            is_finished=data["finished"],
+            is_finished=data["is_finished"],
             content=StringIO(data["content"]),
         )
 
@@ -95,21 +96,14 @@ class Streams:
         stream = self.get(node_name, stream_name)
         stream.is_finished = True
 
-    def to_json(self) -> list[dict]:
+    def to_json(self, f: TextIO) -> None:
         """Convert all streams to JSON-serializable format."""
-        return [stream.to_json() for stream in self._streams]
+        for stream in self._streams:
+            json.dump(stream.to_json(), f, indent=2)
+            f.write("\n")
 
-    def load_state(self, stream_data: dict) -> Stream:
+    def add_stream_from_json(self, stream_data: dict) -> Stream:
         """Load a stream's state from JSON data."""
-        if not all(k in stream_data for k in ["node", "name", "finished", "content"]):
-            raise ValueError("Invalid stream data: missing required fields")
-
-        stream = Stream(
-            node_name=stream_data["node"],
-            stream_name=stream_data["name"],
-            is_finished=stream_data["finished"],
-            content=StringIO(stream_data["content"]),
-        )
-
+        stream = Stream.from_json(stream_data)
         self._streams.append(stream)
         return stream

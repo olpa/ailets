@@ -566,13 +566,13 @@ class Environment:
 
             # Decode next object
             try:
-                node_data, pos = decoder.raw_decode(content, pos)
-                if "deps" in node_data:
-                    last_node = env.load_node_state(node_data, func_map)
-                elif "is_finished" in node_data:
-                    env.load_stream_state(node_data)
+                obj_data, pos = decoder.raw_decode(content, pos)
+                if "deps" in obj_data:
+                    last_node = env.load_node_state(obj_data, func_map)
+                elif "is_finished" in obj_data:
+                    env._streams.add_stream_from_json(obj_data)
                 else:
-                    raise ValueError(f"Unknown node data: {node_data}")
+                    raise ValueError(f"Unknown object data: {obj_data}")
             except json.JSONDecodeError as e:
                 print(f"Error decoding JSON at position {pos}: {e}")
                 raise

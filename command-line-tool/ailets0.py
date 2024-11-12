@@ -5,11 +5,9 @@ import argparse
 import sys
 import localsetup  # noqa: F401
 from typing import Union, Tuple
+from ailets.cons.cons import Environment
 from ailets.cons import (
-    mkenv,
     prompt_to_md,
-    build_plan_writing_trace,
-    load_state_from_trace,
 )
 from ailets.cons.pipelines import get_func_map
 from ailets.cons.nodes.tool_get_user_name import (
@@ -152,12 +150,14 @@ def main():
     args = parse_args()
     assert args.model == "gpt4o", "At the moment, only gpt4o is supported"
 
-    env = mkenv()
-    env.add_tool("get_user_name", (get_spec_for_get_user_name, run_get_user_name))
-
     if args.load_state:
-        node = load_state_from_trace(env, args.load_state, get_func_map())
+        with open(args.load_state, "r") as f:
+            env = Environment.from_json(f, get_func_map())
+        env.add_tool("get_user_name", (get_spec_for_get_user_name, run_get_user_name))
+        node = env.find_final_node()
     else:
+        env = Environment()
+        env.add_tool("get_user_name", (get_spec_for_get_user_name, run_get_user_name))
         prompt = get_prompt(args.prompt)
         node = prompt_to_md(env, prompt=prompt, tools=args.tools)
 
@@ -167,7 +167,7 @@ def main():
     if args.dry_run:
         env.print_dependency_tree(target_node_name)
     else:
-        build_plan_writing_trace(env, stop_node_name, one_step=args.one_step)
+        env.build_target(env, stop_node_name, one_step=args.one_step)
 
     if args.save_state:
         with open(args.save_state, "w") as f:
