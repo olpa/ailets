@@ -1,8 +1,10 @@
 from dataclasses import dataclass, field
 from typing import Dict, Any, Callable, Set, Optional, TextIO, Sequence, List
-import inspect
 import json
 from io import StringIO
+
+from .node_runtime import NodeRuntime
+from .streams import Streams, Stream
 
 
 @dataclass
@@ -58,74 +60,13 @@ class Node:
         }
 
 
-@dataclass
-class Stream:
-    """A stream of data associated with a node.
-
-    Attributes:
-        node_name: Name of the node this stream belongs to
-        stream_name: Name of the stream
-        is_finished: Whether the stream is complete
-        content: The StringIO buffer containing the stream data
-    """
-
-    node_name: str
-    stream_name: Optional[str]
-    is_finished: bool
-    content: StringIO
-
-    def to_json(self) -> dict:
-        """Convert stream to JSON-serializable dict."""
-        return {
-            "node": self.node_name,
-            "name": self.stream_name,
-            "is_finished": self.is_finished,
-            "content": self.content.getvalue(),
-        }
-
-    @classmethod
-    def from_json(cls, data: dict) -> "Stream":
-        """Create stream from JSON data."""
-        return cls(
-            node_name=data["node"],
-            stream_name=data["name"],
-            is_finished=data["is_finished"],
-            content=StringIO(data["content"]),
-        )
-
-
 class Environment:
     def __init__(self) -> None:
         self.nodes: Dict[str, Node] = {}
         self._node_counter: int = 0  # Single counter for all nodes
         self._tools: Dict[str, tuple[Callable, Callable]] = {}  # New tools dictionary
-        self._streams: list[Stream] = []
+        self._streams: Streams = Streams()
         self._next_id = 1
-
-    @property
-    def streams(self) -> Sequence[Stream]:
-        """Get the list of streams."""
-        return self._streams
-
-    def add_stream(self, node_name: str, stream_name: Optional[str]) -> Stream:
-        """Add a new stream.
-
-        Args:
-            node_name: Name of the node this stream belongs to
-            stream_name: Name of the stream
-
-        Returns:
-            The created stream
-        """
-        iostream = StringIO()
-        stream = Stream(
-            node_name=node_name,
-            stream_name=stream_name,
-            is_finished=False,
-            content=iostream,
-        )
-        self._streams.append(stream)
-        return stream
 
     def add_node(
         self,
@@ -184,45 +125,40 @@ class Environment:
         if not node.dirty:
             return node.cache
 
-        # Build dependencies first
-        dep_results = []
-        named_results: Dict[str, List[Node]] = {}
+        in_streams: Dict[str, List[Node]] = {}
 
         for dep in node.deps:
-            dep_node_name, dep_name = dep.node_name, dep.dep_name
+            dep_node_name, dep_name, dep_stream_name = dep.node_name, dep.dep_name, dep.stream_name
             dep_node = self.get_node(dep_node_name)
             if dep_node.dirty:
                 raise ValueError(f"Dependency node '{dep_node_name}' is dirty")
+
+            dep_stream = self.get_stream(dep_node_name, dep_stream_name)
+            if not dep_stream.is_finished:
+                raise ValueError(
+                    f"Stream '{dep_stream_name}' for node '{dep_node_name}' is not finished"
+                )
+
             if dep_name is None:
-                # Default dependency - add to positional args
-                dep_results.append(dep_node.cache)
-            else:
-                # Named dependency - group by parameter name
-                if dep_name not in named_results:
-                    named_results[dep_name] = []
-                named_results[dep_name].append(dep_node.cache)
+                dep_name = ""
+
+            if dep_name not in in_streams:
+                in_streams[dep_name] = []
+            in_streams[dep_name].append(dep_stream)
+        
+        runtime = NodeRuntime(self, self.env, self.env._streams, node.name)
 
         # Execute the node's function with all dependencies
         try:
-            # Get function signature to check for env/node params
-            sig = inspect.signature(node.func)
-            kwargs = named_results.copy()
-
-            # Add env and node parameters if the function accepts them
-            if "env" in sig.parameters:
-                kwargs["env"] = self  # type: ignore[assignment]
-            if "node" in sig.parameters:
-                kwargs["node"] = node  # type: ignore[assignment]
-
-            result = node.func(dep_results, **kwargs)
+            result = node.func(runtime)
         except Exception:
             print(f"Error building node '{name}'")
             print(f"Function: {node.func.__name__}")
             print(
                 f"Default dependencies: "
-                f"{[dep for dep in node.deps if dep.dep_name is None]}"
+                f"{[s for s in in_streams.keys() if s == '']}"
             )
-            print(f"Named dependencies: {named_results}")
+            print(f"Named dependencies: {[s for s in in_streams.keys() if s != '']}")
             raise
 
         # Since Node is frozen, we need to create a new one with updated cache
@@ -612,6 +548,32 @@ class Environment:
             env._streams.append(Stream.from_json(stream_data))
 
         return env
+
+    def get_stream(self, node_name: str, stream_name: str) -> Stream:
+        """Get a stream by node name and stream name.
+        
+        Args:
+            node_name: Name of the node that owns the stream
+            stream_name: Name of the stream
+            
+        Returns:
+            The requested stream
+            
+        Raises:
+            ValueError: If stream is not found
+        """
+        stream = next(
+            (s for s in self._streams 
+             if s.node_name == node_name and s.stream_name == stream_name),
+            None
+        )
+        
+        if stream is None:
+            raise ValueError(
+                f"Stream not found: {node_name}.{stream_name}"
+            )
+            
+        return stream
 
 
 def mkenv() -> Environment:
