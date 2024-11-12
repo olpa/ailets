@@ -325,33 +325,6 @@ class Environment:
         self.nodes[name] = node
         return node
 
-    def load_stream_state(self, stream_data: Dict[str, Any]) -> Stream:
-        """Load a stream's state from JSON data.
-
-        Args:
-            stream_data: Stream state from JSON
-
-        Returns:
-            The loaded stream
-
-        Raises:
-            ValueError: If stream data is invalid
-        """
-        if not all(
-            k in stream_data for k in ["node", "name", "is_finished", "content"]
-        ):
-            raise ValueError("Invalid stream data: missing required fields")
-
-        stream = Stream(
-            node_name=stream_data["node"],
-            stream_name=stream_data["name"],
-            is_finished=stream_data["is_finished"],
-            content=StringIO(stream_data["content"]),
-        )
-
-        self._streams.append(stream)
-        return stream
-
     def clone_path(self, start: str, end: str) -> Sequence[Node]:
         """Clone a path of nodes from start to end.
 
@@ -548,32 +521,6 @@ class Environment:
             env._streams.append(Stream.from_json(stream_data))
 
         return env
-
-    def get_stream(self, node_name: str, stream_name: str) -> Stream:
-        """Get a stream by node name and stream name.
-        
-        Args:
-            node_name: Name of the node that owns the stream
-            stream_name: Name of the stream
-            
-        Returns:
-            The requested stream
-            
-        Raises:
-            ValueError: If stream is not found
-        """
-        stream = next(
-            (s for s in self._streams 
-             if s.node_name == node_name and s.stream_name == stream_name),
-            None
-        )
-        
-        if stream is None:
-            raise ValueError(
-                f"Stream not found: {node_name}.{stream_name}"
-            )
-            
-        return stream
 
 
 def mkenv() -> Environment:
