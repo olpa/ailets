@@ -69,7 +69,8 @@ def prompt_to_md(
         [
             Dependency(dep_name=None, node_name=node_tv, stream_name=None)
             for node_tv in nodes_tvs
-        ] + [
+        ]
+        + [
             Dependency(dep_name="type", node_name=node_tv, stream_name="type")
             for node_tv in nodes_tvs
         ],

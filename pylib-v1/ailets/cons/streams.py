@@ -16,7 +16,7 @@ class Stream:
     """
 
     node_name: str
-    stream_name: str
+    stream_name: Optional[str]
     is_finished: bool
     content: StringIO
 
@@ -46,7 +46,7 @@ class Stream:
 class Streams:
     """Manages streams for an environment."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._streams: list[Stream] = []
 
     @property
@@ -54,7 +54,9 @@ class Streams:
         """Get all streams."""
         return self._streams
 
-    def _find_stream(self, node_name: str, stream_name: str) -> Optional[Stream]:
+    def _find_stream(
+        self, node_name: str, stream_name: Optional[str]
+    ) -> Optional[Stream]:
         """Find a stream by node name and stream name.
 
         Args:
@@ -73,14 +75,14 @@ class Streams:
             None,
         )
 
-    def get(self, node_name: str, stream_name: str) -> Stream:
+    def get(self, node_name: str, stream_name: Optional[str]) -> Stream:
         """Get a stream by node name and stream name."""
         stream = self._find_stream(node_name, stream_name)
         if stream is None:
             raise ValueError(f"Stream not found: {node_name}.{stream_name}")
         return stream
 
-    def create(self, node_name: str, stream_name: str) -> Stream:
+    def create(self, node_name: str, stream_name: Optional[str]) -> Stream:
         """Add a new stream."""
         if self._find_stream(node_name, stream_name) is not None:
             raise ValueError(f"Stream already exists: {node_name}.{stream_name}")
@@ -94,7 +96,7 @@ class Streams:
         self._streams.append(stream)
         return stream
 
-    def mark_finished(self, node_name: str, stream_name: str) -> None:
+    def mark_finished(self, node_name: str, stream_name: Optional[str]) -> None:
         """Mark a stream as finished."""
         stream = self.get(node_name, stream_name)
         stream.close()

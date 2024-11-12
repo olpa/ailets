@@ -1,8 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Dict, Any, Callable, Set, Optional, TextIO, Sequence, List
 import json
-from io import StringIO
 
+from .typing import IEnvironment
 from .node_runtime import NodeRuntime
 from .streams import Streams, Stream
 
@@ -60,7 +60,7 @@ class Node:
         }
 
 
-class Environment:
+class Environment(IEnvironment):
     def __init__(self) -> None:
         self.nodes: Dict[str, Node] = {}
         self._node_counter: int = 0  # Single counter for all nodes
@@ -125,7 +125,7 @@ class Environment:
         if not node.dirty:
             return node.cache
 
-        in_streams: Dict[str, List[Node]] = {}
+        in_streams: Dict[Optional[str], List[Stream]] = {}
 
         for dep in node.deps:
             dep_node_name, dep_name, dep_stream_name = (
@@ -140,7 +140,8 @@ class Environment:
             dep_stream = self._streams.get(dep_node_name, dep_stream_name)
             if not dep_stream.is_finished:
                 raise ValueError(
-                    f"Stream '{dep_stream_name}' for node '{dep_node_name}' is not finished"
+                    f"Stream '{dep_stream_name}' for node "
+                    f"'{dep_node_name}' is not finished"
                 )
 
             if dep_name not in in_streams:
@@ -567,7 +568,7 @@ class Environment:
             try:
                 obj_data, pos = decoder.raw_decode(content, pos)
                 if "deps" in obj_data:
-                    last_node = env.load_node_state(obj_data, func_map)
+                    env.load_node_state(obj_data, func_map)
                 elif "is_finished" in obj_data:
                     env._streams.add_stream_from_json(obj_data)
                 else:
@@ -580,41 +581,34 @@ class Environment:
 
     def find_final_node(self) -> Optional[Node]:
         """Find the final node in the environment.
-        
+
         A final node is a node that no other node depends on.
         If there are multiple such nodes, returns any one of them.
-        
+
         Returns:
             The final node, or None if no nodes exist
         """
         if not self.nodes:
             return None
-        
+
         # Create set of all nodes that are dependencies
         dependency_nodes = {
-            dep.node_name 
-            for node in self.nodes.values()
-            for dep in node.deps
+            dep.node_name for node in self.nodes.values() for dep in node.deps
         }
-        
+
         # Find nodes that aren't dependencies of any other node
         final_nodes = [
-            node 
-            for name, node in self.nodes.items()
-            if name not in dependency_nodes
+            node for name, node in self.nodes.items() if name not in dependency_nodes
         ]
-        
+
         if not final_nodes:
             raise ValueError("No final node found - dependency cycle detected")
-        
+
         if len(final_nodes) > 1:
             node_names = [node.name for node in final_nodes]
             raise ValueError(f"Multiple final nodes found: {node_names}")
-        
-        return final_nodes[0]
-    
-    def create_new_stream(self, node_name: str, stream_name: str) -> Stream:
-        return self._streams.create(node_name, stream_name)
 
-    def close_stream(self, stream: Stream) -> None:
-        stream.close()
+        return final_nodes[0]
+
+    def create_new_stream(self, node_name: str, stream_name: Optional[str]) -> Stream:
+        return self._streams.create(node_name, stream_name)
