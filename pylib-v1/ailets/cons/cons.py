@@ -625,3 +625,6 @@ class Environment(IEnvironment):
 
     def create_new_stream(self, node_name: str, stream_name: Optional[str]) -> Stream:
         return self._streams.create(node_name, stream_name)
+
+    def close_stream(self, stream: Stream) -> None:
+        stream.close()

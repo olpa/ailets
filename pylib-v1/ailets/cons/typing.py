@@ -3,8 +3,8 @@ from .streams import Stream
 
 
 class IEnvironment(Protocol):
-    def create_new_stream(
-        self, node_name: str, stream_name: Optional[str]
-    ) -> Stream: ...
+    def create_new_stream(self, node_name: str, stream_name: Optional[str]) -> Stream:
+        raise NotImplementedError
 
-    def close_stream(self, stream: Stream) -> None: ...
+    def close_stream(self, stream: Stream) -> None:
+        raise NotImplementedError
