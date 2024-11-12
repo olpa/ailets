@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Dict, Any, Callable, Set, Optional, TextIO, Sequence, List
+from typing import Dict, Any, Callable, Set, Optional, TextIO, Sequence, List, Tuple
 import json
 
 from .typing import IEnvironment
@@ -271,7 +271,11 @@ class Environment(IEnvironment):
         stream.write("\n")
 
     def print_dependency_tree(
-        self, node_name: str, indent: str = "", visited: Optional[Set[str]] = None
+        self,
+        node_name: str,
+        indent: str = "",
+        visited: Optional[Set[str]] = None,
+        stream_name: Optional[str] = None,
     ) -> None:
         """Print a tree showing node dependencies and build status.
 
@@ -279,6 +283,7 @@ class Environment(IEnvironment):
             node_name: Name of the node to print
             indent: Current indentation string (used for recursion)
             visited: Set of visited nodes to prevent cycles
+            stream_name: Optional stream name to display
         """
         if visited is None:
             visited = set()
@@ -289,7 +294,11 @@ class Environment(IEnvironment):
         )
 
         # Print current node with explanation if it exists
-        node_text = f"{indent}├── {node.name} [{status}]"
+        display_name = node.name
+        if stream_name is not None:
+            display_name = f"{display_name}.{stream_name}"
+
+        node_text = f"{indent}├── {display_name} [{status}]"
         if node.explain:
             node_text += f" ({node.explain})"
         print(node_text)
@@ -301,25 +310,29 @@ class Environment(IEnvironment):
         visited.add(node_name)
 
         # Group dependencies by parameter name
-        deps_by_param: Dict[Optional[str], List[str]] = {}
+        deps_by_param: Dict[Optional[str], List[Tuple[str, Optional[str]]]] = {}
         for dep in node.deps:
             if dep.dep_name not in deps_by_param:
                 deps_by_param[dep.dep_name] = []
-            deps_by_param[dep.dep_name].append(dep.node_name)
+            deps_by_param[dep.dep_name].append((dep.node_name, dep.stream_name))
 
         next_indent = f"{indent}│   "
 
         # Print default dependencies (param_name is None)
-        for dep_name in deps_by_param.get(None, []):
-            self.print_dependency_tree(dep_name, next_indent, visited.copy())
+        for dep_name, stream_name in deps_by_param.get(None, []):
+            self.print_dependency_tree(
+                dep_name, next_indent, visited.copy(), stream_name
+            )
 
         # Print named dependencies grouped by parameter
         for param_name, dep_names in deps_by_param.items():
             if param_name is not None:  # Skip None group as it's already printed
                 print(f"{next_indent}├── (param: {param_name})")
                 param_indent = f"{next_indent}│   "
-                for dep_name in dep_names:
-                    self.print_dependency_tree(dep_name, param_indent, visited.copy())
+                for dep_name, stream_name in dep_names:
+                    self.print_dependency_tree(
+                        dep_name, param_indent, visited.copy(), stream_name
+                    )
 
         visited.remove(node_name)
 
