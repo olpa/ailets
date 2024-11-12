@@ -1,14 +1,16 @@
 from typing import Dict, Sequence
 from io import StringIO
 from .streams import Stream
-
+from .typing import IEnvironment
 
 class NodeRuntime:
     def __init__(
         self,
+        env: IEnvironment,
         streams: Dict[str, Sequence[Stream]],
         node_name: str
     ):
+        self._env = env
         self._streams = streams
         self._node_name = node_name
         self._write_streams: Dict[str, Stream] = {}

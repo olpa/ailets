@@ -39,6 +39,9 @@ class Stream:
             content=StringIO(data["content"]),
         )
 
+    def close(self) -> None:
+        self.is_finished = True
+
 
 class Streams:
     """Manages streams for an environment."""
@@ -94,7 +97,7 @@ class Streams:
     def mark_finished(self, node_name: str, stream_name: str) -> None:
         """Mark a stream as finished."""
         stream = self.get(node_name, stream_name)
-        stream.is_finished = True
+        stream.close()
 
     def to_json(self, f: TextIO) -> None:
         """Convert all streams to JSON-serializable format."""

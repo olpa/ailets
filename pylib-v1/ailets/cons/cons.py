@@ -147,7 +147,7 @@ class Environment:
                 in_streams[dep_name] = []
             in_streams[dep_name].append(dep_stream)
 
-        runtime = NodeRuntime(self._streams, node.name)
+        runtime = NodeRuntime(self, in_streams, node.name)
 
         # Execute the node's function with all dependencies
         try:
@@ -155,10 +155,9 @@ class Environment:
         except Exception:
             print(f"Error building node '{name}'")
             print(f"Function: {node.func.__name__}")
-            print(
-                f"Default dependencies: " f"{[s for s in in_streams.keys() if s == '']}"
-            )
-            print(f"Named dependencies: {[s for s in in_streams.keys() if s != '']}")
+            print("Dependencies:")
+            for dep in node.deps:
+                print(f"  {dep.node_name} ({dep.stream_name}) -> {dep.dep_name}")
             raise
 
         # Since Node is frozen, we need to create a new one with updated cache
@@ -613,3 +612,9 @@ class Environment:
             raise ValueError(f"Multiple final nodes found: {node_names}")
         
         return final_nodes[0]
+    
+    def create_new_stream(self, node_name: str, stream_name: str) -> Stream:
+        return self._streams.create(node_name, stream_name)
+
+    def close_stream(self, stream: Stream) -> None:
+        stream.close()
