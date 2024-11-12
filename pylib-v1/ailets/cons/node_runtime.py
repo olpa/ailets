@@ -26,7 +26,9 @@ class NodeRuntime:
         streams = self._get_streams(stream_name)
         if index >= len(streams) or index < 0:
             raise ValueError(f"Stream index out of bounds: {index} for {stream_name}")
-        return streams[index].content
+        sio = streams[index].content
+        sio.seek(0)
+        return sio
 
     def open_write(self, stream_name: Optional[str]) -> StringIO:
         stream = self._env.create_new_stream(self._node_name, stream_name)
