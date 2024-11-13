@@ -59,10 +59,11 @@ class Node:
 class Environment(IEnvironment):
     def __init__(self) -> None:
         self.nodes: Dict[str, Node] = {}
-        self._node_counter: int = 0  # Single counter for all nodes
-        self._tools: Dict[str, tuple[Callable, Callable]] = {}  # New tools dictionary
+        self._node_counter: int = 0
+        self._tools: Dict[str, tuple[Callable, Callable]] = {}
         self._streams: Streams = Streams()
         self._next_id = 1
+        self._aliases: Dict[str, Set[str]] = {}
 
     def add_node(
         self,
@@ -613,3 +614,38 @@ class Environment(IEnvironment):
             for stream in self._streams._streams
             if stream.node_name == node_name
         )
+
+    def alias(self, alias: str, node_name: str) -> None:
+        """Associate an alias with a node.
+
+        Args:
+            alias: The alias name to create
+            node_name: The node name to associate with the alias
+
+        Raises:
+            KeyError: If the node name doesn't exist
+        """
+        # Verify node exists
+        if node_name not in self.nodes:
+            raise KeyError(f"Node {node_name} not found")
+
+        # Create or update alias
+        if alias not in self._aliases:
+            self._aliases[alias] = {node_name}
+        else:
+            self._aliases[alias].add(node_name)
+
+    def get_nodes_by_alias(self, alias: str) -> Set[Node]:
+        """Get all nodes associated with an alias.
+
+        Args:
+            alias: The alias to look up
+
+        Returns:
+            Set of nodes associated with the alias. Returns empty set if alias not
+            found.
+        """
+        if alias not in self._aliases:
+            return set()
+
+        return {self.nodes[name] for name in self._aliases[alias]}

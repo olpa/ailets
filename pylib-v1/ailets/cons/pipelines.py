@@ -14,22 +14,24 @@ from typing import Union, Tuple, Sequence
 
 @dataclass(frozen=True)
 class NodeInputDesc:
+    source: str
     name: Optional[str] = None
-    source: Optional[str] = None
     stream: Optional[str] = None
+
 
 @dataclass(frozen=True)
 class NodeDesc:
     name: str
     inputs: Sequence[NodeInputDesc]
 
+
 prompt_to_messages_desc = NodeDesc(
     name="prompt_to_messages",
     inputs=[
-            NodeInputDesc(source="prompt"),
-            NodeInputDesc(name="type", source="prompt", stream="type"),
-        ],
-    )
+        NodeInputDesc(source="prompt"),
+        NodeInputDesc(name="type", source="prompt", stream="type"),
+    ],
+)
 credentials_desc = NodeDesc(
     name="credentials",
     inputs=[],
@@ -51,7 +53,7 @@ query_desc = NodeDesc(
 )
 
 response_to_markdown_desc = NodeDesc(
-    name="response_to_markdown", 
+    name="response_to_markdown",
     inputs=[
         NodeInputDesc(source="query"),
     ],
@@ -68,7 +70,6 @@ tool_get_user_name_desc = NodeDesc(
     name="tool/get_user_name",
     inputs=[],
 )
-
 
 
 def get_func_map():
@@ -97,7 +98,7 @@ def prompt_to_md(
     env: Environment,
     prompt: Sequence[Union[str, Tuple[str, str]]] = ["Hello!"],
     tools: Sequence[str] = [],
-) -> Node:
+) -> None:
     """Create a chain of nodes that process prompts into markdown.
 
     Args:
@@ -119,12 +120,23 @@ def prompt_to_md(
         else:
             prompt_text, prompt_type = prompt_item
         node_tv = env.add_typed_value_node(prompt_text, prompt_type, explain="Prompt")
-        env.alias('prompt', node_tv.name)
-    [prompt_to_node(prompt_item) for prompt_item in prompt]
+        env.alias("prompt", node_tv.name)
 
-    
-    for node_desc in [prompt_to_messages_desc, credentials_desc, messages_to_query_desc, query_desc, response_to_markdown_desc, stdout_desc]:
-        deps = [Dependency(input.name, input.source, input.stream) for input in node_desc.inputs]
+    for prompt_item in prompt:
+        prompt_to_node(prompt_item)
+
+    for node_desc in [
+        prompt_to_messages_desc,
+        credentials_desc,
+        messages_to_query_desc,
+        query_desc,
+        response_to_markdown_desc,
+        stdout_desc,
+    ]:
+        deps = [
+            Dependency(input.name, input.source, input.stream)
+            for input in node_desc.inputs
+        ]
         node = env.add_node(node_desc.name, get_func_map()[node_desc.name], deps)
         env.alias(node_desc.name, node.name)
 
