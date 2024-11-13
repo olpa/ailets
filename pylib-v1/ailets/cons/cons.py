@@ -1,5 +1,16 @@
 from dataclasses import dataclass, field
-from typing import Dict, Any, Callable, Set, Optional, TextIO, Sequence, List, Tuple
+from typing import (
+    Dict,
+    Any,
+    Callable,
+    Iterator,
+    Set,
+    Optional,
+    TextIO,
+    Sequence,
+    List,
+    Tuple,
+)
 import json
 
 from .typing import IEnvironment
@@ -118,7 +129,7 @@ class Environment(IEnvironment):
 
         in_streams: Dict[Optional[str], List[Stream]] = {}
 
-        for dep in node.deps:
+        for dep in self.iter_deps(name):
             dep_node_name, dep_name, dep_stream_name = (
                 dep.source,
                 dep.name,
@@ -224,8 +235,7 @@ class Environment(IEnvironment):
             visiting_list.append(name)
 
             # Visit all dependencies (both default and named)
-            node = self.nodes[name]
-            for dep in node.deps:
+            for dep in self.iter_deps(name):
                 visit(dep.source)
 
             visiting.remove(name)
@@ -290,7 +300,7 @@ class Environment(IEnvironment):
 
         # Group dependencies by parameter name
         deps_by_param: Dict[Optional[str], List[Tuple[str, Optional[str]]]] = {}
-        for dep in node.deps:
+        for dep in self.iter_deps(node_name):
             if dep.name not in deps_by_param:
                 deps_by_param[dep.name] = []
             deps_by_param[dep.name].append((dep.source, dep.stream))
@@ -381,7 +391,7 @@ class Environment(IEnvironment):
         to_clone: Set[str] = {start}
 
         # Add start node's dependencies to clone set
-        for dep in start_node.deps:
+        for dep in self.iter_deps(start):
             to_clone.add(dep.source)
 
         while to_clone:
@@ -411,7 +421,7 @@ class Environment(IEnvironment):
 
             if original_name == start:
                 # For start node, create new list from original dependencies
-                new_deps = list(original.deps)
+                new_deps = list(self.iter_deps(original_name))
             else:
                 # For other nodes, use cloned dependencies
                 new_deps = [
@@ -450,7 +460,7 @@ class Environment(IEnvironment):
         next_nodes = []
         for other_node in self.nodes.values():
             # Check if node.name appears as a dependency in other_node's deps list
-            if any(dep.source == node.name for dep in other_node.deps):
+            if any(dep.source == node.name for dep in self.iter_deps(other_node.name)):
                 next_nodes.append(other_node)
         return next_nodes
 
@@ -575,7 +585,9 @@ class Environment(IEnvironment):
 
         # Create set of all nodes that are dependencies
         dependency_nodes = {
-            dep.source for node in self.nodes.values() for dep in node.deps
+            dep.source
+            for node in self.nodes.values()
+            for dep in self.iter_deps(node.name)
         }
 
         # Find nodes that aren't dependencies of any other node
@@ -647,3 +659,23 @@ class Environment(IEnvironment):
             return set()
 
         return {self.nodes[name] for name in self._aliases[alias]}
+
+    def iter_deps(self, name: str) -> Iterator[Dependency]:
+        """Iterate through dependencies of a node, resolving alias dependencies.
+
+        Args:
+            name: Name of the node
+
+        Yields:
+            Dependencies of the node, with alias dependencies resolved to concrete nodes
+        """
+        node = self.get_node(name)
+        for dep in node.deps:
+            # If dependency source is an alias, yield a dependency for each aliased node
+            if dep.source in self._aliases:
+                for aliased_node_name in self._aliases[dep.source]:
+                    yield Dependency(
+                        source=aliased_node_name, name=dep.name, stream=dep.stream
+                    )
+            else:
+                yield dep
