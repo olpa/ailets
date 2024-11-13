@@ -44,14 +44,12 @@ class Node:
     name: str
     func: Callable[..., Any]
     deps: List[Dependency] = field(default_factory=list)  # [(node_name, dep_name)]
-    dirty: bool = field(default=True, compare=False)
     explain: Optional[str] = field(default=None)  # New field for explanation
 
     def to_json(self) -> Dict[str, Any]:
         """Convert node state to a JSON-serializable dict."""
         return {
             "name": self.name,
-            "dirty": self.dirty,
             "deps": [dep.to_json() for dep in self.deps],
             "explain": self.explain,  # Add explain field to JSON
             # Skip func as it's not serializable
@@ -127,9 +125,8 @@ class Environment(IEnvironment):
                 dep.dep_name,
                 dep.stream_name,
             )
-            dep_node = self.get_node(dep_node_name)
-            if dep_node.dirty:
-                raise ValueError(f"Dependency node '{dep_node_name}' is dirty")
+            if not self.is_node_built(dep_node_name):
+                raise ValueError(f"Dependency node '{dep_node_name}' is not built")
 
             dep_stream = self._streams.get(dep_node_name, dep_stream_name)
             if not dep_stream.is_finished:
@@ -155,15 +152,6 @@ class Environment(IEnvironment):
                 print(f"  {dep.node_name} ({dep.stream_name}) -> {dep.dep_name}")
             raise
 
-        # Since Node is frozen, we need to create a new one
-        self.nodes[name] = Node(
-            name=node.name,
-            func=node.func,
-            deps=node.deps,
-            dirty=False,
-            explain=node.explain,
-        )
-
     def build_target(
         self,
         target: str,
@@ -182,14 +170,12 @@ class Environment(IEnvironment):
         current_node_count = len(self.nodes)
 
         while True:
-            # Find next dirty node to build
             next_node = None
             for node_name in plan:
                 node = self.get_node(node_name)
-                if node.dirty:
+                if not self.is_node_built(node_name):
                     next_node = node
                     break
-
             # If no dirty nodes, we're done
             if next_node is None:
                 break
@@ -282,7 +268,9 @@ class Environment(IEnvironment):
 
         node = self.get_node(node_name)
         status = (
-            "\033[32m✓ built\033[0m" if not node.dirty else "\033[33m⋯ not built\033[0m"
+            "\033[32m✓ built\033[0m"
+            if self.is_node_built(node_name)
+            else "\033[33m⋯ not built\033[0m"
         )
 
         # Print current node with explanation if it exists
@@ -365,7 +353,6 @@ class Environment(IEnvironment):
             name=name,
             func=func,
             deps=[Dependency.from_json(dep) for dep in node_data["deps"]],
-            dirty=node_data["dirty"],
             explain=node_data.get("explain"),  # Load explain field if present
         )
         self.nodes[name] = node
@@ -443,7 +430,6 @@ class Environment(IEnvironment):
                 name=clone_name,
                 func=clone.func,
                 deps=new_deps,
-                dirty=clone.dirty,
                 explain=clone.explain,
             )
 
@@ -506,8 +492,6 @@ class Environment(IEnvironment):
             value_type: The type of the value
             explain: Optional explanation of what the value represents
 
-        Returns:
-            The created node in a built (not dirty) state
         """
         self._node_counter += 1
         full_name = f"typed_value.{self._node_counter}"
@@ -519,7 +503,6 @@ class Environment(IEnvironment):
                 value_type,
             ),  # Function returns tuple of value and type
             deps=[],  # No dependencies
-            dirty=False,  # Mark as built
             explain=explain,
         )
 
@@ -615,3 +598,18 @@ class Environment(IEnvironment):
 
     def close_stream(self, stream: Stream) -> None:
         stream.close()
+
+    def is_node_built(self, node_name: str) -> bool:
+        """Check if a node has been built by checking if it has any finished streams.
+
+        Args:
+            node_name: Name of the node to check
+
+        Returns:
+            True if the node has at least one finished stream, False otherwise
+        """
+        return any(
+            stream.is_finished
+            for stream in self._streams._streams
+            if stream.node_name == node_name
+        )

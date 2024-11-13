@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import json
-from typing import Optional, Sequence, TextIO
+from typing import Optional, TextIO
 from io import StringIO
 
 
@@ -48,11 +48,6 @@ class Streams:
 
     def __init__(self) -> None:
         self._streams: list[Stream] = []
-
-    @property
-    def streams(self) -> Sequence[Stream]:
-        """Get all streams."""
-        return self._streams
 
     def _find_stream(
         self, node_name: str, stream_name: Optional[str]
