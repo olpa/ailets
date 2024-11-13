@@ -13,8 +13,7 @@ from typing import Union, Tuple, Sequence
 def get_func_map():
     """Create mapping of node names to their functions."""
     return {
-        "value": lambda _, node: node.cache,
-        "typed_value": lambda _, node: {"value": node.cache[0], "type": node.cache[1]},
+        "typed_value": lambda _: None,
         "prompt_to_messages": prompt_to_messages,
         "credentials": credentials,
         "messages_to_query": messages_to_query,

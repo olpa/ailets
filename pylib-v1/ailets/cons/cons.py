@@ -44,7 +44,6 @@ class Node:
     name: str
     func: Callable[..., Any]
     deps: List[Dependency] = field(default_factory=list)  # [(node_name, dep_name)]
-    cache: Any = field(default=None, compare=False)
     dirty: bool = field(default=True, compare=False)
     explain: Optional[str] = field(default=None)  # New field for explanation
 
@@ -54,7 +53,6 @@ class Node:
             "name": self.name,
             "dirty": self.dirty,
             "deps": [dep.to_json() for dep in self.deps],
-            "cache": None if self.cache is None else json.dumps(self.cache),
             "explain": self.explain,  # Add explain field to JSON
             # Skip func as it's not serializable
         }
@@ -117,13 +115,9 @@ class Environment(IEnvironment):
                 return node
         raise KeyError(f"No node found with base name {base_name}")
 
-    def build_node_alone(self, name: str) -> Any:
+    def build_node_alone(self, name: str) -> None:
         """Build a node. Does not build its dependencies."""
         node = self.get_node(name)
-
-        # If node is already built and clean, return cached result
-        if not node.dirty:
-            return node.cache
 
         in_streams: Dict[Optional[str], List[Stream]] = {}
 
@@ -152,7 +146,7 @@ class Environment(IEnvironment):
 
         # Execute the node's function with all dependencies
         try:
-            result = node.func(runtime)
+            node.func(runtime)
         except Exception:
             print(f"Error building node '{name}'")
             print(f"Function: {node.func.__name__}")
@@ -161,16 +155,14 @@ class Environment(IEnvironment):
                 print(f"  {dep.node_name} ({dep.stream_name}) -> {dep.dep_name}")
             raise
 
-        # Since Node is frozen, we need to create a new one with updated cache
+        # Since Node is frozen, we need to create a new one
         self.nodes[name] = Node(
             name=node.name,
             func=node.func,
             deps=node.deps,
-            cache=result,
             dirty=False,
             explain=node.explain,
         )
-        return result
 
     def build_target(
         self,
@@ -369,12 +361,10 @@ class Environment(IEnvironment):
                 self._node_counter = loaded_suffix + 1
 
         # Create new node with loaded state
-        cache_str = node_data["cache"]
         node = Node(
             name=name,
             func=func,
             deps=[Dependency.from_json(dep) for dep in node_data["deps"]],
-            cache=None if cache_str is None else json.loads(cache_str),
             dirty=node_data["dirty"],
             explain=node_data.get("explain"),  # Load explain field if present
         )
@@ -453,7 +443,6 @@ class Environment(IEnvironment):
                 name=clone_name,
                 func=clone.func,
                 deps=new_deps,
-                cache=clone.cache,
                 dirty=clone.dirty,
                 explain=clone.explain,
             )
@@ -523,7 +512,6 @@ class Environment(IEnvironment):
         self._node_counter += 1
         full_name = f"typed_value.{self._node_counter}"
 
-        # Create node with the value pre-cached and marked as clean
         node = Node(
             name=full_name,
             func=lambda _: (
@@ -531,7 +519,6 @@ class Environment(IEnvironment):
                 value_type,
             ),  # Function returns tuple of value and type
             deps=[],  # No dependencies
-            cache=(value, value_type),  # Pre-cache the tuple
             dirty=False,  # Mark as built
             explain=explain,
         )
