@@ -1,14 +1,8 @@
 from dataclasses import dataclass
+
 from .cons import Dependency, Environment, Node
-from .nodes.prompt_to_messages import prompt_to_messages
-from .nodes.messages_to_query import messages_to_query
-from .nodes.query import query
-from .nodes.response_to_markdown import response_to_markdown
-from .nodes.stdout import stdout
-from .nodes.credentials import credentials
-from .nodes.tool_get_user_name import get_spec_for_get_user_name, run_get_user_name
-from .nodes.toolcall_to_messages import toolcall_to_messages
-from typing import Union, Tuple, Sequence
+from .node_runtime import NodeRuntime
+from typing import Callable, Union, Tuple, Sequence
 
 
 @dataclass(frozen=True)
@@ -63,20 +57,30 @@ tool_get_user_name_desc = NodeDesc(
     inputs=[],
 )
 
+standard_nodes = [
+    prompt_to_messages_desc,
+    credentials_desc,
+    messages_to_query_desc,
+    query_desc,
+    response_to_markdown_desc,
+    stdout_desc,
+]
 
-def get_func_map():
+
+def get_func_map() -> dict[str, Callable[[NodeRuntime], None]]:
     """Create mapping of node names to their functions."""
     return {
         "typed_value": lambda _: None,
-        "prompt_to_messages": prompt_to_messages,
-        "credentials": credentials,
-        "messages_to_query": messages_to_query,
-        "query": query,
-        "response_to_markdown": response_to_markdown,
-        "stdout": stdout,
-        "tool/get_user_name/spec": get_spec_for_get_user_name,
-        "tool/get_user_name/call": run_get_user_name,
-        "toolcall_to_messages": toolcall_to_messages,
+        # "tool/get_user_name/spec": get_spec_for_get_user_name,
+        # "tool/get_user_name/call": run_get_user_name,
+        # "toolcall_to_messages": toolcall_to_messages,
+        **{
+            node.name: getattr(
+                __import__(f"ailets.cons.nodes.{node.name}", fromlist=[node.name]),
+                node.name,
+            )
+            for node in standard_nodes
+        },
     }
 
 
@@ -117,14 +121,7 @@ def prompt_to_md(
     for prompt_item in prompt:
         prompt_to_node(prompt_item)
 
-    for node_desc in [
-        prompt_to_messages_desc,
-        credentials_desc,
-        messages_to_query_desc,
-        query_desc,
-        response_to_markdown_desc,
-        stdout_desc,
-    ]:
+    for node_desc in standard_nodes:
         node = env.add_node(
             node_desc.name, get_func_map()[node_desc.name], node_desc.inputs
         )
