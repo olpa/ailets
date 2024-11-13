@@ -1,14 +1,7 @@
-from dataclasses import dataclass
-
-from .cons import Dependency, Environment, Node
+from .typing import NodeDesc, Dependency
+from .cons import Environment, Node
 from .node_runtime import NodeRuntime
 from typing import Callable, Union, Tuple, Sequence
-
-
-@dataclass(frozen=True)
-class NodeDesc:
-    name: str
-    inputs: Sequence[Dependency]
 
 
 prompt_to_messages_desc = NodeDesc(

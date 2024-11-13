@@ -13,41 +13,9 @@ from typing import (
 )
 import json
 
-from .typing import IEnvironment
+from .typing import Dependency, IEnvironment
 from .node_runtime import NodeRuntime
 from .streams import Streams, Stream
-
-
-@dataclass(frozen=True)
-class Dependency:
-    """A dependency of a node on another node's stream.
-
-    Attributes:
-        name: Optional name to reference this dependency in the node's inputs
-        source: Name of the node this dependency comes from
-        stream: Optional name of the specific stream from the source node
-    """
-
-    source: str
-    name: Optional[str] = None
-    stream: Optional[str] = None
-
-    def to_json(self) -> list:
-        """Convert to JSON-serializable format.
-
-        Returns:
-            List of [dep_name, node_name, stream_name]
-        """
-        return [self.name, self.source, self.stream]
-
-    @classmethod
-    def from_json(cls, data: list) -> "Dependency":
-        """Create dependency from JSON data.
-
-        Args:
-            data: List of [dep_name, node_name, stream_name]
-        """
-        return cls(name=data[0], source=data[1], stream=data[2])
 
 
 @dataclass(frozen=True)
