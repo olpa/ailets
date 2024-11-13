@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+from typing import Optional
 from .cons import Dependency, Environment, Node
 from .nodes.prompt_to_messages import prompt_to_messages
 from .nodes.messages_to_query import messages_to_query
@@ -8,6 +10,65 @@ from .nodes.credentials import credentials
 from .nodes.tool_get_user_name import get_spec_for_get_user_name, run_get_user_name
 from .nodes.toolcall_to_messages import toolcall_to_messages
 from typing import Union, Tuple, Sequence
+
+
+@dataclass(frozen=True)
+class NodeInputDesc:
+    name: Optional[str] = None
+    source: Optional[str] = None
+    stream: Optional[str] = None
+
+@dataclass(frozen=True)
+class NodeDesc:
+    name: str
+    inputs: Sequence[NodeInputDesc]
+
+prompt_to_messages_desc = NodeDesc(
+    name="prompt_to_messages",
+    inputs=[
+            NodeInputDesc(source="prompt"),
+            NodeInputDesc(name="type", source="prompt", stream="type"),
+        ],
+    )
+credentials_desc = NodeDesc(
+    name="credentials",
+    inputs=[],
+)
+
+messages_to_query_desc = NodeDesc(
+    name="messages_to_query",
+    inputs=[
+        NodeInputDesc(source="prompt_to_messages"),
+        NodeInputDesc(name="credentials", source="credentials", stream="credentials"),
+    ],
+)
+
+query_desc = NodeDesc(
+    name="query",
+    inputs=[
+        NodeInputDesc(source="messages_to_query"),
+    ],
+)
+
+response_to_markdown_desc = NodeDesc(
+    name="response_to_markdown", 
+    inputs=[
+        NodeInputDesc(source="query"),
+    ],
+)
+
+stdout_desc = NodeDesc(
+    name="stdout",
+    inputs=[
+        NodeInputDesc(source="response_to_markdown"),
+    ],
+)
+
+tool_get_user_name_desc = NodeDesc(
+    name="tool/get_user_name",
+    inputs=[],
+)
+
 
 
 def get_func_map():
@@ -51,67 +112,22 @@ def prompt_to_md(
     """
 
     # Create nodes for each prompt item
-    def prompt_to_node(prompt_item: Union[str, Tuple[str, str]]) -> str:
+    def prompt_to_node(prompt_item: Union[str, Tuple[str, str]]) -> None:
         if isinstance(prompt_item, str):
             prompt_text = prompt_item
             prompt_type = "text"
         else:
             prompt_text, prompt_type = prompt_item
         node_tv = env.add_typed_value_node(prompt_text, prompt_type, explain="Prompt")
-        return node_tv.name
+        env.alias('prompt', node_tv.name)
+    [prompt_to_node(prompt_item) for prompt_item in prompt]
 
-    nodes_tvs: Sequence[str] = [prompt_to_node(prompt_item) for prompt_item in prompt]
+    
+    for node_desc in [prompt_to_messages_desc, credentials_desc, messages_to_query_desc, query_desc, response_to_markdown_desc, stdout_desc]:
+        deps = [Dependency(input.name, input.source, input.stream) for input in node_desc.inputs]
+        node = env.add_node(node_desc.name, get_func_map()[node_desc.name], deps)
+        env.alias(node_desc.name, node.name)
 
-    node_ptm = env.add_node(
-        "prompt_to_messages",
-        prompt_to_messages,
-        [
-            Dependency(dep_name=None, node_name=node_tv, stream_name=None)
-            for node_tv in nodes_tvs
-        ]
-        + [
-            Dependency(dep_name="type", node_name=node_tv, stream_name="type")
-            for node_tv in nodes_tvs
-        ],
-    )
+    # TODO: Add tool spec nodes
 
-    # Get tool spec nodes
-    tool_specs = [must_get_tool_spec(env, tool_name) for tool_name in tools]
-
-    # Create credentials node
-    node_creds = env.add_node("credentials", credentials)
-
-    # Combine all prompts and tools in messages_to_query
-    node_mtq = env.add_node(
-        "messages_to_query",
-        messages_to_query,
-        [
-            Dependency(dep_name=None, node_name=node_ptm.name, stream_name=None),
-            Dependency(
-                dep_name="credentials", node_name=node_creds.name, stream_name=None
-            ),
-            *[
-                Dependency(dep_name="toolspecs", node_name=spec.name, stream_name=None)
-                for spec in tool_specs
-            ],
-        ],
-    )
-
-    # Rest of the pipeline remains the same
-    node_q = env.add_node(
-        "query",
-        query,
-        [Dependency(dep_name=None, node_name=node_mtq.name, stream_name=None)],
-    )
-    node_rtm = env.add_node(
-        "response_to_markdown",
-        response_to_markdown,
-        [Dependency(dep_name=None, node_name=node_q.name, stream_name=None)],
-    )
-    node_out = env.add_node(
-        "stdout",
-        stdout,
-        [Dependency(dep_name=None, node_name=node_rtm.name, stream_name=None)],
-    )
-
-    return node_out
+    # TODO: validate that all the deps are valid
