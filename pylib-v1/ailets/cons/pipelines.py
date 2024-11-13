@@ -33,7 +33,7 @@ messages_to_query_desc = NodeDesc(
     name="messages_to_query",
     inputs=[
         Dependency(source="prompt_to_messages"),
-        Dependency(name="credentials", source="credentials", stream="credentials"),
+        Dependency(name="credentials", source="credentials"),
     ],
 )
 
