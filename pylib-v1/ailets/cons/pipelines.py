@@ -1,4 +1,4 @@
-from .cons import Environment, Node
+from .cons import Dependency, Environment, Node
 from .nodes.prompt_to_messages import prompt_to_messages
 from .nodes.messages_to_query import messages_to_query
 from .nodes.query import query
@@ -13,8 +13,7 @@ from typing import Union, Tuple, Sequence
 def get_func_map():
     """Create mapping of node names to their functions."""
     return {
-        "value": lambda _, node: node.cache,
-        "typed_value": lambda _, node: {"value": node.cache[0], "type": node.cache[1]},
+        "typed_value": lambda _: None,
         "prompt_to_messages": prompt_to_messages,
         "credentials": credentials,
         "messages_to_query": messages_to_query,
@@ -63,7 +62,18 @@ def prompt_to_md(
 
     nodes_tvs: Sequence[str] = [prompt_to_node(prompt_item) for prompt_item in prompt]
 
-    node_ptm = env.add_node("prompt_to_messages", prompt_to_messages, nodes_tvs)
+    node_ptm = env.add_node(
+        "prompt_to_messages",
+        prompt_to_messages,
+        [
+            Dependency(dep_name=None, node_name=node_tv, stream_name=None)
+            for node_tv in nodes_tvs
+        ]
+        + [
+            Dependency(dep_name="type", node_name=node_tv, stream_name="type")
+            for node_tv in nodes_tvs
+        ],
+    )
 
     # Get tool spec nodes
     tool_specs = [must_get_tool_spec(env, tool_name) for tool_name in tools]
@@ -76,15 +86,32 @@ def prompt_to_md(
         "messages_to_query",
         messages_to_query,
         [
-            node_ptm.name,
-            (node_creds.name, "credentials"),
-            *[(spec.name, "toolspecs") for spec in tool_specs],
+            Dependency(dep_name=None, node_name=node_ptm.name, stream_name=None),
+            Dependency(
+                dep_name="credentials", node_name=node_creds.name, stream_name=None
+            ),
+            *[
+                Dependency(dep_name="toolspecs", node_name=spec.name, stream_name=None)
+                for spec in tool_specs
+            ],
         ],
     )
 
     # Rest of the pipeline remains the same
-    node_q = env.add_node("query", query, [node_mtq.name])
-    node_rtm = env.add_node("response_to_markdown", response_to_markdown, [node_q.name])
-    node_out = env.add_node("stdout", stdout, [node_rtm.name])
+    node_q = env.add_node(
+        "query",
+        query,
+        [Dependency(dep_name=None, node_name=node_mtq.name, stream_name=None)],
+    )
+    node_rtm = env.add_node(
+        "response_to_markdown",
+        response_to_markdown,
+        [Dependency(dep_name=None, node_name=node_q.name, stream_name=None)],
+    )
+    node_out = env.add_node(
+        "stdout",
+        stdout,
+        [Dependency(dep_name=None, node_name=node_rtm.name, stream_name=None)],
+    )
 
     return node_out

@@ -1,32 +1,50 @@
-from typing import List, Dict, Any, Optional
+import json
+from ..node_runtime import NodeRuntime
 
 url = "https://api.openai.com/v1/chat/completions"
 method = "POST"
 headers = {"Content-type": "application/json"}
 
 
-def messages_to_query(
-    messages: List[List[Dict[str, str]]],
-    credentials: List[Dict[str, str]],
-    toolspecs: Optional[List[str]] = None,
-) -> Dict[str, Any]:
+def messages_to_query(runtime: NodeRuntime) -> None:
     """Convert chat messages into a query."""
 
-    body = {
-        "model": "gpt-4o-mini",
-        "messages": [msg for msgs in messages for msg in msgs],
-    }
+    messages = []
+    for i in range(runtime.n_of_streams(None)):
+        stream = runtime.open_read(None, i)
+        messages.extend(json.loads(stream.read()))
 
-    if toolspecs is not None:
-        formatted_tools = [{"type": "function", "function": tool} for tool in toolspecs]
-        body["tools"] = formatted_tools
+    tools = []
+    for i in range(runtime.n_of_streams("tools")):
+        stream = runtime.open_read("toolspecs", i)
+        toolspec = json.loads(stream.read())
+        tools.append(
+            {
+                "type": "function",
+                "function": toolspec,
+            }
+        )
+    tools_param = {"tools": tools} if tools else {}
 
-    return {
+    creds = {}
+    for i in range(runtime.n_of_streams("credentials")):
+        stream = runtime.open_read("credentials", i)
+        creds.update(json.loads(stream.read()))
+
+    value = {
         "url": url,
         "method": method,
         "headers": {
             **headers,
-            **{k: v for cred in credentials for k, v in cred.items()},
+            **creds,
         },
-        "body": body,
+        "body": {
+            "model": "gpt-4o-mini",
+            "messages": messages,
+            **tools_param,
+        },
     }
+
+    output = runtime.open_write(None)
+    output.write(json.dumps(value))
+    runtime.close_write(None)
