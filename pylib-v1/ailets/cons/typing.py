@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from typing import Optional, Protocol, Sequence
+from io import StringIO
+from typing import Callable, Optional, Protocol, Sequence
 from .streams import Stream
 
 
@@ -39,6 +40,24 @@ class Dependency:
 class NodeDesc:
     name: str
     inputs: Sequence[Dependency]
+
+class INodeRuntime(Protocol):
+    def n_of_streams(self, node_name: Optional[str]) -> int:
+        raise NotImplementedError
+
+    def open_read(self, stream_name: Optional[str], index: int) -> StringIO:
+        raise NotImplementedError
+
+    def open_write(self, stream_name: Optional[str]) -> StringIO:
+        raise NotImplementedError
+
+    def close_write(self, stream_name: Optional[str]) -> None:
+        raise NotImplementedError
+
+
+@dataclass(frozen=True)
+class NodeDescFunc(NodeDesc):
+    func: Optional[Callable[[INodeRuntime], None]] = None
 
 
 class IEnvironment(Protocol):

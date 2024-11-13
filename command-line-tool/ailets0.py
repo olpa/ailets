@@ -158,7 +158,7 @@ def main():
         env = Environment()
         env.add_tool("get_user_name", (get_spec_for_get_user_name, run_get_user_name))
         prompt = get_prompt(args.prompt)
-        prompt_to_md(env, prompt=prompt, tools=args.tools)
+        prompt_to_md(env, system=args.model, prompt=prompt)
 
     target_node_name = env.find_final_node().name
     stop_node_name = args.stop_at or target_node_name

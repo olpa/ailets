@@ -1,15 +1,15 @@
 import json
-from ..node_runtime import NodeRuntime
+from ailets.cons.typing import INodeRuntime
 
 
-def prompt_to_messages(runtime: NodeRuntime) -> None:
+def prompt_to_messages(runtime: INodeRuntime) -> None:
     n_prompts = runtime.n_of_streams(None)
     n_types = runtime.n_of_streams("type")
 
     if n_prompts != n_types:
         raise ValueError("Inputs and type streams have different lengths")
 
-    def to_llm_item(runtime: NodeRuntime, i: int) -> dict:
+    def to_llm_item(runtime: INodeRuntime, i: int) -> dict:
         content = runtime.open_read(None, i).getvalue()
         content_type = runtime.open_read("type", i).getvalue()
 
