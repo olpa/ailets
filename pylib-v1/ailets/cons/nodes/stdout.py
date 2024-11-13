@@ -8,3 +8,6 @@ def stdout(runtime: NodeRuntime) -> None:
     for i in range(runtime.n_of_streams(None)):
         value = json.loads(runtime.open_read(None, i).read())
         print(value)
+
+    runtime.open_write(None).write("ok")
+    runtime.close_write(None)
