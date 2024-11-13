@@ -537,6 +537,10 @@ class Environment(IEnvironment):
 
         self._streams.to_json(f)
 
+        for alias, names in self._aliases.items():
+            json.dump({"alias": alias, "names": list(names)}, f, indent=2)
+            f.write("\n")
+
     @classmethod
     def from_json(
         cls, f: TextIO, func_map: Dict[str, Callable[..., Any]]
@@ -563,6 +567,8 @@ class Environment(IEnvironment):
                     env.load_node_state(obj_data, func_map)
                 elif "is_finished" in obj_data:
                     env._streams.add_stream_from_json(obj_data)
+                elif "alias" in obj_data:
+                    env._aliases[obj_data["alias"]] = set(obj_data["names"])
                 else:
                     raise ValueError(f"Unknown object data: {obj_data}")
             except json.JSONDecodeError as e:
