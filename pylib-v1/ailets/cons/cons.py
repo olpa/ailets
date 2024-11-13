@@ -7,19 +7,19 @@ from .node_runtime import NodeRuntime
 from .streams import Streams, Stream
 
 
-@dataclass
+@dataclass(frozen=True)
 class Dependency:
     """A dependency of a node on another node's stream.
 
     Attributes:
-        dep_name: Optional name of the dependency (e.g., "credentials")
-        node_name: Name of the dependency node
-        stream_name: Name of the stream from the dependency node
+        name: Optional name to reference this dependency in the node's inputs
+        source: Name of the node this dependency comes from
+        stream: Optional name of the specific stream from the source node
     """
 
-    dep_name: Optional[str]
-    node_name: str
-    stream_name: Optional[str]
+    source: str
+    name: Optional[str] = None
+    stream: Optional[str] = None
 
     def to_json(self) -> list:
         """Convert to JSON-serializable format.
@@ -27,7 +27,7 @@ class Dependency:
         Returns:
             List of [dep_name, node_name, stream_name]
         """
-        return [self.dep_name, self.node_name, self.stream_name]
+        return [self.name, self.source, self.stream]
 
     @classmethod
     def from_json(cls, data: list) -> "Dependency":
@@ -36,7 +36,7 @@ class Dependency:
         Args:
             data: List of [dep_name, node_name, stream_name]
         """
-        return cls(dep_name=data[0], node_name=data[1], stream_name=data[2])
+        return cls(name=data[0], source=data[1], stream=data[2])
 
 
 @dataclass(frozen=True)
@@ -77,9 +77,7 @@ class Environment(IEnvironment):
         Args:
             name: Base name for the node
             func: Function to execute for this node
-            deps: List of dependencies. Each dependency can be either:
-                - str: node name (for default/unnamed dependencies)
-                - tuple[str, str]: (node name, dependency name)
+            deps: List of dependencies
             explain: Optional explanation of what the node does
 
         Returns:
@@ -122,9 +120,9 @@ class Environment(IEnvironment):
 
         for dep in node.deps:
             dep_node_name, dep_name, dep_stream_name = (
-                dep.node_name,
-                dep.dep_name,
-                dep.stream_name,
+                dep.source,
+                dep.name,
+                dep.stream,
             )
             if not self.is_node_built(dep_node_name):
                 raise ValueError(f"Dependency node '{dep_node_name}' is not built")
@@ -150,7 +148,7 @@ class Environment(IEnvironment):
             print(f"Function: {node.func.__name__}")
             print("Dependencies:")
             for dep in node.deps:
-                print(f"  {dep.node_name} ({dep.stream_name}) -> {dep.dep_name}")
+                print(f"  {dep.source} ({dep.stream}) -> {dep.name}")
             raise
 
     def build_target(
@@ -228,7 +226,7 @@ class Environment(IEnvironment):
             # Visit all dependencies (both default and named)
             node = self.nodes[name]
             for dep in node.deps:
-                visit(dep.node_name)
+                visit(dep.source)
 
             visiting.remove(name)
             visiting_list.pop()
@@ -293,9 +291,9 @@ class Environment(IEnvironment):
         # Group dependencies by parameter name
         deps_by_param: Dict[Optional[str], List[Tuple[str, Optional[str]]]] = {}
         for dep in node.deps:
-            if dep.dep_name not in deps_by_param:
-                deps_by_param[dep.dep_name] = []
-            deps_by_param[dep.dep_name].append((dep.node_name, dep.stream_name))
+            if dep.name not in deps_by_param:
+                deps_by_param[dep.name] = []
+            deps_by_param[dep.name].append((dep.source, dep.stream))
 
         next_indent = f"{indent}│   "
 
@@ -384,7 +382,7 @@ class Environment(IEnvironment):
 
         # Add start node's dependencies to clone set
         for dep in start_node.deps:
-            to_clone.add(dep.node_name)
+            to_clone.add(dep.source)
 
         while to_clone:
             # Get next node to clone
@@ -418,12 +416,12 @@ class Environment(IEnvironment):
                 # For other nodes, use cloned dependencies
                 new_deps = [
                     Dependency(
-                        dep_name=dep.dep_name,
-                        node_name=original_to_clone[dep.node_name],
-                        stream_name=dep.stream_name,
+                        name=dep.name,
+                        source=original_to_clone[dep.source],
+                        stream=dep.stream,
                     )
                     for dep in original.deps
-                    if dep.node_name in original_to_clone
+                    if dep.source in original_to_clone
                 ]
 
             # Create new node with dependencies
@@ -452,7 +450,7 @@ class Environment(IEnvironment):
         next_nodes = []
         for other_node in self.nodes.values():
             # Check if node.name appears as a dependency in other_node's deps list
-            if any(dep.node_name == node.name for dep in other_node.deps):
+            if any(dep.source == node.name for dep in other_node.deps):
                 next_nodes.append(other_node)
         return next_nodes
 
@@ -577,7 +575,7 @@ class Environment(IEnvironment):
 
         # Create set of all nodes that are dependencies
         dependency_nodes = {
-            dep.node_name for node in self.nodes.values() for dep in node.deps
+            dep.source for node in self.nodes.values() for dep in node.deps
         }
 
         # Find nodes that aren't dependencies of any other node

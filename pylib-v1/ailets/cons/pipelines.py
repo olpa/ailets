@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Optional
 from .cons import Dependency, Environment, Node
 from .nodes.prompt_to_messages import prompt_to_messages
 from .nodes.messages_to_query import messages_to_query
@@ -13,23 +12,16 @@ from typing import Union, Tuple, Sequence
 
 
 @dataclass(frozen=True)
-class NodeInputDesc:
-    source: str
-    name: Optional[str] = None
-    stream: Optional[str] = None
-
-
-@dataclass(frozen=True)
 class NodeDesc:
     name: str
-    inputs: Sequence[NodeInputDesc]
+    inputs: Sequence[Dependency]
 
 
 prompt_to_messages_desc = NodeDesc(
     name="prompt_to_messages",
     inputs=[
-        NodeInputDesc(source="prompt"),
-        NodeInputDesc(name="type", source="prompt", stream="type"),
+        Dependency(source="prompt"),
+        Dependency(name="type", source="prompt", stream="type"),
     ],
 )
 credentials_desc = NodeDesc(
@@ -40,29 +32,29 @@ credentials_desc = NodeDesc(
 messages_to_query_desc = NodeDesc(
     name="messages_to_query",
     inputs=[
-        NodeInputDesc(source="prompt_to_messages"),
-        NodeInputDesc(name="credentials", source="credentials", stream="credentials"),
+        Dependency(source="prompt_to_messages"),
+        Dependency(name="credentials", source="credentials", stream="credentials"),
     ],
 )
 
 query_desc = NodeDesc(
     name="query",
     inputs=[
-        NodeInputDesc(source="messages_to_query"),
+        Dependency(source="messages_to_query"),
     ],
 )
 
 response_to_markdown_desc = NodeDesc(
     name="response_to_markdown",
     inputs=[
-        NodeInputDesc(source="query"),
+        Dependency(source="query"),
     ],
 )
 
 stdout_desc = NodeDesc(
     name="stdout",
     inputs=[
-        NodeInputDesc(source="response_to_markdown"),
+        Dependency(source="response_to_markdown"),
     ],
 )
 
@@ -133,11 +125,9 @@ def prompt_to_md(
         response_to_markdown_desc,
         stdout_desc,
     ]:
-        deps = [
-            Dependency(input.name, input.source, input.stream)
-            for input in node_desc.inputs
-        ]
-        node = env.add_node(node_desc.name, get_func_map()[node_desc.name], deps)
+        node = env.add_node(
+            node_desc.name, get_func_map()[node_desc.name], node_desc.inputs
+        )
         env.alias(node_desc.name, node.name)
 
     # TODO: Add tool spec nodes
