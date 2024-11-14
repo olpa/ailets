@@ -17,7 +17,7 @@ def load_nodes_from_module(module: str) -> Sequence[NodeDescFunc]:
 
     return [
         NodeDescFunc(
-            name=node.name,
+            name=f"{module}.{node.name}" if module != "std" else node.name,
             inputs=node.inputs,
             func=getattr(
                 __import__(
@@ -69,3 +69,8 @@ def prompt_to_env(
 
     for prompt_item in prompt:
         prompt_to_node(prompt_item)
+
+def alias_basenames(env: IEnvironment, nodes: Sequence[NodeDescFunc]) -> None:
+    for node in nodes:
+        if "." in node.name:
+            env.alias(node.name.split(".")[-1], node.name)

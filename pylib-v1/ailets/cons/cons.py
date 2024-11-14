@@ -19,6 +19,20 @@ from .node_runtime import NodeRuntime
 from .streams import Streams, Stream
 
 
+def to_basename(name: str) -> str:
+    """Return the base name of a node, stripping off any numeric suffix.
+
+    Args:
+        name: The full name of the node
+
+    Returns:
+        The base name of the node without the numeric suffix
+    """
+    if '.' in name and name.split('.')[-1].isdigit():
+        return '.'.join(name.split('.')[:-1])
+    return name
+
+
 class Environment(IEnvironment):
     def __init__(self) -> None:
         self.nodes: Dict[str, Node] = {}
@@ -54,6 +68,11 @@ class Environment(IEnvironment):
 
     def get_node(self, name: str) -> Node:
         """Get a node by name. Does not build."""
+        if name in self._aliases:
+            aliases = self._aliases[name]
+            if len(aliases) > 0:
+                assert len(aliases) == 1, f"Ambiguous alias: {name} to {aliases}"
+                name = next(iter(aliases))
         if name not in self.nodes:
             raise KeyError(f"Node {name} not found")
         return self.nodes[name]
@@ -529,39 +548,6 @@ class Environment(IEnvironment):
                 raise
 
         return env
-
-    def find_final_node(self) -> Optional[Node]:
-        """Find the final node in the environment.
-
-        A final node is a node that no other node depends on.
-        If there are multiple such nodes, returns any one of them.
-
-        Returns:
-            The final node, or None if no nodes exist
-        """
-        if not self.nodes:
-            return None
-
-        # Create set of all nodes that are dependencies
-        dependency_nodes = {
-            dep.source
-            for node in self.nodes.values()
-            for dep in self.iter_deps(node.name)
-        }
-
-        # Find nodes that aren't dependencies of any other node
-        final_nodes = [
-            node for name, node in self.nodes.items() if name not in dependency_nodes
-        ]
-
-        if not final_nodes:
-            raise ValueError("No final node found - dependency cycle detected")
-
-        if len(final_nodes) > 1:
-            node_names = [node.name for node in final_nodes]
-            raise ValueError(f"Multiple final nodes found: {node_names}")
-
-        return final_nodes[0]
 
     def create_new_stream(self, node_name: str, stream_name: Optional[str]) -> Stream:
         return self._streams.create(node_name, stream_name)
