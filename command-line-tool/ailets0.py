@@ -14,10 +14,6 @@ from ailets.cons.pipelines import (
     load_nodes_from_module,
     nodelib_to_env,
 )
-from ailets.cons.nodes.tool_get_user_name import (
-    get_spec_for_get_user_name,
-    run_get_user_name,
-)
 import re
 import base64
 import os
@@ -154,19 +150,20 @@ def main():
     args = parse_args()
     assert args.model == "gpt4o", "At the moment, only gpt4o is supported"
 
-    nodes_std = load_nodes_from_module("std")
-    nodes_model = load_nodes_from_module(args.model)
+    nodes_std = load_nodes_from_module("std", prefix="ailets.cons.nodes")
+    nodes_model = load_nodes_from_module(args.model, prefix="ailets.cons.nodes")
     nodelib = [*nodes_std, *nodes_model]
+    for tool in args.tools:
+        nodes_tool = load_nodes_from_module(tool, prefix="ailets.cons.tools")
+        nodelib.extend(nodes_tool)
 
     if args.load_state:
         with open(args.load_state, "r") as f:
             env = Environment.from_json(f, nodelib)
-        env.add_tool("get_user_name", (get_spec_for_get_user_name, run_get_user_name))
     else:
         env = Environment()
         nodelib_to_env(env, nodelib)
         alias_basenames(env, nodelib)
-        env.add_tool("get_user_name", (get_spec_for_get_user_name, run_get_user_name))
         prompt = get_prompt(args.prompt)
         prompt_to_env(env, prompt=prompt)
 

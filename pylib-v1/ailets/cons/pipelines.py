@@ -2,9 +2,9 @@ from typing import Callable, Union, Tuple, Sequence
 from .typing import IEnvironment, NodeDesc, NodeDescFunc, INodeRuntime, Node
 
 
-def load_nodes_from_module(module: str) -> Sequence[NodeDescFunc]:
+def load_nodes_from_module(module: str, prefix: str) -> Sequence[NodeDescFunc]:
     try:
-        imported_module = __import__(f"ailets.cons.nodes.{module}", fromlist=["nodes"])
+        imported_module = __import__(f"{prefix}.{module}", fromlist=["nodes"])
         if not hasattr(imported_module, "nodes"):
             raise AttributeError(f"Module {module} has no 'nodes' attribute")
         nodes = imported_module.nodes
@@ -20,9 +20,7 @@ def load_nodes_from_module(module: str) -> Sequence[NodeDescFunc]:
             name=f"{module}.{node.name}" if module != "std" else node.name,
             inputs=node.inputs,
             func=getattr(
-                __import__(
-                    f"ailets.cons.nodes.{module}.{node.name}", fromlist=[node.name]
-                ),
+                __import__(f"{prefix}.{module}.{node.name}", fromlist=[node.name]),
                 node.name,
             ),
         )
