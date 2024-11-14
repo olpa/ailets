@@ -1,4 +1,3 @@
-from dataclasses import dataclass, field
 from typing import (
     Dict,
     Any,
@@ -13,26 +12,11 @@ from typing import (
 )
 import json
 
-from .typing import Dependency, IEnvironment
+from .pipelines import get_func_map, nodelib_to_env
+
+from .typing import Dependency, IEnvironment, NodeDescFunc, Node
 from .node_runtime import NodeRuntime
 from .streams import Streams, Stream
-
-
-@dataclass(frozen=True)
-class Node:
-    name: str
-    func: Callable[..., Any]
-    deps: List[Dependency] = field(default_factory=list)  # [(node_name, dep_name)]
-    explain: Optional[str] = field(default=None)  # New field for explanation
-
-    def to_json(self) -> Dict[str, Any]:
-        """Convert node state to a JSON-serializable dict."""
-        return {
-            "name": self.name,
-            "deps": [dep.to_json() for dep in self.deps],
-            "explain": self.explain,  # Add explain field to JSON
-            # Skip func as it's not serializable
-        }
 
 
 class Environment(IEnvironment):
@@ -510,11 +494,12 @@ class Environment(IEnvironment):
             f.write("\n")
 
     @classmethod
-    def from_json(
-        cls, f: TextIO, func_map: Dict[str, Callable[..., Any]]
-    ) -> "Environment":
+    def from_json(cls, f: TextIO, nodelib: Sequence[NodeDescFunc]) -> "Environment":
         """Create environment from JSON data."""
         env = cls()
+
+        nodelib_to_env(env, nodelib)
+        func_map = get_func_map(nodelib)
 
         content = f.read()
         decoder = json.JSONDecoder()

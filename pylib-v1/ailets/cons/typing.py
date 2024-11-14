@@ -1,6 +1,6 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from io import StringIO
-from typing import Callable, Optional, Protocol, Sequence
+from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence
 from .streams import Stream
 
 
@@ -37,6 +37,23 @@ class Dependency:
 
 
 @dataclass(frozen=True)
+class Node:
+    name: str
+    func: Callable[..., Any]
+    deps: List[Dependency] = field(default_factory=list)  # [(node_name, dep_name)]
+    explain: Optional[str] = field(default=None)  # New field for explanation
+
+    def to_json(self) -> Dict[str, Any]:
+        """Convert node state to a JSON-serializable dict."""
+        return {
+            "name": self.name,
+            "deps": [dep.to_json() for dep in self.deps],
+            "explain": self.explain,  # Add explain field to JSON
+            # Skip func as it's not serializable
+        }
+
+
+@dataclass(frozen=True)
 class NodeDesc:
     name: str
     inputs: Sequence[Dependency]
@@ -66,4 +83,24 @@ class IEnvironment(Protocol):
         raise NotImplementedError
 
     def close_stream(self, stream: Stream) -> None:
+        raise NotImplementedError
+
+    def get_tool(self, name: str) -> tuple[Callable, Callable]:
+        raise NotImplementedError
+
+    def add_node(
+        self,
+        name: str,
+        func: Callable[..., Any],
+        deps: Optional[Sequence[Dependency]] = None,
+        explain: Optional[str] = None,
+    ) -> Node:
+        raise NotImplementedError
+
+    def alias(self, alias: str, node_name: str) -> None:
+        raise NotImplementedError
+
+    def add_typed_value_node(
+        self, value: str, value_type: str, explain: Optional[str] = None
+    ) -> Node:
         raise NotImplementedError

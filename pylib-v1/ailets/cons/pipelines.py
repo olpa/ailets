@@ -1,6 +1,5 @@
-from .typing import NodeDesc, NodeDescFunc, INodeRuntime
-from .cons import Environment, Node
 from typing import Callable, Union, Tuple, Sequence
+from .typing import IEnvironment, NodeDesc, NodeDescFunc, INodeRuntime, Node
 
 
 def load_nodes_from_module(module: str) -> Sequence[NodeDescFunc]:
@@ -41,31 +40,24 @@ def get_func_map(
     }
 
 
-def must_get_tool_spec(env: Environment, tool_name: str) -> Node:
+def must_get_tool_spec(env: IEnvironment, tool_name: str) -> Node:
     node_name = f"tool/{tool_name}/spec"
     (tool_spec_func, _) = env.get_tool(tool_name)
     return env.add_node(node_name, tool_spec_func)
 
 
-def system_to_env(env: Environment, system: str) -> Sequence[NodeDescFunc]:
-    nodes = load_nodes_from_module(system)
-    func_map = get_func_map(nodes)
-    for node_desc in nodes:
+def nodelib_to_env(env: IEnvironment, nodelib: Sequence[NodeDescFunc]) -> None:
+    func_map = get_func_map(nodelib)
+    for node_desc in nodelib:
         node_func = func_map[node_desc.name]
         node = env.add_node(node_desc.name, node_func, node_desc.inputs)
         env.alias(node_desc.name, node.name)
-    return nodes
 
 
-def prompt_to_md(
-    env: Environment,
-    system: str,
+def prompt_to_env(
+    env: IEnvironment,
     prompt: Sequence[Union[str, Tuple[str, str]]] = ["Hello!"],
-) -> Sequence[NodeDescFunc]:
-    nodes_std = system_to_env(env, "std")
-    nodes_sys = system_to_env(env, system)
-
-    # Create nodes for each prompt item
+) -> None:
     def prompt_to_node(prompt_item: Union[str, Tuple[str, str]]) -> None:
         if isinstance(prompt_item, str):
             prompt_text = prompt_item
@@ -77,8 +69,3 @@ def prompt_to_md(
 
     for prompt_item in prompt:
         prompt_to_node(prompt_item)
-
-    # TODO: Add tool spec nodes
-
-    # TODO: validate that all the deps are valid
-    return [*nodes_std, *nodes_sys]
