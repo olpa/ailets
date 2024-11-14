@@ -17,6 +17,7 @@ class Dependency:
     source: str
     name: Optional[str] = None
     stream: Optional[str] = None
+    schema: Optional[dict] = None
 
     def to_json(self) -> list:
         """Convert to JSON-serializable format.
