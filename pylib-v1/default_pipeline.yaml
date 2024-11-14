@@ -1,0 +1,38 @@
+prompt_to_messages:
+  inputs:
+    - source: prompt
+    - name: type
+      source: prompt
+      stream: type
+
+credentials:
+
+messages_to_query:
+  inputs:
+    - source: prompt_to_messages
+    - name: credentials
+      source: credentials
+      stream: credentials
+
+query:
+  inputs:
+    - source: messages_to_query
+
+response_to_markdown:
+  inputs:
+    - source: query
+
+stdout:
+  inputs:
+    - source: response_to_markdown
+
+tool.get_user_name:
+  spec:
+    TODO: system prompt for the function. Check the spec to match the code.
+    type: function
+    function:
+      name: get_user_name
+      description: Get the current user's name
+      parameters:
+        type: object
+        properties: {}

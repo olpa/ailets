@@ -1,12 +1,12 @@
 import json
-from ..node_runtime import NodeRuntime
+from ailets.cons.typing import INodeRuntime
 
 url = "https://api.openai.com/v1/chat/completions"
 method = "POST"
 headers = {"Content-type": "application/json"}
 
 
-def messages_to_query(runtime: NodeRuntime) -> None:
+def messages_to_query(runtime: INodeRuntime) -> None:
     """Convert chat messages into a query."""
 
     messages = []

@@ -1,8 +1,8 @@
 import json
-from ..node_runtime import NodeRuntime
+from ailets.cons.typing import INodeRuntime
 
 
-def stdout(runtime: NodeRuntime) -> None:
+def stdout(runtime: INodeRuntime) -> None:
     """Print each value to stdout and return them unchanged."""
 
     for i in range(runtime.n_of_streams(None)):

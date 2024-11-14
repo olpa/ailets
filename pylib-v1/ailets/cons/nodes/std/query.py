@@ -1,13 +1,13 @@
 import json
 import requests
 import os
-from ..node_runtime import NodeRuntime
+from ailets.cons.typing import INodeRuntime
 
 MAX_RUNS = 3  # Maximum number of runs allowed
 _run_count = 0  # Track number of runs
 
 
-def query(runtime: NodeRuntime) -> None:
+def query(runtime: INodeRuntime) -> None:
     """Perform the HTTP request to the API."""
     global _run_count
     _run_count += 1

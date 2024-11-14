@@ -1,8 +1,8 @@
 import json
-from ..node_runtime import NodeRuntime
+from ailets.cons.typing import INodeRuntime
 
 
-def credentials(runtime: NodeRuntime) -> None:
+def credentials(runtime: INodeRuntime) -> None:
     value = {
         "Authorization": "Bearer ##OPENAI_API_KEY##",
         # "OpenAI-Organization": "",

@@ -1,8 +1,8 @@
 import json
-from ..node_runtime import NodeRuntime
+from ailets.cons.typing import INodeRuntime
 
 
-def _process_single_response(runtime: NodeRuntime, response: dict) -> str:
+def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
     """Process a single response and convert it to markdown.
 
     Args:
@@ -83,7 +83,7 @@ def _process_single_response(runtime: NodeRuntime, response: dict) -> str:
     return ""
 
 
-def response_to_markdown(runtime: NodeRuntime) -> None:
+def response_to_markdown(runtime: INodeRuntime) -> None:
     """Convert multiple responses to markdown format."""
 
     results = []

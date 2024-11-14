@@ -1,10 +1,10 @@
 from typing import Dict, Mapping, Optional, Sequence
 from io import StringIO
 from .streams import Stream
-from .typing import IEnvironment
+from .typing import IEnvironment, INodeRuntime
 
 
-class NodeRuntime:
+class NodeRuntime(INodeRuntime):
     def __init__(
         self,
         env: IEnvironment,

@@ -1,68 +1,46 @@
-from dataclasses import dataclass, field
-from typing import Dict, Any, Callable, Set, Optional, TextIO, Sequence, List, Tuple
+from typing import (
+    Dict,
+    Any,
+    Callable,
+    Iterator,
+    Set,
+    Optional,
+    TextIO,
+    Sequence,
+    List,
+    Tuple,
+)
 import json
 
-from .typing import IEnvironment
+from .pipelines import get_func_map, nodelib_to_env
+
+from .typing import Dependency, IEnvironment, NodeDescFunc, Node
 from .node_runtime import NodeRuntime
 from .streams import Streams, Stream
 
 
-@dataclass
-class Dependency:
-    """A dependency of a node on another node's stream.
+def to_basename(name: str) -> str:
+    """Return the base name of a node, stripping off any numeric suffix.
 
-    Attributes:
-        dep_name: Optional name of the dependency (e.g., "credentials")
-        node_name: Name of the dependency node
-        stream_name: Name of the stream from the dependency node
+    Args:
+        name: The full name of the node
+
+    Returns:
+        The base name of the node without the numeric suffix
     """
-
-    dep_name: Optional[str]
-    node_name: str
-    stream_name: Optional[str]
-
-    def to_json(self) -> list:
-        """Convert to JSON-serializable format.
-
-        Returns:
-            List of [dep_name, node_name, stream_name]
-        """
-        return [self.dep_name, self.node_name, self.stream_name]
-
-    @classmethod
-    def from_json(cls, data: list) -> "Dependency":
-        """Create dependency from JSON data.
-
-        Args:
-            data: List of [dep_name, node_name, stream_name]
-        """
-        return cls(dep_name=data[0], node_name=data[1], stream_name=data[2])
-
-
-@dataclass(frozen=True)
-class Node:
-    name: str
-    func: Callable[..., Any]
-    deps: List[Dependency] = field(default_factory=list)  # [(node_name, dep_name)]
-    explain: Optional[str] = field(default=None)  # New field for explanation
-
-    def to_json(self) -> Dict[str, Any]:
-        """Convert node state to a JSON-serializable dict."""
-        return {
-            "name": self.name,
-            "deps": [dep.to_json() for dep in self.deps],
-            "explain": self.explain,  # Add explain field to JSON
-            # Skip func as it's not serializable
-        }
+    if "." in name and name.split(".")[-1].isdigit():
+        return ".".join(name.split(".")[:-1])
+    return name
 
 
 class Environment(IEnvironment):
     def __init__(self) -> None:
         self.nodes: Dict[str, Node] = {}
-        self._node_counter: int = 0  # Single counter for all nodes
-        self._tools: Dict[str, tuple[Callable, Callable]] = {}  # New tools dictionary
+        self._node_counter: int = 0
+        self._tools: Dict[str, tuple[Callable, Callable]] = {}
         self._streams: Streams = Streams()
         self._next_id = 1
+        self._aliases: Dict[str, Set[str]] = {}
 
     def add_node(
         self,
@@ -76,9 +54,7 @@ class Environment(IEnvironment):
         Args:
             name: Base name for the node
             func: Function to execute for this node
-            deps: List of dependencies. Each dependency can be either:
-                - str: node name (for default/unnamed dependencies)
-                - tuple[str, str]: (node name, dependency name)
+            deps: List of dependencies
             explain: Optional explanation of what the node does
 
         Returns:
@@ -90,8 +66,17 @@ class Environment(IEnvironment):
         self.nodes[full_name] = node
         return node
 
+    def _resolve_alias(self, name: str) -> str:
+        if name in self._aliases:
+            aliases = self._aliases[name]
+            if len(aliases) > 0:
+                assert len(aliases) == 1, f"Ambiguous alias: {name} to {aliases}"
+                return next(iter(aliases))
+        return name
+
     def get_node(self, name: str) -> Node:
         """Get a node by name. Does not build."""
+        name = self._resolve_alias(name)
         if name not in self.nodes:
             raise KeyError(f"Node {name} not found")
         return self.nodes[name]
@@ -109,7 +94,7 @@ class Environment(IEnvironment):
             KeyError: If no node with the given base name exists
         """
         for name, node in self.nodes.items():
-            if name.rsplit(".", 1)[0] == base_name:
+            if to_basename(name) == base_name:
                 return node
         raise KeyError(f"No node found with base name {base_name}")
 
@@ -119,11 +104,11 @@ class Environment(IEnvironment):
 
         in_streams: Dict[Optional[str], List[Stream]] = {}
 
-        for dep in node.deps:
+        for dep in self.iter_deps(name):
             dep_node_name, dep_name, dep_stream_name = (
-                dep.node_name,
-                dep.dep_name,
-                dep.stream_name,
+                dep.source,
+                dep.name,
+                dep.stream,
             )
             if not self.is_node_built(dep_node_name):
                 raise ValueError(f"Dependency node '{dep_node_name}' is not built")
@@ -149,7 +134,7 @@ class Environment(IEnvironment):
             print(f"Function: {node.func.__name__}")
             print("Dependencies:")
             for dep in node.deps:
-                print(f"  {dep.node_name} ({dep.stream_name}) -> {dep.dep_name}")
+                print(f"  {dep.source} ({dep.stream}) -> {dep.name}")
             raise
 
     def build_target(
@@ -207,7 +192,9 @@ class Environment(IEnvironment):
             RuntimeError: If dependency cycle detected
         """
         if target not in self.nodes:
-            raise KeyError(f"Node {target} not found")
+            target = self._resolve_alias(target)
+            if target not in self.nodes:
+                raise KeyError(f"Node {target} not found")
 
         visited: Set[str] = set()
         build_order: List[str] = []
@@ -225,9 +212,8 @@ class Environment(IEnvironment):
             visiting_list.append(name)
 
             # Visit all dependencies (both default and named)
-            node = self.nodes[name]
-            for dep in node.deps:
-                visit(dep.node_name)
+            for dep in self.iter_deps(name):
+                visit(dep.source)
 
             visiting.remove(name)
             visiting_list.pop()
@@ -291,10 +277,10 @@ class Environment(IEnvironment):
 
         # Group dependencies by parameter name
         deps_by_param: Dict[Optional[str], List[Tuple[str, Optional[str]]]] = {}
-        for dep in node.deps:
-            if dep.dep_name not in deps_by_param:
-                deps_by_param[dep.dep_name] = []
-            deps_by_param[dep.dep_name].append((dep.node_name, dep.stream_name))
+        for dep in self.iter_deps(node_name):
+            if dep.name not in deps_by_param:
+                deps_by_param[dep.name] = []
+            deps_by_param[dep.name].append((dep.source, dep.stream))
 
         next_indent = f"{indent}│   "
 
@@ -332,8 +318,8 @@ class Environment(IEnvironment):
 
         # Try to get function from map, if not found and name has a number suffix,
         # try without the suffix
-        if name not in func_map and "." in name:
-            base_name = name.rsplit(".", 1)[0]  # Get name without the suffix
+        if name not in func_map:
+            base_name = to_basename(name)
             func = func_map.get(base_name)
             if func is None:
                 raise KeyError(f"No function provided for node: {name} or {base_name}")
@@ -382,8 +368,8 @@ class Environment(IEnvironment):
         to_clone: Set[str] = {start}
 
         # Add start node's dependencies to clone set
-        for dep in start_node.deps:
-            to_clone.add(dep.node_name)
+        for dep in self.iter_deps(start):
+            to_clone.add(dep.source)
 
         while to_clone:
             # Get next node to clone
@@ -392,7 +378,7 @@ class Environment(IEnvironment):
                 continue
 
             current = self.get_node(current_name)
-            clone = self.add_node(current_name.rsplit(".", 1)[0], current.func)
+            clone = self.add_node(to_basename(current_name), current.func)
             original_to_clone[current_name] = clone.name
             cloned.add(current_name)
 
@@ -412,17 +398,17 @@ class Environment(IEnvironment):
 
             if original_name == start:
                 # For start node, create new list from original dependencies
-                new_deps = list(original.deps)
+                new_deps = list(self.iter_deps(original_name))
             else:
                 # For other nodes, use cloned dependencies
                 new_deps = [
                     Dependency(
-                        dep_name=dep.dep_name,
-                        node_name=original_to_clone[dep.node_name],
-                        stream_name=dep.stream_name,
+                        name=dep.name,
+                        source=original_to_clone[dep.source],
+                        stream=dep.stream,
                     )
                     for dep in original.deps
-                    if dep.node_name in original_to_clone
+                    if dep.source in original_to_clone
                 ]
 
             # Create new node with dependencies
@@ -451,7 +437,7 @@ class Environment(IEnvironment):
         next_nodes = []
         for other_node in self.nodes.values():
             # Check if node.name appears as a dependency in other_node's deps list
-            if any(dep.node_name == node.name for dep in other_node.deps):
+            if any(dep.source == node.name for dep in self.iter_deps(other_node.name)):
                 next_nodes.append(other_node)
         return next_nodes
 
@@ -528,12 +514,17 @@ class Environment(IEnvironment):
 
         self._streams.to_json(f)
 
+        for alias, names in self._aliases.items():
+            json.dump({"alias": alias, "names": list(names)}, f, indent=2)
+            f.write("\n")
+
     @classmethod
-    def from_json(
-        cls, f: TextIO, func_map: Dict[str, Callable[..., Any]]
-    ) -> "Environment":
+    def from_json(cls, f: TextIO, nodelib: Sequence[NodeDescFunc]) -> "Environment":
         """Create environment from JSON data."""
         env = cls()
+
+        nodelib_to_env(env, nodelib)
+        func_map = get_func_map(nodelib)
 
         content = f.read()
         decoder = json.JSONDecoder()
@@ -554,6 +545,8 @@ class Environment(IEnvironment):
                     env.load_node_state(obj_data, func_map)
                 elif "is_finished" in obj_data:
                     env._streams.add_stream_from_json(obj_data)
+                elif "alias" in obj_data:
+                    env._aliases[obj_data["alias"]] = set(obj_data["names"])
                 else:
                     raise ValueError(f"Unknown object data: {obj_data}")
             except json.JSONDecodeError as e:
@@ -561,37 +554,6 @@ class Environment(IEnvironment):
                 raise
 
         return env
-
-    def find_final_node(self) -> Optional[Node]:
-        """Find the final node in the environment.
-
-        A final node is a node that no other node depends on.
-        If there are multiple such nodes, returns any one of them.
-
-        Returns:
-            The final node, or None if no nodes exist
-        """
-        if not self.nodes:
-            return None
-
-        # Create set of all nodes that are dependencies
-        dependency_nodes = {
-            dep.node_name for node in self.nodes.values() for dep in node.deps
-        }
-
-        # Find nodes that aren't dependencies of any other node
-        final_nodes = [
-            node for name, node in self.nodes.items() if name not in dependency_nodes
-        ]
-
-        if not final_nodes:
-            raise ValueError("No final node found - dependency cycle detected")
-
-        if len(final_nodes) > 1:
-            node_names = [node.name for node in final_nodes]
-            raise ValueError(f"Multiple final nodes found: {node_names}")
-
-        return final_nodes[0]
 
     def create_new_stream(self, node_name: str, stream_name: Optional[str]) -> Stream:
         return self._streams.create(node_name, stream_name)
@@ -613,3 +575,58 @@ class Environment(IEnvironment):
             for stream in self._streams._streams
             if stream.node_name == node_name
         )
+
+    def alias(self, alias: str, node_name: str) -> None:
+        """Associate an alias with a node.
+
+        Args:
+            alias: The alias name to create
+            node_name: The node name to associate with the alias
+
+        Raises:
+            KeyError: If the node name doesn't exist
+        """
+        # Verify node exists
+        if node_name not in self.nodes:
+            raise KeyError(f"Node {node_name} not found")
+
+        # Create or update alias
+        if alias not in self._aliases:
+            self._aliases[alias] = {node_name}
+        else:
+            self._aliases[alias].add(node_name)
+
+    def get_nodes_by_alias(self, alias: str) -> Set[Node]:
+        """Get all nodes associated with an alias.
+
+        Args:
+            alias: The alias to look up
+
+        Returns:
+            Set of nodes associated with the alias. Returns empty set if alias not
+            found.
+        """
+        if alias not in self._aliases:
+            return set()
+
+        return {self.nodes[name] for name in self._aliases[alias]}
+
+    def iter_deps(self, name: str) -> Iterator[Dependency]:
+        """Iterate through dependencies of a node, resolving alias dependencies.
+
+        Args:
+            name: Name of the node
+
+        Yields:
+            Dependencies of the node, with alias dependencies resolved to concrete nodes
+        """
+        node = self.get_node(name)
+        for dep in node.deps:
+            # If dependency source is an alias, yield a dependency for each aliased node
+            if dep.source in self._aliases:
+                for aliased_node_name in self._aliases[dep.source]:
+                    yield Dependency(
+                        source=aliased_node_name, name=dep.name, stream=dep.stream
+                    )
+            else:
+                yield dep
