@@ -13,6 +13,7 @@ from ailets.cons.pipelines import (
     alias_basenames,
     load_nodes_from_module,
     nodelib_to_env,
+    toolspecs_to_env,
 )
 import re
 import base64
@@ -163,6 +164,7 @@ def main():
     else:
         env = Environment()
         nodelib_to_env(env, nodelib)
+        toolspecs_to_env(env, nodelib, args.tools)
         alias_basenames(env, nodelib)
         prompt = get_prompt(args.prompt)
         prompt_to_env(env, prompt=prompt)

@@ -5,6 +5,7 @@ messages_to_query = NodeDesc(
     inputs=[
         Dependency(source="prompt_to_messages"),
         Dependency(name="credentials", source="credentials"),
+        Dependency(name="toolspecs", source="toolspecs"),
     ],
 )
 
