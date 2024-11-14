@@ -9,7 +9,11 @@ from ailets.cons.cons import Environment
 from ailets.cons import (
     prompt_to_env,
 )
-from ailets.cons.pipelines import load_nodes_from_module, nodelib_to_env
+from ailets.cons.pipelines import (
+    alias_basenames,
+    load_nodes_from_module,
+    nodelib_to_env,
+)
 from ailets.cons.nodes.tool_get_user_name import (
     get_spec_for_get_user_name,
     run_get_user_name,
@@ -161,11 +165,12 @@ def main():
     else:
         env = Environment()
         nodelib_to_env(env, nodelib)
+        alias_basenames(env, nodelib)
         env.add_tool("get_user_name", (get_spec_for_get_user_name, run_get_user_name))
         prompt = get_prompt(args.prompt)
         prompt_to_env(env, prompt=prompt)
 
-    target_node_name = env.find_final_node().name
+    target_node_name = "stdout"
     stop_node_name = args.stop_at or target_node_name
 
     if args.dry_run:

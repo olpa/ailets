@@ -28,8 +28,8 @@ def to_basename(name: str) -> str:
     Returns:
         The base name of the node without the numeric suffix
     """
-    if '.' in name and name.split('.')[-1].isdigit():
-        return '.'.join(name.split('.')[:-1])
+    if "." in name and name.split(".")[-1].isdigit():
+        return ".".join(name.split(".")[:-1])
     return name
 
 
@@ -90,7 +90,7 @@ class Environment(IEnvironment):
             KeyError: If no node with the given base name exists
         """
         for name, node in self.nodes.items():
-            if name.rsplit(".", 1)[0] == base_name:
+            if to_basename(name) == base_name:
                 return node
         raise KeyError(f"No node found with base name {base_name}")
 
@@ -312,8 +312,8 @@ class Environment(IEnvironment):
 
         # Try to get function from map, if not found and name has a number suffix,
         # try without the suffix
-        if name not in func_map and "." in name:
-            base_name = name.rsplit(".", 1)[0]  # Get name without the suffix
+        if name not in func_map:
+            base_name = to_basename(name)
             func = func_map.get(base_name)
             if func is None:
                 raise KeyError(f"No function provided for node: {name} or {base_name}")
@@ -372,7 +372,7 @@ class Environment(IEnvironment):
                 continue
 
             current = self.get_node(current_name)
-            clone = self.add_node(current_name.rsplit(".", 1)[0], current.func)
+            clone = self.add_node(to_basename(current_name), current.func)
             original_to_clone[current_name] = clone.name
             cloned.add(current_name)
 

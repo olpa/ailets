@@ -70,7 +70,9 @@ def prompt_to_env(
     for prompt_item in prompt:
         prompt_to_node(prompt_item)
 
+
 def alias_basenames(env: IEnvironment, nodes: Sequence[NodeDescFunc]) -> None:
     for node in nodes:
         if "." in node.name:
-            env.alias(node.name.split(".")[-1], node.name)
+            resolved_name = env.get_node(node.name).name
+            env.alias(node.name.split(".")[-1], resolved_name)

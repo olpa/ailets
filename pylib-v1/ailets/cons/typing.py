@@ -104,3 +104,6 @@ class IEnvironment(Protocol):
         self, value: str, value_type: str, explain: Optional[str] = None
     ) -> Node:
         raise NotImplementedError
+
+    def get_node(self, name: str) -> Node:
+        raise NotImplementedError
