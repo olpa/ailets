@@ -41,6 +41,7 @@ class NodeDesc:
     name: str
     inputs: Sequence[Dependency]
 
+
 class INodeRuntime(Protocol):
     def n_of_streams(self, node_name: Optional[str]) -> int:
         raise NotImplementedError
@@ -57,7 +58,7 @@ class INodeRuntime(Protocol):
 
 @dataclass(frozen=True)
 class NodeDescFunc(NodeDesc):
-    func: Optional[Callable[[INodeRuntime], None]] = None
+    func: Callable[[INodeRuntime], None]
 
 
 class IEnvironment(Protocol):

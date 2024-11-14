@@ -4,8 +4,6 @@ from .streams import Stream
 from .typing import IEnvironment, INodeRuntime
 
 
-from typing import Protocol
-
 class NodeRuntime(INodeRuntime):
     def __init__(
         self,
