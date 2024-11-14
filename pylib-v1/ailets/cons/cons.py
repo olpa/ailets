@@ -37,7 +37,6 @@ class Environment(IEnvironment):
     def __init__(self) -> None:
         self.nodes: Dict[str, Node] = {}
         self._node_counter: int = 0
-        self._tools: Dict[str, tuple[Callable, Callable]] = {}
         self._streams: Streams = Streams()
         self._next_id = 1
         self._aliases: Dict[str, Set[str]] = {}
@@ -440,33 +439,6 @@ class Environment(IEnvironment):
             if any(dep.source == node.name for dep in self.iter_deps(other_node.name)):
                 next_nodes.append(other_node)
         return next_nodes
-
-    def add_tool(self, name: str, funcs: tuple[Callable, Callable]) -> None:
-        """Add a tool with its associated functions.
-
-        Args:
-            name: Name of the tool
-            funcs: Tuple of (execute_func, validate_func) for the tool
-        """
-        if name in self._tools:
-            raise ValueError(f"Tool {name} already exists")
-        self._tools[name] = funcs
-
-    def get_tool(self, name: str) -> tuple[Callable, Callable]:
-        """Get the functions associated with a tool.
-
-        Args:
-            name: Name of the tool
-
-        Returns:
-            Tuple of (execute_func, validate_func) for the tool
-
-        Raises:
-            KeyError: If tool not found
-        """
-        if name not in self._tools:
-            raise KeyError(f"Tool {name} not found")
-        return self._tools[name]
 
     def add_typed_value_node(
         self, value: str, value_type: str, explain: Optional[str] = None
