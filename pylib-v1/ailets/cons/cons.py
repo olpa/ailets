@@ -548,7 +548,7 @@ class Environment(IEnvironment):
             if stream.node_name == node_name
         )
 
-    def alias(self, alias: str, node_name: str) -> None:
+    def alias(self, alias: str, node_name: Optional[str]) -> None:
         """Associate an alias with a node.
 
         Args:
@@ -558,6 +558,11 @@ class Environment(IEnvironment):
         Raises:
             KeyError: If the node name doesn't exist
         """
+        if node_name is None:
+            if alias not in self._aliases:
+                self._aliases[alias] = set()
+            return
+
         # Verify node exists
         if node_name not in self.nodes:
             raise KeyError(f"Node {node_name} not found")

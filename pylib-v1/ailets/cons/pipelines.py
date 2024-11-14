@@ -94,3 +94,5 @@ def toolspecs_to_env(
             json.dumps(schema), "json", explain=f"Tool {tool}"
         )
         env.alias("toolspecs", tool_spec.name)
+    else:
+        env.alias("toolspecs", None)
