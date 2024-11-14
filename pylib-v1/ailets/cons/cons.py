@@ -66,13 +66,17 @@ class Environment(IEnvironment):
         self.nodes[full_name] = node
         return node
 
-    def get_node(self, name: str) -> Node:
-        """Get a node by name. Does not build."""
+    def _resolve_alias(self, name: str) -> str:
         if name in self._aliases:
             aliases = self._aliases[name]
             if len(aliases) > 0:
                 assert len(aliases) == 1, f"Ambiguous alias: {name} to {aliases}"
-                name = next(iter(aliases))
+                return next(iter(aliases))
+        return name
+
+    def get_node(self, name: str) -> Node:
+        """Get a node by name. Does not build."""
+        name = self._resolve_alias(name)
         if name not in self.nodes:
             raise KeyError(f"Node {name} not found")
         return self.nodes[name]
@@ -188,7 +192,9 @@ class Environment(IEnvironment):
             RuntimeError: If dependency cycle detected
         """
         if target not in self.nodes:
-            raise KeyError(f"Node {target} not found")
+            target = self._resolve_alias(target)
+            if target not in self.nodes:
+                raise KeyError(f"Node {target} not found")
 
         visited: Set[str] = set()
         build_order: List[str] = []
