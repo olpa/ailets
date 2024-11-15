@@ -1,5 +1,5 @@
 import json
-from ailets.cons.typing import INodeRuntime
+from ailets.cons.typing import Dependency, INodeRuntime
 
 
 def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
@@ -22,63 +22,48 @@ def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
     if content is not None:
         return content
 
-    """
-    pipeline = env.clone_path("messages_to_query", node.name)
-    start_node = pipeline[0]
-    end_node = pipeline[-1]
+    #
+    # Tool calls: call them and repeat the loop
+    #
 
-        idref_node = env.add_typed_value_node(
+    dagops = runtime.dagops()
+    loop = dagops.clone_path("messages_to_query", runtime.get_name())
+
+    #
+    # Put "tool_calls" to the "chat history"
+    #
+    idref_messages = [
+        {
+            "role": message["role"],
+            "tool_calls": tool_calls,
+        }
+    ]
+    idref_node = dagops.add_typed_value_node(
         json.dumps(idref_messages),
         "",
         explain='Feed "tool_calls" from output to input',
     )
-    start_node.deps.append(
-        Dependency(dep_name=None, node_name=idref_node.name, stream_name=None)
-    )
+    dagops.depend(loop.begin, Dependency(node_name=idref_node))
 
+    #
+    # Instantiate tools, run and connect them to the "chat history"
+    #
     for tool_call in tool_calls:
         tool_name = tool_call["function"]["name"]
-        short_node_name = f"tool/{tool_name}/call"
-        (_, tool_func) = env.get_tool(tool_name)
+        tool_pipeline = dagops.instantiate_tool(tool_name)
 
-        tool_spec_node = env.add_node(
-            "value", lambda _: tool_call, explain="Tool call spec from llm"
+        tool_spec_node = dagops.add_typed_value_node(
+            json.dumps(tool_call), "", explain="Tool call spec from llm"
         )
-        tool_call_node = env.add_node(
-            short_node_name,
-            tool_func,
-            [
-                Dependency(
-                    dep_name=None, node_name=tool_spec_node.name, stream_name=None
-                )
-            ],
-        )
-        tool_msg_node = env.add_node(
+        dagops.depend(tool_pipeline.begin, Dependency(node_name=tool_spec_node))
+
+        tool_msg_node = dagops.add_node(
             "toolcall_to_messages",
-            toolcall_to_messages,
             [
-                Dependency(
-                    dep_name=None, node_name=tool_call_node.name, stream_name=None
-                ),
-                Dependency(
-                    dep_name="llm_spec", node_name=tool_spec_node.name, stream_name=None
-                ),
+                Dependency(node_name=tool_pipeline.end),
+                Dependency(dep_name="llm_spec", node_name=tool_msg_node),
             ],
         )
-
-        start_node.deps.append(
-            Dependency(dep_name=None, node_name=tool_msg_node.name, stream_name=None)
-        )
-    # Connect end node to next in pipeline
-    for next_node in env.get_next_nodes(node):
-        next_node.deps.append(
-            Dependency(dep_name=None, node_name=end_node.name, stream_name=None)
-        )
-
-    return ""
-
-
-    """
 
     return ""
 
