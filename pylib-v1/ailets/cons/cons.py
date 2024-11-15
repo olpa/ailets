@@ -80,6 +80,9 @@ class Environment(IEnvironment):
             raise KeyError(f"Node {name} not found")
         return self.nodes[name]
 
+    def get_nodes(self) -> Sequence[Node]:
+        return list(self.nodes.values())
+
     def get_node_by_base_name(self, base_name: str) -> Node:
         """Get a node by its base name (without the numeric suffix).
 
@@ -96,6 +99,21 @@ class Environment(IEnvironment):
             if to_basename(name) == base_name:
                 return node
         raise KeyError(f"No node found with base name {base_name}")
+
+    def depend(self, target: str, deps: Sequence[Dependency]) -> None:
+        """Add dependencies to a node.
+
+        Args:
+            target: Name of node to add dependencies to
+            deps: Dependencies to add
+        """
+        node = self.get_node(target)
+        self.nodes[target] = Node(
+            name=node.name,
+            func=node.func,
+            deps=list(node.deps) + list(deps),
+            explain=node.explain,
+        )
 
     def build_node_alone(self, name: str) -> None:
         """Build a node. Does not build its dependencies."""

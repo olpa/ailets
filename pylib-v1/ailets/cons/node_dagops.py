@@ -1,7 +1,7 @@
-from typing import Optional, Sequence, Dict, Set, Tuple
+from typing import Optional, Sequence, Dict, Set
 
-from ailets.cons.cons import to_basename
-from .typing import INodeDagops, IEnvironment, INodeRuntime, Dependency, BeginEnd, Node
+from .cons import to_basename
+from .typing import IEnvironment, INodeDagops, INodeRuntime, Dependency, BeginEnd, Node
 
 
 class NodeDagops(INodeDagops):
@@ -14,91 +14,93 @@ class NodeDagops(INodeDagops):
 
     def clone_path(self, begin: str, end: str) -> BeginEnd:
         """Clone a path from begin to end.
-        
+
         begin should be the base name
         end should be the full name
         """
-        def find_start_node() -> Node:
+
+        def find_start_node() -> str:
             # Find start node by traversing back through dependencies
-            current_node = end
             visited: Set[str] = set()
-            to_visit: Set[str] = {current_node}
-            
-            while True:
-                if to_basename(current_node.name) == begin:
+            to_visit: Set[str] = {end}
+
+            while to_visit:
+                current_node_name = to_visit.pop()
+                visited.add(current_node_name)
+
+                if to_basename(current_node_name) == begin:
                     # Found the requested start node
-                    return current_node
+                    return current_node_name
                 # Add dependencies to visit
+                current_node = self._env.get_node(current_node_name)
                 for dep in current_node.deps:
                     if dep.source not in visited:
                         to_visit.add(dep.source)
-                
-                if not to_visit:
-                    # No more nodes to visit - we've found the start
-                    break
-                    
-                # Visit next node
-                current_name = to_visit.pop()
-                current_node = self._env.get_node(current_name)
-                visited.add(current_name)
-                    
-            raise ValueError(f"Start node {begin} not found in far dependencies of {current_node}")
 
-        def get_next_nodes(self, node_name: str) -> Sequence[Node]:
+            raise ValueError(
+                f"Start node {begin} not found in far dependencies of "
+                f"{current_node_name}"
+            )
+
+        def get_next_nodes(node_name: str) -> Sequence[Node]:
             next_nodes = []
-            for other_node in self._env.nodes.values():
-                if any(dep.source == node_name for dep in self._env.iter_deps(other_node.name)):
+            for other_node in self._env.get_nodes():
+                if any(
+                    dep.source == node_name
+                    for dep in self._env.iter_deps(other_node.name)
+                ):
                     next_nodes.append(other_node)
             return next_nodes
 
         def find_nodes_to_clone(start_name: str) -> Set[str]:
             """Find all nodes between start node and end node that need to be cloned.
-            
+
             Args:
                 start_name: Name of node to start traversal from
-                
+
             Returns:
                 Set of node names that need to be cloned
             """
             visited: Set[str] = set()
             to_clone: Set[str] = set()
             to_visit: Set[str] = {start_name}
-            
+
             while to_visit:
                 current_name = to_visit.pop()
                 if current_name in visited:
                     continue
-                    
+
                 visited.add(current_name)
                 if current_name != end:
                     to_clone.add(current_name)
-                    
+
                     # Add next nodes to visit
                     next_nodes = get_next_nodes(current_name)
                     for next_node in next_nodes:
                         if next_node.name not in visited:
                             to_visit.add(next_node.name)
-                            
+
             return to_clone
 
-        start_node = find_start_node()
-        to_clone = find_nodes_to_clone(start_node.name)
+        start_node_name = find_start_node()
+        to_clone = find_nodes_to_clone(start_node_name)
         # Clone nodes, keeping map of original to cloned names
         original_to_clone: Dict[str, str] = {}
-        
+
         #
         # Clone each node
         #
         for node_name in to_clone:
             original_node = self._env.get_node(node_name)
-            
+
             # Create new node with same function but no dependencies yet
             cloned_node = self._env.add_node(
                 name=original_node.name,  # Will get auto-numbered suffix
                 deps=[],  # Dependencies added later
-                explain=original_node.explain
+                func=original_node.func,
+                explain=original_node.explain,
             )
-            
+
             # Store mapping from original to cloned name
             original_to_clone[node_name] = cloned_node.name
 
@@ -108,7 +110,7 @@ class NodeDagops(INodeDagops):
         for node_name in to_clone:
             original_node = self._env.get_node(node_name)
             cloned_name = original_to_clone[node_name]
-            
+
             # For each dependency of the original node
             for dep in self._env.iter_deps(node_name):
                 # If dependency source was cloned, point to cloned version
@@ -116,7 +118,7 @@ class NodeDagops(INodeDagops):
                     cloned_dep = Dependency(
                         source=original_to_clone[dep.source],
                         name=dep.name,
-                        stream=dep.stream
+                        stream=dep.stream,
                     )
                     self._env.depend(cloned_name, [cloned_dep])
                 else:
@@ -126,29 +128,23 @@ class NodeDagops(INodeDagops):
         #
         # Add dependencies for source node
         #
-        cloned_source = original_to_clone[start_node.name]
-        for dep in self._env.iter_deps(start_node.name):
-            self._env.depend(cloned_source, [dep])
+        cloned_source_name = original_to_clone[start_node_name]
+        for dep in self._env.iter_deps(start_node_name):
+            self._env.depend(cloned_source_name, [dep])
         #
         # Add dependencies for nodes that depended on end node
         #
         # For each node in the environment
         cloned_end_name = original_to_clone[end]
-        for node_name, node in self._env.nodes.items():
-            for dep in self._env.iter_deps(node_name):
+        for node in self._env.get_nodes():
+            for dep in self._env.iter_deps(node.name):
                 if dep.source == end:
                     cloned_dep = Dependency(
-                        source=cloned_end_name,
-                        name=dep.name,
-                        stream=dep.stream
+                        source=cloned_end_name, name=dep.name, stream=dep.stream
                     )
-                    self._env.depend(node_name, [cloned_dep])
+                    self._env.depend(node.name, [cloned_dep])
 
-
-        return BeginEnd(
-            begin=cloned_source.name,
-            end=cloned_end_name
-        )
+        return BeginEnd(begin=cloned_source_name, end=cloned_end_name)
 
     def add_typed_value_node(
         self, value: str, value_type: str, explain: Optional[str] = None

@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from io import StringIO
-from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence
+from typing import Any, Callable, Dict, Iterator, List, Optional, Protocol, Sequence
 from .streams import Stream
 
 
@@ -143,4 +143,13 @@ class IEnvironment(Protocol):
         raise NotImplementedError
 
     def get_node(self, name: str) -> Node:
+        raise NotImplementedError
+
+    def get_nodes(self) -> Sequence[Node]:
+        raise NotImplementedError
+
+    def iter_deps(self, node_name: str) -> Iterator[Dependency]:
+        raise NotImplementedError
+
+    def depend(self, target: str, deps: Sequence[Dependency]) -> None:
         raise NotImplementedError
