@@ -14,18 +14,11 @@ schema = {
     },
 }
 
-begin = NodeDesc(
-    name="begin",
+call = NodeDesc(
+    name="call",
     inputs=[
-        Dependency(source="caller", schema=schema),
+        Dependency(source="input", schema=schema),
     ],
 )
 
-end = NodeDesc(
-    name="end",
-    inputs=[
-        Dependency(source="begin"),
-    ],
-)
-
-nodes = [begin, end]
+nodes = [call]
