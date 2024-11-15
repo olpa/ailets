@@ -14,7 +14,7 @@ import json
 
 from .pipelines import get_func_map, nodelib_to_env
 
-from .typing import Dependency, IEnvironment, NodeDescFunc, Node
+from .typing import BeginEnd, Dependency, IEnvironment, NodeDescFunc, Node
 from .node_runtime import NodeRuntime
 from .streams import Streams, Stream
 from .util import to_basename
@@ -515,3 +515,6 @@ class Environment(IEnvironment):
                     )
             else:
                 yield dep
+
+    def instantiate_tool(self, tool_name: str) -> BeginEnd:
+        raise NotImplementedError

@@ -10,7 +10,7 @@ class NodeDagops(INodeDagops):
         self._node = node
 
     def depend(self, target: str, source: Sequence[Dependency]) -> None:
-        raise NotImplementedError
+        self._env.depend(target, source)
 
     def clone_path(self, begin: str, end: str) -> BeginEnd:
         """Clone a path from begin to end.
@@ -141,7 +141,8 @@ class NodeDagops(INodeDagops):
     def add_typed_value_node(
         self, value: str, value_type: str, explain: Optional[str] = None
     ) -> str:
-        raise NotImplementedError
+        node = self._env.add_typed_value_node(value, value_type, explain)
+        return node.name
 
     def add_node(
         self,
@@ -149,7 +150,10 @@ class NodeDagops(INodeDagops):
         deps: Optional[Sequence[Dependency]] = None,
         explain: Optional[str] = None,
     ) -> str:
-        raise NotImplementedError
+        basename = to_basename(name)
+        existing_node = self._env.get_node_by_base_name(basename)
+        node = self._env.add_node(name, existing_node.func, deps, explain)
+        return node.name
 
     def instantiate_tool(self, tool_name: str) -> BeginEnd:
-        raise NotImplementedError
+        return self._env.instantiate_tool(tool_name)

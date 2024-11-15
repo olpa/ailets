@@ -153,3 +153,9 @@ class IEnvironment(Protocol):
 
     def depend(self, target: str, deps: Sequence[Dependency]) -> None:
         raise NotImplementedError
+
+    def get_node_by_base_name(self, base_name: str) -> Node:
+        raise NotImplementedError
+
+    def instantiate_tool(self, tool_name: str) -> BeginEnd:
+        raise NotImplementedError
