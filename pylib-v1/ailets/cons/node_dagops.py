@@ -155,5 +155,5 @@ class NodeDagops(INodeDagops):
         node = self._env.add_node(name, existing_node.func, deps, explain)
         return node.name
 
-    def instantiate_tool(self, tool_name: str) -> BeginEnd:
-        return self._env.instantiate_tool(tool_name)
+    def instantiate_tool(self, tool_name: str, deps: Sequence[Dependency]) -> BeginEnd:
+        return self._env.instantiate_tool(tool_name, deps)

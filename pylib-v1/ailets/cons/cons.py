@@ -18,6 +18,7 @@ from .typing import BeginEnd, Dependency, IEnvironment, NodeDescFunc, Node
 from .node_runtime import NodeRuntime
 from .streams import Streams, Stream
 from .util import to_basename
+from ailets.cons.tools.get_user_name.call import call as call_get_user_name
 
 
 class Environment(IEnvironment):
@@ -516,5 +517,7 @@ class Environment(IEnvironment):
             else:
                 yield dep
 
-    def instantiate_tool(self, tool_name: str) -> BeginEnd:
-        raise NotImplementedError
+    def instantiate_tool(self, tool_name: str, deps: Sequence[Dependency]) -> BeginEnd:
+        assert tool_name == "get_user_name", f"Unknown tool: {tool_name}"
+        node = self.add_node(f"{tool_name}.call", call_get_user_name, deps)
+        return BeginEnd(begin=node.name, end=node.name)

@@ -81,7 +81,7 @@ def toolspecs_to_env(
     env: IEnvironment, nodeset: Sequence[NodeDescFunc], tools: Sequence[str]
 ) -> None:
     for tool in tools:
-        begin_node_name = f"{tool}.begin"
+        begin_node_name = f"{tool}.call"  # TODO FIXME
         begin_node_desc = next(
             (node for node in nodeset if node.name == begin_node_name), None
         )
