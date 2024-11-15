@@ -43,7 +43,7 @@ def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
         "",
         explain='Feed "tool_calls" from output to input',
     )
-    dagops.depend(loop.begin, Dependency(node_name=idref_node))
+    dagops.depend(loop.begin, Dependency(source=idref_node))
 
     #
     # Instantiate tools, run and connect them to the "chat history"
@@ -55,15 +55,16 @@ def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
         tool_spec_node = dagops.add_typed_value_node(
             json.dumps(tool_call), "", explain="Tool call spec from llm"
         )
-        dagops.depend(tool_pipeline.begin, Dependency(node_name=tool_spec_node))
+        dagops.depend(tool_pipeline.begin, Dependency(source=tool_spec_node))
 
         tool_msg_node = dagops.add_node(
             "toolcall_to_messages",
             [
-                Dependency(node_name=tool_pipeline.end),
-                Dependency(dep_name="llm_spec", node_name=tool_msg_node),
+                Dependency(source=tool_pipeline.end),
+                Dependency(name="llm_spec", source=tool_spec_node),
             ],
         )
+        dagops.depend(loop.begin, Dependency(source=tool_msg_node))
 
     return ""
 

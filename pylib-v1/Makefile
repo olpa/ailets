@@ -1,8 +1,6 @@
 lint:
 	flake8 --max-line-length=88 ailets/cons/*py ailets/cons/nodes/*/*py ailets/cons/tools/*/*py
-	mypy -m ailets.cons
-	mypy -m ailets.cons.nodes
-	mypy -m ailets.cons.tools
+	mypy -p ailets
 
 fix:
 	black ailets/cons/*py ailets/cons/nodes/*/*py ailets/cons/tools/*/*py
