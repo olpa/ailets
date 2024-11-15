@@ -60,8 +60,33 @@ class NodeDesc:
     inputs: Sequence[Dependency]
 
 
-class NodeDagops(Protocol):
+@dataclass(frozen=True)
+class BeginEnd:
+    begin: str
+    end: str
+
+
+class INodeDagops(Protocol):
     def depend(self, target: str, source: Sequence[Dependency]) -> None:
+        raise NotImplementedError
+
+    def clone_path(self, begin: str, end: str) -> BeginEnd:
+        raise NotImplementedError
+
+    def add_typed_value_node(
+        self, value: str, value_type: str, explain: Optional[str] = None
+    ) -> str:
+        raise NotImplementedError
+
+    def add_node(
+        self,
+        name: str,
+        deps: Optional[Sequence[Dependency]] = None,
+        explain: Optional[str] = None,
+    ) -> str:
+        raise NotImplementedError
+
+    def instantiate_tool(self, tool_name: str) -> BeginEnd:
         raise NotImplementedError
 
 
@@ -81,7 +106,7 @@ class INodeRuntime(Protocol):
     def close_write(self, stream_name: Optional[str]) -> None:
         raise NotImplementedError
 
-    def dagops(self) -> NodeDagops:
+    def dagops(self) -> INodeDagops:
         raise NotImplementedError
 
 
