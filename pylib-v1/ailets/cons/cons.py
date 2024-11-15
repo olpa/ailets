@@ -17,20 +17,7 @@ from .pipelines import get_func_map, nodelib_to_env
 from .typing import Dependency, IEnvironment, NodeDescFunc, Node
 from .node_runtime import NodeRuntime
 from .streams import Streams, Stream
-
-
-def to_basename(name: str) -> str:
-    """Return the base name of a node, stripping off any numeric suffix.
-
-    Args:
-        name: The full name of the node
-
-    Returns:
-        The base name of the node without the numeric suffix
-    """
-    if "." in name and name.split(".")[-1].isdigit():
-        return ".".join(name.split(".")[:-1])
-    return name
+from .util import to_basename
 
 
 class Environment(IEnvironment):

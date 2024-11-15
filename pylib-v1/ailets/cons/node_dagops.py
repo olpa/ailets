@@ -1,6 +1,6 @@
 from typing import Optional, Sequence, Dict, Set
 
-from .cons import to_basename
+from .util import to_basename
 from .typing import IEnvironment, INodeDagops, INodeRuntime, Dependency, BeginEnd, Node
 
 
