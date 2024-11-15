@@ -27,7 +27,7 @@ def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
     #
 
     dagops = runtime.dagops()
-    loop = dagops.clone_path("messages_to_query", runtime.get_name())
+    loop = dagops.clone_path("gpt4o.messages_to_query", runtime.get_name())
 
     #
     # Put "tool_calls" to the "chat history"

@@ -32,8 +32,7 @@ class NodeDagops(INodeDagops):
                     # Found the requested start node
                     return current_node_name
                 # Add dependencies to visit
-                current_node = self._env.get_node(current_node_name)
-                for dep in current_node.deps:
+                for dep in self._env.iter_deps(current_node_name):
                     if dep.source not in visited:
                         to_visit.add(dep.source)
 
@@ -71,10 +70,9 @@ class NodeDagops(INodeDagops):
                     continue
 
                 visited.add(current_name)
-                if current_name != end:
-                    to_clone.add(current_name)
+                to_clone.add(current_name)
 
-                    # Add next nodes to visit
+                if current_name != end:
                     next_nodes = get_next_nodes(current_name)
                     for next_node in next_nodes:
                         if next_node.name not in visited:
@@ -84,7 +82,6 @@ class NodeDagops(INodeDagops):
 
         start_node_name = find_start_node()
         to_clone = find_nodes_to_clone(start_node_name)
-        # Clone nodes, keeping map of original to cloned names
         original_to_clone: Dict[str, str] = {}
 
         #
@@ -92,10 +89,11 @@ class NodeDagops(INodeDagops):
         #
         for node_name in to_clone:
             original_node = self._env.get_node(node_name)
+            original_node_name = to_basename(original_node.name)
 
             # Create new node with same function but no dependencies yet
             cloned_node = self._env.add_node(
-                name=original_node.name,  # Will get auto-numbered suffix
+                name=original_node_name,  # Will get auto-numbered suffix
                 deps=[],  # Dependencies added later
                 func=original_node.func,
                 explain=original_node.explain,
@@ -126,15 +124,8 @@ class NodeDagops(INodeDagops):
                     self._env.depend(cloned_name, [dep])
 
         #
-        # Add dependencies for source node
-        #
-        cloned_source_name = original_to_clone[start_node_name]
-        for dep in self._env.iter_deps(start_node_name):
-            self._env.depend(cloned_source_name, [dep])
-        #
         # Add dependencies for nodes that depended on end node
         #
-        # For each node in the environment
         cloned_end_name = original_to_clone[end]
         for node in self._env.get_nodes():
             for dep in self._env.iter_deps(node.name):
@@ -144,6 +135,7 @@ class NodeDagops(INodeDagops):
                     )
                     self._env.depend(node.name, [cloned_dep])
 
+        cloned_source_name = original_to_clone[start_node_name]
         return BeginEnd(begin=cloned_source_name, end=cloned_end_name)
 
     def add_typed_value_node(
