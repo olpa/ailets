@@ -60,6 +60,11 @@ class NodeDesc:
     inputs: Sequence[Dependency]
 
 
+class NodeDagops(Protocol):
+    def depend(self, target: str, source: Sequence[Dependency]) -> None:
+        raise NotImplementedError
+
+
 class INodeRuntime(Protocol):
     def get_name(self) -> str:
         raise NotImplementedError
@@ -74,6 +79,9 @@ class INodeRuntime(Protocol):
         raise NotImplementedError
 
     def close_write(self, stream_name: Optional[str]) -> None:
+        raise NotImplementedError
+
+    def dagops(self) -> NodeDagops:
         raise NotImplementedError
 
 
