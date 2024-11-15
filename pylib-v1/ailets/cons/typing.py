@@ -61,6 +61,9 @@ class NodeDesc:
 
 
 class INodeRuntime(Protocol):
+    def get_name(self) -> str:
+        raise NotImplementedError
+
     def n_of_streams(self, node_name: Optional[str]) -> int:
         raise NotImplementedError
 

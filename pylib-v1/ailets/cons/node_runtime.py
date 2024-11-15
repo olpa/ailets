@@ -19,6 +19,9 @@ class NodeRuntime(INodeRuntime):
     def _get_streams(self, node_name: Optional[str]) -> Sequence[Stream]:
         return self._streams.get(node_name, [])
 
+    def get_name(self) -> str:
+        return self._node_name
+
     def n_of_streams(self, node_name: Optional[str]) -> int:
         return len(self._get_streams(node_name))
 
