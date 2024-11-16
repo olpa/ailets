@@ -58,6 +58,7 @@ class Node:
 class NodeDesc:
     name: str
     inputs: Sequence[Dependency]
+    alias_of: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -111,7 +112,9 @@ class INodeRuntime(Protocol):
 
 
 @dataclass(frozen=True)
-class NodeDescFunc(NodeDesc):
+class NodeDescFunc:
+    name: str
+    inputs: Sequence[Dependency]
     func: Callable[[INodeRuntime], None]
 
 

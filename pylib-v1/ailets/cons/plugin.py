@@ -11,7 +11,7 @@ class NodeRegistry(INodeRegistry):
     def add_node_def(self, node_def: NodeDescFunc) -> None:
         self.nodes[node_def.name] = node_def
 
-    def add_plugin(self, regname: str, plugin_nodes: Sequence[NodeDescFunc]) -> None:
+    def add_plugin(self, regname: str, plugin_nodes: Sequence[NodeDesc]) -> None:
         self.plugins[regname] = plugin_nodes
 
     def get_plugin(self, regname: str) -> Sequence[NodeDesc]:

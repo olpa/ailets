@@ -153,10 +153,10 @@ def main():
     assert args.model == "gpt4o", "At the moment, only gpt4o is supported"
 
     nodes_std = load_nodes_from_module("std", prefix="ailets.cons.nodes")
-    nodes_model = load_nodes_from_module(args.model, prefix="ailets.cons.nodes")
-    nodelib = [*nodes_std, *nodes_model]
+    nodelib = [*nodes_std]
 
     nodereg = NodeRegistry()
+    nodereg.add_plugin(f"ailets.models.{args.model}", f"model.{args.model}")
     for tool in args.tools:
         nodereg.load_plugin(f"ailets.tools.{tool}", f"tool.{tool}")
 
