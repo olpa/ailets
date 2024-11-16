@@ -45,15 +45,23 @@ class NodeRegistry(INodeRegistry):
 
             # Convert each NodeDesc to NodeDescFunc and register
             for node in nodes:
-                # Import the actual node function
-                node_module = __import__(
-                    f"{pypackage}.{node.name}", fromlist=[node.name]
-                )
-                node_func = getattr(node_module, node.name)
+
+                node_func = node
+                while node_func and node_func.alias_of:
+                    node_func = self.nodes[node_func.alias_of]
+
+                if node.alias_of:
+                    func = node_func.func
+                else:
+                    # Import the actual node function
+                    node_module = __import__(
+                        f"{pypackage}.{node.name}", fromlist=[node.name]
+                    )
+                    func = getattr(node_module, node.name)
 
                 # Create NodeDescFunc
                 node_desc = NodeDescFunc(
-                    name=f"{regname}.{node.name}", inputs=node.inputs, func=node_func
+                    name=f"{regname}.{node.name}", inputs=node.inputs, func=func
                 )
 
                 # Register the node

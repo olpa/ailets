@@ -6,6 +6,7 @@ from typing import (
     Sequence,
 )
 from .typing import (
+    Dependency,
     IEnvironment,
     INodeRegistry,
     NodeDesc,
@@ -103,3 +104,51 @@ def toolspecs_to_env(
         env.alias("toolspecs", tool_spec.name)
     else:
         env.alias("toolspecs", None)
+
+
+def instantiate_plugin(
+    env: IEnvironment,
+    nodereg: INodeRegistry,
+    name: str,
+) -> Sequence[Node]:
+    """Instantiate a plugin's nodes in the environment.
+
+    Args:
+        env: Environment to add nodes to
+        nodereg: Node registry containing plugin definitions
+        name: Name of plugin to instantiate
+    """
+    created_nodes = []
+    resolve = {}
+
+    # First create all nodes
+    for node_name in nodereg.get_plugin(name):
+        node_desc = nodereg.nodes[node_name]
+
+        node_func = node_desc
+        while node_func.alias_of:
+            node_func = nodereg.nodes[node_func.alias_of]
+
+        node = env.add_node(
+            name=node_name, func=node_func.func, explain=f"Plugin node {node_name}"
+        )
+
+        created_nodes.append(node)
+        resolve[node_name] = node.name
+
+    # Then update dependencies after all nodes exist
+    for node_name in nodereg.get_plugin(name):
+        node_full_name = resolve[node_name]
+        node_desc = nodereg.nodes[node_name]
+        deps = []
+        for dep in node_desc.inputs:
+            # Try to resolve dependency name through the resolve mapping
+            source = resolve.get(dep.source, dep.source)
+            deps.append(
+                Dependency(
+                    name=dep.name, source=source, stream=dep.stream, schema=dep.schema
+                )
+            )
+        env.depend(node_full_name, deps)
+
+    return created_nodes

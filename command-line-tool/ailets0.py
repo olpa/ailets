@@ -12,6 +12,7 @@ from ailets.cons import (
 )
 from ailets.cons.pipelines import (
     alias_basenames,
+    instantiate_plugin,
     load_nodes_from_module,
     nodelib_to_env,
     toolspecs_to_env,
@@ -156,7 +157,7 @@ def main():
     nodelib = [*nodes_std]
 
     nodereg = NodeRegistry()
-    nodereg.add_plugin(f"ailets.models.{args.model}", f"model.{args.model}")
+    nodereg.load_plugin(f"ailets.models.{args.model}", f"model.{args.model}")
     for tool in args.tools:
         nodereg.load_plugin(f"ailets.tools.{tool}", f"tool.{tool}")
 
@@ -167,6 +168,8 @@ def main():
         env = Environment()
         nodelib_to_env(env, nodelib)
         toolspecs_to_env(env, nodereg, args.tools)
+        model_nodes = instantiate_plugin(env, nodereg, f"model.{args.model}")
+        env.alias("response_to_markdown", model_nodes[-1].name)  # FIXME
         alias_basenames(env, nodelib)
         prompt = get_prompt(args.prompt)
         prompt_to_env(env, prompt=prompt)
