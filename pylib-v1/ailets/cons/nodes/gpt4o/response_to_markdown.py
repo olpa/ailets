@@ -62,7 +62,7 @@ def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
             "toolcall_to_messages",
             [
                 Dependency(source=tool_pipeline.end),
-                Dependency(name="llm_spec", source=tool_spec_node),
+                Dependency(name="llmspec", source=tool_spec_node),
             ],
         )
         dagops.depend(loop.begin, [Dependency(source=tool_msg_node)])
