@@ -6,6 +6,7 @@ import sys
 import localsetup  # noqa: F401
 from typing import Union, Tuple
 from ailets.cons.cons import Environment
+from ailets.cons.plugin import NodeRegistry
 from ailets.cons import (
     prompt_to_env,
 )
@@ -154,9 +155,10 @@ def main():
     nodes_std = load_nodes_from_module("std", prefix="ailets.cons.nodes")
     nodes_model = load_nodes_from_module(args.model, prefix="ailets.cons.nodes")
     nodelib = [*nodes_std, *nodes_model]
+
+    nodereg = NodeRegistry()
     for tool in args.tools:
-        nodes_tool = load_nodes_from_module(tool, prefix="ailets.cons.tools")
-        nodelib.extend(nodes_tool)
+        nodereg.load_plugin(f"ailets.tools.{tool}", f"tool.{tool}")
 
     if args.load_state:
         with open(args.load_state, "r") as f:
@@ -164,10 +166,11 @@ def main():
     else:
         env = Environment()
         nodelib_to_env(env, nodelib)
-        toolspecs_to_env(env, nodelib, args.tools)
+        toolspecs_to_env(env, args.tools)
         alias_basenames(env, nodelib)
         prompt = get_prompt(args.prompt)
         prompt_to_env(env, prompt=prompt)
+
 
     target_node_name = "stdout"
     stop_node_name = args.stop_at or target_node_name
