@@ -159,3 +159,8 @@ class IEnvironment(Protocol):
 
     def instantiate_tool(self, tool_name: str, deps: Sequence[Dependency]) -> BeginEnd:
         raise NotImplementedError
+
+
+class INodeRegistry(Protocol):
+    def get_plugin(self, regname: str) -> Sequence[NodeDesc]:
+        raise NotImplementedError

@@ -1,9 +1,9 @@
 from typing import Dict, Sequence
 
-from .typing import NodeDesc, NodeDescFunc
+from .typing import INodeRegistry, NodeDesc, NodeDescFunc
 
 
-class NodeRegistry:
+class NodeRegistry(INodeRegistry):
     def __init__(self) -> None:
         self.nodes: Dict[str, NodeDescFunc] = {}
         self.plugins: Dict[str, Sequence[NodeDesc]] = {}
@@ -11,9 +11,11 @@ class NodeRegistry:
     def add_node_def(self, node_def: NodeDescFunc) -> None:
         self.nodes[node_def.name] = node_def
 
-    def add_plugin_nodes(self, plugin_nodes: Sequence[NodeDescFunc]) -> None:
-        for node in plugin_nodes:
-            self.add_node_def(node)
+    def add_plugin(self, regname: str, plugin_nodes: Sequence[NodeDescFunc]) -> None:
+        self.plugins[regname] = plugin_nodes
+
+    def get_plugin(self, regname: str) -> Sequence[NodeDesc]:
+        return self.plugins[regname]
 
     def load_plugin(self, pypackage: str, regname: str) -> None:
         """Load a plugin module and register its nodes.
@@ -56,6 +58,8 @@ class NodeRegistry:
 
                 # Register the node
                 self.add_node_def(node_desc)
+
+            self.add_plugin(regname, nodes)
 
         except ImportError as e:
             raise ImportError(f"Could not load plugin {regname}: {e}")

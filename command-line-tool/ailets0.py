@@ -166,11 +166,10 @@ def main():
     else:
         env = Environment()
         nodelib_to_env(env, nodelib)
-        toolspecs_to_env(env, args.tools)
+        toolspecs_to_env(env, nodereg, args.tools)
         alias_basenames(env, nodelib)
         prompt = get_prompt(args.prompt)
         prompt_to_env(env, prompt=prompt)
-
 
     target_node_name = "stdout"
     stop_node_name = args.stop_at or target_node_name

@@ -1,6 +1,18 @@
 import json
-from typing import Callable, Union, Tuple, Sequence
-from .typing import IEnvironment, NodeDesc, NodeDescFunc, INodeRuntime, Node
+from typing import (
+    Callable,
+    Union,
+    Tuple,
+    Sequence,
+)
+from .typing import (
+    IEnvironment,
+    INodeRegistry,
+    NodeDesc,
+    NodeDescFunc,
+    INodeRuntime,
+    Node,
+)
 
 
 def load_nodes_from_module(module: str, prefix: str) -> Sequence[NodeDescFunc]:
@@ -78,20 +90,15 @@ def alias_basenames(env: IEnvironment, nodes: Sequence[NodeDescFunc]) -> None:
 
 
 def toolspecs_to_env(
-    env: IEnvironment, nodeset: Sequence[NodeDescFunc], tools: Sequence[str]
+    env: IEnvironment, nodereg: INodeRegistry, tools: Sequence[str]
 ) -> None:
     for tool in tools:
-        begin_node_name = f"{tool}.call"  # TODO FIXME
-        begin_node_desc = next(
-            (node for node in nodeset if node.name == begin_node_name), None
-        )
-        assert begin_node_desc is not None, f"Tool {tool} has no begin node"
-
-        schema = begin_node_desc.inputs[0].schema
+        plugin_nodes = nodereg.get_plugin(f"tool.{tool}")
+        schema = plugin_nodes[0].inputs[0].schema
         assert schema is not None, f"Tool {tool} has no schema"
 
         tool_spec = env.add_typed_value_node(
-            json.dumps(schema), "json", explain=f"Tool {tool}"
+            json.dumps(schema), "json", explain=f"Tool spec {tool}"
         )
         env.alias("toolspecs", tool_spec.name)
     else:
