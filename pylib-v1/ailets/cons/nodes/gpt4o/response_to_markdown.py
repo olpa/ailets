@@ -82,5 +82,5 @@ def response_to_markdown(runtime: INodeRuntime) -> None:
 
     value = "\n\n".join(results)
     output = runtime.open_write(None)
-    output.write(json.dumps(value))
+    output.write(value)
     runtime.close_write(None)
