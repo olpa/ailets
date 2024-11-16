@@ -1,7 +1,9 @@
 from typing import Dict, Mapping, Optional, Sequence
 from io import StringIO
+
+from .node_dagops import NodeDagops
 from .streams import Stream
-from .typing import IEnvironment, INodeRuntime
+from .typing import IEnvironment, INodeDagops, INodeRuntime
 
 
 class NodeRuntime(INodeRuntime):
@@ -18,6 +20,9 @@ class NodeRuntime(INodeRuntime):
 
     def _get_streams(self, node_name: Optional[str]) -> Sequence[Stream]:
         return self._streams.get(node_name, [])
+
+    def get_name(self) -> str:
+        return self._node_name
 
     def n_of_streams(self, node_name: Optional[str]) -> int:
         return len(self._get_streams(node_name))
@@ -38,3 +43,6 @@ class NodeRuntime(INodeRuntime):
     def close_write(self, stream_name: Optional[str]) -> None:
         stream = self._write_streams.pop(stream_name)
         self._env.close_stream(stream)
+
+    def dagops(self) -> INodeDagops:
+        return NodeDagops(self._env, self)

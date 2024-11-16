@@ -1,10 +1,11 @@
+import json
 from typing import Callable, Union, Tuple, Sequence
 from .typing import IEnvironment, NodeDesc, NodeDescFunc, INodeRuntime, Node
 
 
-def load_nodes_from_module(module: str) -> Sequence[NodeDescFunc]:
+def load_nodes_from_module(module: str, prefix: str) -> Sequence[NodeDescFunc]:
     try:
-        imported_module = __import__(f"ailets.cons.nodes.{module}", fromlist=["nodes"])
+        imported_module = __import__(f"{prefix}.{module}", fromlist=["nodes"])
         if not hasattr(imported_module, "nodes"):
             raise AttributeError(f"Module {module} has no 'nodes' attribute")
         nodes = imported_module.nodes
@@ -20,9 +21,7 @@ def load_nodes_from_module(module: str) -> Sequence[NodeDescFunc]:
             name=f"{module}.{node.name}" if module != "std" else node.name,
             inputs=node.inputs,
             func=getattr(
-                __import__(
-                    f"ailets.cons.nodes.{module}.{node.name}", fromlist=[node.name]
-                ),
+                __import__(f"{prefix}.{module}.{node.name}", fromlist=[node.name]),
                 node.name,
             ),
         )
@@ -76,3 +75,24 @@ def alias_basenames(env: IEnvironment, nodes: Sequence[NodeDescFunc]) -> None:
         if "." in node.name:
             resolved_name = env.get_node(node.name).name
             env.alias(node.name.split(".")[-1], resolved_name)
+
+
+def toolspecs_to_env(
+    env: IEnvironment, nodeset: Sequence[NodeDescFunc], tools: Sequence[str]
+) -> None:
+    for tool in tools:
+        begin_node_name = f"{tool}.call"  # TODO FIXME
+        begin_node_desc = next(
+            (node for node in nodeset if node.name == begin_node_name), None
+        )
+        assert begin_node_desc is not None, f"Tool {tool} has no begin node"
+
+        schema = begin_node_desc.inputs[0].schema
+        assert schema is not None, f"Tool {tool} has no schema"
+
+        tool_spec = env.add_typed_value_node(
+            json.dumps(schema), "json", explain=f"Tool {tool}"
+        )
+        env.alias("toolspecs", tool_spec.name)
+    else:
+        env.alias("toolspecs", None)

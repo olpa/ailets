@@ -15,7 +15,7 @@ def messages_to_query(runtime: INodeRuntime) -> None:
         messages.extend(json.loads(stream.read()))
 
     tools = []
-    for i in range(runtime.n_of_streams("tools")):
+    for i in range(runtime.n_of_streams("toolspecs")):
         stream = runtime.open_read("toolspecs", i)
         toolspec = json.loads(stream.read())
         tools.append(

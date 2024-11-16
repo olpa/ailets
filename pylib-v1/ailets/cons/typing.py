@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from io import StringIO
-from typing import Any, Callable, Dict, List, Optional, Protocol, Sequence
+from typing import Any, Callable, Dict, Iterator, List, Optional, Protocol, Sequence
 from .streams import Stream
 
 
@@ -17,6 +17,7 @@ class Dependency:
     source: str
     name: Optional[str] = None
     stream: Optional[str] = None
+    schema: Optional[dict] = None
 
     def to_json(self) -> list:
         """Convert to JSON-serializable format.
@@ -59,7 +60,40 @@ class NodeDesc:
     inputs: Sequence[Dependency]
 
 
+@dataclass(frozen=True)
+class BeginEnd:
+    begin: str
+    end: str
+
+
+class INodeDagops(Protocol):
+    def depend(self, target: str, source: Sequence[Dependency]) -> None:
+        raise NotImplementedError
+
+    def clone_path(self, begin: str, end: str) -> BeginEnd:
+        raise NotImplementedError
+
+    def add_typed_value_node(
+        self, value: str, value_type: str, explain: Optional[str] = None
+    ) -> str:
+        raise NotImplementedError
+
+    def add_node(
+        self,
+        name: str,
+        deps: Optional[Sequence[Dependency]] = None,
+        explain: Optional[str] = None,
+    ) -> str:
+        raise NotImplementedError
+
+    def instantiate_tool(self, tool_name: str, deps: Sequence[Dependency]) -> BeginEnd:
+        raise NotImplementedError
+
+
 class INodeRuntime(Protocol):
+    def get_name(self) -> str:
+        raise NotImplementedError
+
     def n_of_streams(self, node_name: Optional[str]) -> int:
         raise NotImplementedError
 
@@ -70,6 +104,9 @@ class INodeRuntime(Protocol):
         raise NotImplementedError
 
     def close_write(self, stream_name: Optional[str]) -> None:
+        raise NotImplementedError
+
+    def dagops(self) -> INodeDagops:
         raise NotImplementedError
 
 
@@ -97,7 +134,7 @@ class IEnvironment(Protocol):
     ) -> Node:
         raise NotImplementedError
 
-    def alias(self, alias: str, node_name: str) -> None:
+    def alias(self, alias: str, node_name: Optional[str]) -> None:
         raise NotImplementedError
 
     def add_typed_value_node(
@@ -106,4 +143,19 @@ class IEnvironment(Protocol):
         raise NotImplementedError
 
     def get_node(self, name: str) -> Node:
+        raise NotImplementedError
+
+    def get_nodes(self) -> Sequence[Node]:
+        raise NotImplementedError
+
+    def iter_deps(self, node_name: str) -> Iterator[Dependency]:
+        raise NotImplementedError
+
+    def depend(self, target: str, deps: Sequence[Dependency]) -> None:
+        raise NotImplementedError
+
+    def get_node_by_base_name(self, base_name: str) -> Node:
+        raise NotImplementedError
+
+    def instantiate_tool(self, tool_name: str, deps: Sequence[Dependency]) -> BeginEnd:
         raise NotImplementedError

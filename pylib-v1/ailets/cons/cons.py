@@ -14,30 +14,17 @@ import json
 
 from .pipelines import get_func_map, nodelib_to_env
 
-from .typing import Dependency, IEnvironment, NodeDescFunc, Node
+from .typing import BeginEnd, Dependency, IEnvironment, NodeDescFunc, Node
 from .node_runtime import NodeRuntime
 from .streams import Streams, Stream
-
-
-def to_basename(name: str) -> str:
-    """Return the base name of a node, stripping off any numeric suffix.
-
-    Args:
-        name: The full name of the node
-
-    Returns:
-        The base name of the node without the numeric suffix
-    """
-    if "." in name and name.split(".")[-1].isdigit():
-        return ".".join(name.split(".")[:-1])
-    return name
+from .util import to_basename
+from ailets.cons.tools.get_user_name.call import call as call_get_user_name
 
 
 class Environment(IEnvironment):
     def __init__(self) -> None:
         self.nodes: Dict[str, Node] = {}
         self._node_counter: int = 0
-        self._tools: Dict[str, tuple[Callable, Callable]] = {}
         self._streams: Streams = Streams()
         self._next_id = 1
         self._aliases: Dict[str, Set[str]] = {}
@@ -81,6 +68,9 @@ class Environment(IEnvironment):
             raise KeyError(f"Node {name} not found")
         return self.nodes[name]
 
+    def get_nodes(self) -> Sequence[Node]:
+        return list(self.nodes.values())
+
     def get_node_by_base_name(self, base_name: str) -> Node:
         """Get a node by its base name (without the numeric suffix).
 
@@ -97,6 +87,21 @@ class Environment(IEnvironment):
             if to_basename(name) == base_name:
                 return node
         raise KeyError(f"No node found with base name {base_name}")
+
+    def depend(self, target: str, deps: Sequence[Dependency]) -> None:
+        """Add dependencies to a node.
+
+        Args:
+            target: Name of node to add dependencies to
+            deps: Dependencies to add
+        """
+        node = self.get_node(target)
+        self.nodes[target] = Node(
+            name=node.name,
+            func=node.func,
+            deps=list(node.deps) + list(deps),
+            explain=node.explain,
+        )
 
     def build_node_alone(self, name: str) -> None:
         """Build a node. Does not build its dependencies."""
@@ -344,130 +349,6 @@ class Environment(IEnvironment):
         self.nodes[name] = node
         return node
 
-    def clone_path(self, start: str, end: str) -> Sequence[Node]:
-        """Clone a path of nodes from start to end.
-
-        Args:
-            start: Name of starting node (can be short name without suffix)
-            end: Name of ending node
-
-        Returns:
-            List of nodes in the cloned path. First element is the cloned start node,
-            last element is the cloned end node. Order of other nodes is not guaranteed.
-        """
-        # Track which nodes have been cloned and their clones
-        original_to_clone: Dict[str, str] = {}
-        cloned: Set[str] = set()
-
-        # First, get the start node
-        try:
-            start_node = self.get_node(start)
-        except KeyError:
-            start_node = self.get_node_by_base_name(start)
-            start = start_node.name
-        to_clone: Set[str] = {start}
-
-        # Add start node's dependencies to clone set
-        for dep in self.iter_deps(start):
-            to_clone.add(dep.source)
-
-        while to_clone:
-            # Get next node to clone
-            current_name = to_clone.pop()
-            if current_name in cloned:
-                continue
-
-            current = self.get_node(current_name)
-            clone = self.add_node(to_basename(current_name), current.func)
-            original_to_clone[current_name] = clone.name
-            cloned.add(current_name)
-
-            # Stop expanding at end node
-            if current_name == end:
-                continue
-
-            # Add all next nodes to the to_clone set
-            next_nodes = self.get_next_nodes(current)
-            for next_node in next_nodes:
-                to_clone.add(next_node.name)
-
-        # Recreate dependencies between cloned nodes by creating new nodes
-        for original_name, clone_name in original_to_clone.items():
-            original = self.get_node(original_name)
-            clone = self.get_node(clone_name)
-
-            if original_name == start:
-                # For start node, create new list from original dependencies
-                new_deps = list(self.iter_deps(original_name))
-            else:
-                # For other nodes, use cloned dependencies
-                new_deps = [
-                    Dependency(
-                        name=dep.name,
-                        source=original_to_clone[dep.source],
-                        stream=dep.stream,
-                    )
-                    for dep in original.deps
-                    if dep.source in original_to_clone
-                ]
-
-            # Create new node with dependencies
-            self.nodes[clone_name] = Node(
-                name=clone_name,
-                func=clone.func,
-                deps=new_deps,
-                explain=clone.explain,
-            )
-
-        # Create return list with start and end nodes in correct positions
-        result = []
-        # Add start node first
-        result.append(self.nodes[original_to_clone[start]])
-        # Add middle nodes in any order
-        for original_name, clone_name in original_to_clone.items():
-            if original_name not in (start, end):
-                result.append(self.nodes[clone_name])
-        # Add end node last
-        result.append(self.nodes[original_to_clone[end]])
-
-        return result
-
-    def get_next_nodes(self, node: Node) -> Sequence[Node]:
-        """Return list of nodes that depend on the given node."""
-        next_nodes = []
-        for other_node in self.nodes.values():
-            # Check if node.name appears as a dependency in other_node's deps list
-            if any(dep.source == node.name for dep in self.iter_deps(other_node.name)):
-                next_nodes.append(other_node)
-        return next_nodes
-
-    def add_tool(self, name: str, funcs: tuple[Callable, Callable]) -> None:
-        """Add a tool with its associated functions.
-
-        Args:
-            name: Name of the tool
-            funcs: Tuple of (execute_func, validate_func) for the tool
-        """
-        if name in self._tools:
-            raise ValueError(f"Tool {name} already exists")
-        self._tools[name] = funcs
-
-    def get_tool(self, name: str) -> tuple[Callable, Callable]:
-        """Get the functions associated with a tool.
-
-        Args:
-            name: Name of the tool
-
-        Returns:
-            Tuple of (execute_func, validate_func) for the tool
-
-        Raises:
-            KeyError: If tool not found
-        """
-        if name not in self._tools:
-            raise KeyError(f"Tool {name} not found")
-        return self._tools[name]
-
     def add_typed_value_node(
         self, value: str, value_type: str, explain: Optional[str] = None
     ) -> Node:
@@ -576,7 +457,7 @@ class Environment(IEnvironment):
             if stream.node_name == node_name
         )
 
-    def alias(self, alias: str, node_name: str) -> None:
+    def alias(self, alias: str, node_name: Optional[str]) -> None:
         """Associate an alias with a node.
 
         Args:
@@ -586,6 +467,11 @@ class Environment(IEnvironment):
         Raises:
             KeyError: If the node name doesn't exist
         """
+        if node_name is None:
+            if alias not in self._aliases:
+                self._aliases[alias] = set()
+            return
+
         # Verify node exists
         if node_name not in self.nodes:
             raise KeyError(f"Node {node_name} not found")
@@ -630,3 +516,8 @@ class Environment(IEnvironment):
                     )
             else:
                 yield dep
+
+    def instantiate_tool(self, tool_name: str, deps: Sequence[Dependency]) -> BeginEnd:
+        assert tool_name == "get_user_name", f"Unknown tool: {tool_name}"
+        node = self.add_node(f"{tool_name}.call", call_get_user_name, deps)
+        return BeginEnd(begin=node.name, end=node.name)
