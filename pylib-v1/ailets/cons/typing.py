@@ -165,5 +165,5 @@ class IEnvironment(Protocol):
 
 
 class INodeRegistry(Protocol):
-    def get_plugin(self, regname: str) -> Sequence[NodeDesc]:
+    def get_plugin(self, regname: str) -> Sequence[str]:
         raise NotImplementedError
