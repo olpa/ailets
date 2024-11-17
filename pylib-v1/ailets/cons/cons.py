@@ -65,6 +65,9 @@ class Environment(IEnvironment):
             raise KeyError(f"Node {name} not found")
         return self.nodes[name]
 
+    def has_node(self, node_name: str) -> bool:
+        return node_name in self.nodes or node_name in self._aliases
+
     def get_nodes(self) -> Sequence[Node]:
         return list(self.nodes.values())
 
