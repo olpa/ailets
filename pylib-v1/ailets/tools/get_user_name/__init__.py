@@ -17,7 +17,7 @@ schema = {
 call_node_desc = NodeDesc(
     name="call",
     inputs=[
-        Dependency(source="input", schema=schema),
+        Dependency(source=".input", schema=schema),
     ],
 )
 

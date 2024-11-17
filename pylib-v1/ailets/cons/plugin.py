@@ -44,7 +44,7 @@ class NodeRegistry(INodeRegistry):
                 raise TypeError(f"nodes from {pypackage} must be a list of NodeDesc")
 
             # Convert each NodeDesc to NodeDescFunc and register
-            for i, node in enumerate(nodes):
+            for node in nodes:
 
                 node_func = node
                 if node_func and node_func.alias_of:
@@ -59,21 +59,7 @@ class NodeRegistry(INodeRegistry):
                 # Create NodeDescFunc
                 node_desc = NodeDescFunc(
                     name=f"{regname}.{node.name}",
-                    inputs=[
-                        Dependency(
-                            name=dep.name,
-                            source=(
-                                dep.source if i == 0
-                                else (
-                                    f"{regname}.{dep.source}"
-                                    if "." not in dep.source
-                                    else dep.source
-                                )
-                            ),
-                            stream=dep.stream,
-                            schema=dep.schema
-                        ) for dep in node.inputs
-                    ],
+                    inputs=node.inputs,
                     func=func
                 )
 

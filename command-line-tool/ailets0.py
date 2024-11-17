@@ -150,7 +150,7 @@ def main():
     assert args.model == "gpt4o", "At the moment, only gpt4o is supported"
 
     nodereg = NodeRegistry()
-    nodereg.load_plugin(f"ailets.nodes.std", "std")
+    nodereg.load_plugin(f"ailets.nodes.std", "")
     nodereg.load_plugin(f"ailets.models.{args.model}", f"model.{args.model}")
     for tool in args.tools:
         nodereg.load_plugin(f"ailets.tools.{tool}", f"tool.{tool}")
@@ -158,7 +158,7 @@ def main():
     if args.load_state:
         with open(args.load_state, "r") as f:
             env = Environment.from_json(f, nodereg)
-        target_node_name = "stdout"
+        target_node_name = ".stdout"
     else:
         env = Environment()
 
@@ -166,11 +166,12 @@ def main():
         prompt_to_env(env, prompt=prompt)
         toolspecs_to_env(env, nodereg, args.tools)
         resolve = {
-            "model_output": nodereg.get_plugin(f"model.{args.model}")[-1],
+            ".chat_messages": ".prompt_to_messages",
+            ".model_output": nodereg.get_plugin(f"model.{args.model}")[-1],
         }
 
         target_node_name = instantiate_with_deps(
-            env, nodereg, "stdout", resolve
+            env, nodereg, ".stdout", resolve
         )
 
     stop_node_name = args.stop_at or target_node_name

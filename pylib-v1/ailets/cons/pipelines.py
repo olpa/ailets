@@ -57,7 +57,7 @@ def prompt_to_env(
         else:
             prompt_text, prompt_type = prompt_item
         node_tv = env.add_typed_value_node(prompt_text, prompt_type, explain="Prompt")
-        env.alias("prompt", node_tv.name)
+        env.alias(".prompt", node_tv.name)
 
     for prompt_item in prompt:
         prompt_to_node(prompt_item)
@@ -74,9 +74,9 @@ def toolspecs_to_env(
         tool_spec = env.add_typed_value_node(
             json.dumps(schema), "json", explain=f"Tool spec {tool}"
         )
-        env.alias("toolspecs", tool_spec.name)
+        env.alias(".toolspecs", tool_spec.name)
     else:
-        env.alias("toolspecs", None)
+        env.alias(".toolspecs", None)
 
 
 def instantiate_plugin(
@@ -147,7 +147,13 @@ def instantiate_with_deps(
     created_nodes = set()  # Track which nodes we need to set up dependencies for
     visiting = set()  # Track nodes being visited for cycle detection
 
-    def create_node_recursive(node_name: str) -> None:
+    def create_node_recursive(node_name: str, parent_node_name) -> None:
+        node_name = resolve.get(node_name, node_name)
+
+        # Skip if node already exists in environment
+        if env.has_node(node_name):
+            return
+
         # Check for cycles
         if node_name in visiting:
             cycle = " -> ".join(list(visiting) + [node_name])
@@ -156,27 +162,41 @@ def instantiate_with_deps(
         visiting.add(node_name)
 
         # Create dependencies first
-        node_desc = nodereg.nodes[node_name]
+        try:
+            node_desc = nodereg.nodes[node_name]
+        except KeyError:
+            available_nodes = ", ".join(sorted(nodereg.nodes.keys()))
+            parent_context = f" (required by '{parent_node_name}')"
+            raise RuntimeError(
+                f"Node '{node_name}' not found in registry while building pipeline{parent_context}.\n"
+                f"Available nodes are: {available_nodes}\n"
+            )
         for dep in node_desc.inputs:
-            if dep.source not in resolve and dep.source in nodereg.nodes:
-                create_node_recursive(dep.source)
+            create_node_recursive(dep.source, node_name)
 
         # Create the node
         node = env.add_node(
-            name=node_name, func=node_desc.func, explain=f"Node {node_name}"
+            name=node_name, func=node_desc.func
         )
         resolve[node_name] = node.name
         created_nodes.add(node_name)
         
         visiting.remove(node_name)
 
+    create_node_recursive(target, ".")
+
     # Second pass: set up all dependencies
     for node_name in created_nodes:
-        node_desc = nodereg.nodes[node_name]
+        if node_name in nodereg.nodes:
+            node_desc = nodereg.nodes[node_name]
+        else:
+            raise RuntimeError(f"Node '{node_name}' not found in registry while building pipeline.")
         deps = []
         for dep in node_desc.inputs:
             # Try to resolve dependency name through the resolve mapping
             source = resolve.get(dep.source, dep.source)
+            if source != dep.source:
+                source = resolve.get(source, source)
             deps.append(
                 Dependency(
                     name=dep.name, source=source, stream=dep.stream, schema=dep.schema

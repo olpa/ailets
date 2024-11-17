@@ -3,15 +3,15 @@ from ailets.cons.typing import NodeDesc, Dependency
 prompt_to_messages = NodeDesc(
     name="prompt_to_messages",
     inputs=[
-        Dependency(source="prompt"),
-        Dependency(name="type", source="prompt", stream="type"),
+        Dependency(source=".prompt"),
+        Dependency(name="type", source=".prompt", stream="type"),
     ],
 )
 
 toolcall_to_messages = NodeDesc(
     name="toolcall_to_messages",
     inputs=[
-        Dependency(source="toolcall"),
+        Dependency(source=".toolcall"),
     ],
 )
 
@@ -23,14 +23,14 @@ credentials = NodeDesc(
 query = NodeDesc(
     name="query",
     inputs=[
-        Dependency(source="messages_to_query"),
+        Dependency(name="messages", source="to-be-overridden"),
     ],
 )
 
 stdout = NodeDesc(
     name="stdout",
     inputs=[
-        Dependency(source="response_to_markdown"),
+        Dependency(source=".model_output"),
     ],
 )
 
