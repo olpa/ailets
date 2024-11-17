@@ -72,11 +72,11 @@ class NodeRegistry(INodeRegistry):
                         Dependency(
                             name=dep.name,
                             source=resolve.get(dep.source, dep.source),
-                            stream=dep.stream
+                            stream=dep.stream,
                         )
                         for dep in node.inputs
                     ],
-                    func=func
+                    func=func,
                 )
 
                 # Register the node

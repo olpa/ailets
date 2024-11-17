@@ -14,7 +14,7 @@ import json
 
 from ailets.cons.plugin import NodeRegistry
 
-from .typing import BeginEnd, Dependency, IEnvironment, NodeDescFunc, Node
+from .typing import BeginEnd, Dependency, IEnvironment, Node
 from .node_runtime import NodeRuntime
 from .streams import Streams, Stream
 from .util import to_basename
@@ -309,9 +309,7 @@ class Environment(IEnvironment):
 
         visited.remove(node_name)
 
-    def load_node_state(
-        self, node_data: Dict[str, Any], nodereg: NodeRegistry
-    ) -> Node:
+    def load_node_state(self, node_data: Dict[str, Any], nodereg: NodeRegistry) -> Node:
         """Load a node's state from JSON data.
 
         Args:
@@ -327,7 +325,8 @@ class Environment(IEnvironment):
         base_name = to_basename(name)
         if base_name == "typed_value":
             # Special case for typed value nodes
-            func = lambda x: x  # Dummy function since real value is in streams
+            def func(_): ...  # Dummy function since real value is in streams
+
         else:
             node_desc = nodereg.nodes.get(base_name)
             if node_desc is None:

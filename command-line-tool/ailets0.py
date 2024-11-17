@@ -8,7 +8,6 @@ from typing import Union, Tuple
 from ailets.cons.cons import Environment
 from ailets.cons.plugin import NodeRegistry
 from ailets.cons.pipelines import (
-    instantiate_plugin,
     instantiate_with_deps,
     prompt_to_env,
     toolspecs_to_env,
@@ -150,7 +149,7 @@ def main():
     assert args.model == "gpt4o", "At the moment, only gpt4o is supported"
 
     nodereg = NodeRegistry()
-    nodereg.load_plugin(f"ailets.stdlib", "")
+    nodereg.load_plugin("ailets.stdlib", "")
     nodereg.load_plugin(f"ailets.models.{args.model}", f"{args.model}")
     for tool in args.tools:
         nodereg.load_plugin(f"ailets.tools.{tool}", f"tool.{tool}")
@@ -171,9 +170,7 @@ def main():
             ".model_output": nodereg.get_plugin(f"{args.model}")[-1],
         }
 
-        target_node_name = instantiate_with_deps(
-            env, nodereg, ".stdout", resolve
-        )
+        target_node_name = instantiate_with_deps(env, nodereg, ".stdout", resolve)
 
     stop_node_name = args.stop_at or target_node_name
 
