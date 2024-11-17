@@ -7,14 +7,9 @@ import localsetup  # noqa: F401
 from typing import Union, Tuple
 from ailets.cons.cons import Environment
 from ailets.cons.plugin import NodeRegistry
-from ailets.cons import (
-    prompt_to_env,
-)
 from ailets.cons.pipelines import (
-    alias_basenames,
     instantiate_plugin,
-    load_nodes_from_module,
-    nodelib_to_env,
+    prompt_to_env,
     toolspecs_to_env,
 )
 import re
@@ -153,24 +148,21 @@ def main():
     args = parse_args()
     assert args.model == "gpt4o", "At the moment, only gpt4o is supported"
 
-    nodes_std = load_nodes_from_module("std", prefix="ailets.cons.nodes")
-    nodelib = [*nodes_std]
-
     nodereg = NodeRegistry()
+    nodereg.load_plugin(f"ailets.nodes.std", "std")
     nodereg.load_plugin(f"ailets.models.{args.model}", f"model.{args.model}")
     for tool in args.tools:
         nodereg.load_plugin(f"ailets.tools.{tool}", f"tool.{tool}")
 
     if args.load_state:
         with open(args.load_state, "r") as f:
-            env = Environment.from_json(f, nodelib)
+            env = Environment.from_json(f, nodereg)
     else:
         env = Environment()
-        nodelib_to_env(env, nodelib)
         toolspecs_to_env(env, nodereg, args.tools)
+        instantiate_plugin(env, nodereg, "std")
         model_nodes = instantiate_plugin(env, nodereg, f"model.{args.model}")
         env.alias("response_to_markdown", model_nodes[-1].name)  # FIXME
-        alias_basenames(env, nodelib)
         prompt = get_prompt(args.prompt)
         prompt_to_env(env, prompt=prompt)
 

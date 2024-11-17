@@ -47,13 +47,10 @@ class NodeRegistry(INodeRegistry):
             for node in nodes:
 
                 node_func = node
-                while node_func and node_func.alias_of:
+                if node_func and node_func.alias_of:
                     node_func = self.nodes[node_func.alias_of]
-
-                if node.alias_of:
                     func = node_func.func
                 else:
-                    # Import the actual node function
                     node_module = __import__(
                         f"{pypackage}.{node.name}", fromlist=[node.name]
                     )

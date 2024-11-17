@@ -12,8 +12,6 @@ from typing import (
 )
 import json
 
-from .pipelines import get_func_map, nodelib_to_env
-
 from .typing import BeginEnd, Dependency, IEnvironment, NodeDescFunc, Node
 from .node_runtime import NodeRuntime
 from .streams import Streams, Stream
@@ -402,9 +400,6 @@ class Environment(IEnvironment):
     def from_json(cls, f: TextIO, nodelib: Sequence[NodeDescFunc]) -> "Environment":
         """Create environment from JSON data."""
         env = cls()
-
-        nodelib_to_env(env, nodelib)
-        func_map = get_func_map(nodelib)
 
         content = f.read()
         decoder = json.JSONDecoder()

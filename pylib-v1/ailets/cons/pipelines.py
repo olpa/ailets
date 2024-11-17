@@ -1,6 +1,5 @@
 import json
 from typing import (
-    Callable,
     Union,
     Tuple,
     Sequence,
@@ -11,7 +10,6 @@ from .typing import (
     INodeRegistry,
     NodeDesc,
     NodeDescFunc,
-    INodeRuntime,
     Node,
 )
 
@@ -42,28 +40,10 @@ def load_nodes_from_module(module: str, prefix: str) -> Sequence[NodeDescFunc]:
     ]
 
 
-def get_func_map(
-    nodes: Sequence[NodeDescFunc],
-) -> dict[str, Callable[[INodeRuntime], None]]:
-    """Create mapping of node names to their functions."""
-    return {
-        "typed_value": lambda _: None,
-        **{node.name: node.func for node in nodes},
-    }
-
-
 def must_get_tool_spec(env: IEnvironment, tool_name: str) -> Node:
     node_name = f"tool/{tool_name}/spec"
     (tool_spec_func, _) = env.get_tool(tool_name)
     return env.add_node(node_name, tool_spec_func)
-
-
-def nodelib_to_env(env: IEnvironment, nodelib: Sequence[NodeDescFunc]) -> None:
-    func_map = get_func_map(nodelib)
-    for node_desc in nodelib:
-        node_func = func_map[node_desc.name]
-        node = env.add_node(node_desc.name, node_func, node_desc.inputs)
-        env.alias(node_desc.name, node.name)
 
 
 def prompt_to_env(
@@ -81,13 +61,6 @@ def prompt_to_env(
 
     for prompt_item in prompt:
         prompt_to_node(prompt_item)
-
-
-def alias_basenames(env: IEnvironment, nodes: Sequence[NodeDescFunc]) -> None:
-    for node in nodes:
-        if "." in node.name:
-            resolved_name = env.get_node(node.name).name
-            env.alias(node.name.split(".")[-1], resolved_name)
 
 
 def toolspecs_to_env(
@@ -125,12 +98,8 @@ def instantiate_plugin(
     for node_name in nodereg.get_plugin(name):
         node_desc = nodereg.nodes[node_name]
 
-        node_func = node_desc
-        while node_func.alias_of:
-            node_func = nodereg.nodes[node_func.alias_of]
-
         node = env.add_node(
-            name=node_name, func=node_func.func, explain=f"Plugin node {node_name}"
+            name=node_name, func=node_desc.func, explain=f"Plugin node {node_name}"
         )
 
         created_nodes.append(node)
