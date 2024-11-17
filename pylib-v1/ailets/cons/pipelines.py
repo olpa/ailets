@@ -121,3 +121,67 @@ def instantiate_plugin(
         env.depend(node_full_name, deps)
 
     return created_nodes
+
+
+def instantiate_with_deps(
+    env: IEnvironment,
+    nodereg: INodeRegistry,
+    target: str,
+    aliases: dict[str, str],
+) -> Node:
+    """Instantiate a node and its dependencies in the environment recursively.
+
+    Args:
+        env: Environment to add nodes to
+        nodereg: Node registry containing node definitions
+        target: Name of target node to instantiate
+        aliases: Map of node names to their aliases, takes precedence in resolution
+
+    Returns:
+        The created target node
+
+    Raises:
+        RuntimeError: If a dependency cycle is detected
+    """
+    resolve = aliases.copy()  # Start with provided aliases
+    created_nodes = set()  # Track which nodes we need to set up dependencies for
+    visiting = set()  # Track nodes being visited for cycle detection
+
+    def create_node_recursive(node_name: str) -> None:
+        # Check for cycles
+        if node_name in visiting:
+            cycle = " -> ".join(list(visiting) + [node_name])
+            raise RuntimeError(f"Dependency cycle detected: {cycle}")
+
+        visiting.add(node_name)
+
+        # Create dependencies first
+        node_desc = nodereg.nodes[node_name]
+        for dep in node_desc.inputs:
+            if dep.source not in resolve and dep.source in nodereg.nodes:
+                create_node_recursive(dep.source)
+
+        # Create the node
+        node = env.add_node(
+            name=node_name, func=node_desc.func, explain=f"Node {node_name}"
+        )
+        resolve[node_name] = node.name
+        created_nodes.add(node_name)
+        
+        visiting.remove(node_name)
+
+    # Second pass: set up all dependencies
+    for node_name in created_nodes:
+        node_desc = nodereg.nodes[node_name]
+        deps = []
+        for dep in node_desc.inputs:
+            # Try to resolve dependency name through the resolve mapping
+            source = resolve.get(dep.source, dep.source)
+            deps.append(
+                Dependency(
+                    name=dep.name, source=source, stream=dep.stream, schema=dep.schema
+                )
+            )
+        env.depend(resolve[node_name], deps)
+
+    return resolve[target]

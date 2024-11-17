@@ -9,6 +9,7 @@ from ailets.cons.cons import Environment
 from ailets.cons.plugin import NodeRegistry
 from ailets.cons.pipelines import (
     instantiate_plugin,
+    instantiate_with_deps,
     prompt_to_env,
     toolspecs_to_env,
 )
@@ -157,16 +158,21 @@ def main():
     if args.load_state:
         with open(args.load_state, "r") as f:
             env = Environment.from_json(f, nodereg)
+        target_node_name = "stdout"
     else:
         env = Environment()
-        toolspecs_to_env(env, nodereg, args.tools)
-        instantiate_plugin(env, nodereg, "std")
-        model_nodes = instantiate_plugin(env, nodereg, f"model.{args.model}")
-        env.alias("response_to_markdown", model_nodes[-1].name)  # FIXME
+
         prompt = get_prompt(args.prompt)
         prompt_to_env(env, prompt=prompt)
+        toolspecs_to_env(env, nodereg, args.tools)
+        resolve = {
+            "model_output": nodereg.get_plugin(f"model.{args.model}")[-1],
+        }
 
-    target_node_name = "stdout"
+        target_node_name = instantiate_with_deps(
+            env, nodereg, "stdout", resolve
+        )
+
     stop_node_name = args.stop_at or target_node_name
 
     if args.dry_run:
