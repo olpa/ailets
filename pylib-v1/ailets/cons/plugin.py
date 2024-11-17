@@ -43,7 +43,16 @@ class NodeRegistry(INodeRegistry):
             ):
                 raise TypeError(f"nodes from {pypackage} must be a list of NodeDesc")
 
+            # First pass to resolve names
+            resolve = {}
+            for node in nodes:
+                if node.alias_of:
+                    resolve[node.name] = node.alias_of
+                else:
+                    resolve[node.name] = f"{regname}.{node.name}"
+
             # Convert each NodeDesc to NodeDescFunc and register
+            plugin_node_names = []
             for node in nodes:
 
                 node_func = node
@@ -58,15 +67,23 @@ class NodeRegistry(INodeRegistry):
 
                 # Create NodeDescFunc
                 node_desc = NodeDescFunc(
-                    name=f"{regname}.{node.name}",
-                    inputs=node.inputs,
+                    name=resolve[node.name],
+                    inputs=[
+                        Dependency(
+                            name=dep.name,
+                            source=resolve.get(dep.source, dep.source),
+                            stream=dep.stream
+                        )
+                        for dep in node.inputs
+                    ],
                     func=func
                 )
 
                 # Register the node
                 self.add_node_def(node_desc)
+                plugin_node_names.append(resolve[node.name])
 
-            self.add_plugin(regname, [f"{regname}.{node.name}" for node in nodes])
+            self.add_plugin(regname, plugin_node_names)
 
         except ImportError as e:
             raise ImportError(f"Could not load plugin {regname}: {e}")
