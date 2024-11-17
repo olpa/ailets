@@ -158,7 +158,8 @@ def main():
     if args.load_state:
         with open(args.load_state, "r") as f:
             env = Environment.from_json(f, nodereg)
-        target_node_name = ".stdout"
+        target_node_name = env.get_node_by_base_name(".stdout").name
+
     else:
         env = Environment()
 

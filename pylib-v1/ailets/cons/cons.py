@@ -12,6 +12,8 @@ from typing import (
 )
 import json
 
+from ailets.cons.plugin import NodeRegistry
+
 from .typing import BeginEnd, Dependency, IEnvironment, NodeDescFunc, Node
 from .node_runtime import NodeRuntime
 from .streams import Streams, Stream
@@ -308,13 +310,12 @@ class Environment(IEnvironment):
         visited.remove(node_name)
 
     def load_node_state(
-        self, node_data: Dict[str, Any], func_map: Dict[str, Callable[..., Any]]
+        self, node_data: Dict[str, Any], nodereg: NodeRegistry
     ) -> Node:
         """Load a node's state from JSON data.
 
         Args:
             node_data: Node state from JSON
-            func_map: Mapping from node names to their functions
 
         Returns:
             The loaded node
@@ -323,15 +324,15 @@ class Environment(IEnvironment):
 
         # Try to get function from map, if not found and name has a number suffix,
         # try without the suffix
-        if name not in func_map:
-            base_name = to_basename(name)
-            func = func_map.get(base_name)
-            if func is None:
-                raise KeyError(f"No function provided for node: {name} or {base_name}")
+        base_name = to_basename(name)
+        if base_name == "typed_value":
+            # Special case for typed value nodes
+            func = lambda x: x  # Dummy function since real value is in streams
         else:
-            func = func_map.get(name)
-            if func is None:
-                raise KeyError(f"No function provided for node: {name}")
+            node_desc = nodereg.nodes.get(base_name)
+            if node_desc is None:
+                raise KeyError(f"No function registered for node: {name} ({base_name})")
+            func = node_desc.func
 
         # Update counter if needed to stay above loaded node's suffix
         if "." in name:
@@ -400,7 +401,7 @@ class Environment(IEnvironment):
             f.write("\n")
 
     @classmethod
-    def from_json(cls, f: TextIO, nodelib: Sequence[NodeDescFunc]) -> "Environment":
+    def from_json(cls, f: TextIO, nodereg: NodeRegistry) -> "Environment":
         """Create environment from JSON data."""
         env = cls()
 
@@ -420,7 +421,7 @@ class Environment(IEnvironment):
             try:
                 obj_data, pos = decoder.raw_decode(content, pos)
                 if "deps" in obj_data:
-                    env.load_node_state(obj_data, func_map)
+                    env.load_node_state(obj_data, nodereg)
                 elif "is_finished" in obj_data:
                     env._streams.add_stream_from_json(obj_data)
                 elif "alias" in obj_data:
