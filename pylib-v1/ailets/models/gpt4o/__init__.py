@@ -12,7 +12,7 @@ messages_to_query = NodeDesc(
 query = NodeDesc(
     name="query",
     inputs=[
-        Dependency(name="messages", source="model.gpt4o.messages_to_query"),
+        Dependency(source="messages_to_query"),
     ],
     alias_of=".query",
 )
@@ -20,7 +20,7 @@ query = NodeDesc(
 response_to_markdown = NodeDesc(
     name="response_to_markdown",
     inputs=[
-        Dependency(source="model.gpt4o.query"),
+        Dependency(source="query"),
     ],
 )
 

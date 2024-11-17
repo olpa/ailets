@@ -23,7 +23,7 @@ credentials = NodeDesc(
 query = NodeDesc(
     name="query",
     inputs=[
-        Dependency(name="messages", source="to-be-overridden"),
+        Dependency(source="to-be-overridden"),
     ],
 )
 
