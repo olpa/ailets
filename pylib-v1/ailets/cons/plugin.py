@@ -8,6 +8,9 @@ class NodeRegistry(INodeRegistry):
         self.nodes: Dict[str, NodeDescFunc] = {}
         self.plugin_node_names: Dict[str, Sequence[str]] = {}
 
+    def get_node(self, name: str) -> NodeDescFunc:
+        return self.nodes[name]
+
     def add_node_def(self, node_def: NodeDescFunc) -> None:
         self.nodes[node_def.name] = node_def
 
@@ -73,6 +76,7 @@ class NodeRegistry(INodeRegistry):
                             name=dep.name,
                             source=resolve.get(dep.source, dep.source),
                             stream=dep.stream,
+                            schema=dep.schema,
                         )
                         for dep in node.inputs
                     ],
