@@ -1,6 +1,6 @@
 from typing import Dict, Sequence
 
-from .typing import INodeRegistry, NodeDesc, NodeDescFunc
+from .typing import Dependency, INodeRegistry, NodeDesc, NodeDescFunc
 
 
 class NodeRegistry(INodeRegistry):
@@ -44,7 +44,7 @@ class NodeRegistry(INodeRegistry):
                 raise TypeError(f"nodes from {pypackage} must be a list of NodeDesc")
 
             # Convert each NodeDesc to NodeDescFunc and register
-            for node in nodes:
+            for i, node in enumerate(nodes):
 
                 node_func = node
                 if node_func and node_func.alias_of:
@@ -58,7 +58,23 @@ class NodeRegistry(INodeRegistry):
 
                 # Create NodeDescFunc
                 node_desc = NodeDescFunc(
-                    name=f"{regname}.{node.name}", inputs=node.inputs, func=func
+                    name=f"{regname}.{node.name}",
+                    inputs=[
+                        Dependency(
+                            name=dep.name,
+                            source=(
+                                dep.source if i == 0
+                                else (
+                                    f"{regname}.{dep.source}"
+                                    if "." not in dep.source
+                                    else dep.source
+                                )
+                            ),
+                            stream=dep.stream,
+                            schema=dep.schema
+                        ) for dep in node.inputs
+                    ],
+                    func=func
                 )
 
                 # Register the node
