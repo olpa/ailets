@@ -456,6 +456,10 @@ class Environment(IEnvironment):
             if stream.node_name == node_name
         )
 
+    def is_node_ever_started(self, node_name: str) -> bool:
+        """Check if a node has ever been started."""
+        return self.is_node_built(node_name)
+
     def alias(self, alias: str, node_name: Optional[str]) -> None:
         """Associate an alias with a node.
 
@@ -553,3 +557,9 @@ class Environment(IEnvironment):
             deps=list(source_node.deps),  # Create new list to avoid sharing
             explain=source_node.explain,
         ).name
+
+    def get_next_name(self, full_name: str) -> str:
+        """Get the next name in the sequence."""
+        self._node_counter += 1
+        another_name = f"{to_basename(full_name)}.{self._node_counter}"
+        return another_name

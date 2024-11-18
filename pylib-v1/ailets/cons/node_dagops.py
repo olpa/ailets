@@ -1,4 +1,4 @@
-from typing import Optional, Sequence, Dict, Set
+from typing import List, Optional, Sequence, Dict, Set, Tuple
 
 from ailets.cons.pipelines import instantiate_with_deps
 
@@ -193,3 +193,106 @@ class NodeDagops(INodeDagops):
 
     def expand_alias(self, alias: str) -> Sequence[str]:
         return self._env.expand_alias(alias)
+
+    def invalidate(self, alias: str, old_nodes: Sequence[str]) -> None:
+        # Build reverse dependency map
+        nodedeps_reverse: Dict[str, Set[str]] = {}
+        for node_name in self._env.nodes:
+            for dep in self._env.iter_deps(node_name):
+                if dep.source not in nodedeps_reverse:
+                    nodedeps_reverse[dep.source] = set()
+                nodedeps_reverse[dep.source].add(node_name)
+
+        # Build reverse alias map: node -> aliases that point to it
+        aliases_reverse: Dict[str, Set[str]] = {}
+        for alias, nodes in self._env._aliases.items():
+            for node in nodes:
+                if node not in aliases_reverse:
+                    aliases_reverse[node] = set()
+                aliases_reverse[node].add(alias)
+
+        # Create maps to track old->new mappings
+        # Tuple is (new_name, defunc_name)
+        old_to_new_names: Dict[str, Tuple[str, str]] = {}
+
+        # Create queues for processing
+        node_queue: List[str] = []
+        alias_queue: List[str] = []
+
+        def add_downstream_to_queue(names: Sequence[str]) -> None:
+            for name in names:
+                if name in old_to_new_names:
+                    continue
+                if name in self._env._aliases:
+                    alias_queue.append(name)
+                elif name in self._env.nodes:
+                    node_queue.append(name)
+            else:
+                raise ValueError(f"Unknown name: {name}")
+
+        def fix_deplist_inplace(deplist: List[str | Dependency]) -> None:
+            i = 0
+            while i < len(deplist):
+                item = deplist[i]
+                if isinstance(item, str) and item in old_to_new_names:
+                    (new_name, defunc_name) = old_to_new_names[item]
+                    deplist[i] = new_name
+                    deplist.insert(i, defunc_name)
+                    i += 2
+                elif isinstance(item, Dependency) and item.source in old_to_new_names:
+                    (new_name, defunc_name) = old_to_new_names[item.source]
+                    deplist[i] = Dependency(**item.asdict(), source=new_name)
+                    deplist.insert(i, Dependency(**item.asdict(), source=defunc_name))
+                    i += 2
+                else:
+                    i += 1
+
+        def collect_node(node_name: str) -> None:
+            if node_name in old_to_new_names:
+                return
+
+            defunc_name = f"defunc.{node_name}"
+            new_node_name = self._env.get_next_name(node_name)
+            old_to_new_names[node_name] = (new_node_name, defunc_name)
+
+            node = self._env.nodes[node_name]
+            del self._env.nodes[node_name]
+            defunc_dep_list = list(node.deps)
+            self._env.nodes[new_node_name] = Node(**node.asdict(), name=new_node_name)
+            self._env.nodes[defunc_name] = Node(
+                **node.asdict(), deps=defunc_dep_list, name=defunc_name
+            )
+
+            add_downstream_to_queue(nodedeps_reverse.get(node_name, []))
+
+        def collect_alias(alias_name: str) -> None:
+            if alias_name in old_to_new_names:
+                return
+
+            defunc_name = f"defunc.{alias_name}"
+            new_alias_name = self._env.get_next_name(alias_name)
+            old_to_new_names[alias_name] = (new_alias_name, defunc_name)
+
+            new_alias_list = self._env._aliases[alias_name]
+            del self._env._aliases[alias_name]
+            defunc_alias_list = list(new_alias_list)
+            self._env._aliases[defunc_name] = defunc_alias_list
+            self._env.aliases[new_alias_name] = new_alias_list
+
+            add_downstream_to_queue(aliases_reverse.get(alias_name, []))
+
+        #
+        # Pass 1: Collect affected aliased and nodes
+        #
+        while node_queue or alias_queue:
+            # Process next node if available
+            if node_queue:
+                next_node = node_queue.pop(0)
+                collect_node(next_node)
+
+            elif alias_queue:
+                next_alias = alias_queue.pop(0)
+                collect_alias(next_alias)
+
+        print(old_to_new_names)  # FIXME: Remove
+        raise ValueError("Not implemented")
