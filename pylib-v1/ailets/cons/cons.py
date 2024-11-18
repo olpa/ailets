@@ -27,7 +27,7 @@ class Environment(IEnvironment):
         self._node_counter: int = 0
         self._streams: Streams = Streams()
         self._next_id = 1
-        self._aliases: Dict[str, Set[str]] = {}
+        self._aliases: Dict[str, List[str]] = {}
 
     def add_node(
         self,
@@ -426,7 +426,7 @@ class Environment(IEnvironment):
                 elif "is_finished" in obj_data:
                     env._streams.add_stream_from_json(obj_data)
                 elif "alias" in obj_data:
-                    env._aliases[obj_data["alias"]] = set(obj_data["names"])
+                    env._aliases[obj_data["alias"]] = obj_data["names"]
                 else:
                     raise ValueError(f"Unknown object data: {obj_data}")
             except json.JSONDecodeError as e:
@@ -468,7 +468,7 @@ class Environment(IEnvironment):
         """
         if node_name is None:
             if alias not in self._aliases:
-                self._aliases[alias] = set()
+                self._aliases[alias] = []
             return
 
         # Verify node exists
@@ -477,9 +477,9 @@ class Environment(IEnvironment):
 
         # Create or update alias
         if alias not in self._aliases:
-            self._aliases[alias] = {node_name}
+            self._aliases[alias] = [node_name]
         else:
-            self._aliases[alias].add(node_name)
+            self._aliases[alias].append(node_name)
 
     def get_nodes_by_alias(self, alias: str) -> Set[Node]:
         """Get all nodes associated with an alias.
@@ -495,6 +495,12 @@ class Environment(IEnvironment):
             return set()
 
         return {self.nodes[name] for name in self._aliases[alias]}
+
+    def expand_alias(self, alias: str) -> Sequence[str]:
+        """Expand an alias to its associated nodes."""
+        if alias not in self._aliases:
+            return []
+        return list(self._aliases[alias])
 
     def iter_deps(self, name: str) -> Iterator[Dependency]:
         """Iterate through dependencies of a node, resolving alias dependencies.

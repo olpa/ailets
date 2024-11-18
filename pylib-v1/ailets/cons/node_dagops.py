@@ -187,3 +187,6 @@ class NodeDagops(INodeDagops):
 
     def instantiate_with_deps(self, target: str, aliases: dict[str, str]) -> str:
         return instantiate_with_deps(self._env, self._nodereg, target, aliases)
+
+    def expand_alias(self, alias: str) -> Sequence[str]:
+        return self._env.expand_alias(alias)

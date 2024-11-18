@@ -71,6 +71,9 @@ class INodeDagops(Protocol):
     def depend(self, target: str, source: Sequence[Dependency]) -> None:
         raise NotImplementedError
 
+    def expand_alias(self, alias: str) -> Sequence[str]:
+        raise NotImplementedError
+
     def clone_path(self, begin: str, end: str) -> BeginEnd:
         raise NotImplementedError
 
@@ -154,6 +157,9 @@ class IEnvironment(Protocol):
         raise NotImplementedError
 
     def alias(self, alias: str, node_name: Optional[str]) -> None:
+        raise NotImplementedError
+
+    def expand_alias(self, alias: str) -> Sequence[str]:
         raise NotImplementedError
 
     def add_typed_value_node(
