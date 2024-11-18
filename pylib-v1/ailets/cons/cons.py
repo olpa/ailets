@@ -520,8 +520,8 @@ class Environment(IEnvironment):
         self, nodereg: INodeRegistry, tool_name: str, tool_input_node_name: str
     ) -> str:
         """Instantiate a tool and return the name of the final node."""
-        tool_nnames = nodereg.get_plugin(tool_name)
+        tool_nnames = nodereg.get_plugin(f"tool.{tool_name}")
         final_node_name = instantiate_with_deps(
-            self, nodereg, tool_nnames[-1], {"tool_input": tool_input_node_name}
+            self, nodereg, tool_nnames[-1], {".tool_input": tool_input_node_name}
         )
         return final_node_name

@@ -49,20 +49,20 @@ def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
     # Instantiate tools, run and connect them to the "chat history"
     #
     for tool_call in tool_calls:
-        tool_spec_node = dagops.add_typed_value_node(
+        tool_spec_node_name = dagops.add_typed_value_node(
             json.dumps(tool_call), "", explain="Tool call spec from llm"
         )
 
         tool_name = tool_call["function"]["name"]
-        tool_pipeline = dagops.instantiate_tool(
-            tool_name, [Dependency(source=tool_spec_node)]
-        )
+        tool_final_node_name = dagops.instantiate_tool(tool_name, tool_spec_node_name)
+
+        runtime._env.print_dependency_tree(tool_final_node_name)  # FIXME
 
         tool_msg_node = dagops.add_node(
             "toolcall_to_messages",
             [
-                Dependency(source=tool_pipeline.end),
-                Dependency(name="llmspec", source=tool_spec_node),
+                Dependency(source=tool_final_node_name),
+                Dependency(name="llmspec", source=tool_spec_node_name),
             ],
         )
         dagops.depend(loop.begin, [Dependency(source=tool_msg_node)])
