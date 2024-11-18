@@ -165,8 +165,9 @@ def main():
         prompt = get_prompt(args.prompt)
         prompt_to_env(env, prompt=prompt)
         toolspecs_to_env(env, nodereg, args.tools)
+        env.alias(".added_chat_messages", None)
         resolve = {
-            ".chat_messages": ".prompt_to_messages",
+            ".initial_chat_messages": ".prompt_to_messages",
             ".model_output": nodereg.get_plugin(f"{args.model}")[-1],
         }
 
