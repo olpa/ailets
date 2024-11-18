@@ -6,13 +6,10 @@ import sys
 import localsetup  # noqa: F401
 from typing import Union, Tuple
 from ailets.cons.cons import Environment
-from ailets.cons import (
-    prompt_to_env,
-)
+from ailets.cons.plugin import NodeRegistry
 from ailets.cons.pipelines import (
-    alias_basenames,
-    load_nodes_from_module,
-    nodelib_to_env,
+    instantiate_with_deps,
+    prompt_to_env,
     toolspecs_to_env,
 )
 import re
@@ -151,31 +148,37 @@ def main():
     args = parse_args()
     assert args.model == "gpt4o", "At the moment, only gpt4o is supported"
 
-    nodes_std = load_nodes_from_module("std", prefix="ailets.cons.nodes")
-    nodes_model = load_nodes_from_module(args.model, prefix="ailets.cons.nodes")
-    nodelib = [*nodes_std, *nodes_model]
+    nodereg = NodeRegistry()
+    nodereg.load_plugin("ailets.stdlib", "")
+    nodereg.load_plugin(f"ailets.models.{args.model}", f"{args.model}")
     for tool in args.tools:
-        nodes_tool = load_nodes_from_module(tool, prefix="ailets.cons.tools")
-        nodelib.extend(nodes_tool)
+        nodereg.load_plugin(f"ailets.tools.{tool}", f"tool.{tool}")
 
     if args.load_state:
         with open(args.load_state, "r") as f:
-            env = Environment.from_json(f, nodelib)
+            env = Environment.from_json(f, nodereg)
+        target_node_name = env.get_node_by_base_name(".stdout").name
+
     else:
         env = Environment()
-        nodelib_to_env(env, nodelib)
-        toolspecs_to_env(env, nodelib, args.tools)
-        alias_basenames(env, nodelib)
+
         prompt = get_prompt(args.prompt)
         prompt_to_env(env, prompt=prompt)
+        toolspecs_to_env(env, nodereg, args.tools)
+        env.alias(".added_chat_messages", None)
+        resolve = {
+            ".initial_chat_messages": ".prompt_to_messages",
+            ".model_output": nodereg.get_plugin(f"{args.model}")[-1],
+        }
 
-    target_node_name = "stdout"
+        target_node_name = instantiate_with_deps(env, nodereg, ".stdout", resolve)
+
     stop_node_name = args.stop_at or target_node_name
 
     if args.dry_run:
         env.print_dependency_tree(target_node_name)
     else:
-        env.build_target(stop_node_name, one_step=args.one_step)
+        env.build_target(nodereg, stop_node_name, one_step=args.one_step)
 
     if args.save_state:
         with open(args.save_state, "w") as f:

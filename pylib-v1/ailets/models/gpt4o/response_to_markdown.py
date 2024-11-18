@@ -27,7 +27,9 @@ def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
     #
 
     dagops = runtime.dagops()
-    loop = dagops.clone_path("gpt4o.messages_to_query", runtime.get_name())
+    loop_begin = dagops.get_upstream_node("gpt4o.messages_to_query")
+    print(f"loop_begin: {dagops._env.get_node(loop_begin)}")  # FIXME
+    #loop_begin = dagops.clone_node(loop_begin)
 
     #
     # Put "tool_calls" to the "chat history"
@@ -43,29 +45,34 @@ def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
         "",
         explain='Feed "tool_calls" from output to input',
     )
-    dagops.depend(loop.begin, [Dependency(source=idref_node)])
+    #dagops.depend(loop_begin, [Dependency(source=idref_node)])
+    dagops._env.alias(".chat_messages", idref_node)
+
+    runtime._env.print_dependency_tree(".stdout.8")  # FIXME
+
 
     #
     # Instantiate tools, run and connect them to the "chat history"
     #
     for tool_call in tool_calls:
-        tool_spec_node = dagops.add_typed_value_node(
+        tool_spec_node_name = dagops.add_typed_value_node(
             json.dumps(tool_call), "", explain="Tool call spec from llm"
         )
 
         tool_name = tool_call["function"]["name"]
-        tool_pipeline = dagops.instantiate_tool(
-            tool_name, [Dependency(source=tool_spec_node)]
+        tool_final_node_name = dagops.instantiate_tool(tool_name, tool_spec_node_name)
+
+        tool_msg_node_name = dagops.instantiate_with_deps(
+            ".toolcall_to_messages",
+            {
+                ".llm_tool_spec": tool_spec_node_name,
+                ".tool_output": tool_final_node_name,
+            },
         )
 
-        tool_msg_node = dagops.add_node(
-            "toolcall_to_messages",
-            [
-                Dependency(source=tool_pipeline.end),
-                Dependency(name="llmspec", source=tool_spec_node),
-            ],
-        )
-        dagops.depend(loop.begin, [Dependency(source=tool_msg_node)])
+        dagops.depend(loop_begin, [Dependency(source=tool_msg_node_name)])
+
+    #runtime._env.print_dependency_tree(".stdout.8")  # FIXME
 
     return ""
 

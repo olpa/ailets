@@ -3,17 +3,19 @@ from io import StringIO
 
 from .node_dagops import NodeDagops
 from .streams import Stream
-from .typing import IEnvironment, INodeDagops, INodeRuntime
+from .typing import IEnvironment, INodeDagops, INodeRegistry, INodeRuntime
 
 
 class NodeRuntime(INodeRuntime):
     def __init__(
         self,
         env: IEnvironment,
+        nodereg: INodeRegistry,
         streams: Mapping[Optional[str], Sequence[Stream]],
         node_name: str,
     ):
         self._env = env
+        self._nodereg = nodereg
         self._streams = streams
         self._node_name = node_name
         self._write_streams: Dict[Optional[str], Stream] = {}
@@ -45,4 +47,4 @@ class NodeRuntime(INodeRuntime):
         self._env.close_stream(stream)
 
     def dagops(self) -> INodeDagops:
-        return NodeDagops(self._env, self)
+        return NodeDagops(self._env, self._nodereg, self)

@@ -12,13 +12,13 @@ from typing import (
 )
 import json
 
-from .pipelines import get_func_map, nodelib_to_env
+from ailets.cons.pipelines import instantiate_with_deps
+from ailets.cons.plugin import NodeRegistry
 
-from .typing import BeginEnd, Dependency, IEnvironment, NodeDescFunc, Node
+from .typing import Dependency, IEnvironment, INodeRegistry, Node
 from .node_runtime import NodeRuntime
 from .streams import Streams, Stream
 from .util import to_basename
-from ailets.cons.tools.get_user_name.call import call as call_get_user_name
 
 
 class Environment(IEnvironment):
@@ -68,6 +68,9 @@ class Environment(IEnvironment):
             raise KeyError(f"Node {name} not found")
         return self.nodes[name]
 
+    def has_node(self, node_name: str) -> bool:
+        return node_name in self.nodes or node_name in self._aliases
+
     def get_nodes(self) -> Sequence[Node]:
         return list(self.nodes.values())
 
@@ -103,7 +106,7 @@ class Environment(IEnvironment):
             explain=node.explain,
         )
 
-    def build_node_alone(self, name: str) -> None:
+    def build_node_alone(self, nodereg: INodeRegistry, name: str) -> None:
         """Build a node. Does not build its dependencies."""
         node = self.get_node(name)
 
@@ -129,7 +132,7 @@ class Environment(IEnvironment):
                 in_streams[dep_name] = []
             in_streams[dep_name].append(dep_stream)
 
-        runtime = NodeRuntime(self, in_streams, node.name)
+        runtime = NodeRuntime(self, nodereg, in_streams, node.name)
 
         # Execute the node's function with all dependencies
         try:
@@ -144,6 +147,7 @@ class Environment(IEnvironment):
 
     def build_target(
         self,
+        nodereg: INodeRegistry,
         target: str,
         one_step: bool = False,
     ) -> None:
@@ -171,7 +175,7 @@ class Environment(IEnvironment):
                 break
 
             # Build the node
-            self.build_node_alone(next_node.name)
+            self.build_node_alone(nodereg, next_node.name)
 
             # Check if number of nodes changed
             new_node_count = len(self.nodes)
@@ -307,14 +311,11 @@ class Environment(IEnvironment):
 
         visited.remove(node_name)
 
-    def load_node_state(
-        self, node_data: Dict[str, Any], func_map: Dict[str, Callable[..., Any]]
-    ) -> Node:
+    def load_node_state(self, node_data: Dict[str, Any], nodereg: NodeRegistry) -> Node:
         """Load a node's state from JSON data.
 
         Args:
             node_data: Node state from JSON
-            func_map: Mapping from node names to their functions
 
         Returns:
             The loaded node
@@ -323,15 +324,16 @@ class Environment(IEnvironment):
 
         # Try to get function from map, if not found and name has a number suffix,
         # try without the suffix
-        if name not in func_map:
-            base_name = to_basename(name)
-            func = func_map.get(base_name)
-            if func is None:
-                raise KeyError(f"No function provided for node: {name} or {base_name}")
+        base_name = to_basename(name)
+        if base_name == "typed_value":
+            # Special case for typed value nodes
+            def func(_): ...  # Dummy function since real value is in streams
+
         else:
-            func = func_map.get(name)
-            if func is None:
-                raise KeyError(f"No function provided for node: {name}")
+            node_desc = nodereg.nodes.get(base_name)
+            if node_desc is None:
+                raise KeyError(f"No function registered for node: {name} ({base_name})")
+            func = node_desc.func
 
         # Update counter if needed to stay above loaded node's suffix
         if "." in name:
@@ -400,12 +402,9 @@ class Environment(IEnvironment):
             f.write("\n")
 
     @classmethod
-    def from_json(cls, f: TextIO, nodelib: Sequence[NodeDescFunc]) -> "Environment":
+    def from_json(cls, f: TextIO, nodereg: NodeRegistry) -> "Environment":
         """Create environment from JSON data."""
         env = cls()
-
-        nodelib_to_env(env, nodelib)
-        func_map = get_func_map(nodelib)
 
         content = f.read()
         decoder = json.JSONDecoder()
@@ -423,7 +422,7 @@ class Environment(IEnvironment):
             try:
                 obj_data, pos = decoder.raw_decode(content, pos)
                 if "deps" in obj_data:
-                    env.load_node_state(obj_data, func_map)
+                    env.load_node_state(obj_data, nodereg)
                 elif "is_finished" in obj_data:
                     env._streams.add_stream_from_json(obj_data)
                 elif "alias" in obj_data:
@@ -517,7 +516,34 @@ class Environment(IEnvironment):
             else:
                 yield dep
 
-    def instantiate_tool(self, tool_name: str, deps: Sequence[Dependency]) -> BeginEnd:
-        assert tool_name == "get_user_name", f"Unknown tool: {tool_name}"
-        node = self.add_node(f"{tool_name}.call", call_get_user_name, deps)
-        return BeginEnd(begin=node.name, end=node.name)
+    def instantiate_tool(
+        self, nodereg: INodeRegistry, tool_name: str, tool_input_node_name: str
+    ) -> str:
+        """Instantiate a tool and return the name of the final node."""
+        tool_nnames = nodereg.get_plugin(f"tool.{tool_name}")
+        final_node_name = instantiate_with_deps(
+            self, nodereg, tool_nnames[-1], {".tool_input": tool_input_node_name}
+        )
+        return final_node_name
+
+    def clone_node(self, node_name: str) -> str:
+        """Create a copy of an existing node with a new name.
+
+        Args:
+            node_name: Name of the node to clone
+
+        Returns:
+            The newly created clone node
+
+        Raises:
+            KeyError: If source node doesn't exist
+        """
+        source_node = self.get_node(node_name)
+        base_name = to_basename(node_name)
+
+        return self.add_node(
+            name=base_name,
+            func=source_node.func,
+            deps=list(source_node.deps),  # Create new list to avoid sharing
+            explain=source_node.explain,
+        ).name

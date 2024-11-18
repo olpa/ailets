@@ -58,6 +58,7 @@ class Node:
 class NodeDesc:
     name: str
     inputs: Sequence[Dependency]
+    alias_of: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -86,7 +87,20 @@ class INodeDagops(Protocol):
     ) -> str:
         raise NotImplementedError
 
-    def instantiate_tool(self, tool_name: str, deps: Sequence[Dependency]) -> BeginEnd:
+    def clone_node(self, node_name: str) -> str:
+        raise NotImplementedError
+
+    def instantiate_tool(self, tool_name: str, tool_input_node_name: str) -> str:
+        raise NotImplementedError
+
+    def instantiate_with_deps(
+        self,
+        target: str,
+        aliases: dict[str, str],
+    ) -> str:
+        raise NotImplementedError
+
+    def get_upstream_node(self, node_name: str) -> str:
         raise NotImplementedError
 
 
@@ -111,7 +125,9 @@ class INodeRuntime(Protocol):
 
 
 @dataclass(frozen=True)
-class NodeDescFunc(NodeDesc):
+class NodeDescFunc:
+    name: str
+    inputs: Sequence[Dependency]
     func: Callable[[INodeRuntime], None]
 
 
@@ -134,6 +150,9 @@ class IEnvironment(Protocol):
     ) -> Node:
         raise NotImplementedError
 
+    def has_node(self, node_name: str) -> bool:
+        raise NotImplementedError
+
     def alias(self, alias: str, node_name: Optional[str]) -> None:
         raise NotImplementedError
 
@@ -143,6 +162,9 @@ class IEnvironment(Protocol):
         raise NotImplementedError
 
     def get_node(self, name: str) -> Node:
+        raise NotImplementedError
+
+    def clone_node(self, node_name: str) -> str:
         raise NotImplementedError
 
     def get_nodes(self) -> Sequence[Node]:
@@ -157,5 +179,15 @@ class IEnvironment(Protocol):
     def get_node_by_base_name(self, base_name: str) -> Node:
         raise NotImplementedError
 
-    def instantiate_tool(self, tool_name: str, deps: Sequence[Dependency]) -> BeginEnd:
+    def instantiate_tool(
+        self, nodereg: "INodeRegistry", tool_name: str, tool_input_node_name: str
+    ) -> str:
+        raise NotImplementedError
+
+
+class INodeRegistry(Protocol):
+    def get_plugin(self, regname: str) -> Sequence[str]:
+        raise NotImplementedError
+
+    def get_node(self, name: str) -> NodeDescFunc:
         raise NotImplementedError

@@ -1,5 +1,5 @@
 import json
-from ...typing import INodeRuntime
+from ..cons.typing import INodeRuntime
 
 
 def toolcall_to_messages(runtime: INodeRuntime) -> None:
