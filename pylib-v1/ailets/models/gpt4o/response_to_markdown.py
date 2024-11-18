@@ -1,17 +1,8 @@
 import json
-from ailets.cons.typing import Dependency, INodeRuntime
+from ailets.cons.typing import INodeRuntime
 
 
 def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
-    """Process a single response and convert it to markdown.
-
-    Args:
-        runtime: The node runtime environment
-        response: The response JSON from the API
-
-    Returns:
-        dict: The processed response as a JSON object
-    """
     message = response["choices"][0]["message"]
     content = message.get("content")
     tool_calls = message.get("tool_calls")
@@ -23,13 +14,10 @@ def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
         return content
 
     #
-    # Tool calls: call them and repeat the loop
+    # Tool calls
     #
 
     dagops = runtime.dagops()
-    loop_begin = dagops.get_upstream_node("gpt4o.messages_to_query")
-    print(f"loop_begin: {dagops._env.get_node(loop_begin)}")  # FIXME
-    #loop_begin = dagops.clone_node(loop_begin)
 
     #
     # Put "tool_calls" to the "chat history"
@@ -45,14 +33,10 @@ def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
         "",
         explain='Feed "tool_calls" from output to input',
     )
-    #dagops.depend(loop_begin, [Dependency(source=idref_node)])
-    dagops._env.alias(".chat_messages", idref_node)
-
-    runtime._env.print_dependency_tree(".stdout.8")  # FIXME
-
+    dagops.alias(".chat_messages", idref_node)
 
     #
-    # Instantiate tools, run and connect them to the "chat history"
+    # Instantiate tools and connect them to the "chat history"
     #
     for tool_call in tool_calls:
         tool_spec_node_name = dagops.add_typed_value_node(
@@ -69,10 +53,7 @@ def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
                 ".tool_output": tool_final_node_name,
             },
         )
-
-        dagops.depend(loop_begin, [Dependency(source=tool_msg_node_name)])
-
-    #runtime._env.print_dependency_tree(".stdout.8")  # FIXME
+        dagops.alias(".chat_messages", tool_msg_node_name)
 
     return ""
 
@@ -80,14 +61,21 @@ def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
 def response_to_markdown(runtime: INodeRuntime) -> None:
     """Convert multiple responses to markdown format."""
 
-    results = []
+    output = runtime.open_write(None)
+
+    dagops = runtime.dagops()
+    old_chat_messages = dagops.expand_alias(".chat_messages")
+
     for i in range(runtime.n_of_streams(None)):
         response = json.loads(runtime.open_read(None, i).read())
         result = _process_single_response(runtime, response)
-        if result:  # Only add non-empty results
-            results.append(result)
+        if result:  # Only write non-empty results
+            if i > 0:
+                output.write("\n\n")
+            output.write(result)
 
-    value = "\n\n".join(results)
-    output = runtime.open_write(None)
-    output.write(value)
+    new_chat_messages = dagops.expand_alias(".chat_messages")
+    if len(new_chat_messages) > len(old_chat_messages):
+        dagops.invalidate(".chat_messages", old_chat_messages)
+
     runtime.close_write(None)
