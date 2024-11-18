@@ -87,6 +87,9 @@ class INodeDagops(Protocol):
     ) -> str:
         raise NotImplementedError
 
+    def clone_node(self, node_name: str) -> str:
+        raise NotImplementedError
+
     def instantiate_tool(self, tool_name: str, tool_input_node_name: str) -> str:
         raise NotImplementedError
 
@@ -95,6 +98,9 @@ class INodeDagops(Protocol):
         target: str,
         aliases: dict[str, str],
     ) -> str:
+        raise NotImplementedError
+
+    def get_upstream_node(self, node_name: str) -> str:
         raise NotImplementedError
 
 
@@ -156,6 +162,9 @@ class IEnvironment(Protocol):
         raise NotImplementedError
 
     def get_node(self, name: str) -> Node:
+        raise NotImplementedError
+
+    def clone_node(self, node_name: str) -> str:
         raise NotImplementedError
 
     def get_nodes(self) -> Sequence[Node]:

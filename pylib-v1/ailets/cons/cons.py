@@ -525,3 +525,25 @@ class Environment(IEnvironment):
             self, nodereg, tool_nnames[-1], {".tool_input": tool_input_node_name}
         )
         return final_node_name
+
+    def clone_node(self, node_name: str) -> str:
+        """Create a copy of an existing node with a new name.
+
+        Args:
+            node_name: Name of the node to clone
+
+        Returns:
+            The newly created clone node
+
+        Raises:
+            KeyError: If source node doesn't exist
+        """
+        source_node = self.get_node(node_name)
+        base_name = to_basename(node_name)
+
+        return self.add_node(
+            name=base_name,
+            func=source_node.func,
+            deps=list(source_node.deps),  # Create new list to avoid sharing
+            explain=source_node.explain,
+        ).name

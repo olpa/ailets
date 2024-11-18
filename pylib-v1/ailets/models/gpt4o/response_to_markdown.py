@@ -27,7 +27,10 @@ def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
     #
 
     dagops = runtime.dagops()
-    loop = dagops.clone_path("gpt4o.messages_to_query", runtime.get_name())
+    loop_begin = dagops.get_upstream_node("gpt4o.messages_to_query")
+    loop_begin = dagops.clone_node(loop_begin)
+
+    runtime._env.print_dependency_tree(loop_begin)  # FIXME
 
     #
     # Put "tool_calls" to the "chat history"
@@ -43,7 +46,7 @@ def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
         "",
         explain='Feed "tool_calls" from output to input',
     )
-    dagops.depend(loop.begin, [Dependency(source=idref_node)])
+    dagops.depend(loop_begin, [Dependency(source=idref_node)])
 
     #
     # Instantiate tools, run and connect them to the "chat history"
@@ -66,7 +69,7 @@ def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
 
         runtime._env.print_dependency_tree(tool_msg_node_name)  # FIXME
 
-        dagops.depend(loop.begin, [Dependency(source=tool_msg_node_name)])
+        dagops.depend(loop_begin, [Dependency(source=tool_msg_node_name)])
 
     return ""
 
