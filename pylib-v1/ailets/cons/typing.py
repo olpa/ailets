@@ -1,6 +1,16 @@
 from dataclasses import dataclass, field
 from io import StringIO
-from typing import Any, Callable, Dict, Iterator, List, Optional, Protocol, Sequence
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Iterator,
+    List,
+    Optional,
+    Protocol,
+    Sequence,
+    Tuple,
+)
 from .streams import Stream
 
 
@@ -109,6 +119,9 @@ class INodeDagops(Protocol):
     def get_upstream_node(self, node_name: str) -> str:
         raise NotImplementedError
 
+    def invalidate(self, alias: str, old_list: Sequence[str]) -> None:
+        raise NotImplementedError
+
 
 class INodeRuntime(Protocol):
     def get_name(self) -> str:
@@ -191,6 +204,14 @@ class IEnvironment(Protocol):
     def instantiate_tool(
         self, nodereg: "INodeRegistry", tool_name: str, tool_input_node_name: str
     ) -> str:
+        raise NotImplementedError
+
+    def privates_for_dagops_friend(
+        self,
+    ) -> Tuple[Dict[str, Node], Dict[str, List[str]]]:
+        raise NotImplementedError
+
+    def get_next_name(self, full_name: str) -> str:
         raise NotImplementedError
 
 

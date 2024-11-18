@@ -29,6 +29,12 @@ class Environment(IEnvironment):
         self._next_id = 1
         self._aliases: Dict[str, List[str]] = {}
 
+    def privates_for_dagops_friend(
+        self,
+    ) -> Tuple[Dict[str, Node], Dict[str, List[str]]]:
+        """Return private nodes and aliases for NodeDagops friend class."""
+        return self.nodes, self._aliases
+
     def add_node(
         self,
         name: str,
