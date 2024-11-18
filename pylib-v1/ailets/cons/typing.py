@@ -87,7 +87,7 @@ class INodeDagops(Protocol):
     ) -> str:
         raise NotImplementedError
 
-    def instantiate_tool(self, tool_name: str, deps: Sequence[Dependency]) -> BeginEnd:
+    def instantiate_tool(self, tool_name: str, tool_input_node_name: str) -> str:
         raise NotImplementedError
 
     def instantiate_with_deps(
@@ -170,7 +170,9 @@ class IEnvironment(Protocol):
     def get_node_by_base_name(self, base_name: str) -> Node:
         raise NotImplementedError
 
-    def instantiate_tool(self, tool_name: str, deps: Sequence[Dependency]) -> BeginEnd:
+    def instantiate_tool(
+        self, nodereg: "INodeRegistry", tool_name: str, tool_input_node_name: str
+    ) -> str:
         raise NotImplementedError
 
 

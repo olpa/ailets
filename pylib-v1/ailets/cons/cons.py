@@ -12,9 +12,10 @@ from typing import (
 )
 import json
 
+from ailets.cons.pipelines import instantiate_with_deps
 from ailets.cons.plugin import NodeRegistry
 
-from .typing import BeginEnd, Dependency, IEnvironment, INodeRegistry, Node
+from .typing import Dependency, IEnvironment, INodeRegistry, Node
 from .node_runtime import NodeRuntime
 from .streams import Streams, Stream
 from .util import to_basename
@@ -515,5 +516,12 @@ class Environment(IEnvironment):
             else:
                 yield dep
 
-    def instantiate_tool(self, tool_name: str, deps: Sequence[Dependency]) -> BeginEnd:
-        raise NotImplementedError(f"Tool {tool_name} not implemented")
+    def instantiate_tool(
+        self, nodereg: INodeRegistry, tool_name: str, tool_input_node_name: str
+    ) -> str:
+        """Instantiate a tool and return the name of the final node."""
+        tool_nnames = nodereg.get_plugin(tool_name)
+        final_node_name = instantiate_with_deps(
+            self, nodereg, tool_nnames[-1], {"tool_input": tool_input_node_name}
+        )
+        return final_node_name
