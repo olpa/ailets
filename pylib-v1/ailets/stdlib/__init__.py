@@ -11,7 +11,8 @@ prompt_to_messages = NodeDesc(
 toolcall_to_messages = NodeDesc(
     name="toolcall_to_messages",
     inputs=[
-        Dependency(source=".toolcall"),
+        Dependency(source=".tool_output"),
+        Dependency(name="llm_tool_spec", source=".llm_tool_spec"),
     ],
 )
 

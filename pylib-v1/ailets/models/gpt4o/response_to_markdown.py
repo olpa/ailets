@@ -56,16 +56,17 @@ def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
         tool_name = tool_call["function"]["name"]
         tool_final_node_name = dagops.instantiate_tool(tool_name, tool_spec_node_name)
 
-        runtime._env.print_dependency_tree(tool_final_node_name)  # FIXME
-
-        tool_msg_node = dagops.add_node(
-            "toolcall_to_messages",
-            [
-                Dependency(source=tool_final_node_name),
-                Dependency(name="llmspec", source=tool_spec_node_name),
-            ],
+        tool_msg_node_name = dagops.instantiate_with_deps(
+            ".toolcall_to_messages",
+            {
+                ".llm_tool_spec": tool_spec_node_name,
+                ".tool_output": tool_final_node_name,
+            },
         )
-        dagops.depend(loop.begin, [Dependency(source=tool_msg_node)])
+
+        runtime._env.print_dependency_tree(tool_msg_node_name)  # FIXME
+
+        dagops.depend(loop.begin, [Dependency(source=tool_msg_node_name)])
 
     return ""
 
