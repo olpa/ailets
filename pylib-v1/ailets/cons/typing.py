@@ -90,6 +90,13 @@ class INodeDagops(Protocol):
     def instantiate_tool(self, tool_name: str, deps: Sequence[Dependency]) -> BeginEnd:
         raise NotImplementedError
 
+    def instantiate_with_deps(
+        self,
+        target: str,
+        aliases: dict[str, str],
+    ) -> str:
+        raise NotImplementedError
+
 
 class INodeRuntime(Protocol):
     def get_name(self) -> str:

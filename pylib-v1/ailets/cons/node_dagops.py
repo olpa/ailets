@@ -1,12 +1,23 @@
 from typing import Optional, Sequence, Dict, Set
 
+from ailets.cons.pipelines import instantiate_with_deps
+
 from .util import to_basename
-from .typing import IEnvironment, INodeDagops, INodeRuntime, Dependency, BeginEnd, Node
+from .typing import (
+    BeginEnd,
+    Dependency,
+    IEnvironment,
+    INodeDagops,
+    INodeRegistry,
+    INodeRuntime,
+    Node,
+)
 
 
 class NodeDagops(INodeDagops):
-    def __init__(self, env: IEnvironment, node: INodeRuntime):
+    def __init__(self, env: IEnvironment, nodereg: INodeRegistry, node: INodeRuntime):
         self._env = env
+        self._nodereg = nodereg
         self._node = node
 
     def depend(self, target: str, source: Sequence[Dependency]) -> None:
@@ -157,3 +168,6 @@ class NodeDagops(INodeDagops):
 
     def instantiate_tool(self, tool_name: str, deps: Sequence[Dependency]) -> BeginEnd:
         return self._env.instantiate_tool(tool_name, deps)
+
+    def instantiate_with_deps(self, target: str, aliases: dict[str, str]) -> str:
+        return instantiate_with_deps(self._env, self._nodereg, target, aliases)

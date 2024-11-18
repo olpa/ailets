@@ -14,7 +14,7 @@ import json
 
 from ailets.cons.plugin import NodeRegistry
 
-from .typing import BeginEnd, Dependency, IEnvironment, Node
+from .typing import BeginEnd, Dependency, IEnvironment, INodeRegistry, Node
 from .node_runtime import NodeRuntime
 from .streams import Streams, Stream
 from .util import to_basename
@@ -105,7 +105,7 @@ class Environment(IEnvironment):
             explain=node.explain,
         )
 
-    def build_node_alone(self, name: str) -> None:
+    def build_node_alone(self, nodereg: INodeRegistry, name: str) -> None:
         """Build a node. Does not build its dependencies."""
         node = self.get_node(name)
 
@@ -131,7 +131,7 @@ class Environment(IEnvironment):
                 in_streams[dep_name] = []
             in_streams[dep_name].append(dep_stream)
 
-        runtime = NodeRuntime(self, in_streams, node.name)
+        runtime = NodeRuntime(self, nodereg, in_streams, node.name)
 
         # Execute the node's function with all dependencies
         try:
@@ -146,6 +146,7 @@ class Environment(IEnvironment):
 
     def build_target(
         self,
+        nodereg: INodeRegistry,
         target: str,
         one_step: bool = False,
     ) -> None:
@@ -173,7 +174,7 @@ class Environment(IEnvironment):
                 break
 
             # Build the node
-            self.build_node_alone(next_node.name)
+            self.build_node_alone(nodereg, next_node.name)
 
             # Check if number of nodes changed
             new_node_count = len(self.nodes)
