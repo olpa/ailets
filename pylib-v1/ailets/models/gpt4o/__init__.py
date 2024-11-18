@@ -3,8 +3,7 @@ from ailets.cons.typing import NodeDesc, Dependency
 messages_to_query = NodeDesc(
     name="messages_to_query",
     inputs=[
-        Dependency(source=".initial_chat_messages"),
-        Dependency(source=".added_chat_messages"),
+        Dependency(source=".chat_messages"),
         Dependency(name="credentials", source=".credentials"),
         Dependency(name="toolspecs", source=".toolspecs"),
     ],
