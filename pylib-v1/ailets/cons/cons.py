@@ -522,15 +522,37 @@ class Environment(IEnvironment):
             Dependencies of the node, with alias dependencies resolved to concrete nodes
         """
         node = self.get_node(name)
+        seen_deps = set()  # Track seen dependencies to avoid duplicates
+
         for dep in node.deps:
             # If dependency source is an alias, yield a dependency for each aliased node
             if dep.source in self._aliases:
-                for aliased_node_name in self._aliases[dep.source]:
-                    yield Dependency(
-                        source=aliased_node_name, name=dep.name, stream=dep.stream
-                    )
+                # Recursively expand aliases
+                def expand_alias_deps(
+                    alias_name: str, seen_aliases: Set[str]
+                ) -> Iterator[str]:
+                    if alias_name in seen_aliases:
+                        return  # Prevent infinite recursion
+                    seen_aliases.add(alias_name)
+
+                    for aliased_name in self._aliases[alias_name]:
+                        if aliased_name in self._aliases:
+                            yield from expand_alias_deps(aliased_name, seen_aliases)
+                        else:
+                            yield aliased_name
+
+                for aliased_node_name in expand_alias_deps(dep.source, set()):
+                    dep_key = (aliased_node_name, dep.name, dep.stream)
+                    if dep_key not in seen_deps:
+                        seen_deps.add(dep_key)
+                        yield Dependency(
+                            source=aliased_node_name, name=dep.name, stream=dep.stream
+                        )
             else:
-                yield dep
+                dep_key = (dep.source, dep.name, dep.stream)
+                if dep_key not in seen_deps:
+                    seen_deps.add(dep_key)
+                    yield dep
 
     def instantiate_tool(
         self, nodereg: INodeRegistry, tool_name: str, tool_input_node_name: str
