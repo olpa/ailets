@@ -150,7 +150,7 @@ def main():
 
     nodereg = NodeRegistry()
     nodereg.load_plugin("ailets.stdlib", "")
-    nodereg.load_plugin(f"ailets.models.{args.model}", f"{args.model}")
+    nodereg.load_plugin(f"ailets.models.{args.model}", args.model)
     for tool in args.tools:
         nodereg.load_plugin(f"ailets.tools.{tool}", f"tool.{tool}")
 
@@ -169,11 +169,13 @@ def main():
         chat_node_name = instantiate_with_deps(env, nodereg, ".prompt_to_messages", {})
         env.alias(".chat_messages", chat_node_name)
 
+        model_target = nodereg.get_plugin(args.model)[-1]
+        model_node_name = instantiate_with_deps(env, nodereg, model_target, {})
+        env.alias(".model_output", model_node_name)
+
         resolve = {
             ".prompt_to_messages": chat_node_name,
-            ".model_output": nodereg.get_plugin(f"{args.model}")[-1],
         }
-
         target_node_name = instantiate_with_deps(env, nodereg, ".stdout", resolve)
 
     stop_node_name = args.stop_at or target_node_name

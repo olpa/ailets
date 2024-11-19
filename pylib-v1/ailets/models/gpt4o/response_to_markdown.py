@@ -69,6 +69,13 @@ def _process_single_response(
         )
         dagops.alias(".chat_messages", tool_msg_node_name)
 
+    #
+    # Re-run the model
+    #
+    model_target = runtime.get_plugin("gpt4o")[-1]
+    rerun_node_name = dagops.instantiate_with_deps(model_target, {})
+    dagops.alias(".model_output", rerun_node_name)
+
     return ""
 
 

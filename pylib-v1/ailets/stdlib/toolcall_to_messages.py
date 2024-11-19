@@ -7,19 +7,19 @@ def toolcall_to_messages(runtime: INodeRuntime) -> None:
 
     Reads:
         Stream None: Tool result
-        Stream "llmspec": LLM specification
+        Stream "llm_tool_spec": LLM specification
 
     Writes:
         A single message in OpenAI chat format
     """
     # Read inputs
     n_tool_results = runtime.n_of_streams(None)
-    assert n_tool_results == 1, "Expected exactly one tool result"
-    n_specs = runtime.n_of_streams("llmspec")
-    assert n_specs == 1, "Expected exactly one tool spec"
+    assert n_tool_results == 1, f"Expected exactly one tool result, got {n_tool_results}"
+    n_specs = runtime.n_of_streams("llm_tool_spec")
+    assert n_specs == 1, f"Expected exactly one tool spec, got {n_specs}"
 
     tool_result = runtime.open_read(None, 0).read()
-    spec = json.loads(runtime.open_read("llmspec", 0).read())
+    spec = json.loads(runtime.open_read("llm_tool_spec", 0).read())
 
     # Extract function details from spec
     function_name = spec["function"]["name"]

@@ -248,7 +248,7 @@ class NodeDagops(INodeDagops):
         for upstream_node_name in iter_expand_to_node_names(upstream_node_name, set()):
             node_queue.update(nodedeps_reverse.get(upstream_node_name, set()))
 
-        fence_nodes = set()
+        fence_nodes: Set[str] = set()
         for name in fence:
             fence_nodes.update(iter_expand_to_node_names(name, set()))
 

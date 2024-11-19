@@ -123,7 +123,7 @@ class INodeDagops(Protocol):
     def get_upstream_node(self, node_name: str) -> str:
         raise NotImplementedError
 
-    def defunc_downstream(self, upstream_node_name: str) -> None:
+    def defunc_downstream(self, upstream_node_name: str, fence: Set[str]) -> None:
         raise NotImplementedError
 
 
@@ -141,6 +141,9 @@ class INodeRuntime(Protocol):
         raise NotImplementedError
 
     def close_write(self, stream_name: Optional[str]) -> None:
+        raise NotImplementedError
+
+    def get_plugin(self, regname: str) -> Sequence[str]:
         raise NotImplementedError
 
     def dagops(self) -> INodeDagops:
