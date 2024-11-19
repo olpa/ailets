@@ -250,9 +250,7 @@ class NodeDagops(INodeDagops):
         for node_name in affected_nodes:
             defunc_name = f"defunc.{node_name}"
             rewrite_map[node_name] = defunc_name
-            nodes[defunc_name] = Node(
-                **dataclasses.asdict(nodes[node_name]), name=defunc_name
-            )
+            nodes[defunc_name] = dataclasses.replace(nodes[node_name], name=defunc_name)
             del nodes[node_name]
 
         #
@@ -261,8 +259,8 @@ class NodeDagops(INodeDagops):
         for node in nodes.values():
             for i, dep in enumerate(node.deps):
                 if dep.source in rewrite_map:
-                    node.deps[i] = Dependency(
-                        **dataclasses.asdict(dep), source=rewrite_map[dep.source]
+                    node.deps[i] = dataclasses.replace(
+                        dep, source=rewrite_map[dep.source]
                     )
         for alias_list in aliases.values():
             for i, name in enumerate(alias_list):
