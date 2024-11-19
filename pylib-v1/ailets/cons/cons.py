@@ -331,6 +331,8 @@ class Environment(IEnvironment):
         # Try to get function from map, if not found and name has a number suffix,
         # try without the suffix
         base_name = to_basename(name)
+        if base_name.startswith("defunc."):
+            base_name = base_name[7:]
         if base_name == "typed_value":
             # Special case for typed value nodes
             def func(_): ...  # Dummy function since real value is in streams
