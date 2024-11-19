@@ -1,11 +1,13 @@
 from dataclasses import dataclass
 import json
+from typing import Optional, Set
 from ailets.cons.typing import INodeRuntime
 
 
 @dataclass
 class InvalidationFlag:
     is_invalidated: bool
+    fence: Optional[Set[str]] = None
 
 
 def _process_single_response(
@@ -27,8 +29,9 @@ def _process_single_response(
 
     dagops = runtime.dagops()
     if not invalidation_flag_rw.is_invalidated:
-        dagops.defunc_downstream(".chat_messages")
         invalidation_flag_rw.is_invalidated = True
+        invalidation_flag_rw.fence = dagops.get_downstream(runtime.get_name())
+        dagops.defunc_downstream(".chat_messages", invalidation_flag_rw.fence)
 
     #
     # Put "tool_calls" to the "chat history"

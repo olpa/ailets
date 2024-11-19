@@ -211,7 +211,7 @@ class NodeDagops(INodeDagops):
     def expand_alias(self, alias: str) -> Sequence[str]:
         return self._env.expand_alias(alias)
 
-    def defunc_downstream(self, upstream_node_name: str) -> None:
+    def defunc_downstream(self, upstream_node_name: str, fence: Set[str]) -> None:
         nodes, aliases = self._env.privates_for_dagops_friend()
 
         def iter_expand_to_node_names(name: str, seen: Set[str]) -> Iterator[str]:
@@ -248,14 +248,20 @@ class NodeDagops(INodeDagops):
         for upstream_node_name in iter_expand_to_node_names(upstream_node_name, set()):
             node_queue.update(nodedeps_reverse.get(upstream_node_name, set()))
 
+        fence_nodes = set()
+        for name in fence:
+            fence_nodes.update(iter_expand_to_node_names(name, set()))
+
         while node_queue:
-            node_name = node_queue.pop()
-            if node_name.startswith("defunc."):
+            name = node_queue.pop()
+            if name.startswith("defunc."):
                 continue
-            if not self._env.is_node_ever_started(node_name):
+            if name in fence_nodes:
                 continue
-            affected_nodes.add(node_name)
-            for next_name in nodedeps_reverse.get(node_name, set()):
+            if not self._env.is_node_ever_started(name):
+                continue
+            affected_nodes.add(name)
+            for next_name in nodedeps_reverse.get(name, set()):
                 if next_name not in node_queue and next_name not in affected_nodes:
                     node_queue.add(next_name)
 
@@ -263,11 +269,11 @@ class NodeDagops(INodeDagops):
         # Rename affected nodes to "defunc.<name>"
         #
         rewrite_map: Dict[str, str] = {}
-        for node_name in affected_nodes:
-            defunc_name = f"defunc.{node_name}"
-            rewrite_map[node_name] = defunc_name
-            nodes[defunc_name] = dataclasses.replace(nodes[node_name], name=defunc_name)
-            del nodes[node_name]
+        for name in affected_nodes:
+            defunc_name = f"defunc.{name}"
+            rewrite_map[name] = defunc_name
+            nodes[defunc_name] = dataclasses.replace(nodes[name], name=defunc_name)
+            del nodes[name]
 
         #
         # Rewrite all dependencies to defunc nodes
