@@ -72,12 +72,6 @@ class NodeDesc:
     alias_of: Optional[str] = None
 
 
-@dataclass(frozen=True)
-class BeginEnd:
-    begin: str
-    end: str
-
-
 class INodeDagops(Protocol):
     def depend(self, target: str, source: Sequence[Dependency]) -> None:
         raise NotImplementedError
@@ -86,9 +80,6 @@ class INodeDagops(Protocol):
         raise NotImplementedError
 
     def expand_alias(self, alias: str) -> Sequence[str]:
-        raise NotImplementedError
-
-    def clone_path(self, begin: str, end: str) -> BeginEnd:
         raise NotImplementedError
 
     def get_downstream(self, node_name: str) -> Set[str]:
@@ -118,9 +109,6 @@ class INodeDagops(Protocol):
         target: str,
         aliases: dict[str, str],
     ) -> str:
-        raise NotImplementedError
-
-    def get_upstream_node(self, node_name: str) -> str:
         raise NotImplementedError
 
     def defunc_downstream(self, upstream_node_name: str, fence: Set[str]) -> None:
