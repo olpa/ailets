@@ -126,6 +126,9 @@ class INodeDagops(Protocol):
     def defunc_downstream(self, upstream_node_name: str, fence: Set[str]) -> None:
         raise NotImplementedError
 
+    def detach_from_alias(self, alias: str) -> None:
+        raise NotImplementedError
+
 
 class INodeRuntime(Protocol):
     def get_name(self) -> str:

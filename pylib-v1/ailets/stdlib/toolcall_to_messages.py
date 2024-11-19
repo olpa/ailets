@@ -14,7 +14,9 @@ def toolcall_to_messages(runtime: INodeRuntime) -> None:
     """
     # Read inputs
     n_tool_results = runtime.n_of_streams(None)
-    assert n_tool_results == 1, f"Expected exactly one tool result, got {n_tool_results}"
+    assert (
+        n_tool_results == 1
+    ), f"Expected exactly one tool result, got {n_tool_results}"
     n_specs = runtime.n_of_streams("llm_tool_spec")
     assert n_specs == 1, f"Expected exactly one tool spec, got {n_specs}"
 

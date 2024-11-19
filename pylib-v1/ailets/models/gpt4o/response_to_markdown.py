@@ -30,9 +30,9 @@ def _process_single_response(
     dagops = runtime.dagops()
     if not invalidation_flag_rw.is_invalidated:
         invalidation_flag_rw.is_invalidated = True
-        invalidation_flag_rw.fence = dagops.get_downstream(runtime.get_name())
-        dagops.defunc_downstream(".chat_messages", invalidation_flag_rw.fence)
-
+        # invalidation_flag_rw.fence = dagops.get_downstream(runtime.get_name())
+        # dagops.defunc_downstream(".chat_messages", invalidation_flag_rw.fence)
+        dagops.detach_from_alias(".chat_messages")
     #
     # Put "tool_calls" to the "chat history"
     #

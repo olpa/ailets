@@ -288,3 +288,14 @@ class NodeDagops(INodeDagops):
             for i, name in enumerate(alias_list):
                 if name in rewrite_map:
                     alias_list[i] = rewrite_map[name]
+
+    def detach_from_alias(self, alias: str) -> None:
+        nodes, aliases = self._env.privates_for_dagops_friend()
+
+        defunc_name = f"{self._env.get_next_name('defunc')}.{alias}"
+        aliases[defunc_name] = list(aliases[alias])
+
+        for node in nodes.values():
+            for i, dep in enumerate(node.deps):
+                if dep.source == alias:
+                    node.deps[i] = dataclasses.replace(dep, source=defunc_name)
