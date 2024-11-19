@@ -119,7 +119,7 @@ class INodeDagops(Protocol):
     def get_upstream_node(self, node_name: str) -> str:
         raise NotImplementedError
 
-    def invalidate(self, alias: str, old_list: Sequence[str]) -> None:
+    def defunc_nodes(self, alias: str, old_list: Sequence[str]) -> None:
         raise NotImplementedError
 
 

@@ -223,24 +223,6 @@ class NodeDagops(INodeDagops):
                         nodedeps_reverse[dep_name] = set()
                     nodedeps_reverse[dep_name].add(node.name)
 
-        def fix_deplist_inplace(deplist: List[str | Dependency]) -> None:
-            i = 0
-            while i < len(deplist):
-                item = deplist[i]
-                if isinstance(item, str) and item in old_to_new_names:
-                    (new_name, defunc_name) = old_to_new_names[item]
-                    deplist[i] = new_name
-                    deplist.insert(i, defunc_name)
-                    i += 2
-                elif isinstance(item, Dependency) and item.source in old_to_new_names:
-                    (new_name, defunc_name) = old_to_new_names[item.source]
-                    item_dict = dataclasses.asdict(item)
-                    deplist[i] = Dependency(**item_dict, source=new_name)
-                    deplist.insert(i, Dependency(**item_dict, source=defunc_name))
-                    i += 2
-                else:
-                    i += 1
-
         #
         # Collect affected node
         #
@@ -259,6 +241,26 @@ class NodeDagops(INodeDagops):
                 if next_name not in node_queue and next_name not in affected_nodes: 
                     node_queue.add(next_name)
 
-
-
-        raise ValueError("Not implemented")
+        #
+        # Rename affected nodes to "defunc.<name>"
+        #
+        rewrite_map: Dict[str, str] = {}
+        for node_name in affected_nodes:
+            defunc_name = f"defunc.{node_name}"
+            rewrite_map[node_name] = defunc_name
+            nodes[defunc_name] = Node(**dataclasses.asdict(nodes[node_name], name=defunc_name))
+            del nodes[node_name]
+        
+        #
+        # Rewrite all dependencies to defunc nodes
+        #
+        for node in nodes.values():
+            for i, dep in enumerate(node.deps):
+                if dep.source in rewrite_map:
+                    node.deps[i] = Dependency(
+                        **dataclasses.asdict(dep, source=rewrite_map[dep.source])
+                    )
+        for alias_list in aliases.values():
+            for i, name in enumerate(alias_list):
+                if name in rewrite_map:
+                    alias_list[i] = rewrite_map[name]
