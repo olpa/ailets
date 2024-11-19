@@ -195,7 +195,7 @@ class NodeDagops(INodeDagops):
     def expand_alias(self, alias: str) -> Sequence[str]:
         return self._env.expand_alias(alias)
 
-    def defunc_nodes(self, inv_list: Set[str]) -> None:
+    def defunc_downstream(self, upstream_node_name: str) -> None:
         nodes, aliases = self._env.privates_for_dagops_friend()
 
         def iter_expand_to_node_names(name: str, seen: Set[str]) -> Iterator[str]:
@@ -229,16 +229,16 @@ class NodeDagops(INodeDagops):
         affected_nodes: Set[str] = set()
 
         node_queue: Set[str] = set()
-        for inv_name in inv_list:
-            for node_name in iter_expand_to_node_names(inv_name, set()):
-                node_queue.add(node_name)
+        for upstream_node_name in iter_expand_to_node_names(upstream_node_name, set()):
+            node_queue.update(nodedeps_reverse.get(upstream_node_name, set()))
 
         while node_queue:
             node_name = node_queue.pop()
-            if self._env.is_node_ever_started(node_name) and not node_name.startswith(
-                "defunc."
-            ):
-                affected_nodes.add(node_name)
+            if node_name.startswith("defunc."):
+                continue
+            if not self._env.is_node_ever_started(node_name):
+                continue
+            affected_nodes.add(node_name)
             for next_name in nodedeps_reverse.get(node_name, set()):
                 if next_name not in node_queue and next_name not in affected_nodes:
                     node_queue.add(next_name)

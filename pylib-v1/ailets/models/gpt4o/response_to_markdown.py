@@ -27,7 +27,7 @@ def _process_single_response(
 
     dagops = runtime.dagops()
     if not invalidation_flag_rw.is_invalidated:
-        dagops.defunc_nodes({".chat_messages"})
+        dagops.defunc_downstream(".chat_messages")
         invalidation_flag_rw.is_invalidated = True
 
     #

@@ -9,7 +9,6 @@ from typing import (
     Optional,
     Protocol,
     Sequence,
-    Set,
     Tuple,
 )
 from .streams import Stream
@@ -120,7 +119,7 @@ class INodeDagops(Protocol):
     def get_upstream_node(self, node_name: str) -> str:
         raise NotImplementedError
 
-    def defunc_nodes(self, names: Set[str]) -> None:
+    def defunc_downstream(self, upstream_node_name: str) -> None:
         raise NotImplementedError
 
 
