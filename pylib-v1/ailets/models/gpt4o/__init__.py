@@ -4,9 +4,14 @@ messages_to_query = NodeDesc(
     name="messages_to_query",
     inputs=[
         Dependency(source=".chat_messages"),
-        Dependency(name="credentials", source=".credentials"),
+        Dependency(name="credentials", source="credentials"),
         Dependency(name="toolspecs", source=".toolspecs"),
     ],
+)
+
+credentials = NodeDesc(
+    name="credentials",
+    inputs=[],
 )
 
 query = NodeDesc(
@@ -24,4 +29,4 @@ response_to_markdown = NodeDesc(
     ],
 )
 
-nodes = [messages_to_query, query, response_to_markdown]
+nodes = [messages_to_query, credentials, query, response_to_markdown]
