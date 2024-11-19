@@ -268,11 +268,14 @@ class Environment(IEnvironment):
             visited = set()
 
         node = self.get_node(node_name)
-        status = (
-            "\033[32m✓ built\033[0m"
-            if self.is_node_built(node_name)
-            else "\033[33m⋯ not built\033[0m"
-        )
+        if node_name.startswith("defunc."):
+            status = "\033[90mdefunc\033[0m"
+        else:
+            status = (
+                "\033[32m✓ built\033[0m"
+                if self.is_node_built(node_name)
+                else "\033[33m⋯ not built\033[0m"
+            )
 
         # Print current node with explanation if it exists
         display_name = node.name
