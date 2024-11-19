@@ -105,6 +105,10 @@ class Environment(IEnvironment):
             target: Name of node to add dependencies to
             deps: Dependencies to add
         """
+        if target in self._aliases:
+            self._aliases[target].extend(dep.source for dep in deps)
+            return
+
         node = self.get_node(target)
         self.nodes[target] = Node(
             name=node.name,
