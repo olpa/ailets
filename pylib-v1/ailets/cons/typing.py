@@ -9,6 +9,7 @@ from typing import (
     Optional,
     Protocol,
     Sequence,
+    Set,
     Tuple,
 )
 from .streams import Stream
@@ -119,7 +120,7 @@ class INodeDagops(Protocol):
     def get_upstream_node(self, node_name: str) -> str:
         raise NotImplementedError
 
-    def defunc_nodes(self, alias: str, old_list: Sequence[str]) -> None:
+    def defunc_nodes(self, names: Set[str]) -> None:
         raise NotImplementedError
 
 
@@ -170,6 +171,9 @@ class IEnvironment(Protocol):
         raise NotImplementedError
 
     def has_node(self, node_name: str) -> bool:
+        raise NotImplementedError
+
+    def is_node_ever_started(self, node_name: str) -> bool:
         raise NotImplementedError
 
     def alias(self, alias: str, node_name: Optional[str]) -> None:

@@ -8,7 +8,9 @@ class InvalidationFlag:
     is_invalidated: bool
 
 
-def _process_single_response(runtime: INodeRuntime, response: dict, invalidation_flag_rw: InvalidationFlag) -> str:
+def _process_single_response(
+    runtime: INodeRuntime, response: dict, invalidation_flag_rw: InvalidationFlag
+) -> str:
     message = response["choices"][0]["message"]
     content = message.get("content")
     tool_calls = message.get("tool_calls")
@@ -25,7 +27,7 @@ def _process_single_response(runtime: INodeRuntime, response: dict, invalidation
 
     dagops = runtime.dagops()
     if not invalidation_flag_rw.is_invalidated:
-        dagops.defunc_nodes([".chat_messages"])
+        dagops.defunc_nodes({".chat_messages"})
         invalidation_flag_rw.is_invalidated = True
 
     #
@@ -72,8 +74,7 @@ def response_to_markdown(runtime: INodeRuntime) -> None:
 
     output = runtime.open_write(None)
 
-    dagops = runtime.dagops()
-    invalidation_flag = { "invalidated": False}
+    invalidation_flag = InvalidationFlag(is_invalidated=False)
 
     for i in range(runtime.n_of_streams(None)):
         response = json.loads(runtime.open_read(None, i).read())

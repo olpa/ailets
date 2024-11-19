@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Iterator, List, Optional, Sequence, Dict, Set, Tuple
+from typing import Iterator, Optional, Sequence, Dict, Set
 
 from ailets.cons.pipelines import instantiate_with_deps
 
@@ -202,7 +202,7 @@ class NodeDagops(INodeDagops):
             if name in seen:
                 return
             seen.add(name)
-            
+
             if name in aliases:
                 for aliased_name in aliases[name]:
                     yield from iter_expand_to_node_names(aliased_name, seen)
@@ -235,10 +235,12 @@ class NodeDagops(INodeDagops):
 
         while node_queue:
             node_name = node_queue.pop()
-            if self._env.is_node_ever_started(node_name):
+            if self._env.is_node_ever_started(node_name) and not node_name.startswith(
+                "defunc."
+            ):
                 affected_nodes.add(node_name)
             for next_name in nodedeps_reverse.get(node_name, set()):
-                if next_name not in node_queue and next_name not in affected_nodes: 
+                if next_name not in node_queue and next_name not in affected_nodes:
                     node_queue.add(next_name)
 
         #
@@ -248,9 +250,11 @@ class NodeDagops(INodeDagops):
         for node_name in affected_nodes:
             defunc_name = f"defunc.{node_name}"
             rewrite_map[node_name] = defunc_name
-            nodes[defunc_name] = Node(**dataclasses.asdict(nodes[node_name], name=defunc_name))
+            nodes[defunc_name] = Node(
+                **dataclasses.asdict(nodes[node_name]), name=defunc_name
+            )
             del nodes[node_name]
-        
+
         #
         # Rewrite all dependencies to defunc nodes
         #
@@ -258,7 +262,7 @@ class NodeDagops(INodeDagops):
             for i, dep in enumerate(node.deps):
                 if dep.source in rewrite_map:
                     node.deps[i] = Dependency(
-                        **dataclasses.asdict(dep, source=rewrite_map[dep.source])
+                        **dataclasses.asdict(dep), source=rewrite_map[dep.source]
                     )
         for alias_list in aliases.values():
             for i, name in enumerate(alias_list):
