@@ -58,7 +58,10 @@ def _process_single_response(
         )
 
         tool_name = tool_call["function"]["name"]
-        tool_final_node_name = dagops.instantiate_tool(tool_name, tool_spec_node_name)
+        tool_final_node_name = dagops.instantiate_with_deps(
+            f"tool.{tool_name}",
+            {".tool_input": tool_spec_node_name}
+        )
 
         tool_msg_node_name = dagops.instantiate_with_deps(
             ".toolcall_to_messages",
@@ -72,8 +75,7 @@ def _process_single_response(
     #
     # Re-run the model
     #
-    model_target = runtime.get_plugin("gpt4o")[-1]
-    rerun_node_name = dagops.instantiate_with_deps(model_target, {})
+    rerun_node_name = dagops.instantiate_with_deps(f"model.gpt4o", {})
     dagops.alias(".model_output", rerun_node_name)
 
     return ""

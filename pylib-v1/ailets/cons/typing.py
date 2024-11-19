@@ -101,9 +101,6 @@ class INodeDagops(Protocol):
     def clone_node(self, node_name: str) -> str:
         raise NotImplementedError
 
-    def instantiate_tool(self, tool_name: str, tool_input_node_name: str) -> str:
-        raise NotImplementedError
-
     def instantiate_with_deps(
         self,
         target: str,
@@ -200,11 +197,6 @@ class IEnvironment(Protocol):
         raise NotImplementedError
 
     def get_node_by_base_name(self, base_name: str) -> Node:
-        raise NotImplementedError
-
-    def instantiate_tool(
-        self, nodereg: "INodeRegistry", tool_name: str, tool_input_node_name: str
-    ) -> str:
         raise NotImplementedError
 
     def privates_for_dagops_friend(

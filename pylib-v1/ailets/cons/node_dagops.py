@@ -58,11 +58,6 @@ class NodeDagops(INodeDagops):
     def clone_node(self, node_name: str) -> str:
         return self._env.clone_node(node_name)
 
-    def instantiate_tool(self, tool_name: str, tool_input_node_name: str) -> str:
-        return self._env.instantiate_tool(
-            self._nodereg, tool_name, tool_input_node_name
-        )
-
     def instantiate_with_deps(self, target: str, aliases: dict[str, str]) -> str:
         return instantiate_with_deps(self._env, self._nodereg, target, aliases)
 

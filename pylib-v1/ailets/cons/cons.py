@@ -569,16 +569,6 @@ class Environment(IEnvironment):
                     seen_deps.add(dep_key)
                     yield dep
 
-    def instantiate_tool(
-        self, nodereg: INodeRegistry, tool_name: str, tool_input_node_name: str
-    ) -> str:
-        """Instantiate a tool and return the name of the final node."""
-        tool_nnames = nodereg.get_plugin(f"tool.{tool_name}")
-        final_node_name = instantiate_with_deps(
-            self, nodereg, tool_nnames[-1], {".tool_input": tool_input_node_name}
-        )
-        return final_node_name
-
     def clone_node(self, node_name: str) -> str:
         """Create a copy of an existing node with a new name.
 
