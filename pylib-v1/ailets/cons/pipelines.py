@@ -67,7 +67,7 @@ def toolspecs_to_env(
     env: IEnvironment, nodereg: INodeRegistry, tools: Sequence[str]
 ) -> None:
     for tool in tools:
-        plugin_nodes = nodereg.get_plugin(f"tool.{tool}")
+        plugin_nodes = nodereg.get_plugin(f".tool.{tool}")
         schema = nodereg.get_node(plugin_nodes[0]).inputs[0].schema
         assert schema is not None, f"Tool {tool} has no schema"
 
@@ -134,7 +134,7 @@ def instantiate_with_deps(
     Args:
         env: Environment to add nodes to
         nodereg: Node registry containing node definitions
-        target: Name of target node to instantiate
+        target: Name of target node to instantiate, or a plugin name
         aliases: Map of node names to their aliases, takes precedence in resolution
 
     Returns:
@@ -143,6 +143,10 @@ def instantiate_with_deps(
     Raises:
         RuntimeError: If a dependency cycle is detected
     """
+    # If target is a plugin name, get the last node from the plugin
+    if not nodereg.has_node(target) and nodereg.has_plugin(target):
+        target = nodereg.get_plugin(target)[-1]
+
     resolve = aliases.copy()  # Start with provided aliases
     created_nodes = set()  # Track which nodes we need to set up dependencies for
     visiting: set[str] = set()  # Track nodes being visited for cycle detection

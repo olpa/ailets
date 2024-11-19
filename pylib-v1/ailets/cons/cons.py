@@ -12,8 +12,7 @@ from typing import (
 )
 import json
 
-from ailets.cons.pipelines import instantiate_with_deps
-from ailets.cons.plugin import NodeRegistry
+from .plugin import NodeRegistry
 
 from .typing import Dependency, IEnvironment, INodeRegistry, Node
 from .node_runtime import NodeRuntime

@@ -209,8 +209,14 @@ class IEnvironment(Protocol):
 
 
 class INodeRegistry(Protocol):
-    def get_plugin(self, regname: str) -> Sequence[str]:
+    def has_node(self, name: str) -> bool:
         raise NotImplementedError
 
     def get_node(self, name: str) -> NodeDescFunc:
+        raise NotImplementedError
+
+    def has_plugin(self, regname: str) -> bool:
+        raise NotImplementedError
+
+    def get_plugin(self, regname: str) -> Sequence[str]:
         raise NotImplementedError

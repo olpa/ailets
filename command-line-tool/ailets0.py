@@ -150,13 +150,14 @@ def main():
 
     nodereg = NodeRegistry()
     nodereg.load_plugin("ailets.stdlib", "")
-    nodereg.load_plugin(f"ailets.models.{args.model}", args.model)
+    nodereg.load_plugin(f"ailets.models.{args.model}", f".{args.model}")
     for tool in args.tools:
-        nodereg.load_plugin(f"ailets.tools.{tool}", f"tool.{tool}")
+        nodereg.load_plugin(f"ailets.tools.{tool}", f".tool.{tool}")
 
     if args.load_state:
         with open(args.load_state, "r") as f:
             env = Environment.from_json(f, nodereg)
+        toolspecs_to_env(env, nodereg, args.tools)
         target_node_name = env.get_node_by_base_name(".stdout").name
 
     else:
@@ -169,8 +170,7 @@ def main():
         chat_node_name = instantiate_with_deps(env, nodereg, ".prompt_to_messages", {})
         env.alias(".chat_messages", chat_node_name)
 
-        model_target = nodereg.get_plugin(args.model)[-1]
-        model_node_name = instantiate_with_deps(env, nodereg, model_target, {})
+        model_node_name = instantiate_with_deps(env, nodereg, f".{args.model}", {})
         env.alias(".model_output", model_node_name)
 
         resolve = {

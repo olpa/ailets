@@ -11,6 +11,12 @@ class NodeRegistry(INodeRegistry):
     def get_node(self, name: str) -> NodeDescFunc:
         return self.nodes[name]
 
+    def has_node(self, name: str) -> bool:
+        return name in self.nodes
+
+    def has_plugin(self, regname: str) -> bool:
+        return regname in self.plugin_node_names
+
     def add_node_def(self, node_def: NodeDescFunc) -> None:
         self.nodes[node_def.name] = node_def
 
@@ -27,7 +33,7 @@ class NodeRegistry(INodeRegistry):
             pypackage: Python package path to load plugin from
                 (e.g. "ailets.tools.get_user_name")
             regname: Registration prefix for the plugin's nodes
-                (e.g. "tool.get_user_name")
+                (e.g. ".tool.get_user_name")
 
         Raises:
             ImportError: If module cannot be imported
