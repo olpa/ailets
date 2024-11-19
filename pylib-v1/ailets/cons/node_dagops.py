@@ -195,42 +195,33 @@ class NodeDagops(INodeDagops):
     def expand_alias(self, alias: str) -> Sequence[str]:
         return self._env.expand_alias(alias)
 
-    def invalidate(self, inv_list: Set[str]) -> None:
+    def defunc_nodes(self, inv_list: Set[str]) -> None:
         nodes, aliases = self._env.privates_for_dagops_friend()
 
+        def iter_expand_to_node_names(name: str, seen: Set[str]) -> Iterator[str]:
+            if name in seen:
+                return
+            seen.add(name)
+            
+            if name in aliases:
+                for aliased_name in aliases[name]:
+                    yield from iter_expand_to_node_names(aliased_name, seen)
+            elif name in nodes:
+                yield name
+            else:
+                raise ValueError(f"Unknown name: {name}")
+
+        #
         # Build reverse dependency map
+        #
         nodedeps_reverse: Dict[str, Set[str]] = {}
+
         for node in nodes.values():
-            for dep in self._env.iter_deps(node.name):
-                if dep.source not in nodedeps_reverse:
-                    nodedeps_reverse[dep.source] = set()
-                nodedeps_reverse[dep.source].add(node.name)
-
-        # Build reverse alias map: node -> aliases that point to it
-        aliases_reverse: Dict[str, Set[str]] = {}
-        for alias, alias_list in aliases.items():
-            for aliased in alias_list:
-                if aliased not in aliases_reverse:
-                    aliases_reverse[aliased] = set()
-                aliases_reverse[aliased].add(alias)
-
-        # Create maps to track old->new mappings
-        # Tuple is (new_name, defunc_name)
-        old_to_new_names: Dict[str, Tuple[str, str]] = {}
-
-        # Create queues for processing
-        alias_queue: List[str] = [alias]
-
-        def add_downstream_to_queue(names: Set[str]) -> None:
-            for name in names:
-                if name in old_to_new_names:
-                    continue
-                if name in aliases:
-                    alias_queue.append(name)
-                elif name in nodes:
-                    node_queue2.append(name)
-                else:
-                    raise ValueError(f"Unknown name: {name}")
+            for dep in node.deps:
+                for dep_name in iter_expand_to_node_names(dep.source, set()):
+                    if dep_name not in nodedeps_reverse:
+                        nodedeps_reverse[dep_name] = set()
+                    nodedeps_reverse[dep_name].add(node.name)
 
         def fix_deplist_inplace(deplist: List[str | Dependency]) -> None:
             i = 0
@@ -250,59 +241,10 @@ class NodeDagops(INodeDagops):
                 else:
                     i += 1
 
-        def collect_node(node_name: str) -> None:
-            if node_name in old_to_new_names:
-                return
-
-            defunc_name = f"defunc.{node_name}"
-            new_node_name = self._env.get_next_name(node_name)
-            old_to_new_names[node_name] = (new_node_name, defunc_name)
-
-            node = nodes[node_name]
-            del nodes[node_name]
-            defunc_dep_list = list(node.deps)
-            item_dict = dataclasses.asdict(node)
-            nodes[new_node_name] = Node(**item_dict, name=new_node_name)
-            nodes[defunc_name] = Node(
-                **item_dict, deps=defunc_dep_list, name=defunc_name
-            )
-
-            add_downstream_to_queue(nodedeps_reverse.get(node_name, set()))
-
-        def collect_alias(alias_name: str) -> None:
-            if alias_name in old_to_new_names:
-                return
-
-            defunc_name = f"defunc.{alias_name}"
-            new_alias_name = self._env.get_next_name(alias_name)
-            old_to_new_names[alias_name] = (new_alias_name, defunc_name)
-
-            new_alias_list = aliases[alias_name]
-            del aliases[alias_name]
-            defunc_alias_list = list(new_alias_list)
-            aliases[defunc_name] = defunc_alias_list
-            aliases[new_alias_name] = new_alias_list
-
-            add_downstream_to_queue(aliases_reverse.get(alias_name, set()))
-
         #
-        # Pass 1: Collect affected node
+        # Collect affected node
         #
         affected_nodes: Set[str] = set()
-
-        def iter_expand_to_node_names(name: str, seen: Set[str]) -> Iterator[str]:
-            if name in seen:
-                return
-            seen.add(name)
-            
-            if name in aliases:
-                for aliased_name in aliases[name]:
-                    yield from iter_expand_to_node_names(aliased_name, seen)
-            elif name in nodes:
-                # It's a concrete node
-                yield name
-            else:
-                raise ValueError(f"Unknown name: {name}")
 
         node_queue: Set[str] = set()
         for inv_name in inv_list:
@@ -317,7 +259,6 @@ class NodeDagops(INodeDagops):
                 if next_name not in node_queue and next_name not in affected_nodes: 
                     node_queue.add(next_name)
 
-        #
-        # Pass 1: Collect affected aliased and nodes
-        #
+
+
         raise ValueError("Not implemented")
