@@ -9,6 +9,7 @@ from typing import (
     Optional,
     Protocol,
     Sequence,
+    Set,
     Tuple,
 )
 from .streams import Stream
@@ -88,6 +89,9 @@ class INodeDagops(Protocol):
         raise NotImplementedError
 
     def clone_path(self, begin: str, end: str) -> BeginEnd:
+        raise NotImplementedError
+
+    def get_downstream(self, node_name: str) -> Set[str]:
         raise NotImplementedError
 
     def add_typed_value_node(
