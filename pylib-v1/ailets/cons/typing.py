@@ -6,10 +6,12 @@ from typing import (
     Dict,
     Iterator,
     List,
+    Literal,
     Optional,
     Protocol,
     Sequence,
     Tuple,
+    Union,
 )
 from .streams import Stream
 
@@ -175,3 +177,90 @@ class INodeRegistry(Protocol):
 
     def get_plugin(self, regname: str) -> Sequence[str]:
         raise NotImplementedError
+
+
+#
+#
+#
+
+ChatMessageContentPlainText = str
+
+
+@dataclass(frozen=True)
+class ChatMessageContentText:
+    type: Literal["text"]
+    text: str
+
+
+@dataclass(frozen=True)
+class ChatMessageContentImageUrl:
+    type: Literal["image_url"]
+    image_url: dict[Literal["url", "detail"], str]
+
+
+@dataclass(frozen=True)
+class ChatMessageContentInputAudio:
+    type: Literal["input_audio"]
+    input_audio: dict[Literal["data", "format"], str]
+
+
+@dataclass(frozen=True)
+class ChatMessageContentRefusal:
+    type: Literal["refusal"]
+    refusal: str
+
+
+@dataclass(frozen=True)
+class ChatAssistantToolCall:
+    id: str
+    type: Literal["function"]
+    function: dict[Literal["name", "arguments"], str]
+
+
+ChatMessageContent = Union[
+    str,
+    list[
+        Union[
+            ChatMessageContentPlainText,
+            ChatMessageContentText,
+            ChatMessageContentImageUrl,
+            ChatMessageContentInputAudio,
+            ChatMessageContentRefusal,
+        ]
+    ],
+]
+
+
+@dataclass(frozen=True)
+class ChatMessageSystem:
+    role: Literal["system"]
+    content: str
+
+
+@dataclass(frozen=True)
+class ChatMessageUser:
+    role: Literal["user"]
+    content: ChatMessageContent
+
+
+@dataclass(frozen=True)
+class ChatMessageAssistant:
+    role: Literal["assistant"]
+    content: Optional[ChatMessageContent] = None
+    refusal: Optional[str] = None
+    tool_calls: Optional[Sequence[ChatAssistantToolCall]] = None
+
+
+@dataclass(frozen=True)
+class ChatMessageToolCall:
+    role: Literal["tool"]
+    tool_call_id: str
+    content: Sequence[ChatMessageContent]
+
+
+ChatMessage = Union[
+    ChatMessageSystem,
+    ChatMessageUser,
+    ChatMessageAssistant,
+    ChatMessageToolCall,
+]
