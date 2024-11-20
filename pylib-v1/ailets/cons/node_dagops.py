@@ -19,22 +19,6 @@ class NodeDagops(INodeDagops):
         self._nodereg = nodereg
         self._node = node
 
-    def get_downstream(self, node_name: str) -> Set[str]:
-        downstream: Set[str] = set()
-        nodes, aliases = self._env.privates_for_dagops_friend()
-
-        node_names = {node_name}
-        for alias, alias_list in aliases.items():
-            if node_name in alias_list:
-                node_names.add(alias)
-
-        for node in nodes.values():
-            for dep in node.deps:
-                if dep.source in node_names:
-                    downstream.add(node.name)
-
-        return downstream
-
     def add_typed_value_node(
         self, value: str, value_type: str, explain: Optional[str] = None
     ) -> str:
