@@ -21,11 +21,11 @@ query = NodeDesc(
     alias_of=".query",
 )
 
-response_to_markdown = NodeDesc(
-    name="response_to_markdown",
+response_to_image = NodeDesc(
+    name="response_to_image",
     inputs=[
         Dependency(source="query"),
     ],
 )
 
-nodes = [messages_to_query, credentials, query, response_to_markdown] 
+nodes = [messages_to_query, credentials, query, response_to_image] 

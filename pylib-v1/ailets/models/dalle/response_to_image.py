@@ -2,8 +2,8 @@ import json
 from ailets.cons.typing import INodeRuntime
 
 
-def response_to_markdown(runtime: INodeRuntime) -> None:
-    """Convert DALL-E response to markdown format with image."""
+def response_to_image(runtime: INodeRuntime) -> None:
+    """Convert DALL-E response to image."""
 
     output = runtime.open_write(None)
 

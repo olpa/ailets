@@ -146,7 +146,7 @@ def get_prompt(prompt_args: list[str]) -> list[Union[str, Tuple[str, str]]]:
 
 def main():
     args = parse_args()
-    assert args.model == "gpt4o", "At the moment, only gpt4o is supported"
+    assert args.model in ["gpt4o", "dalle"], "At the moment, only gpt4o and dalle are supported"
 
     nodereg = NodeRegistry()
     nodereg.load_plugin("ailets.stdlib", "")
