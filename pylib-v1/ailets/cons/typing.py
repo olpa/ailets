@@ -126,8 +126,8 @@ class IEnvironment(Protocol):
     def close_stream(self, stream: Stream) -> None:
         raise NotImplementedError
 
-    def get_tool(self, name: str) -> tuple[Callable, Callable]:
-        raise NotImplementedError
+    def has_node(self, node_name: str) -> bool:
+        return node_name in self.nodes or node_name in self._aliases
 
     def add_node(
         self,
@@ -138,16 +138,10 @@ class IEnvironment(Protocol):
     ) -> Node:
         raise NotImplementedError
 
-    def has_node(self, node_name: str) -> bool:
-        raise NotImplementedError
-
     def is_node_ever_started(self, node_name: str) -> bool:
         raise NotImplementedError
 
     def alias(self, alias: str, node_name: Optional[str]) -> None:
-        raise NotImplementedError
-
-    def expand_alias(self, alias: str) -> Sequence[str]:
         raise NotImplementedError
 
     def add_typed_value_node(
@@ -155,22 +149,10 @@ class IEnvironment(Protocol):
     ) -> Node:
         raise NotImplementedError
 
-    def get_node(self, name: str) -> Node:
-        raise NotImplementedError
-
-    def clone_node(self, node_name: str) -> str:
-        raise NotImplementedError
-
-    def get_nodes(self) -> Sequence[Node]:
-        raise NotImplementedError
-
     def iter_deps(self, node_name: str) -> Iterator[Dependency]:
         raise NotImplementedError
 
     def depend(self, target: str, deps: Sequence[Dependency]) -> None:
-        raise NotImplementedError
-
-    def get_node_by_base_name(self, base_name: str) -> Node:
         raise NotImplementedError
 
     def privates_for_dagops_friend(

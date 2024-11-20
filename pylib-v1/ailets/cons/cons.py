@@ -67,35 +67,15 @@ class Environment(IEnvironment):
                 return next(iter(aliases))
         return name
 
+    def has_node(self, node_name: str) -> bool:
+        return node_name in self.nodes or node_name in self._aliases
+
     def get_node(self, name: str) -> Node:
         """Get a node by name. Does not build."""
         name = self._resolve_alias(name)
         if name not in self.nodes:
             raise KeyError(f"Node {name} not found")
         return self.nodes[name]
-
-    def has_node(self, node_name: str) -> bool:
-        return node_name in self.nodes or node_name in self._aliases
-
-    def get_nodes(self) -> Sequence[Node]:
-        return list(self.nodes.values())
-
-    def get_node_by_base_name(self, base_name: str) -> Node:
-        """Get a node by its base name (without the numeric suffix).
-
-        Args:
-            base_name: Name of node without the numeric suffix
-
-        Returns:
-            The node with the given base name
-
-        Raises:
-            KeyError: If no node with the given base name exists
-        """
-        for name, node in self.nodes.items():
-            if to_basename(name) == base_name:
-                return node
-        raise KeyError(f"No node found with base name {base_name}")
 
     def depend(self, target: str, deps: Sequence[Dependency]) -> None:
         """Add dependencies to a node.
@@ -520,12 +500,6 @@ class Environment(IEnvironment):
 
         return {self.nodes[name] for name in self._aliases[alias]}
 
-    def expand_alias(self, alias: str) -> Sequence[str]:
-        """Expand an alias to its associated nodes."""
-        if alias not in self._aliases:
-            return []
-        return list(self._aliases[alias])
-
     def iter_deps(self, name: str) -> Iterator[Dependency]:
         """Iterate through dependencies of a node, resolving alias dependencies.
 
@@ -567,28 +541,6 @@ class Environment(IEnvironment):
                 if dep_key not in seen_deps:
                     seen_deps.add(dep_key)
                     yield dep
-
-    def clone_node(self, node_name: str) -> str:
-        """Create a copy of an existing node with a new name.
-
-        Args:
-            node_name: Name of the node to clone
-
-        Returns:
-            The newly created clone node
-
-        Raises:
-            KeyError: If source node doesn't exist
-        """
-        source_node = self.get_node(node_name)
-        base_name = to_basename(node_name)
-
-        return self.add_node(
-            name=base_name,
-            func=source_node.func,
-            deps=list(source_node.deps),  # Create new list to avoid sharing
-            explain=source_node.explain,
-        ).name
 
     def get_next_name(self, full_name: str) -> str:
         """Get the next name in the sequence."""
