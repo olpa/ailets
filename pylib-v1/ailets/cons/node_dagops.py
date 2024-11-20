@@ -1,11 +1,9 @@
 import dataclasses
-from typing import Iterator, Optional, Sequence, Dict, Set
+from typing import Optional
 
 from ailets.cons.pipelines import instantiate_with_deps
 
-from .util import to_basename
 from .typing import (
-    Dependency,
     IEnvironment,
     INodeDagops,
     INodeRegistry,

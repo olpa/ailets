@@ -9,7 +9,6 @@ from typing import (
     Optional,
     Protocol,
     Sequence,
-    Set,
     Tuple,
 )
 from .streams import Stream
@@ -127,7 +126,7 @@ class IEnvironment(Protocol):
         raise NotImplementedError
 
     def has_node(self, node_name: str) -> bool:
-        return node_name in self.nodes or node_name in self._aliases
+        raise NotImplementedError
 
     def add_node(
         self,
