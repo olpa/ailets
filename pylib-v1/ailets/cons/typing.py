@@ -84,17 +84,6 @@ class INodeDagops(Protocol):
     ) -> str:
         raise NotImplementedError
 
-    def add_node(
-        self,
-        name: str,
-        deps: Optional[Sequence[Dependency]] = None,
-        explain: Optional[str] = None,
-    ) -> str:
-        raise NotImplementedError
-
-    def clone_node(self, node_name: str) -> str:
-        raise NotImplementedError
-
     def instantiate_with_deps(
         self,
         target: str,

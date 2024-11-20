@@ -25,20 +25,6 @@ class NodeDagops(INodeDagops):
         node = self._env.add_typed_value_node(value, value_type, explain)
         return node.name
 
-    def add_node(
-        self,
-        name: str,
-        deps: Optional[Sequence[Dependency]] = None,
-        explain: Optional[str] = None,
-    ) -> str:
-        basename = to_basename(name)
-        existing_node = self._env.get_node_by_base_name(basename)
-        node = self._env.add_node(name, existing_node.func, deps, explain)
-        return node.name
-
-    def clone_node(self, node_name: str) -> str:
-        return self._env.clone_node(node_name)
-
     def instantiate_with_deps(self, target: str, aliases: dict[str, str]) -> str:
         return instantiate_with_deps(self._env, self._nodereg, target, aliases)
 
