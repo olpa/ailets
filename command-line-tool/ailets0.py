@@ -129,6 +129,8 @@ def get_prompt(prompt_args: list[str]) -> list[Union[str, Tuple[str, str]]]:
                 file_content = f.read()
             content = (
                 f"data:image/jpeg;base64,{base64.b64encode(file_content).decode()}"
+                if content_type == "image_url"
+                else file_content.decode()
             )
 
         supported_content_types = ["text", "image_url"]
@@ -146,7 +148,10 @@ def get_prompt(prompt_args: list[str]) -> list[Union[str, Tuple[str, str]]]:
 
 def main():
     args = parse_args()
-    assert args.model in ["gpt4o", "dalle"], "At the moment, only gpt4o and dalle are supported"
+    assert args.model in [
+        "gpt4o",
+        "dalle",
+    ], "At the moment, only gpt4o and dalle are supported"
 
     nodereg = NodeRegistry()
     nodereg.load_plugin("ailets.stdlib", "")
