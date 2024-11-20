@@ -48,6 +48,3 @@ class NodeRuntime(INodeRuntime):
 
     def dagops(self) -> INodeDagops:
         return NodeDagops(self._env, self._nodereg, self)
-
-    def get_plugin(self, regname: str) -> Sequence[str]:
-        return self._nodereg.get_plugin(regname)

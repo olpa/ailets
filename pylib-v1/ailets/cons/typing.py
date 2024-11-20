@@ -108,9 +108,6 @@ class INodeRuntime(Protocol):
     def close_write(self, stream_name: Optional[str]) -> None:
         raise NotImplementedError
 
-    def get_plugin(self, regname: str) -> Sequence[str]:
-        raise NotImplementedError
-
     def dagops(self) -> INodeDagops:
         raise NotImplementedError
 
