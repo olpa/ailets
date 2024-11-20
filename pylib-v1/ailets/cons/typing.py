@@ -76,9 +76,6 @@ class INodeDagops(Protocol):
     def alias(self, alias: str, node_name: Optional[str]) -> None:
         raise NotImplementedError
 
-    def expand_alias(self, alias: str) -> Sequence[str]:
-        raise NotImplementedError
-
     def add_typed_value_node(
         self, value: str, value_type: str, explain: Optional[str] = None
     ) -> str:
@@ -89,9 +86,6 @@ class INodeDagops(Protocol):
         target: str,
         aliases: dict[str, str],
     ) -> str:
-        raise NotImplementedError
-
-    def defunc_downstream(self, upstream_node_name: str, fence: Set[str]) -> None:
         raise NotImplementedError
 
     def detach_from_alias(self, alias: str) -> None:
