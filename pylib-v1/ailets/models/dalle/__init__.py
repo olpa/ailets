@@ -28,4 +28,4 @@ response_to_image = NodeDesc(
     ],
 )
 
-nodes = [messages_to_query, credentials, query, response_to_image] 
+nodes = [messages_to_query, credentials, query, response_to_image]

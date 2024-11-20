@@ -9,4 +9,4 @@ def credentials(runtime: INodeRuntime) -> None:
 
     output = runtime.open_write(None)
     output.write(json.dumps(value))
-    runtime.close_write(None) 
+    runtime.close_write(None)

@@ -8,7 +8,7 @@ headers = {"Content-type": "application/json"}
 
 def messages_to_query(runtime: INodeRuntime) -> None:
     """Convert prompt message into a DALL-E query."""
-    
+
     messages = []
     for i in range(runtime.n_of_streams(None)):
         stream = runtime.open_read(None, i)
@@ -36,14 +36,9 @@ def messages_to_query(runtime: INodeRuntime) -> None:
             **headers,
             **creds,
         },
-        "body": {
-            "model": "dall-e-3",
-            "prompt": prompt,
-            "n": 1,
-            "size": "1024x1024"
-        },
+        "body": {"model": "dall-e-3", "prompt": prompt, "n": 1, "size": "1024x1024"},
     }
 
     output = runtime.open_write(None)
     output.write(json.dumps(value))
-    runtime.close_write(None) 
+    runtime.close_write(None)
