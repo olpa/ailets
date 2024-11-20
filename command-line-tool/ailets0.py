@@ -157,7 +157,6 @@ def main():
     if args.load_state:
         with open(args.load_state, "r") as f:
             env = Environment.from_json(f, nodereg)
-        toolspecs_to_env(env, nodereg, args.tools)
         target_node_name = next(
             node_name
             for node_name in env.nodes.keys()
