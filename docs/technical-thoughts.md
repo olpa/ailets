@@ -29,20 +29,22 @@ When using LLMs with tools, the workflow is no longer a straight pipeline. Inste
 A sample dependency tree for a simple request to an LLM is shown below:
 
 ```
-├── stdout.7 [⋯ not built]
-│   ├── response_to_markdown.6 [⋯ not built]
-│   │   ├── query.5 [⋯ not built]
-│   │   │   ├── messages_to_query.4 [⋯ not built]
-│   │   │   │   ├── prompt_to_messages.2 [⋯ not built]
-│   │   │   │   │   ├── value.1 [✓ built] (Initial prompt)
+├── .stdout.7 [⋯ not built]
+│   ├── .gpt4o.response_to_markdown.6 [⋯ not built]
+│   │   ├── .query.5 [⋯ not built]
+│   │   │   ├── .gpt4o.messages_to_query.4 [⋯ not built]
+│   │   │   │   ├── .prompt_to_messages.2 [⋯ not built]
+│   │   │   │   │   ├── typed_value.1 [✓ built] (Prompt)
+│   │   │   │   │   ├── (param: type)
+│   │   │   │   │   │   ├── typed_value.1.type [✓ built] (Prompt)
 │   │   │   │   ├── (param: credentials)
-│   │   │   │   │   ├── credentials.3 [⋯ not built]
+│   │   │   │   │   ├── .gpt4o.credentials.3 [⋯ not built]
 ```
 
 The steps proceed outward from the innermost part of the tree.
 
-- `prompt_to_messages` converts a user prompt from `value.1` to an LLM JSON object.
-- Concurrently, `credentials.3` retrieves an API key.
+- `prompt_to_messages` converts a user prompt from `typed_value.1` to an LLM JSON object.
+- Concurrently, `credentials.3` generates credentials.
 - Then, `messages_to_query.4` combines the user message and the credentials into an HTTP request specification.
 - `query.5` executes the HTTP request.
 - `response_to_markdown.6`
@@ -51,54 +53,59 @@ The steps proceed outward from the innermost part of the tree.
 Below is another dependency tree, for the use of llm with tools. The tree is taken just before executing `response_to_markdown` step.
 
 ```
-├── stdout.8 [⋯ not built]
-│   ├── response_to_markdown.7 [⋯ not built]
-│   │   ├── query.6 [✓ built]
-│   │   │   ├── messages_to_query.5 [✓ built]
-│   │   │   │   ├── prompt_to_messages.3 [✓ built]
-│   │   │   │   │   ├── value.2 [✓ built] (Initial prompt)
+├── .stdout.8 [⋯ not built]
+│   ├── .gpt4o.response_to_markdown.7 [⋯ not built]
+│   │   ├── .query.6 [✓ built]
+│   │   │   ├── .gpt4o.messages_to_query.5 [✓ built]
+│   │   │   │   ├── .prompt_to_messages.3 [✓ built]
+│   │   │   │   │   ├── typed_value.1 [✓ built] (Prompt)
+│   │   │   │   │   ├── (param: type)
+│   │   │   │   │   │   ├── typed_value.1.type [✓ built] (Prompt)
 │   │   │   │   ├── (param: credentials)
-│   │   │   │   │   ├── credentials.4 [✓ built]
+│   │   │   │   │   ├── .gpt4o.credentials.4 [✓ built]
 │   │   │   │   ├── (param: toolspecs)
-│   │   │   │   │   ├── tool/get_user_name/spec.1 [✓ built]
+│   │   │   │   │   ├── typed_value.2 [✓ built] (Tool spec get_user_name)
 ```
 
-The tree structure is similar to one used in basic LLMs. The additions are:
+The tree structure is similar to one used in basic LLMs. The addition is:
 
-- the `tool/get_user_name/spec` node
 - the `toolspecs` parameter of the `messages_to_query` function
 
 When processing the result of `query`, the `response_to_markdown` step will detect that the language model hasn't generated content but instead intends to use a tool. At this point, the step stops to act as an agent and communicates with the orchestrator to construct a new dependency tree.
 
 ```
-├── stdout.8 [⋯ not built]
-│   ├── response_to_markdown.7 [✓ built]
-│   │   ├── query.6 [✓ built]
-│   │   │   ├── messages_to_query.5 [✓ built]
-│   │   │   │   ├── prompt_to_messages.3 [✓ built]
-│   │   │   │   │   ├── value.2 [✓ built] (Initial prompt)
+├── .stdout.8 [⋯ not built]
+│   ├── .gpt4o.response_to_markdown.7 [✓ built]
+│   │   ├── .query.6 [✓ built]
+│   │   │   ├── .gpt4o.messages_to_query.5 [✓ built]
+│   │   │   │   ├── .prompt_to_messages.3 [✓ built]
+│   │   │   │   │   ├── typed_value.1 [✓ built] (Prompt)
+│   │   │   │   │   ├── (param: type)
+│   │   │   │   │   │   ├── typed_value.1.type [✓ built] (Prompt)
 │   │   │   │   ├── (param: credentials)
-│   │   │   │   │   ├── credentials.4 [✓ built]
+│   │   │   │   │   ├── .gpt4o.credentials.4 [✓ built]
 │   │   │   │   ├── (param: toolspecs)
-│   │   │   │   │   ├── tool/get_user_name/spec.1 [✓ built]
-│   ├── response_to_markdown.14 [⋯ not built]
-│   │   ├── query.12 [⋯ not built]
-│   │   │   ├── messages_to_query.11 [⋯ not built]
-│   │   │   │   ├── prompt_to_messages.3 [✓ built]
-│   │   │   │   │   ├── value.2 [✓ built] (Initial prompt)
-│   │   │   │   ├── value.15 [✓ built] (Feed "tool_calls" from output to input)
-│   │   │   │   ├── toolcall_to_messages.18 [⋯ not built]
-│   │   │   │   │   ├── tool/get_user_name/call.17 [⋯ not built]
-│   │   │   │   │   │   ├── value.16 [⋯ not built] (Tool call spec from llm)
-│   │   │   │   │   ├── (param: llm_spec)
-│   │   │   │   │   │   ├── value.16 [⋯ not built] (Tool call spec from llm)
+│   │   │   │   │   ├── typed_value.2 [✓ built] (Tool spec get_user_name)
+│   ├── .gpt4o.response_to_markdown.18 [⋯ not built]
+│   │   ├── .query.17 [⋯ not built]
+│   │   │   ├── .gpt4o.messages_to_query.16 [⋯ not built]
+│   │   │   │   ├── .prompt_to_messages.3 [✓ built]
+│   │   │   │   │   ├── typed_value.1 [✓ built] (Prompt)
+│   │   │   │   │   ├── (param: type)
+│   │   │   │   │   │   ├── typed_value.1.type [✓ built] (Prompt)
+│   │   │   │   ├── typed_value.11 [✓ built] (Feed "tool_calls" from output to input)
+│   │   │   │   ├── .toolcall_to_messages.14 [⋯ not built]
+│   │   │   │   │   ├── .tool.get_user_name.call.13 [⋯ not built]
+│   │   │   │   │   │   ├── typed_value.12 [✓ built] (Tool call spec from llm)
+│   │   │   │   │   ├── (param: llm_tool_spec)
+│   │   │   │   │   │   ├── typed_value.12 [✓ built] (Tool call spec from llm)
 │   │   │   │   ├── (param: credentials)
-│   │   │   │   │   ├── credentials.4 [✓ built]
+│   │   │   │   │   ├── .gpt4o.credentials.15 [⋯ not built]
 │   │   │   │   ├── (param: toolspecs)
-│   │   │   │   │   ├── tool/get_user_name/spec.1 [✓ built]
+│   │   │   │   │   ├── typed_value.2 [✓ built] (Tool spec get_user_name)
 ```
 
-The path to `response_to_markdown` is cloned and extended to call the tools before calling the llm.
+The tree is updated, and the model will be called again with the results of the tool.
 
 
 ## Streaming and orchestration
@@ -180,7 +187,15 @@ As seen in POSIX.
 
 ### Communication with the orchestrator
 
-To be defined after collecting experience
+Based on the experience developing a tool for gpt4o, the following functions were sufficient:
+
+- `add_typed_value_node(value: str, value_type: str, explain: Optional[str])`: Creates a new value node.
+
+- `instantiate_with_deps(target: str, aliases: dict[str, str])`: Creates a new instance of a plugin (either a tool or a model).
+
+- `alias(alias: str, node_name: Optional[str])`: Creates or updates an alias pointing to a node.
+
+- `detach_from_alias(alias: str)`: Freezes the dependencies of nodes associated with the alias, preventing them from being affected by subsequent changes to the alias.
 
 
 ## Content types

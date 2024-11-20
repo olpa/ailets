@@ -1,17 +1,18 @@
+from dataclasses import dataclass
 import json
-from ailets.cons.typing import Dependency, INodeRuntime
+from typing import Optional, Set
+from ailets.cons.typing import INodeRuntime
 
 
-def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
-    """Process a single response and convert it to markdown.
+@dataclass
+class InvalidationFlag:
+    is_invalidated: bool
+    fence: Optional[Set[str]] = None
 
-    Args:
-        runtime: The node runtime environment
-        response: The response JSON from the API
 
-    Returns:
-        dict: The processed response as a JSON object
-    """
+def _process_single_response(
+    runtime: INodeRuntime, response: dict, invalidation_flag_rw: InvalidationFlag
+) -> str:
     message = response["choices"][0]["message"]
     content = message.get("content")
     tool_calls = message.get("tool_calls")
@@ -23,14 +24,13 @@ def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
         return content
 
     #
-    # Tool calls: call them and repeat the loop
+    # Tool calls
     #
 
     dagops = runtime.dagops()
-    loop_begin = dagops.get_upstream_node("gpt4o.messages_to_query")
-    print(f"loop_begin: {dagops._env.get_node(loop_begin)}")  # FIXME
-    #loop_begin = dagops.clone_node(loop_begin)
-
+    if not invalidation_flag_rw.is_invalidated:
+        invalidation_flag_rw.is_invalidated = True
+        dagops.detach_from_alias(".chat_messages")
     #
     # Put "tool_calls" to the "chat history"
     #
@@ -45,14 +45,10 @@ def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
         "",
         explain='Feed "tool_calls" from output to input',
     )
-    #dagops.depend(loop_begin, [Dependency(source=idref_node)])
-    dagops._env.alias(".chat_messages", idref_node)
-
-    runtime._env.print_dependency_tree(".stdout.8")  # FIXME
-
+    dagops.alias(".chat_messages", idref_node)
 
     #
-    # Instantiate tools, run and connect them to the "chat history"
+    # Instantiate tools and connect them to the "chat history"
     #
     for tool_call in tool_calls:
         tool_spec_node_name = dagops.add_typed_value_node(
@@ -60,7 +56,9 @@ def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
         )
 
         tool_name = tool_call["function"]["name"]
-        tool_final_node_name = dagops.instantiate_tool(tool_name, tool_spec_node_name)
+        tool_final_node_name = dagops.instantiate_with_deps(
+            f".tool.{tool_name}", {".tool_input": tool_spec_node_name}
+        )
 
         tool_msg_node_name = dagops.instantiate_with_deps(
             ".toolcall_to_messages",
@@ -69,10 +67,13 @@ def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
                 ".tool_output": tool_final_node_name,
             },
         )
+        dagops.alias(".chat_messages", tool_msg_node_name)
 
-        dagops.depend(loop_begin, [Dependency(source=tool_msg_node_name)])
-
-    #runtime._env.print_dependency_tree(".stdout.8")  # FIXME
+    #
+    # Re-run the model
+    #
+    rerun_node_name = dagops.instantiate_with_deps(".gpt4o", {})
+    dagops.alias(".model_output", rerun_node_name)
 
     return ""
 
@@ -80,14 +81,16 @@ def _process_single_response(runtime: INodeRuntime, response: dict) -> str:
 def response_to_markdown(runtime: INodeRuntime) -> None:
     """Convert multiple responses to markdown format."""
 
-    results = []
+    output = runtime.open_write(None)
+
+    invalidation_flag = InvalidationFlag(is_invalidated=False)
+
     for i in range(runtime.n_of_streams(None)):
         response = json.loads(runtime.open_read(None, i).read())
-        result = _process_single_response(runtime, response)
-        if result:  # Only add non-empty results
-            results.append(result)
+        result = _process_single_response(runtime, response, invalidation_flag)
+        if result:  # Only write non-empty results
+            if i > 0:
+                output.write("\n\n")
+            output.write(result)
 
-    value = "\n\n".join(results)
-    output = runtime.open_write(None)
-    output.write(value)
     runtime.close_write(None)

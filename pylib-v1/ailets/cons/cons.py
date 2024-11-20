@@ -12,8 +12,7 @@ from typing import (
 )
 import json
 
-from ailets.cons.pipelines import instantiate_with_deps
-from ailets.cons.plugin import NodeRegistry
+from .plugin import NodeRegistry
 
 from .typing import Dependency, IEnvironment, INodeRegistry, Node
 from .node_runtime import NodeRuntime
@@ -27,7 +26,14 @@ class Environment(IEnvironment):
         self._node_counter: int = 0
         self._streams: Streams = Streams()
         self._next_id = 1
-        self._aliases: Dict[str, Set[str]] = {}
+        self._aliases: Dict[str, List[str]] = {}
+        self._ever_started: Set[str] = set()
+
+    def privates_for_dagops_friend(
+        self,
+    ) -> Tuple[Dict[str, Node], Dict[str, List[str]]]:
+        """Return private nodes and aliases for NodeDagops friend class."""
+        return self.nodes, self._aliases
 
     def add_node(
         self,
@@ -61,35 +67,15 @@ class Environment(IEnvironment):
                 return next(iter(aliases))
         return name
 
+    def has_node(self, node_name: str) -> bool:
+        return node_name in self.nodes or node_name in self._aliases
+
     def get_node(self, name: str) -> Node:
         """Get a node by name. Does not build."""
         name = self._resolve_alias(name)
         if name not in self.nodes:
             raise KeyError(f"Node {name} not found")
         return self.nodes[name]
-
-    def has_node(self, node_name: str) -> bool:
-        return node_name in self.nodes or node_name in self._aliases
-
-    def get_nodes(self) -> Sequence[Node]:
-        return list(self.nodes.values())
-
-    def get_node_by_base_name(self, base_name: str) -> Node:
-        """Get a node by its base name (without the numeric suffix).
-
-        Args:
-            base_name: Name of node without the numeric suffix
-
-        Returns:
-            The node with the given base name
-
-        Raises:
-            KeyError: If no node with the given base name exists
-        """
-        for name, node in self.nodes.items():
-            if to_basename(name) == base_name:
-                return node
-        raise KeyError(f"No node found with base name {base_name}")
 
     def depend(self, target: str, deps: Sequence[Dependency]) -> None:
         """Add dependencies to a node.
@@ -98,6 +84,10 @@ class Environment(IEnvironment):
             target: Name of node to add dependencies to
             deps: Dependencies to add
         """
+        if target in self._aliases:
+            self._aliases[target].extend(dep.source for dep in deps)
+            return
+
         node = self.get_node(target)
         self.nodes[target] = Node(
             name=node.name,
@@ -108,6 +98,7 @@ class Environment(IEnvironment):
 
     def build_node_alone(self, nodereg: INodeRegistry, name: str) -> None:
         """Build a node. Does not build its dependencies."""
+        self._ever_started.add(name)
         node = self.get_node(name)
 
         in_streams: Dict[Optional[str], List[Stream]] = {}
@@ -262,11 +253,14 @@ class Environment(IEnvironment):
             visited = set()
 
         node = self.get_node(node_name)
-        status = (
-            "\033[32m✓ built\033[0m"
-            if self.is_node_built(node_name)
-            else "\033[33m⋯ not built\033[0m"
-        )
+        if node_name.startswith("defunc."):
+            status = "\033[90mdefunc\033[0m"
+        else:
+            status = (
+                "\033[32m✓ built\033[0m"
+                if self.is_node_built(node_name)
+                else "\033[33m⋯ not built\033[0m"
+            )
 
         # Print current node with explanation if it exists
         display_name = node.name
@@ -325,6 +319,8 @@ class Environment(IEnvironment):
         # Try to get function from map, if not found and name has a number suffix,
         # try without the suffix
         base_name = to_basename(name)
+        if base_name.startswith("defunc."):
+            base_name = base_name[7:]
         if base_name == "typed_value":
             # Special case for typed value nodes
             def func(_): ...  # Dummy function since real value is in streams
@@ -426,12 +422,16 @@ class Environment(IEnvironment):
                 elif "is_finished" in obj_data:
                     env._streams.add_stream_from_json(obj_data)
                 elif "alias" in obj_data:
-                    env._aliases[obj_data["alias"]] = set(obj_data["names"])
+                    env._aliases[obj_data["alias"]] = obj_data["names"]
                 else:
                     raise ValueError(f"Unknown object data: {obj_data}")
             except json.JSONDecodeError as e:
                 print(f"Error decoding JSON at position {pos}: {e}")
                 raise
+
+        for node_name in env.nodes.keys():
+            if env.is_node_built(node_name):
+                env._ever_started.add(node_name)
 
         return env
 
@@ -456,6 +456,10 @@ class Environment(IEnvironment):
             if stream.node_name == node_name
         )
 
+    def is_node_ever_started(self, node_name: str) -> bool:
+        """Check if a node has ever been started."""
+        return node_name in self._ever_started
+
     def alias(self, alias: str, node_name: Optional[str]) -> None:
         """Associate an alias with a node.
 
@@ -468,7 +472,7 @@ class Environment(IEnvironment):
         """
         if node_name is None:
             if alias not in self._aliases:
-                self._aliases[alias] = set()
+                self._aliases[alias] = []
             return
 
         # Verify node exists
@@ -477,9 +481,9 @@ class Environment(IEnvironment):
 
         # Create or update alias
         if alias not in self._aliases:
-            self._aliases[alias] = {node_name}
+            self._aliases[alias] = [node_name]
         else:
-            self._aliases[alias].add(node_name)
+            self._aliases[alias].append(node_name)
 
     def get_nodes_by_alias(self, alias: str) -> Set[Node]:
         """Get all nodes associated with an alias.
@@ -506,44 +510,40 @@ class Environment(IEnvironment):
             Dependencies of the node, with alias dependencies resolved to concrete nodes
         """
         node = self.get_node(name)
+        seen_deps = set()  # Track seen dependencies to avoid duplicates
+
         for dep in node.deps:
             # If dependency source is an alias, yield a dependency for each aliased node
             if dep.source in self._aliases:
-                for aliased_node_name in self._aliases[dep.source]:
-                    yield Dependency(
-                        source=aliased_node_name, name=dep.name, stream=dep.stream
-                    )
+                # Recursively expand aliases
+                def expand_alias_deps(
+                    alias_name: str, seen_aliases: Set[str]
+                ) -> Iterator[str]:
+                    if alias_name in seen_aliases:
+                        return  # Prevent infinite recursion
+                    seen_aliases.add(alias_name)
+
+                    for aliased_name in self._aliases[alias_name]:
+                        if aliased_name in self._aliases:
+                            yield from expand_alias_deps(aliased_name, seen_aliases)
+                        else:
+                            yield aliased_name
+
+                for aliased_node_name in expand_alias_deps(dep.source, set()):
+                    dep_key = (aliased_node_name, dep.name, dep.stream)
+                    if dep_key not in seen_deps:
+                        seen_deps.add(dep_key)
+                        yield Dependency(
+                            source=aliased_node_name, name=dep.name, stream=dep.stream
+                        )
             else:
-                yield dep
+                dep_key = (dep.source, dep.name, dep.stream)
+                if dep_key not in seen_deps:
+                    seen_deps.add(dep_key)
+                    yield dep
 
-    def instantiate_tool(
-        self, nodereg: INodeRegistry, tool_name: str, tool_input_node_name: str
-    ) -> str:
-        """Instantiate a tool and return the name of the final node."""
-        tool_nnames = nodereg.get_plugin(f"tool.{tool_name}")
-        final_node_name = instantiate_with_deps(
-            self, nodereg, tool_nnames[-1], {".tool_input": tool_input_node_name}
-        )
-        return final_node_name
-
-    def clone_node(self, node_name: str) -> str:
-        """Create a copy of an existing node with a new name.
-
-        Args:
-            node_name: Name of the node to clone
-
-        Returns:
-            The newly created clone node
-
-        Raises:
-            KeyError: If source node doesn't exist
-        """
-        source_node = self.get_node(node_name)
-        base_name = to_basename(node_name)
-
-        return self.add_node(
-            name=base_name,
-            func=source_node.func,
-            deps=list(source_node.deps),  # Create new list to avoid sharing
-            explain=source_node.explain,
-        ).name
+    def get_next_name(self, full_name: str) -> str:
+        """Get the next name in the sequence."""
+        self._node_counter += 1
+        another_name = f"{to_basename(full_name)}.{self._node_counter}"
+        return another_name

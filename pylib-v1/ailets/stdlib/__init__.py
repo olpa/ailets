@@ -16,11 +16,6 @@ toolcall_to_messages = NodeDesc(
     ],
 )
 
-credentials = NodeDesc(
-    name="credentials",
-    inputs=[],
-)
-
 query = NodeDesc(
     name="query",
     inputs=[
@@ -35,4 +30,4 @@ stdout = NodeDesc(
     ],
 )
 
-nodes = [prompt_to_messages, toolcall_to_messages, credentials, query, stdout]
+nodes = [prompt_to_messages, toolcall_to_messages, query, stdout]
