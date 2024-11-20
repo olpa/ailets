@@ -13,6 +13,8 @@ from typing import (
     Tuple,
     Union,
 )
+
+from dataclasses_json import dataclass_json
 from .streams import Stream
 
 
@@ -186,42 +188,46 @@ class INodeRegistry(Protocol):
 ChatMessageContentPlainText = str
 
 
+@dataclass_json
 @dataclass(frozen=True)
 class ChatMessageContentText:
-    type: Literal["text"]
     text: str
+    type: Literal["text"] = "text"
 
 
+@dataclass_json
 @dataclass(frozen=True)
 class ChatMessageContentImageUrl:
-    type: Literal["image_url"]
     image_url: dict[Literal["url", "detail"], str]
+    type: Literal["image_url"] = "image_url"
 
 
+@dataclass_json
 @dataclass(frozen=True)
 class ChatMessageContentInputAudio:
-    type: Literal["input_audio"]
     input_audio: dict[Literal["data", "format"], str]
+    type: Literal["input_audio"] = "input_audio"
 
 
+@dataclass_json
 @dataclass(frozen=True)
 class ChatMessageContentRefusal:
-    type: Literal["refusal"]
     refusal: str
+    type: Literal["refusal"] = "refusal"
 
 
+@dataclass_json
 @dataclass(frozen=True)
 class ChatAssistantToolCall:
     id: str
-    type: Literal["function"]
     function: dict[Literal["name", "arguments"], str]
+    type: Literal["function"] = "function"
 
 
 ChatMessageContent = Union[
-    str,
+    ChatMessageContentPlainText,
     list[
         Union[
-            ChatMessageContentPlainText,
             ChatMessageContentText,
             ChatMessageContentImageUrl,
             ChatMessageContentInputAudio,
@@ -231,31 +237,35 @@ ChatMessageContent = Union[
 ]
 
 
+@dataclass_json
 @dataclass(frozen=True)
 class ChatMessageSystem:
-    role: Literal["system"]
     content: str
+    role: Literal["system"] = "system"
 
 
+@dataclass_json
 @dataclass(frozen=True)
 class ChatMessageUser:
-    role: Literal["user"]
     content: ChatMessageContent
+    role: Literal["user"] = "user"
 
 
+@dataclass_json
 @dataclass(frozen=True)
 class ChatMessageAssistant:
-    role: Literal["assistant"]
     content: Optional[ChatMessageContent] = None
     refusal: Optional[str] = None
     tool_calls: Optional[Sequence[ChatAssistantToolCall]] = None
+    role: Literal["assistant"] = "assistant"
 
 
+@dataclass_json
 @dataclass(frozen=True)
 class ChatMessageToolCall:
-    role: Literal["tool"]
     tool_call_id: str
     content: Sequence[ChatMessageContent]
+    role: Literal["tool"] = "tool"
 
 
 ChatMessage = Union[
