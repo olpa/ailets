@@ -79,50 +79,6 @@ def toolspecs_to_env(
         env.alias(".toolspecs", None)
 
 
-def instantiate_plugin(
-    env: IEnvironment,
-    nodereg: INodeRegistry,
-    name: str,
-) -> Sequence[Node]:
-    """Instantiate a plugin's nodes in the environment.
-
-    Args:
-        env: Environment to add nodes to
-        nodereg: Node registry containing plugin definitions
-        name: Name of plugin to instantiate
-    """
-    created_nodes = []
-    resolve = {}
-
-    # First create all nodes
-    for node_name in nodereg.get_plugin(name):
-        node_desc = nodereg.get_node(node_name)
-
-        node = env.add_node(
-            name=node_name, func=node_desc.func, explain=f"Plugin node {node_name}"
-        )
-
-        created_nodes.append(node)
-        resolve[node_name] = node.name
-
-    # Then update dependencies after all nodes exist
-    for node_name in nodereg.get_plugin(name):
-        node_full_name = resolve[node_name]
-        node_desc = nodereg.get_node(node_name)
-        deps = []
-        for dep in node_desc.inputs:
-            # Try to resolve dependency name through the resolve mapping
-            source = resolve.get(dep.source, dep.source)
-            deps.append(
-                Dependency(
-                    name=dep.name, source=source, stream=dep.stream, schema=dep.schema
-                )
-            )
-        env.depend(node_full_name, deps)
-
-    return created_nodes
-
-
 def instantiate_with_deps(
     env: IEnvironment,
     nodereg: INodeRegistry,
