@@ -19,9 +19,6 @@ class NodeDagops(INodeDagops):
         self._nodereg = nodereg
         self._node = node
 
-    def depend(self, target: str, source: Sequence[Dependency]) -> None:
-        self._env.depend(target, source)
-
     def get_downstream(self, node_name: str) -> Set[str]:
         downstream: Set[str] = set()
         nodes, aliases = self._env.privates_for_dagops_friend()

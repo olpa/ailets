@@ -73,9 +73,6 @@ class NodeDesc:
 
 
 class INodeDagops(Protocol):
-    def depend(self, target: str, source: Sequence[Dependency]) -> None:
-        raise NotImplementedError
-
     def alias(self, alias: str, node_name: Optional[str]) -> None:
         raise NotImplementedError
 
