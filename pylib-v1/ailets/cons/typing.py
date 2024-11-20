@@ -14,7 +14,6 @@ from typing import (
     Union,
 )
 
-from dataclasses_json import dataclass_json
 from .streams import Stream
 
 
@@ -188,35 +187,30 @@ class INodeRegistry(Protocol):
 ChatMessageContentPlainText = str
 
 
-@dataclass_json
 @dataclass(frozen=True)
 class ChatMessageContentText:
     text: str
     type: Literal["text"] = "text"
 
 
-@dataclass_json
 @dataclass(frozen=True)
 class ChatMessageContentImageUrl:
     image_url: dict[Literal["url", "detail"], str]
     type: Literal["image_url"] = "image_url"
 
 
-@dataclass_json
 @dataclass(frozen=True)
 class ChatMessageContentInputAudio:
     input_audio: dict[Literal["data", "format"], str]
     type: Literal["input_audio"] = "input_audio"
 
 
-@dataclass_json
 @dataclass(frozen=True)
 class ChatMessageContentRefusal:
     refusal: str
     type: Literal["refusal"] = "refusal"
 
 
-@dataclass_json
 @dataclass(frozen=True)
 class ChatAssistantToolCall:
     id: str
@@ -237,21 +231,18 @@ ChatMessageContent = Union[
 ]
 
 
-@dataclass_json
 @dataclass(frozen=True)
 class ChatMessageSystem:
     content: str
     role: Literal["system"] = "system"
 
 
-@dataclass_json
 @dataclass(frozen=True)
 class ChatMessageUser:
     content: ChatMessageContent
     role: Literal["user"] = "user"
 
 
-@dataclass_json
 @dataclass(frozen=True)
 class ChatMessageAssistant:
     content: Optional[ChatMessageContent] = None
@@ -260,7 +251,6 @@ class ChatMessageAssistant:
     role: Literal["assistant"] = "assistant"
 
 
-@dataclass_json
 @dataclass(frozen=True)
 class ChatMessageToolCall:
     tool_call_id: str

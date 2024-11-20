@@ -1,3 +1,4 @@
+import dataclasses
 import json
 from ailets.cons.typing import (
     ChatMessage,
@@ -31,5 +32,5 @@ def prompt_to_messages(runtime: INodeRuntime) -> None:
 
     # Write output
     output = runtime.open_write(None)
-    output.write(json.dumps(messages))
+    output.write(json.dumps([dataclasses.asdict(m) for m in messages]))
     runtime.close_write(None)
