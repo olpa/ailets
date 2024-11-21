@@ -1,4 +1,3 @@
-import dataclasses
 import json
 from ailets.cons.typing import (
     ChatMessage,
@@ -20,17 +19,21 @@ def prompt_to_messages(runtime: INodeRuntime) -> None:
         content_type = runtime.open_read("type", i).getvalue()
 
         if content_type == "text":
-            return ChatMessageUser(content=content)
+            return ChatMessageUser(role="user", content=content)
         elif content_type == "image_url":
             return ChatMessageUser(
-                content=[ChatMessageContentImageUrl(image_url={"url": content})]
+                role="user",
+                content=[
+                    ChatMessageContentImageUrl(
+                        type="image_url", image_url={"url": content}
+                    )
+                ],
             )
         else:
             raise ValueError(f"Unsupported content type: {content_type}")
 
     messages = [to_llm_item(runtime, i) for i in range(n_prompts)]
 
-    # Write output
     output = runtime.open_write(None)
-    output.write(json.dumps([dataclasses.asdict(m) for m in messages]))
+    output.write(json.dumps(messages))
     runtime.close_write(None)

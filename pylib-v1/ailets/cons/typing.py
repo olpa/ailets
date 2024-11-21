@@ -11,6 +11,7 @@ from typing import (
     Protocol,
     Sequence,
     Tuple,
+    TypedDict,
     Union,
 )
 
@@ -187,35 +188,30 @@ class INodeRegistry(Protocol):
 ChatMessageContentPlainText = str
 
 
-@dataclass(frozen=True)
-class ChatMessageContentText:
+class ChatMessageContentText(TypedDict):
     text: str
-    type: Literal["text"] = "text"
+    type: Literal["text"]
 
 
-@dataclass(frozen=True)
-class ChatMessageContentImageUrl:
+class ChatMessageContentImageUrl(TypedDict):
     image_url: dict[Literal["url", "detail"], str]
-    type: Literal["image_url"] = "image_url"
+    type: Literal["image_url"]
 
 
-@dataclass(frozen=True)
-class ChatMessageContentInputAudio:
+class ChatMessageContentInputAudio(TypedDict):
     input_audio: dict[Literal["data", "format"], str]
-    type: Literal["input_audio"] = "input_audio"
+    type: Literal["input_audio"]
 
 
-@dataclass(frozen=True)
-class ChatMessageContentRefusal:
+class ChatMessageContentRefusal(TypedDict):
     refusal: str
-    type: Literal["refusal"] = "refusal"
+    type: Literal["refusal"]
 
 
-@dataclass(frozen=True)
-class ChatAssistantToolCall:
+class ChatAssistantToolCall(TypedDict):
     id: str
     function: dict[Literal["name", "arguments"], str]
-    type: Literal["function"] = "function"
+    type: Literal["function"]
 
 
 ChatMessageContent = Union[
@@ -231,31 +227,27 @@ ChatMessageContent = Union[
 ]
 
 
-@dataclass(frozen=True)
-class ChatMessageSystem:
+class ChatMessageSystem(TypedDict):
     content: str
-    role: Literal["system"] = "system"
+    role: Literal["system"]
 
 
-@dataclass(frozen=True)
-class ChatMessageUser:
+class ChatMessageUser(TypedDict):
     content: ChatMessageContent
-    role: Literal["user"] = "user"
+    role: Literal["user"]
 
 
-@dataclass(frozen=True)
-class ChatMessageAssistant:
-    content: Optional[ChatMessageContent] = None
-    refusal: Optional[str] = None
-    tool_calls: Optional[Sequence[ChatAssistantToolCall]] = None
-    role: Literal["assistant"] = "assistant"
+class ChatMessageAssistant(TypedDict):
+    content: Optional[ChatMessageContent]
+    refusal: Optional[str]
+    tool_calls: Optional[Sequence[ChatAssistantToolCall]]
+    role: Literal["assistant"]
 
 
-@dataclass(frozen=True)
-class ChatMessageToolCall:
+class ChatMessageToolCall(TypedDict):
     tool_call_id: str
     content: Sequence[ChatMessageContent]
-    role: Literal["tool"] = "tool"
+    role: Literal["tool"]
 
 
 ChatMessage = Union[
