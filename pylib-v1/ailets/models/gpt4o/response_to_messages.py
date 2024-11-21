@@ -1,7 +1,8 @@
 from dataclasses import dataclass
 import json
-from typing import IO, Optional, Sequence, Set
+from typing import List, Optional, Sequence, Set
 from ailets.cons.typing import (
+    ChatMessage,
     ChatMessageAssistant,
     INodeRuntime,
 )
@@ -15,10 +16,9 @@ class InvalidationFlag:
 
 def _process_single_message(
     runtime: INodeRuntime,
-    output: IO[str],
     response: dict,
     invalidation_flag_rw: InvalidationFlag,
-) -> str:
+) -> Optional[ChatMessage]:
     message = response["choices"][0]["message"]
     content = message.get("content")
     tool_calls = message.get("tool_calls")
@@ -26,7 +26,7 @@ def _process_single_message(
     if content is None and tool_calls is None:
         raise ValueError("Response message has neither content nor tool_calls")
     if content is not None:
-        json.dump(content, output)
+        return message
 
     assert tool_calls is not None, "tool_calls cannot be None at this point"
 
@@ -76,7 +76,7 @@ def _process_single_message(
     rerun_node_name = dagops.instantiate_with_deps(".gpt4o", {})
     dagops.alias(".model_output", rerun_node_name)
 
-    return ""
+    return None
 
 
 def response_to_messages(runtime: INodeRuntime) -> None:
@@ -85,13 +85,13 @@ def response_to_messages(runtime: INodeRuntime) -> None:
     output = runtime.open_write(None)
 
     invalidation_flag = InvalidationFlag(is_invalidated=False)
+    messages: List[ChatMessage] = []
 
     for i in range(runtime.n_of_streams(None)):
         response = json.loads(runtime.open_read(None, i).read())
-        result = _process_single_message(runtime, output, response, invalidation_flag)
-        if result:
-            if i > 0:
-                output.write("\n\n")
-            output.write(result)
+        message = _process_single_message(runtime, response, invalidation_flag)
+        if message is not None:
+            messages.append(message)
 
+    json.dump(messages, output)
     runtime.close_write(None)
