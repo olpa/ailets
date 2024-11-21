@@ -223,6 +223,37 @@ Furthermore, if we want to minimize the size of ailets, we should provide basic 
 Finally, we should orchestrate ailets to run together. There should be several levels of complexity, starting with the minimal glue and going towards an operating system.
 
 
+## Generalization of models
+
+Models get `ChatMessage` as input and return `ChatMessage` as output.
+<https://github.com/olpa/ailets/blob/master/pylib-v1/ailets/cons/typing.py>
+
+The `ChatMessage` type is what is used in the OpenAI API. It can be a simple string for text or a JSON array for structured content.
+
+```json
+{
+  "role": "user",
+  "content": "Hello, world!"
+}
+```
+
+```json
+{
+  "role": "user",
+  "content": [
+    {
+      "type": "image_url",
+      "image_url": {
+        "url": "data:image/jpeg;base64,..."
+      }
+    }
+  ]
+}
+```
+
+If there are tool calls, they should be handled inside a model pipeline.
+
+
 ## Far future: Ailets operating system for agents
 
 If the future of AI is multi-agent systems, then we will have a special case of microservices. We have to adapt the knowledge and the tools to our special case.
