@@ -13,12 +13,11 @@ class InvalidationFlag:
     fence: Optional[Set[str]] = None
 
 
-def _process_single_response(
+def _process_single_message(
     runtime: INodeRuntime,
-    response: dict,
+    message: ChatMessageAssistant,
     invalidation_flag_rw: InvalidationFlag,
 ) -> str:
-    message: ChatMessageAssistant = response["choices"][0]["message"]
     content = message.get("content")
     tool_calls = message.get("tool_calls")
 
@@ -92,7 +91,7 @@ def response_to_markdown(runtime: INodeRuntime) -> None:
 
     for i in range(runtime.n_of_streams(None)):
         response = json.loads(runtime.open_read(None, i).read())
-        result = _process_single_response(runtime, response, invalidation_flag)
+        result = _process_single_message(runtime, response, invalidation_flag)
         if result:
             if i > 0:
                 output.write("\n\n")
