@@ -23,11 +23,18 @@ query = NodeDesc(
     ],
 )
 
-stdout = NodeDesc(
-    name="stdout",
+messages_to_markdown = NodeDesc(
+    name="messages_to_markdown",
     inputs=[
-        Dependency(source=".model_output"),
+        Dependency(source=".chat_messages"),
     ],
 )
 
-nodes = [prompt_to_messages, toolcall_to_messages, query, stdout]
+stdout = NodeDesc(
+    name="stdout",
+    inputs=[
+        Dependency(source=".messages_to_markdown"),
+    ],
+)
+
+nodes = [prompt_to_messages, toolcall_to_messages, query, messages_to_markdown, stdout]

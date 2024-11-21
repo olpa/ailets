@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import json
-from typing import Optional, Sequence, Set
+from typing import IO, Optional, Sequence, Set
 from ailets.cons.typing import (
     ChatMessageAssistant,
     INodeRuntime,
@@ -15,21 +15,18 @@ class InvalidationFlag:
 
 def _process_single_message(
     runtime: INodeRuntime,
-    message: ChatMessageAssistant,
+    output: IO[str],
+    response: dict,
     invalidation_flag_rw: InvalidationFlag,
 ) -> str:
+    message = response["choices"][0]["message"]
     content = message.get("content")
     tool_calls = message.get("tool_calls")
 
     if content is None and tool_calls is None:
         raise ValueError("Response message has neither content nor tool_calls")
-
     if content is not None:
-        # TODO: handle structured content
-        if isinstance(content, str):
-            return content
-        else:
-            raise ValueError("Structured content is not supported yet")
+        json.dump(content, output)
 
     assert tool_calls is not None, "tool_calls cannot be None at this point"
 
@@ -82,8 +79,8 @@ def _process_single_message(
     return ""
 
 
-def response_to_markdown(runtime: INodeRuntime) -> None:
-    """Convert multiple responses to markdown format."""
+def response_to_messages(runtime: INodeRuntime) -> None:
+    """Convert multiple responses to messages."""
 
     output = runtime.open_write(None)
 
@@ -91,7 +88,7 @@ def response_to_markdown(runtime: INodeRuntime) -> None:
 
     for i in range(runtime.n_of_streams(None)):
         response = json.loads(runtime.open_read(None, i).read())
-        result = _process_single_message(runtime, response, invalidation_flag)
+        result = _process_single_message(runtime, output, response, invalidation_flag)
         if result:
             if i > 0:
                 output.write("\n\n")
