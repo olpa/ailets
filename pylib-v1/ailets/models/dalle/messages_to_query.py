@@ -80,8 +80,8 @@ def messages_to_query(runtime: INodeRuntime) -> None:
             "prompt": " ".join(prompt["prompt_parts"]),
             "n": 1,
             "size": "1024x1024",
-            "image": prompt["image"],
-            "mask": prompt["mask"],
+            **({"image": prompt["image"]} if prompt["image"] is not None else {}),
+            **({"mask": prompt["mask"]} if prompt["mask"] is not None else {}),
         },
     }
 
