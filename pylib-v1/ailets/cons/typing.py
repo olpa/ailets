@@ -114,6 +114,9 @@ class INodeRuntime(Protocol):
     def dagops(self) -> INodeDagops:
         raise NotImplementedError
 
+    def log(self, level: Literal["info", "warn", "error"], *message: Any) -> None:
+        raise NotImplementedError
+
 
 @dataclass(frozen=True)
 class NodeDescFunc:
@@ -194,8 +197,8 @@ ChatMessageContentPlainText = str
 
 
 class ChatMessageContentText(TypedDict):
-    text: str
     type: Literal["text"]
+    text: str
 
 
 class ChatMessageContentImageUrl(TypedDict):
@@ -219,21 +222,23 @@ class ChatAssistantToolCall(TypedDict):
     type: Literal["function"]
 
 
+ChatMessageStructuredContent = Sequence[
+    Union[
+        ChatMessageContentText,
+        ChatMessageContentImageUrl,
+        ChatMessageContentInputAudio,
+        ChatMessageContentRefusal,
+    ]
+]
+
 ChatMessageContent = Union[
     ChatMessageContentPlainText,
-    list[
-        Union[
-            ChatMessageContentText,
-            ChatMessageContentImageUrl,
-            ChatMessageContentInputAudio,
-            ChatMessageContentRefusal,
-        ]
-    ],
+    ChatMessageStructuredContent,
 ]
 
 
 class ChatMessageSystem(TypedDict):
-    content: str
+    content: ChatMessageContentPlainText
     role: Literal["system"]
 
 
@@ -253,7 +258,7 @@ class ChatMessageAssistant(TypedDict):
 
 class ChatMessageToolCall(TypedDict):
     tool_call_id: str
-    content: Sequence[ChatMessageContent]
+    content: ChatMessageContent
     role: Literal["tool"]
 
 

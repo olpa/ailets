@@ -1,27 +1,66 @@
 import json
-from ailets.cons.typing import INodeRuntime
+from typing import Optional, Sequence, TypedDict
+from ailets.cons.typeguards import (
+    is_chat_message_content_image_url,
+    is_chat_message_content_text,
+)
+from ailets.cons.typing import (
+    ChatMessage,
+    ChatMessageContent,
+    ChatMessageContentPlainText,
+    INodeRuntime,
+)
 
 url = "https://api.openai.com/v1/images/generations"
 method = "POST"
 headers = {"Content-type": "application/json"}
 
 
+class ExtractedPrompt(TypedDict):
+    prompt_parts: list[str]
+    image: Optional[str]
+    mask: Optional[str]
+
+
+def update_prompt(
+    prompt: ExtractedPrompt,
+    content: Optional[ChatMessageContent],
+) -> None:
+    if isinstance(content, ChatMessageContentPlainText):
+        prompt["prompt_parts"].append(content)
+        return
+    if isinstance(content, Sequence):
+        for part in content:
+            if isinstance(part, ChatMessageContentPlainText):
+                prompt["prompt_parts"].append(part)
+                continue
+            if is_chat_message_content_text(part):
+                prompt["prompt_parts"].append(part["text"])
+            elif is_chat_message_content_image_url(part):
+                # https://platform.openai.com/docs/api-reference/images/createEdit
+                pass
+            else:
+                raise ValueError(f"Unsupported content type: {part}")
+        return
+    raise ValueError(f"Unsupported content type: {type(content)}")
+
+
 def messages_to_query(runtime: INodeRuntime) -> None:
     """Convert prompt message into a DALL-E query."""
 
-    messages = []
+    prompt = ExtractedPrompt(prompt_parts=[], image=None, mask=None)
+
     for i in range(runtime.n_of_streams(None)):
         stream = runtime.open_read(None, i)
-        messages.extend(json.loads(stream.read()))
+        messages: Sequence[ChatMessage] = json.loads(stream.read())
+        for message in messages:
+            role = message.get("role")
+            if role != "user":
+                runtime.log("info", f"Skipping message with role {role}")
+                continue
+            update_prompt(prompt, message.get("content"))
 
-    # Get the last user message as the prompt
-    prompt = None
-    for message in reversed(messages):
-        if message.get("role") == "user":
-            prompt = message.get("content")
-            break
-
-    if not prompt:
+    if not len(prompt["prompt_parts"]):
         raise ValueError("No user prompt found in messages")
 
     creds = {}
@@ -36,7 +75,14 @@ def messages_to_query(runtime: INodeRuntime) -> None:
             **headers,
             **creds,
         },
-        "body": {"model": "dall-e-3", "prompt": prompt, "n": 1, "size": "1024x1024"},
+        "body": {
+            "model": "dall-e-3",
+            "prompt": " ".join(prompt["prompt_parts"]),
+            "n": 1,
+            "size": "1024x1024",
+            "image": prompt["image"],
+            "mask": prompt["mask"],
+        },
     }
 
     output = runtime.open_write(None)

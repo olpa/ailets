@@ -1,4 +1,4 @@
-from typing import Dict, Mapping, Optional, Sequence
+from typing import Any, Dict, Literal, Mapping, Optional, Sequence
 from io import StringIO
 
 from .node_dagops import NodeDagops
@@ -48,3 +48,6 @@ class NodeRuntime(INodeRuntime):
 
     def dagops(self) -> INodeDagops:
         return NodeDagops(self._env, self._nodereg, self)
+
+    def log(self, level: Literal["info", "warn", "error"], *message: Any) -> None:
+        print(f"{self._node_name}: {level}", *message)
