@@ -1,7 +1,10 @@
 from dataclasses import dataclass
 import json
-from typing import Optional, Set
-from ailets.cons.typing import INodeRuntime
+from typing import Optional, Sequence, Set
+from ailets.cons.typing import (
+    ChatMessageAssistant,
+    INodeRuntime,
+)
 
 
 @dataclass
@@ -11,9 +14,11 @@ class InvalidationFlag:
 
 
 def _process_single_response(
-    runtime: INodeRuntime, response: dict, invalidation_flag_rw: InvalidationFlag
+    runtime: INodeRuntime,
+    response: Sequence[ChatMessageAssistant],
+    invalidation_flag_rw: InvalidationFlag,
 ) -> str:
-    message = response["choices"][0]["message"]
+    message = response[0]
     content = message.get("content")
     tool_calls = message.get("tool_calls")
 
@@ -21,7 +26,13 @@ def _process_single_response(
         raise ValueError("Response message has neither content nor tool_calls")
 
     if content is not None:
-        return content
+        # TODO: handle structured content
+        if isinstance(content, str):
+            return content
+        else:
+            raise ValueError("Structured content is not supported yet")
+
+    assert tool_calls is not None, "tool_calls cannot be None at this point"
 
     #
     # Tool calls
@@ -34,12 +45,7 @@ def _process_single_response(
     #
     # Put "tool_calls" to the "chat history"
     #
-    idref_messages = [
-        {
-            "role": message["role"],
-            "tool_calls": tool_calls,
-        }
-    ]
+    idref_messages: Sequence[ChatMessageAssistant] = [message]
     idref_node = dagops.add_typed_value_node(
         json.dumps(idref_messages),
         "",
@@ -68,7 +74,6 @@ def _process_single_response(
             },
         )
         dagops.alias(".chat_messages", tool_msg_node_name)
-
     #
     # Re-run the model
     #
@@ -86,9 +91,11 @@ def response_to_markdown(runtime: INodeRuntime) -> None:
     invalidation_flag = InvalidationFlag(is_invalidated=False)
 
     for i in range(runtime.n_of_streams(None)):
-        response = json.loads(runtime.open_read(None, i).read())
+        response: Sequence[ChatMessageAssistant] = json.loads(
+            runtime.open_read(None, i).read()
+        )
         result = _process_single_response(runtime, response, invalidation_flag)
-        if result:  # Only write non-empty results
+        if result:
             if i > 0:
                 output.write("\n\n")
             output.write(result)
