@@ -7,6 +7,7 @@ from typing import (
     Iterator,
     List,
     Literal,
+    NotRequired,
     Optional,
     Protocol,
     Sequence,
@@ -249,7 +250,7 @@ class ChatMessageUser(TypedDict):
 
 class ChatMessageAssistant(TypedDict):
     content: Optional[ChatMessageContent]
-    refusal: Optional[str]
+    refusal: NotRequired[str]
     # `tool_calls` should be handled inside a model pipeline (gpt4o, etc.)
     # The generic chat-to-something converter expects only the final result
     # tool_calls: Optional[Sequence[ChatAssistantToolCall]]
