@@ -24,6 +24,7 @@ class Environment(IEnvironment):
     def __init__(self) -> None:
         self.nodes: Dict[str, Node] = {}
         self._node_counter: int = 0
+        self._for_env_stream: Dict[str, Any] = {}
         self._streams: Streams = Streams()
         self._next_id = 1
         self._aliases: Dict[str, List[str]] = {}
@@ -547,3 +548,6 @@ class Environment(IEnvironment):
         self._node_counter += 1
         another_name = f"{to_basename(full_name)}.{self._node_counter}"
         return another_name
+
+    def update_for_env_stream(self, params: Dict[str, Any]) -> None:
+        self._for_env_stream.update(params)

@@ -170,6 +170,9 @@ class IEnvironment(Protocol):
     def get_next_name(self, full_name: str) -> str:
         raise NotImplementedError
 
+    def update_for_env_stream(self, params: Dict[str, Any]) -> None:
+        raise NotImplementedError
+
 
 class INodeRegistry(Protocol):
     def has_node(self, name: str) -> bool:

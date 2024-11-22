@@ -10,6 +10,7 @@ from ailets.cons.plugin import NodeRegistry
 from ailets.cons.pipelines import (
     instantiate_with_deps,
     prompt_to_env,
+    toml_to_env,
     toolspecs_to_env,
 )
 import re
@@ -106,7 +107,6 @@ def get_prompt(prompt_args: list[str]) -> list[Union[str, Tuple[str, str]]]:
             - str: treated as a regular prompt
             - tuple[str, str]: (text, type) for typed content like images
     """
-    prompt_args = ["-"] if not prompt_args else prompt_args
 
     def iter_get_prompt(arg: str) -> Iterator[Union[str, Tuple[str, str]]]:
         if not arg:
@@ -191,9 +191,12 @@ def main():
     for tool in args.tools:
         nodereg.load_plugin(f"ailets.tools.{tool}", f".tool.{tool}")
 
+    prompt = get_prompt(args.prompt)
+
     if args.load_state:
         with open(args.load_state, "r") as f:
             env = Environment.from_json(f, nodereg)
+        toml_to_env(env, toml=prompt)
         target_node_name = next(
             node_name
             for node_name in env.nodes.keys()
@@ -202,10 +205,9 @@ def main():
 
     else:
         env = Environment()
-
-        prompt = get_prompt(args.prompt)
-        prompt_to_env(env, prompt=prompt)
+        toml_to_env(env, toml=prompt)
         toolspecs_to_env(env, nodereg, args.tools)
+        prompt_to_env(env, prompt=prompt)
 
         chat_node_name = instantiate_with_deps(env, nodereg, ".prompt_to_messages", {})
         env.alias(".chat_messages", chat_node_name)
