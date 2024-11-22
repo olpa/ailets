@@ -1,30 +1,27 @@
 import json
-from typing import Sequence
-from ailets.cons.typing import ChatMessage, INodeRuntime
+from ailets.cons.typing import INodeRuntime
+from ailets.cons.util import iter_streams_objects
+
+need_separator = False
 
 
 def messages_to_markdown(runtime: INodeRuntime) -> None:
     """Convert chat messages to markdown."""
-    output = runtime.open_write(None)
-
+    global need_separator
     need_separator = False
 
-    # `n_of_streams` can change with time, therefore don't use `range`
-    i = 0
-    while i < runtime.n_of_streams(None):
-        messages: Sequence[ChatMessage] = json.loads(runtime.open_read(None, i).read())
-        i += 1
+    output = runtime.open_write(None)
 
-        for message in messages:
-            if need_separator:
-                output.write("\n\n")
+    for message in iter_streams_objects(runtime):
+        if need_separator:
+            output.write("\n\n")
 
-            mixed_content = message["content"]
-            if isinstance(mixed_content, str):
-                output.write(mixed_content)
-            else:
-                json.dump(mixed_content, output)
+        mixed_content = message["content"]
+        if isinstance(mixed_content, str):
+            output.write(mixed_content)
+        else:
+            json.dump(mixed_content, output)
 
-            need_separator = True
+        need_separator = True
 
     runtime.close_write(None)
