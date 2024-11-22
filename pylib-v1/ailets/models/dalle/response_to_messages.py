@@ -9,8 +9,8 @@ from ailets.cons.typing import (
 )
 
 
-def response_to_image(runtime: INodeRuntime) -> None:
-    """Convert DALL-E response to image."""
+def response_to_messages(runtime: INodeRuntime) -> None:
+    """Convert DALL-E response to messages."""
 
     output = runtime.open_write(None)
 
