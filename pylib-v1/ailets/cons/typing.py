@@ -249,11 +249,11 @@ class ChatMessageUser(TypedDict):
 
 
 class ChatMessageAssistant(TypedDict):
-    content: Optional[ChatMessageContent]
+    content: NotRequired[ChatMessageContent]
     refusal: NotRequired[str]
     # `tool_calls` should be handled inside a model pipeline (gpt4o, etc.)
     # The generic chat-to-something converter expects only the final result
-    # tool_calls: Optional[Sequence[ChatAssistantToolCall]]
+    # tool_calls: NotRequired[Sequence[ChatAssistantToolCall]]
     role: Literal["assistant"]
 
 
