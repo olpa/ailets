@@ -551,3 +551,6 @@ class Environment(IEnvironment):
 
     def update_for_env_stream(self, params: Dict[str, Any]) -> None:
         self._for_env_stream.update(params)
+
+    def get_env_stream(self) -> Stream:
+        return self._streams.make_env_stream(self._for_env_stream)

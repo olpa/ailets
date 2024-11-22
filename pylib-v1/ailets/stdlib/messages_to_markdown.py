@@ -45,7 +45,7 @@ def messages_to_markdown(runtime: INodeRuntime) -> None:
 
     output = runtime.open_write(None)
 
-    for message in iter_streams_objects(runtime):
+    for message in iter_streams_objects(runtime, None):
         content = message["content"]
         if isinstance(content, str):
             separator(output)

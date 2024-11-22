@@ -100,7 +100,7 @@ class INodeRuntime(Protocol):
     def get_name(self) -> str:
         raise NotImplementedError
 
-    def n_of_streams(self, node_name: Optional[str]) -> int:
+    def n_of_streams(self, stream_name: Optional[str]) -> int:
         raise NotImplementedError
 
     def open_read(self, stream_name: Optional[str], index: int) -> StringIO:
@@ -171,6 +171,9 @@ class IEnvironment(Protocol):
         raise NotImplementedError
 
     def update_for_env_stream(self, params: Dict[str, Any]) -> None:
+        raise NotImplementedError
+
+    def get_env_stream(self) -> Stream:
         raise NotImplementedError
 
 

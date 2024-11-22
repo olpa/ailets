@@ -1,5 +1,5 @@
 import json
-from typing import Iterator
+from typing import Any, Dict, Iterator, Optional
 from .typing import INodeRuntime
 
 
@@ -17,13 +17,15 @@ def to_basename(name: str) -> str:
     return name
 
 
-def iter_streams_objects(runtime: INodeRuntime) -> Iterator[dict]:
+def iter_streams_objects(
+    runtime: INodeRuntime, stream_name: Optional[str]
+) -> Iterator[dict]:
     """Iterate over all streams. Each stream contains JSON objects,
     either as a JSON array or as individual objects without separation."""
     # `n_of_streams` can change with time, therefore don't use `range`
     i = 0
-    while i < runtime.n_of_streams(None):
-        stream = runtime.open_read(None, i)
+    while i < runtime.n_of_streams(stream_name):
+        stream = runtime.open_read(stream_name, i)
         decoder = json.JSONDecoder()
         buffer = stream.read()
 
@@ -40,3 +42,11 @@ def iter_streams_objects(runtime: INodeRuntime) -> Iterator[dict]:
             except json.JSONDecodeError:
                 break
         i += 1
+
+
+def read_env_stream(runtime: INodeRuntime) -> Dict[str, Any]:
+    return {
+        k: v
+        for params in iter_streams_objects(runtime, "env")
+        for k, v in params.items()
+    }

@@ -20,14 +20,18 @@ class NodeRuntime(INodeRuntime):
         self._node_name = node_name
         self._write_streams: Dict[Optional[str], Stream] = {}
 
-    def _get_streams(self, node_name: Optional[str]) -> Sequence[Stream]:
-        return self._streams.get(node_name, [])
+    def _get_streams(self, stream_name: Optional[str]) -> Sequence[Stream]:
+        if stream_name == "env":
+            return [self._env.get_env_stream()]
+        return self._streams.get(stream_name, [])
 
     def get_name(self) -> str:
         return self._node_name
 
-    def n_of_streams(self, node_name: Optional[str]) -> int:
-        return len(self._get_streams(node_name))
+    def n_of_streams(self, stream_name: Optional[str]) -> int:
+        if stream_name == "env":
+            return 1
+        return len(self._get_streams(stream_name))
 
     def open_read(self, stream_name: Optional[str], index: int) -> StringIO:
         streams = self._get_streams(stream_name)

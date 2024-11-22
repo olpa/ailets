@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import json
-from typing import Optional, TextIO
+from typing import Any, Dict, Optional, TextIO
 from io import StringIO
 
 
@@ -107,3 +107,12 @@ class Streams:
         stream = Stream.from_json(stream_data)
         self._streams.append(stream)
         return stream
+
+    @staticmethod
+    def make_env_stream(params: Dict[str, Any]) -> Stream:
+        return Stream(
+            node_name=".",
+            stream_name="env",
+            is_finished=True,
+            content=StringIO(json.dumps(params)),
+        )

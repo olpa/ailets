@@ -10,6 +10,7 @@ from ailets.cons.typing import (
     ChatMessageContentPlainText,
     INodeRuntime,
 )
+from ailets.cons.util import read_env_stream
 
 url = "https://api.openai.com/v1/images/generations"
 method = "POST"
@@ -68,6 +69,9 @@ def messages_to_query(runtime: INodeRuntime) -> None:
         stream = runtime.open_read("credentials", i)
         creds.update(json.loads(stream.read()))
 
+    params = read_env_stream(runtime)
+    print(params)  # FIXME
+
     value = {
         "url": url,
         "method": method,
@@ -76,10 +80,11 @@ def messages_to_query(runtime: INodeRuntime) -> None:
             **creds,
         },
         "body": {
-            "model": "dall-e-3",
+            "model": params.get("model", "dall-e-3"),
             "prompt": " ".join(prompt["prompt_parts"]),
-            "n": 1,
-            "size": "1024x1024",
+            "n": params.get("n", 1),
+            "size": params.get("size", "1024x1024"),
+            "response_format": params.get("response_format", "url"),
             **({"image": prompt["image"]} if prompt["image"] is not None else {}),
             **({"mask": prompt["mask"]} if prompt["mask"] is not None else {}),
         },
