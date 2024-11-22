@@ -4,7 +4,7 @@
 import argparse
 import sys
 import localsetup  # noqa: F401
-from typing import Union, Tuple
+from typing import Iterator, Optional, Union, Tuple
 from ailets.cons.cons import Environment
 from ailets.cons.plugin import NodeRegistry
 from ailets.cons.pipelines import (
@@ -106,23 +106,43 @@ def get_prompt(prompt_args: list[str]) -> list[Union[str, Tuple[str, str]]]:
             - str: treated as a regular prompt
             - tuple[str, str]: (text, type) for typed content like images
     """
-    prompt: list[Union[str, Tuple[str, str]]] = []
-    if not prompt_args:
-        prompt = ["-"]
+    prompt_args = ["-"] if not prompt_args else prompt_args
 
-    for prompt_arg in prompt_args:
-        if prompt_arg == "-":
-            prompt.append(sys.stdin.read())
-            continue
+    def iter_get_prompt(arg: str) -> Iterator[Union[str, Tuple[str, str]]]:
+        if not arg:
+            return
 
-        if not prompt_arg.startswith("@"):
-            prompt.append(prompt_arg)
-            continue
+        if arg == "-":
+            s = sys.stdin.read()
+            yield from iter_get_prompt(s)
+            return
+
+        if not arg.startswith("@"):
+
+            def split_text_toml_and_text(
+                text: str,
+            ) -> Tuple[Optional[str], Optional[str]]:
+                a = text.split("---\n", 1)
+                if len(a) == 2:
+                    return a[0].strip(), a[1].strip()
+                if not text.startswith("```toml\n"):
+                    return (None, text)
+                a = text[7:].split("```", 1)
+                if len(a) == 2:
+                    return a[0].strip(), a[1].strip()
+                return (a[0].strip(), None)
+
+            toml, text = split_text_toml_and_text(arg)
+            if toml:
+                yield (toml, "toml")
+            if text:
+                yield (text, "text")
+            return
 
         # Parse @{type}content format
-        match = re.match(r"^@({\w+})?(.+)$", prompt_arg)
+        match = re.match(r"^@({\w+})?(.+)$", arg)
         if not match:
-            raise ValueError(f"Invalid format for typed content: {prompt_arg}")
+            raise ValueError(f"Invalid format for typed content: {arg}")
 
         content_type, content = match.groups()
 
@@ -141,6 +161,10 @@ def get_prompt(prompt_args: list[str]) -> list[Union[str, Tuple[str, str]]]:
                 else file_content.decode()
             )
 
+        if content_type == "text":
+            yield from iter_get_prompt(content)
+            return
+
         supported_content_types = ["text", "image_url"]
         content_type_stripped = content_type.strip("{}")
         error_msg = (
@@ -149,9 +173,9 @@ def get_prompt(prompt_args: list[str]) -> list[Union[str, Tuple[str, str]]]:
         )
         assert content_type_stripped in supported_content_types, error_msg
 
-        prompt.append((content, content_type))
+        yield (content, content_type)
 
-    return prompt
+    return [p for prompt_arg in prompt_args for p in iter_get_prompt(prompt_arg)]
 
 
 def main():
