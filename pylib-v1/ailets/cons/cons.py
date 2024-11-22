@@ -394,6 +394,9 @@ class Environment(IEnvironment):
 
         self._streams.to_json(f)
 
+        json.dump({"env": self._for_env_stream}, f, indent=2)
+        f.write("\n")
+
         for alias, names in self._aliases.items():
             json.dump({"alias": alias, "names": list(names)}, f, indent=2)
             f.write("\n")
@@ -424,6 +427,8 @@ class Environment(IEnvironment):
                     env._streams.add_stream_from_json(obj_data)
                 elif "alias" in obj_data:
                     env._aliases[obj_data["alias"]] = obj_data["names"]
+                elif "env" in obj_data:
+                    env._for_env_stream.update(obj_data["env"])
                 else:
                     raise ValueError(f"Unknown object data: {obj_data}")
             except json.JSONDecodeError as e:

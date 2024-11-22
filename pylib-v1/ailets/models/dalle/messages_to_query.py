@@ -70,7 +70,6 @@ def messages_to_query(runtime: INodeRuntime) -> None:
         creds.update(json.loads(stream.read()))
 
     params = read_env_stream(runtime)
-    print(params)  # FIXME
 
     value = {
         "url": url,
