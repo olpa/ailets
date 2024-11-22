@@ -60,6 +60,14 @@ def parse_args():
         default=[],
         help="List of tools to use (e.g. get_user_name)",
     )
+    parser.add_argument(
+        "--download-to",
+        metavar="DIRECTORY",
+        help=(
+            "Directory to download generated files to. "
+            "Is a placeholder for future use."
+        ),
+    )
     return parser.parse_args()
 
 
