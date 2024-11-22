@@ -31,7 +31,7 @@ def is_chat_message_content_image_url(
     image_url = obj["image_url"]
     if not isinstance(image_url, dict):
         return False
-    return "url" in image_url and "detail" in image_url
+    return "url" in image_url
 
 
 def is_chat_message_content_input_audio(

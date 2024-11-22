@@ -223,14 +223,14 @@ class ChatAssistantToolCall(TypedDict):
     type: Literal["function"]
 
 
-ChatMessageStructuredContent = Sequence[
-    Union[
-        ChatMessageContentText,
-        ChatMessageContentImageUrl,
-        ChatMessageContentInputAudio,
-        ChatMessageContentRefusal,
-    ]
+ChatMessageStructuredContentItem = Union[
+    ChatMessageContentText,
+    ChatMessageContentImageUrl,
+    ChatMessageContentInputAudio,
+    ChatMessageContentRefusal,
 ]
+
+ChatMessageStructuredContent = Sequence[ChatMessageStructuredContentItem]
 
 ChatMessageContent = Union[
     ChatMessageContentPlainText,
