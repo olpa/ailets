@@ -2,7 +2,6 @@ import json
 import base64
 import hashlib
 from io import BytesIO
-from urllib.parse import urlparse
 from ailets.cons.typeguards import (
     is_chat_message_content_image_url,
     is_chat_message_content_text,
@@ -25,19 +24,23 @@ def rewrite_image_url(runtime: INodeRuntime, url: str) -> str:
     if not url.startswith("data:"):
         return url
 
-    parsed = urlparse(url)
-
+    # data:[<mediatype>][;base64],<data>
     try:
-        media_type, data = parsed.path.split(",", 1)
+        media_type, data = url.split(",", 1)
     except ValueError:
-        media_type = parsed.path
-        data = ""
+        raise ValueError(f"Invalid image URL, without comma: {url}")
 
+    media_type = media_type.replace("data:", "")
     parts = media_type.split(";", 1)
-    media_type = parts[0]  # Extract the core media type
 
-    if media_type.endswith(";base64"):
-        media_type = media_type[:-7]  # Remove ;base64 suffix
+    if len(parts) == 1:
+        media_type = parts[0]
+        is_base64 = False
+    else:
+        media_type = parts[0]
+        is_base64 = parts[1] == "base64"
+
+    if is_base64:
         try:
             data_bytes = base64.b64decode(data)
         except Exception as e:
