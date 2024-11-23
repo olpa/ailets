@@ -115,9 +115,6 @@ class INodeRuntime(Protocol):
     def dagops(self) -> INodeDagops:
         raise NotImplementedError
 
-    def log(self, level: Literal["info", "warn", "error"], *message: Any) -> None:
-        raise NotImplementedError
-
 
 @dataclass(frozen=True)
 class NodeDescFunc:

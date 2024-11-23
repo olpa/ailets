@@ -54,4 +54,6 @@ class NodeRuntime(INodeRuntime):
         return NodeDagops(self._env, self._nodereg, self)
 
     def log(self, level: Literal["info", "warn", "error"], *message: Any) -> None:
-        print(f"{self._node_name}: {level}", *message)
+        stream = self.open_write("log")
+        stream.write(f"{self.get_name()}: {level} {message}\n".encode("utf-8"))
+        self.close_write("log")

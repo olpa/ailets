@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Dict, Iterator, Literal, Optional
 from .typing import INodeRuntime
 
 
@@ -50,3 +50,11 @@ def read_env_stream(runtime: INodeRuntime) -> Dict[str, Any]:
         for params in iter_streams_objects(runtime, "env")
         for k, v in params.items()
     }
+
+
+def log(
+    runtime: INodeRuntime, level: Literal["info", "warn", "error"], *message: Any
+) -> None:
+    stream = runtime.open_write("log")
+    stream.write(f"{runtime.get_name()}: {level} {message}\n".encode("utf-8"))
+    runtime.close_write("log")

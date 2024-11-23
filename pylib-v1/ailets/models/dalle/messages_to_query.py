@@ -10,7 +10,7 @@ from ailets.cons.typing import (
     ChatMessageContentPlainText,
     INodeRuntime,
 )
-from ailets.cons.util import read_env_stream
+from ailets.cons.util import log, read_env_stream
 
 url = "https://api.openai.com/v1/images/generations"
 method = "POST"
@@ -57,7 +57,7 @@ def messages_to_query(runtime: INodeRuntime) -> None:
         for message in messages:
             role = message.get("role")
             if role != "user":
-                runtime.log("info", f"Skipping message with role {role}")
+                log(runtime, "info", f"Skipping message with role {role}")
                 continue
             update_prompt(prompt, message.get("content"))
 
