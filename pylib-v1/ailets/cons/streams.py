@@ -1,8 +1,10 @@
 import base64
 from dataclasses import dataclass
+import io
 import json
 from typing import Any, Dict, Optional, Sequence, TextIO
 from io import BytesIO
+from typing_extensions import Buffer
 
 
 @dataclass
@@ -55,6 +57,24 @@ class Stream:
         self.is_finished = True
 
 
+def create_log_stream() -> Stream:
+    class LogStream(io.BytesIO):
+        def write(self, b: Buffer) -> int:
+            if isinstance(b, bytes):
+                b2 = b.decode("utf-8")
+            else:
+                b2 = str(b)
+            print(b2, end="")
+            return len(b2)
+
+    return Stream(
+        node_name=".",
+        stream_name="log",
+        is_finished=False,
+        content=LogStream(),
+    )
+
+
 class Streams:
     """Manages streams for an environment."""
 
@@ -91,6 +111,9 @@ class Streams:
 
     def create(self, node_name: str, stream_name: Optional[str]) -> Stream:
         """Add a new stream."""
+        if stream_name == "log":
+            return create_log_stream()
+
         if self._find_stream(node_name, stream_name) is not None:
             raise ValueError(f"Stream already exists: {node_name}.{stream_name}")
 

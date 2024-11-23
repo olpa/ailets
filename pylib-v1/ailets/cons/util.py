@@ -56,5 +56,6 @@ def log(
     runtime: INodeRuntime, level: Literal["info", "warn", "error"], *message: Any
 ) -> None:
     stream = runtime.open_write("log")
-    stream.write(f"{runtime.get_name()}: {level} {message}\n".encode("utf-8"))
+    message_str = " ".join(map(str, message))
+    stream.write(f"{runtime.get_name()}: {level} {message_str}\n".encode("utf-8"))
     runtime.close_write("log")
