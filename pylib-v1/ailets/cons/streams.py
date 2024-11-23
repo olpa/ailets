@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import json
-from typing import Any, Dict, Optional, TextIO
+from typing import Any, Dict, Optional, Sequence, TextIO
 from io import BytesIO
 
 
@@ -116,3 +116,10 @@ class Streams:
             is_finished=True,
             content=BytesIO(json.dumps(params).encode("utf-8")),
         )
+
+    def get_fs_output_streams(self) -> Sequence[Stream]:
+        return [
+            s
+            for s in self._streams
+            if s.stream_name is not None and s.stream_name.startswith("./out/")
+        ]

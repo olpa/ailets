@@ -559,3 +559,6 @@ class Environment(IEnvironment):
 
     def get_env_stream(self) -> Stream:
         return self._streams.make_env_stream(self._for_env_stream)
+
+    def get_fs_output_streams(self) -> Sequence[Stream]:
+        return self._streams.get_fs_output_streams()

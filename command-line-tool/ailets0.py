@@ -64,6 +64,7 @@ def parse_args():
     parser.add_argument(
         "--download-to",
         metavar="DIRECTORY",
+        default="./out",
         help=(
             "Directory to download generated files to. "
             "Is a placeholder for future use."
@@ -230,6 +231,17 @@ def main():
     if args.save_state:
         with open(args.save_state, "w") as f:
             env.to_json(f)
+
+    if not args.dry_run:
+        fs_output_streams = env.get_fs_output_streams()
+        if len(fs_output_streams):
+            os.makedirs(args.download_to, exist_ok=True)
+        for stream in fs_output_streams:
+            with open(
+                os.path.join(args.download_to, os.path.basename(stream.stream_name)),
+                "wb",
+            ) as f:
+                f.write(stream.content.getvalue())
 
 
 if __name__ == "__main__":
