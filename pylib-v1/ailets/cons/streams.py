@@ -1,3 +1,4 @@
+import base64
 from dataclasses import dataclass
 import json
 from typing import Any, Dict, Optional, Sequence, TextIO
@@ -22,21 +23,32 @@ class Stream:
 
     def to_json(self) -> dict:
         """Convert stream to JSON-serializable dict."""
+        b = self.content.getvalue()
+        try:
+            content_field = "content"
+            content = b.decode("utf-8")
+        except UnicodeDecodeError:
+            content_field = "b64_content"
+            content = base64.b64encode(b).decode("utf-8")
         return {
             "node": self.node_name,
             "name": self.stream_name,
             "is_finished": self.is_finished,
-            "content": self.content.getvalue().decode("utf-8"),
+            content_field: content,
         }
 
     @classmethod
     def from_json(cls, data: dict) -> "Stream":
         """Create stream from JSON data."""
+        if "b64_content" in data:
+            content = base64.b64decode(data["b64_content"])
+        else:
+            content = data["content"].encode("utf-8")
         return cls(
             node_name=data["node"],
             stream_name=data["name"],
             is_finished=data["is_finished"],
-            content=BytesIO(data["content"].encode("utf-8")),
+            content=BytesIO(content),
         )
 
     def close(self) -> None:
