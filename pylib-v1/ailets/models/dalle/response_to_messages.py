@@ -58,6 +58,6 @@ def response_to_messages(runtime: INodeRuntime) -> None:
                 "role": "assistant",
                 "content": content,
             }
-            output.write(json.dumps(message))
+            output.write(json.dumps(message).encode("utf-8"))
 
     runtime.close_write(None)

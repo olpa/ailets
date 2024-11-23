@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 import json
 from typing import Any, Dict, Optional, TextIO
-from io import StringIO
+from io import BytesIO
 
 
 @dataclass
@@ -12,13 +12,13 @@ class Stream:
         node_name: Name of the node this stream belongs to
         stream_name: Name of the stream
         is_finished: Whether the stream is complete
-        content: The StringIO buffer containing the stream data
+        content: The BytesIO buffer containing the stream data
     """
 
     node_name: str
     stream_name: Optional[str]
     is_finished: bool
-    content: StringIO
+    content: BytesIO
 
     def to_json(self) -> dict:
         """Convert stream to JSON-serializable dict."""
@@ -26,7 +26,7 @@ class Stream:
             "node": self.node_name,
             "name": self.stream_name,
             "is_finished": self.is_finished,
-            "content": self.content.getvalue(),
+            "content": self.content.getvalue().decode("utf-8"),
         }
 
     @classmethod
@@ -36,7 +36,7 @@ class Stream:
             node_name=data["node"],
             stream_name=data["name"],
             is_finished=data["is_finished"],
-            content=StringIO(data["content"]),
+            content=BytesIO(data["content"].encode("utf-8")),
         )
 
     def close(self) -> None:
@@ -86,7 +86,7 @@ class Streams:
             node_name=node_name,
             stream_name=stream_name,
             is_finished=False,
-            content=StringIO(),
+            content=BytesIO(),
         )
         self._streams.append(stream)
         return stream
@@ -114,5 +114,5 @@ class Streams:
             node_name=".",
             stream_name="env",
             is_finished=True,
-            content=StringIO(json.dumps(params)),
+            content=BytesIO(json.dumps(params).encode("utf-8")),
         )

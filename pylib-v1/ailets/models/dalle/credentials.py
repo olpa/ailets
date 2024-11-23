@@ -8,5 +8,5 @@ def credentials(runtime: INodeRuntime) -> None:
     }
 
     output = runtime.open_write(None)
-    output.write(json.dumps(value))
+    output.write(json.dumps(value).encode("utf-8"))
     runtime.close_write(None)

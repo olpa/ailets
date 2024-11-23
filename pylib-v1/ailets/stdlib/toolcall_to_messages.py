@@ -72,5 +72,5 @@ def toolcall_to_messages(runtime: INodeRuntime) -> None:
     }
 
     output = runtime.open_write(None)
-    output.write(json.dumps([chat_message]))
+    output.write(json.dumps([chat_message]).encode("utf-8"))
     runtime.close_write(None)

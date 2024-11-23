@@ -93,5 +93,5 @@ def response_to_messages(runtime: INodeRuntime) -> None:
         if message is not None:
             messages.append(message)
 
-    json.dump(messages, output)
+    output.write(json.dumps(messages).encode("utf-8"))
     runtime.close_write(None)

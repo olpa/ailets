@@ -15,8 +15,8 @@ def prompt_to_messages(runtime: INodeRuntime) -> None:
         raise ValueError("Inputs and type streams have different lengths")
 
     def to_llm_item(runtime: INodeRuntime, i: int) -> ChatMessage:
-        content = runtime.open_read(None, i).getvalue()
-        content_type = runtime.open_read("type", i).getvalue()
+        content = runtime.open_read(None, i).read().decode("utf-8")
+        content_type = runtime.open_read("type", i).read().decode("utf-8")
 
         if content_type == "text":
             return ChatMessageUser(role="user", content=content)
@@ -35,5 +35,5 @@ def prompt_to_messages(runtime: INodeRuntime) -> None:
     messages = [to_llm_item(runtime, i) for i in range(n_prompts)]
 
     output = runtime.open_write(None)
-    output.write(json.dumps(messages))
+    output.write(json.dumps(messages).encode("utf-8"))
     runtime.close_write(None)

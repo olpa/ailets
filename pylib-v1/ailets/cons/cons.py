@@ -376,11 +376,11 @@ class Environment(IEnvironment):
 
         # Add streams for value and type
         value_stream = self._streams.create(full_name, None)
-        value_stream.content.write(value)
+        value_stream.content.write(value.encode("utf-8"))
         value_stream.is_finished = True
 
         type_stream = self._streams.create(full_name, "type")
-        type_stream.content.write(value_type)
+        type_stream.content.write(value_type.encode("utf-8"))
         type_stream.is_finished = True
 
         return node

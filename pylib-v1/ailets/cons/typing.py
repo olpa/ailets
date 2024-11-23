@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from io import StringIO
+from io import BytesIO
 from typing import (
     Any,
     Callable,
@@ -103,10 +103,10 @@ class INodeRuntime(Protocol):
     def n_of_streams(self, stream_name: Optional[str]) -> int:
         raise NotImplementedError
 
-    def open_read(self, stream_name: Optional[str], index: int) -> StringIO:
+    def open_read(self, stream_name: Optional[str], index: int) -> BytesIO:
         raise NotImplementedError
 
-    def open_write(self, stream_name: Optional[str]) -> StringIO:
+    def open_write(self, stream_name: Optional[str]) -> BytesIO:
         raise NotImplementedError
 
     def close_write(self, stream_name: Optional[str]) -> None:

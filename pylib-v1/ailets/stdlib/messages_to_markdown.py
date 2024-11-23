@@ -1,7 +1,7 @@
 import json
 import base64
 import hashlib
-from typing import TextIO
+from io import BytesIO
 from urllib.parse import urlparse
 from ailets.cons.typeguards import (
     is_chat_message_content_image_url,
@@ -13,10 +13,10 @@ from ailets.cons.util import iter_streams_objects
 need_separator = False
 
 
-def separator(output: TextIO) -> None:
+def separator(output: BytesIO) -> None:
     global need_separator
     if need_separator:
-        output.write("\n\n")
+        output.write(b"\n\n")
     else:
         need_separator = True
 
@@ -56,7 +56,7 @@ def rewrite_image_url(runtime: INodeRuntime, url: str) -> str:
 
     # Write to stream
     stream = runtime.open_write(filename)
-    stream.write(data_bytes.decode("utf-8"))  # FIXME
+    stream.write(data_bytes)
     runtime.close_write(filename)
 
     return filename
@@ -64,7 +64,7 @@ def rewrite_image_url(runtime: INodeRuntime, url: str) -> str:
 
 def mixed_content_to_markdown(
     runtime: INodeRuntime,
-    output: TextIO,
+    output: BytesIO,
     content: ChatMessageStructuredContentItem,
 ) -> None:
     separator(output)
@@ -74,15 +74,15 @@ def mixed_content_to_markdown(
         return
 
     if is_chat_message_content_text(content):
-        output.write(content["text"])
+        output.write(content["text"].encode("utf-8"))
         return
 
     if is_chat_message_content_image_url(content):
         url = rewrite_image_url(runtime, content["image_url"]["url"])
-        output.write(f"![image]({url})")
+        output.write(f"![image]({url})".encode("utf-8"))
         return
 
-    json.dump(content, output)
+    output.write(json.dumps(content).encode("utf-8"))
 
 
 def messages_to_markdown(runtime: INodeRuntime) -> None:
@@ -96,7 +96,7 @@ def messages_to_markdown(runtime: INodeRuntime) -> None:
         content = message["content"]
         if isinstance(content, str):
             separator(output)
-            output.write(content)
+            output.write(content.encode("utf-8"))
             continue
         for item in content:
             mixed_content_to_markdown(runtime, output, item)

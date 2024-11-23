@@ -37,7 +37,7 @@ def iter_streams_objects(
         pos = 0
         while pos < len(buffer):
             try:
-                obj, pos = decoder.raw_decode(buffer[pos:])
+                obj, pos = decoder.raw_decode(buffer[pos:].decode("utf-8"))
                 yield obj
             except json.JSONDecodeError:
                 break
