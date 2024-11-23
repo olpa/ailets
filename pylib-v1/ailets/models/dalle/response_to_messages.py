@@ -36,14 +36,24 @@ def response_to_messages(runtime: INodeRuntime) -> None:
                 if item.get("revised_prompt")
                 else None
             )
+
+            assert (
+                "url" in item or "b64_json" in item
+            ), 'Invalid response. "data" item should contain either "url" or "b64_json"'
+            url = (
+                item["url"]
+                if "url" in item
+                else f"data:image/png;base64,{item['b64_json']}"
+            )
+
             image: ChatMessageContentImageUrl = {
                 "type": "image_url",
                 "image_url": {
-                    "url": item["url"],
+                    "url": url,
                 },
             }
-            content: ChatMessageStructuredContent = [text, image] if text else [image]
 
+            content: ChatMessageStructuredContent = [text, image] if text else [image]
             message: ChatMessageAssistant = {
                 "role": "assistant",
                 "content": content,
