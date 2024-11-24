@@ -1,10 +1,29 @@
 import json
 import requests
 import os
+import re
 from ailets.cons.typing import INodeRuntime
 
 MAX_RUNS = 3  # Maximum number of runs allowed
 _run_count = 0  # Track number of runs
+
+secret_pattern = re.compile(
+    r"""{{\s*secret\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]\s*\)\s*}}"""
+)
+
+
+def resolve_secrets(value: str) -> str:
+    """Replace {{secret('service','key')}} with actual secret value."""
+
+    def get_secret(match):
+        service = match.group(1)
+        envvar = f"{service.upper()}_API_KEY"
+        secret = os.environ.get(envvar)
+        if secret is None:
+            raise ValueError(f"Secret not found: {envvar}")
+        return secret
+
+    return secret_pattern.sub(get_secret, value)
 
 
 def query(runtime: INodeRuntime) -> None:
@@ -20,16 +39,13 @@ def query(runtime: INodeRuntime) -> None:
     params = json.loads(hparams.read())
 
     try:
-        # Replace placeholder in Authorization header if it exists
-        headers = params["headers"]
-        if "Authorization" in headers:
-            headers["Authorization"] = headers["Authorization"].replace(
-                "##OPENAI_API_KEY##", os.environ["OPENAI_API_KEY"]
-            )
+        # Resolve secrets in headers and url
+        headers = {k: resolve_secrets(v) for k, v in params["headers"].items()}
+        url = resolve_secrets(params["url"])
 
         response = requests.request(
             method=params["method"],
-            url=params["url"],
+            url=url,
             headers=headers,
             json=params["body"],
         )
