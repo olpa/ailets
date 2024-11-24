@@ -23,7 +23,11 @@ class ExtractedPrompt(TypedDict):
     mask: Optional[str]
 
 
+# https://platform.openai.com/docs/api-reference/images/create
+
+
 def update_prompt(
+    runtime: INodeRuntime,
     prompt: ExtractedPrompt,
     content: Optional[ChatMessageContent],
 ) -> None:
@@ -38,8 +42,15 @@ def update_prompt(
             if is_chat_message_content_text(part):
                 prompt["prompt_parts"].append(part["text"])
             elif is_chat_message_content_image_url(part):
-                # https://platform.openai.com/docs/api-reference/images/createEdit
-                pass
+                url = part["image_url"]["url"]
+                if prompt["image"] is None:
+                    prompt["image"] = url
+                elif prompt["mask"] is None:
+                    prompt["mask"] = url
+                else:
+                    raise ValueError(
+                        "Too many images. First image is used as image, second as mask."
+                    )
             else:
                 raise ValueError(f"Unsupported content type: {part}")
         return
@@ -59,7 +70,7 @@ def messages_to_query(runtime: INodeRuntime) -> None:
             if role != "user":
                 log(runtime, "info", f"Skipping message with role {role}")
                 continue
-            update_prompt(prompt, message.get("content"))
+            update_prompt(runtime, prompt, message.get("content"))
 
     if not len(prompt["prompt_parts"]):
         raise ValueError("No user prompt found in messages")
@@ -82,7 +93,6 @@ def messages_to_query(runtime: INodeRuntime) -> None:
             "model": params.get("model", "dall-e-3"),
             "prompt": " ".join(prompt["prompt_parts"]),
             "n": params.get("n", 1),
-            "size": params.get("size", "1024x1024"),
             "response_format": params.get("response_format", "url"),
             **({"image": prompt["image"]} if prompt["image"] is not None else {}),
             **({"mask": prompt["mask"]} if prompt["mask"] is not None else {}),
