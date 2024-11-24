@@ -82,18 +82,31 @@ def is_url(s: str) -> bool:
         return False
 
 
-def guess_content_type(content: str) -> str:
-    """Guess content type from content or URL."""
-    # Common image extensions
-    image_extensions = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
-    # Text extensions
-    text_extensions = {".txt", ".md", ".text"}
+def guess_content_type(content: str) -> Tuple[str, str]:
+    # Common image extensions and their media types
+    image_extensions = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".bmp": "image/bmp",
+    }
+    # Text extensions and their media types
+    text_extensions = {
+        ".txt": "text/plain",
+        ".md": "text/markdown",
+        ".text": "text/plain",
+    }
 
     ext = os.path.splitext(urlparse(content).path)[1].lower()
+
     if ext in image_extensions:
-        return "image_url"
+        return "image_url", image_extensions[ext]
+
     if ext in text_extensions:
-        return "text"
+        return "text", text_extensions[ext]
+
     raise ValueError(f"Could not determine content type for: {content}")
 
 
@@ -145,11 +158,17 @@ def get_prompt(prompt_args: list[str]) -> list[Union[str, Tuple[str, str]]]:
         if not match:
             raise ValueError(f"Invalid format for typed content: {arg}")
 
-        content_type, content = match.groups()
+        media_type, content = match.groups()
 
         # If type not specified, try to guess it
-        if content_type is None:
-            content_type = guess_content_type(content)
+        if media_type is None:
+            content_type, media_type = guess_content_type(content)
+        else:
+            assert "/" in media_type, "Media type must contain a slash"
+            content_type = media_type.split("/")[0]
+            if content_type == "image":
+                content_type = "image_url"
+            assert content_type in ["image_url", "text"], "Unknown content type"
 
         # Handle URLs vs files
         if not is_url(content):
@@ -157,7 +176,7 @@ def get_prompt(prompt_args: list[str]) -> list[Union[str, Tuple[str, str]]]:
             with open(content, "rb") as f:
                 file_content = f.read()
             content = (
-                f"data:image/jpeg;base64,{base64.b64encode(file_content).decode()}"
+                f"data:{media_type};base64,{base64.b64encode(file_content).decode()}"
                 if content_type == "image_url"
                 else file_content.decode()
             )
