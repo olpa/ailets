@@ -29,7 +29,7 @@ def iter_streams_objects(
         decoder = json.JSONDecoder()
         buffer = stream.read()
 
-        if buffer[0] == "[":
+        if buffer[0] == ord("["):
             array = json.loads(buffer)
             yield from array
             return
