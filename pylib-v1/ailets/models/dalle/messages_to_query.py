@@ -12,12 +12,47 @@ from ailets.cons.typing import (
 )
 from ailets.cons.util import log, read_env_stream
 
-url = "https://api.openai.com/v1/images/generations"
-method = "POST"
-headers = {
-    "Content-type": "application/json",
+url_tpl = "https://api.openai.com/v1/images/##TASK##"
+auth_header = {
     "Authorization": "Bearer {{secret('openai','dalle')}}",
 }
+
+boundary = "----AiletsBoundary7MA4YWxkTrZu0gW"
+
+
+def task_to_url(task: str) -> str:
+    return url_tpl.replace("##TASK##", task)
+
+
+def task_to_headers(task: str) -> dict[str, str]:
+    if task == "generations":
+        return {**auth_header, "Content-type": "application/json"}
+    else:
+        return {
+            **auth_header,
+            "Content-type": f"multipart/form-data; boundary={boundary}",
+        }
+
+
+def task_to_body(task: str, body: dict) -> dict | str:
+    if task == "generations":
+        return body
+    if task == "variations":
+        body = body.copy()
+        del body["prompt"]
+
+    form_data = []
+    for key, value in body.items():
+        form_data.append(
+            (
+                f"--{boundary}\n"
+                f'Content-Disposition: form-data; name="{key}"\n\n'
+                f"{value}\n"
+            )
+        )
+    form_data.append(f"--{boundary}--\n")
+
+    return "".join(form_data)
 
 
 class ExtractedPrompt(TypedDict):
@@ -80,18 +115,28 @@ def messages_to_query(runtime: INodeRuntime) -> None:
 
     params = read_env_stream(runtime)
 
+    task = params.get("dalle_task", "generations")
+    assert task in (
+        "generations",
+        "variations",
+        "edits",
+    ), "Invalid DALL-E task, expected one of: generations, variations, edits"
+
     value = {
-        "url": url,
-        "method": method,
-        "headers": headers,
-        "body": {
-            "model": params.get("model", "dall-e-3"),
-            "prompt": " ".join(prompt["prompt_parts"]),
-            "n": params.get("n", 1),
-            "response_format": params.get("response_format", "url"),
-            **({"image": prompt["image"]} if prompt["image"] is not None else {}),
-            **({"mask": prompt["mask"]} if prompt["mask"] is not None else {}),
-        },
+        "url": task_to_url(task),
+        "method": "POST",
+        "headers": task_to_headers(task),
+        "body": task_to_body(
+            task,
+            {
+                "model": params.get("model", "dall-e-3"),
+                "prompt": " ".join(prompt["prompt_parts"]),
+                "n": params.get("n", 1),
+                "response_format": params.get("response_format", "url"),
+                **({"image": prompt["image"]} if prompt["image"] is not None else {}),
+                **({"mask": prompt["mask"]} if prompt["mask"] is not None else {}),
+            },
+        ),
     }
 
     output = runtime.open_write(None)

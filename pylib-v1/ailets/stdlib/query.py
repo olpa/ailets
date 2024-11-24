@@ -43,11 +43,25 @@ def query(runtime: INodeRuntime) -> None:
         headers = {k: resolve_secrets(v) for k, v in params["headers"].items()}
         url = resolve_secrets(params["url"])
 
+        content_type = ""
+        for header_key, header_value in headers.items():
+            if header_key.lower() == "content-type":
+                content_type = header_value.lower()
+                break
+        is_json = (
+            "application/json" in content_type or "application/json" == content_type
+        )
+
+        if is_json:
+            body_kwargs = {"json": params["body"]}
+        else:
+            body_kwargs = {"data": params["body"]}
+
         response = requests.request(
             method=params["method"],
             url=url,
             headers=headers,
-            json=params["body"],
+            **body_kwargs,
         )
         response.raise_for_status()  # Raise an exception for bad status codes
 
