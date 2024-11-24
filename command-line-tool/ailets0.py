@@ -176,7 +176,10 @@ def get_prompt(prompt_args: list[str]) -> list[Union[str, Tuple[str, str]]]:
 
         yield (content, content_type)
 
-    return [p for prompt_arg in prompt_args for p in iter_get_prompt(prompt_arg)]
+    items = [p for prompt_arg in prompt_args for p in iter_get_prompt(prompt_arg)]
+    if not len(items):
+        items = [("Hello!", "text")]
+    return items
 
 
 def main():
