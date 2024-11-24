@@ -14,7 +14,10 @@ from ailets.cons.util import log, read_env_stream
 
 url = "https://api.openai.com/v1/images/generations"
 method = "POST"
-headers = {"Content-type": "application/json"}
+headers = {
+    "Content-type": "application/json",
+    "Authorization": "Bearer {{secret('openai','dalle')}}",
+}
 
 
 class ExtractedPrompt(TypedDict):
@@ -75,20 +78,12 @@ def messages_to_query(runtime: INodeRuntime) -> None:
     if not len(prompt["prompt_parts"]):
         raise ValueError("No user prompt found in messages")
 
-    creds = {}
-    for i in range(runtime.n_of_streams("credentials")):
-        stream = runtime.open_read("credentials", i)
-        creds.update(json.loads(stream.read()))
-
     params = read_env_stream(runtime)
 
     value = {
         "url": url,
         "method": method,
-        "headers": {
-            **headers,
-            **creds,
-        },
+        "headers": headers,
         "body": {
             "model": params.get("model", "dall-e-3"),
             "prompt": " ".join(prompt["prompt_parts"]),

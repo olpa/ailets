@@ -4,7 +4,10 @@ from ailets.cons.typing import ChatMessage, INodeRuntime, ToolSpecification
 
 url = "https://api.openai.com/v1/chat/completions"
 method = "POST"
-headers = {"Content-type": "application/json"}
+headers = {
+    "Content-type": "application/json",
+    "Authorization": "Bearer {{secret('openai','gpt4o')}}",
+}
 
 
 def messages_to_query(runtime: INodeRuntime) -> None:
@@ -28,18 +31,10 @@ def messages_to_query(runtime: INodeRuntime) -> None:
         )
     tools_param = {"tools": tools} if tools else {}
 
-    creds = {}
-    for i in range(runtime.n_of_streams("credentials")):
-        stream = runtime.open_read("credentials", i)
-        creds.update(json.loads(stream.read()))
-
     value = {
         "url": url,
         "method": method,
-        "headers": {
-            **headers,
-            **creds,
-        },
+        "headers": headers,
         "body": {
             "model": "gpt-4o-mini",
             "messages": messages,
