@@ -11,7 +11,7 @@ from ailets.cons.typing import (
     ChatMessageContentPlainText,
     INodeRuntime,
 )
-from ailets.cons.util import log, read_env_stream, read_all, write_all
+from ailets.cons.util import iter_streams_objects, log, read_env_stream, write_all
 
 # https://platform.openai.com/docs/api-reference/images/create
 
@@ -113,19 +113,12 @@ def messages_to_query(runtime: INodeRuntime) -> None:
 
     prompt = ExtractedPrompt(prompt_parts=[], image=None, mask=None)
 
-    for i in range(runtime.n_of_streams(None)):
-        stream = runtime.open_read(None, i)
-        messages: Sequence[ChatMessage] = json.loads(
-            read_all(runtime, stream).decode("utf-8")
-        )
-        runtime.close(stream)
-        for message in messages:
-            role = message.get("role")
-            if role != "user":
-                log(runtime, "info", f"Skipping message with role {role}")
-                continue
-            update_prompt(runtime, prompt, message.get("content"))
-
+    for message in iter_streams_objects(runtime, None):
+        role = message.get("role")
+        if role != "user":
+            log(runtime, "info", f"Skipping message with role {role}")
+            continue
+        update_prompt(runtime, prompt, message.get("content"))
     if not len(prompt["prompt_parts"]):
         raise ValueError("No user prompt found in messages")
 

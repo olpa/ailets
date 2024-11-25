@@ -7,7 +7,7 @@ from ailets.cons.typing import (
     ChatMessageStructuredContent,
     INodeRuntime,
 )
-from ailets.cons.util import read_all, write_all
+from ailets.cons.util import iter_streams_objects, write_all
 
 
 def response_to_messages(runtime: INodeRuntime) -> None:
@@ -15,10 +15,7 @@ def response_to_messages(runtime: INodeRuntime) -> None:
 
     output_fd = runtime.open_write(None)
 
-    for i in range(runtime.n_of_streams(None)):
-        fd = runtime.open_read(None, i)
-        response = json.loads(read_all(runtime, fd).decode("utf-8"))
-        runtime.close(fd)
+    for response in iter_streams_objects(runtime, None):
         # `response` format:
         # {
         #   "created": 1726961295,
