@@ -1,5 +1,6 @@
 import json
 from ..cons.typing import ChatAssistantToolCall, ChatMessageToolCall, INodeRuntime
+from ..cons.util import read_all, write_all
 
 
 def toolcall_to_messages(runtime: INodeRuntime) -> None:
@@ -19,10 +20,13 @@ def toolcall_to_messages(runtime: INodeRuntime) -> None:
     n_specs = runtime.n_of_streams("llm_tool_spec")
     assert n_specs == 1, f"Expected exactly one tool spec, got {n_specs}"
 
-    tool_result = runtime.open_read(None, 0).read()
-    spec: ChatAssistantToolCall = json.loads(
-        runtime.open_read("llm_tool_spec", 0).read()
-    )
+    fd = runtime.open_read(None, 0)
+    tool_result = read_all(runtime, fd).decode("utf-8")
+    runtime.close(fd)
+
+    fd = runtime.open_read("llm_tool_spec", 0)
+    spec: ChatAssistantToolCall = json.loads(read_all(runtime, fd).decode("utf-8"))
+    runtime.close(fd)
 
     #
     # LLM tool call spec
@@ -71,6 +75,7 @@ def toolcall_to_messages(runtime: INodeRuntime) -> None:
         "content": json.dumps(content),
     }
 
-    output = runtime.open_write(None)
-    output.write(json.dumps([chat_message]).encode("utf-8"))
-    runtime.close_write(None)
+    fd = runtime.open_write(None)
+    value = json.dumps([chat_message]).encode("utf-8")
+    write_all(runtime, fd, value)
+    runtime.close(fd)

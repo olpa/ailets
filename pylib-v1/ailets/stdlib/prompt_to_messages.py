@@ -5,6 +5,7 @@ from ailets.cons.typing import (
     ChatMessageUser,
     INodeRuntime,
 )
+from ailets.cons.util import read_all, write_all
 
 
 def prompt_to_messages(runtime: INodeRuntime) -> None:
@@ -15,8 +16,13 @@ def prompt_to_messages(runtime: INodeRuntime) -> None:
         raise ValueError("Inputs and type streams have different lengths")
 
     def to_llm_item(runtime: INodeRuntime, i: int) -> ChatMessage:
-        content = runtime.open_read(None, i).read().decode("utf-8")
-        content_type = runtime.open_read("type", i).read().decode("utf-8")
+        fd = runtime.open_read(None, i)
+        content = read_all(runtime, fd).decode("utf-8")
+        runtime.close(fd)
+
+        fd = runtime.open_read("type", i)
+        content_type = read_all(runtime, fd).decode("utf-8")
+        runtime.close(fd)
 
         if content_type == "text":
             return ChatMessageUser(role="user", content=content)
@@ -34,6 +40,7 @@ def prompt_to_messages(runtime: INodeRuntime) -> None:
 
     messages = [to_llm_item(runtime, i) for i in range(n_prompts)]
 
-    output = runtime.open_write(None)
-    output.write(json.dumps(messages).encode("utf-8"))
-    runtime.close_write(None)
+    fd = runtime.open_write(None)
+    value = json.dumps(messages).encode("utf-8")
+    write_all(runtime, fd, value)
+    runtime.close(fd)

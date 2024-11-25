@@ -1,5 +1,4 @@
-from typing import Any, Dict, Literal, Mapping, Optional, Sequence
-from io import BytesIO
+from typing import Dict, Mapping, Optional, Sequence
 
 from .node_dagops import NodeDagops
 from .streams import Stream
@@ -18,7 +17,7 @@ class NodeRuntime(INodeRuntime):
         self._nodereg = nodereg
         self._streams = streams
         self._node_name = node_name
-        self._write_streams: Dict[Optional[str], Stream] = {}
+        self._open_fds: Dict[int, Stream] = {}
 
     def _get_streams(self, stream_name: Optional[str]) -> Sequence[Stream]:
         if stream_name == "env":
@@ -33,27 +32,33 @@ class NodeRuntime(INodeRuntime):
             return 1
         return len(self._get_streams(stream_name))
 
-    def open_read(self, stream_name: Optional[str], index: int) -> BytesIO:
+    def open_read(self, stream_name: Optional[str], index: int) -> int:
         streams = self._get_streams(stream_name)
         if index >= len(streams) or index < 0:
             raise ValueError(f"Stream index out of bounds: {index} for {stream_name}")
         bio = streams[index].content
         bio.seek(0)
-        return bio
+        fd = self._env.get_next_seqno()
+        self._open_fds[fd] = streams[index]
+        return fd
 
-    def open_write(self, stream_name: Optional[str]) -> BytesIO:
+    def read(self, fd: int, buffer: bytearray, count: int) -> int:
+        stream = self._open_fds[fd]
+        return stream.content.readinto(buffer)
+
+    def open_write(self, stream_name: Optional[str]) -> int:
         stream = self._env.create_new_stream(self._node_name, stream_name)
-        self._write_streams[stream_name] = stream
-        return stream.content
+        fd = self._env.get_next_seqno()
+        self._open_fds[fd] = stream
+        return fd
 
-    def close_write(self, stream_name: Optional[str]) -> None:
-        stream = self._write_streams.pop(stream_name)
-        self._env.close_stream(stream)
+    def write(self, fd: int, buffer: bytes, count: int) -> int:
+        stream = self._open_fds[fd]
+        return stream.content.write(buffer)
+
+    def close(self, fd: int) -> None:
+        stream = self._open_fds.pop(fd)
+        stream.is_finished = True
 
     def dagops(self) -> INodeDagops:
         return NodeDagops(self._env, self._nodereg, self)
-
-    def log(self, level: Literal["info", "warn", "error"], *message: Any) -> None:
-        stream = self.open_write("log")
-        stream.write(f"{self.get_name()}: {level} {message}\n".encode("utf-8"))
-        self.close_write("log")

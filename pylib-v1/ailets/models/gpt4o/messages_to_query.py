@@ -1,6 +1,6 @@
 import json
-from typing import Sequence
-from ailets.cons.typing import ChatMessage, INodeRuntime, ToolSpecification
+from ailets.cons.typing import ChatMessage, INodeRuntime
+from ailets.cons.util import iter_streams_objects, write_all
 
 url = "https://api.openai.com/v1/chat/completions"
 method = "POST"
@@ -13,16 +13,12 @@ headers = {
 def messages_to_query(runtime: INodeRuntime) -> None:
     """Convert chat messages into a query."""
 
-    messages: list[ChatMessage] = []
-    for i in range(runtime.n_of_streams(None)):
-        stream = runtime.open_read(None, i)
-        ith_messages: Sequence[ChatMessage] = json.loads(stream.read())
-        messages.extend(ith_messages)
+    messages: list[ChatMessage] = list(
+        iter_streams_objects(runtime, None)  # type: ignore[arg-type]
+    )
 
     tools = []
-    for i in range(runtime.n_of_streams("toolspecs")):
-        stream = runtime.open_read("toolspecs", i)
-        toolspec: ToolSpecification = json.loads(stream.read())
+    for toolspec in iter_streams_objects(runtime, "toolspecs"):
         tools.append(
             {
                 "type": "function",
@@ -42,6 +38,6 @@ def messages_to_query(runtime: INodeRuntime) -> None:
         },
     }
 
-    output = runtime.open_write(None)
-    output.write(json.dumps(value).encode("utf-8"))
-    runtime.close_write(None)
+    fd = runtime.open_write(None)
+    write_all(runtime, fd, json.dumps(value).encode("utf-8"))
+    runtime.close(fd)
