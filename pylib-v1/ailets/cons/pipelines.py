@@ -8,7 +8,6 @@ from .typing import (
     Dependency,
     IEnvironment,
     INodeRegistry,
-    TypedValue,
 )
 
 
@@ -24,8 +23,9 @@ def prompt_to_env(
             prompt_text, prompt_type = prompt_item
         if prompt_type == "toml":
             return
-        value: TypedValue = {"type": prompt_type, "value": prompt_text}
-        node_tv = env.add_typed_value_node(value, explain="Prompt")
+        node_tv = env.add_value_node(
+            json.dumps(prompt_text).encode("utf-8"), explain="Prompt"
+        )
         env.alias(".prompt", node_tv.name)
 
     for prompt_item in prompt:
@@ -51,8 +51,10 @@ def toolspecs_to_env(
         schema = nodereg.get_node(plugin_nodes[0]).inputs[0].schema
         assert schema is not None, f"Tool {tool} has no schema"
 
-        value: TypedValue = {"type": "json", "value": json.dumps(schema)}
-        tool_spec = env.add_typed_value_node(value, explain=f"Tool spec {tool}")
+        tool_spec = env.add_value_node(
+            json.dumps(schema).encode("utf-8"),
+            explain=f"Tool spec {tool}",
+        )
 
         env.alias(".toolspecs", tool_spec.name)
     else:
