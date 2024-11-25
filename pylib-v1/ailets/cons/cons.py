@@ -23,10 +23,9 @@ from .util import to_basename
 class Environment(IEnvironment):
     def __init__(self) -> None:
         self.nodes: Dict[str, Node] = {}
-        self._node_counter: int = 0
         self._for_env_stream: Dict[str, Any] = {}
         self._streams: Streams = Streams()
-        self._next_id = 1
+        self._seqno: int = 1
         self._aliases: Dict[str, List[str]] = {}
         self._ever_started: Set[str] = set()
 
@@ -54,8 +53,7 @@ class Environment(IEnvironment):
         Returns:
             The created node
         """
-        self._node_counter += 1
-        full_name = f"{name}.{self._node_counter}"
+        full_name = self.get_next_name(name)
         node = Node(name=full_name, func=func, deps=list(deps or []), explain=explain)
         self.nodes[full_name] = node
         return node
@@ -335,8 +333,8 @@ class Environment(IEnvironment):
         # Update counter if needed to stay above loaded node's suffix
         if "." in name:
             loaded_suffix = int(name.split(".")[-1])
-            if self._node_counter <= loaded_suffix:
-                self._node_counter = loaded_suffix + 1
+            if self._seqno <= loaded_suffix:
+                self._seqno = loaded_suffix + 1
 
         # Create new node with loaded state
         node = Node(
@@ -359,8 +357,7 @@ class Environment(IEnvironment):
             explain: Optional explanation of what the value represents
 
         """
-        self._node_counter += 1
-        full_name = f"typed_value.{self._node_counter}"
+        full_name = self.get_next_name("typed_value")
 
         node = Node(
             name=full_name,
@@ -545,10 +542,14 @@ class Environment(IEnvironment):
                     seen_deps.add(dep_key)
                     yield dep
 
+    def get_next_seqno(self) -> int:
+        self._seqno += 1
+        return self._seqno
+
     def get_next_name(self, full_name: str) -> str:
         """Get the next name in the sequence."""
-        self._node_counter += 1
-        another_name = f"{to_basename(full_name)}.{self._node_counter}"
+        seqno = self.get_next_seqno()
+        another_name = f"{to_basename(full_name)}.{seqno}"
         return another_name
 
     def update_for_env_stream(self, params: Dict[str, Any]) -> None:

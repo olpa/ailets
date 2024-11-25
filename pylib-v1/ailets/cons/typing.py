@@ -166,6 +166,9 @@ class IEnvironment(Protocol):
     ) -> Tuple[Dict[str, Node], Dict[str, List[str]]]:
         raise NotImplementedError
 
+    def get_next_seqno(self) -> int:
+        raise NotImplementedError
+
     def get_next_name(self, full_name: str) -> str:
         raise NotImplementedError
 

@@ -18,7 +18,6 @@ class NodeRuntime(INodeRuntime):
         self._nodereg = nodereg
         self._streams = streams
         self._node_name = node_name
-        self._write_streams: Dict[Optional[str], Stream] = {}
         self._open_fds: Dict[int, Stream] = {}
 
     def _get_streams(self, stream_name: Optional[str]) -> Sequence[Stream]:
@@ -40,8 +39,9 @@ class NodeRuntime(INodeRuntime):
             raise ValueError(f"Stream index out of bounds: {index} for {stream_name}")
         bio = streams[index].content
         bio.seek(0)
-        self._open_fds[bio.fileno()] = streams[index]
-        return bio.fileno()
+        fd = self._env.get_next_seqno()
+        self._open_fds[fd] = streams[index]
+        return fd
 
     def read(self, fd: int, buffer: bytearray, count: int) -> int:
         stream = self._open_fds[fd]
@@ -49,9 +49,9 @@ class NodeRuntime(INodeRuntime):
 
     def open_write(self, stream_name: Optional[str]) -> int:
         stream = self._env.create_new_stream(self._node_name, stream_name)
-        self._write_streams[stream_name] = stream
-        self._open_fds[stream.content.fileno()] = stream
-        return stream.content.fileno()
+        fd = self._env.get_next_seqno()
+        self._open_fds[fd] = stream
+        return fd
 
     def write(self, fd: int, buffer: bytes, count: int) -> int:
         stream = self._open_fds[fd]
