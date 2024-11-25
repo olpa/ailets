@@ -1,12 +1,15 @@
 from dataclasses import dataclass
-from typing import Optional, Union
+from typing import Optional
 import json
 import tomllib
 from typing import Sequence
+
+from ailets.cons.streams import Stream
 from .typing import (
     Dependency,
     IEnvironment,
     INodeRegistry,
+    Node,
 )
 
 
@@ -22,18 +25,56 @@ def prompt_to_env(
     prompt: Sequence[CmdlinePromptItem] = [CmdlinePromptItem("Hello!", "text")],
 ) -> None:
     def prompt_to_node(prompt_item: CmdlinePromptItem) -> None:
+        print(f"Prompt item: {prompt_item}")  # FIXME
         if prompt_item.type == "toml":
             return
 
-        prompt_type = prompt_item.type
-        prompt_content: Union[str, dict[str, str]] = (
-            {"url": prompt_item.value}
-            if prompt_type.endswith("_url")
-            else prompt_item.value
+        def mk_node(prompt_content: str) -> Node:
+            node = env.add_value_node(prompt_content.encode("utf-8"), explain="Prompt")
+            env.alias(".prompt", node.name)
+            return node
+
+        if prompt_item.type == "text":
+            mk_node(json.dumps({"type": "text", "text": prompt_item.value}))
+            return
+
+        if prompt_item.type == "image_url":
+            mk_node(
+                json.dumps(
+                    {
+                        "type": "image",
+                        "url": prompt_item.value,
+                        **(
+                            {"media_type": prompt_item.media_type}
+                            if prompt_item.media_type
+                            else {}
+                        ),
+                    }
+                )
+            )
+            return
+
+        assert prompt_item.type == "image", f"Unknown prompt type: {prompt_item.type}"
+
+        stream_name = env.get_next_name("stream/image")
+        node = mk_node(
+            json.dumps(
+                {
+                    "type": "image",
+                    "stream": stream_name,
+                    **(
+                        {"media_type": prompt_item.media_type}
+                        if prompt_item.media_type
+                        else {}
+                    ),
+                }
+            )
         )
-        value = {"type": prompt_type, prompt_type: prompt_content}
-        node = env.add_value_node(json.dumps(value).encode("utf-8"), explain="Prompt")
-        env.alias(".prompt", node.name)
+
+        with open(prompt_item.value, "rb") as f:
+            stream: Stream = env.create_new_stream(node.name, stream_name)
+            stream.content.write(f.read())
+            stream.close()
 
     for prompt_item in prompt:
         prompt_to_node(prompt_item)
