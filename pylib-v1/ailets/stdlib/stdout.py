@@ -1,14 +1,19 @@
 from ailets.cons.typing import INodeRuntime
+from ailets.cons.util import read_all, write_all
 
 
 def stdout(runtime: INodeRuntime) -> None:
     """Print each value to stdout and return them unchanged."""
 
     for i in range(runtime.n_of_streams(None)):
-        value = runtime.open_read(None, i).read().decode("utf-8")
+        fd = runtime.open_read(None, i)
+        value = read_all(runtime, fd).decode("utf-8")
+        runtime.close(fd)
+        
         if value == "":
             continue
         print(value)
 
-    runtime.open_write(None).write("ok".encode("utf-8"))
-    runtime.close_write(None)
+    fd = runtime.open_write(None)
+    write_all(runtime, fd, "ok".encode("utf-8"))
+    runtime.close(fd)

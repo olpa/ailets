@@ -6,6 +6,7 @@ from ailets.cons.typing import (
     ChatMessageAssistant,
     INodeRuntime,
 )
+from ailets.cons.util import read_all, write_all
 
 
 @dataclass
@@ -88,10 +89,14 @@ def response_to_messages(runtime: INodeRuntime) -> None:
     messages: List[ChatMessage] = []
 
     for i in range(runtime.n_of_streams(None)):
-        response = json.loads(runtime.open_read(None, i).read())
+        fd = runtime.open_read(None, i)
+        response = json.loads(read_all(runtime, fd).decode("utf-8"))
+        runtime.close(fd)
+
         message = _process_single_message(runtime, response, invalidation_flag)
         if message is not None:
             messages.append(message)
 
-    output.write(json.dumps(messages).encode("utf-8"))
-    runtime.close_write(None)
+    value = json.dumps(messages).encode("utf-8")
+    write_all(runtime, output, value)
+    runtime.close(output)

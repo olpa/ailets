@@ -1,6 +1,7 @@
 import json
 from typing import Sequence
 from ailets.cons.typing import ChatMessage, INodeRuntime, ToolSpecification
+from ailets.cons.util import read_all, write_all
 
 url = "https://api.openai.com/v1/chat/completions"
 method = "POST"
@@ -15,14 +16,18 @@ def messages_to_query(runtime: INodeRuntime) -> None:
 
     messages: list[ChatMessage] = []
     for i in range(runtime.n_of_streams(None)):
-        stream = runtime.open_read(None, i)
-        ith_messages: Sequence[ChatMessage] = json.loads(stream.read())
+        fd = runtime.open_read(None, i)
+        content = read_all(runtime, fd).decode("utf-8")
+        ith_messages: Sequence[ChatMessage] = json.loads(content)
+        runtime.close(fd)
         messages.extend(ith_messages)
 
     tools = []
     for i in range(runtime.n_of_streams("toolspecs")):
-        stream = runtime.open_read("toolspecs", i)
-        toolspec: ToolSpecification = json.loads(stream.read())
+        fd = runtime.open_read("toolspecs", i)
+        content = read_all(runtime, fd).decode("utf-8")
+        toolspec: ToolSpecification = json.loads(content)
+        runtime.close(fd)
         tools.append(
             {
                 "type": "function",
@@ -42,6 +47,6 @@ def messages_to_query(runtime: INodeRuntime) -> None:
         },
     }
 
-    output = runtime.open_write(None)
-    output.write(json.dumps(value).encode("utf-8"))
-    runtime.close_write(None)
+    fd = runtime.open_write(None)
+    write_all(runtime, fd, json.dumps(value).encode("utf-8"))
+    runtime.close(fd)

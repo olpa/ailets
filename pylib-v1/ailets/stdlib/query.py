@@ -3,6 +3,7 @@ import requests
 import os
 import re
 from ailets.cons.typing import INodeRuntime
+from ailets.cons.util import read_all, write_all
 
 MAX_RUNS = 3  # Maximum number of runs allowed
 _run_count = 0  # Track number of runs
@@ -35,8 +36,9 @@ def query(runtime: INodeRuntime) -> None:
         raise RuntimeError(f"Exceeded maximum number of runs ({MAX_RUNS})")
 
     assert runtime.n_of_streams(None) == 1, "Expected exactly one query params dict"
-    hparams = runtime.open_read(None, 0)  # Get the single params dict
-    params = json.loads(hparams.read())
+    fd = runtime.open_read(None, 0)  # Get the single params dict
+    params = json.loads(read_all(runtime, fd).decode("utf-8"))
+    runtime.close(fd)
 
     try:
         # Resolve secrets in headers and url
@@ -66,9 +68,9 @@ def query(runtime: INodeRuntime) -> None:
         response.raise_for_status()  # Raise an exception for bad status codes
 
         value = response.json()
-        output = runtime.open_write(None)
-        output.write(json.dumps(value).encode("utf-8"))
-        runtime.close_write(None)
+        fd = runtime.open_write(None)
+        write_all(runtime, fd, json.dumps(value).encode("utf-8"))
+        runtime.close(fd)
 
     except requests.exceptions.RequestException as e:
         print(f"HTTP Request failed: {str(e)}")

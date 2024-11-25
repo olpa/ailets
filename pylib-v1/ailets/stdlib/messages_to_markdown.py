@@ -7,15 +7,15 @@ from ailets.cons.typeguards import (
     is_chat_message_content_text,
 )
 from ailets.cons.typing import ChatMessageStructuredContentItem, INodeRuntime
-from ailets.cons.util import iter_streams_objects
+from ailets.cons.util import iter_streams_objects, read_all, write_all
 
 need_separator = False
 
 
-def separator(output: BytesIO) -> None:
+def separator(runtime: INodeRuntime, fd: int) -> None:
     global need_separator
     if need_separator:
-        output.write(b"\n\n")
+        write_all(runtime, fd, b"\n\n")
     else:
         need_separator = True
 
@@ -59,33 +59,33 @@ def rewrite_image_url(runtime: INodeRuntime, url: str) -> str:
 
     # Write to stream
     stream = runtime.open_write(filename)
-    stream.write(data_bytes)
-    runtime.close_write(filename)
+    write_all(runtime, stream, data_bytes)
+    runtime.close(stream)
 
     return filename
 
 
 def mixed_content_to_markdown(
     runtime: INodeRuntime,
-    output: BytesIO,
+    fd: int,
     content: ChatMessageStructuredContentItem,
 ) -> None:
-    separator(output)
+    separator(runtime, fd)
 
     if isinstance(content, str):
-        output.write(content)
+        write_all(runtime, fd, content.encode("utf-8"))
         return
 
     if is_chat_message_content_text(content):
-        output.write(content["text"].encode("utf-8"))
+        write_all(runtime, fd, content["text"].encode("utf-8"))
         return
 
     if is_chat_message_content_image_url(content):
         url = rewrite_image_url(runtime, content["image_url"]["url"])
-        output.write(f"![image]({url})".encode("utf-8"))
+        write_all(runtime, fd, f"![image]({url})".encode("utf-8"))
         return
 
-    output.write(json.dumps(content).encode("utf-8"))
+    write_all(runtime, fd, json.dumps(content).encode("utf-8"))
 
 
 def messages_to_markdown(runtime: INodeRuntime) -> None:
@@ -93,15 +93,16 @@ def messages_to_markdown(runtime: INodeRuntime) -> None:
     global need_separator
     need_separator = False
 
-    output = runtime.open_write(None)
+    fd = runtime.open_write(None)
 
-    for message in iter_streams_objects(runtime, None):
-        content = message["content"]
-        if isinstance(content, str):
-            separator(output)
-            output.write(content.encode("utf-8"))
-            continue
-        for item in content:
-            mixed_content_to_markdown(runtime, output, item)
-
-    runtime.close_write(None)
+    try:
+        for message in iter_streams_objects(runtime, None):
+            content = message["content"]
+            if isinstance(content, str):
+                separator(runtime, fd)
+                write_all(runtime, fd, content.encode("utf-8"))
+                continue
+            for item in content:
+                mixed_content_to_markdown(runtime, fd, item)
+    finally:
+        runtime.close(fd)
