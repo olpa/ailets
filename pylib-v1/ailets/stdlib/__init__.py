@@ -4,7 +4,6 @@ prompt_to_messages = NodeDesc(
     name="prompt_to_messages",
     inputs=[
         Dependency(source=".prompt"),
-        Dependency(name="type", source=".prompt", stream="type"),
     ],
 )
 

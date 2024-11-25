@@ -5,6 +5,7 @@ from ailets.cons.typing import (
     ChatMessage,
     ChatMessageAssistant,
     INodeRuntime,
+    TypedValue,
 )
 from ailets.cons.util import iter_streams_objects, write_all
 
@@ -43,9 +44,9 @@ def _process_single_message(
     # Put "tool_calls" to the "chat history"
     #
     idref_messages: Sequence[ChatMessageAssistant] = [message]
+    value_idref: TypedValue = {"type": "json", "value": json.dumps(idref_messages)}
     idref_node = dagops.add_typed_value_node(
-        json.dumps(idref_messages),
-        "",
+        value_idref,
         explain='Feed "tool_calls" from output to input',
     )
     dagops.alias(".chat_messages", idref_node)
@@ -54,8 +55,9 @@ def _process_single_message(
     # Instantiate tools and connect them to the "chat history"
     #
     for tool_call in tool_calls:
+        value_call: TypedValue = {"type": "json", "value": json.dumps(tool_call)}
         tool_spec_node_name = dagops.add_typed_value_node(
-            json.dumps(tool_call), "", explain="Tool call spec from llm"
+            value_call, explain="Tool call spec from llm"
         )
 
         tool_name = tool_call["function"]["name"]

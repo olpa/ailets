@@ -6,7 +6,6 @@ from ailets.cons.typeguards import (
     is_chat_message_content_text,
 )
 from ailets.cons.typing import (
-    ChatMessage,
     ChatMessageContent,
     ChatMessageContentPlainText,
     INodeRuntime,

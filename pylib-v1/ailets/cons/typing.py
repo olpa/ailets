@@ -18,6 +18,27 @@ from typing import (
 from .streams import Stream
 
 
+#
+#
+#
+class TypedValueDirect(TypedDict):
+    type: str
+    media_type: NotRequired[str]
+    value: Any
+
+
+class TypedValueRef(TypedDict):
+    type: str
+    media_type: NotRequired[str]
+    value_ref: str
+
+
+TypedValue = Union[TypedValueRef, TypedValueDirect]
+
+
+#
+#
+#
 @dataclass(frozen=True)
 class Dependency:
     """A dependency of a node on another node's stream.
@@ -80,7 +101,7 @@ class INodeDagops(Protocol):
         raise NotImplementedError
 
     def add_typed_value_node(
-        self, value: str, value_type: str, explain: Optional[str] = None
+        self, value: TypedValue, explain: Optional[str] = None
     ) -> str:
         raise NotImplementedError
 
@@ -151,7 +172,7 @@ class IEnvironment(Protocol):
         raise NotImplementedError
 
     def add_typed_value_node(
-        self, value: str, value_type: str, explain: Optional[str] = None
+        self, value: TypedValue, explain: Optional[str] = None
     ) -> Node:
         raise NotImplementedError
 

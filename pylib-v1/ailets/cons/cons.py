@@ -14,7 +14,7 @@ import json
 
 from .plugin import NodeRegistry
 
-from .typing import Dependency, IEnvironment, INodeRegistry, Node
+from .typing import Dependency, IEnvironment, INodeRegistry, Node, TypedValue
 from .node_runtime import NodeRuntime
 from .streams import Streams, Stream
 from .util import to_basename
@@ -347,13 +347,12 @@ class Environment(IEnvironment):
         return node
 
     def add_typed_value_node(
-        self, value: str, value_type: str, explain: Optional[str] = None
+        self, value: TypedValue, explain: Optional[str] = None
     ) -> Node:
         """Add a typed value node to the environment.
 
         Args:
             value: The value to store
-            value_type: The type of the value
             explain: Optional explanation of what the value represents
 
         """
@@ -361,10 +360,7 @@ class Environment(IEnvironment):
 
         node = Node(
             name=full_name,
-            func=lambda _: (
-                value,
-                value_type,
-            ),  # Function returns tuple of value and type
+            func=lambda _: None,  # Dummy function since value is in streams
             deps=[],  # No dependencies
             explain=explain,
         )
@@ -373,12 +369,9 @@ class Environment(IEnvironment):
 
         # Add streams for value and type
         value_stream = self._streams.create(full_name, None)
-        value_stream.content.write(value.encode("utf-8"))
+        value_json = json.dumps(value)
+        value_stream.content.write(value_json.encode("utf-8"))
         value_stream.is_finished = True
-
-        type_stream = self._streams.create(full_name, "type")
-        type_stream.content.write(value_type.encode("utf-8"))
-        type_stream.is_finished = True
 
         return node
 
