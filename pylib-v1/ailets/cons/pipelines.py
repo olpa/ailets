@@ -23,8 +23,9 @@ def prompt_to_env(
             prompt_text, prompt_type = prompt_item
         if prompt_type == "toml":
             return
+        value = {"type": prompt_type, prompt_type: prompt_text}
         node_tv = env.add_value_node(
-            json.dumps(prompt_text).encode("utf-8"), explain="Prompt"
+            json.dumps(value).encode("utf-8"), explain="Prompt"
         )
         env.alias(".prompt", node_tv.name)
 
