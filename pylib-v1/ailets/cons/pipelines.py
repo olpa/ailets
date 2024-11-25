@@ -2,10 +2,7 @@ from dataclasses import dataclass
 from typing import Optional
 import json
 import tomllib
-from typing import (
-    Tuple,
-    Sequence,
-)
+from typing import Sequence
 from .typing import (
     Dependency,
     IEnvironment,
@@ -30,7 +27,7 @@ def prompt_to_env(
 
         prompt_type = prompt_item.type
         prompt_content = prompt_item.value
-        value = {"type": prompt_type, prompt_type: prompt_content}
+        value = {"type": prompt_type, prompt_type: prompt_content.decode("utf-8")}
         node = env.add_value_node(json.dumps(value).encode("utf-8"), explain="Prompt")
         env.alias(".prompt", node.name)
 
@@ -40,12 +37,12 @@ def prompt_to_env(
 
 def toml_to_env(
     env: IEnvironment,
-    toml: Sequence[Tuple[str, str]],
+    toml: Sequence[CmdlinePromptItem],
 ) -> None:
-    for toml_text, type_ in toml:
-        if type_ != "toml":
+    for prompt_item in toml:
+        if prompt_item.type != "toml":
             continue
-        items = tomllib.loads(toml_text)
+        items = tomllib.loads(prompt_item.value.decode("utf-8"))
         env.update_for_env_stream(items)
 
 
