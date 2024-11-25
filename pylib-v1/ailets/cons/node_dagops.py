@@ -8,7 +8,6 @@ from .typing import (
     INodeDagops,
     INodeRegistry,
     INodeRuntime,
-    TypedValue,
 )
 
 
@@ -18,10 +17,8 @@ class NodeDagops(INodeDagops):
         self._nodereg = nodereg
         self._node = node
 
-    def add_typed_value_node(
-        self, value: TypedValue, explain: Optional[str] = None
-    ) -> str:
-        node = self._env.add_typed_value_node(value, explain)
+    def add_value_node(self, value: bytes, explain: Optional[str] = None) -> str:
+        node = self._env.add_value_node(value, explain)
         return node.name
 
     def instantiate_with_deps(self, target: str, aliases: dict[str, str]) -> str:

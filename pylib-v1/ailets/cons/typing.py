@@ -21,24 +21,6 @@ from .streams import Stream
 #
 #
 #
-class TypedValueDirect(TypedDict):
-    type: Literal["text", "json", "image_url"]
-    media_type: NotRequired[str]
-    value: Any
-
-
-class TypedValueRef(TypedDict):
-    type: Literal["image"]
-    media_type: NotRequired[str]
-    value_ref: str
-
-
-TypedValue = Union[TypedValueRef, TypedValueDirect]
-
-
-#
-#
-#
 @dataclass(frozen=True)
 class Dependency:
     """A dependency of a node on another node's stream.
@@ -100,9 +82,7 @@ class INodeDagops(Protocol):
     def alias(self, alias: str, node_name: Optional[str]) -> None:
         raise NotImplementedError
 
-    def add_typed_value_node(
-        self, value: TypedValue, explain: Optional[str] = None
-    ) -> str:
+    def add_value_node(self, value: bytes, explain: Optional[str] = None) -> str:
         raise NotImplementedError
 
     def instantiate_with_deps(
@@ -171,9 +151,7 @@ class IEnvironment(Protocol):
     def alias(self, alias: str, node_name: Optional[str]) -> None:
         raise NotImplementedError
 
-    def add_typed_value_node(
-        self, value: TypedValue, explain: Optional[str] = None
-    ) -> Node:
+    def add_value_node(self, value: bytes, explain: Optional[str] = None) -> Node:
         raise NotImplementedError
 
     def iter_deps(self, node_name: str) -> Iterator[Dependency]:
