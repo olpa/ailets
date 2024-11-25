@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+from typing import Optional
 import json
 import tomllib
 from typing import (
@@ -11,23 +13,26 @@ from .typing import (
 )
 
 
+@dataclass
+class CmdlinePromptItem:
+    value: bytes
+    type: str
+    media_type: Optional[str] = None
+
+
 def prompt_to_env(
     env: IEnvironment,
-    prompt: Sequence[Tuple[str, str]] = [("Hello!", "text")],
+    prompt: Sequence[CmdlinePromptItem] = [CmdlinePromptItem(b"Hello!", "text")],
 ) -> None:
-    def prompt_to_node(prompt_item: Tuple[str, str]) -> None:
-        if isinstance(prompt_item, str):
-            prompt_text = prompt_item
-            prompt_type = "text"
-        else:
-            prompt_text, prompt_type = prompt_item
-        if prompt_type == "toml":
+    def prompt_to_node(prompt_item: CmdlinePromptItem) -> None:
+        if prompt_item.type == "toml":
             return
-        value = {"type": prompt_type, prompt_type: prompt_text}
-        node_tv = env.add_value_node(
-            json.dumps(value).encode("utf-8"), explain="Prompt"
-        )
-        env.alias(".prompt", node_tv.name)
+
+        prompt_type = prompt_item.type
+        prompt_content = prompt_item.value
+        value = {"type": prompt_type, prompt_type: prompt_content}
+        node = env.add_value_node(json.dumps(value).encode("utf-8"), explain="Prompt")
+        env.alias(".prompt", node.name)
 
     for prompt_item in prompt:
         prompt_to_node(prompt_item)
