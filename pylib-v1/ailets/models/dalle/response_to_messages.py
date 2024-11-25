@@ -7,15 +7,18 @@ from ailets.cons.typing import (
     ChatMessageStructuredContent,
     INodeRuntime,
 )
+from ailets.cons.util import read_all, write_all
 
 
 def response_to_messages(runtime: INodeRuntime) -> None:
     """Convert DALL-E response to messages."""
 
-    output = runtime.open_write(None)
+    output_fd = runtime.open_write(None)
 
     for i in range(runtime.n_of_streams(None)):
-        response = json.loads(runtime.open_read(None, i).read())
+        fd = runtime.open_read(None, i)
+        response = json.loads(read_all(runtime, fd).decode("utf-8"))
+        runtime.close(fd)
         # `response` format:
         # {
         #   "created": 1726961295,
@@ -58,6 +61,6 @@ def response_to_messages(runtime: INodeRuntime) -> None:
                 "role": "assistant",
                 "content": content,
             }
-            output.write(json.dumps(message).encode("utf-8"))
+            write_all(runtime, output_fd, json.dumps(message).encode("utf-8"))
 
-    runtime.close_write(None)
+    runtime.close(output_fd)

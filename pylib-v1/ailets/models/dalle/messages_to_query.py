@@ -11,7 +11,7 @@ from ailets.cons.typing import (
     ChatMessageContentPlainText,
     INodeRuntime,
 )
-from ailets.cons.util import log, read_env_stream
+from ailets.cons.util import log, read_env_stream, read_all, write_all
 
 # https://platform.openai.com/docs/api-reference/images/create
 
@@ -115,7 +115,8 @@ def messages_to_query(runtime: INodeRuntime) -> None:
 
     for i in range(runtime.n_of_streams(None)):
         stream = runtime.open_read(None, i)
-        messages: Sequence[ChatMessage] = json.loads(stream.read())
+        messages: Sequence[ChatMessage] = json.loads(read_all(runtime, stream).decode("utf-8"))
+        runtime.close(stream)
         for message in messages:
             role = message.get("role")
             if role != "user":
@@ -153,5 +154,5 @@ def messages_to_query(runtime: INodeRuntime) -> None:
     }
 
     output = runtime.open_write(None)
-    output.write(json.dumps(value).encode("utf-8"))
-    runtime.close_write(None)
+    write_all(runtime, output, json.dumps(value).encode("utf-8"))
+    runtime.close(output)
