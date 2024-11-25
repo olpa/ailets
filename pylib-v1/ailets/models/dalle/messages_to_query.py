@@ -1,3 +1,4 @@
+import base64
 import json
 from typing import Optional, Sequence, TypedDict
 from ailets.cons.typeguards import (
@@ -11,6 +12,8 @@ from ailets.cons.typing import (
     INodeRuntime,
 )
 from ailets.cons.util import log, read_env_stream
+
+# https://platform.openai.com/docs/api-reference/images/create
 
 url_tpl = "https://api.openai.com/v1/images/##TASK##"
 auth_header = {
@@ -57,11 +60,21 @@ def task_to_body(task: str, body: dict) -> dict | str:
 
 class ExtractedPrompt(TypedDict):
     prompt_parts: list[str]
-    image: Optional[str]
-    mask: Optional[str]
+    image: Optional[bytes]
+    mask: Optional[bytes]
 
 
-# https://platform.openai.com/docs/api-reference/images/create
+def decode_data_url(url: str) -> bytes:
+    if not url.startswith("data:"):
+        raise ValueError("URL must be a data URL starting with 'data:'")
+    try:
+        _, data = url.split(",", 1)
+    except ValueError:
+        raise ValueError("Invalid data URL format - missing comma separator")
+    try:
+        return base64.b64decode(data)
+    except Exception as e:
+        raise ValueError(f"Invalid base64 data: {str(e)}")
 
 
 def update_prompt(
@@ -82,9 +95,9 @@ def update_prompt(
             elif is_chat_message_content_image_url(part):
                 url = part["image_url"]["url"]
                 if prompt["image"] is None:
-                    prompt["image"] = url
+                    prompt["image"] = decode_data_url(url)
                 elif prompt["mask"] is None:
-                    prompt["mask"] = url
+                    prompt["mask"] = decode_data_url(url)
                 else:
                     raise ValueError(
                         "Too many images. First image is used as image, second as mask."
