@@ -22,13 +22,13 @@ from .streams import Stream
 #
 #
 class TypedValueDirect(TypedDict):
-    type: str
+    type: Literal["text", "json", "image_url"]
     media_type: NotRequired[str]
     value: Any
 
 
 class TypedValueRef(TypedDict):
-    type: str
+    type: Literal["image"]
     media_type: NotRequired[str]
     value_ref: str
 
