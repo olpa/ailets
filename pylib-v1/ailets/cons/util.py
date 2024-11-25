@@ -43,7 +43,9 @@ def iter_streams_objects(
     # `n_of_streams` can change with time, therefore don't use `range`
     i = 0
     while i < runtime.n_of_streams(stream_name):
-        fd = runtime.open_read(stream_name, i)
+        i += 1
+
+        fd = runtime.open_read(stream_name, i - 1)
         buffer = read_all(runtime, fd)
         runtime.close(fd)
 
@@ -52,7 +54,7 @@ def iter_streams_objects(
         if buffer[0] == ord("["):
             array = json.loads(buffer)
             yield from array
-            return
+            continue
 
         pos = 0
         while pos < len(buffer):
@@ -60,8 +62,7 @@ def iter_streams_objects(
                 obj, pos = decoder.raw_decode(buffer[pos:].decode("utf-8"))
                 yield obj
             except json.JSONDecodeError:
-                break
-        i += 1
+                raise ValueError(f"Failed to decode JSON at position {pos}: {buffer[pos:pos+20]!r}...")
 
 
 def read_env_stream(runtime: INodeRuntime) -> Dict[str, Any]:
