@@ -12,14 +12,14 @@ from .typing import (
 
 @dataclass
 class CmdlinePromptItem:
-    value: bytes
+    value: str
     type: str
     media_type: Optional[str] = None
 
 
 def prompt_to_env(
     env: IEnvironment,
-    prompt: Sequence[CmdlinePromptItem] = [CmdlinePromptItem(b"Hello!", "text")],
+    prompt: Sequence[CmdlinePromptItem] = [CmdlinePromptItem("Hello!", "text")],
 ) -> None:
     def prompt_to_node(prompt_item: CmdlinePromptItem) -> None:
         if prompt_item.type == "toml":
@@ -27,7 +27,7 @@ def prompt_to_env(
 
         prompt_type = prompt_item.type
         prompt_content = prompt_item.value
-        value = {"type": prompt_type, prompt_type: prompt_content.decode("utf-8")}
+        value = {"type": prompt_type, prompt_type: prompt_content}
         node = env.add_value_node(json.dumps(value).encode("utf-8"), explain="Prompt")
         env.alias(".prompt", node.name)
 
@@ -42,7 +42,7 @@ def toml_to_env(
     for prompt_item in toml:
         if prompt_item.type != "toml":
             continue
-        items = tomllib.loads(prompt_item.value.decode("utf-8"))
+        items = tomllib.loads(prompt_item.value)
         env.update_for_env_stream(items)
 
 

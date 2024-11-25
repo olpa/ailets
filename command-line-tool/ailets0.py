@@ -39,7 +39,7 @@ def parse_args():
             - "@http://...": URL with auto-detected type\\\\
             - "@{type}http://...": URL with explicit type\\\\
 
-            Supported types: text, image_url""",
+            Supported types: text, image""",
     )
     parser.add_argument(
         "--dry-run",
@@ -102,7 +102,7 @@ def guess_content_type(content: str) -> Tuple[str, str]:
     ext = os.path.splitext(urlparse(content).path)[1].lower()
 
     if ext in image_extensions:
-        return "image_url", image_extensions[ext]
+        return "image", image_extensions[ext]
 
     if ext in text_extensions:
         return "text", text_extensions[ext]
@@ -148,9 +148,9 @@ def get_prompt(prompt_args: list[str]) -> list[CmdlinePromptItem]:
 
             toml, text = split_text_toml_and_text(arg)
             if toml:
-                yield CmdlinePromptItem(toml.encode("utf-8"), "toml")
+                yield CmdlinePromptItem(toml, "toml")
             if text:
-                yield CmdlinePromptItem(text.encode("utf-8"), "text")
+                yield CmdlinePromptItem(text, "text")
             return
 
         # Parse @{type}content format
@@ -183,11 +183,11 @@ def get_prompt(prompt_args: list[str]) -> list[CmdlinePromptItem]:
 
         if is_url(content) or content.startswith("data:"):
             content_type = f"{content_type}_url"
-        yield CmdlinePromptItem(content.encode("utf-8"), content_type)
+        yield CmdlinePromptItem(content, content_type)
 
     items = [p for prompt_arg in prompt_args for p in iter_get_prompt(prompt_arg)]
     if not len(items):
-        items = [CmdlinePromptItem(b"Hello!", "text")]
+        items = [CmdlinePromptItem("Hello!", "text")]
     return items
 
 
