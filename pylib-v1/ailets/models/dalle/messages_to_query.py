@@ -115,7 +115,9 @@ def messages_to_query(runtime: INodeRuntime) -> None:
 
     for i in range(runtime.n_of_streams(None)):
         stream = runtime.open_read(None, i)
-        messages: Sequence[ChatMessage] = json.loads(read_all(runtime, stream).decode("utf-8"))
+        messages: Sequence[ChatMessage] = json.loads(
+            read_all(runtime, stream).decode("utf-8")
+        )
         runtime.close(stream)
         for message in messages:
             role = message.get("role")

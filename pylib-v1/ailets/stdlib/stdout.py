@@ -9,7 +9,7 @@ def stdout(runtime: INodeRuntime) -> None:
         fd = runtime.open_read(None, i)
         value = read_all(runtime, fd).decode("utf-8")
         runtime.close(fd)
-        
+
         if value == "":
             continue
         print(value)

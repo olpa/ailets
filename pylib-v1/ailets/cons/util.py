@@ -62,7 +62,10 @@ def iter_streams_objects(
                 obj, pos = decoder.raw_decode(buffer[pos:].decode("utf-8"))
                 yield obj
             except json.JSONDecodeError:
-                raise ValueError(f"Failed to decode JSON at position {pos}: {buffer[pos:pos+20]!r}...")
+                raise ValueError(
+                    f"Failed to decode JSON at position {pos}: "
+                    f"{buffer[pos:pos+20]!r}..."
+                )
 
 
 def read_env_stream(runtime: INodeRuntime) -> Dict[str, Any]:

@@ -1,5 +1,4 @@
-from typing import Any, Dict, Literal, Mapping, Optional, Sequence
-from io import BytesIO
+from typing import Dict, Mapping, Optional, Sequence
 
 from .node_dagops import NodeDagops
 from .streams import Stream

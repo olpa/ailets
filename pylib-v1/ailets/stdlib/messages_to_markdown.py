@@ -1,13 +1,12 @@
 import json
 import base64
 import hashlib
-from io import BytesIO
 from ailets.cons.typeguards import (
     is_chat_message_content_image_url,
     is_chat_message_content_text,
 )
 from ailets.cons.typing import ChatMessageStructuredContentItem, INodeRuntime
-from ailets.cons.util import iter_streams_objects, read_all, write_all
+from ailets.cons.util import iter_streams_objects, write_all
 
 need_separator = False
 
