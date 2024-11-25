@@ -1,7 +1,11 @@
 from dataclasses import dataclass
 import json
-from typing import Optional, Set
-from ailets.cons.typing import INodeRuntime
+from typing import List, Optional, Sequence, Set
+from ailets.cons.typing import (
+    ChatMessage,
+    ChatMessageAssistant,
+    INodeRuntime,
+)
 
 
 @dataclass
@@ -10,18 +14,21 @@ class InvalidationFlag:
     fence: Optional[Set[str]] = None
 
 
-def _process_single_response(
-    runtime: INodeRuntime, response: dict, invalidation_flag_rw: InvalidationFlag
-) -> str:
+def _process_single_message(
+    runtime: INodeRuntime,
+    response: dict,
+    invalidation_flag_rw: InvalidationFlag,
+) -> Optional[ChatMessage]:
     message = response["choices"][0]["message"]
     content = message.get("content")
     tool_calls = message.get("tool_calls")
 
     if content is None and tool_calls is None:
         raise ValueError("Response message has neither content nor tool_calls")
-
     if content is not None:
-        return content
+        return message
+
+    assert tool_calls is not None, "tool_calls cannot be None at this point"
 
     #
     # Tool calls
@@ -34,12 +41,7 @@ def _process_single_response(
     #
     # Put "tool_calls" to the "chat history"
     #
-    idref_messages = [
-        {
-            "role": message["role"],
-            "tool_calls": tool_calls,
-        }
-    ]
+    idref_messages: Sequence[ChatMessageAssistant] = [message]
     idref_node = dagops.add_typed_value_node(
         json.dumps(idref_messages),
         "",
@@ -68,29 +70,28 @@ def _process_single_response(
             },
         )
         dagops.alias(".chat_messages", tool_msg_node_name)
-
     #
     # Re-run the model
     #
     rerun_node_name = dagops.instantiate_with_deps(".gpt4o", {})
     dagops.alias(".model_output", rerun_node_name)
 
-    return ""
+    return None
 
 
-def response_to_markdown(runtime: INodeRuntime) -> None:
-    """Convert multiple responses to markdown format."""
+def response_to_messages(runtime: INodeRuntime) -> None:
+    """Convert multiple responses to messages."""
 
     output = runtime.open_write(None)
 
     invalidation_flag = InvalidationFlag(is_invalidated=False)
+    messages: List[ChatMessage] = []
 
     for i in range(runtime.n_of_streams(None)):
         response = json.loads(runtime.open_read(None, i).read())
-        result = _process_single_response(runtime, response, invalidation_flag)
-        if result:  # Only write non-empty results
-            if i > 0:
-                output.write("\n\n")
-            output.write(result)
+        message = _process_single_message(runtime, response, invalidation_flag)
+        if message is not None:
+            messages.append(message)
 
+    output.write(json.dumps(messages).encode("utf-8"))
     runtime.close_write(None)

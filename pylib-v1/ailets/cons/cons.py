@@ -24,6 +24,7 @@ class Environment(IEnvironment):
     def __init__(self) -> None:
         self.nodes: Dict[str, Node] = {}
         self._node_counter: int = 0
+        self._for_env_stream: Dict[str, Any] = {}
         self._streams: Streams = Streams()
         self._next_id = 1
         self._aliases: Dict[str, List[str]] = {}
@@ -375,11 +376,11 @@ class Environment(IEnvironment):
 
         # Add streams for value and type
         value_stream = self._streams.create(full_name, None)
-        value_stream.content.write(value)
+        value_stream.content.write(value.encode("utf-8"))
         value_stream.is_finished = True
 
         type_stream = self._streams.create(full_name, "type")
-        type_stream.content.write(value_type)
+        type_stream.content.write(value_type.encode("utf-8"))
         type_stream.is_finished = True
 
         return node
@@ -392,6 +393,9 @@ class Environment(IEnvironment):
             f.write("\n")
 
         self._streams.to_json(f)
+
+        json.dump({"env": self._for_env_stream}, f, indent=2)
+        f.write("\n")
 
         for alias, names in self._aliases.items():
             json.dump({"alias": alias, "names": list(names)}, f, indent=2)
@@ -423,6 +427,8 @@ class Environment(IEnvironment):
                     env._streams.add_stream_from_json(obj_data)
                 elif "alias" in obj_data:
                     env._aliases[obj_data["alias"]] = obj_data["names"]
+                elif "env" in obj_data:
+                    env._for_env_stream.update(obj_data["env"])
                 else:
                     raise ValueError(f"Unknown object data: {obj_data}")
             except json.JSONDecodeError as e:
@@ -547,3 +553,12 @@ class Environment(IEnvironment):
         self._node_counter += 1
         another_name = f"{to_basename(full_name)}.{self._node_counter}"
         return another_name
+
+    def update_for_env_stream(self, params: Dict[str, Any]) -> None:
+        self._for_env_stream.update(params)
+
+    def get_env_stream(self) -> Stream:
+        return self._streams.make_env_stream(self._for_env_stream)
+
+    def get_fs_output_streams(self) -> Sequence[Stream]:
+        return self._streams.get_fs_output_streams()

@@ -1,23 +1,28 @@
 import json
-from ailets.cons.typing import INodeRuntime
+from typing import Sequence
+from ailets.cons.typing import ChatMessage, INodeRuntime, ToolSpecification
 
 url = "https://api.openai.com/v1/chat/completions"
 method = "POST"
-headers = {"Content-type": "application/json"}
+headers = {
+    "Content-type": "application/json",
+    "Authorization": "Bearer {{secret('openai','gpt4o')}}",
+}
 
 
 def messages_to_query(runtime: INodeRuntime) -> None:
     """Convert chat messages into a query."""
 
-    messages = []
+    messages: list[ChatMessage] = []
     for i in range(runtime.n_of_streams(None)):
         stream = runtime.open_read(None, i)
-        messages.extend(json.loads(stream.read()))
+        ith_messages: Sequence[ChatMessage] = json.loads(stream.read())
+        messages.extend(ith_messages)
 
     tools = []
     for i in range(runtime.n_of_streams("toolspecs")):
         stream = runtime.open_read("toolspecs", i)
-        toolspec = json.loads(stream.read())
+        toolspec: ToolSpecification = json.loads(stream.read())
         tools.append(
             {
                 "type": "function",
@@ -26,18 +31,10 @@ def messages_to_query(runtime: INodeRuntime) -> None:
         )
     tools_param = {"tools": tools} if tools else {}
 
-    creds = {}
-    for i in range(runtime.n_of_streams("credentials")):
-        stream = runtime.open_read("credentials", i)
-        creds.update(json.loads(stream.read()))
-
     value = {
         "url": url,
         "method": method,
-        "headers": {
-            **headers,
-            **creds,
-        },
+        "headers": headers,
         "body": {
             "model": "gpt-4o-mini",
             "messages": messages,
@@ -46,5 +43,5 @@ def messages_to_query(runtime: INodeRuntime) -> None:
     }
 
     output = runtime.open_write(None)
-    output.write(json.dumps(value))
+    output.write(json.dumps(value).encode("utf-8"))
     runtime.close_write(None)

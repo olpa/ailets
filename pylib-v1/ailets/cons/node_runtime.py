@@ -1,5 +1,5 @@
-from typing import Dict, Mapping, Optional, Sequence
-from io import StringIO
+from typing import Any, Dict, Literal, Mapping, Optional, Sequence
+from io import BytesIO
 
 from .node_dagops import NodeDagops
 from .streams import Stream
@@ -20,24 +20,28 @@ class NodeRuntime(INodeRuntime):
         self._node_name = node_name
         self._write_streams: Dict[Optional[str], Stream] = {}
 
-    def _get_streams(self, node_name: Optional[str]) -> Sequence[Stream]:
-        return self._streams.get(node_name, [])
+    def _get_streams(self, stream_name: Optional[str]) -> Sequence[Stream]:
+        if stream_name == "env":
+            return [self._env.get_env_stream()]
+        return self._streams.get(stream_name, [])
 
     def get_name(self) -> str:
         return self._node_name
 
-    def n_of_streams(self, node_name: Optional[str]) -> int:
-        return len(self._get_streams(node_name))
+    def n_of_streams(self, stream_name: Optional[str]) -> int:
+        if stream_name == "env":
+            return 1
+        return len(self._get_streams(stream_name))
 
-    def open_read(self, stream_name: Optional[str], index: int) -> StringIO:
+    def open_read(self, stream_name: Optional[str], index: int) -> BytesIO:
         streams = self._get_streams(stream_name)
         if index >= len(streams) or index < 0:
             raise ValueError(f"Stream index out of bounds: {index} for {stream_name}")
-        sio = streams[index].content
-        sio.seek(0)
-        return sio
+        bio = streams[index].content
+        bio.seek(0)
+        return bio
 
-    def open_write(self, stream_name: Optional[str]) -> StringIO:
+    def open_write(self, stream_name: Optional[str]) -> BytesIO:
         stream = self._env.create_new_stream(self._node_name, stream_name)
         self._write_streams[stream_name] = stream
         return stream.content
@@ -48,3 +52,8 @@ class NodeRuntime(INodeRuntime):
 
     def dagops(self) -> INodeDagops:
         return NodeDagops(self._env, self._nodereg, self)
+
+    def log(self, level: Literal["info", "warn", "error"], *message: Any) -> None:
+        stream = self.open_write("log")
+        stream.write(f"{self.get_name()}: {level} {message}\n".encode("utf-8"))
+        self.close_write("log")

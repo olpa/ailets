@@ -1,7 +1,10 @@
+import base64
 from dataclasses import dataclass
+import io
 import json
-from typing import Optional, TextIO
-from io import StringIO
+from typing import Any, Dict, Optional, Sequence, TextIO
+from io import BytesIO
+from typing_extensions import Buffer
 
 
 @dataclass
@@ -12,35 +15,64 @@ class Stream:
         node_name: Name of the node this stream belongs to
         stream_name: Name of the stream
         is_finished: Whether the stream is complete
-        content: The StringIO buffer containing the stream data
+        content: The BytesIO buffer containing the stream data
     """
 
     node_name: str
     stream_name: Optional[str]
     is_finished: bool
-    content: StringIO
+    content: BytesIO
 
     def to_json(self) -> dict:
         """Convert stream to JSON-serializable dict."""
+        b = self.content.getvalue()
+        try:
+            content_field = "content"
+            content = b.decode("utf-8")
+        except UnicodeDecodeError:
+            content_field = "b64_content"
+            content = base64.b64encode(b).decode("utf-8")
         return {
             "node": self.node_name,
             "name": self.stream_name,
             "is_finished": self.is_finished,
-            "content": self.content.getvalue(),
+            content_field: content,
         }
 
     @classmethod
     def from_json(cls, data: dict) -> "Stream":
         """Create stream from JSON data."""
+        if "b64_content" in data:
+            content = base64.b64decode(data["b64_content"])
+        else:
+            content = data["content"].encode("utf-8")
         return cls(
             node_name=data["node"],
             stream_name=data["name"],
             is_finished=data["is_finished"],
-            content=StringIO(data["content"]),
+            content=BytesIO(content),
         )
 
     def close(self) -> None:
         self.is_finished = True
+
+
+def create_log_stream() -> Stream:
+    class LogStream(io.BytesIO):
+        def write(self, b: Buffer) -> int:
+            if isinstance(b, bytes):
+                b2 = b.decode("utf-8")
+            else:
+                b2 = str(b)
+            print(b2, end="")
+            return len(b2)
+
+    return Stream(
+        node_name=".",
+        stream_name="log",
+        is_finished=False,
+        content=LogStream(),
+    )
 
 
 class Streams:
@@ -79,6 +111,9 @@ class Streams:
 
     def create(self, node_name: str, stream_name: Optional[str]) -> Stream:
         """Add a new stream."""
+        if stream_name == "log":
+            return create_log_stream()
+
         if self._find_stream(node_name, stream_name) is not None:
             raise ValueError(f"Stream already exists: {node_name}.{stream_name}")
 
@@ -86,7 +121,7 @@ class Streams:
             node_name=node_name,
             stream_name=stream_name,
             is_finished=False,
-            content=StringIO(),
+            content=BytesIO(),
         )
         self._streams.append(stream)
         return stream
@@ -107,3 +142,19 @@ class Streams:
         stream = Stream.from_json(stream_data)
         self._streams.append(stream)
         return stream
+
+    @staticmethod
+    def make_env_stream(params: Dict[str, Any]) -> Stream:
+        return Stream(
+            node_name=".",
+            stream_name="env",
+            is_finished=True,
+            content=BytesIO(json.dumps(params).encode("utf-8")),
+        )
+
+    def get_fs_output_streams(self) -> Sequence[Stream]:
+        return [
+            s
+            for s in self._streams
+            if s.stream_name is not None and s.stream_name.startswith("./out/")
+        ]

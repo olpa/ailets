@@ -1,16 +1,21 @@
 from dataclasses import dataclass, field
-from io import StringIO
+from io import BytesIO
 from typing import (
     Any,
     Callable,
     Dict,
     Iterator,
     List,
+    Literal,
+    NotRequired,
     Optional,
     Protocol,
     Sequence,
     Tuple,
+    TypedDict,
+    Union,
 )
+
 from .streams import Stream
 
 
@@ -95,13 +100,13 @@ class INodeRuntime(Protocol):
     def get_name(self) -> str:
         raise NotImplementedError
 
-    def n_of_streams(self, node_name: Optional[str]) -> int:
+    def n_of_streams(self, stream_name: Optional[str]) -> int:
         raise NotImplementedError
 
-    def open_read(self, stream_name: Optional[str], index: int) -> StringIO:
+    def open_read(self, stream_name: Optional[str], index: int) -> BytesIO:
         raise NotImplementedError
 
-    def open_write(self, stream_name: Optional[str]) -> StringIO:
+    def open_write(self, stream_name: Optional[str]) -> BytesIO:
         raise NotImplementedError
 
     def close_write(self, stream_name: Optional[str]) -> None:
@@ -162,6 +167,12 @@ class IEnvironment(Protocol):
     def get_next_name(self, full_name: str) -> str:
         raise NotImplementedError
 
+    def update_for_env_stream(self, params: Dict[str, Any]) -> None:
+        raise NotImplementedError
+
+    def get_env_stream(self) -> Stream:
+        raise NotImplementedError
+
 
 class INodeRegistry(Protocol):
     def has_node(self, name: str) -> bool:
@@ -175,3 +186,89 @@ class INodeRegistry(Protocol):
 
     def get_plugin(self, regname: str) -> Sequence[str]:
         raise NotImplementedError
+
+
+#
+#
+#
+class ToolSpecification(TypedDict):
+    name: str
+    description: str
+    parameters: dict[str, Any]  # JSON schema
+
+
+ChatMessageContentPlainText = str
+
+
+class ChatMessageContentText(TypedDict):
+    type: Literal["text"]
+    text: str
+
+
+class ChatMessageContentImageUrl(TypedDict):
+    image_url: dict[Literal["url", "detail"], str]
+    type: Literal["image_url"]
+
+
+class ChatMessageContentInputAudio(TypedDict):
+    input_audio: dict[Literal["data", "format"], str]
+    type: Literal["input_audio"]
+
+
+class ChatMessageContentRefusal(TypedDict):
+    refusal: str
+    type: Literal["refusal"]
+
+
+class ChatAssistantToolCall(TypedDict):
+    id: str
+    function: dict[Literal["name", "arguments"], str]
+    type: Literal["function"]
+
+
+ChatMessageStructuredContentItem = Union[
+    ChatMessageContentText,
+    ChatMessageContentImageUrl,
+    ChatMessageContentInputAudio,
+    ChatMessageContentRefusal,
+]
+
+ChatMessageStructuredContent = Sequence[ChatMessageStructuredContentItem]
+
+ChatMessageContent = Union[
+    ChatMessageContentPlainText,
+    ChatMessageStructuredContent,
+]
+
+
+class ChatMessageSystem(TypedDict):
+    content: ChatMessageContentPlainText
+    role: Literal["system"]
+
+
+class ChatMessageUser(TypedDict):
+    content: ChatMessageContent
+    role: Literal["user"]
+
+
+class ChatMessageAssistant(TypedDict):
+    content: NotRequired[ChatMessageContent]
+    refusal: NotRequired[str]
+    # `tool_calls` should be handled inside a model pipeline (gpt4o, etc.)
+    # The generic chat-to-something converter expects only the final result
+    # tool_calls: NotRequired[Sequence[ChatAssistantToolCall]]
+    role: Literal["assistant"]
+
+
+class ChatMessageToolCall(TypedDict):
+    tool_call_id: str
+    content: ChatMessageContent
+    role: Literal["tool"]
+
+
+ChatMessage = Union[
+    ChatMessageSystem,
+    ChatMessageUser,
+    ChatMessageAssistant,
+    ChatMessageToolCall,
+]

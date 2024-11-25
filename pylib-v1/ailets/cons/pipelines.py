@@ -1,6 +1,6 @@
 import json
+import tomllib
 from typing import (
-    Union,
     Tuple,
     Sequence,
 )
@@ -13,19 +13,32 @@ from .typing import (
 
 def prompt_to_env(
     env: IEnvironment,
-    prompt: Sequence[Union[str, Tuple[str, str]]] = ["Hello!"],
+    prompt: Sequence[Tuple[str, str]] = [("Hello!", "text")],
 ) -> None:
-    def prompt_to_node(prompt_item: Union[str, Tuple[str, str]]) -> None:
+    def prompt_to_node(prompt_item: Tuple[str, str]) -> None:
         if isinstance(prompt_item, str):
             prompt_text = prompt_item
             prompt_type = "text"
         else:
             prompt_text, prompt_type = prompt_item
+        if prompt_type == "toml":
+            return
         node_tv = env.add_typed_value_node(prompt_text, prompt_type, explain="Prompt")
         env.alias(".prompt", node_tv.name)
 
     for prompt_item in prompt:
         prompt_to_node(prompt_item)
+
+
+def toml_to_env(
+    env: IEnvironment,
+    toml: Sequence[Tuple[str, str]],
+) -> None:
+    for toml_text, type_ in toml:
+        if type_ != "toml":
+            continue
+        items = tomllib.loads(toml_text)
+        env.update_for_env_stream(items)
 
 
 def toolspecs_to_env(

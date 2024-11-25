@@ -1,5 +1,10 @@
 import json
-from ailets.cons.typing import INodeRuntime
+from ailets.cons.typing import (
+    ChatMessage,
+    ChatMessageContentImageUrl,
+    ChatMessageUser,
+    INodeRuntime,
+)
 
 
 def prompt_to_messages(runtime: INodeRuntime) -> None:
@@ -9,23 +14,26 @@ def prompt_to_messages(runtime: INodeRuntime) -> None:
     if n_prompts != n_types:
         raise ValueError("Inputs and type streams have different lengths")
 
-    def to_llm_item(runtime: INodeRuntime, i: int) -> dict:
-        content = runtime.open_read(None, i).getvalue()
-        content_type = runtime.open_read("type", i).getvalue()
+    def to_llm_item(runtime: INodeRuntime, i: int) -> ChatMessage:
+        content = runtime.open_read(None, i).read().decode("utf-8")
+        content_type = runtime.open_read("type", i).read().decode("utf-8")
 
         if content_type == "text":
-            return {"role": "user", "content": content}
+            return ChatMessageUser(role="user", content=content)
         elif content_type == "image_url":
-            return {
-                "role": "user",
-                "content": [{"type": "image_url", "image_url": {"url": content}}],
-            }
+            return ChatMessageUser(
+                role="user",
+                content=[
+                    ChatMessageContentImageUrl(
+                        type="image_url", image_url={"url": content}
+                    )
+                ],
+            )
         else:
             raise ValueError(f"Unsupported content type: {content_type}")
 
     messages = [to_llm_item(runtime, i) for i in range(n_prompts)]
 
-    # Write output
     output = runtime.open_write(None)
-    output.write(json.dumps(messages))
+    output.write(json.dumps(messages).encode("utf-8"))
     runtime.close_write(None)
