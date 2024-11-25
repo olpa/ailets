@@ -114,7 +114,7 @@ class INodeRuntime(Protocol):
     def write(self, fd: int, buffer: bytes, count: int) -> int:
         raise NotImplementedError
 
-    def close_write(self, fd: int) -> None:
+    def close(self, fd: int) -> None:
         raise NotImplementedError
 
     def dagops(self) -> INodeDagops:

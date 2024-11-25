@@ -17,6 +17,24 @@ def to_basename(name: str) -> str:
     return name
 
 
+def read_all(runtime: INodeRuntime, fd: int) -> bytes:
+    buffer = bytearray(1024)
+    result = bytearray()
+    while True:
+        count = runtime.read(fd, buffer, len(buffer))
+        if count == 0:
+            break
+        result.extend(buffer[:count])
+    return bytes(result)
+
+
+def write_all(runtime: INodeRuntime, fd: int, data: bytes) -> None:
+    pos = 0
+    while pos < len(data):
+        count = runtime.write(fd, data[pos:], len(data) - pos)
+        pos += count
+
+
 def iter_streams_objects(
     runtime: INodeRuntime, stream_name: Optional[str]
 ) -> Iterator[dict]:
@@ -25,9 +43,11 @@ def iter_streams_objects(
     # `n_of_streams` can change with time, therefore don't use `range`
     i = 0
     while i < runtime.n_of_streams(stream_name):
-        stream = runtime.open_read(stream_name, i)
+        fd = runtime.open_read(stream_name, i)
+        buffer = read_all(runtime, fd)
+        runtime.close(fd)
+
         decoder = json.JSONDecoder()
-        buffer = stream.read()
 
         if buffer[0] == ord("["):
             array = json.loads(buffer)
@@ -55,7 +75,9 @@ def read_env_stream(runtime: INodeRuntime) -> Dict[str, Any]:
 def log(
     runtime: INodeRuntime, level: Literal["info", "warn", "error"], *message: Any
 ) -> None:
-    stream = runtime.open_write("log")
     message_str = " ".join(map(str, message))
-    stream.write(f"{runtime.get_name()}: {level} {message_str}\n".encode("utf-8"))
-    runtime.close_write("log")
+    log_str = f"{runtime.get_name()}: {level} {message_str}\n"
+
+    fd = runtime.open_write("log")
+    write_all(runtime, fd, log_str.encode("utf-8"))
+    runtime.close(fd)
