@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Union
 import json
 import tomllib
 from typing import Sequence
@@ -26,7 +26,11 @@ def prompt_to_env(
             return
 
         prompt_type = prompt_item.type
-        prompt_content = prompt_item.value
+        prompt_content: Union[str, dict[str, str]] = (
+            {"url": prompt_item.value}
+            if prompt_type.endswith("_url")
+            else prompt_item.value
+        )
         value = {"type": prompt_type, prompt_type: prompt_content}
         node = env.add_value_node(json.dumps(value).encode("utf-8"), explain="Prompt")
         env.alias(".prompt", node.name)
