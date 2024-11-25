@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field
-from io import BytesIO
 from typing import (
     Any,
     Callable,
@@ -103,13 +102,19 @@ class INodeRuntime(Protocol):
     def n_of_streams(self, stream_name: Optional[str]) -> int:
         raise NotImplementedError
 
-    def open_read(self, stream_name: Optional[str], index: int) -> BytesIO:
+    def open_read(self, stream_name: Optional[str], index: int) -> int:
         raise NotImplementedError
 
-    def open_write(self, stream_name: Optional[str]) -> BytesIO:
+    def open_write(self, stream_name: Optional[str]) -> int:
         raise NotImplementedError
 
-    def close_write(self, stream_name: Optional[str]) -> None:
+    def read(self, fd: int, buffer: bytearray, count: int) -> int:
+        raise NotImplementedError
+
+    def write(self, fd: int, buffer: bytes, count: int) -> int:
+        raise NotImplementedError
+
+    def close_write(self, fd: int) -> None:
         raise NotImplementedError
 
     def dagops(self) -> INodeDagops:
