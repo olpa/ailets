@@ -8,6 +8,8 @@ def prompt_to_messages(runtime: INodeRuntime) -> None:
 
     i = 0
     while i < runtime.n_of_streams(None):
+        if i:
+            write_all(runtime, fd_out, b",")
         fd_in = runtime.open_read(None, i)
         i += 1
         write_all(runtime, fd_out, read_all(runtime, fd_in))
