@@ -36,6 +36,9 @@ def rewrite_content_item(
     stream = item.get("stream")
     assert stream, "Image URL or stream is required"
 
+    n_streams = runtime.n_of_streams(stream)
+    assert n_streams == 1, f"Stream '{stream}' must be exactly one, got {n_streams}"
+
     fd = runtime.open_read(stream, 0)
     data = read_all(runtime, fd)
     runtime.close(fd)
