@@ -2,11 +2,21 @@ from dataclasses import dataclass
 import json
 from typing import List, Optional, Sequence, Set
 from ailets.cons.typing import (
-    ChatMessage,
     ChatMessageAssistant,
+    ChatMessageContentImage,
+    ChatMessageContentPlainText,
+    ChatMessageContentText,
+    ChatMessageStructuredContentItem,
     INodeRuntime,
 )
-from ailets.cons.util import iter_streams_objects, write_all
+from ailets.cons.util import (
+    iter_streams_objects,
+    write_all,
+)
+from ailets.models.gpt4o.typing import (
+    Gpt4oChatMessageContent,
+    Gpt4oChatMessageContentItem,
+)
 
 
 @dataclass
@@ -15,18 +25,47 @@ class InvalidationFlag:
     fence: Optional[Set[str]] = None
 
 
+def rewrite_content_item(
+    runtime: INodeRuntime, item: Gpt4oChatMessageContentItem
+) -> ChatMessageStructuredContentItem:
+    if item["type"] == "text" or item["type"] == "refusal":
+        return item
+    assert item["type"] == "image_url", "Only text and image are supported"
+
+    url = item["image_url"]["url"]
+    assert url.startswith("data:"), "Image data-URL must start with 'data:'"
+    assert "image/png" in url, "Only PNG images are supported"
+
+    return ChatMessageContentImage(type="image", url=url, content_type="image/png")
+
+
 def _process_single_message(
     runtime: INodeRuntime,
     response: dict,
     invalidation_flag_rw: InvalidationFlag,
-) -> Optional[ChatMessage]:
+) -> Optional[ChatMessageStructuredContentItem]:
     message = response["choices"][0]["message"]
-    content = message.get("content")
+    content: Gpt4oChatMessageContent = message.get("content")
     tool_calls = message.get("tool_calls")
 
     if content is None and tool_calls is None:
         raise ValueError("Response message has neither content nor tool_calls")
-    if content is not None:
+
+    if content:
+        new_content: List[ChatMessageStructuredContentItem] = []
+        if isinstance(content, ChatMessageContentPlainText):
+            new_content = [
+                ChatMessageContentText(
+                    type="text",
+                    text=content,
+                )
+            ]
+        else:
+            new_content = [rewrite_content_item(runtime, item) for item in content]
+
+        message = message.copy()
+        message["content"] = new_content
+
         return message
 
     assert tool_calls is not None, "tool_calls cannot be None at this point"
@@ -86,7 +125,7 @@ def response_to_messages(runtime: INodeRuntime) -> None:
     output = runtime.open_write(None)
 
     invalidation_flag = InvalidationFlag(is_invalidated=False)
-    messages: List[ChatMessage] = []
+    messages: List[ChatMessageStructuredContentItem] = []
 
     for response in iter_streams_objects(runtime, None):
         message = _process_single_message(runtime, response, invalidation_flag)

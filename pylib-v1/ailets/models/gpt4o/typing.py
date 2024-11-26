@@ -1,6 +1,10 @@
-from typing import Literal, TypedDict, Union, NotRequired
+from typing import Literal, Sequence, TypedDict, Union, NotRequired
 
-from ailets.cons.typing import ChatMessageStructuredContentItem
+from ailets.cons.typing import (
+    ChatMessageContentPlainText,
+    ChatMessageContentRefusal,
+    ChatMessageContentText,
+)
 
 
 class Gpt4oImageUrl(TypedDict):
@@ -14,6 +18,12 @@ class Gpt4oImage(TypedDict):
 
 
 Gpt4oChatMessageContentItem = Union[
-    ChatMessageStructuredContentItem,
+    ChatMessageContentText,
+    ChatMessageContentRefusal,
     Gpt4oImage,
+]
+
+Gpt4oChatMessageContent = Union[
+    ChatMessageContentPlainText,
+    Sequence[Gpt4oChatMessageContentItem],
 ]
