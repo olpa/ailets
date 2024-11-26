@@ -141,7 +141,7 @@ def get_prompt(prompt_args: list[str]) -> list[CmdlinePromptItem]:
             return
 
         # Parse @{type}content format
-        match = re.match(r"^@({\w+})?(.+)$", arg)
+        match = re.match(r"^@({[a-zA-Z0-9_/-]+})?(.+)$", arg)
         if not match:
             raise ValueError(f"Invalid format for typed content: {arg}")
 
