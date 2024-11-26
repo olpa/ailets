@@ -4,14 +4,13 @@ from .typing import (
     ChatMessage,
     ChatMessageAssistant,
     ChatMessageContent,
-    ChatMessageContentImageUrl,
-    ChatMessageContentInputAudio,
     ChatMessageContentRefusal,
     ChatMessageContentText,
     ChatMessageStructuredContent,
     ChatMessageSystem,
     ChatMessageToolCall,
     ChatMessageUser,
+    ChatMessageContentImage,
 )
 
 
@@ -19,36 +18,17 @@ def is_chat_message_content_text(obj: Any) -> TypeGuard[ChatMessageContentText]:
     return isinstance(obj, dict) and obj.get("type") == "text" and "text" in obj
 
 
-def is_chat_message_content_image_url(
-    obj: Any,
-) -> TypeGuard[ChatMessageContentImageUrl]:
-    if not isinstance(obj, dict):
-        return False
-    if obj.get("type") != "image_url":
-        return False
-    if "image_url" not in obj:
-        return False
-    image_url = obj["image_url"]
-    if not isinstance(image_url, dict):
-        return False
-    return "url" in image_url
-
-
-def is_chat_message_content_input_audio(
-    obj: Any,
-) -> TypeGuard[ChatMessageContentInputAudio]:
-    return (
-        isinstance(obj, dict)
-        and obj.get("type") == "input_audio"
-        and "input_audio" in obj
-        and isinstance(obj["input_audio"], dict)
-        and "data" in obj["input_audio"]
-        and "format" in obj["input_audio"]
-    )
-
-
 def is_chat_message_content_refusal(obj: Any) -> TypeGuard[ChatMessageContentRefusal]:
     return isinstance(obj, dict) and obj.get("type") == "refusal" and "refusal" in obj
+
+
+def is_chat_message_content_image(obj: Any) -> TypeGuard[ChatMessageContentImage]:
+    return (
+        isinstance(obj, dict)
+        and obj.get("type") == "image"
+        and isinstance(obj.get("content_type"), str)
+        and ("url" in obj or "stream" in obj)
+    )
 
 
 def is_chat_message_structured_content(
@@ -56,9 +36,8 @@ def is_chat_message_structured_content(
 ) -> TypeGuard[ChatMessageStructuredContent]:
     return isinstance(obj, Sequence) and all(
         is_chat_message_content_text(item)
-        or is_chat_message_content_image_url(item)
-        or is_chat_message_content_input_audio(item)
         or is_chat_message_content_refusal(item)
+        or is_chat_message_content_image(item)
         for item in obj
     )
 

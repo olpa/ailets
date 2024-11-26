@@ -209,14 +209,11 @@ class ChatMessageContentText(TypedDict):
     text: str
 
 
-class ChatMessageContentImageUrl(TypedDict):
-    image_url: dict[Literal["url", "detail"], str]
-    type: Literal["image_url"]
-
-
-class ChatMessageContentInputAudio(TypedDict):
-    input_audio: dict[Literal["data", "format"], str]
-    type: Literal["input_audio"]
+class ChatMessageContentImage(TypedDict):
+    type: Literal["image"]
+    content_type: str
+    url: NotRequired[str]
+    stream: NotRequired[str]
 
 
 class ChatMessageContentRefusal(TypedDict):
@@ -232,8 +229,7 @@ class ChatAssistantToolCall(TypedDict):
 
 ChatMessageStructuredContentItem = Union[
     ChatMessageContentText,
-    ChatMessageContentImageUrl,
-    ChatMessageContentInputAudio,
+    ChatMessageContentImage,
     ChatMessageContentRefusal,
 ]
 
