@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from io import BytesIO
 from typing import (
     Any,
     Callable,
@@ -15,12 +16,20 @@ from typing import (
     Union,
 )
 
-from .streams import Stream
+
+class IStream(Protocol):
+    def get_content(self) -> BytesIO:
+        raise NotImplementedError
+
+    def close(self) -> None:
+        raise NotImplementedError
 
 
 #
 #
 #
+
+
 @dataclass(frozen=True)
 class Dependency:
     """A dependency of a node on another node's stream.
@@ -29,6 +38,7 @@ class Dependency:
         name: Optional name to reference this dependency in the node's inputs
         source: Name of the node this dependency comes from
         stream: Optional name of the specific stream from the source node
+        schema: Optional schema for the stream
     """
 
     source: str
@@ -40,18 +50,18 @@ class Dependency:
         """Convert to JSON-serializable format.
 
         Returns:
-            List of [dep_name, node_name, stream_name]
+            List of [dep_name, node_name, stream_name, schema]
         """
-        return [self.name, self.source, self.stream]
+        return [self.name, self.source, self.stream, self.schema]
 
     @classmethod
     def from_json(cls, data: list) -> "Dependency":
         """Create dependency from JSON data.
 
         Args:
-            data: List of [dep_name, node_name, stream_name]
+            data: List of [dep_name, node_name, stream_name, schema]
         """
-        return cls(name=data[0], source=data[1], stream=data[2])
+        return cls(name=data[0], source=data[1], stream=data[2], schema=data[3])
 
 
 @dataclass(frozen=True)
@@ -139,7 +149,7 @@ class NodeDescFunc:
 
 
 class IEnvironment(Protocol):
-    def create_new_stream(self, node_name: str, stream_name: Optional[str]) -> Stream:
+    def create_new_stream(self, node_name: str, stream_name: Optional[str]) -> IStream:
         raise NotImplementedError
 
     def has_node(self, node_name: str) -> bool:
@@ -183,7 +193,7 @@ class IEnvironment(Protocol):
     def update_for_env_stream(self, params: Dict[str, Any]) -> None:
         raise NotImplementedError
 
-    def get_env_stream(self) -> Stream:
+    def get_env_stream(self) -> IStream:
         raise NotImplementedError
 
     def read_dir(self, node_name: str, dir_name: str) -> Sequence[str]:

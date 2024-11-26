@@ -4,11 +4,11 @@ import json
 import tomllib
 from typing import Sequence
 
-from ailets.cons.streams import Stream
 from .typing import (
     Dependency,
     IEnvironment,
     INodeRegistry,
+    IStream,
     Node,
 )
 
@@ -67,8 +67,8 @@ def prompt_to_env(
         )
 
         with open(prompt_item.value, "rb") as f:
-            stream: Stream = env.create_new_stream(node.name, stream_name)
-            stream.content.write(f.read())
+            stream: IStream = env.create_new_stream(node.name, stream_name)
+            stream.get_content().write(f.read())
             stream.close()
 
     for prompt_item in prompt:

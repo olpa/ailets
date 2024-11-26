@@ -14,9 +14,9 @@ import json
 
 from .plugin import NodeRegistry
 
-from .typing import Dependency, IEnvironment, INodeRegistry, Node
+from .typing import Dependency, IEnvironment, INodeRegistry, Node, IStream
 from .node_runtime import NodeRuntime
-from .streams import Streams, Stream
+from .streams import Streams
 from .util import to_basename
 
 
@@ -100,12 +100,13 @@ class Environment(IEnvironment):
         self._ever_started.add(name)
         node = self.get_node(name)
 
-        dep_names = [dep.source for dep in self.iter_deps(name)]
-        for dep_name in dep_names:
+        deps = list(self.iter_deps(name))
+        for dep in deps:
+            dep_name = dep.source
             if not self.is_node_built(dep_name):
                 raise ValueError(f"Dependency node '{dep_name}' is not built")
 
-        runtime = NodeRuntime(self, nodereg, self._streams, node.name, dep_names)
+        runtime = NodeRuntime(self, nodereg, self._streams, node.name, deps)
 
         # Execute the node's function with all dependencies
         try:
@@ -411,7 +412,7 @@ class Environment(IEnvironment):
 
         return env
 
-    def create_new_stream(self, node_name: str, stream_name: Optional[str]) -> Stream:
+    def create_new_stream(self, node_name: str, stream_name: Optional[str]) -> IStream:
         return self._streams.create(node_name, stream_name)
 
     def is_node_built(self, node_name: str) -> bool:
@@ -528,8 +529,8 @@ class Environment(IEnvironment):
     def update_for_env_stream(self, params: Dict[str, Any]) -> None:
         self._for_env_stream.update(params)
 
-    def get_env_stream(self) -> Stream:
+    def get_env_stream(self) -> IStream:
         return self._streams.make_env_stream(self._for_env_stream)
 
-    def get_fs_output_streams(self) -> Sequence[Stream]:
+    def get_fs_output_streams(self) -> Sequence[IStream]:
         return self._streams.get_fs_output_streams()
