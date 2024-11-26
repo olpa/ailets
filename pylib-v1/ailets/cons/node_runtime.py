@@ -24,7 +24,7 @@ class NodeRuntime(INodeRuntime):
     def _get_streams(self, stream_name: Optional[str]) -> Sequence[Stream]:
         if stream_name == "env":
             return [self._env.get_env_stream()]
-        return self._streams.get_output_streams(self._deps, stream_name)
+        return self._streams.collect_streams(stream_name, self._deps)
 
     def get_name(self) -> str:
         return self._node_name
@@ -66,7 +66,7 @@ class NodeRuntime(INodeRuntime):
         return NodeDagops(self._env, self._nodereg, self)
 
     def read_dir(self, dir_name: str) -> Sequence[str]:
-        return self._streams.read_dir(dir_name, self._node_name, self._deps)
+        return self._streams.read_dir(dir_name, [self._node_name, *self._deps])
 
     def pass_through(self, in_stream_name: str, out_stream_name: str) -> None:
         in_streams = self._get_streams(in_stream_name)

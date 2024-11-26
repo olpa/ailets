@@ -111,7 +111,8 @@ class Environment(IEnvironment):
             if not self.is_node_built(dep_node_name):
                 raise ValueError(f"Dependency node '{dep_node_name}' is not built")
 
-        runtime = NodeRuntime(self, nodereg, node.name, deps)
+        dep_names = [dep.source for dep in deps]
+        runtime = NodeRuntime(self, nodereg, self._streams, node.name, dep_names)
 
         # Execute the node's function with all dependencies
         try:

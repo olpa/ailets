@@ -159,18 +159,25 @@ class Streams:
             if s.stream_name is not None and s.stream_name.startswith("./out/")
         ]
 
-    def read_dir(self, node_name: str, dir_name: str) -> Sequence[str]:
+    def collect_streams(
+        self,
+        stream_name: Optional[str],
+        node_names: Sequence[str],
+    ) -> Sequence[Stream]:
+        return [
+            s
+            for s in self._streams
+            if s.node_name in node_names and s.stream_name == stream_name
+        ]
+
+    def read_dir(self, dir_name: str, node_names: Sequence[str]) -> Sequence[str]:
         if not dir_name.endswith("/"):
             dir_name = f"{dir_name}/"
         pos = len(dir_name)
-        print("!!! read_dir", node_name, dir_name, pos)  # FIXME
-        for s in self._streams:
-            print("!!!", s.node_name, s.stream_name)  # FIXME
-            print("!!!", s.node_name == node_name, s.stream_name and s.stream_name.startswith(dir_name))  # FIXME
         return [
             s.stream_name[pos:]
             for s in self._streams
-            if s.node_name == node_name
+            if s.node_name in node_names
             and s.stream_name is not None
             and s.stream_name.startswith(dir_name)
         ]
