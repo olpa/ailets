@@ -100,18 +100,11 @@ class Environment(IEnvironment):
         self._ever_started.add(name)
         node = self.get_node(name)
 
+        dep_names = [dep.source for dep in self.iter_deps(name)]
+        for dep_name in dep_names:
+            if not self.is_node_built(dep_name):
+                raise ValueError(f"Dependency node '{dep_name}' is not built")
 
-        deps = list(self.iter_deps(name))
-        for dep in deps:
-            dep_node_name, dep_name, dep_stream_name = (
-                dep.source,
-                dep.name,
-                dep.stream,
-            )
-            if not self.is_node_built(dep_node_name):
-                raise ValueError(f"Dependency node '{dep_node_name}' is not built")
-
-        dep_names = [dep.source for dep in deps]
         runtime = NodeRuntime(self, nodereg, self._streams, node.name, dep_names)
 
         # Execute the node's function with all dependencies

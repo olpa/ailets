@@ -185,10 +185,14 @@ class Streams:
     def pass_through(
         self,
         node_name: str,
-        in_stream_name: str,
+        in_streams: Sequence[Stream],
         out_stream_name: str,
     ) -> None:
-        in_stream = self.get(node_name, in_stream_name)
-        out_stream = self.create(node_name, out_stream_name)
-        out_stream.content = in_stream.content
-        out_stream.close()
+        for in_stream in in_streams:
+            out_stream = Stream(
+                node_name=node_name,
+                stream_name=out_stream_name,
+                is_finished=True,
+                content=BytesIO(in_stream.content.getvalue()),
+            )
+            self._streams.append(out_stream)

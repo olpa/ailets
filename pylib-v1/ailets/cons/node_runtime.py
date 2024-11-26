@@ -1,4 +1,4 @@
-from typing import Dict, Mapping, Optional, Sequence
+from typing import Dict, Optional, Sequence
 
 from .node_dagops import NodeDagops
 from .streams import Stream, Streams
