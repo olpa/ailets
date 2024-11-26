@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import Literal, Optional
 import json
 import tomllib
 from typing import Sequence
@@ -16,8 +16,8 @@ from .typing import (
 @dataclass
 class CmdlinePromptItem:
     value: str
-    type: str
-    media_type: Optional[str] = None
+    type: Literal["toml", "text", "file", "url"]
+    content_type: Optional[str] = None
 
 
 def prompt_to_env(
@@ -25,7 +25,6 @@ def prompt_to_env(
     prompt: Sequence[CmdlinePromptItem] = [CmdlinePromptItem("Hello!", "text")],
 ) -> None:
     def prompt_to_node(prompt_item: CmdlinePromptItem) -> None:
-        print(f"Prompt item: {prompt_item}")  # FIXME
         if prompt_item.type == "toml":
             return
 
@@ -38,35 +37,31 @@ def prompt_to_env(
             mk_node(json.dumps({"type": "text", "text": prompt_item.value}))
             return
 
-        if prompt_item.type == "image_url":
+        assert prompt_item.content_type is not None, "Content type is required"
+        base_content_type = prompt_item.content_type.split("/")[0]
+        assert base_content_type in [
+            "image"
+        ], f"Unknown content type: {base_content_type}"
+
+        if prompt_item.type == "url":
             mk_node(
                 json.dumps(
                     {
-                        "type": "image",
+                        "type": base_content_type,
                         "url": prompt_item.value,
-                        **(
-                            {"media_type": prompt_item.media_type}
-                            if prompt_item.media_type
-                            else {}
-                        ),
+                        "content_type": prompt_item.content_type,
                     }
                 )
             )
             return
 
-        assert prompt_item.type == "image", f"Unknown prompt type: {prompt_item.type}"
-
-        stream_name = env.get_next_name("stream/image")
+        stream_name = env.get_next_name(f"media/{base_content_type}")
         node = mk_node(
             json.dumps(
                 {
-                    "type": "image",
+                    "type": base_content_type,
                     "stream": stream_name,
-                    **(
-                        {"media_type": prompt_item.media_type}
-                        if prompt_item.media_type
-                        else {}
-                    ),
+                    "content_type": prompt_item.content_type,
                 }
             )
         )

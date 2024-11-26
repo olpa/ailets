@@ -4,7 +4,7 @@
 import argparse
 import sys
 import localsetup  # noqa: F401
-from typing import Iterator, Optional, Tuple
+from typing import Iterator, Literal, Optional, Tuple
 from ailets.cons.cons import Environment
 from ailets.cons.plugin import NodeRegistry
 from ailets.cons.pipelines import (
@@ -82,8 +82,7 @@ def is_url(s: str) -> bool:
         return False
 
 
-def guess_content_type(content: str) -> Tuple[str, str]:
-    # Common image extensions and their media types
+def guess_content_type(content: str) -> str:
     image_extensions = {
         ".jpg": "image/jpeg",
         ".jpeg": "image/jpeg",
@@ -92,7 +91,6 @@ def guess_content_type(content: str) -> Tuple[str, str]:
         ".webp": "image/webp",
         ".bmp": "image/bmp",
     }
-    # Text extensions and their media types
     text_extensions = {
         ".txt": "text/plain",
         ".md": "text/markdown",
@@ -102,26 +100,15 @@ def guess_content_type(content: str) -> Tuple[str, str]:
     ext = os.path.splitext(urlparse(content).path)[1].lower()
 
     if ext in image_extensions:
-        return "image", image_extensions[ext]
+        return image_extensions[ext]
 
     if ext in text_extensions:
-        return "text", text_extensions[ext]
+        return text_extensions[ext]
 
     raise ValueError(f"Could not determine content type for: {content}")
 
 
 def get_prompt(prompt_args: list[str]) -> list[CmdlinePromptItem]:
-    """Get prompt from arguments or stdin.
-
-    Args:
-        prompt_args: List of prompt arguments
-
-    Returns:
-        List of prompts. Each prompt can be either:
-            - str: treated as a regular prompt
-            - tuple[str, str]: (text, type) for typed content like images
-    """
-
     def iter_get_prompt(arg: str) -> Iterator[CmdlinePromptItem]:
         if not arg:
             return
@@ -158,32 +145,36 @@ def get_prompt(prompt_args: list[str]) -> list[CmdlinePromptItem]:
         if not match:
             raise ValueError(f"Invalid format for typed content: {arg}")
 
-        media_type, content = match.groups()
-        if media_type:
-            media_type = media_type[1:-1]  # Remove curly braces
+        content_type, content = match.groups()
+        if content_type:
+            content_type = content_type[1:-1]  # Remove curly braces
 
         # If type not specified, try to guess it
-        if media_type is None:
-            content_type, media_type = guess_content_type(content)
-        else:
-            assert "/" in media_type, "Media type must contain a slash"
-            content_type = media_type.split("/")[0]
-            assert content_type in ["image", "text"], "Unknown content type"
+        if content_type is None:
+            content_type = guess_content_type(content)
 
-        if content_type == "text":
+        assert "/" in content_type, f"Content type must contain a slash: {content_type}"
+        base_content_type = content_type.split("/")[0]
+        assert base_content_type in [
+            "image",
+            "text",
+        ], f"Unknown content type: {base_content_type}"
+
+        if base_content_type == "text":
             yield from iter_get_prompt(content)
             return
 
         supported_content_types = ["text", "image"]
         error_msg = (
-            f"Unknown content type: {content_type}, "
+            f"Unknown content type: {base_content_type}, "
             f"expected: {supported_content_types}"
         )
-        assert content_type in supported_content_types, error_msg
+        assert base_content_type in supported_content_types, error_msg
 
-        if is_url(content) or content.startswith("data:"):
-            content_type = f"{content_type}_url"
-        yield CmdlinePromptItem(content, content_type)
+        location: Literal["url", "file"] = (
+            "url" if is_url(content) or content.startswith("data:") else "file"
+        )
+        yield CmdlinePromptItem(content, location, content_type)
 
     items = [p for prompt_arg in prompt_args for p in iter_get_prompt(prompt_arg)]
     if not len(items):
