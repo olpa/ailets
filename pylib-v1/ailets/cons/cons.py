@@ -320,7 +320,7 @@ class Environment(IEnvironment):
         base_name = to_basename(name)
         if base_name.startswith("defunc."):
             base_name = base_name[7:]
-        if base_name == "typed_value":
+        if base_name == "value":
             # Special case for typed value nodes
             def func(_): ...  # Dummy function since real value is in streams
 
