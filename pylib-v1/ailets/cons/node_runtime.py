@@ -1,7 +1,7 @@
 from typing import Dict, Mapping, Optional, Sequence
 
 from .node_dagops import NodeDagops
-from .streams import Stream
+from .streams import Stream, Streams
 from .typing import IEnvironment, INodeDagops, INodeRegistry, INodeRuntime
 
 
@@ -10,19 +10,21 @@ class NodeRuntime(INodeRuntime):
         self,
         env: IEnvironment,
         nodereg: INodeRegistry,
-        streams: Mapping[Optional[str], Sequence[Stream]],
+        streams: Streams,
         node_name: str,
+        deps: Sequence[str],
     ):
         self._env = env
         self._nodereg = nodereg
         self._streams = streams
         self._node_name = node_name
+        self._deps = deps
         self._open_fds: Dict[int, Stream] = {}
 
     def _get_streams(self, stream_name: Optional[str]) -> Sequence[Stream]:
         if stream_name == "env":
             return [self._env.get_env_stream()]
-        return self._streams.get(stream_name, [])
+        return self._streams.get_output_streams(self._deps, stream_name)
 
     def get_name(self) -> str:
         return self._node_name
@@ -64,10 +66,11 @@ class NodeRuntime(INodeRuntime):
         return NodeDagops(self._env, self._nodereg, self)
 
     def read_dir(self, dir_name: str) -> Sequence[str]:
-        return self._env.read_dir(self._node_name, dir_name)
+        return self._streams.read_dir(dir_name, self._node_name, self._deps)
 
     def pass_through(self, in_stream_name: str, out_stream_name: str) -> None:
-        self._env.pass_through(self._node_name, in_stream_name, out_stream_name)
+        in_streams = self._get_streams(in_stream_name)
+        self._streams.pass_through(self._node_name, in_streams, out_stream_name)
 
     def get_next_name(self, base_name: str) -> str:
         return self._env.get_next_name(base_name)

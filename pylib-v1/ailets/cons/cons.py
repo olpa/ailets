@@ -100,9 +100,9 @@ class Environment(IEnvironment):
         self._ever_started.add(name)
         node = self.get_node(name)
 
-        in_streams: Dict[Optional[str], List[Stream]] = {}
 
-        for dep in self.iter_deps(name):
+        deps = list(self.iter_deps(name))
+        for dep in deps:
             dep_node_name, dep_name, dep_stream_name = (
                 dep.source,
                 dep.name,
@@ -111,18 +111,7 @@ class Environment(IEnvironment):
             if not self.is_node_built(dep_node_name):
                 raise ValueError(f"Dependency node '{dep_node_name}' is not built")
 
-            dep_stream = self._streams.get(dep_node_name, dep_stream_name)
-            if not dep_stream.is_finished:
-                raise ValueError(
-                    f"Stream '{dep_stream_name}' for node "
-                    f"'{dep_node_name}' is not finished"
-                )
-
-            if dep_name not in in_streams:
-                in_streams[dep_name] = []
-            in_streams[dep_name].append(dep_stream)
-
-        runtime = NodeRuntime(self, nodereg, in_streams, node.name)
+        runtime = NodeRuntime(self, nodereg, node.name, deps)
 
         # Execute the node's function with all dependencies
         try:
@@ -550,14 +539,3 @@ class Environment(IEnvironment):
 
     def get_fs_output_streams(self) -> Sequence[Stream]:
         return self._streams.get_fs_output_streams()
-
-    def read_dir(self, node_name: str, dir_name: str) -> Sequence[str]:
-        return self._streams.read_dir(node_name, dir_name)
-
-    def pass_through(
-        self,
-        node_name: str,
-        in_stream_name: str,
-        out_stream_name: str,
-    ) -> None:
-        self._streams.pass_through(node_name, in_stream_name, out_stream_name)

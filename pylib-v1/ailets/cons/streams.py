@@ -163,6 +163,10 @@ class Streams:
         if not dir_name.endswith("/"):
             dir_name = f"{dir_name}/"
         pos = len(dir_name)
+        print("!!! read_dir", node_name, dir_name, pos)  # FIXME
+        for s in self._streams:
+            print("!!!", s.node_name, s.stream_name)  # FIXME
+            print("!!!", s.node_name == node_name, s.stream_name and s.stream_name.startswith(dir_name))  # FIXME
         return [
             s.stream_name[pos:]
             for s in self._streams
