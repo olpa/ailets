@@ -2,10 +2,14 @@ import json
 import base64
 import hashlib
 from ailets.cons.typeguards import (
-    is_chat_message_content_image_url,
+    is_chat_message_content_image,
     is_chat_message_content_text,
 )
-from ailets.cons.typing import ChatMessageStructuredContentItem, INodeRuntime
+from ailets.cons.typing import (
+    ChatMessageContentImage,
+    ChatMessageStructuredContentItem,
+    INodeRuntime,
+)
 from ailets.cons.util import iter_streams_objects, write_all
 
 need_separator = False
@@ -19,7 +23,22 @@ def separator(runtime: INodeRuntime, fd: int) -> None:
         need_separator = True
 
 
-def rewrite_image_url(runtime: INodeRuntime, url: str) -> str:
+def get_extension(media_type: str) -> str:
+    extension_map = {"image/png": ".png", "image/jpeg": ".jpg"}
+    return extension_map.get(media_type, ".bin")
+
+
+def rewrite_image_url(runtime: INodeRuntime, image: ChatMessageContentImage) -> str:
+    if stream := image.get("stream"):
+        out_name = runtime.get_next_name("./out/image")
+        out_name += get_extension(image["content_type"])
+        runtime.pass_through(stream, out_name)
+        return out_name
+
+    url = image.get("url")
+    if not url:
+        raise ValueError("Image has no URL or stream")
+
     if not url.startswith("data:"):
         return url
 
@@ -47,19 +66,14 @@ def rewrite_image_url(runtime: INodeRuntime, url: str) -> str:
     else:
         data_bytes = data.encode("utf-8")
 
-    # Get file extension based on media type
-    extension = {"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif"}.get(
-        media_type, ".bin"
-    )
-
     # Generate filename from content hash
     md5_hash = hashlib.md5(data_bytes).hexdigest()
-    filename = f"./out/{md5_hash}{extension}"
+    filename = f"./out/{md5_hash}{get_extension(media_type)}"
 
     # Write to stream
-    stream = runtime.open_write(filename)
-    write_all(runtime, stream, data_bytes)
-    runtime.close(stream)
+    fd_out = runtime.open_write(filename)
+    write_all(runtime, fd_out, data_bytes)
+    runtime.close(fd_out)
 
     return filename
 
@@ -79,8 +93,8 @@ def mixed_content_to_markdown(
         write_all(runtime, fd, content["text"].encode("utf-8"))
         return
 
-    if is_chat_message_content_image_url(content):
-        url = rewrite_image_url(runtime, content["image_url"]["url"])
+    if is_chat_message_content_image(content):
+        url = rewrite_image_url(runtime, content)
         write_all(runtime, fd, f"![image]({url})".encode("utf-8"))
         return
 

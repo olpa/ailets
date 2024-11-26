@@ -1,8 +1,7 @@
-import base64
 import json
 from typing import Optional, Sequence, TypedDict
 from ailets.cons.typeguards import (
-    is_chat_message_content_image_url,
+    is_chat_message_content_image,
     is_chat_message_content_text,
 )
 from ailets.cons.typing import (
@@ -10,7 +9,13 @@ from ailets.cons.typing import (
     ChatMessageContentPlainText,
     INodeRuntime,
 )
-from ailets.cons.util import iter_streams_objects, log, read_env_stream, write_all
+from ailets.cons.util import (
+    iter_streams_objects,
+    log,
+    read_all,
+    read_env_stream,
+    write_all,
+)
 
 # https://platform.openai.com/docs/api-reference/images/create
 
@@ -63,17 +68,11 @@ class ExtractedPrompt(TypedDict):
     mask: Optional[bytes]
 
 
-def decode_data_url(url: str) -> bytes:
-    if not url.startswith("data:"):
-        raise ValueError("URL must be a data URL starting with 'data:'")
-    try:
-        _, data = url.split(",", 1)
-    except ValueError:
-        raise ValueError("Invalid data URL format - missing comma separator")
-    try:
-        return base64.b64decode(data)
-    except Exception as e:
-        raise ValueError(f"Invalid base64 data: {str(e)}")
+def read_stream(runtime: INodeRuntime, stream_name: str) -> bytes:
+    fd = runtime.open_read(stream_name, 0)
+    content = read_all(runtime, fd)
+    runtime.close(fd)
+    return content
 
 
 def update_prompt(
@@ -91,12 +90,13 @@ def update_prompt(
                 continue
             if is_chat_message_content_text(part):
                 prompt["prompt_parts"].append(part["text"])
-            elif is_chat_message_content_image_url(part):
-                url = part["image_url"]["url"]
+            elif is_chat_message_content_image(part):
+                stream = part["stream"]
+                assert stream is not None, "Image has no stream"
                 if prompt["image"] is None:
-                    prompt["image"] = decode_data_url(url)
+                    prompt["image"] = read_stream(runtime, stream)
                 elif prompt["mask"] is None:
-                    prompt["mask"] = decode_data_url(url)
+                    prompt["mask"] = read_stream(runtime, stream)
                 else:
                     raise ValueError(
                         "Too many images. First image is used as image, second as mask."
