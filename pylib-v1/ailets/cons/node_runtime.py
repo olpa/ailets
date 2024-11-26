@@ -62,3 +62,12 @@ class NodeRuntime(INodeRuntime):
 
     def dagops(self) -> INodeDagops:
         return NodeDagops(self._env, self._nodereg, self)
+
+    def read_dir(self, dir_name: str) -> Sequence[str]:
+        return self._env.read_dir(self._node_name, dir_name)
+
+    def pass_through(self, in_stream_name: str, out_stream_name: str) -> None:
+        self._env.pass_through(self._node_name, in_stream_name, out_stream_name)
+
+    def get_next_name(self, base_name: str) -> str:
+        return self._env.get_next_name(base_name)

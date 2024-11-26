@@ -17,3 +17,7 @@ def prompt_to_messages(runtime: INodeRuntime) -> None:
 
     write_all(runtime, fd_out, b"]}")
     runtime.close(fd_out)
+
+    for media in runtime.read_dir("media"):
+        media = f"media/{media}"
+        runtime.pass_through(media, media)

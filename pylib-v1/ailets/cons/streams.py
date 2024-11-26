@@ -158,3 +158,26 @@ class Streams:
             for s in self._streams
             if s.stream_name is not None and s.stream_name.startswith("./out/")
         ]
+
+    def read_dir(self, node_name: str, dir_name: str) -> Sequence[str]:
+        if not dir_name.endswith("/"):
+            dir_name = f"{dir_name}/"
+        pos = len(dir_name)
+        return [
+            s.stream_name[pos:]
+            for s in self._streams
+            if s.node_name == node_name
+            and s.stream_name is not None
+            and s.stream_name.startswith(dir_name)
+        ]
+
+    def pass_through(
+        self,
+        node_name: str,
+        in_stream_name: str,
+        out_stream_name: str,
+    ) -> None:
+        in_stream = self.get(node_name, in_stream_name)
+        out_stream = self.create(node_name, out_stream_name)
+        out_stream.content = in_stream.content
+        out_stream.close()

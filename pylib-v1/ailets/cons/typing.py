@@ -124,6 +124,9 @@ class INodeRuntime(Protocol):
     def get_next_name(self, base_name: str) -> str:
         raise NotImplementedError
 
+    def read_dir(self, dir_name: str) -> Sequence[str]:
+        raise NotImplementedError
+
     def pass_through(self, in_stream_name: str, out_stream_name: str) -> None:
         raise NotImplementedError
 
@@ -181,6 +184,17 @@ class IEnvironment(Protocol):
         raise NotImplementedError
 
     def get_env_stream(self) -> Stream:
+        raise NotImplementedError
+
+    def read_dir(self, node_name: str, dir_name: str) -> Sequence[str]:
+        raise NotImplementedError
+
+    def pass_through(
+        self,
+        node_name: str,
+        in_stream_name: str,
+        out_stream_name: str,
+    ) -> None:
         raise NotImplementedError
 
 

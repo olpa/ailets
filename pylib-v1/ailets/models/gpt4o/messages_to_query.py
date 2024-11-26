@@ -40,7 +40,7 @@ def rewrite_content_item(
     data = read_all(runtime, fd)
     runtime.close(fd)
 
-    b64_data = base64.b64encode(data).decode('utf-8')
+    b64_data = base64.b64encode(data).decode("utf-8")
     data_url = f"data:{item['content_type']};base64,{b64_data}"
     return {
         "type": "image_url",
@@ -58,8 +58,7 @@ def messages_to_query(runtime: INodeRuntime) -> None:
             continue
 
         new_content = [
-            rewrite_content_item(runtime, item)
-            for item in message["content"]
+            rewrite_content_item(runtime, item) for item in message["content"]
         ]
         new_message: ChatMessage = message.copy()  # type: ignore[assignment]
         new_message["content"] = new_content  # type: ignore[arg-type]

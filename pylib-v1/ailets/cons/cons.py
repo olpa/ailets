@@ -550,3 +550,14 @@ class Environment(IEnvironment):
 
     def get_fs_output_streams(self) -> Sequence[Stream]:
         return self._streams.get_fs_output_streams()
+
+    def read_dir(self, node_name: str, dir_name: str) -> Sequence[str]:
+        return self._streams.read_dir(node_name, dir_name)
+
+    def pass_through(
+        self,
+        node_name: str,
+        in_stream_name: str,
+        out_stream_name: str,
+    ) -> None:
+        self._streams.pass_through(node_name, in_stream_name, out_stream_name)
