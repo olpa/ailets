@@ -69,6 +69,9 @@ class ExtractedPrompt(TypedDict):
 
 
 def read_stream(runtime: INodeRuntime, stream_name: str) -> bytes:
+    n = runtime.n_of_streams(stream_name)
+    assert n == 1, f"Expected exactly one stream for {stream_name}, got {n}"
+
     fd = runtime.open_read(stream_name, 0)
     content = read_all(runtime, fd)
     runtime.close(fd)
