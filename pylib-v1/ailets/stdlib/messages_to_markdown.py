@@ -30,7 +30,7 @@ def get_extension(media_type: str) -> str:
 
 def rewrite_image_url(runtime: INodeRuntime, image: ChatMessageContentImage) -> str:
     if stream := image.get("stream"):
-        out_name = runtime.get_next_name("./out/image")
+        out_name = runtime.get_next_name("out/image")
         out_name += get_extension(image["content_type"])
         runtime.pass_through(stream, out_name)
         return out_name
@@ -68,7 +68,7 @@ def rewrite_image_url(runtime: INodeRuntime, image: ChatMessageContentImage) -> 
 
     # Generate filename from content hash
     md5_hash = hashlib.md5(data_bytes).hexdigest()
-    filename = f"./out/{md5_hash}{get_extension(media_type)}"
+    filename = f"out/{md5_hash}{get_extension(media_type)}"
 
     # Write to stream
     fd_out = runtime.open_write(filename)

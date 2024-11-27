@@ -161,7 +161,7 @@ class Streams:
         return [
             s
             for s in self._streams
-            if s.stream_name is not None and s.stream_name.startswith("./out/")
+            if s.stream_name is not None and s.stream_name.startswith("out/")
         ]
 
     def collect_streams(
