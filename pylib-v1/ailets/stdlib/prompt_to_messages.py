@@ -1,46 +1,23 @@
-import json
-from ailets.cons.typing import (
-    ChatMessage,
-    ChatMessageContentImageUrl,
-    ChatMessageUser,
-    INodeRuntime,
-)
+from ailets.cons.typing import INodeRuntime
 from ailets.cons.util import read_all, write_all
 
 
 def prompt_to_messages(runtime: INodeRuntime) -> None:
-    n_prompts = runtime.n_of_streams(None)
-    n_types = runtime.n_of_streams("type")
+    fd_out = runtime.open_write(None)
+    write_all(runtime, fd_out, b'{"role":"user","content":[')
 
-    if n_prompts != n_types:
-        raise ValueError("Inputs and type streams have different lengths")
+    i = 0
+    while i < runtime.n_of_streams(None):
+        if i:
+            write_all(runtime, fd_out, b",")
+        fd_in = runtime.open_read(None, i)
+        i += 1
+        write_all(runtime, fd_out, read_all(runtime, fd_in))
+        runtime.close(fd_in)
 
-    def to_llm_item(runtime: INodeRuntime, i: int) -> ChatMessage:
-        fd = runtime.open_read(None, i)
-        content = read_all(runtime, fd).decode("utf-8")
-        runtime.close(fd)
+    write_all(runtime, fd_out, b"]}")
+    runtime.close(fd_out)
 
-        fd = runtime.open_read("type", i)
-        content_type = read_all(runtime, fd).decode("utf-8")
-        runtime.close(fd)
-
-        if content_type == "text":
-            return ChatMessageUser(role="user", content=content)
-        elif content_type == "image_url":
-            return ChatMessageUser(
-                role="user",
-                content=[
-                    ChatMessageContentImageUrl(
-                        type="image_url", image_url={"url": content}
-                    )
-                ],
-            )
-        else:
-            raise ValueError(f"Unsupported content type: {content_type}")
-
-    messages = [to_llm_item(runtime, i) for i in range(n_prompts)]
-
-    fd = runtime.open_write(None)
-    value = json.dumps(messages).encode("utf-8")
-    write_all(runtime, fd, value)
-    runtime.close(fd)
+    for media in runtime.read_dir("media"):
+        media = f"media/{media}"
+        runtime.pass_through(media, media)

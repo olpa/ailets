@@ -4,17 +4,17 @@
 import argparse
 import sys
 import localsetup  # noqa: F401
-from typing import Iterator, Optional, Union, Tuple
+from typing import Iterator, Literal, Optional, Tuple
 from ailets.cons.cons import Environment
 from ailets.cons.plugin import NodeRegistry
 from ailets.cons.pipelines import (
+    CmdlinePromptItem,
     instantiate_with_deps,
     prompt_to_env,
     toml_to_env,
     toolspecs_to_env,
 )
 import re
-import base64
 import os
 from urllib.parse import urlparse
 
@@ -39,7 +39,7 @@ def parse_args():
             - "@http://...": URL with auto-detected type\\\\
             - "@{type}http://...": URL with explicit type\\\\
 
-            Supported types: text, image_url""",
+            Supported types: text, image""",
     )
     parser.add_argument(
         "--dry-run",
@@ -82,8 +82,7 @@ def is_url(s: str) -> bool:
         return False
 
 
-def guess_content_type(content: str) -> Tuple[str, str]:
-    # Common image extensions and their media types
+def guess_content_type(content: str) -> str:
     image_extensions = {
         ".jpg": "image/jpeg",
         ".jpeg": "image/jpeg",
@@ -92,7 +91,6 @@ def guess_content_type(content: str) -> Tuple[str, str]:
         ".webp": "image/webp",
         ".bmp": "image/bmp",
     }
-    # Text extensions and their media types
     text_extensions = {
         ".txt": "text/plain",
         ".md": "text/markdown",
@@ -102,27 +100,16 @@ def guess_content_type(content: str) -> Tuple[str, str]:
     ext = os.path.splitext(urlparse(content).path)[1].lower()
 
     if ext in image_extensions:
-        return "image_url", image_extensions[ext]
+        return image_extensions[ext]
 
     if ext in text_extensions:
-        return "text", text_extensions[ext]
+        return text_extensions[ext]
 
     raise ValueError(f"Could not determine content type for: {content}")
 
 
-def get_prompt(prompt_args: list[str]) -> list[Union[str, Tuple[str, str]]]:
-    """Get prompt from arguments or stdin.
-
-    Args:
-        prompt_args: List of prompt arguments
-
-    Returns:
-        List of prompts. Each prompt can be either:
-            - str: treated as a regular prompt
-            - tuple[str, str]: (text, type) for typed content like images
-    """
-
-    def iter_get_prompt(arg: str) -> Iterator[Union[str, Tuple[str, str]]]:
+def get_prompt(prompt_args: list[str]) -> list[CmdlinePromptItem]:
+    def iter_get_prompt(arg: str) -> Iterator[CmdlinePromptItem]:
         if not arg:
             return
 
@@ -148,56 +135,50 @@ def get_prompt(prompt_args: list[str]) -> list[Union[str, Tuple[str, str]]]:
 
             toml, text = split_text_toml_and_text(arg)
             if toml:
-                yield (toml, "toml")
+                yield CmdlinePromptItem(toml, "toml")
             if text:
-                yield (text, "text")
+                yield CmdlinePromptItem(text, "text")
             return
 
         # Parse @{type}content format
-        match = re.match(r"^@({\w+})?(.+)$", arg)
+        match = re.match(r"^@({[a-zA-Z0-9_/-]+})?(.+)$", arg)
         if not match:
             raise ValueError(f"Invalid format for typed content: {arg}")
 
-        media_type, content = match.groups()
+        content_type, content = match.groups()
+        if content_type:
+            content_type = content_type[1:-1]  # Remove curly braces
 
         # If type not specified, try to guess it
-        if media_type is None:
-            content_type, media_type = guess_content_type(content)
-        else:
-            assert "/" in media_type, "Media type must contain a slash"
-            content_type = media_type.split("/")[0]
-            if content_type == "image":
-                content_type = "image_url"
-            assert content_type in ["image_url", "text"], "Unknown content type"
+        if content_type is None:
+            content_type = guess_content_type(content)
 
-        # Handle URLs vs files
-        if not is_url(content):
-            # Read file and convert to data URL
-            with open(content, "rb") as f:
-                file_content = f.read()
-            content = (
-                f"data:{media_type};base64,{base64.b64encode(file_content).decode()}"
-                if content_type == "image_url"
-                else file_content.decode()
-            )
+        assert "/" in content_type, f"Content type must contain a slash: {content_type}"
+        base_content_type = content_type.split("/")[0]
+        assert base_content_type in [
+            "image",
+            "text",
+        ], f"Unknown content type: {base_content_type}"
 
-        if content_type == "text":
+        if base_content_type == "text":
             yield from iter_get_prompt(content)
             return
 
-        supported_content_types = ["text", "image_url"]
-        content_type_stripped = content_type.strip("{}")
+        supported_content_types = ["text", "image"]
         error_msg = (
-            f"Unknown content type: {content_type_stripped}, "
+            f"Unknown content type: {base_content_type}, "
             f"expected: {supported_content_types}"
         )
-        assert content_type_stripped in supported_content_types, error_msg
+        assert base_content_type in supported_content_types, error_msg
 
-        yield (content, content_type)
+        location: Literal["url", "file"] = (
+            "url" if is_url(content) or content.startswith("data:") else "file"
+        )
+        yield CmdlinePromptItem(content, location, content_type)
 
     items = [p for prompt_arg in prompt_args for p in iter_get_prompt(prompt_arg)]
     if not len(items):
-        items = [("Hello!", "text")]
+        items = [CmdlinePromptItem("Hello!", "text")]
     return items
 
 

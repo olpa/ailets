@@ -14,9 +14,9 @@ import json
 
 from .plugin import NodeRegistry
 
-from .typing import Dependency, IEnvironment, INodeRegistry, Node
+from .typing import Dependency, IEnvironment, INodeRegistry, Node, IStream
 from .node_runtime import NodeRuntime
-from .streams import Streams, Stream
+from .streams import Streams
 from .util import to_basename
 
 
@@ -100,29 +100,13 @@ class Environment(IEnvironment):
         self._ever_started.add(name)
         node = self.get_node(name)
 
-        in_streams: Dict[Optional[str], List[Stream]] = {}
+        deps = list(self.iter_deps(name))
+        for dep in deps:
+            dep_name = dep.source
+            if not self.is_node_built(dep_name):
+                raise ValueError(f"Dependency node '{dep_name}' is not built")
 
-        for dep in self.iter_deps(name):
-            dep_node_name, dep_name, dep_stream_name = (
-                dep.source,
-                dep.name,
-                dep.stream,
-            )
-            if not self.is_node_built(dep_node_name):
-                raise ValueError(f"Dependency node '{dep_node_name}' is not built")
-
-            dep_stream = self._streams.get(dep_node_name, dep_stream_name)
-            if not dep_stream.is_finished:
-                raise ValueError(
-                    f"Stream '{dep_stream_name}' for node "
-                    f"'{dep_node_name}' is not finished"
-                )
-
-            if dep_name not in in_streams:
-                in_streams[dep_name] = []
-            in_streams[dep_name].append(dep_stream)
-
-        runtime = NodeRuntime(self, nodereg, in_streams, node.name)
+        runtime = NodeRuntime(self, nodereg, self._streams, node.name, deps)
 
         # Execute the node's function with all dependencies
         try:
@@ -320,7 +304,7 @@ class Environment(IEnvironment):
         base_name = to_basename(name)
         if base_name.startswith("defunc."):
             base_name = base_name[7:]
-        if base_name == "typed_value":
+        if base_name == "value":
             # Special case for typed value nodes
             def func(_): ...  # Dummy function since real value is in streams
 
@@ -346,25 +330,19 @@ class Environment(IEnvironment):
         self.nodes[name] = node
         return node
 
-    def add_typed_value_node(
-        self, value: str, value_type: str, explain: Optional[str] = None
-    ) -> Node:
+    def add_value_node(self, value: bytes, explain: Optional[str] = None) -> Node:
         """Add a typed value node to the environment.
 
         Args:
             value: The value to store
-            value_type: The type of the value
             explain: Optional explanation of what the value represents
 
         """
-        full_name = self.get_next_name("typed_value")
+        full_name = self.get_next_name("value")
 
         node = Node(
             name=full_name,
-            func=lambda _: (
-                value,
-                value_type,
-            ),  # Function returns tuple of value and type
+            func=lambda _: None,  # Dummy function since value is in streams
             deps=[],  # No dependencies
             explain=explain,
         )
@@ -373,12 +351,8 @@ class Environment(IEnvironment):
 
         # Add streams for value and type
         value_stream = self._streams.create(full_name, None)
-        value_stream.content.write(value.encode("utf-8"))
+        value_stream.content.write(value)
         value_stream.is_finished = True
-
-        type_stream = self._streams.create(full_name, "type")
-        type_stream.content.write(value_type.encode("utf-8"))
-        type_stream.is_finished = True
 
         return node
 
@@ -438,7 +412,7 @@ class Environment(IEnvironment):
 
         return env
 
-    def create_new_stream(self, node_name: str, stream_name: Optional[str]) -> Stream:
+    def create_new_stream(self, node_name: str, stream_name: Optional[str]) -> IStream:
         return self._streams.create(node_name, stream_name)
 
     def is_node_built(self, node_name: str) -> bool:
@@ -555,8 +529,8 @@ class Environment(IEnvironment):
     def update_for_env_stream(self, params: Dict[str, Any]) -> None:
         self._for_env_stream.update(params)
 
-    def get_env_stream(self) -> Stream:
+    def get_env_stream(self) -> IStream:
         return self._streams.make_env_stream(self._for_env_stream)
 
-    def get_fs_output_streams(self) -> Sequence[Stream]:
+    def get_fs_output_streams(self) -> Sequence[IStream]:
         return self._streams.get_fs_output_streams()

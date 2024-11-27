@@ -189,7 +189,7 @@ As seen in POSIX.
 
 Based on the experience developing a tool for gpt4o, the following functions were sufficient:
 
-- `add_typed_value_node(value: str, value_type: str, explain: Optional[str])`: Creates a new value node.
+- `add_value_node(value: bytes, explain: Optional[str])`: Creates a new value node.
 
 - `instantiate_with_deps(target: str, aliases: dict[str, str])`: Creates a new instance of a plugin (either a tool or a model).
 

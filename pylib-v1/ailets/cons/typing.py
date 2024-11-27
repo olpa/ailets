@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from io import BytesIO
 from typing import (
     Any,
     Callable,
@@ -15,7 +16,18 @@ from typing import (
     Union,
 )
 
-from .streams import Stream
+
+class IStream(Protocol):
+    def get_content(self) -> BytesIO:
+        raise NotImplementedError
+
+    def close(self) -> None:
+        raise NotImplementedError
+
+
+#
+#
+#
 
 
 @dataclass(frozen=True)
@@ -26,6 +38,7 @@ class Dependency:
         name: Optional name to reference this dependency in the node's inputs
         source: Name of the node this dependency comes from
         stream: Optional name of the specific stream from the source node
+        schema: Optional schema for the stream
     """
 
     source: str
@@ -37,18 +50,18 @@ class Dependency:
         """Convert to JSON-serializable format.
 
         Returns:
-            List of [dep_name, node_name, stream_name]
+            List of [dep_name, node_name, stream_name, schema]
         """
-        return [self.name, self.source, self.stream]
+        return [self.name, self.source, self.stream, self.schema]
 
     @classmethod
     def from_json(cls, data: list) -> "Dependency":
         """Create dependency from JSON data.
 
         Args:
-            data: List of [dep_name, node_name, stream_name]
+            data: List of [dep_name, node_name, stream_name, schema]
         """
-        return cls(name=data[0], source=data[1], stream=data[2])
+        return cls(name=data[0], source=data[1], stream=data[2], schema=data[3])
 
 
 @dataclass(frozen=True)
@@ -79,9 +92,7 @@ class INodeDagops(Protocol):
     def alias(self, alias: str, node_name: Optional[str]) -> None:
         raise NotImplementedError
 
-    def add_typed_value_node(
-        self, value: str, value_type: str, explain: Optional[str] = None
-    ) -> str:
+    def add_value_node(self, value: bytes, explain: Optional[str] = None) -> str:
         raise NotImplementedError
 
     def instantiate_with_deps(
@@ -120,6 +131,15 @@ class INodeRuntime(Protocol):
     def dagops(self) -> INodeDagops:
         raise NotImplementedError
 
+    def get_next_name(self, base_name: str) -> str:
+        raise NotImplementedError
+
+    def read_dir(self, dir_name: str) -> Sequence[str]:
+        raise NotImplementedError
+
+    def pass_through(self, in_stream_name: str, out_stream_name: str) -> None:
+        raise NotImplementedError
+
 
 @dataclass(frozen=True)
 class NodeDescFunc:
@@ -129,7 +149,7 @@ class NodeDescFunc:
 
 
 class IEnvironment(Protocol):
-    def create_new_stream(self, node_name: str, stream_name: Optional[str]) -> Stream:
+    def create_new_stream(self, node_name: str, stream_name: Optional[str]) -> IStream:
         raise NotImplementedError
 
     def has_node(self, node_name: str) -> bool:
@@ -150,9 +170,7 @@ class IEnvironment(Protocol):
     def alias(self, alias: str, node_name: Optional[str]) -> None:
         raise NotImplementedError
 
-    def add_typed_value_node(
-        self, value: str, value_type: str, explain: Optional[str] = None
-    ) -> Node:
+    def add_value_node(self, value: bytes, explain: Optional[str] = None) -> Node:
         raise NotImplementedError
 
     def iter_deps(self, node_name: str) -> Iterator[Dependency]:
@@ -175,7 +193,18 @@ class IEnvironment(Protocol):
     def update_for_env_stream(self, params: Dict[str, Any]) -> None:
         raise NotImplementedError
 
-    def get_env_stream(self) -> Stream:
+    def get_env_stream(self) -> IStream:
+        raise NotImplementedError
+
+    def read_dir(self, node_name: str, dir_name: str) -> Sequence[str]:
+        raise NotImplementedError
+
+    def pass_through(
+        self,
+        node_name: str,
+        in_stream_name: str,
+        out_stream_name: str,
+    ) -> None:
         raise NotImplementedError
 
 
@@ -210,14 +239,11 @@ class ChatMessageContentText(TypedDict):
     text: str
 
 
-class ChatMessageContentImageUrl(TypedDict):
-    image_url: dict[Literal["url", "detail"], str]
-    type: Literal["image_url"]
-
-
-class ChatMessageContentInputAudio(TypedDict):
-    input_audio: dict[Literal["data", "format"], str]
-    type: Literal["input_audio"]
+class ChatMessageContentImage(TypedDict):
+    type: Literal["image"]
+    content_type: str
+    url: NotRequired[str]
+    stream: NotRequired[str]
 
 
 class ChatMessageContentRefusal(TypedDict):
@@ -233,8 +259,7 @@ class ChatAssistantToolCall(TypedDict):
 
 ChatMessageStructuredContentItem = Union[
     ChatMessageContentText,
-    ChatMessageContentImageUrl,
-    ChatMessageContentInputAudio,
+    ChatMessageContentImage,
     ChatMessageContentRefusal,
 ]
 
@@ -257,11 +282,9 @@ class ChatMessageUser(TypedDict):
 
 
 class ChatMessageAssistant(TypedDict):
-    content: NotRequired[ChatMessageContent]
+    content: NotRequired[Union[ChatMessageContent, None]]  # If None, then "tool_calls"
     refusal: NotRequired[str]
-    # `tool_calls` should be handled inside a model pipeline (gpt4o, etc.)
-    # The generic chat-to-something converter expects only the final result
-    # tool_calls: NotRequired[Sequence[ChatAssistantToolCall]]
+    tool_calls: NotRequired[Sequence[ChatAssistantToolCall]]
     role: Literal["assistant"]
 
 

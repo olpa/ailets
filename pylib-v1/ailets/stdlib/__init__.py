@@ -4,7 +4,6 @@ prompt_to_messages = NodeDesc(
     name="prompt_to_messages",
     inputs=[
         Dependency(source=".prompt"),
-        Dependency(name="type", source=".prompt", stream="type"),
     ],
 )
 
@@ -37,4 +36,10 @@ stdout = NodeDesc(
     ],
 )
 
-nodes = [prompt_to_messages, toolcall_to_messages, query, messages_to_markdown, stdout]
+nodes = [
+    prompt_to_messages,
+    toolcall_to_messages,
+    query,
+    messages_to_markdown,
+    stdout,
+]

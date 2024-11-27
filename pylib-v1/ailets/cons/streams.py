@@ -6,6 +6,8 @@ from typing import Any, Dict, Optional, Sequence, TextIO
 from io import BytesIO
 from typing_extensions import Buffer
 
+from ailets.cons.typing import Dependency, IStream
+
 
 @dataclass
 class Stream:
@@ -22,6 +24,9 @@ class Stream:
     stream_name: Optional[str]
     is_finished: bool
     content: BytesIO
+
+    def get_content(self) -> BytesIO:
+        return self.content
 
     def to_json(self) -> dict:
         """Convert stream to JSON-serializable dict."""
@@ -156,5 +161,45 @@ class Streams:
         return [
             s
             for s in self._streams
-            if s.stream_name is not None and s.stream_name.startswith("./out/")
+            if s.stream_name is not None and s.stream_name.startswith("out/")
         ]
+
+    def collect_streams(
+        self,
+        deps: Sequence[Dependency],
+    ) -> Sequence[IStream]:
+        collected: list[IStream] = []
+        for dep in deps:
+            collected.extend(
+                s
+                for s in self._streams
+                if s.node_name == dep.source and s.stream_name == dep.stream
+            )
+        return collected
+
+    def read_dir(self, dir_name: str, node_names: Sequence[str]) -> Sequence[str]:
+        if not dir_name.endswith("/"):
+            dir_name = f"{dir_name}/"
+        pos = len(dir_name)
+        return [
+            s.stream_name[pos:]
+            for s in self._streams
+            if s.node_name in node_names
+            and s.stream_name is not None
+            and s.stream_name.startswith(dir_name)
+        ]
+
+    def pass_through(
+        self,
+        node_name: str,
+        in_streams: Sequence[IStream],
+        out_stream_name: str,
+    ) -> None:
+        for in_stream in in_streams:
+            out_stream = Stream(
+                node_name=node_name,
+                stream_name=out_stream_name,
+                is_finished=True,
+                content=BytesIO(in_stream.get_content().getvalue()),
+            )
+            self._streams.append(out_stream)

@@ -1,30 +1,75 @@
+from dataclasses import dataclass
+from typing import Literal, Optional
 import json
 import tomllib
-from typing import (
-    Tuple,
-    Sequence,
-)
+from typing import Sequence
+
 from .typing import (
     Dependency,
     IEnvironment,
     INodeRegistry,
+    IStream,
+    Node,
 )
+
+
+@dataclass
+class CmdlinePromptItem:
+    value: str
+    type: Literal["toml", "text", "file", "url"]
+    content_type: Optional[str] = None
 
 
 def prompt_to_env(
     env: IEnvironment,
-    prompt: Sequence[Tuple[str, str]] = [("Hello!", "text")],
+    prompt: Sequence[CmdlinePromptItem] = [CmdlinePromptItem("Hello!", "text")],
 ) -> None:
-    def prompt_to_node(prompt_item: Tuple[str, str]) -> None:
-        if isinstance(prompt_item, str):
-            prompt_text = prompt_item
-            prompt_type = "text"
-        else:
-            prompt_text, prompt_type = prompt_item
-        if prompt_type == "toml":
+    def prompt_to_node(prompt_item: CmdlinePromptItem) -> None:
+        if prompt_item.type == "toml":
             return
-        node_tv = env.add_typed_value_node(prompt_text, prompt_type, explain="Prompt")
-        env.alias(".prompt", node_tv.name)
+
+        def mk_node(prompt_content: str) -> Node:
+            node = env.add_value_node(prompt_content.encode("utf-8"), explain="Prompt")
+            env.alias(".prompt", node.name)
+            return node
+
+        if prompt_item.type == "text":
+            mk_node(json.dumps({"type": "text", "text": prompt_item.value}))
+            return
+
+        assert prompt_item.content_type is not None, "Content type is required"
+        base_content_type = prompt_item.content_type.split("/")[0]
+        assert base_content_type in [
+            "image"
+        ], f"Unknown content type: {base_content_type}"
+
+        if prompt_item.type == "url":
+            mk_node(
+                json.dumps(
+                    {
+                        "type": base_content_type,
+                        "url": prompt_item.value,
+                        "content_type": prompt_item.content_type,
+                    }
+                )
+            )
+            return
+
+        stream_name = env.get_next_name(f"media/{base_content_type}")
+        node = mk_node(
+            json.dumps(
+                {
+                    "type": base_content_type,
+                    "stream": stream_name,
+                    "content_type": prompt_item.content_type,
+                }
+            )
+        )
+
+        with open(prompt_item.value, "rb") as f:
+            stream: IStream = env.create_new_stream(node.name, stream_name)
+            stream.get_content().write(f.read())
+            stream.close()
 
     for prompt_item in prompt:
         prompt_to_node(prompt_item)
@@ -32,12 +77,12 @@ def prompt_to_env(
 
 def toml_to_env(
     env: IEnvironment,
-    toml: Sequence[Tuple[str, str]],
+    toml: Sequence[CmdlinePromptItem],
 ) -> None:
-    for toml_text, type_ in toml:
-        if type_ != "toml":
+    for prompt_item in toml:
+        if prompt_item.type != "toml":
             continue
-        items = tomllib.loads(toml_text)
+        items = tomllib.loads(prompt_item.value)
         env.update_for_env_stream(items)
 
 
@@ -49,9 +94,11 @@ def toolspecs_to_env(
         schema = nodereg.get_node(plugin_nodes[0]).inputs[0].schema
         assert schema is not None, f"Tool {tool} has no schema"
 
-        tool_spec = env.add_typed_value_node(
-            json.dumps(schema), "json", explain=f"Tool spec {tool}"
+        tool_spec = env.add_value_node(
+            json.dumps(schema).encode("utf-8"),
+            explain=f"Tool spec {tool}",
         )
+
         env.alias(".toolspecs", tool_spec.name)
     else:
         env.alias(".toolspecs", None)

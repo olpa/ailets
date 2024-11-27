@@ -2,7 +2,7 @@ import json
 from typing import Optional
 from ailets.cons.typing import (
     ChatMessageAssistant,
-    ChatMessageContentImageUrl,
+    ChatMessageContentImage,
     ChatMessageContentText,
     ChatMessageStructuredContent,
     INodeRuntime,
@@ -46,11 +46,10 @@ def response_to_messages(runtime: INodeRuntime) -> None:
                 else f"data:image/png;base64,{item['b64_json']}"
             )
 
-            image: ChatMessageContentImageUrl = {
-                "type": "image_url",
-                "image_url": {
-                    "url": url,
-                },
+            image: ChatMessageContentImage = {
+                "type": "image",
+                "content_type": "image/png",
+                "url": url,
             }
 
             content: ChatMessageStructuredContent = [text, image] if text else [image]
