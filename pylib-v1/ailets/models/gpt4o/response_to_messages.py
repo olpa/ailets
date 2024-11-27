@@ -149,7 +149,8 @@ def response_to_messages(runtime: INodeRuntime) -> None:
         assert "choices" in response, "Response must have 'choices' key"
         assert isinstance(response["choices"], list), "'choices' must be a list"
 
-        for gpt4o_message in response["choices"]:
+        for gpt4o_choice in response["choices"]:
+            gpt4o_message = gpt4o_choice["message"]
             message = _process_single_message(runtime, gpt4o_message, invalidation_flag)
             if message is not None:
                 messages.append(message)
