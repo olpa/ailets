@@ -254,10 +254,17 @@ class ContentItemRefusal(TypedDict):
     refusal: str
 
 
+class ContentItemFunction(TypedDict):
+    type: Literal["function"]
+    id: str
+    function: dict[Literal["name", "arguments"], str]
+
+
 ContentItem = Union[
     ContentItemText,
     ContentItemImage,
     ContentItemRefusal,
+    ContentItemFunction,
 ]
 
 
@@ -267,3 +274,7 @@ Content = Sequence[ContentItem]
 class ChatMessage(TypedDict):
     role: Literal["system", "user", "assistant", "tool"]
     content: Content
+
+
+class ChatMessageTool(ChatMessage):
+    tool_call_id: str
