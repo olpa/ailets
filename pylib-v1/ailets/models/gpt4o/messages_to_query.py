@@ -60,7 +60,6 @@ def messages_to_query(runtime: INodeRuntime) -> None:
             messages.append(message)
             continue
 
-        print("!!!! message", message)  # FIXME
         new_content = [
             rewrite_content_item(runtime, item) for item in message["content"]
         ]

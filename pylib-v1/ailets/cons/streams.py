@@ -166,14 +166,16 @@ class Streams:
 
     def collect_streams(
         self,
-        stream_name: Optional[str],
-        node_names: Sequence[Dependency],
+        deps: Sequence[Dependency],
     ) -> Sequence[IStream]:
-        return [
-            s
-            for s in self._streams
-            if s.node_name in node_names and s.stream_name == stream_name
-        ]
+        collected: list[IStream] = []
+        for dep in deps:
+            collected.extend(
+                s
+                for s in self._streams
+                if s.node_name == dep.source and s.stream_name == dep.stream
+            )
+        return collected
 
     def read_dir(self, dir_name: str, node_names: Sequence[str]) -> Sequence[str]:
         if not dir_name.endswith("/"):

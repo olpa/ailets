@@ -29,19 +29,19 @@ class NodeRuntime(INodeRuntime):
         self._open_fds: Dict[int, IStream] = {}
 
     def _get_streams(self, stream_name: Optional[str]) -> Sequence[IStream]:
+        # Special stream "env"
         if stream_name == "env":
             return [self._env.get_env_stream()]
-        deps = [dep for dep in self._deps if dep.stream == stream_name]
+        # Normal explicit streams
+        deps = [dep for dep in self._deps if dep.name == stream_name]
+        # Implicit dynamic streams like media attachments
         if not deps and stream_name is not None:
             dep_names = set([dep.source for dep in self._deps])
-            deps = [Dependency(source=name, stream=stream_name) for name in dep_names]
-        print(
-            "!!!! get streams",
-            stream_name,
-            deps,
-            self._streams.collect_streams(stream_name, deps),
-        )  # FIXME
-        return self._streams.collect_streams(stream_name, deps)
+            deps = [
+                Dependency(name=stream_name, source=name, stream=stream_name)
+                for name in dep_names
+            ]
+        return self._streams.collect_streams(deps)
 
     def get_name(self) -> str:
         return self._node_name
