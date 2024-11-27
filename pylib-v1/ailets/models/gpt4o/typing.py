@@ -1,5 +1,7 @@
 from typing import Any, Literal, Sequence, TypedDict, Union, NotRequired
 
+from ailets.cons.typing import ContentItemFunction, ContentItemRefusal, ContentItemText
+
 class Gpt4oImageUrl(TypedDict):
     url: str
     detail: NotRequired[str]
@@ -9,10 +11,13 @@ class Gpt4oImage(TypedDict):
     type: Literal["image_url"]
     image_url: Gpt4oImageUrl
 
+Gpt4oContentItem = Union[Gpt4oImage, ContentItemText, ContentItemRefusal]
+
 
 class Gpt4oMessage(TypedDict):
     role: str
     content: Any
+    tool_calls: NotRequired[Sequence[ContentItemFunction]]
 
 
 def is_gpt4o_image(obj: Any) -> bool:

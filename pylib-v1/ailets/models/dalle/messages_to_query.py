@@ -1,12 +1,11 @@
 import json
 from typing import Optional, Sequence, TypedDict
 from ailets.cons.typeguards import (
-    is_chat_message_content_image,
-    is_chat_message_content_text,
+    is_content_item_image,
+    is_content_item_text,
 )
 from ailets.cons.typing import (
-    ChatMessageContent,
-    ChatMessageContentPlainText,
+    Content,
     INodeRuntime,
 )
 from ailets.cons.util import (
@@ -81,33 +80,24 @@ def read_stream(runtime: INodeRuntime, stream_name: str) -> bytes:
 def update_prompt(
     runtime: INodeRuntime,
     prompt: ExtractedPrompt,
-    content: Optional[ChatMessageContent],
+    content: Content,
 ) -> None:
-    if isinstance(content, ChatMessageContentPlainText):
-        prompt["prompt_parts"].append(content)
-        return
-    if isinstance(content, Sequence):
-        for part in content:
-            if isinstance(part, ChatMessageContentPlainText):
-                prompt["prompt_parts"].append(part)
-                continue
-            if is_chat_message_content_text(part):
-                prompt["prompt_parts"].append(part["text"])
-            elif is_chat_message_content_image(part):
-                stream = part["stream"]
-                assert stream is not None, "Image has no stream"
-                if prompt["image"] is None:
-                    prompt["image"] = read_stream(runtime, stream)
-                elif prompt["mask"] is None:
-                    prompt["mask"] = read_stream(runtime, stream)
-                else:
-                    raise ValueError(
-                        "Too many images. First image is used as image, second as mask."
-                    )
+    for part in content:
+        if is_content_item_text(part):
+            prompt["prompt_parts"].append(part["text"])
+        elif is_content_item_image(part):
+            stream = part["stream"]
+            assert stream is not None, "Image has no stream"
+            if prompt["image"] is None:
+                prompt["image"] = read_stream(runtime, stream)
+            elif prompt["mask"] is None:
+                prompt["mask"] = read_stream(runtime, stream)
             else:
-                raise ValueError(f"Unsupported content type: {part}")
-        return
-    raise ValueError(f"Unsupported content type: {type(content)}")
+                raise ValueError(
+                    "Too many images. First image is used as image, second as mask."
+                )
+        else:
+            raise ValueError(f"Unsupported content type: {part}")
 
 
 def messages_to_query(runtime: INodeRuntime) -> None:
@@ -120,7 +110,9 @@ def messages_to_query(runtime: INodeRuntime) -> None:
         if role != "user":
             log(runtime, "info", f"Skipping message with role {role}")
             continue
-        update_prompt(runtime, prompt, message.get("content"))
+        content = message.get("content")
+        assert isinstance(content, Sequence), "Content must be a list"
+        update_prompt(runtime, prompt, content)
     if not len(prompt["prompt_parts"]):
         raise ValueError("No user prompt found in messages")
 

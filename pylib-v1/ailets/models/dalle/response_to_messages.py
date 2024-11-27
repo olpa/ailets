@@ -1,7 +1,7 @@
 import json
 from typing import Optional
 from ailets.cons.typing import (
-    ChatMessageAssistant,
+    ChatMessage,
     ContentItemImage,
     ContentItemText,
     Content,
@@ -53,7 +53,7 @@ def response_to_messages(runtime: INodeRuntime) -> None:
             }
 
             content: Content = [text, image] if text else [image]
-            message: ChatMessageAssistant = {
+            message: ChatMessage = {
                 "role": "assistant",
                 "content": content,
             }
