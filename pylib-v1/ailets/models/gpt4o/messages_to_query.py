@@ -60,6 +60,13 @@ def messages_to_query(runtime: INodeRuntime) -> None:
             messages.append(message)
             continue
 
+        if message["content"] is None:
+            assert message[
+                "tool_calls"
+            ], "Tool calls must be present if content is None"
+            messages.append(message)
+            continue
+
         new_content = [
             rewrite_content_item(runtime, item) for item in message["content"]
         ]

@@ -282,11 +282,9 @@ class ChatMessageUser(TypedDict):
 
 
 class ChatMessageAssistant(TypedDict):
-    content: NotRequired[ChatMessageContent]
+    content: NotRequired[Union[ChatMessageContent, None]]  # If None, then "tool_calls"
     refusal: NotRequired[str]
-    # `tool_calls` should be handled inside a model pipeline (gpt4o, etc.)
-    # The generic chat-to-something converter expects only the final result
-    # tool_calls: NotRequired[Sequence[ChatAssistantToolCall]]
+    tool_calls: NotRequired[Sequence[ChatAssistantToolCall]]
     role: Literal["assistant"]
 
 
