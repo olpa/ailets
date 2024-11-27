@@ -137,7 +137,7 @@ def get_prompt(prompt_args: list[str]) -> list[CmdlinePromptItem]:
             if toml:
                 yield CmdlinePromptItem(toml, "toml")
             if text:
-                yield CmdlinePromptItem(text, "text")
+                yield CmdlinePromptItem(text, "text", toml=toml)
             return
 
         # Parse @{type}content format

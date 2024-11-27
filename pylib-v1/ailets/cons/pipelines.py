@@ -18,6 +18,7 @@ class CmdlinePromptItem:
     value: str
     type: Literal["toml", "text", "file", "url"]
     content_type: Optional[str] = None
+    toml: Optional[str] = None
 
 
 def prompt_to_env(
@@ -34,7 +35,15 @@ def prompt_to_env(
             return node
 
         if prompt_item.type == "text":
-            mk_node(json.dumps({"type": "text", "text": prompt_item.value}))
+            content_item = {
+                "type": "text",
+                "text": prompt_item.value,
+            }
+            if prompt_item.toml:
+                toml = tomllib.loads(prompt_item.toml)
+                if toml.get("role", "").lower() == "system":
+                    content_item["role"] = "system"
+            mk_node(json.dumps(content_item))
             return
 
         assert prompt_item.content_type is not None, "Content type is required"
