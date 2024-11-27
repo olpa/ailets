@@ -6,7 +6,7 @@ from ailets.cons.typeguards import (
     is_chat_message_content_text,
 )
 from ailets.cons.typing import (
-    ChatMessageContentImage,
+    ContentItemImage,
     ChatMessageStructuredContentItem,
     INodeRuntime,
 )
@@ -28,7 +28,7 @@ def get_extension(media_type: str) -> str:
     return extension_map.get(media_type, ".bin")
 
 
-def rewrite_image_url(runtime: INodeRuntime, image: ChatMessageContentImage) -> str:
+def rewrite_image_url(runtime: INodeRuntime, image: ContentItemImage) -> str:
     if stream := image.get("stream"):
         out_name = runtime.get_next_name("out/image")
         out_name += get_extension(image["content_type"])

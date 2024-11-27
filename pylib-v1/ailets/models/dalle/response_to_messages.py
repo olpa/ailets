@@ -2,9 +2,9 @@ import json
 from typing import Optional
 from ailets.cons.typing import (
     ChatMessageAssistant,
-    ChatMessageContentImage,
-    ChatMessageContentText,
-    ChatMessageStructuredContent,
+    ContentItemImage,
+    ContentItemText,
+    Content,
     INodeRuntime,
 )
 from ailets.cons.util import iter_streams_objects, write_all
@@ -28,7 +28,7 @@ def response_to_messages(runtime: INodeRuntime) -> None:
         # }
 
         for item in response["data"]:
-            text: Optional[ChatMessageContentText] = (
+            text: Optional[ContentItemText] = (
                 {
                     "type": "text",
                     "text": item["revised_prompt"],
@@ -46,13 +46,13 @@ def response_to_messages(runtime: INodeRuntime) -> None:
                 else f"data:image/png;base64,{item['b64_json']}"
             )
 
-            image: ChatMessageContentImage = {
+            image: ContentItemImage = {
                 "type": "image",
                 "content_type": "image/png",
                 "url": url,
             }
 
-            content: ChatMessageStructuredContent = [text, image] if text else [image]
+            content: Content = [text, image] if text else [image]
             message: ChatMessageAssistant = {
                 "role": "assistant",
                 "content": content,

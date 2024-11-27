@@ -3,9 +3,9 @@ import json
 from typing import List, Optional, Sequence, Set
 from ailets.cons.typing import (
     ChatMessageAssistant,
-    ChatMessageContentImage,
+    ContentItemImage,
     ChatMessageContentPlainText,
-    ChatMessageContentText,
+    ContentItemText,
     ChatMessageStructuredContentItem,
     INodeRuntime,
 )
@@ -36,7 +36,7 @@ def rewrite_content_item(
     assert url.startswith("data:"), "Image data-URL must start with 'data:'"
     assert "image/png" in url, "Only PNG images are supported"
 
-    return ChatMessageContentImage(type="image", url=url, content_type="image/png")
+    return ContentItemImage(type="image", url=url, content_type="image/png")
 
 
 def _process_single_message(
@@ -55,7 +55,7 @@ def _process_single_message(
         new_content: List[ChatMessageStructuredContentItem] = []
         if isinstance(content, ChatMessageContentPlainText):
             new_content = [
-                ChatMessageContentText(
+                ContentItemText(
                     type="text",
                     text=content,
                 )

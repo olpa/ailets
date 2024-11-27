@@ -4,25 +4,25 @@ from .typing import (
     ChatMessage,
     ChatMessageAssistant,
     ChatMessageContent,
-    ChatMessageContentRefusal,
-    ChatMessageContentText,
-    ChatMessageStructuredContent,
+    ContentItemRefusal,
+    ContentItemText,
+    Content,
     ChatMessageSystem,
     ChatMessageToolCall,
     ChatMessageUser,
-    ChatMessageContentImage,
+    ContentItemImage,
 )
 
 
-def is_chat_message_content_text(obj: Any) -> TypeGuard[ChatMessageContentText]:
+def is_chat_message_content_text(obj: Any) -> TypeGuard[ContentItemText]:
     return isinstance(obj, dict) and obj.get("type") == "text" and "text" in obj
 
 
-def is_chat_message_content_refusal(obj: Any) -> TypeGuard[ChatMessageContentRefusal]:
+def is_chat_message_content_refusal(obj: Any) -> TypeGuard[ContentItemRefusal]:
     return isinstance(obj, dict) and obj.get("type") == "refusal" and "refusal" in obj
 
 
-def is_chat_message_content_image(obj: Any) -> TypeGuard[ChatMessageContentImage]:
+def is_chat_message_content_image(obj: Any) -> TypeGuard[ContentItemImage]:
     return (
         isinstance(obj, dict)
         and obj.get("type") == "image"
@@ -33,7 +33,7 @@ def is_chat_message_content_image(obj: Any) -> TypeGuard[ChatMessageContentImage
 
 def is_chat_message_structured_content(
     obj: Any,
-) -> TypeGuard[ChatMessageStructuredContent]:
+) -> TypeGuard[Content]:
     return isinstance(obj, Sequence) and all(
         is_chat_message_content_text(item)
         or is_chat_message_content_refusal(item)

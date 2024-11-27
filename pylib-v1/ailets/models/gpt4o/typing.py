@@ -2,8 +2,8 @@ from typing import Literal, Sequence, TypedDict, Union, NotRequired
 
 from ailets.cons.typing import (
     ChatMessageContentPlainText,
-    ChatMessageContentRefusal,
-    ChatMessageContentText,
+    ContentItemRefusal,
+    ContentItemText,
 )
 
 
@@ -17,11 +17,18 @@ class Gpt4oImage(TypedDict):
     image_url: Gpt4oImageUrl
 
 
+class ChatAssistantToolCall(TypedDict):
+    type: Literal["function"]
+    id: str
+    function: dict[Literal["name", "arguments"], str]
+
+
 Gpt4oChatMessageContentItem = Union[
-    ChatMessageContentText,
-    ChatMessageContentRefusal,
+    ContentItemText,
+    ContentItemRefusal,
     Gpt4oImage,
 ]
+
 
 Gpt4oChatMessageContent = Union[
     ChatMessageContentPlainText,

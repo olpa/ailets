@@ -225,78 +225,45 @@ class INodeRegistry(Protocol):
 #
 #
 #
+
 class ToolSpecification(TypedDict):
     name: str
     description: str
     parameters: dict[str, Any]  # JSON schema
 
+#
+#
+#
 
-ChatMessageContentPlainText = str
 
-
-class ChatMessageContentText(TypedDict):
+class ContentItemText(TypedDict):
     type: Literal["text"]
     text: str
 
 
-class ChatMessageContentImage(TypedDict):
+class ContentItemImage(TypedDict):
     type: Literal["image"]
     content_type: str
+    # `url` or `stream`, exactly one of them
     url: NotRequired[str]
     stream: NotRequired[str]
 
 
-class ChatMessageContentRefusal(TypedDict):
-    refusal: str
+class ContentItemRefusal(TypedDict):
     type: Literal["refusal"]
+    refusal: str
 
 
-class ChatAssistantToolCall(TypedDict):
-    id: str
-    function: dict[Literal["name", "arguments"], str]
-    type: Literal["function"]
-
-
-ChatMessageStructuredContentItem = Union[
-    ChatMessageContentText,
-    ChatMessageContentImage,
-    ChatMessageContentRefusal,
-]
-
-ChatMessageStructuredContent = Sequence[ChatMessageStructuredContentItem]
-
-ChatMessageContent = Union[
-    ChatMessageContentPlainText,
-    ChatMessageStructuredContent,
+ContentItem = Union[
+    ContentItemText,
+    ContentItemImage,
+    ContentItemRefusal,
 ]
 
 
-class ChatMessageSystem(TypedDict):
-    content: ChatMessageContentPlainText
-    role: Literal["system"]
+Content = Sequence[ContentItem]
 
 
-class ChatMessageUser(TypedDict):
-    content: ChatMessageContent
-    role: Literal["user"]
-
-
-class ChatMessageAssistant(TypedDict):
-    content: NotRequired[Union[ChatMessageContent, None]]  # If None, then "tool_calls"
-    refusal: NotRequired[str]
-    tool_calls: NotRequired[Sequence[ChatAssistantToolCall]]
-    role: Literal["assistant"]
-
-
-class ChatMessageToolCall(TypedDict):
-    tool_call_id: str
-    content: ChatMessageContent
-    role: Literal["tool"]
-
-
-ChatMessage = Union[
-    ChatMessageSystem,
-    ChatMessageUser,
-    ChatMessageAssistant,
-    ChatMessageToolCall,
-]
+class ChatMessage(TypedDict):
+    role: Literal["system", "user", "assistant", "tool"]
+    content: Content
