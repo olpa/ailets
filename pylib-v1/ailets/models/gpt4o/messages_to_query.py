@@ -1,13 +1,15 @@
 import base64
 import json
-from ailets.cons.typeguards import is_chat_message_system
+from typing import List, Sequence, Tuple
 from ailets.cons.typing import (
     ChatMessage,
-    ChatMessageStructuredContentItem,
+    Content,
+    ContentItem,
+    ContentItemFunction,
     INodeRuntime,
 )
 from ailets.cons.util import iter_streams_objects, read_all, write_all
-from ailets.models.gpt4o.typing import Gpt4oChatMessageContentItem
+from ailets.models.gpt4o.typing import Gpt4oContentItem, Gpt4oMessage
 
 url = "https://api.openai.com/v1/chat/completions"
 method = "POST"
@@ -19,8 +21,8 @@ headers = {
 
 def rewrite_content_item(
     runtime: INodeRuntime,
-    item: ChatMessageStructuredContentItem,
-) -> Gpt4oChatMessageContentItem:
+    item: ContentItem,
+) -> Gpt4oContentItem:
     if item["type"] == "text":
         return item
     assert item["type"] == "image", "Only text and image are supported"
@@ -50,28 +52,29 @@ def rewrite_content_item(
         "image_url": {"url": data_url},
     }
 
+def rewrite_content(
+    runtime: INodeRuntime,
+    content: Content,
+) -> Tuple[Sequence[Gpt4oContentItem], Sequence[ContentItemFunction]]:
+    new_content: List[Gpt4oContentItem] = []
+    tool_calls: List[ContentItemFunction] = []
+    for item in content:
+        if item["type"] == "function":
+            tool_calls.append(item)
+        else:
+            new_content.append(rewrite_content_item(runtime, item))
+    return new_content, tool_calls
 
 def messages_to_query(runtime: INodeRuntime) -> None:
     """Convert chat messages into a query."""
 
-    messages: list[ChatMessage] = []
+    messages: list[Gpt4oMessage] = []
     for message in iter_streams_objects(runtime, None):
-        if is_chat_message_system(message):
-            messages.append(message)
-            continue
-
-        if message["content"] is None:
-            assert message[
-                "tool_calls"
-            ], "Tool calls must be present if content is None"
-            messages.append(message)
-            continue
-
-        new_content = [
-            rewrite_content_item(runtime, item) for item in message["content"]
-        ]
-        new_message: ChatMessage = message.copy()  # type: ignore[assignment]
-        new_message["content"] = new_content  # type: ignore[arg-type]
+        new_content, tool_calls = rewrite_content(runtime, message["content"])
+        new_message: Gpt4oMessage = message.copy()  # type: ignore[assignment]
+        new_message["content"] = new_content
+        if tool_calls:
+            new_message["tool_calls"] = tool_calls
 
         messages.append(new_message)
 
