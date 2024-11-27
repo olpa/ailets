@@ -1,7 +1,6 @@
 from typing import Literal, Sequence, TypedDict, Union, NotRequired
 
 from ailets.cons.typing import (
-    ChatMessageContentPlainText,
     ContentItemRefusal,
     ContentItemText,
 )
@@ -31,6 +30,6 @@ Gpt4oChatMessageContentItem = Union[
 
 
 Gpt4oChatMessageContent = Union[
-    ChatMessageContentPlainText,
+    str,
     Sequence[Gpt4oChatMessageContentItem],
 ]
