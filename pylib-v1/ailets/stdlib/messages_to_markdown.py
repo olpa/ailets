@@ -1,13 +1,10 @@
 import json
 import base64
 import hashlib
-from ailets.cons.typeguards import (
-    is_chat_message_content_image,
-    is_chat_message_content_text,
-)
+from ailets.cons.typeguards import is_content_item_image, is_content_item_text
 from ailets.cons.typing import (
+    Content,
     ContentItemImage,
-    ChatMessageStructuredContentItem,
     INodeRuntime,
 )
 from ailets.cons.util import iter_streams_objects, write_all
@@ -78,22 +75,18 @@ def rewrite_image_url(runtime: INodeRuntime, image: ContentItemImage) -> str:
     return filename
 
 
-def mixed_content_to_markdown(
+def content_to_markdown(
     runtime: INodeRuntime,
     fd: int,
-    content: ChatMessageStructuredContentItem,
+    content: Content,
 ) -> None:
     separator(runtime, fd)
 
-    if isinstance(content, str):
-        write_all(runtime, fd, content.encode("utf-8"))
-        return
-
-    if is_chat_message_content_text(content):
+    if is_content_item_text(content):
         write_all(runtime, fd, content["text"].encode("utf-8"))
         return
 
-    if is_chat_message_content_image(content):
+    if is_content_item_image(content):
         url = rewrite_image_url(runtime, content)
         write_all(runtime, fd, f"![image]({url})".encode("utf-8"))
         return
@@ -116,6 +109,6 @@ def messages_to_markdown(runtime: INodeRuntime) -> None:
                 write_all(runtime, fd, content.encode("utf-8"))
                 continue
             for item in content:
-                mixed_content_to_markdown(runtime, fd, item)
+                content_to_markdown(runtime, fd, item)
     finally:
         runtime.close(fd)
