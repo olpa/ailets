@@ -29,16 +29,13 @@ When using LLMs with tools, the workflow is no longer a straight pipeline. Inste
 A sample dependency tree for a simple request to an LLM is shown below:
 
 ```
-├── .stdout.7 [⋯ not built]
-│   ├── .gpt4o.response_to_markdown.6 [⋯ not built]
-│   │   ├── .query.5 [⋯ not built]
-│   │   │   ├── .gpt4o.messages_to_query.4 [⋯ not built]
-│   │   │   │   ├── .prompt_to_messages.2 [⋯ not built]
-│   │   │   │   │   ├── typed_value.1 [✓ built] (Prompt)
-│   │   │   │   │   ├── (param: type)
-│   │   │   │   │   │   ├── typed_value.1.type [✓ built] (Prompt)
-│   │   │   │   ├── (param: credentials)
-│   │   │   │   │   ├── .gpt4o.credentials.3 [⋯ not built]
+├── .stdout.8 [⋯ not built]
+│   ├── .messages_to_markdown.7 [⋯ not built]
+│   │   ├── .gpt4o.response_to_messages.6 [⋯ not built]
+│   │   │   ├── .query.5 [⋯ not built]
+│   │   │   │   ├── .gpt4o.messages_to_query.4 [⋯ not built]
+│   │   │   │   │   ├── .prompt_to_messages.3 [⋯ not built]
+│   │   │   │   │   │   ├── value.2 [✓ built] (Prompt)
 ```
 
 The steps proceed outward from the innermost part of the tree.
@@ -53,18 +50,15 @@ The steps proceed outward from the innermost part of the tree.
 Below is another dependency tree, for the use of llm with tools. The tree is taken just before executing `response_to_markdown` step.
 
 ```
-├── .stdout.8 [⋯ not built]
-│   ├── .gpt4o.response_to_markdown.7 [⋯ not built]
-│   │   ├── .query.6 [✓ built]
-│   │   │   ├── .gpt4o.messages_to_query.5 [✓ built]
-│   │   │   │   ├── .prompt_to_messages.3 [✓ built]
-│   │   │   │   │   ├── typed_value.1 [✓ built] (Prompt)
-│   │   │   │   │   ├── (param: type)
-│   │   │   │   │   │   ├── typed_value.1.type [✓ built] (Prompt)
-│   │   │   │   ├── (param: credentials)
-│   │   │   │   │   ├── .gpt4o.credentials.4 [✓ built]
-│   │   │   │   ├── (param: toolspecs)
-│   │   │   │   │   ├── typed_value.2 [✓ built] (Tool spec get_user_name)
+├── .stdout.9 [⋯ not built]
+│   ├── .messages_to_markdown.8 [⋯ not built]
+│   │   ├── .gpt4o.response_to_messages.7 [⋯ not built]
+│   │   │   ├── .query.6 [✓ built]
+│   │   │   │   ├── .gpt4o.messages_to_query.5 [✓ built]
+│   │   │   │   │   ├── .prompt_to_messages.4 [✓ built]
+│   │   │   │   │   │   ├── value.3 [✓ built] (Prompt)
+│   │   │   │   │   ├── (param: toolspecs)
+│   │   │   │   │   │   ├── value.2 [✓ built] (Tool spec get_user_name)
 ```
 
 The tree structure is similar to one used in basic LLMs. The addition is:
@@ -74,35 +68,28 @@ The tree structure is similar to one used in basic LLMs. The addition is:
 When processing the result of `query`, the `response_to_markdown` step will detect that the language model hasn't generated content but instead intends to use a tool. At this point, the step stops to act as an agent and communicates with the orchestrator to construct a new dependency tree.
 
 ```
-├── .stdout.8 [⋯ not built]
-│   ├── .gpt4o.response_to_markdown.7 [✓ built]
-│   │   ├── .query.6 [✓ built]
-│   │   │   ├── .gpt4o.messages_to_query.5 [✓ built]
-│   │   │   │   ├── .prompt_to_messages.3 [✓ built]
-│   │   │   │   │   ├── typed_value.1 [✓ built] (Prompt)
-│   │   │   │   │   ├── (param: type)
-│   │   │   │   │   │   ├── typed_value.1.type [✓ built] (Prompt)
-│   │   │   │   ├── (param: credentials)
-│   │   │   │   │   ├── .gpt4o.credentials.4 [✓ built]
-│   │   │   │   ├── (param: toolspecs)
-│   │   │   │   │   ├── typed_value.2 [✓ built] (Tool spec get_user_name)
-│   ├── .gpt4o.response_to_markdown.18 [⋯ not built]
-│   │   ├── .query.17 [⋯ not built]
-│   │   │   ├── .gpt4o.messages_to_query.16 [⋯ not built]
-│   │   │   │   ├── .prompt_to_messages.3 [✓ built]
-│   │   │   │   │   ├── typed_value.1 [✓ built] (Prompt)
-│   │   │   │   │   ├── (param: type)
-│   │   │   │   │   │   ├── typed_value.1.type [✓ built] (Prompt)
-│   │   │   │   ├── typed_value.11 [✓ built] (Feed "tool_calls" from output to input)
-│   │   │   │   ├── .toolcall_to_messages.14 [⋯ not built]
-│   │   │   │   │   ├── .tool.get_user_name.call.13 [⋯ not built]
-│   │   │   │   │   │   ├── typed_value.12 [✓ built] (Tool call spec from llm)
-│   │   │   │   │   ├── (param: llm_tool_spec)
-│   │   │   │   │   │   ├── typed_value.12 [✓ built] (Tool call spec from llm)
-│   │   │   │   ├── (param: credentials)
-│   │   │   │   │   ├── .gpt4o.credentials.15 [⋯ not built]
-│   │   │   │   ├── (param: toolspecs)
-│   │   │   │   │   ├── typed_value.2 [✓ built] (Tool spec get_user_name)
+├── .stdout.9 [⋯ not built]
+│   ├── .messages_to_markdown.8 [⋯ not built]
+│   │   ├── .gpt4o.response_to_messages.7 [✓ built]
+│   │   │   ├── .query.6 [✓ built]
+│   │   │   │   ├── .gpt4o.messages_to_query.5 [✓ built]
+│   │   │   │   │   ├── .prompt_to_messages.4 [✓ built]
+│   │   │   │   │   │   ├── value.3 [✓ built] (Prompt)
+│   │   │   │   │   ├── (param: toolspecs)
+│   │   │   │   │   │   ├── value.2 [✓ built] (Tool spec get_user_name)
+│   │   ├── .gpt4o.response_to_messages.20 [⋯ not built]
+│   │   │   ├── .query.19 [⋯ not built]
+│   │   │   │   ├── .gpt4o.messages_to_query.18 [⋯ not built]
+│   │   │   │   │   ├── .prompt_to_messages.4 [✓ built]
+│   │   │   │   │   │   ├── value.3 [✓ built] (Prompt)
+│   │   │   │   │   ├── value.14 [✓ built] (Feed "tool_calls" from output to input)
+│   │   │   │   │   ├── .toolcall_to_messages.17 [⋯ not built]
+│   │   │   │   │   │   ├── .tool.get_user_name.call.16 [⋯ not built]
+│   │   │   │   │   │   │   ├── value.15 [✓ built] (Tool call spec from llm)
+│   │   │   │   │   │   ├── (param: llm_tool_spec)
+│   │   │   │   │   │   │   ├── value.15 [✓ built] (Tool call spec from llm)
+│   │   │   │   │   ├── (param: toolspecs)
+│   │   │   │   │   │   ├── value.2 [✓ built] (Tool spec get_user_name)
 ```
 
 The tree is updated, and the model will be called again with the results of the tool.
