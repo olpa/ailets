@@ -14,7 +14,7 @@ ailets MODEL [options]
 
 ## Optional Arguments
 
-- `--prompt TEXT`: Input prompt text (default: "-" for stdin)
+- `--prompt TEXT`: Input prompt text (default: "-" for stdin). Can be given multiple times.
 - `--dry-run`: Perform a dry run without making changes
 - `--save-state FILE`: Save execution state to specified file
 - `--load-state FILE`: Load execution state from specified file
@@ -51,7 +51,7 @@ The `--prompt` argument can be specified multiple times and accepts several form
 
 - `@{type}file`: Local file with explicit type
   ```bash
-  ailets gpt4o --prompt "@{text}input.txt"
+  ailets gpt4o --prompt "@{text/plain}input.txt"
   ```
 
 - `@url`: URL with auto-detected type
@@ -61,7 +61,7 @@ The `--prompt` argument can be specified multiple times and accepts several form
 
 - `@{type}url`: URL with explicit type
   ```bash
-  ailets gpt4o --prompt "@{image_url}https://example.com/image.jpg"
+  ailets gpt4o --prompt "@{image/png}https://example.com/image.png"
   ```
 
 - `-`: Read from stdin
@@ -70,8 +70,33 @@ The `--prompt` argument can be specified multiple times and accepts several form
   ```
 
 Supported content types:
-- `text`: Text content
-- `image_url`: Image content (both local files and URLs)
+- `text/*`: Text content
+- `image/*`: Image content (both local files and URLs)
+
+### Configuration inside prompt
+
+Prompt can have a [TOML](https://toml.io/en/) configuration block. The tool will parse the block and make the values available to actors through a special stream called `env`.
+
+There are two ways to write a TOML block:
+
+One is to use a usual Markdown code block "toml":
+
+```markdown
+` ` ` toml
+# ...
+` ` `
+```
+
+Second way is to separate the TOML block from the prompt text with a line consisting of three dashes `---`.
+
+### System prompt
+
+To provide a system prompt, add a TOML block with a `role="system"` item:
+
+```bash
+ailets0 gpt4o --prompt 'role="system"\n---\nYou are a helpful assistant who answers in Spanish' --prompt "Hello!"
+
+```
 
 ## Examples
 
