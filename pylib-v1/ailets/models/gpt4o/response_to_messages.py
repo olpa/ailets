@@ -1,12 +1,14 @@
 from dataclasses import dataclass
 import json
 from typing import List, Optional, Sequence, Set
+from ailets.cons.typeguards import is_content_item_image, is_content_item_refusal, is_content_item_text
 from ailets.cons.typing import (
-    ChatMessageAssistant,
+    ChatMessage,
+    Content,
+    ContentItem,
+    ContentItemFunction,
     ContentItemImage,
-    ChatMessageContentPlainText,
     ContentItemText,
-    ChatMessageStructuredContentItem,
     INodeRuntime,
 )
 from ailets.cons.util import (
@@ -14,8 +16,8 @@ from ailets.cons.util import (
     write_all,
 )
 from ailets.models.gpt4o.typing import (
-    Gpt4oChatMessageContent,
-    Gpt4oChatMessageContentItem,
+    Gpt4oMessage,
+    is_gpt4o_image,
 )
 
 
@@ -26,11 +28,16 @@ class InvalidationFlag:
 
 
 def rewrite_content_item(
-    runtime: INodeRuntime, item: Gpt4oChatMessageContentItem
-) -> ChatMessageStructuredContentItem:
-    if item["type"] == "text" or item["type"] == "refusal":
+    runtime: INodeRuntime, item: dict
+) -> ContentItem:
+    if item["type"] == "text":
+        assert is_content_item_text(item), "Content item must be a text" 
         return item
-    assert item["type"] == "image_url", "Only text and image are supported"
+    if item["type"] == "refusal":
+        assert is_content_item_refusal(item), "Content item must be a refusal"
+        return item
+
+    assert is_gpt4o_image(item), "Content item must be an image"
 
     url = item["image_url"]["url"]
     assert url.startswith("data:"), "Image data-URL must start with 'data:'"
@@ -41,34 +48,35 @@ def rewrite_content_item(
 
 def _process_single_message(
     runtime: INodeRuntime,
-    response: dict,
+    gpt4o_message: Gpt4oMessage,
     invalidation_flag_rw: InvalidationFlag,
-) -> Optional[ChatMessageStructuredContentItem]:
-    message = response["choices"][0]["message"]
-    content: Gpt4oChatMessageContent = message.get("content")
-    tool_calls = message.get("tool_calls")
+) -> Optional[ChatMessage]:
+    gpt4o_content = gpt4o_message.get("content")
+    gpt4o_tool_calls = gpt4o_message.get("tool_calls")
 
-    if content is None and tool_calls is None:
+    if gpt4o_content is None and gpt4o_tool_calls is None:
         raise ValueError("Response message has neither content nor tool_calls")
 
-    if content:
-        new_content: List[ChatMessageStructuredContentItem] = []
-        if isinstance(content, ChatMessageContentPlainText):
+    if gpt4o_content:
+        new_content: Content = []
+        if isinstance(gpt4o_content, str):
             new_content = [
                 ContentItemText(
                     type="text",
-                    text=content,
+                    text=gpt4o_content,
                 )
             ]
         else:
-            new_content = [rewrite_content_item(runtime, item) for item in content]
+            assert isinstance(gpt4o_content, list), "Content must be a list"
+            new_content = [rewrite_content_item(runtime, item) for item in gpt4o_content]
 
-        message = message.copy()
+        message: ChatMessage = gpt4o_message.copy() # type: ignore[assignment]
         message["content"] = new_content
 
         return message
 
-    assert tool_calls is not None, "tool_calls cannot be None at this point"
+    assert gpt4o_tool_calls is not None, "tool_calls cannot be None at this point"
+    assert isinstance(gpt4o_tool_calls, list), "'tool_calls' must be a list"
 
     #
     # Tool calls
@@ -81,12 +89,18 @@ def _process_single_message(
     #
     # Put "tool_calls" to the "chat history"
     #
-    idref_messages: Sequence[ChatMessageAssistant] = [message]
-    idref_node = dagops.add_value_node(
-        json.dumps(idref_messages).encode("utf-8"),
+    tool_calls: List[ContentItemFunction] = []
+    for gpt4o_tool_call in gpt4o_tool_calls:
+        tool_call: ContentItemFunction = gpt4o_tool_call # type: ignore[assignment]
+        tool_calls.append(tool_call)
+
+    tool_calls_message: ChatMessage = gpt4o_message.copy() # type: ignore[assignment]
+    tool_calls_message["content"] = tool_calls
+    tool_calls_node = dagops.add_value_node(
+        json.dumps([tool_calls_message]).encode("utf-8"),
         explain='Feed "tool_calls" from output to input',
     )
-    dagops.alias(".chat_messages", idref_node)
+    dagops.alias(".chat_messages", tool_calls_node)
 
     #
     # Instantiate tools and connect them to the "chat history"
@@ -125,12 +139,17 @@ def response_to_messages(runtime: INodeRuntime) -> None:
     output = runtime.open_write(None)
 
     invalidation_flag = InvalidationFlag(is_invalidated=False)
-    messages: List[ChatMessageStructuredContentItem] = []
+    messages: List[ChatMessage] = []
 
     for response in iter_streams_objects(runtime, None):
-        message = _process_single_message(runtime, response, invalidation_flag)
-        if message is not None:
-            messages.append(message)
+        assert isinstance(response, dict), "Response must be a dictionary"
+        assert "choices" in response, "Response must have 'choices' key"
+        assert isinstance(response["choices"], list), "'choices' must be a list"
+
+        for gpt4o_message in response["choices"]:
+            message = _process_single_message(runtime, gpt4o_message, invalidation_flag)
+            if message is not None:
+                messages.append(message)
 
     value = json.dumps(messages).encode("utf-8")
     write_all(runtime, output, value)
