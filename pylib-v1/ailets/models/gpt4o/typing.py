@@ -2,6 +2,7 @@ from typing import Any, Literal, Sequence, TypedDict, Union, NotRequired
 
 from ailets.cons.typing import ContentItemFunction, ContentItemRefusal, ContentItemText
 
+
 class Gpt4oImageUrl(TypedDict):
     url: str
     detail: NotRequired[str]
@@ -10,6 +11,7 @@ class Gpt4oImageUrl(TypedDict):
 class Gpt4oImage(TypedDict):
     type: Literal["image_url"]
     image_url: Gpt4oImageUrl
+
 
 Gpt4oContentItem = Union[Gpt4oImage, ContentItemText, ContentItemRefusal]
 

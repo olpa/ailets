@@ -2,7 +2,6 @@ import base64
 import json
 from typing import List, Sequence, Tuple
 from ailets.cons.typing import (
-    ChatMessage,
     Content,
     ContentItem,
     ContentItemFunction,
@@ -52,6 +51,7 @@ def rewrite_content_item(
         "image_url": {"url": data_url},
     }
 
+
 def rewrite_content(
     runtime: INodeRuntime,
     content: Content,
@@ -64,6 +64,7 @@ def rewrite_content(
         else:
             new_content.append(rewrite_content_item(runtime, item))
     return new_content, tool_calls
+
 
 def messages_to_query(runtime: INodeRuntime) -> None:
     """Convert chat messages into a query."""

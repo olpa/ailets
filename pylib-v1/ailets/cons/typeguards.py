@@ -35,6 +35,4 @@ def is_content_item(obj: Any) -> TypeGuard[ContentItem]:
 
 
 def is_chat_message_content(obj: Any) -> TypeGuard[Content]:
-    return isinstance(obj, Sequence) and all(
-        is_content_item(item) for item in obj
-    )
+    return isinstance(obj, Sequence) and all(is_content_item(item) for item in obj)

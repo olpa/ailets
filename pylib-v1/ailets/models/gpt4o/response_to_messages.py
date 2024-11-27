@@ -1,7 +1,10 @@
 from dataclasses import dataclass
 import json
-from typing import List, Optional, Sequence, Set
-from ailets.cons.typeguards import is_content_item_image, is_content_item_refusal, is_content_item_text
+from typing import List, Optional, Set
+from ailets.cons.typeguards import (
+    is_content_item_refusal,
+    is_content_item_text,
+)
 from ailets.cons.typing import (
     ChatMessage,
     Content,
@@ -27,11 +30,9 @@ class InvalidationFlag:
     fence: Optional[Set[str]] = None
 
 
-def rewrite_content_item(
-    runtime: INodeRuntime, item: dict
-) -> ContentItem:
+def rewrite_content_item(runtime: INodeRuntime, item: dict) -> ContentItem:
     if item["type"] == "text":
-        assert is_content_item_text(item), "Content item must be a text" 
+        assert is_content_item_text(item), "Content item must be a text"
         return item
     if item["type"] == "refusal":
         assert is_content_item_refusal(item), "Content item must be a refusal"
@@ -68,9 +69,11 @@ def _process_single_message(
             ]
         else:
             assert isinstance(gpt4o_content, list), "Content must be a list"
-            new_content = [rewrite_content_item(runtime, item) for item in gpt4o_content]
+            new_content = [
+                rewrite_content_item(runtime, item) for item in gpt4o_content
+            ]
 
-        message: ChatMessage = gpt4o_message.copy() # type: ignore[assignment]
+        message: ChatMessage = gpt4o_message.copy()  # type: ignore[assignment]
         message["content"] = new_content
 
         return message
@@ -91,10 +94,10 @@ def _process_single_message(
     #
     tool_calls: List[ContentItemFunction] = []
     for gpt4o_tool_call in gpt4o_tool_calls:
-        tool_call: ContentItemFunction = gpt4o_tool_call # type: ignore[assignment]
+        tool_call: ContentItemFunction = gpt4o_tool_call  # type: ignore[assignment]
         tool_calls.append(tool_call)
 
-    tool_calls_message: ChatMessage = gpt4o_message.copy() # type: ignore[assignment]
+    tool_calls_message: ChatMessage = gpt4o_message.copy()  # type: ignore[assignment]
     tool_calls_message["content"] = tool_calls
     tool_calls_node = dagops.add_value_node(
         json.dumps([tool_calls_message]).encode("utf-8"),

@@ -226,10 +226,12 @@ class INodeRegistry(Protocol):
 #
 #
 
+
 class ToolSpecification(TypedDict):
     name: str
     description: str
     parameters: dict[str, Any]  # JSON schema
+
 
 #
 #
