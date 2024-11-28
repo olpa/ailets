@@ -134,7 +134,7 @@ ailets gpt4o --prompt "What’s in this image?" --prompt @./image.jpeg
 ailets gpt4o  --prompt "What’s in this image?" --prompt "@https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
 ```
 
-## Model-specific options: gpt4o
+## Model-specific notes: gpt4o
 
 With help of a TOML block, you can override model-specific options. For the list of them, see the section "Create chat completion" at <https://platform.openai.com/docs/api-reference/chat>.
 
@@ -157,4 +157,26 @@ Hello! How can I assist you today? If you have any questions or topics to discus
 Hello! How can I assist you today? If you have any questions or need information, feel free to ask!
 
 Hello! How can I assist you today? If you have any questions or topics in mind, feel free to share!
+```
+
+## Model-specific notes: dall-e
+
+Basic usage:
+
+```bash
+ailets0 dalle --prompt 'linux logo'
+```
+
+The output is a rewritten prompt and a link to the generated image.
+
+```
+Create an image of the Linux logo. It's a penguin known as Tux, standing upright, looking forward, and depicted using colors of black, white and yellow. The penguin is often shown in a simplistic and amusing style, with large white eyes, a bright yellow beak, and a white belly.
+
+![image](https://oaidalleapiprodscus.blob.core.windows.net/private/org-....)
+```
+
+To get the image instead of the link, set the `response_format` parameter to `b64_json`:
+
+```bash
+ailets0 dalle --prompt $'response_format="b64_json"\n---\nlinux logo'
 ```
