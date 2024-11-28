@@ -66,6 +66,46 @@ def rewrite_content(
     return new_content, tool_calls
 
 
+def get_overrides(runtime: INodeRuntime) -> dict:
+    known_model_params = [
+        "messages",
+        "model",
+        "store",
+        "metadata",
+        "frequency_penalty",
+        "logit_bias",
+        "logprobs",
+        "top_logprobs",
+        "max_tokens",
+        "max_completion_tokens",
+        "n",
+        "modalities",
+        "prediction",
+        "audio",
+        "presence_penalty",
+        "response_format",
+        "seed",
+        "service_tier",
+        "stop",
+        "stream",
+        "stream_options",
+        "temperature",
+        "top_p",
+        "tools",
+        "tool_choice",
+        "parallel_tool_calls",
+        "user",
+        "function_call",
+        "functions",
+    ]
+    overrides: dict = {}
+    for cfg in iter_streams_objects(runtime, "env"):
+        for key, value in cfg.items():
+            if key in known_model_params:
+                overrides[key] = value
+    return overrides
+
+
 def messages_to_query(runtime: INodeRuntime) -> None:
     """Convert chat messages into a query."""
 
@@ -89,15 +129,18 @@ def messages_to_query(runtime: INodeRuntime) -> None:
         )
     tools_param = {"tools": tools} if tools else {}
 
+    body = {
+        "model": "gpt-4o-mini",
+        "messages": messages,
+        **tools_param,
+    }
+    body.update(get_overrides(runtime))
+
     value = {
         "url": url,
         "method": method,
         "headers": headers,
-        "body": {
-            "model": "gpt-4o-mini",
-            "messages": messages,
-            **tools_param,
-        },
+        "body": body,
     }
 
     fd = runtime.open_write(None)
