@@ -39,7 +39,11 @@ def parse_args():
             - "@http://...": URL with auto-detected type\\\\
             - "@{type}http://...": URL with explicit type\\\\
 
-            Supported types: text, image""",
+            Supported types: `text/*`, `image/*`
+
+            See also full documentation at
+            https://github.com/ailets/ailets/docs/command-line-tool.md
+            how to use system prompt and TOML configuration""",
     )
     parser.add_argument(
         "--dry-run",
