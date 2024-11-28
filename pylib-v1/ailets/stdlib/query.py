@@ -45,19 +45,20 @@ def query(runtime: INodeRuntime) -> None:
         headers = {k: resolve_secrets(v) for k, v in params["headers"].items()}
         url = resolve_secrets(params["url"])
 
-        content_type = ""
-        for header_key, header_value in headers.items():
-            if header_key.lower() == "content-type":
-                content_type = header_value.lower()
-                break
-        is_json = (
-            "application/json" in content_type or "application/json" == content_type
-        )
-
-        if is_json:
+        if "body" in params:
             body_kwargs = {"json": params["body"]}
+        elif "body_stream" in params:
+            stream_name = params["body_stream"]
+            n_streams = runtime.n_of_streams(stream_name)
+            assert (
+                n_streams == 1
+            ), f"Expected exactly one stream '{stream_name}', got {n_streams}"
+            fd = runtime.open_read(stream_name, 0)
+            data = read_all(runtime, fd)
+            runtime.close(fd)
+            body_kwargs = {"data": data}
         else:
-            body_kwargs = {"data": params["body"]}
+            raise ValueError("Invalid body type")
 
         response = requests.request(
             method=params["method"],

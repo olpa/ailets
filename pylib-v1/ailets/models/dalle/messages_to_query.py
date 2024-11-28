@@ -97,6 +97,7 @@ def update_prompt(
         elif is_content_item_image(part):
             stream = part["stream"]
             assert stream is not None, "Image has no stream"
+            assert part["content_type"] == "image/png", "Image must be PNG"
             if prompt["image"] is None:
                 prompt["image"] = read_stream(runtime, stream)
             elif prompt["mask"] is None:
