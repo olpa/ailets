@@ -102,9 +102,15 @@ def update_prompt(
 
 def messages_to_query(runtime: INodeRuntime) -> None:
     """Convert prompt message into a DALL-E query."""
+    params = read_env_stream(runtime)
+    task = params.get("dalle_task", "generations")
+    assert task in (
+        "generations",
+        "variations",
+        "edits",
+    ), "Invalid DALL-E task, expected one of: generations, variations, edits"
 
     prompt = ExtractedPrompt(prompt_parts=[], image=None, mask=None)
-
     for message in iter_streams_objects(runtime, None):
         role = message.get("role")
         if role != "user":
@@ -113,17 +119,9 @@ def messages_to_query(runtime: INodeRuntime) -> None:
         content = message.get("content")
         assert isinstance(content, Sequence), "Content must be a list"
         update_prompt(runtime, prompt, content)
-    if not len(prompt["prompt_parts"]):
+
+    if not len(prompt["prompt_parts"]) and task != "variations":
         raise ValueError("No user prompt found in messages")
-
-    params = read_env_stream(runtime)
-
-    task = params.get("dalle_task", "generations")
-    assert task in (
-        "generations",
-        "variations",
-        "edits",
-    ), "Invalid DALL-E task, expected one of: generations, variations, edits"
 
     value = {
         "url": task_to_url(task),
