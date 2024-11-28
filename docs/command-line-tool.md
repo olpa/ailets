@@ -133,3 +133,28 @@ ailets gpt4o --prompt "Hello" --stop-at messages_to_query.5
 ailets gpt4o --prompt "What’s in this image?" --prompt @./image.jpeg
 ailets gpt4o  --prompt "What’s in this image?" --prompt "@https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
 ```
+
+## Model-specific options: gpt4o
+
+With help of a TOML block, you can override model-specific options. For the list of them, see the section "Create chat completion" at <https://platform.openai.com/docs/api-reference/chat>.
+
+Below is an example of overriding `n` and `temperature`, and using a system prompt:
+
+```bash
+ailets0 gpt4o --prompt '''n=3
+temperature=2
+role="system"
+---
+Generate answers with 3 sentences.
+'''  --prompt "Hello!"
+```
+
+Output:
+
+```
+Hello! How can I assist you today? If you have any questions or topics to discuss, feel free to share!
+
+Hello! How can I assist you today? If you have any questions or need information, feel free to ask!
+
+Hello! How can I assist you today? If you have any questions or topics in mind, feel free to share!
+```
