@@ -40,25 +40,34 @@ def task_to_headers(task: str) -> dict[str, str]:
         }
 
 
-def task_to_body(task: str, body: dict) -> dict | str:
+def task_to_body(runtime: INodeRuntime, task: str, body: dict) -> dict | str:
     if task == "generations":
         return body
+
     if task == "variations":
         body = body.copy()
         del body["prompt"]
 
-    form_data = []
-    for key, value in body.items():
-        form_data.append(
-            (
-                f"--{boundary}\n"
-                f'Content-Disposition: form-data; name="{key}"\n\n'
-                f"{value}\n"
-            )
-        )
-    form_data.append(f"--{boundary}--\n")
+    stream_name = runtime.get_next_name("query_body")
+    fd = runtime.open_write(stream_name)
 
-    return "".join(form_data)
+    for key, value in body.items():
+        write_all(runtime, fd, f"--{boundary}\n".encode("utf-8"))
+        write_all(
+            runtime,
+            fd,
+            f'Content-Disposition: form-data; name="{key}"\n\n'.encode("utf-8"),
+        )
+        if isinstance(value, bytes):
+            write_all(runtime, fd, value)
+        else:
+            value = str(value)
+            write_all(runtime, fd, f"{value}\n".encode("utf-8"))
+
+    write_all(runtime, fd, f"--{boundary}--\n".encode("utf-8"))
+    runtime.close(fd)
+
+    return stream_name
 
 
 class ExtractedPrompt(TypedDict):
@@ -123,21 +132,25 @@ def messages_to_query(runtime: INodeRuntime) -> None:
     if not len(prompt["prompt_parts"]) and task != "variations":
         raise ValueError("No user prompt found in messages")
 
+    body = task_to_body(
+        runtime,
+        task,
+        {
+            "model": params.get("model", "dall-e-3"),
+            "prompt": " ".join(prompt["prompt_parts"]),
+            "n": params.get("n", 1),
+            "response_format": params.get("response_format", "url"),
+            **({"image": prompt["image"]} if prompt["image"] is not None else {}),
+            **({"mask": prompt["mask"]} if prompt["mask"] is not None else {}),
+        },
+    )
+    body_field = "body_stream" if isinstance(body, str) else "body"
+
     value = {
         "url": task_to_url(task),
         "method": "POST",
         "headers": task_to_headers(task),
-        "body": task_to_body(
-            task,
-            {
-                "model": params.get("model", "dall-e-3"),
-                "prompt": " ".join(prompt["prompt_parts"]),
-                "n": params.get("n", 1),
-                "response_format": params.get("response_format", "url"),
-                **({"image": prompt["image"]} if prompt["image"] is not None else {}),
-                **({"mask": prompt["mask"]} if prompt["mask"] is not None else {}),
-            },
-        ),
+        body_field: body,
     }
 
     output = runtime.open_write(None)
