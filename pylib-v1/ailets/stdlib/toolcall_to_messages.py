@@ -1,5 +1,5 @@
 import json
-from ..cons.typing import ChatAssistantToolCall, ChatMessageToolCall, INodeRuntime
+from ..cons.typing import ChatMessageTool, ContentItemFunction, INodeRuntime
 from ..cons.util import read_all, write_all
 
 
@@ -25,7 +25,7 @@ def toolcall_to_messages(runtime: INodeRuntime) -> None:
     runtime.close(fd)
 
     fd = runtime.open_read("llm_tool_spec", 0)
-    spec: ChatAssistantToolCall = json.loads(read_all(runtime, fd).decode("utf-8"))
+    spec: ContentItemFunction = json.loads(read_all(runtime, fd).decode("utf-8"))
     runtime.close(fd)
 
     #
@@ -69,10 +69,15 @@ def toolcall_to_messages(runtime: INodeRuntime) -> None:
         function_name: tool_result,
     }
 
-    chat_message: ChatMessageToolCall = {
+    chat_message: ChatMessageTool = {
         "role": "tool",
+        "content": [
+            {
+                "type": "text",
+                "text": json.dumps(content),
+            },
+        ],
         "tool_call_id": tool_call_id,
-        "content": json.dumps(content),
     }
 
     fd = runtime.open_write(None)

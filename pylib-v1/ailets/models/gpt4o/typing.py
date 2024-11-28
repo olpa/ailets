@@ -1,10 +1,6 @@
-from typing import Literal, Sequence, TypedDict, Union, NotRequired
+from typing import Any, Literal, Sequence, TypedDict, Union, NotRequired
 
-from ailets.cons.typing import (
-    ChatMessageContentPlainText,
-    ChatMessageContentRefusal,
-    ChatMessageContentText,
-)
+from ailets.cons.typing import ContentItemFunction, ContentItemRefusal, ContentItemText
 
 
 class Gpt4oImageUrl(TypedDict):
@@ -17,13 +13,22 @@ class Gpt4oImage(TypedDict):
     image_url: Gpt4oImageUrl
 
 
-Gpt4oChatMessageContentItem = Union[
-    ChatMessageContentText,
-    ChatMessageContentRefusal,
-    Gpt4oImage,
-]
+Gpt4oContentItem = Union[Gpt4oImage, ContentItemText, ContentItemRefusal]
 
-Gpt4oChatMessageContent = Union[
-    ChatMessageContentPlainText,
-    Sequence[Gpt4oChatMessageContentItem],
-]
+
+class Gpt4oMessage(TypedDict):
+    role: str
+    content: Any
+    tool_calls: NotRequired[Sequence[ContentItemFunction]]
+
+
+def is_gpt4o_image(obj: Any) -> bool:
+    if not isinstance(obj, dict):
+        return False
+    if obj.get("type") != "image_url":
+        return False
+    if not isinstance(obj.get("image_url"), dict):
+        return False
+    if not isinstance(obj["image_url"].get("url"), str):
+        return False
+    return True

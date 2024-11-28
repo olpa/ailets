@@ -39,7 +39,11 @@ def parse_args():
             - "@http://...": URL with auto-detected type\\\\
             - "@{type}http://...": URL with explicit type\\\\
 
-            Supported types: text, image""",
+            Supported types: `text/*`, `image/*`
+
+            See also full documentation at
+            https://github.com/ailets/ailets/docs/command-line-tool.md
+            how to use system prompt and TOML configuration""",
     )
     parser.add_argument(
         "--dry-run",
@@ -137,7 +141,7 @@ def get_prompt(prompt_args: list[str]) -> list[CmdlinePromptItem]:
             if toml:
                 yield CmdlinePromptItem(toml, "toml")
             if text:
-                yield CmdlinePromptItem(text, "text")
+                yield CmdlinePromptItem(text, "text", toml=toml)
             return
 
         # Parse @{type}content format

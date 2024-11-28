@@ -29,16 +29,13 @@ When using LLMs with tools, the workflow is no longer a straight pipeline. Inste
 A sample dependency tree for a simple request to an LLM is shown below:
 
 ```
-├── .stdout.7 [⋯ not built]
-│   ├── .gpt4o.response_to_markdown.6 [⋯ not built]
-│   │   ├── .query.5 [⋯ not built]
-│   │   │   ├── .gpt4o.messages_to_query.4 [⋯ not built]
-│   │   │   │   ├── .prompt_to_messages.2 [⋯ not built]
-│   │   │   │   │   ├── typed_value.1 [✓ built] (Prompt)
-│   │   │   │   │   ├── (param: type)
-│   │   │   │   │   │   ├── typed_value.1.type [✓ built] (Prompt)
-│   │   │   │   ├── (param: credentials)
-│   │   │   │   │   ├── .gpt4o.credentials.3 [⋯ not built]
+├── .stdout.8 [⋯ not built]
+│   ├── .messages_to_markdown.7 [⋯ not built]
+│   │   ├── .gpt4o.response_to_messages.6 [⋯ not built]
+│   │   │   ├── .query.5 [⋯ not built]
+│   │   │   │   ├── .gpt4o.messages_to_query.4 [⋯ not built]
+│   │   │   │   │   ├── .prompt_to_messages.3 [⋯ not built]
+│   │   │   │   │   │   ├── value.2 [✓ built] (Prompt)
 ```
 
 The steps proceed outward from the innermost part of the tree.
@@ -53,18 +50,15 @@ The steps proceed outward from the innermost part of the tree.
 Below is another dependency tree, for the use of llm with tools. The tree is taken just before executing `response_to_markdown` step.
 
 ```
-├── .stdout.8 [⋯ not built]
-│   ├── .gpt4o.response_to_markdown.7 [⋯ not built]
-│   │   ├── .query.6 [✓ built]
-│   │   │   ├── .gpt4o.messages_to_query.5 [✓ built]
-│   │   │   │   ├── .prompt_to_messages.3 [✓ built]
-│   │   │   │   │   ├── typed_value.1 [✓ built] (Prompt)
-│   │   │   │   │   ├── (param: type)
-│   │   │   │   │   │   ├── typed_value.1.type [✓ built] (Prompt)
-│   │   │   │   ├── (param: credentials)
-│   │   │   │   │   ├── .gpt4o.credentials.4 [✓ built]
-│   │   │   │   ├── (param: toolspecs)
-│   │   │   │   │   ├── typed_value.2 [✓ built] (Tool spec get_user_name)
+├── .stdout.9 [⋯ not built]
+│   ├── .messages_to_markdown.8 [⋯ not built]
+│   │   ├── .gpt4o.response_to_messages.7 [⋯ not built]
+│   │   │   ├── .query.6 [✓ built]
+│   │   │   │   ├── .gpt4o.messages_to_query.5 [✓ built]
+│   │   │   │   │   ├── .prompt_to_messages.4 [✓ built]
+│   │   │   │   │   │   ├── value.3 [✓ built] (Prompt)
+│   │   │   │   │   ├── (param: toolspecs)
+│   │   │   │   │   │   ├── value.2 [✓ built] (Tool spec get_user_name)
 ```
 
 The tree structure is similar to one used in basic LLMs. The addition is:
@@ -74,35 +68,28 @@ The tree structure is similar to one used in basic LLMs. The addition is:
 When processing the result of `query`, the `response_to_markdown` step will detect that the language model hasn't generated content but instead intends to use a tool. At this point, the step stops to act as an agent and communicates with the orchestrator to construct a new dependency tree.
 
 ```
-├── .stdout.8 [⋯ not built]
-│   ├── .gpt4o.response_to_markdown.7 [✓ built]
-│   │   ├── .query.6 [✓ built]
-│   │   │   ├── .gpt4o.messages_to_query.5 [✓ built]
-│   │   │   │   ├── .prompt_to_messages.3 [✓ built]
-│   │   │   │   │   ├── typed_value.1 [✓ built] (Prompt)
-│   │   │   │   │   ├── (param: type)
-│   │   │   │   │   │   ├── typed_value.1.type [✓ built] (Prompt)
-│   │   │   │   ├── (param: credentials)
-│   │   │   │   │   ├── .gpt4o.credentials.4 [✓ built]
-│   │   │   │   ├── (param: toolspecs)
-│   │   │   │   │   ├── typed_value.2 [✓ built] (Tool spec get_user_name)
-│   ├── .gpt4o.response_to_markdown.18 [⋯ not built]
-│   │   ├── .query.17 [⋯ not built]
-│   │   │   ├── .gpt4o.messages_to_query.16 [⋯ not built]
-│   │   │   │   ├── .prompt_to_messages.3 [✓ built]
-│   │   │   │   │   ├── typed_value.1 [✓ built] (Prompt)
-│   │   │   │   │   ├── (param: type)
-│   │   │   │   │   │   ├── typed_value.1.type [✓ built] (Prompt)
-│   │   │   │   ├── typed_value.11 [✓ built] (Feed "tool_calls" from output to input)
-│   │   │   │   ├── .toolcall_to_messages.14 [⋯ not built]
-│   │   │   │   │   ├── .tool.get_user_name.call.13 [⋯ not built]
-│   │   │   │   │   │   ├── typed_value.12 [✓ built] (Tool call spec from llm)
-│   │   │   │   │   ├── (param: llm_tool_spec)
-│   │   │   │   │   │   ├── typed_value.12 [✓ built] (Tool call spec from llm)
-│   │   │   │   ├── (param: credentials)
-│   │   │   │   │   ├── .gpt4o.credentials.15 [⋯ not built]
-│   │   │   │   ├── (param: toolspecs)
-│   │   │   │   │   ├── typed_value.2 [✓ built] (Tool spec get_user_name)
+├── .stdout.9 [⋯ not built]
+│   ├── .messages_to_markdown.8 [⋯ not built]
+│   │   ├── .gpt4o.response_to_messages.7 [✓ built]
+│   │   │   ├── .query.6 [✓ built]
+│   │   │   │   ├── .gpt4o.messages_to_query.5 [✓ built]
+│   │   │   │   │   ├── .prompt_to_messages.4 [✓ built]
+│   │   │   │   │   │   ├── value.3 [✓ built] (Prompt)
+│   │   │   │   │   ├── (param: toolspecs)
+│   │   │   │   │   │   ├── value.2 [✓ built] (Tool spec get_user_name)
+│   │   ├── .gpt4o.response_to_messages.20 [⋯ not built]
+│   │   │   ├── .query.19 [⋯ not built]
+│   │   │   │   ├── .gpt4o.messages_to_query.18 [⋯ not built]
+│   │   │   │   │   ├── .prompt_to_messages.4 [✓ built]
+│   │   │   │   │   │   ├── value.3 [✓ built] (Prompt)
+│   │   │   │   │   ├── value.14 [✓ built] (Feed "tool_calls" from output to input)
+│   │   │   │   │   ├── .toolcall_to_messages.17 [⋯ not built]
+│   │   │   │   │   │   ├── .tool.get_user_name.call.16 [⋯ not built]
+│   │   │   │   │   │   │   ├── value.15 [✓ built] (Tool call spec from llm)
+│   │   │   │   │   │   ├── (param: llm_tool_spec)
+│   │   │   │   │   │   │   ├── value.15 [✓ built] (Tool call spec from llm)
+│   │   │   │   │   ├── (param: toolspecs)
+│   │   │   │   │   │   ├── value.2 [✓ built] (Tool spec get_user_name)
 ```
 
 The tree is updated, and the model will be called again with the results of the tool.
@@ -117,85 +104,7 @@ Therefore, instead of a traditional, step-by-step build system, we should implem
 
 ## Actor interface
 
-Preliminary version.
-
-
-*n_of_streams*
-
-```
-int n_of_streams(const char *param_name);
-```
-
-Return the number of input streams associated with a given parameter.
-
--  If `param_name` is `NULL`, the function assumes the default input parameter.
--  If the parameter name is unknown, the function returns -1 and sets `errno` to indicate the error.
-
-The number of input streams associated with a parameter may change dynamically during program execution.
-
-
-*open*
-
-```
-int open(const char *param_name, unsigned int idx);
-```
-
-Open the `idx`th stream associated with the parameter `param_name`.
-
-Return a file descriptor on success, or `-1` on error.  In case of error, `errno` is set.
-
-
-*read*
-
-```
-int read(int fd, voif buffer[count], int count)
-```
-
-Read up to `count` bytes from the file descriptor `fd` into the `buffer`.
-
-Return the number of bytes read.  If the end of the file is encountered, `0` is returned.  On error, `-1` is returned, and `errno` is set appropriately.
-
-
-*write*
-
-```
-int write(int fd, const void buffer[count], int count);
-```
-
-Writes up to `count` bytes from the `buffer` to the file descriptor `fd`.
-
-Return the number of bytes written, which might be less than `count`.  On error, return `-1` and sets `errno` appropriately.
-
-The following file descriptors are predefined:
-
-- `STDOUT_FILENO = 1` (Standard output)
-- `STDERR_FILENO = 2` (Standard error; conventionally used for logging)
-- `METRICS_FD = 3` (Metrics output stream)
-- `TRACE_FD = 4` (Traces output stream)
-
-
-*errno, strerror*
-
-```
-int errno;
-char *strerror(int errnum);
-void perror(const char *s);
-```
-
-As seen in POSIX.
-
-
-### Communication with the orchestrator
-
-Based on the experience developing a tool for gpt4o, the following functions were sufficient:
-
-- `add_value_node(value: bytes, explain: Optional[str])`: Creates a new value node.
-
-- `instantiate_with_deps(target: str, aliases: dict[str, str])`: Creates a new instance of a plugin (either a tool or a model).
-
-- `alias(alias: str, node_name: Optional[str])`: Creates or updates an alias pointing to a node.
-
-- `detach_from_alias(alias: str)`: Freezes the dependencies of nodes associated with the alias, preventing them from being affected by subsequent changes to the alias.
+[Read here](./actor-interface.md)
 
 
 ## Content types
@@ -225,33 +134,7 @@ Finally, we should orchestrate ailets to run together. There should be several l
 
 ## Generalization of models
 
-Models get `ChatMessage` as input and return `ChatMessage` as output.
-<https://github.com/olpa/ailets/blob/master/pylib-v1/ailets/cons/typing.py>
-
-The `ChatMessage` type is what is used in the OpenAI API. It can be a simple string for text or a JSON array for structured content.
-
-```json
-{
-  "role": "user",
-  "content": "Hello, world!"
-}
-```
-
-```json
-{
-  "role": "user",
-  "content": [
-    {
-      "type": "image_url",
-      "image_url": {
-        "url": "data:image/jpeg;base64,..."
-      }
-    }
-  ]
-}
-```
-
-If there are tool calls, they should be handled inside a model pipeline.
+Models get `ChatMessage` as input and return `ChatMessage` as output. [REad more](./content-typedef.md)
 
 
 ## Far future: Ailets operating system for agents
