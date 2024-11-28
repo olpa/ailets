@@ -57,6 +57,7 @@ def query(runtime: INodeRuntime) -> None:
             data = read_all(runtime, fd)
             runtime.close(fd)
             body_kwargs = {"data": data}
+            headers["Content-length"] = str(len(data))
         else:
             raise ValueError("Invalid body type")
 

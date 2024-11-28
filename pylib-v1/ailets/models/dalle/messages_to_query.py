@@ -52,19 +52,22 @@ def task_to_body(runtime: INodeRuntime, task: str, body: dict) -> dict | str:
     fd = runtime.open_write(stream_name)
 
     for key, value in body.items():
-        write_all(runtime, fd, f"--{boundary}\n".encode("utf-8"))
+        write_all(runtime, fd, f"--{boundary}\r\n".encode("utf-8"))
         write_all(
             runtime,
             fd,
-            f'Content-Disposition: form-data; name="{key}"\n\n'.encode("utf-8"),
+            f'Content-Disposition: form-data; name="{key}"'.encode("utf-8"),
         )
         if isinstance(value, bytes):
+            write_all(runtime, fd, b'; filename="image.png"\r\n')
+            write_all(runtime, fd, b"Content-Type: image/png\r\n\r\n")
             write_all(runtime, fd, value)
+            write_all(runtime, fd, b"\r\n")
         else:
             value = str(value)
-            write_all(runtime, fd, f"{value}\n".encode("utf-8"))
+            write_all(runtime, fd, f"\r\n\r\n{value}\r\n".encode("utf-8"))
 
-    write_all(runtime, fd, f"--{boundary}--\n".encode("utf-8"))
+    write_all(runtime, fd, f"--{boundary}--\r\n".encode("utf-8"))
     runtime.close(fd)
 
     return stream_name
