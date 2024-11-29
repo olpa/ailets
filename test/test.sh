@@ -35,3 +35,15 @@ echo $div======== gpt4o ======== Link to an image
 ../command-line-tool/ailets0.py gpt4o --prompt "Describe the image." --prompt "@https://gewova.com/assets/ui-blurred.png"
 
 ##
+
+echo $div======== dalle ======== Generate an image, get as a link
+
+../command-line-tool/ailets0.py dalle --prompt 'linux logo'
+
+
+##
+
+echo $div======== dalle ======== Variate an image, get it back
+
+../command-line-tool/ailets0.py dalle --prompt 'dalle_task="variations"\nresponse_format="b64_json"\nn=3---\n' --prompt @../test/tux.png
+

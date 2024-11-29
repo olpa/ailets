@@ -86,9 +86,18 @@ class NodeRuntime(INodeRuntime):
         dep_names = [dep.source for dep in self._deps]
         return self._streams.read_dir(dir_name, [self._node_name, *dep_names])
 
-    def pass_through(self, in_stream_name: str, out_stream_name: str) -> None:
+    def pass_through_name_name(self, in_stream_name: str, out_stream_name: str) -> None:
         in_streams = self._get_streams(in_stream_name)
-        self._streams.pass_through(self._node_name, in_streams, out_stream_name)
+        for in_stream in in_streams:
+            out_stream = self._env.create_new_stream(self._node_name, out_stream_name)
+            out_stream.get_content().write(in_stream.get_content().getvalue())
+            out_stream.close()
+
+    def pass_through_name_fd(self, in_stream_name: str, out_fd: int) -> None:
+        in_streams = self._get_streams(in_stream_name)
+        out_stream = self._open_fds[out_fd]
+        for in_stream in in_streams:
+            out_stream.get_content().write(in_stream.get_content().getvalue())
 
     def get_next_name(self, base_name: str) -> str:
         return self._env.get_next_name(base_name)

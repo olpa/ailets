@@ -1,11 +1,12 @@
 import json
-from typing import Optional, Sequence, TypedDict
+from typing import Optional, Sequence, TypedDict, Union
 from ailets.cons.typeguards import (
     is_content_item_image,
     is_content_item_text,
 )
 from ailets.cons.typing import (
     Content,
+    ContentItemImage,
     INodeRuntime,
 )
 from ailets.cons.util import (
@@ -40,31 +41,40 @@ def task_to_headers(task: str) -> dict[str, str]:
         }
 
 
-def task_to_body(task: str, body: dict) -> dict | str:
-    if task == "generations":
-        return body
+def to_binary_body_stream(runtime: INodeRuntime, task: str, body: dict) -> str:
     if task == "variations":
         body = body.copy()
         del body["prompt"]
 
-    form_data = []
-    for key, value in body.items():
-        form_data.append(
-            (
-                f"--{boundary}\n"
-                f'Content-Disposition: form-data; name="{key}"\n\n'
-                f"{value}\n"
-            )
-        )
-    form_data.append(f"--{boundary}--\n")
+    stream_name = runtime.get_next_name("query_body")
+    fd = runtime.open_write(stream_name)
 
-    return "".join(form_data)
+    for key, value in body.items():
+        write_all(runtime, fd, f"--{boundary}\r\n".encode("utf-8"))
+        write_all(
+            runtime,
+            fd,
+            f'Content-Disposition: form-data; name="{key}"'.encode("utf-8"),
+        )
+        if is_content_item_image(value):
+            write_all(runtime, fd, b'; filename="image.png"\r\n')
+            write_all(runtime, fd, b"Content-Type: image/png\r\n\r\n")
+            runtime.pass_through_name_fd(value["stream"], fd)
+            write_all(runtime, fd, b"\r\n")
+        else:
+            value = str(value)
+            write_all(runtime, fd, f"\r\n\r\n{value}\r\n".encode("utf-8"))
+
+    write_all(runtime, fd, f"--{boundary}--\r\n".encode("utf-8"))
+    runtime.close(fd)
+
+    return stream_name
 
 
 class ExtractedPrompt(TypedDict):
     prompt_parts: list[str]
-    image: Optional[bytes]
-    mask: Optional[bytes]
+    image: Optional[ContentItemImage]
+    mask: Optional[ContentItemImage]
 
 
 def read_stream(runtime: INodeRuntime, stream_name: str) -> bytes:
@@ -77,21 +87,18 @@ def read_stream(runtime: INodeRuntime, stream_name: str) -> bytes:
     return content
 
 
-def update_prompt(
-    runtime: INodeRuntime,
-    prompt: ExtractedPrompt,
-    content: Content,
-) -> None:
+def update_prompt(prompt: ExtractedPrompt, content: Content) -> None:
     for part in content:
         if is_content_item_text(part):
             prompt["prompt_parts"].append(part["text"])
         elif is_content_item_image(part):
             stream = part["stream"]
             assert stream is not None, "Image has no stream"
+            assert part["content_type"] == "image/png", "Image must be PNG"
             if prompt["image"] is None:
-                prompt["image"] = read_stream(runtime, stream)
+                prompt["image"] = part
             elif prompt["mask"] is None:
-                prompt["mask"] = read_stream(runtime, stream)
+                prompt["mask"] = part
             else:
                 raise ValueError(
                     "Too many images. First image is used as image, second as mask."
@@ -102,22 +109,7 @@ def update_prompt(
 
 def messages_to_query(runtime: INodeRuntime) -> None:
     """Convert prompt message into a DALL-E query."""
-
-    prompt = ExtractedPrompt(prompt_parts=[], image=None, mask=None)
-
-    for message in iter_streams_objects(runtime, None):
-        role = message.get("role")
-        if role != "user":
-            log(runtime, "info", f"Skipping message with role {role}")
-            continue
-        content = message.get("content")
-        assert isinstance(content, Sequence), "Content must be a list"
-        update_prompt(runtime, prompt, content)
-    if not len(prompt["prompt_parts"]):
-        raise ValueError("No user prompt found in messages")
-
     params = read_env_stream(runtime)
-
     task = params.get("dalle_task", "generations")
     assert task in (
         "generations",
@@ -125,21 +117,46 @@ def messages_to_query(runtime: INodeRuntime) -> None:
         "edits",
     ), "Invalid DALL-E task, expected one of: generations, variations, edits"
 
+    prompt = ExtractedPrompt(prompt_parts=[], image=None, mask=None)
+    for message in iter_streams_objects(runtime, None):
+        role = message.get("role")
+        if role != "user":
+            log(runtime, "info", f"Skipping message with role {role}")
+            continue
+        content = message.get("content")
+        assert isinstance(content, Sequence), "Content must be a list"
+        update_prompt(prompt, content)
+
+    if not len(prompt["prompt_parts"]) and task != "variations":
+        raise ValueError("No user prompt found in messages")
+
+    shared_params = {
+        "prompt": " ".join(prompt["prompt_parts"]),
+        "n": params.get("n", 1),
+        "response_format": params.get("response_format", "url"),
+    }
+
+    body: Union[dict, str]
+    if task == "generations":
+        body_field = "body"
+        body = shared_params
+    else:
+        body_field = "body_stream"
+        body = to_binary_body_stream(
+            runtime,
+            task,
+            {
+                **shared_params,
+                **({"image": prompt["image"]} if prompt["image"] is not None else {}),
+                **({"mask": prompt["mask"]} if prompt["mask"] is not None else {}),
+            },
+        )
+
     value = {
         "url": task_to_url(task),
         "method": "POST",
         "headers": task_to_headers(task),
-        "body": task_to_body(
-            task,
-            {
-                "model": params.get("model", "dall-e-3"),
-                "prompt": " ".join(prompt["prompt_parts"]),
-                "n": params.get("n", 1),
-                "response_format": params.get("response_format", "url"),
-                **({"image": prompt["image"]} if prompt["image"] is not None else {}),
-                **({"mask": prompt["mask"]} if prompt["mask"] is not None else {}),
-            },
-        ),
+        body_field: body,
     }
 
     output = runtime.open_write(None)

@@ -188,18 +188,3 @@ class Streams:
             and s.stream_name is not None
             and s.stream_name.startswith(dir_name)
         ]
-
-    def pass_through(
-        self,
-        node_name: str,
-        in_streams: Sequence[IStream],
-        out_stream_name: str,
-    ) -> None:
-        for in_stream in in_streams:
-            out_stream = Stream(
-                node_name=node_name,
-                stream_name=out_stream_name,
-                is_finished=True,
-                content=BytesIO(in_stream.get_content().getvalue()),
-            )
-            self._streams.append(out_stream)

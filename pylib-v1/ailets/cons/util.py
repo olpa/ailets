@@ -48,6 +48,7 @@ def iter_streams_objects(
         fd = runtime.open_read(stream_name, i - 1)
         buffer = read_all(runtime, fd)
         runtime.close(fd)
+        sbuf = buffer.decode("utf-8")
 
         decoder = json.JSONDecoder()
 
@@ -57,14 +58,16 @@ def iter_streams_objects(
             continue
 
         pos = 0
-        while pos < len(buffer):
+        while pos < len(sbuf):
             try:
-                obj, pos = decoder.raw_decode(buffer[pos:].decode("utf-8"))
+                obj, obj_len = decoder.raw_decode(sbuf[pos:])
+                pos += obj_len
                 yield obj
+
             except json.JSONDecodeError:
                 raise ValueError(
                     f"Failed to decode JSON at position {pos}: "
-                    f"{buffer[pos:pos+20]!r}..."
+                    f"{sbuf[pos:pos+20]!r}..."
                 )
 
 
