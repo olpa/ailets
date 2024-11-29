@@ -119,6 +119,9 @@ class Streams:
         if stream_name == "log":
             return create_log_stream()
 
+        if self._find_stream(node_name, stream_name) is not None:
+            raise ValueError(f"Stream already exists: {node_name}.{stream_name}")
+
         stream = Stream(
             node_name=node_name,
             stream_name=stream_name,
