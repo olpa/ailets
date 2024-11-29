@@ -137,7 +137,10 @@ class INodeRuntime(Protocol):
     def read_dir(self, dir_name: str) -> Sequence[str]:
         raise NotImplementedError
 
-    def pass_through(self, in_stream_name: str, out_stream_name: str) -> None:
+    def pass_through_name_name(self, in_stream_name: str, out_stream_name: str) -> None:
+        raise NotImplementedError
+
+    def pass_through_name_fd(self, in_stream_name: str, out_fd: int) -> None:
         raise NotImplementedError
 
 
@@ -197,14 +200,6 @@ class IEnvironment(Protocol):
         raise NotImplementedError
 
     def read_dir(self, node_name: str, dir_name: str) -> Sequence[str]:
-        raise NotImplementedError
-
-    def pass_through(
-        self,
-        node_name: str,
-        in_stream_name: str,
-        out_stream_name: str,
-    ) -> None:
         raise NotImplementedError
 
 

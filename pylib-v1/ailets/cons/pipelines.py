@@ -51,6 +51,10 @@ def prompt_to_env(
         assert base_content_type in [
             "image"
         ], f"Unknown content type: {base_content_type}"
+        assert prompt_item.type in [
+            "url",
+            "file",
+        ], f"Unknown prompt item type: {prompt_item.type}"
 
         if prompt_item.type == "url":
             mk_node(
