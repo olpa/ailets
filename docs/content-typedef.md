@@ -35,6 +35,10 @@ A `ChatMessage` represents a message in a chat conversation. It is defined as a 
 
 For `url`, some models produce and accept data URLs. Ailets should prefer `stream` over `url`, where `stream` is a named file stream inside ailets' runtime.
 
+The recommended stream name is `media/image.*`.
+
+If the stream name is `out/*`, ailets will save the file to the output directory. The name of the file is the md5 of the stream content.
+
 `ContentItemFunction`: Function call with fields:
 
 - `type: "function"`
