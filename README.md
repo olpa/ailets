@@ -34,11 +34,18 @@ ailets() {
 
 # Sample usage
 
-echo "Hello!" | ailets gpt4o
+echo "Hello!" | ailets gpt4o --prompt -
 # Output: Hello! How can I assist you today?
 
 ailets gpt4o --prompt "Hello!" --tool get_user_name
 # Output: Hello, ailets! How can I assist you today?
+
+ailets gpt4o --prompt "What is it?" --prompt @https://rdi.berkeley.edu/llm-agents-hackathon/assets/img/llm_agents_hackathon_banner.png
+# Output: The image is an announcement or promotional banner for the "LLM Agents MOOC Hackathon," hosted by Berkeley's Center for Responsible, Decentralized Intelligence. It likely pertains to a hackathon focused on leveraging Large Language Models (LLMs) and their integration into various applications. The event may encourage collaboration and innovation in the field of artificial intelligence and machine learning, while also emphasizing responsible and decentralized practices in technology.
+
+ailets dalle --prompt "linux logo"
+# Output: ![image](https://oaidalleapiprodscus.blob.core.windows.net/....)
+
 ```
 
 ### User playground in the browser
