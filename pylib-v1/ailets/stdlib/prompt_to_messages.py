@@ -26,4 +26,4 @@ def prompt_to_messages(runtime: INodeRuntime) -> None:
 
     for media in runtime.read_dir("media"):
         media = f"media/{media}"
-        runtime.pass_through(media, media)
+        runtime.pass_through_name_name(media, media)

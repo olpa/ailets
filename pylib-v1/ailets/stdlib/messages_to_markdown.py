@@ -29,7 +29,7 @@ def rewrite_image_url(runtime: INodeRuntime, image: ContentItemImage) -> str:
     if stream := image.get("stream"):
         out_name = runtime.get_next_name("out/image")
         out_name += get_extension(image["content_type"])
-        runtime.pass_through(stream, out_name)
+        runtime.pass_through_name_name(stream, out_name)
         return out_name
 
     url = image.get("url")
