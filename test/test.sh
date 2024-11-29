@@ -38,12 +38,12 @@ echo $div======== gpt4o ======== Link to an image
 
 echo $div======== dalle ======== Generate an image, get as a link
 
-../command-line-tool/ailets0.py --prompt 'linux logo'
+../command-line-tool/ailets0.py dalle --prompt 'linux logo'
 
 
 ##
 
-echo $div======== dalle ======== Generate an image, get it back
+echo $div======== dalle ======== Variate an image, get it back
 
-../command-line-tool/ailets0.py --prompt 'response_format="b64_json"\n---\nlinux logo
+../command-line-tool/ailets0.py dalle --prompt 'dalle_task="variations"\nresponse_format="b64_json"\nn=3---\n' --prompt @../test/tux.png
 
