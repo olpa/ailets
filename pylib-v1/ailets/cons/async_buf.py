@@ -9,6 +9,7 @@ class AsyncBuffer:
 
     def close(self):
         self.is_closed = True
+        self.event.set()
 
     async def write(self, data):
         self.buffer += data
@@ -30,14 +31,19 @@ class AsyncBuffer:
 
 
 if __name__ == "__main__":
-    import sys
 
     async def writer(buffer):
-        for line in sys.stdin:
-            print("(before)", end="")
-            await buffer.write(line.strip().encode("utf-8"))
-            print("(after)", end="")
-        buffer.close()
+        try:
+            while True:
+                s = await asyncio.to_thread(input)
+                s = s.strip()
+                if not s:
+                    break
+                await buffer.write(s.encode("utf-8"))
+        except EOFError:
+            pass
+        finally:
+            buffer.close()
 
     async def reader(name, buffer):
         pos = 0
