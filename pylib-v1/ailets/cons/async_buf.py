@@ -5,17 +5,21 @@ class AsyncBuffer:
     def __init__(self):
         self.buffer = b""
         self.event = asyncio.Event()
+        self.is_closed = False
+
+    def close(self):
+        self.is_closed = True
 
     async def write(self, data):
         self.buffer += data
         self.event.set()
 
     async def read(self, pos, size=-1):
-        await self.event.wait()
-        self.event.clear()
-
-        if len(self.buffer) <= pos:
-            return b""
+        while len(self.buffer) <= pos:
+            if self.is_closed:
+                return b""
+            await self.event.wait()
+            self.event.clear()
 
         if size < 0:
             return self.buffer[pos:]
@@ -30,12 +34,15 @@ if __name__ == "__main__":
 
     async def writer(buffer):
         for line in sys.stdin:
+            print("(before)", end="")
             await buffer.write(line.strip().encode("utf-8"))
+            print("(after)", end="")
+        buffer.close()
 
     async def reader(name, buffer):
         pos = 0
         while True:
-            data = await buffer.read(pos)
+            data = await buffer.read(pos, size=4)
             size = len(data)
             pos += size
 
