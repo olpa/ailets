@@ -121,19 +121,19 @@ class INodeRuntime(Protocol):
     def n_of_streams(self, stream_name: Optional[str]) -> int:
         raise NotImplementedError
 
-    def open_read(self, stream_name: Optional[str], index: int) -> int:
+    async def open_read(self, stream_name: Optional[str], index: int) -> int:
         raise NotImplementedError
 
-    def open_write(self, stream_name: Optional[str]) -> int:
+    async def open_write(self, stream_name: Optional[str]) -> int:
         raise NotImplementedError
 
-    def read(self, fd: int, buffer: bytearray, count: int) -> int:
+    async def read(self, fd: int, buffer: bytearray, count: int) -> int:
         raise NotImplementedError
 
-    def write(self, fd: int, buffer: bytes, count: int) -> int:
+    async def write(self, fd: int, buffer: bytes, count: int) -> int:
         raise NotImplementedError
 
-    def close(self, fd: int) -> None:
+    async def close(self, fd: int) -> None:
         raise NotImplementedError
 
     def dagops(self) -> INodeDagops:
@@ -142,13 +142,13 @@ class INodeRuntime(Protocol):
     def get_next_name(self, base_name: str) -> str:
         raise NotImplementedError
 
-    def read_dir(self, dir_name: str) -> Sequence[str]:
+    async def read_dir(self, dir_name: str) -> Sequence[str]:
         raise NotImplementedError
 
-    def pass_through_name_name(self, in_stream_name: str, out_stream_name: str) -> None:
+    async def pass_through_name_name(self, in_stream_name: str, out_stream_name: str) -> None:
         raise NotImplementedError
 
-    def pass_through_name_fd(self, in_stream_name: str, out_fd: int) -> None:
+    async def pass_through_name_fd(self, in_stream_name: str, out_fd: int) -> None:
         raise NotImplementedError
 
 

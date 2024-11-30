@@ -55,15 +55,13 @@ class NodeRuntime(INodeRuntime):
         streams = self._get_streams(stream_name)
         if index >= len(streams) or index < 0:
             raise ValueError(f"Stream index out of bounds: {index} for {stream_name}")
-        bio = streams[index].get_content()
-        bio.seek(0)
         fd = self._env.get_next_seqno()
         self._open_fds[fd] = streams[index]
         return fd
 
-    def read(self, fd: int, buffer: bytearray, count: int) -> int:
+    async def read(self, fd: int, buffer: bytearray, count: int) -> int:
         stream = self._open_fds[fd]
-        return stream.get_content().readinto(buffer)
+        return await stream.get_content().readinto(buffer)
 
     def open_write(self, stream_name: Optional[str]) -> int:
         stream = self._env.create_new_stream(self._node_name, stream_name)
