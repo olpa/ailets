@@ -1,23 +1,27 @@
 import asyncio
+from typing import Self
 
 
 class AsyncBuffer:
-    def __init__(self):
+    def __init__(self) -> None:
         self.buffer = b""
         self.event = asyncio.Event()
-        self.is_closed = False
+        self._is_closed = False
 
-    def close(self):
-        self.is_closed = True
+    def close(self) -> None:
+        self._is_closed = True
         self.event.set()
 
-    async def write(self, data):
+    def is_closed(self) -> bool:
+        return self._is_closed
+
+    async def write(self, data: bytes) -> None:
         self.buffer += data
         self.event.set()
 
-    async def read(self, pos, size=-1):
+    async def read(self, pos: int, size: int = -1) -> bytes:
         while len(self.buffer) <= pos:
-            if self.is_closed:
+            if self.is_closed():
                 return b""
             await self.event.wait()
             self.event.clear()
@@ -32,7 +36,7 @@ class AsyncBuffer:
 
 if __name__ == "__main__":
 
-    async def writer(buffer):
+    async def writer(buffer: AsyncBuffer) -> None:
         try:
             while True:
                 s = await asyncio.to_thread(input)
@@ -45,7 +49,7 @@ if __name__ == "__main__":
         finally:
             buffer.close()
 
-    async def reader(name, buffer):
+    async def reader(name: str, buffer: AsyncBuffer) -> None:
         pos = 0
         while True:
             data = await buffer.read(pos, size=4)
@@ -56,7 +60,7 @@ if __name__ == "__main__":
                 break
             print(f"({name}): {data.decode()}")
 
-    async def main():
+    async def main() -> None:
         buffer = AsyncBuffer()
         writer_task = asyncio.create_task(writer(buffer))
         rt1 = asyncio.create_task(reader("r1", buffer))

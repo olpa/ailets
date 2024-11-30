@@ -18,7 +18,7 @@ from typing import (
 
 
 class IStream(Protocol):
-    def get_content(self) -> BytesIO:
+    def get_content(self) -> bytes:
         raise NotImplementedError
 
     def close(self) -> None:
