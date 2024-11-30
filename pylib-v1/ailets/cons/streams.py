@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional, Sequence, TextIO
 from io import BytesIO
 from typing_extensions import Buffer
 
-from ailets.cons.typing import Dependency, IStream
+from ailets.cons.atyping import Dependency, IStream
 
 
 @dataclass

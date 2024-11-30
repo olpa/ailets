@@ -1,5 +1,5 @@
 import json
-from ..cons.typing import ChatMessageTool, ContentItemFunction, INodeRuntime
+from ..cons.atyping import ChatMessageTool, ContentItemFunction, INodeRuntime
 from ..cons.util import read_all, write_all
 
 

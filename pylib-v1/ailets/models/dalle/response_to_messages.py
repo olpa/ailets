@@ -1,6 +1,6 @@
 import json
 from typing import Optional
-from ailets.cons.typing import (
+from ailets.cons.atyping import (
     ChatMessage,
     ContentItemImage,
     ContentItemText,

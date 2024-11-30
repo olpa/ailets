@@ -2,7 +2,7 @@ import json
 import requests
 import os
 import re
-from ailets.cons.typing import INodeRuntime
+from ailets.cons.atyping import INodeRuntime
 from ailets.cons.util import read_all, write_all
 
 MAX_RUNS = 3  # Maximum number of runs allowed

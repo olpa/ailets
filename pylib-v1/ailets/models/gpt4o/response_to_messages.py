@@ -5,7 +5,7 @@ from ailets.cons.typeguards import (
     is_content_item_refusal,
     is_content_item_text,
 )
-from ailets.cons.typing import (
+from ailets.cons.atyping import (
     ChatMessage,
     Content,
     ContentItem,

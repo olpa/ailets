@@ -14,7 +14,7 @@ import json
 
 from .plugin import NodeRegistry
 
-from .typing import Dependency, IEnvironment, INodeRegistry, Node, IStream
+from .atyping import Dependency, IEnvironment, INodeRegistry, Node, IStream
 from .node_runtime import NodeRuntime
 from .streams import Streams
 from .util import to_basename

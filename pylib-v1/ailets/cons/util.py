@@ -1,6 +1,6 @@
 import json
 from typing import Any, Dict, Iterator, Literal, Optional
-from .typing import INodeRuntime
+from .atyping import INodeRuntime
 
 
 def to_basename(name: str) -> str:

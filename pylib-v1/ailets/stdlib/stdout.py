@@ -1,4 +1,4 @@
-from ailets.cons.typing import INodeRuntime
+from ailets.cons.atyping import INodeRuntime
 from ailets.cons.util import read_all, write_all
 
 

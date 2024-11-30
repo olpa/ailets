@@ -4,7 +4,7 @@ from ailets.cons.typeguards import (
     is_content_item_image,
     is_content_item_text,
 )
-from ailets.cons.typing import (
+from ailets.cons.atyping import (
     Content,
     ContentItemImage,
     INodeRuntime,

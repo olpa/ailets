@@ -1,6 +1,6 @@
 from typing import Dict, Sequence
 
-from .typing import Dependency, INodeRegistry, NodeDesc, NodeDescFunc
+from .atyping import Dependency, INodeRegistry, NodeDesc, NodeDescFunc
 
 
 class NodeRegistry(INodeRegistry):

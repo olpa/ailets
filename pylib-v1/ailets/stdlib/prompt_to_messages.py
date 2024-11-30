@@ -1,6 +1,6 @@
 import json
 from typing import Any, Dict
-from ailets.cons.typing import INodeRuntime
+from ailets.cons.atyping import INodeRuntime
 from ailets.cons.util import iter_streams_objects, write_all
 
 

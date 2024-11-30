@@ -3,7 +3,7 @@ from typing import Optional
 
 from ailets.cons.pipelines import instantiate_with_deps
 
-from .typing import (
+from .atyping import (
     IEnvironment,
     INodeDagops,
     INodeRegistry,

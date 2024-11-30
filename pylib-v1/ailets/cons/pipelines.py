@@ -4,7 +4,7 @@ import json
 import tomllib
 from typing import Sequence
 
-from .typing import (
+from .atyping import (
     Dependency,
     IEnvironment,
     INodeRegistry,

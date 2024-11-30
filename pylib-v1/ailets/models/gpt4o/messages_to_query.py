@@ -1,7 +1,7 @@
 import base64
 import json
 from typing import List, Sequence, Tuple
-from ailets.cons.typing import (
+from ailets.cons.atyping import (
     Content,
     ContentItem,
     ContentItemFunction,
