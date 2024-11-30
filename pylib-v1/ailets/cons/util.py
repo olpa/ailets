@@ -37,7 +37,7 @@ def write_all(runtime: INodeRuntime, fd: int, data: bytes) -> None:
 
 def iter_streams_objects(
     runtime: INodeRuntime, stream_name: Optional[str]
-) -> Iterator[dict]:
+) -> Iterator[dict[str, Any]]:
     """Iterate over all streams. Each stream contains JSON objects,
     either as a JSON array or as individual objects without separation."""
     # `n_of_streams` can change with time, therefore don't use `range`
