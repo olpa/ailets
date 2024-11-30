@@ -21,6 +21,9 @@ class IStream(Protocol):
     async def get_content(self) -> bytes:
         raise NotImplementedError
 
+    async def write(self, data: bytes) -> int:
+        raise NotImplementedError
+
     def close(self) -> None:
         raise NotImplementedError
 

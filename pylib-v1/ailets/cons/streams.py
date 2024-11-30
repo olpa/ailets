@@ -17,6 +17,9 @@ class Stream:
     async def get_content(self) -> bytes:
         return await self.buf.read(pos=0, size=-1)
 
+    async def write(self, data: bytes) -> int:
+        return await self.buf.write(data)
+
     async def to_json(self) -> dict[str, Any]:
         """Convert stream to JSON-serializable dict."""
         b = await self.get_content()
