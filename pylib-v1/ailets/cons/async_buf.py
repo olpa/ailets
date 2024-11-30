@@ -15,9 +15,10 @@ class AsyncBuffer:
     def is_closed(self) -> bool:
         return self._is_closed
 
-    async def write(self, data: bytes) -> None:
+    async def write(self, data: bytes) -> int:
         self.buffer += data
         self.event.set()
+        return len(data)
 
     async def read(self, pos: int, size: int = -1) -> bytes:
         while len(self.buffer) <= pos:

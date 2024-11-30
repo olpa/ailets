@@ -1,36 +1,25 @@
 import base64
 from dataclasses import dataclass
-import io
 import json
 from typing import Any, Dict, Optional, Sequence, TextIO
-from io import BytesIO
 from typing_extensions import Buffer
 
 from ailets.cons.atyping import Dependency, IStream
+from ailets.cons.async_buf import AsyncBuffer
 
 
 @dataclass
 class Stream:
-    """A stream of data associated with a node.
-
-    Attributes:
-        node_name: Name of the node this stream belongs to
-        stream_name: Name of the stream
-        is_finished: Whether the stream is complete
-        content: The BytesIO buffer containing the stream data
-    """
-
     node_name: str
     stream_name: Optional[str]
-    is_finished: bool
-    content: BytesIO
+    buf: AsyncBuffer
 
-    def get_content(self) -> BytesIO:
-        return self.content
+    async def get_content(self) -> bytes:
+        return await self.buf.read(pos=0, size=-1)
 
-    def to_json(self) -> dict:
+    async def to_json(self) -> dict[str, Any]:
         """Convert stream to JSON-serializable dict."""
-        b = self.content.getvalue()
+        b = await self.get_content()
         try:
             content_field = "content"
             content = b.decode("utf-8")
@@ -40,43 +29,42 @@ class Stream:
         return {
             "node": self.node_name,
             "name": self.stream_name,
-            "is_finished": self.is_finished,
+            "is_closed": self.buf.is_closed(),
             content_field: content,
         }
 
     @classmethod
-    def from_json(cls, data: dict) -> "Stream":
+    async def from_json(cls, data: dict[str, Any]) -> "Stream":
         """Create stream from JSON data."""
         if "b64_content" in data:
             content = base64.b64decode(data["b64_content"])
         else:
             content = data["content"].encode("utf-8")
+        buf = AsyncBuffer()
+        await buf.write(content)
+        if data["is_closed"]:
+            buf.close()
         return cls(
             node_name=data["node"],
             stream_name=data["name"],
-            is_finished=data["is_finished"],
-            content=BytesIO(content),
+            buf=buf,
         )
 
     def close(self) -> None:
-        self.is_finished = True
+        self.buf.close()
 
 
 def create_log_stream() -> Stream:
-    class LogStream(io.BytesIO):
-        def write(self, b: Buffer) -> int:
-            if isinstance(b, bytes):
-                b2 = b.decode("utf-8")
-            else:
-                b2 = str(b)
+    class LogStream(AsyncBuffer):
+        async def write(self, b: bytes) -> int:
+            b2 = b.decode("utf-8")
             print(b2, end="")
             return len(b2)
 
     return Stream(
         node_name=".",
         stream_name="log",
-        is_finished=False,
-        content=LogStream(),
+        buf=LogStream(),
     )
 
 
@@ -125,8 +113,7 @@ class Streams:
         stream = Stream(
             node_name=node_name,
             stream_name=stream_name,
-            is_finished=False,
-            content=BytesIO(),
+            buf=AsyncBuffer(),
         )
         self._streams.append(stream)
         return stream
@@ -142,19 +129,21 @@ class Streams:
             json.dump(stream.to_json(), f, indent=2)
             f.write("\n")
 
-    def add_stream_from_json(self, stream_data: dict) -> Stream:
+    async def add_stream_from_json(self, stream_data: dict[str, Any]) -> Stream:
         """Load a stream's state from JSON data."""
-        stream = Stream.from_json(stream_data)
+        stream = await Stream.from_json(stream_data)
         self._streams.append(stream)
         return stream
 
     @staticmethod
-    def make_env_stream(params: Dict[str, Any]) -> Stream:
+    async def make_env_stream(params: Dict[str, Any]) -> Stream:
+        buf = AsyncBuffer()
+        await buf.write(json.dumps(params).encode("utf-8"))
+        buf.close()
         return Stream(
             node_name=".",
             stream_name="env",
-            is_finished=True,
-            content=BytesIO(json.dumps(params).encode("utf-8")),
+            buf=buf,
         )
 
     def get_fs_output_streams(self) -> Sequence[Stream]:
