@@ -1,4 +1,5 @@
 from typing import (
+    Awaitable,
     Dict,
     Any,
     Callable,
@@ -102,7 +103,7 @@ class Environment(IEnvironment):
             explain=node.explain,
         )
 
-    def build_node_alone(self, nodereg: INodeRegistry, name: str) -> None:
+    async def build_node_alone(self, nodereg: INodeRegistry, name: str) -> None:
         """Build a node. Does not build its dependencies."""
         self._ever_started.add(name)
         node = self.get_node(name)
@@ -117,7 +118,7 @@ class Environment(IEnvironment):
 
         # Execute the node's function with all dependencies
         try:
-            node.func(runtime)
+            await node.func(runtime)
         except Exception:
             print(f"Error building node '{name}'")
             print(f"Function: {node.func.__name__}")
@@ -126,7 +127,7 @@ class Environment(IEnvironment):
                 print(f"  {dep.source} ({dep.stream}) -> {dep.name}")
             raise
 
-    def build_target(
+    async def build_target(
         self,
         nodereg: INodeRegistry,
         target: str,
@@ -156,7 +157,7 @@ class Environment(IEnvironment):
                 break
 
             # Build the node
-            self.build_node_alone(nodereg, next_node.name)
+            await self.build_node_alone(nodereg, next_node.name)
 
             # Check if number of nodes changed
             new_node_count = len(self.nodes)
@@ -308,15 +309,15 @@ class Environment(IEnvironment):
 
         # Try to get function from map, if not found and name has a number suffix,
         # try without the suffix
-        func: Callable[[INodeRuntime], None]
+        func: Callable[[INodeRuntime], Awaitable[None]]
         base_name = to_basename(name)
         if base_name.startswith("defunc."):
             base_name = base_name[7:]
         if base_name == "value":
             # Special case for typed value nodes
-            def func(
+            async def func(
                 _: INodeRuntime,
-            ) -> None: ...  # Dummy function since real value is in streams
+            ) -> None: ...
 
         else:
             node_desc = nodereg.nodes.get(base_name)
@@ -350,9 +351,11 @@ class Environment(IEnvironment):
         """
         full_name = self.get_next_name("value")
 
+        async def async_dummy(runtime: INodeRuntime) -> None: ...
+
         node = Node(
             name=full_name,
-            func=lambda _: None,  # Dummy function since value is in streams
+            func=async_dummy,
             deps=[],  # No dependencies
             explain=explain,
         )

@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import (
     Any,
+    Awaitable,
     Callable,
     Dict,
     Iterator,
@@ -77,7 +78,7 @@ class Dependency:
 @dataclass(frozen=True)
 class Node:
     name: str
-    func: Callable[..., Any]
+    func: Callable[..., Awaitable[Any]]
     deps: List[Dependency] = field(default_factory=list)  # [(node_name, dep_name)]
     explain: Optional[str] = field(default=None)  # New field for explanation
 
@@ -160,7 +161,7 @@ class INodeRuntime(Protocol):
 class NodeDescFunc:
     name: str
     inputs: Sequence[Dependency]
-    func: Callable[[INodeRuntime], None]
+    func: Callable[[INodeRuntime], Awaitable[None]]
 
 
 class IEnvironment(Protocol):

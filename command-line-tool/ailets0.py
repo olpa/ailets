@@ -234,7 +234,7 @@ async def main() -> None:
     if args.dry_run:
         env.print_dependency_tree(target_node_name)
     else:
-        env.build_target(nodereg, stop_node_name, one_step=args.one_step)
+        await env.build_target(nodereg, stop_node_name, one_step=args.one_step)
 
     if args.save_state:
         with open(args.save_state, "w") as f:
