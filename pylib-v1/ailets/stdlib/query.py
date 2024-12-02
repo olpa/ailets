@@ -16,7 +16,7 @@ secret_pattern = re.compile(
 def resolve_secrets(value: str) -> str:
     """Replace {{secret('service','key')}} with actual secret value."""
 
-    def get_secret(match):
+    def get_secret(match: re.Match[str]) -> str:
         service = match.group(1)
         envvar = f"{service.upper()}_API_KEY"
         secret = os.environ.get(envvar)
@@ -27,7 +27,7 @@ def resolve_secrets(value: str) -> str:
     return secret_pattern.sub(get_secret, value)
 
 
-def query(runtime: INodeRuntime) -> None:
+async def query(runtime: INodeRuntime) -> None:
     """Perform the HTTP request to the API."""
     global _run_count
     _run_count += 1
@@ -36,9 +36,9 @@ def query(runtime: INodeRuntime) -> None:
         raise RuntimeError(f"Exceeded maximum number of runs ({MAX_RUNS})")
 
     assert runtime.n_of_streams(None) == 1, "Expected exactly one query params dict"
-    fd = runtime.open_read(None, 0)  # Get the single params dict
-    params = json.loads(read_all(runtime, fd).decode("utf-8"))
-    runtime.close(fd)
+    fd = await runtime.open_read(None, 0)  # Get the single params dict
+    params = json.loads((await read_all(runtime, fd)).decode("utf-8"))
+    await runtime.close(fd)
 
     try:
         # Resolve secrets in headers and url
@@ -53,9 +53,9 @@ def query(runtime: INodeRuntime) -> None:
             assert (
                 n_streams == 1
             ), f"Expected exactly one stream '{stream_name}', got {n_streams}"
-            fd = runtime.open_read(stream_name, 0)
-            data = read_all(runtime, fd)
-            runtime.close(fd)
+            fd = await runtime.open_read(stream_name, 0)
+            data = await read_all(runtime, fd)
+            await runtime.close(fd)
             body_kwargs = {"data": data}
             headers["Content-length"] = str(len(data))
         else:
@@ -70,9 +70,9 @@ def query(runtime: INodeRuntime) -> None:
         response.raise_for_status()  # Raise an exception for bad status codes
 
         value = response.json()
-        fd = runtime.open_write(None)
-        write_all(runtime, fd, json.dumps(value).encode("utf-8"))
-        runtime.close(fd)
+        fd = await runtime.open_write(None)
+        await write_all(runtime, fd, json.dumps(value).encode("utf-8"))
+        await runtime.close(fd)
 
     except requests.exceptions.RequestException as e:
         print(f"HTTP Request failed: {str(e)}")
