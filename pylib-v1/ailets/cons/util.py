@@ -54,7 +54,7 @@ async def iter_streams_objects(
 
         if buffer[0] == ord("["):
             array = json.loads(buffer)
-            async for item in array:
+            for item in array:
                 yield item
             continue
 
@@ -72,20 +72,19 @@ async def iter_streams_objects(
                 )
 
 
-def read_env_stream(runtime: INodeRuntime) -> Dict[str, Any]:
-    return {
-        k: v
-        for params in iter_streams_objects(runtime, "env")
-        for k, v in params.items()
-    }
+async def read_env_stream(runtime: INodeRuntime) -> Dict[str, Any]:
+    env: dict[str, Any] = {}
+    async for params in iter_streams_objects(runtime, "env"):
+        env.update(params)
+    return env
 
 
-def log(
+async def log(
     runtime: INodeRuntime, level: Literal["info", "warn", "error"], *message: Any
 ) -> None:
     message_str = " ".join(map(str, message))
     log_str = f"{runtime.get_name()}: {level} {message_str}\n"
 
-    fd = runtime.open_write("log")
-    write_all(runtime, fd, log_str.encode("utf-8"))
-    runtime.close(fd)
+    fd = await runtime.open_write("log")
+    await write_all(runtime, fd, log_str.encode("utf-8"))
+    await runtime.close(fd)
