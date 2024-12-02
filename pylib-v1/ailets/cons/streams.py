@@ -137,10 +137,10 @@ class Streams:
         stream = self.get(node_name, stream_name)
         await stream.close()
 
-    def to_json(self, f: TextIO) -> None:
+    async def to_json(self, f: TextIO) -> None:
         """Convert all streams to JSON-serializable format."""
         for stream in self._streams:
-            json.dump(stream.to_json(), f, indent=2)
+            json.dump(await stream.to_json(), f, indent=2)
             f.write("\n")
 
     async def add_stream_from_json(self, stream_data: dict[str, Any]) -> Stream:

@@ -364,14 +364,14 @@ class Environment(IEnvironment):
 
         return node
 
-    def to_json(self, f: TextIO) -> None:
+    async def to_json(self, f: TextIO) -> None:
         """Convert environment to JSON-serializable dict."""
         # Save nodes
         for node in self.nodes.values():
             json.dump(node.to_json(), f, indent=2)
             f.write("\n")
 
-        self._streams.to_json(f)
+        await self._streams.to_json(f)
 
         json.dump({"env": self._for_env_stream}, f, indent=2)
         f.write("\n")

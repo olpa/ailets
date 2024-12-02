@@ -238,7 +238,7 @@ async def main() -> None:
 
     if args.save_state:
         with open(args.save_state, "w") as f:
-            env.to_json(f)
+            await env.to_json(f)
 
     if not args.dry_run:
         fs_output_streams = env.get_fs_output_streams()
