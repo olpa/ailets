@@ -26,6 +26,9 @@ class IStream(Protocol):
     async def close(self) -> None:
         raise NotImplementedError
 
+    def get_name(self) -> Optional[str]:
+        raise NotImplementedError
+
 
 #
 #
@@ -206,9 +209,6 @@ class IEnvironment(Protocol):
         raise NotImplementedError
 
     def get_env_stream(self) -> IStream:
-        raise NotImplementedError
-
-    def read_dir(self, node_name: str, dir_name: str) -> Sequence[str]:
         raise NotImplementedError
 
 

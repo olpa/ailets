@@ -22,6 +22,9 @@ class Stream:
     async def close(self) -> None:
         await self.buf.close()
 
+    def get_name(self) -> Optional[str]:
+        return self.stream_name
+
     def is_closed(self) -> bool:
         return self.buf.is_closed()
 
