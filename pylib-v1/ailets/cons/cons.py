@@ -14,7 +14,7 @@ import json
 
 from .plugin import NodeRegistry
 
-from .atyping import Dependency, IEnvironment, INodeRegistry, Node, IStream
+from .atyping import Dependency, IEnvironment, INodeRegistry, INodeRuntime, Node, IStream
 from .node_runtime import NodeRuntime
 from .streams import Streams
 from .util import to_basename
@@ -301,13 +301,13 @@ class Environment(IEnvironment):
 
         # Try to get function from map, if not found and name has a number suffix,
         # try without the suffix
+        func: Callable[[INodeRuntime], None]
         base_name = to_basename(name)
         if base_name.startswith("defunc."):
             base_name = base_name[7:]
         if base_name == "value":
             # Special case for typed value nodes
-            def func(_): ...  # Dummy function since real value is in streams
-
+            def func(_: INodeRuntime) -> None: ...  # Dummy function since real value is in streams
         else:
             node_desc = nodereg.nodes.get(base_name)
             if node_desc is None:
@@ -350,9 +350,7 @@ class Environment(IEnvironment):
         self.nodes[full_name] = node
 
         # Add streams for value and type
-        value_stream = self._streams.create(full_name, None)
-        value_stream.content.write(value)
-        value_stream.is_finished = True
+        self._streams.create(full_name, None, value, is_closed=True)
 
         return node
 
@@ -373,7 +371,7 @@ class Environment(IEnvironment):
             f.write("\n")
 
     @classmethod
-    def from_json(cls, f: TextIO, nodereg: NodeRegistry) -> "Environment":
+    async def from_json(cls, f: TextIO, nodereg: NodeRegistry) -> "Environment":
         """Create environment from JSON data."""
         env = cls()
 
@@ -395,7 +393,7 @@ class Environment(IEnvironment):
                 if "deps" in obj_data:
                     env.load_node_state(obj_data, nodereg)
                 elif "is_finished" in obj_data:
-                    env._streams.add_stream_from_json(obj_data)
+                    await env._streams.add_stream_from_json(obj_data)
                 elif "alias" in obj_data:
                     env._aliases[obj_data["alias"]] = obj_data["names"]
                 elif "env" in obj_data:
@@ -425,7 +423,7 @@ class Environment(IEnvironment):
             True if the node has at least one finished stream, False otherwise
         """
         return any(
-            stream.is_finished
+            stream.is_closed()
             for stream in self._streams._streams
             if stream.node_name == node_name
         )

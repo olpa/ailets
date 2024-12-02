@@ -1,12 +1,14 @@
 import asyncio
-from typing import Self
+from typing import Optional
 
 
 class AsyncBuffer:
-    def __init__(self) -> None:
-        self.buffer = b""
+    def __init__(
+        self, initial_content: Optional[bytes] = None, is_closed: bool = False
+    ) -> None:
+        self.buffer = initial_content or b""
         self.event = asyncio.Event()
-        self._is_closed = False
+        self._is_closed = is_closed
 
     async def close(self) -> None:
         self._is_closed = True

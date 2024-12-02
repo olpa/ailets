@@ -23,6 +23,9 @@ class Stream:
     async def close(self) -> None:
         await self.buf.close()
 
+    def is_closed(self) -> bool:
+        return self.buf.is_closed()
+
     async def to_json(self) -> dict[str, Any]:
         """Convert stream to JSON-serializable dict."""
         b = await self.read(pos=0, size=-1)
@@ -35,7 +38,7 @@ class Stream:
         return {
             "node": self.node_name,
             "name": self.stream_name,
-            "is_closed": self.buf.is_closed(),
+            "is_closed": self.is_closed(),
             content_field: content,
         }
 
@@ -105,7 +108,13 @@ class Streams:
             raise ValueError(f"Stream not found: {node_name}.{stream_name}")
         return stream
 
-    def create(self, node_name: str, stream_name: Optional[str]) -> Stream:
+    def create(
+        self,
+        node_name: str,
+        stream_name: Optional[str],
+        initial_content: Optional[bytes] = None,
+        is_closed: bool = False,
+    ) -> Stream:
         """Add a new stream."""
         if stream_name == "log":
             return create_log_stream()
@@ -116,7 +125,7 @@ class Streams:
         stream = Stream(
             node_name=node_name,
             stream_name=stream_name,
-            buf=AsyncBuffer(),
+            buf=AsyncBuffer(initial_content=initial_content, is_closed=is_closed),
         )
         self._streams.append(stream)
         return stream
@@ -139,10 +148,9 @@ class Streams:
         return stream
 
     @staticmethod
-    async def make_env_stream(params: Dict[str, Any]) -> Stream:
-        buf = AsyncBuffer()
-        await buf.write(json.dumps(params).encode("utf-8"))
-        await buf.close()
+    def make_env_stream(params: Dict[str, Any]) -> Stream:
+        content = json.dumps(params).encode("utf-8")
+        buf = AsyncBuffer(initial_content=content, is_closed=True)
         return Stream(
             node_name=".",
             stream_name="env",
