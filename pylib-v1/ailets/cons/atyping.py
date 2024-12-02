@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field
-from io import BytesIO
 from typing import (
     Any,
     Callable,
@@ -145,7 +144,9 @@ class INodeRuntime(Protocol):
     async def read_dir(self, dir_name: str) -> Sequence[str]:
         raise NotImplementedError
 
-    async def pass_through_name_name(self, in_stream_name: str, out_stream_name: str) -> None:
+    async def pass_through_name_name(
+        self, in_stream_name: str, out_stream_name: str
+    ) -> None:
         raise NotImplementedError
 
     async def pass_through_name_fd(self, in_stream_name: str, out_fd: int) -> None:

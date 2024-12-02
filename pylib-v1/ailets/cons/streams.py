@@ -2,7 +2,6 @@ import base64
 from dataclasses import dataclass
 import json
 from typing import Any, Dict, Optional, Sequence, TextIO
-from typing_extensions import Buffer
 
 from ailets.cons.atyping import Dependency, IStream
 from ailets.cons.async_buf import AsyncBuffer

@@ -95,7 +95,9 @@ class NodeRuntime(INodeRuntime):
         dep_names = [dep.source for dep in self._deps]
         return await self._streams.read_dir(dir_name, [self._node_name, *dep_names])
 
-    async def pass_through_name_name(self, in_stream_name: str, out_stream_name: str) -> None:
+    async def pass_through_name_name(
+        self, in_stream_name: str, out_stream_name: str
+    ) -> None:
         in_streams = self._get_streams(in_stream_name)
         for in_stream in in_streams:
             out_stream = self._env.create_new_stream(self._node_name, out_stream_name)

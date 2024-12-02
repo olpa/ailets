@@ -11,7 +11,6 @@ setup(
     packages=find_packages(),
     install_requires=[
         'requests',
-        'typing_extensions',
     ],
     author="Oleg Parashchenko",
     author_email="olpa@uucode.com",
