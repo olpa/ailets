@@ -405,7 +405,7 @@ class Environment(IEnvironment):
                 obj_data, pos = decoder.raw_decode(content, pos)
                 if "deps" in obj_data:
                     env.load_node_state(obj_data, nodereg)
-                elif "is_finished" in obj_data:
+                elif "is_closed" in obj_data:
                     await env._streams.add_stream_from_json(obj_data)
                 elif "alias" in obj_data:
                     env._aliases[obj_data["alias"]] = obj_data["names"]
