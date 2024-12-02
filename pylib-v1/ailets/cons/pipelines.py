@@ -82,7 +82,7 @@ async def prompt_to_env(
         with open(prompt_item.value, "rb") as f:
             stream: IStream = env.create_new_stream(node.name, stream_name)
             await stream.write(f.read())
-            stream.close()
+            await stream.close()
 
     for prompt_item in prompt:
         await prompt_to_node(prompt_item)

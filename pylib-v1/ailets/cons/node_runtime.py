@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Dict, Optional, Sequence
 
 from .node_dagops import NodeDagops
@@ -10,6 +11,12 @@ from .atyping import (
     INodeRuntime,
     IStream,
 )
+
+
+@dataclass
+class OpenFd:
+    stream: IStream
+    pos: int
 
 
 class NodeRuntime(INodeRuntime):
@@ -26,7 +33,7 @@ class NodeRuntime(INodeRuntime):
         self._streams = streams
         self._node_name = node_name
         self._deps = deps
-        self._open_fds: Dict[int, IStream] = {}
+        self._open_fds: Dict[int, OpenFd] = {}
 
     def _get_streams(self, stream_name: Optional[str]) -> Sequence[IStream]:
         # Special stream "env"
@@ -51,51 +58,55 @@ class NodeRuntime(INodeRuntime):
             return 1
         return len(self._get_streams(stream_name))
 
-    def open_read(self, stream_name: Optional[str], index: int) -> int:
+    async def open_read(self, stream_name: Optional[str], index: int) -> int:
         streams = self._get_streams(stream_name)
         if index >= len(streams) or index < 0:
             raise ValueError(f"Stream index out of bounds: {index} for {stream_name}")
         fd = self._env.get_next_seqno()
-        self._open_fds[fd] = streams[index]
+        self._open_fds[fd] = OpenFd(stream=streams[index], pos=0)
         return fd
 
     async def read(self, fd: int, buffer: bytearray, count: int) -> int:
-        stream = self._open_fds[fd]
-        return await stream.get_content().readinto(buffer)
+        fd_obj = self._open_fds[fd]
+        read_bytes = await fd_obj.stream.read(fd_obj.pos, count)
+        n_bytes = len(read_bytes)
+        buffer[:n_bytes] = read_bytes
+        fd_obj.pos += n_bytes
+        return n_bytes
 
-    def open_write(self, stream_name: Optional[str]) -> int:
+    async def open_write(self, stream_name: Optional[str]) -> int:
         stream = self._env.create_new_stream(self._node_name, stream_name)
         fd = self._env.get_next_seqno()
-        self._open_fds[fd] = stream
+        self._open_fds[fd] = OpenFd(stream=stream, pos=0)
         return fd
 
-    def write(self, fd: int, buffer: bytes, count: int) -> int:
-        stream = self._open_fds[fd]
-        return stream.get_content().write(buffer)
+    async def write(self, fd: int, buffer: bytes, count: int) -> int:
+        fd_obj = self._open_fds[fd]
+        return await fd_obj.stream.write(buffer)
 
-    def close(self, fd: int) -> None:
-        stream = self._open_fds.pop(fd)
-        stream.close()
+    async def close(self, fd: int) -> None:
+        fd_obj = self._open_fds.pop(fd)
+        await fd_obj.stream.close()
 
     def dagops(self) -> INodeDagops:
         return NodeDagops(self._env, self._nodereg, self)
 
-    def read_dir(self, dir_name: str) -> Sequence[str]:
+    async def read_dir(self, dir_name: str) -> Sequence[str]:
         dep_names = [dep.source for dep in self._deps]
-        return self._streams.read_dir(dir_name, [self._node_name, *dep_names])
+        return await self._streams.read_dir(dir_name, [self._node_name, *dep_names])
 
-    def pass_through_name_name(self, in_stream_name: str, out_stream_name: str) -> None:
+    async def pass_through_name_name(self, in_stream_name: str, out_stream_name: str) -> None:
         in_streams = self._get_streams(in_stream_name)
         for in_stream in in_streams:
             out_stream = self._env.create_new_stream(self._node_name, out_stream_name)
-            out_stream.get_content().write(in_stream.get_content().getvalue())
-            out_stream.close()
+            await out_stream.write(await in_stream.read(pos=0, size=-1))
+            await out_stream.close()
 
-    def pass_through_name_fd(self, in_stream_name: str, out_fd: int) -> None:
+    async def pass_through_name_fd(self, in_stream_name: str, out_fd: int) -> None:
         in_streams = self._get_streams(in_stream_name)
-        out_stream = self._open_fds[out_fd]
+        out_fd_obj = self._open_fds[out_fd]
         for in_stream in in_streams:
-            out_stream.get_content().write(in_stream.get_content().getvalue())
+            await out_fd_obj.stream.write(await in_stream.read(pos=0, size=-1))
 
     def get_next_name(self, base_name: str) -> str:
         return self._env.get_next_name(base_name)

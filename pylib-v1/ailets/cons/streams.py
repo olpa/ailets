@@ -14,15 +14,18 @@ class Stream:
     stream_name: Optional[str]
     buf: AsyncBuffer
 
-    async def get_content(self) -> bytes:
-        return await self.buf.read(pos=0, size=-1)
+    async def read(self, pos: int, size: int = -1) -> bytes:
+        return await self.buf.read(pos, size)
 
     async def write(self, data: bytes) -> int:
         return await self.buf.write(data)
 
+    async def close(self) -> None:
+        await self.buf.close()
+
     async def to_json(self) -> dict[str, Any]:
         """Convert stream to JSON-serializable dict."""
-        b = await self.get_content()
+        b = await self.read(pos=0, size=-1)
         try:
             content_field = "content"
             content = b.decode("utf-8")
@@ -46,15 +49,12 @@ class Stream:
         buf = AsyncBuffer()
         await buf.write(content)
         if data["is_closed"]:
-            buf.close()
+            await buf.close()
         return cls(
             node_name=data["node"],
             stream_name=data["name"],
             buf=buf,
         )
-
-    def close(self) -> None:
-        self.buf.close()
 
 
 def create_log_stream() -> Stream:
@@ -121,10 +121,10 @@ class Streams:
         self._streams.append(stream)
         return stream
 
-    def mark_finished(self, node_name: str, stream_name: Optional[str]) -> None:
+    async def mark_finished(self, node_name: str, stream_name: Optional[str]) -> None:
         """Mark a stream as finished."""
         stream = self.get(node_name, stream_name)
-        stream.close()
+        await stream.close()
 
     def to_json(self, f: TextIO) -> None:
         """Convert all streams to JSON-serializable format."""
@@ -142,7 +142,7 @@ class Streams:
     async def make_env_stream(params: Dict[str, Any]) -> Stream:
         buf = AsyncBuffer()
         await buf.write(json.dumps(params).encode("utf-8"))
-        buf.close()
+        await buf.close()
         return Stream(
             node_name=".",
             stream_name="env",
@@ -169,7 +169,7 @@ class Streams:
             )
         return collected
 
-    def read_dir(self, dir_name: str, node_names: Sequence[str]) -> Sequence[str]:
+    async def read_dir(self, dir_name: str, node_names: Sequence[str]) -> Sequence[str]:
         if not dir_name.endswith("/"):
             dir_name = f"{dir_name}/"
         pos = len(dir_name)

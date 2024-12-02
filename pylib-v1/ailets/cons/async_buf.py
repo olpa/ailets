@@ -8,7 +8,7 @@ class AsyncBuffer:
         self.event = asyncio.Event()
         self._is_closed = False
 
-    def close(self) -> None:
+    async def close(self) -> None:
         self._is_closed = True
         self.event.set()
 
@@ -48,7 +48,7 @@ if __name__ == "__main__":
         except EOFError:
             pass
         finally:
-            buffer.close()
+            await buffer.close()
 
     async def reader(name: str, buffer: AsyncBuffer) -> None:
         pos = 0
