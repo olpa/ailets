@@ -35,7 +35,6 @@ class Environment(IEnvironment):
         self._streams: Streams = Streams()
         self._seqno: int = 1
         self._aliases: Dict[str, List[str]] = {}
-        self._ever_started: Set[str] = set()
 
     def privates_for_dagops_friend(
         self,
@@ -105,7 +104,6 @@ class Environment(IEnvironment):
 
     async def build_node_alone(self, nodereg: INodeRegistry, name: str) -> None:
         """Build a node. Does not build its dependencies."""
-        self._ever_started.add(name)
         node = self.get_node(name)
 
         deps = list(self.iter_deps(name))
@@ -417,10 +415,6 @@ class Environment(IEnvironment):
                 print(f"Error decoding JSON at position {pos}: {e}")
                 raise
 
-        for node_name in env.nodes.keys():
-            if env.is_node_built(node_name):
-                env._ever_started.add(node_name)
-
         return env
 
     def create_new_stream(self, node_name: str, stream_name: Optional[str]) -> IStream:
@@ -440,10 +434,6 @@ class Environment(IEnvironment):
             for stream in self._streams._streams
             if stream.node_name == node_name
         )
-
-    def is_node_ever_started(self, node_name: str) -> bool:
-        """Check if a node has ever been started."""
-        return node_name in self._ever_started
 
     def alias(self, alias: str, node_name: Optional[str]) -> None:
         """Associate an alias with a node.

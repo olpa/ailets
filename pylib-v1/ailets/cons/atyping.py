@@ -180,9 +180,6 @@ class IEnvironment(Protocol):
     ) -> Node:
         raise NotImplementedError
 
-    def is_node_ever_started(self, node_name: str) -> bool:
-        raise NotImplementedError
-
     def alias(self, alias: str, node_name: Optional[str]) -> None:
         raise NotImplementedError
 
