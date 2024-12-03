@@ -18,12 +18,10 @@ from .plugin import NodeRegistry
 from .atyping import (
     Dependency,
     IEnvironment,
-    INodeRegistry,
     INodeRuntime,
     Node,
     IStream,
 )
-from .node_runtime import NodeRuntime
 from .streams import Streams
 from .util import to_basename
 

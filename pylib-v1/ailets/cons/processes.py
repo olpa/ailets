@@ -1,20 +1,19 @@
 import asyncio
 from typing import Mapping, Sequence
-from ailets.cons.atyping import Dependency, IEnvironment, INodeRegistry
+from ailets.cons.atyping import Dependency, IEnvironment, INodeRegistry, IStreams
 from ailets.cons.node_runtime import NodeRuntime
 
 
 class Processes:
-    def __init__(self, env: IEnvironment, streams: Streams):
+    def __init__(self, env: IEnvironment, streams: IStreams):
         self.env = env
         self.streams = streams
 
-        self.invalidation_flag = asyncio.Event()
+        self.deptree_invalidation_flag = asyncio.Event()
 
         # With resolved aliases
         self.deps: Mapping[str, Sequence[Dependency]] = {}
         self.rev_deps: Mapping[str, Sequence[Dependency]] = {}
-
 
     def resolve_deps(self):
         self.deps = {}
@@ -30,27 +29,28 @@ class Processes:
                     Dependency(source=node_name, name=dep.name, stream=dep.stream)
                 )
         self.rev_deps = rev_deps
-    
-    def mark_plan_as_invalid(self):
-        self.invalidation_flag.set()
-    
+
+    def mark_deptree_as_invalid(self):
+        self.deptree_invalidation_flag.set()
+
     async def next_node_iter(self):
         while True:
-            self.invalidation_flag.clear()
+            self.deptree_invalidation_flag.clear()
             for node_name in self.env.get_node_names():
-                if self.env.is_node_finished(node_name) or self.env.is_node_active(node_name):
+                if self.env.is_node_finished(node_name) or self.env.is_node_active(
+                    node_name
+                ):
                     continue
                 if self._can_start_node(node_name):
                     yield node_name
-            await self.invalidation_flag.wait()
+            await self.deptree_invalidation_flag.wait()
 
     def _can_start_node(self, node_name: str) -> bool:
         return all(
-            self.env.is_node_built(dep.source) or 
-            self.streams.has_input(dep.source, dep.stream)
+            self.env.is_node_built(dep.source)
+            or self.streams.has_input(dep.source, dep.stream)
             for dep in self.deps[node_name]
         )
-
 
     async def build_node_alone(self, nodereg: INodeRegistry, name: str) -> None:
         """Build a node. Does not build its dependencies."""
@@ -67,6 +67,7 @@ class Processes:
         # Execute the node's function with all dependencies
         try:
             await node.func(runtime)
+            self.mark_deptree_as_invalid()
         except Exception:
             print(f"Error building node '{name}'")
             print(f"Function: {node.func.__name__}")

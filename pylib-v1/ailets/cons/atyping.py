@@ -31,6 +31,11 @@ class IStream(Protocol):
         raise NotImplementedError
 
 
+class IStreams(Protocol):
+    def has_input(self, node_name: str, dep: "Dependency") -> bool:
+        raise NotImplementedError
+
+
 #
 #
 #
