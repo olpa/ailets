@@ -1,6 +1,7 @@
 import asyncio
 from typing import Mapping, Sequence
-from ailets.cons.atyping import Dependency, IEnvironment
+from ailets.cons.atyping import Dependency, IEnvironment, INodeRegistry
+from ailets.cons.node_runtime import NodeRuntime
 
 
 class Processes:
@@ -33,11 +34,6 @@ class Processes:
     def mark_plan_as_invalid(self):
         self.invalidation_flag.set()
     
-    def run(self):
-        pass
-        # TODO: implement
-        # Copy from "Environment.run()"
-
     async def next_node_iter(self):
         while True:
             self.invalidation_flag.clear()
@@ -54,3 +50,69 @@ class Processes:
             self.streams.has_input(dep.source, dep.stream)
             for dep in self.deps[node_name]
         )
+
+
+    async def build_node_alone(self, nodereg: INodeRegistry, name: str) -> None:
+        """Build a node. Does not build its dependencies."""
+        node = self.get_node(name)
+
+        deps = list(self.iter_deps(name))
+        for dep in deps:
+            dep_name = dep.source
+            if not self.is_node_built(dep_name):
+                raise ValueError(f"Dependency node '{dep_name}' is not built")
+
+        runtime = NodeRuntime(self, nodereg, self._streams, node.name, deps)
+
+        # Execute the node's function with all dependencies
+        try:
+            await node.func(runtime)
+        except Exception:
+            print(f"Error building node '{name}'")
+            print(f"Function: {node.func.__name__}")
+            print("Dependencies:")
+            for dep in node.deps:
+                print(f"  {dep.source} ({dep.stream}) -> {dep.name}")
+            raise
+
+    async def build_target(
+        self,
+        nodereg: INodeRegistry,
+        target: str,
+        one_step: bool = False,
+    ) -> None:
+        """Build nodes in order.
+
+        Args:
+            env: Environment to build in
+            target: Target node to build
+            one_step: If True, build only one step and exit
+        """
+
+        # Get initial plan
+        plan = self.plan(target)
+        current_node_count = len(self.nodes)
+
+        while True:
+            next_node = None
+            for node_name in plan:
+                node = self.get_node(node_name)
+                if not self.is_node_built(node_name):
+                    next_node = node
+                    break
+            # If no dirty nodes, we're done
+            if next_node is None:
+                break
+
+            # Build the node
+            await self.build_node_alone(nodereg, next_node.name)
+
+            # Check if number of nodes changed
+            new_node_count = len(self.nodes)
+            if new_node_count != current_node_count:
+                # Recalculate plan
+                plan = self.plan(target)
+                current_node_count = new_node_count
+
+            if one_step:  # Exit after building one node if requested
+                break
