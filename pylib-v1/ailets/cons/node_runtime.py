@@ -2,7 +2,6 @@ from dataclasses import dataclass
 from typing import Dict, Optional, Sequence
 
 from .node_dagops import NodeDagops
-from .streams import Streams
 from .atyping import (
     Dependency,
     IEnvironment,
@@ -10,6 +9,7 @@ from .atyping import (
     INodeRegistry,
     INodeRuntime,
     IStream,
+    IStreams,
 )
 
 
@@ -24,7 +24,7 @@ class NodeRuntime(INodeRuntime):
         self,
         env: IEnvironment,
         nodereg: INodeRegistry,
-        streams: Streams,
+        streams: IStreams,
         node_name: str,
         deps: Sequence[Dependency],
     ):

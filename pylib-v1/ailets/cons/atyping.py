@@ -35,6 +35,11 @@ class IStreams(Protocol):
     def has_input(self, node_name: str, dep: "Dependency") -> bool:
         raise NotImplementedError
 
+    def collect_streams(self, deps: Sequence["Dependency"]) -> Sequence[IStream]:
+        raise NotImplementedError
+
+    async def read_dir(self, dir_name: str, node_names: Sequence[str]) -> Sequence[str]:
+        raise NotImplementedError
 
 #
 #
@@ -183,6 +188,9 @@ class IEnvironment(Protocol):
         deps: Optional[Sequence[Dependency]] = None,
         explain: Optional[str] = None,
     ) -> Node:
+        raise NotImplementedError
+
+    def get_node(self, name: str) -> Node:
         raise NotImplementedError
 
     def get_node_names(self) -> Sequence[str]:

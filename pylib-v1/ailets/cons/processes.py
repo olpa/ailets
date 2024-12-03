@@ -55,15 +55,9 @@ class Processes:
 
     async def build_node_alone(self, nodereg: INodeRegistry, name: str) -> None:
         """Build a node. Does not build its dependencies."""
-        node = self.get_node(name)
+        node = self.env.get_node(name)
 
-        deps = list(self.iter_deps(name))
-        for dep in deps:
-            dep_name = dep.source
-            if not self.is_node_built(dep_name):
-                raise ValueError(f"Dependency node '{dep_name}' is not built")
-
-        runtime = NodeRuntime(self, nodereg, self._streams, node.name, deps)
+        runtime = NodeRuntime(self.env, nodereg, self.streams, name, self.deps[name])
 
         # Execute the node's function with all dependencies
         try:
@@ -75,7 +69,7 @@ class Processes:
             print(f"Error building node '{name}'")
             print(f"Function: {node.func.__name__}")
             print("Dependencies:")
-            for dep in node.deps:
+            for dep in self.deps[name]:
                 print(f"  {dep.source} ({dep.stream}) -> {dep.name}")
             raise
 
