@@ -11,6 +11,9 @@ class Processes:
 
         self.deptree_invalidation_flag = asyncio.Event()
 
+        self.finished_nodes: set[str] = set()
+        self.active_nodes: set[str] = set()
+
         # With resolved aliases
         self.deps: Mapping[str, Sequence[Dependency]] = {}
         self.rev_deps: Mapping[str, Sequence[Dependency]] = {}
@@ -37,9 +40,7 @@ class Processes:
         while True:
             self.deptree_invalidation_flag.clear()
             for node_name in self.env.get_node_names():
-                if self.env.is_node_finished(node_name) or self.env.is_node_active(
-                    node_name
-                ):
+                if node_name in self.finished_nodes or node_name in self.active_nodes:
                     continue
                 if self._can_start_node(node_name):
                     yield node_name
@@ -47,8 +48,8 @@ class Processes:
 
     def _can_start_node(self, node_name: str) -> bool:
         return all(
-            self.env.is_node_built(dep.source)
-            or self.streams.has_input(dep.source, dep.stream)
+            dep.source in self.finished_nodes
+            or self.streams.has_input(node_name, dep)
             for dep in self.deps[node_name]
         )
 
@@ -66,7 +67,9 @@ class Processes:
 
         # Execute the node's function with all dependencies
         try:
+            self.active_nodes.add(name)
             await node.func(runtime)
+            self.finished_nodes.add(name)
             self.mark_deptree_as_invalid()
         except Exception:
             print(f"Error building node '{name}'")
