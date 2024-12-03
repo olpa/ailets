@@ -79,38 +79,9 @@ class Processes:
         target: str,
         one_step: bool = False,
     ) -> None:
-        """Build nodes in order.
-
-        Args:
-            env: Environment to build in
-            target: Target node to build
-            one_step: If True, build only one step and exit
-        """
-
-        # Get initial plan
-        plan = self.plan(target)
-        current_node_count = len(self.nodes)
-
-        while True:
-            next_node = None
-            for node_name in plan:
-                node = self.get_node(node_name)
-                if not self.is_node_built(node_name):
-                    next_node = node
-                    break
-            # If no dirty nodes, we're done
-            if next_node is None:
+        async for node_name in self.next_node_iter():
+            await self.build_node_alone(nodereg, node_name)
+            if one_step:
                 break
-
-            # Build the node
-            await self.build_node_alone(nodereg, next_node.name)
-
-            # Check if number of nodes changed
-            new_node_count = len(self.nodes)
-            if new_node_count != current_node_count:
-                # Recalculate plan
-                plan = self.plan(target)
-                current_node_count = new_node_count
-
-            if one_step:  # Exit after building one node if requested
+            if node_name == target:
                 break
