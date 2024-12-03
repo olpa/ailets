@@ -1,5 +1,5 @@
 import asyncio
-from typing import Mapping, Sequence
+from typing import AsyncIterator, Mapping, Sequence
 from ailets.cons.atyping import Dependency, IEnvironment, INodeRegistry, IStreams
 from ailets.cons.node_runtime import NodeRuntime
 
@@ -15,12 +15,12 @@ class Processes:
         self.deps: Mapping[str, Sequence[Dependency]] = {}
         self.rev_deps: Mapping[str, Sequence[Dependency]] = {}
 
-    def resolve_deps(self):
+    def resolve_deps(self) -> None:
         self.deps = {}
         for node_name in self.env.get_node_names():
             self.deps[node_name] = list(self.env.iter_deps(node_name))
 
-        rev_deps = {}
+        rev_deps: dict[str, list[Dependency]] = {}
         for node_name, deps in self.deps.items():
             for dep in deps:
                 if dep.source not in rev_deps:
@@ -30,10 +30,10 @@ class Processes:
                 )
         self.rev_deps = rev_deps
 
-    def mark_deptree_as_invalid(self):
+    def mark_deptree_as_invalid(self) -> None:
         self.deptree_invalidation_flag.set()
 
-    async def next_node_iter(self):
+    async def next_node_iter(self) -> AsyncIterator[str]:
         while True:
             self.deptree_invalidation_flag.clear()
             for node_name in self.env.get_node_names():

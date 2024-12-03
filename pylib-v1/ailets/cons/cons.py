@@ -81,6 +81,9 @@ class Environment(IEnvironment):
             raise KeyError(f"Node {name} not found")
         return self.nodes[name]
 
+    def get_node_names(self) -> Sequence[str]:
+        return list(self.nodes.keys())
+
     def depend(self, target: str, deps: Sequence[Dependency]) -> None:
         """Add dependencies to a node.
 

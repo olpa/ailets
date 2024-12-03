@@ -185,6 +185,9 @@ class IEnvironment(Protocol):
     ) -> Node:
         raise NotImplementedError
 
+    def get_node_names(self) -> Sequence[str]:
+        raise NotImplementedError
+
     def alias(self, alias: str, node_name: Optional[str]) -> None:
         raise NotImplementedError
 
