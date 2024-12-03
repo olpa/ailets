@@ -4,7 +4,7 @@ import json
 import tomllib
 from typing import Sequence
 
-from .typing import (
+from .atyping import (
     Dependency,
     IEnvironment,
     INodeRegistry,
@@ -21,11 +21,11 @@ class CmdlinePromptItem:
     toml: Optional[str] = None
 
 
-def prompt_to_env(
+async def prompt_to_env(
     env: IEnvironment,
     prompt: Sequence[CmdlinePromptItem] = [CmdlinePromptItem("Hello!", "text")],
 ) -> None:
-    def prompt_to_node(prompt_item: CmdlinePromptItem) -> None:
+    async def prompt_to_node(prompt_item: CmdlinePromptItem) -> None:
         if prompt_item.type == "toml":
             return
 
@@ -81,11 +81,11 @@ def prompt_to_env(
 
         with open(prompt_item.value, "rb") as f:
             stream: IStream = env.create_new_stream(node.name, stream_name)
-            stream.get_content().write(f.read())
-            stream.close()
+            await stream.write(f.read())
+            await stream.close()
 
     for prompt_item in prompt:
-        prompt_to_node(prompt_item)
+        await prompt_to_node(prompt_item)
 
 
 def toml_to_env(
@@ -145,7 +145,7 @@ def instantiate_with_deps(
     created_nodes = set()  # Track which nodes we need to set up dependencies for
     visiting: set[str] = set()  # Track nodes being visited for cycle detection
 
-    def create_node_recursive(node_name: str, parent_node_name) -> None:
+    def create_node_recursive(node_name: str, parent_node_name: str) -> None:
         node_name = resolve.get(node_name, node_name)
 
         # Skip if node already exists in environment

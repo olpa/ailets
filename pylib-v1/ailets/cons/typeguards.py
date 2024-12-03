@@ -1,6 +1,6 @@
 from typing import Any, Sequence, TypeGuard
 
-from .typing import (
+from .atyping import (
     Content,
     ContentItem,
     ContentItemImage,

@@ -1,7 +1,7 @@
 import base64
 import json
-from typing import List, Sequence, Tuple
-from ailets.cons.typing import (
+from typing import Any, List, Sequence, Tuple
+from ailets.cons.atyping import (
     Content,
     ContentItem,
     ContentItemFunction,
@@ -18,7 +18,7 @@ headers = {
 }
 
 
-def rewrite_content_item(
+async def rewrite_content_item(
     runtime: INodeRuntime,
     item: ContentItem,
 ) -> Gpt4oContentItem:
@@ -40,9 +40,9 @@ def rewrite_content_item(
     n_streams = runtime.n_of_streams(stream)
     assert n_streams == 1, f"Stream '{stream}' must be exactly one, got {n_streams}"
 
-    fd = runtime.open_read(stream, 0)
-    data = read_all(runtime, fd)
-    runtime.close(fd)
+    fd = await runtime.open_read(stream, 0)
+    data = await read_all(runtime, fd)
+    await runtime.close(fd)
 
     b64_data = base64.b64encode(data).decode("utf-8")
     data_url = f"data:{item['content_type']};base64,{b64_data}"
@@ -52,7 +52,7 @@ def rewrite_content_item(
     }
 
 
-def rewrite_content(
+async def rewrite_content(
     runtime: INodeRuntime,
     content: Content,
 ) -> Tuple[Sequence[Gpt4oContentItem], Sequence[ContentItemFunction]]:
@@ -62,11 +62,11 @@ def rewrite_content(
         if item["type"] == "function":
             tool_calls.append(item)
         else:
-            new_content.append(rewrite_content_item(runtime, item))
+            new_content.append(await rewrite_content_item(runtime, item))
     return new_content, tool_calls
 
 
-def get_overrides(runtime: INodeRuntime) -> dict:
+async def get_overrides(runtime: INodeRuntime) -> dict[str, Any]:
     known_model_params = [
         "messages",
         "model",
@@ -98,20 +98,20 @@ def get_overrides(runtime: INodeRuntime) -> dict:
         "function_call",
         "functions",
     ]
-    overrides: dict = {}
-    for cfg in iter_streams_objects(runtime, "env"):
+    overrides: dict[str, Any] = {}
+    async for cfg in iter_streams_objects(runtime, "env"):
         for key, value in cfg.items():
             if key in known_model_params:
                 overrides[key] = value
     return overrides
 
 
-def messages_to_query(runtime: INodeRuntime) -> None:
+async def messages_to_query(runtime: INodeRuntime) -> None:
     """Convert chat messages into a query."""
 
     messages: list[Gpt4oMessage] = []
-    for message in iter_streams_objects(runtime, None):
-        new_content, tool_calls = rewrite_content(runtime, message["content"])
+    async for message in iter_streams_objects(runtime, None):
+        new_content, tool_calls = await rewrite_content(runtime, message["content"])
         new_message: Gpt4oMessage = message.copy()  # type: ignore[assignment]
         new_message["content"] = new_content
         if tool_calls:
@@ -120,7 +120,7 @@ def messages_to_query(runtime: INodeRuntime) -> None:
         messages.append(new_message)
 
     tools = []
-    for toolspec in iter_streams_objects(runtime, "toolspecs"):
+    async for toolspec in iter_streams_objects(runtime, "toolspecs"):
         tools.append(
             {
                 "type": "function",
@@ -134,7 +134,7 @@ def messages_to_query(runtime: INodeRuntime) -> None:
         "messages": messages,
         **tools_param,
     }
-    body.update(get_overrides(runtime))
+    body.update(await get_overrides(runtime))
 
     value = {
         "url": url,
@@ -143,6 +143,6 @@ def messages_to_query(runtime: INodeRuntime) -> None:
         "body": body,
     }
 
-    fd = runtime.open_write(None)
-    write_all(runtime, fd, json.dumps(value).encode("utf-8"))
-    runtime.close(fd)
+    fd = await runtime.open_write(None)
+    await write_all(runtime, fd, json.dumps(value).encode("utf-8"))
+    await runtime.close(fd)

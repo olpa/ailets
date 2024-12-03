@@ -2,7 +2,7 @@ import json
 import base64
 import hashlib
 from ailets.cons.typeguards import is_content_item_image, is_content_item_text
-from ailets.cons.typing import (
+from ailets.cons.atyping import (
     Content,
     ContentItemImage,
     INodeRuntime,
@@ -12,10 +12,10 @@ from ailets.cons.util import iter_streams_objects, write_all
 need_separator = False
 
 
-def separator(runtime: INodeRuntime, fd: int) -> None:
+async def separator(runtime: INodeRuntime, fd: int) -> None:
     global need_separator
     if need_separator:
-        write_all(runtime, fd, b"\n\n")
+        await write_all(runtime, fd, b"\n\n")
     else:
         need_separator = True
 
@@ -25,11 +25,11 @@ def get_extension(media_type: str) -> str:
     return extension_map.get(media_type, ".bin")
 
 
-def rewrite_image_url(runtime: INodeRuntime, image: ContentItemImage) -> str:
+async def rewrite_image_url(runtime: INodeRuntime, image: ContentItemImage) -> str:
     if stream := image.get("stream"):
         out_name = runtime.get_next_name("out/image")
         out_name += get_extension(image["content_type"])
-        runtime.pass_through_name_name(stream, out_name)
+        await runtime.pass_through_name_name(stream, out_name)
         return out_name
 
     url = image.get("url")
@@ -68,47 +68,47 @@ def rewrite_image_url(runtime: INodeRuntime, image: ContentItemImage) -> str:
     filename = f"out/{md5_hash}{get_extension(media_type)}"
 
     # Write to stream
-    fd_out = runtime.open_write(filename)
-    write_all(runtime, fd_out, data_bytes)
-    runtime.close(fd_out)
+    fd_out = await runtime.open_write(filename)
+    await write_all(runtime, fd_out, data_bytes)
+    await runtime.close(fd_out)
 
     return filename
 
 
-def content_to_markdown(
+async def content_to_markdown(
     runtime: INodeRuntime,
     fd: int,
     content: Content,
 ) -> None:
-    separator(runtime, fd)
+    await separator(runtime, fd)
 
     if is_content_item_text(content):
-        write_all(runtime, fd, content["text"].encode("utf-8"))
+        await write_all(runtime, fd, content["text"].encode("utf-8"))
         return
 
     if is_content_item_image(content):
-        url = rewrite_image_url(runtime, content)
-        write_all(runtime, fd, f"![image]({url})".encode("utf-8"))
+        url = await rewrite_image_url(runtime, content)
+        await write_all(runtime, fd, f"![image]({url})".encode("utf-8"))
         return
 
-    write_all(runtime, fd, json.dumps(content).encode("utf-8"))
+    await write_all(runtime, fd, json.dumps(content).encode("utf-8"))
 
 
-def messages_to_markdown(runtime: INodeRuntime) -> None:
+async def messages_to_markdown(runtime: INodeRuntime) -> None:
     """Convert chat messages to markdown."""
     global need_separator
     need_separator = False
 
-    fd = runtime.open_write(None)
+    fd = await runtime.open_write(None)
 
     try:
-        for message in iter_streams_objects(runtime, None):
+        async for message in iter_streams_objects(runtime, None):
             content = message["content"]
             if isinstance(content, str):
-                separator(runtime, fd)
-                write_all(runtime, fd, content.encode("utf-8"))
+                await separator(runtime, fd)
+                await write_all(runtime, fd, content.encode("utf-8"))
                 continue
             for item in content:
-                content_to_markdown(runtime, fd, item)
+                await content_to_markdown(runtime, fd, item)
     finally:
-        runtime.close(fd)
+        await runtime.close(fd)

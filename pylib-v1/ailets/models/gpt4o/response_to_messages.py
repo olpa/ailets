@@ -1,11 +1,11 @@
 from dataclasses import dataclass
 import json
-from typing import List, Optional, Set
+from typing import Any, List, Optional, Set
 from ailets.cons.typeguards import (
     is_content_item_refusal,
     is_content_item_text,
 )
-from ailets.cons.typing import (
+from ailets.cons.atyping import (
     ChatMessage,
     Content,
     ContentItem,
@@ -30,7 +30,7 @@ class InvalidationFlag:
     fence: Optional[Set[str]] = None
 
 
-def rewrite_content_item(runtime: INodeRuntime, item: dict) -> ContentItem:
+def rewrite_content_item(item: dict[str, Any]) -> ContentItem:
     if item["type"] == "text":
         assert is_content_item_text(item), "Content item must be a text"
         return item
@@ -69,9 +69,7 @@ def _process_single_message(
             ]
         else:
             assert isinstance(gpt4o_content, list), "Content must be a list"
-            new_content = [
-                rewrite_content_item(runtime, item) for item in gpt4o_content
-            ]
+            new_content = [rewrite_content_item(item) for item in gpt4o_content]
 
         message: ChatMessage = gpt4o_message.copy()  # type: ignore[assignment]
         message["content"] = new_content
@@ -94,7 +92,7 @@ def _process_single_message(
     #
     tool_calls: List[ContentItemFunction] = []
     for gpt4o_tool_call in gpt4o_tool_calls:
-        tool_call: ContentItemFunction = gpt4o_tool_call  # type: ignore[assignment]
+        tool_call: ContentItemFunction = gpt4o_tool_call
         tool_calls.append(tool_call)
 
     tool_calls_message: ChatMessage = gpt4o_message.copy()  # type: ignore[assignment]
@@ -136,15 +134,15 @@ def _process_single_message(
     return None
 
 
-def response_to_messages(runtime: INodeRuntime) -> None:
+async def response_to_messages(runtime: INodeRuntime) -> None:
     """Convert multiple responses to messages."""
 
-    output = runtime.open_write(None)
+    output = await runtime.open_write(None)
 
     invalidation_flag = InvalidationFlag(is_invalidated=False)
     messages: List[ChatMessage] = []
 
-    for response in iter_streams_objects(runtime, None):
+    async for response in iter_streams_objects(runtime, None):
         assert isinstance(response, dict), "Response must be a dictionary"
         assert "choices" in response, "Response must have 'choices' key"
         assert isinstance(response["choices"], list), "'choices' must be a list"
@@ -156,5 +154,5 @@ def response_to_messages(runtime: INodeRuntime) -> None:
                 messages.append(message)
 
     value = json.dumps(messages).encode("utf-8")
-    write_all(runtime, output, value)
-    runtime.close(output)
+    await write_all(runtime, output, value)
+    await runtime.close(output)

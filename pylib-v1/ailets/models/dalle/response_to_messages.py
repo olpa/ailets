@@ -1,6 +1,6 @@
 import json
 from typing import Optional
-from ailets.cons.typing import (
+from ailets.cons.atyping import (
     ChatMessage,
     ContentItemImage,
     ContentItemText,
@@ -10,12 +10,12 @@ from ailets.cons.typing import (
 from ailets.cons.util import iter_streams_objects, write_all
 
 
-def response_to_messages(runtime: INodeRuntime) -> None:
+async def response_to_messages(runtime: INodeRuntime) -> None:
     """Convert DALL-E response to messages."""
 
-    output_fd = runtime.open_write(None)
+    output_fd = await runtime.open_write(None)
 
-    for response in iter_streams_objects(runtime, None):
+    async for response in iter_streams_objects(runtime, None):
         # `response` format:
         # {
         #   "created": 1726961295,
@@ -57,6 +57,6 @@ def response_to_messages(runtime: INodeRuntime) -> None:
                 "role": "assistant",
                 "content": content,
             }
-            write_all(runtime, output_fd, json.dumps(message).encode("utf-8"))
+            await write_all(runtime, output_fd, json.dumps(message).encode("utf-8"))
 
-    runtime.close(output_fd)
+    await runtime.close(output_fd)

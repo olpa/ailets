@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import argparse
+import asyncio
 import sys
 import localsetup  # noqa: F401
 from typing import Iterator, Literal, Optional, Tuple
@@ -19,7 +20,7 @@ import os
 from urllib.parse import urlparse
 
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="AI Command Line Tool")
 
     # Required action argument
@@ -186,7 +187,7 @@ def get_prompt(prompt_args: list[str]) -> list[CmdlinePromptItem]:
     return items
 
 
-def main():
+async def main() -> None:
     args = parse_args()
     assert args.model in [
         "gpt4o",
@@ -203,7 +204,7 @@ def main():
 
     if args.load_state:
         with open(args.load_state, "r") as f:
-            env = Environment.from_json(f, nodereg)
+            env = await Environment.from_json(f, nodereg)
         toml_to_env(env, toml=prompt)
         target_node_name = next(
             node_name
@@ -215,7 +216,7 @@ def main():
         env = Environment()
         toml_to_env(env, toml=prompt)
         toolspecs_to_env(env, nodereg, args.tools)
-        prompt_to_env(env, prompt=prompt)
+        await prompt_to_env(env, prompt=prompt)
 
         chat_node_name = instantiate_with_deps(env, nodereg, ".prompt_to_messages", {})
         env.alias(".chat_messages", chat_node_name)
@@ -233,23 +234,26 @@ def main():
     if args.dry_run:
         env.print_dependency_tree(target_node_name)
     else:
-        env.build_target(nodereg, stop_node_name, one_step=args.one_step)
+        await env.build_target(nodereg, stop_node_name, one_step=args.one_step)
 
     if args.save_state:
         with open(args.save_state, "w") as f:
-            env.to_json(f)
+            await env.to_json(f)
 
     if not args.dry_run:
         fs_output_streams = env.get_fs_output_streams()
         if len(fs_output_streams):
             os.makedirs(args.download_to, exist_ok=True)
         for stream in fs_output_streams:
-            with open(
-                os.path.join(args.download_to, os.path.basename(stream.stream_name)),
-                "wb",
-            ) as f:
-                f.write(stream.content.getvalue())
+            name = os.path.basename(stream.get_name() or "None")
+            with open(os.path.join(args.download_to, name), "wb") as f:
+                content = await stream.read(0, -1)
+                f.write(content)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nCancelled by user")
+        sys.exit(1)

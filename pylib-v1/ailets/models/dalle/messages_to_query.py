@@ -1,10 +1,10 @@
 import json
-from typing import Optional, Sequence, TypedDict, Union
+from typing import Any, Optional, Sequence, TypedDict, Union
 from ailets.cons.typeguards import (
     is_content_item_image,
     is_content_item_text,
 )
-from ailets.cons.typing import (
+from ailets.cons.atyping import (
     Content,
     ContentItemImage,
     INodeRuntime,
@@ -41,32 +41,34 @@ def task_to_headers(task: str) -> dict[str, str]:
         }
 
 
-def to_binary_body_stream(runtime: INodeRuntime, task: str, body: dict) -> str:
+async def to_binary_body_stream(
+    runtime: INodeRuntime, task: str, body: dict[str, Any]
+) -> str:
     if task == "variations":
         body = body.copy()
         del body["prompt"]
 
     stream_name = runtime.get_next_name("query_body")
-    fd = runtime.open_write(stream_name)
+    fd = await runtime.open_write(stream_name)
 
     for key, value in body.items():
-        write_all(runtime, fd, f"--{boundary}\r\n".encode("utf-8"))
-        write_all(
+        await write_all(runtime, fd, f"--{boundary}\r\n".encode("utf-8"))
+        await write_all(
             runtime,
             fd,
             f'Content-Disposition: form-data; name="{key}"'.encode("utf-8"),
         )
         if is_content_item_image(value):
-            write_all(runtime, fd, b'; filename="image.png"\r\n')
-            write_all(runtime, fd, b"Content-Type: image/png\r\n\r\n")
-            runtime.pass_through_name_fd(value["stream"], fd)
-            write_all(runtime, fd, b"\r\n")
+            await write_all(runtime, fd, b'; filename="image.png"\r\n')
+            await write_all(runtime, fd, b"Content-Type: image/png\r\n\r\n")
+            await runtime.pass_through_name_fd(value["stream"], fd)
+            await write_all(runtime, fd, b"\r\n")
         else:
             value = str(value)
-            write_all(runtime, fd, f"\r\n\r\n{value}\r\n".encode("utf-8"))
+            await write_all(runtime, fd, f"\r\n\r\n{value}\r\n".encode("utf-8"))
 
-    write_all(runtime, fd, f"--{boundary}--\r\n".encode("utf-8"))
-    runtime.close(fd)
+    await write_all(runtime, fd, f"--{boundary}--\r\n".encode("utf-8"))
+    await runtime.close(fd)
 
     return stream_name
 
@@ -77,13 +79,13 @@ class ExtractedPrompt(TypedDict):
     mask: Optional[ContentItemImage]
 
 
-def read_stream(runtime: INodeRuntime, stream_name: str) -> bytes:
+async def read_stream(runtime: INodeRuntime, stream_name: str) -> bytes:
     n = runtime.n_of_streams(stream_name)
     assert n == 1, f"Expected exactly one stream for {stream_name}, got {n}"
 
-    fd = runtime.open_read(stream_name, 0)
-    content = read_all(runtime, fd)
-    runtime.close(fd)
+    fd = await runtime.open_read(stream_name, 0)
+    content = await read_all(runtime, fd)
+    await runtime.close(fd)
     return content
 
 
@@ -107,9 +109,9 @@ def update_prompt(prompt: ExtractedPrompt, content: Content) -> None:
             raise ValueError(f"Unsupported content type: {part}")
 
 
-def messages_to_query(runtime: INodeRuntime) -> None:
+async def messages_to_query(runtime: INodeRuntime) -> None:
     """Convert prompt message into a DALL-E query."""
-    params = read_env_stream(runtime)
+    params = await read_env_stream(runtime)
     task = params.get("dalle_task", "generations")
     assert task in (
         "generations",
@@ -118,10 +120,10 @@ def messages_to_query(runtime: INodeRuntime) -> None:
     ), "Invalid DALL-E task, expected one of: generations, variations, edits"
 
     prompt = ExtractedPrompt(prompt_parts=[], image=None, mask=None)
-    for message in iter_streams_objects(runtime, None):
+    async for message in iter_streams_objects(runtime, None):
         role = message.get("role")
         if role != "user":
-            log(runtime, "info", f"Skipping message with role {role}")
+            await log(runtime, "info", f"Skipping message with role {role}")
             continue
         content = message.get("content")
         assert isinstance(content, Sequence), "Content must be a list"
@@ -136,13 +138,13 @@ def messages_to_query(runtime: INodeRuntime) -> None:
         "response_format": params.get("response_format", "url"),
     }
 
-    body: Union[dict, str]
+    body: Union[dict[str, Any], str]
     if task == "generations":
         body_field = "body"
         body = shared_params
     else:
         body_field = "body_stream"
-        body = to_binary_body_stream(
+        body = await to_binary_body_stream(
             runtime,
             task,
             {
@@ -159,6 +161,6 @@ def messages_to_query(runtime: INodeRuntime) -> None:
         body_field: body,
     }
 
-    output = runtime.open_write(None)
-    write_all(runtime, output, json.dumps(value).encode("utf-8"))
-    runtime.close(output)
+    output = await runtime.open_write(None)
+    await write_all(runtime, output, json.dumps(value).encode("utf-8"))
+    await runtime.close(output)

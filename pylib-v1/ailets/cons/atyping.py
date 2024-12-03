@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
-from io import BytesIO
 from typing import (
     Any,
+    Awaitable,
     Callable,
     Dict,
     Iterator,
@@ -18,10 +18,16 @@ from typing import (
 
 
 class IStream(Protocol):
-    def get_content(self) -> BytesIO:
+    async def read(self, pos: int, size: int = -1) -> bytes:
         raise NotImplementedError
 
-    def close(self) -> None:
+    async def write(self, data: bytes) -> int:
+        raise NotImplementedError
+
+    async def close(self) -> None:
+        raise NotImplementedError
+
+    def get_name(self) -> Optional[str]:
         raise NotImplementedError
 
 
@@ -44,22 +50,27 @@ class Dependency:
     source: str
     name: Optional[str] = None
     stream: Optional[str] = None
-    schema: Optional[dict] = None
+    schema: Optional[dict[str, Any]] = None
 
-    def to_json(self) -> list:
+    def to_json(
+        self,
+    ) -> Tuple[Optional[str], str, Optional[str], Optional[dict[str, Any]]]:
         """Convert to JSON-serializable format.
 
         Returns:
             List of [dep_name, node_name, stream_name, schema]
         """
-        return [self.name, self.source, self.stream, self.schema]
+        return (self.name, self.source, self.stream, self.schema)
 
     @classmethod
-    def from_json(cls, data: list) -> "Dependency":
+    def from_json(
+        cls,
+        data: Tuple[Optional[str], str, Optional[str], Optional[dict[str, Any]]],
+    ) -> "Dependency":
         """Create dependency from JSON data.
 
         Args:
-            data: List of [dep_name, node_name, stream_name, schema]
+            data: Tuple of [dep_name, node_name, stream_name, schema]
         """
         return cls(name=data[0], source=data[1], stream=data[2], schema=data[3])
 
@@ -67,7 +78,7 @@ class Dependency:
 @dataclass(frozen=True)
 class Node:
     name: str
-    func: Callable[..., Any]
+    func: Callable[..., Awaitable[Any]]
     deps: List[Dependency] = field(default_factory=list)  # [(node_name, dep_name)]
     explain: Optional[str] = field(default=None)  # New field for explanation
 
@@ -113,19 +124,19 @@ class INodeRuntime(Protocol):
     def n_of_streams(self, stream_name: Optional[str]) -> int:
         raise NotImplementedError
 
-    def open_read(self, stream_name: Optional[str], index: int) -> int:
+    async def open_read(self, stream_name: Optional[str], index: int) -> int:
         raise NotImplementedError
 
-    def open_write(self, stream_name: Optional[str]) -> int:
+    async def open_write(self, stream_name: Optional[str]) -> int:
         raise NotImplementedError
 
-    def read(self, fd: int, buffer: bytearray, count: int) -> int:
+    async def read(self, fd: int, buffer: bytearray, count: int) -> int:
         raise NotImplementedError
 
-    def write(self, fd: int, buffer: bytes, count: int) -> int:
+    async def write(self, fd: int, buffer: bytes, count: int) -> int:
         raise NotImplementedError
 
-    def close(self, fd: int) -> None:
+    async def close(self, fd: int) -> None:
         raise NotImplementedError
 
     def dagops(self) -> INodeDagops:
@@ -134,13 +145,15 @@ class INodeRuntime(Protocol):
     def get_next_name(self, base_name: str) -> str:
         raise NotImplementedError
 
-    def read_dir(self, dir_name: str) -> Sequence[str]:
+    async def read_dir(self, dir_name: str) -> Sequence[str]:
         raise NotImplementedError
 
-    def pass_through_name_name(self, in_stream_name: str, out_stream_name: str) -> None:
+    async def pass_through_name_name(
+        self, in_stream_name: str, out_stream_name: str
+    ) -> None:
         raise NotImplementedError
 
-    def pass_through_name_fd(self, in_stream_name: str, out_fd: int) -> None:
+    async def pass_through_name_fd(self, in_stream_name: str, out_fd: int) -> None:
         raise NotImplementedError
 
 
@@ -148,7 +161,7 @@ class INodeRuntime(Protocol):
 class NodeDescFunc:
     name: str
     inputs: Sequence[Dependency]
-    func: Callable[[INodeRuntime], None]
+    func: Callable[[INodeRuntime], Awaitable[None]]
 
 
 class IEnvironment(Protocol):
@@ -197,9 +210,6 @@ class IEnvironment(Protocol):
         raise NotImplementedError
 
     def get_env_stream(self) -> IStream:
-        raise NotImplementedError
-
-    def read_dir(self, node_name: str, dir_name: str) -> Sequence[str]:
         raise NotImplementedError
 
 

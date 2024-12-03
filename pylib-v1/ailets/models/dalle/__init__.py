@@ -1,4 +1,4 @@
-from ailets.cons.typing import NodeDesc, Dependency
+from ailets.cons.atyping import NodeDesc, Dependency
 
 messages_to_query = NodeDesc(
     name="messages_to_query",

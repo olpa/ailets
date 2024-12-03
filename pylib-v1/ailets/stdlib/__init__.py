@@ -1,4 +1,4 @@
-from ailets.cons.typing import NodeDesc, Dependency
+from ailets.cons.atyping import NodeDesc, Dependency
 
 prompt_to_messages = NodeDesc(
     name="prompt_to_messages",

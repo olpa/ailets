@@ -1,4 +1,5 @@
 from typing import (
+    Awaitable,
     Dict,
     Any,
     Callable,
@@ -14,7 +15,14 @@ import json
 
 from .plugin import NodeRegistry
 
-from .typing import Dependency, IEnvironment, INodeRegistry, Node, IStream
+from .atyping import (
+    Dependency,
+    IEnvironment,
+    INodeRegistry,
+    INodeRuntime,
+    Node,
+    IStream,
+)
 from .node_runtime import NodeRuntime
 from .streams import Streams
 from .util import to_basename
@@ -95,7 +103,7 @@ class Environment(IEnvironment):
             explain=node.explain,
         )
 
-    def build_node_alone(self, nodereg: INodeRegistry, name: str) -> None:
+    async def build_node_alone(self, nodereg: INodeRegistry, name: str) -> None:
         """Build a node. Does not build its dependencies."""
         self._ever_started.add(name)
         node = self.get_node(name)
@@ -110,7 +118,7 @@ class Environment(IEnvironment):
 
         # Execute the node's function with all dependencies
         try:
-            node.func(runtime)
+            await node.func(runtime)
         except Exception:
             print(f"Error building node '{name}'")
             print(f"Function: {node.func.__name__}")
@@ -119,7 +127,7 @@ class Environment(IEnvironment):
                 print(f"  {dep.source} ({dep.stream}) -> {dep.name}")
             raise
 
-    def build_target(
+    async def build_target(
         self,
         nodereg: INodeRegistry,
         target: str,
@@ -149,7 +157,7 @@ class Environment(IEnvironment):
                 break
 
             # Build the node
-            self.build_node_alone(nodereg, next_node.name)
+            await self.build_node_alone(nodereg, next_node.name)
 
             # Check if number of nodes changed
             new_node_count = len(self.nodes)
@@ -301,12 +309,15 @@ class Environment(IEnvironment):
 
         # Try to get function from map, if not found and name has a number suffix,
         # try without the suffix
+        func: Callable[[INodeRuntime], Awaitable[None]]
         base_name = to_basename(name)
         if base_name.startswith("defunc."):
             base_name = base_name[7:]
         if base_name == "value":
             # Special case for typed value nodes
-            def func(_): ...  # Dummy function since real value is in streams
+            async def func(
+                _: INodeRuntime,
+            ) -> None: ...
 
         else:
             node_desc = nodereg.nodes.get(base_name)
@@ -340,9 +351,11 @@ class Environment(IEnvironment):
         """
         full_name = self.get_next_name("value")
 
+        async def async_dummy(runtime: INodeRuntime) -> None: ...
+
         node = Node(
             name=full_name,
-            func=lambda _: None,  # Dummy function since value is in streams
+            func=async_dummy,
             deps=[],  # No dependencies
             explain=explain,
         )
@@ -350,20 +363,18 @@ class Environment(IEnvironment):
         self.nodes[full_name] = node
 
         # Add streams for value and type
-        value_stream = self._streams.create(full_name, None)
-        value_stream.content.write(value)
-        value_stream.is_finished = True
+        self._streams.create(full_name, None, value, is_closed=True)
 
         return node
 
-    def to_json(self, f: TextIO) -> None:
+    async def to_json(self, f: TextIO) -> None:
         """Convert environment to JSON-serializable dict."""
         # Save nodes
         for node in self.nodes.values():
             json.dump(node.to_json(), f, indent=2)
             f.write("\n")
 
-        self._streams.to_json(f)
+        await self._streams.to_json(f)
 
         json.dump({"env": self._for_env_stream}, f, indent=2)
         f.write("\n")
@@ -373,7 +384,7 @@ class Environment(IEnvironment):
             f.write("\n")
 
     @classmethod
-    def from_json(cls, f: TextIO, nodereg: NodeRegistry) -> "Environment":
+    async def from_json(cls, f: TextIO, nodereg: NodeRegistry) -> "Environment":
         """Create environment from JSON data."""
         env = cls()
 
@@ -394,8 +405,8 @@ class Environment(IEnvironment):
                 obj_data, pos = decoder.raw_decode(content, pos)
                 if "deps" in obj_data:
                     env.load_node_state(obj_data, nodereg)
-                elif "is_finished" in obj_data:
-                    env._streams.add_stream_from_json(obj_data)
+                elif "is_closed" in obj_data:
+                    await env._streams.add_stream_from_json(obj_data)
                 elif "alias" in obj_data:
                     env._aliases[obj_data["alias"]] = obj_data["names"]
                 elif "env" in obj_data:
@@ -425,7 +436,7 @@ class Environment(IEnvironment):
             True if the node has at least one finished stream, False otherwise
         """
         return any(
-            stream.is_finished
+            stream.is_closed()
             for stream in self._streams._streams
             if stream.node_name == node_name
         )
