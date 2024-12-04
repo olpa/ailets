@@ -10,8 +10,6 @@ from typing import (
     Tuple,
 )
 
-from .plugin import NodeRegistry
-
 from .atyping import (
     Dependency,
     IEnvironment,

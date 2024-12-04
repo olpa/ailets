@@ -174,10 +174,7 @@ class NodeDescFunc:
     func: Callable[[INodeRuntime], Awaitable[None]]
 
 
-class IEnvironment(Protocol):
-    def create_new_stream(self, node_name: str, stream_name: Optional[str]) -> IStream:
-        raise NotImplementedError
-
+class IDagops(Protocol):
     def has_node(self, node_name: str) -> bool:
         raise NotImplementedError
 
@@ -213,16 +210,7 @@ class IEnvironment(Protocol):
     ) -> Tuple[Dict[str, Node], Dict[str, List[str]]]:
         raise NotImplementedError
 
-    def get_next_seqno(self) -> int:
-        raise NotImplementedError
-
     def get_next_name(self, full_name: str) -> str:
-        raise NotImplementedError
-
-    def update_for_env_stream(self, params: Dict[str, Any]) -> None:
-        raise NotImplementedError
-
-    def get_env_stream(self) -> IStream:
         raise NotImplementedError
 
 
