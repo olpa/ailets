@@ -1,11 +1,15 @@
+import base64
 import json
 from typing import Awaitable, Callable, TextIO, Tuple, Optional, Set
 import json
 from typing import Dict, Any
 
+from ailets.cons.async_buf import AsyncBuffer
 from ailets.cons.atyping import Dependency, INodeRuntime, Node
 from ailets.cons.seqno import Seqno
+from ailets.cons.streams import Stream
 from ailets.cons.util import to_basename
+from ailets.cons.environment import Environment
 
 from .plugin import NodeRegistry
 
@@ -67,17 +71,39 @@ def load_node(
     return node
 
 
+async def dump_stream(stream: Stream, f: TextIO) -> None:
+    b = await stream.read(pos=0, size=-1)
+    try:
+        content_field = "content"
+        content = b.decode("utf-8")
+    except UnicodeDecodeError:
+        content_field = "b64_content"
+        content = base64.b64encode(b).decode("utf-8")
+    json.dump({
+        "node": stream.node_name,
+        "name": stream.stream_name,
+        "is_closed": stream.is_closed(),
+        content_field: content,
+    }, f, indent=2)
+
+async def load_stream(data: dict[str, Any]) -> Stream:
+    if "b64_content" in data:
+        content = base64.b64decode(data["b64_content"])
+    else:
+        content = data["content"].encode("utf-8")
+    buf = AsyncBuffer()
+    await buf.write(content)
+    if data["is_closed"]:
+        await buf.close()
+    return Stream(
+        node_name=data["node"],
+        stream_name=data["name"],
+        buf=buf,
+    )
+
 async def dump_environment(env: Environment, f: TextIO) -> None:
-    """Convert environment to JSON file.
-    
-    Args:
-        env: Environment to serialize
-        f: Text file to write to
-    """
-    # Save nodes
-    for node in env.nodes.values():
-        json.dump(node.to_json(), f, indent=2)
-        f.write("\n")
+    for node in env.dagops.nodes.values():
+        dump_node(node, f)
 
     # Save streams
     await env._streams.to_json(f)

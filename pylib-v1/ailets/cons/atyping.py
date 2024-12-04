@@ -70,15 +70,6 @@ class Node:
     deps: List[Dependency] = field(default_factory=list)  # [(node_name, dep_name)]
     explain: Optional[str] = field(default=None)  # New field for explanation
 
-    def to_json(self) -> Dict[str, Any]:
-        """Convert node state to a JSON-serializable dict."""
-        return {
-            "name": self.name,
-            "deps": [dep.to_json() for dep in self.deps],
-            "explain": self.explain,  # Add explain field to JSON
-            # Skip func as it's not serializable
-        }
-
 
 @dataclass(frozen=True)
 class NodeDesc:

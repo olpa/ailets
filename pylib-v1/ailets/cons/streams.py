@@ -85,15 +85,6 @@ class Streams:
     def _find_stream(
         self, node_name: str, stream_name: Optional[str]
     ) -> Optional[Stream]:
-        """Find a stream by node name and stream name.
-
-        Args:
-            node_name: Name of the node
-            stream_name: Name of the stream
-
-        Returns:
-            The stream if found, None otherwise
-        """
         return next(
             (
                 s
@@ -104,7 +95,6 @@ class Streams:
         )
 
     def get(self, node_name: str, stream_name: Optional[str]) -> Stream:
-        """Get a stream by node name and stream name."""
         stream = self._find_stream(node_name, stream_name)
         if stream is None:
             raise ValueError(f"Stream not found: {node_name}.{stream_name}")
@@ -136,12 +126,6 @@ class Streams:
         """Mark a stream as finished."""
         stream = self.get(node_name, stream_name)
         await stream.close()
-
-    async def to_json(self, f: TextIO) -> None:
-        """Convert all streams to JSON-serializable format."""
-        for stream in self._streams:
-            json.dump(await stream.to_json(), f, indent=2)
-            f.write("\n")
 
     async def add_stream_from_json(self, stream_data: dict[str, Any]) -> Stream:
         """Load a stream's state from JSON data."""
