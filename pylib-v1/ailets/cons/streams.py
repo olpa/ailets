@@ -28,39 +28,6 @@ class Stream:
     def is_closed(self) -> bool:
         return self.buf.is_closed()
 
-    async def to_json(self) -> dict[str, Any]:
-        """Convert stream to JSON-serializable dict."""
-        b = await self.read(pos=0, size=-1)
-        try:
-            content_field = "content"
-            content = b.decode("utf-8")
-        except UnicodeDecodeError:
-            content_field = "b64_content"
-            content = base64.b64encode(b).decode("utf-8")
-        return {
-            "node": self.node_name,
-            "name": self.stream_name,
-            "is_closed": self.is_closed(),
-            content_field: content,
-        }
-
-    @classmethod
-    async def from_json(cls, data: dict[str, Any]) -> "Stream":
-        """Create stream from JSON data."""
-        if "b64_content" in data:
-            content = base64.b64decode(data["b64_content"])
-        else:
-            content = data["content"].encode("utf-8")
-        buf = AsyncBuffer()
-        await buf.write(content)
-        if data["is_closed"]:
-            await buf.close()
-        return cls(
-            node_name=data["node"],
-            stream_name=data["name"],
-            buf=buf,
-        )
-
 
 def create_log_stream() -> Stream:
     class LogStream(AsyncBuffer):

@@ -104,29 +104,18 @@ async def load_stream(data: dict[str, Any]) -> Stream:
 async def dump_environment(env: Environment, f: TextIO) -> None:
     for node in env.dagops.nodes.values():
         dump_node(node, f)
-
-    # Save streams
-    await env._streams.to_json(f)
-
-    # Save environment stream data
-    json.dump({"env": env._for_env_stream}, f, indent=2)
-    f.write("\n")
-
-    # Save aliases
-    for alias, names in env._aliases.items():
+        f.write("\n")
+    for alias, names in env.dagops.aliases.items():
         json.dump({"alias": alias, "names": list(names)}, f, indent=2)
         f.write("\n")
+    for stream in env.streams._streams.values():
+        await dump_stream(stream, f)
+        f.write("\n")
+    json.dump({"env": env.for_env_stream}, f, indent=2)
+    f.write("\n")
+
 
 async def load_environment(f: TextIO, nodereg: NodeRegistry) -> Environment:
-    """Create environment from JSON file.
-    
-    Args:
-        f: Text file to read from
-        nodereg: Node registry for function lookup
-        
-    Returns:
-        Loaded Environment instance
-    """
     env = Environment()
     
     content = f.read()
@@ -135,7 +124,6 @@ async def load_environment(f: TextIO, nodereg: NodeRegistry) -> Environment:
 
     # Decode multiple JSON objects from the content
     while pos < len(content):
-        # Skip whitespace
         while pos < len(content) and content[pos].isspace():
             pos += 1
         if pos >= len(content):
@@ -145,14 +133,15 @@ async def load_environment(f: TextIO, nodereg: NodeRegistry) -> Environment:
         try:
             obj_data, pos = decoder.raw_decode(content, pos)
             if "deps" in obj_data:
-                env.load_node_state(obj_data, nodereg)
-                self.nodes[name] = node
+                node = load_node(obj_data, nodereg, env.seqno)
+                env.dagops.nodes[node.name] = node
             elif "is_closed" in obj_data:
-                await env._streams.add_stream_from_json(obj_data)
+                stream = await load_stream(obj_data)
+                env.streams.add_stream(stream)
             elif "alias" in obj_data:
-                env._aliases[obj_data["alias"]] = obj_data["names"]
+                env.dagops.aliases[obj_data["alias"]] = obj_data["names"]
             elif "env" in obj_data:
-                env._for_env_stream.update(obj_data["env"])
+                env.for_env_stream.update(obj_data["env"])
             else:
                 raise ValueError(f"Unknown object data: {obj_data}")
         except json.JSONDecodeError as e:
