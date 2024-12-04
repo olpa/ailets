@@ -6,9 +6,9 @@ from ailets.cons.streams import Streams
 
 
 class Environment:
-    def __init__(self):
+    def __init__(self) -> None:
         self.for_env_stream: Dict[str, Any] = {}
         self.seqno = Seqno()
-        self.dagops = Dagops()
+        self.dagops = Dagops(self.seqno)
         self.streams = Streams()
         self.nodereg = NodeRegistry()
