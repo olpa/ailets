@@ -214,6 +214,7 @@ class IEnvironment(Protocol):
     seqno: Seqno
     dagops: IDagops
     streams: IStreams
+    nodereg: INodeRegistry
 
 #
 #

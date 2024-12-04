@@ -1,5 +1,6 @@
 from typing import Any, Dict
 from ailets.cons.dagops import Dagops
+from ailets.cons.plugin import NodeRegistry
 from ailets.cons.seqno import Seqno
 from ailets.cons.streams import Streams
 
@@ -10,3 +11,4 @@ class Environment:
         self.seqno = Seqno()
         self.dagops = Dagops()
         self.streams = Streams()
+        self.nodereg = NodeRegistry()
