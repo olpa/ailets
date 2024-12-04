@@ -41,6 +41,7 @@ class IStreams(Protocol):
     async def read_dir(self, dir_name: str, node_names: Sequence[str]) -> Sequence[str]:
         raise NotImplementedError
 
+
 #
 #
 #

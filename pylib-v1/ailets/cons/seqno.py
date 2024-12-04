@@ -4,7 +4,7 @@ class Seqno:
 
     def next_seqno(self) -> int:
         """Get the next sequence number.
-        
+
         Returns:
             The next sequence number
         """

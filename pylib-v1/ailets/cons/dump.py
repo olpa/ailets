@@ -19,6 +19,7 @@ def dependency_to_json(
 ) -> tuple[Optional[str], str, Optional[str], Optional[dict[str, Any]]]:
     return dep.astuple()
 
+
 def load_dependency(
     obj: tuple[Optional[str], str, Optional[str], Optional[dict[str, Any]]],
 ) -> Dependency:
@@ -26,17 +27,22 @@ def load_dependency(
 
 
 def dump_node(node: Node, f: TextIO) -> None:
-    json.dump({
-        "name": node.name,
-        "deps": [dependency_to_json(dep) for dep in node.deps],
-        "explain": node.explain,  # Add explain field to JSON
-        # Skip func as it's not serializable
-    }, f, indent=2)
+    json.dump(
+        {
+            "name": node.name,
+            "deps": [dependency_to_json(dep) for dep in node.deps],
+            "explain": node.explain,  # Add explain field to JSON
+            # Skip func as it's not serializable
+        },
+        f,
+        indent=2,
+    )
+
 
 def load_node(
-        node_json: Dict[str, Any],
-        nodereg: NodeRegistry,
-        seqno: Seqno,
+    node_json: Dict[str, Any],
+    nodereg: NodeRegistry,
+    seqno: Seqno,
 ) -> Node:
     name = node_json["name"]
 
@@ -59,7 +65,7 @@ def load_node(
     if "." in name:
         loaded_suffix = int(name.split(".")[-1])
         seqno.at_least(loaded_suffix + 1)
-    
+
     deps = [load_dependency(dep) for dep in node_json["deps"]]
 
     node = Node(
@@ -79,12 +85,17 @@ async def dump_stream(stream: Stream, f: TextIO) -> None:
     except UnicodeDecodeError:
         content_field = "b64_content"
         content = base64.b64encode(b).decode("utf-8")
-    json.dump({
-        "node": stream.node_name,
-        "name": stream.stream_name,
-        "is_closed": stream.is_closed(),
-        content_field: content,
-    }, f, indent=2)
+    json.dump(
+        {
+            "node": stream.node_name,
+            "name": stream.stream_name,
+            "is_closed": stream.is_closed(),
+            content_field: content,
+        },
+        f,
+        indent=2,
+    )
+
 
 async def load_stream(data: dict[str, Any]) -> Stream:
     if "b64_content" in data:
@@ -100,6 +111,7 @@ async def load_stream(data: dict[str, Any]) -> Stream:
         stream_name=data["name"],
         buf=buf,
     )
+
 
 async def dump_environment(env: Environment, f: TextIO) -> None:
     for node in env.dagops.nodes.values():
@@ -117,7 +129,7 @@ async def dump_environment(env: Environment, f: TextIO) -> None:
 
 async def load_environment(f: TextIO, nodereg: NodeRegistry) -> Environment:
     env = Environment()
-    
+
     content = f.read()
     decoder = json.JSONDecoder()
     pos = 0
@@ -149,6 +161,7 @@ async def load_environment(f: TextIO, nodereg: NodeRegistry) -> Environment:
             raise
 
     return env
+
 
 def print_dependency_tree(
     self,
@@ -205,9 +218,7 @@ def print_dependency_tree(
 
     # Print default dependencies (param_name is None)
     for dep_name, stream_name in deps_by_param.get(None, []):
-        self.print_dependency_tree(
-            dep_name, next_indent, visited.copy(), stream_name
-        )
+        self.print_dependency_tree(dep_name, next_indent, visited.copy(), stream_name)
 
     # Print named dependencies grouped by parameter
     for param_name, dep_names in deps_by_param.items():

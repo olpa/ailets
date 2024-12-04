@@ -20,6 +20,7 @@ from .atyping import (
 from .util import to_basename
 from .seqno import Seqno
 
+
 class Dagops(IDagops):
     def __init__(self, seqno: Seqno) -> None:
         self.nodes: Dict[str, Node] = {}
