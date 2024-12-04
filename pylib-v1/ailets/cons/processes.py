@@ -1,10 +1,10 @@
 import asyncio
 from typing import AsyncIterator, Mapping, Sequence
-from ailets.cons.atyping import Dependency, IEnvironment
+from ailets.cons.atyping import Dependency, IEnvironment, IProcesses
 from ailets.cons.node_runtime import NodeRuntime
 
 
-class Processes:
+class Processes(IProcesses):
     def __init__(self, env: IEnvironment):
         self.env = env
         self.streams = env.streams
@@ -18,6 +18,12 @@ class Processes:
         # With resolved aliases
         self.deps: Mapping[str, Sequence[Dependency]] = {}
         self.rev_deps: Mapping[str, Sequence[Dependency]] = {}
+
+    def is_node_finished(self, name: str) -> bool:
+        return name in self.finished_nodes
+
+    def is_node_active(self, name: str) -> bool:
+        return name in self.active_nodes
 
     def resolve_deps(self) -> None:
         self.deps = {}

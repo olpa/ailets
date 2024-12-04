@@ -4,7 +4,7 @@ from typing import Awaitable, Callable, List, TextIO, Tuple, Optional, Set
 from typing import Dict, Any
 
 from ailets.cons.async_buf import AsyncBuffer
-from ailets.cons.atyping import Dependency, INodeRuntime, Node
+from ailets.cons.atyping import Dependency, INodeRuntime, IProcesses, Node
 from ailets.cons.dagops import Dagops
 from ailets.cons.seqno import Seqno
 from ailets.cons.streams import Stream
@@ -16,14 +16,14 @@ from .plugin import NodeRegistry
 
 def dependency_to_json(
     dep: Dependency,
-) -> tuple[Optional[str], str, Optional[str], Optional[dict[str, Any]]]:
-    return dep.astuple()
+) -> tuple[str, Optional[str], Optional[str], Optional[dict[str, Any]]]:
+    return (dep.source, dep.name, dep.stream, dep.schema)
 
 
 def load_dependency(
-    obj: tuple[Optional[str], str, Optional[str], Optional[dict[str, Any]]],
+    obj: tuple[str, Optional[str], Optional[str], Optional[dict[str, Any]]],
 ) -> Dependency:
-    return Dependency.from_tuple(*obj)
+    return Dependency(source=obj[0], name=obj[1], stream=obj[2], schema=obj[3])
 
 
 def dump_node(node: Node, f: TextIO) -> None:
@@ -120,7 +120,7 @@ async def dump_environment(env: Environment, f: TextIO) -> None:
     for alias, names in env.dagops.aliases.items():
         json.dump({"alias": alias, "names": list(names)}, f, indent=2)
         f.write("\n")
-    for stream in env.streams._streams.values():
+    for stream in env.streams._streams:
         await dump_stream(stream, f)
         f.write("\n")
     json.dump({"env": env.for_env_stream}, f, indent=2)
@@ -149,7 +149,7 @@ async def load_environment(f: TextIO, nodereg: NodeRegistry) -> Environment:
                 env.dagops.nodes[node.name] = node
             elif "is_closed" in obj_data:
                 stream = await load_stream(obj_data)
-                env.streams.add_stream(stream)
+                env.streams._streams.append(stream)
             elif "alias" in obj_data:
                 env.dagops.aliases[obj_data["alias"]] = obj_data["names"]
             elif "env" in obj_data:
@@ -165,6 +165,7 @@ async def load_environment(f: TextIO, nodereg: NodeRegistry) -> Environment:
 
 def print_dependency_tree(
     dagops: Dagops,
+    processes: IProcesses,
     node_name: str,
     indent: str = "",
     visited: Optional[Set[str]] = None,

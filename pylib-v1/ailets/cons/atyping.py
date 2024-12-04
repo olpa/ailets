@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import (
     Any,
+    AsyncIterator,
     Awaitable,
     Callable,
     Dict,
@@ -211,12 +212,31 @@ class INodeRegistry(Protocol):
         raise NotImplementedError
 
 
+class IProcesses(Protocol):
+    def mark_deptree_as_invalid(self) -> None:
+        raise NotImplementedError
+
+    def next_node_iter(self) -> AsyncIterator[str]:
+        raise NotImplementedError
+
+    async def build_node_alone(self, name: str) -> None:
+        raise NotImplementedError
+
+    def is_node_finished(self, name: str) -> bool:
+        raise NotImplementedError
+
+    def is_node_active(self, name: str) -> bool:
+        raise NotImplementedError
+
+
 class IEnvironment(Protocol):
     for_env_stream: Dict[str, Any]
     seqno: Seqno
     dagops: IDagops
     streams: IStreams
     nodereg: INodeRegistry
+    processes: IProcesses
+
 
 #
 #
