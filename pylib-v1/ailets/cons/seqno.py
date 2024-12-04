@@ -1,5 +1,5 @@
 class Seqno:
-    def __init__(self):
+    def __init__(self) -> None:
         self._seqno = 1
 
     def next_seqno(self) -> int:

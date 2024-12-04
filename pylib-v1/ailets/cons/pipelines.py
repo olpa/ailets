@@ -6,9 +6,10 @@ from typing import Sequence
 
 from .atyping import (
     Dependency,
+    IDagops,
     IEnvironment,
     INodeRegistry,
-    IStream,
+    IStreams,
     Node,
 )
 
@@ -21,8 +22,9 @@ class CmdlinePromptItem:
     toml: Optional[str] = None
 
 
-async def prompt_to_env(
-    env: IEnvironment,
+async def prompt_to_dagops(
+    dagops: IDagops,
+    streams: IStreams,
     prompt: Sequence[CmdlinePromptItem] = [CmdlinePromptItem("Hello!", "text")],
 ) -> None:
     async def prompt_to_node(prompt_item: CmdlinePromptItem) -> None:
@@ -30,8 +32,10 @@ async def prompt_to_env(
             return
 
         def mk_node(prompt_content: str) -> Node:
-            node = env.add_value_node(prompt_content.encode("utf-8"), explain="Prompt")
-            env.alias(".prompt", node.name)
+            node = dagops.add_value_node(
+                prompt_content.encode("utf-8"), explain="Prompt"
+            )
+            dagops.alias(".prompt", node.name)
             return node
 
         if prompt_item.type == "text":
@@ -68,7 +72,7 @@ async def prompt_to_env(
             )
             return
 
-        stream_name = env.get_next_name(f"media/{base_content_type}")
+        stream_name = dagops.get_next_name(f"media/{base_content_type}")
         node = mk_node(
             json.dumps(
                 {
@@ -80,15 +84,16 @@ async def prompt_to_env(
         )
 
         with open(prompt_item.value, "rb") as f:
-            stream: IStream = env.create_new_stream(node.name, stream_name)
-            await stream.write(f.read())
-            await stream.close()
+            bytes = f.read()
+            streams.create(
+                node.name, stream_name, initial_content=bytes, is_closed=True
+            )
 
     for prompt_item in prompt:
         await prompt_to_node(prompt_item)
 
 
-def toml_to_env(
+def toml_to_dagops(
     env: IEnvironment,
     toml: Sequence[CmdlinePromptItem],
 ) -> None:
@@ -96,29 +101,29 @@ def toml_to_env(
         if prompt_item.type != "toml":
             continue
         items = tomllib.loads(prompt_item.value)
-        env.update_for_env_stream(items)
+        env.for_env_stream.update(items)
 
 
-def toolspecs_to_env(
-    env: IEnvironment, nodereg: INodeRegistry, tools: Sequence[str]
+def toolspecs_to_dagops(
+    dagops: IDagops, nodereg: INodeRegistry, tools: Sequence[str]
 ) -> None:
     for tool in tools:
         plugin_nodes = nodereg.get_plugin(f".tool.{tool}")
         schema = nodereg.get_node(plugin_nodes[0]).inputs[0].schema
         assert schema is not None, f"Tool {tool} has no schema"
 
-        tool_spec = env.add_value_node(
+        tool_spec = dagops.add_value_node(
             json.dumps(schema).encode("utf-8"),
             explain=f"Tool spec {tool}",
         )
 
-        env.alias(".toolspecs", tool_spec.name)
+        dagops.alias(".toolspecs", tool_spec.name)
     else:
-        env.alias(".toolspecs", None)
+        dagops.alias(".toolspecs", None)
 
 
 def instantiate_with_deps(
-    env: IEnvironment,
+    dagops: IDagops,
     nodereg: INodeRegistry,
     target: str,
     aliases: dict[str, str],
@@ -126,7 +131,7 @@ def instantiate_with_deps(
     """Instantiate a node and its dependencies in the environment recursively.
 
     Args:
-        env: Environment to add nodes to
+        dagops: Dagops to add nodes to
         nodereg: Node registry containing node definitions
         target: Name of target node to instantiate, or a plugin name
         aliases: Map of node names to their aliases, takes precedence in resolution
@@ -149,7 +154,7 @@ def instantiate_with_deps(
         node_name = resolve.get(node_name, node_name)
 
         # Skip if node already exists in environment
-        if env.has_node(node_name):
+        if dagops.has_node(node_name):
             return
 
         # Check for cycles
@@ -172,7 +177,7 @@ def instantiate_with_deps(
             create_node_recursive(dep.source, node_name)
 
         # Create the node
-        node = env.add_node(name=node_name, func=node_desc.func)
+        node = dagops.add_node(name=node_name, func=node_desc.func)
         resolve[node_name] = node.name
         created_nodes.add(node_name)
 
@@ -199,6 +204,6 @@ def instantiate_with_deps(
                     name=dep.name, source=source, stream=dep.stream, schema=dep.schema
                 )
             )
-        env.depend(resolve[node_name], deps)
+        dagops.depend(resolve[node_name], deps)
 
     return resolve[target]

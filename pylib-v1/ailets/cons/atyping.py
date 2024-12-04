@@ -16,6 +16,8 @@ from typing import (
     Union,
 )
 
+from ailets.cons.seqno import Seqno
+
 
 class IStream(Protocol):
     async def read(self, pos: int, size: int = -1) -> bytes:
@@ -32,6 +34,15 @@ class IStream(Protocol):
 
 
 class IStreams(Protocol):
+    def create(
+        self,
+        node_name: str,
+        stream_name: Optional[str],
+        initial_content: Optional[bytes] = None,
+        is_closed: bool = False,
+    ) -> IStream:
+        raise NotImplementedError
+
     def has_input(self, node_name: str, dep: "Dependency") -> bool:
         raise NotImplementedError
 
@@ -197,6 +208,12 @@ class INodeRegistry(Protocol):
     def get_plugin(self, regname: str) -> Sequence[str]:
         raise NotImplementedError
 
+
+class IEnvironment(Protocol):
+    for_env_stream: Dict[str, Any]
+    seqno: Seqno
+    dagops: IDagops
+    streams: IStreams
 
 #
 #

@@ -11,7 +11,7 @@ from ailets.cons.plugin import NodeRegistry
 from ailets.cons.pipelines import (
     CmdlinePromptItem,
     instantiate_with_deps,
-    prompt_to_env,
+    prompt_to_dagops,
     toml_to_env,
     toolspecs_to_env,
 )
@@ -216,7 +216,7 @@ async def main() -> None:
         env = Environment()
         toml_to_env(env, toml=prompt)
         toolspecs_to_env(env, nodereg, args.tools)
-        await prompt_to_env(env, prompt=prompt)
+        await prompt_to_dagops(env, prompt=prompt)
 
         chat_node_name = instantiate_with_deps(env, nodereg, ".prompt_to_messages", {})
         env.alias(".chat_messages", chat_node_name)
