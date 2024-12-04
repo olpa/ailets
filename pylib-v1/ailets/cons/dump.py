@@ -188,7 +188,9 @@ def print_dependency_tree(
     else:
         status = (
             "\033[32m✓ built\033[0m"
-            if dagops.is_node_built(node_name)
+            if processes.is_node_finished(node_name)
+            else "\033[35m⚡ active\033[0m"
+            if processes.is_node_active(node_name)
             else "\033[33m⋯ not built\033[0m"
         )
 
@@ -220,7 +222,7 @@ def print_dependency_tree(
     # Print default dependencies (param_name is None)
     for dep_name, stream_name in deps_by_param.get(None, []):
         print_dependency_tree(
-            dagops, dep_name, next_indent, visited.copy(), stream_name
+            dagops, processes, dep_name, next_indent, visited.copy(), stream_name
         )
 
     # Print named dependencies grouped by parameter
@@ -230,7 +232,12 @@ def print_dependency_tree(
             param_indent = f"{next_indent}│   "
             for dep_name, stream_name in dep_names:
                 print_dependency_tree(
-                    dagops, dep_name, param_indent, visited.copy(), stream_name
+                    dagops,
+                    processes,
+                    dep_name,
+                    param_indent,
+                    visited.copy(),
+                    stream_name,
                 )
 
     visited.remove(node_name)
