@@ -103,54 +103,6 @@ class Environment(IEnvironment):
             explain=node.explain,
         )
 
-    def plan(self, target: str) -> Sequence[str]:
-        """Return nodes in build order for the target.
-
-        Args:
-            target: Name of the target node
-
-        Returns:
-            List of node names in build order
-
-        Raises:
-            KeyError: If target node not found
-            RuntimeError: If dependency cycle detected
-        """
-        if target not in self.nodes:
-            target = self._resolve_alias(target)
-            if target not in self.nodes:
-                raise KeyError(f"Node {target} not found")
-
-        visited: Set[str] = set()
-        build_order: List[str] = []
-
-        def visit(name: str) -> None:
-            """DFS helper to build topological sort."""
-            if name in visited:
-                return
-
-            if name in visiting:
-                cycle = " -> ".join(visiting_list)
-                raise RuntimeError(f"Cycle detected: {cycle}")
-
-            visiting.add(name)
-            visiting_list.append(name)
-
-            # Visit all dependencies (both default and named)
-            for dep in self.iter_deps(name):
-                visit(dep.source)
-
-            visiting.remove(name)
-            visiting_list.pop()
-            visited.add(name)
-            build_order.append(name)
-
-        visiting: Set[str] = set()
-        visiting_list: List[str] = []
-
-        visit(target)
-        return build_order
-
     def serialize_node(self, name: str, stream: TextIO) -> None:
         """Serialize a node's state to a JSON stream."""
         if name not in self.nodes:
