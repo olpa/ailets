@@ -12,27 +12,25 @@ from typing import (
 
 from .atyping import (
     Dependency,
-    IEnvironment,
+    IDagops,
     INodeRuntime,
     IStreams,
     Node,
 )
-from .streams import Streams
 from .util import to_basename
+from .seqno import Seqno
 
-
-class Environment(IEnvironment):
-    def __init__(self) -> None:
+class Dagops(IDagops):
+    def __init__(self, seqno: Seqno) -> None:
         self.nodes: Dict[str, Node] = {}
-        self._for_env_stream: Dict[str, Any] = {}
-        self._seqno: int = 1
-        self._aliases: Dict[str, List[str]] = {}
+        self.seqno: Seqno = seqno
+        self.aliases: Dict[str, List[str]] = {}
 
     def privates_for_dagops_friend(
         self,
     ) -> Tuple[Dict[str, Node], Dict[str, List[str]]]:
         """Return private nodes and aliases for NodeDagops friend class."""
-        return self.nodes, self._aliases
+        return self.nodes, self.aliases
 
     def add_node(
         self,
@@ -58,15 +56,15 @@ class Environment(IEnvironment):
         return node
 
     def _resolve_alias(self, name: str) -> str:
-        if name in self._aliases:
-            aliases = self._aliases[name]
+        if name in self.aliases:
+            aliases = self.aliases[name]
             if len(aliases) > 0:
                 assert len(aliases) == 1, f"Ambiguous alias: {name} to {aliases}"
                 return next(iter(aliases))
         return name
 
     def has_node(self, node_name: str) -> bool:
-        return node_name in self.nodes or node_name in self._aliases
+        return node_name in self.nodes or node_name in self.aliases
 
     def get_node(self, name: str) -> Node:
         """Get a node by name. Does not build."""
@@ -85,8 +83,8 @@ class Environment(IEnvironment):
             target: Name of node to add dependencies to
             deps: Dependencies to add
         """
-        if target in self._aliases:
-            self._aliases[target].extend(dep.source for dep in deps)
+        if target in self.aliases:
+            self.aliases[target].extend(dep.source for dep in deps)
             return
 
         node = self.get_node(target)
@@ -136,8 +134,8 @@ class Environment(IEnvironment):
             KeyError: If the node name doesn't exist
         """
         if node_name is None:
-            if alias not in self._aliases:
-                self._aliases[alias] = []
+            if alias not in self.aliases:
+                self.aliases[alias] = []
             return
 
         # Verify node exists
@@ -145,10 +143,10 @@ class Environment(IEnvironment):
             raise KeyError(f"Node {node_name} not found")
 
         # Create or update alias
-        if alias not in self._aliases:
-            self._aliases[alias] = [node_name]
+        if alias not in self.aliases:
+            self.aliases[alias] = [node_name]
         else:
-            self._aliases[alias].append(node_name)
+            self.aliases[alias].append(node_name)
 
     def get_nodes_by_alias(self, alias: str) -> Set[Node]:
         """Get all nodes associated with an alias.
@@ -160,10 +158,10 @@ class Environment(IEnvironment):
             Set of nodes associated with the alias. Returns empty set if alias not
             found.
         """
-        if alias not in self._aliases:
+        if alias not in self.aliases:
             return set()
 
-        return {self.nodes[name] for name in self._aliases[alias]}
+        return {self.nodes[name] for name in self.aliases[alias]}
 
     def iter_deps(self, name: str) -> Iterator[Dependency]:
         """Iterate through dependencies of a node, resolving alias dependencies.
@@ -179,7 +177,7 @@ class Environment(IEnvironment):
 
         for dep in node.deps:
             # If dependency source is an alias, yield a dependency for each aliased node
-            if dep.source in self._aliases:
+            if dep.source in self.aliases:
                 # Recursively expand aliases
                 def expand_alias_deps(
                     alias_name: str, seen_aliases: Set[str]
@@ -188,8 +186,8 @@ class Environment(IEnvironment):
                         return  # Prevent infinite recursion
                     seen_aliases.add(alias_name)
 
-                    for aliased_name in self._aliases[alias_name]:
-                        if aliased_name in self._aliases:
+                    for aliased_name in self.aliases[alias_name]:
+                        if aliased_name in self.aliases:
                             yield from expand_alias_deps(aliased_name, seen_aliases)
                         else:
                             yield aliased_name
@@ -207,12 +205,8 @@ class Environment(IEnvironment):
                     seen_deps.add(dep_key)
                     yield dep
 
-    def get_next_seqno(self) -> int:
-        self._seqno += 1
-        return self._seqno
-
     def get_next_name(self, full_name: str) -> str:
         """Get the next name in the sequence."""
-        seqno = self.get_next_seqno()
+        seqno = self.seqno.next_seqno()
         another_name = f"{to_basename(full_name)}.{seqno}"
         return another_name
