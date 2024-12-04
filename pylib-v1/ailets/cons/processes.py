@@ -72,16 +72,3 @@ class Processes:
             for dep in self.deps[name]:
                 print(f"  {dep.source} ({dep.stream}) -> {dep.name}")
             raise
-
-    async def build_target(
-        self,
-        nodereg: INodeRegistry,
-        target: str,
-        one_step: bool = False,
-    ) -> None:
-        async for node_name in self.next_node_iter():
-            await self.build_node_alone(nodereg, node_name)
-            if one_step:
-                break
-            if node_name == target:
-                break
