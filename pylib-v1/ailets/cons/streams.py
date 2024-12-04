@@ -1,7 +1,6 @@
-import base64
 from dataclasses import dataclass
 import json
-from typing import Any, Dict, Optional, Sequence, TextIO
+from typing import Any, Dict, Optional, Sequence
 
 from ailets.cons.atyping import Dependency, IStream
 from ailets.cons.async_buf import AsyncBuffer
@@ -93,12 +92,6 @@ class Streams:
         """Mark a stream as finished."""
         stream = self.get(node_name, stream_name)
         await stream.close()
-
-    async def add_stream_from_json(self, stream_data: dict[str, Any]) -> Stream:
-        """Load a stream's state from JSON data."""
-        stream = await Stream.from_json(stream_data)
-        self._streams.append(stream)
-        return stream
 
     @staticmethod
     def make_env_stream(params: Dict[str, Any]) -> Stream:

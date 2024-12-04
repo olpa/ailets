@@ -1,11 +1,11 @@
 import base64
 import json
-from typing import Awaitable, Callable, TextIO, Tuple, Optional, Set
-import json
+from typing import Awaitable, Callable, List, TextIO, Tuple, Optional, Set
 from typing import Dict, Any
 
 from ailets.cons.async_buf import AsyncBuffer
 from ailets.cons.atyping import Dependency, INodeRuntime, Node
+from ailets.cons.dagops import Dagops
 from ailets.cons.seqno import Seqno
 from ailets.cons.streams import Stream
 from ailets.cons.util import to_basename
@@ -164,7 +164,7 @@ async def load_environment(f: TextIO, nodereg: NodeRegistry) -> Environment:
 
 
 def print_dependency_tree(
-    self,
+    dagops: Dagops,
     node_name: str,
     indent: str = "",
     visited: Optional[Set[str]] = None,
@@ -181,13 +181,13 @@ def print_dependency_tree(
     if visited is None:
         visited = set()
 
-    node = self.get_node(node_name)
+    node = dagops.get_node(node_name)
     if node_name.startswith("defunc."):
         status = "\033[90mdefunc\033[0m"
     else:
         status = (
             "\033[32m✓ built\033[0m"
-            if self.is_node_built(node_name)
+            if dagops.is_node_built(node_name)
             else "\033[33m⋯ not built\033[0m"
         )
 
@@ -209,7 +209,7 @@ def print_dependency_tree(
 
     # Group dependencies by parameter name
     deps_by_param: Dict[Optional[str], List[Tuple[str, Optional[str]]]] = {}
-    for dep in self.iter_deps(node_name):
+    for dep in dagops.iter_deps(node_name):
         if dep.name not in deps_by_param:
             deps_by_param[dep.name] = []
         deps_by_param[dep.name].append((dep.source, dep.stream))
@@ -218,7 +218,9 @@ def print_dependency_tree(
 
     # Print default dependencies (param_name is None)
     for dep_name, stream_name in deps_by_param.get(None, []):
-        self.print_dependency_tree(dep_name, next_indent, visited.copy(), stream_name)
+        print_dependency_tree(
+            dagops, dep_name, next_indent, visited.copy(), stream_name
+        )
 
     # Print named dependencies grouped by parameter
     for param_name, dep_names in deps_by_param.items():
@@ -226,8 +228,8 @@ def print_dependency_tree(
             print(f"{next_indent}├── (param: {param_name})")
             param_indent = f"{next_indent}│   "
             for dep_name, stream_name in dep_names:
-                self.print_dependency_tree(
-                    dep_name, param_indent, visited.copy(), stream_name
+                print_dependency_tree(
+                    dagops, dep_name, param_indent, visited.copy(), stream_name
                 )
 
     visited.remove(node_name)
