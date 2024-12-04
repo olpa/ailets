@@ -1,17 +1,14 @@
 from typing import (
-    Awaitable,
     Dict,
     Any,
     Callable,
     Iterator,
     Set,
     Optional,
-    TextIO,
     Sequence,
     List,
     Tuple,
 )
-import json
 
 from .plugin import NodeRegistry
 
@@ -19,8 +16,8 @@ from .atyping import (
     Dependency,
     IEnvironment,
     INodeRuntime,
+    IStreams,
     Node,
-    IStream,
 )
 from .streams import Streams
 from .util import to_basename
@@ -30,7 +27,6 @@ class Environment(IEnvironment):
     def __init__(self) -> None:
         self.nodes: Dict[str, Node] = {}
         self._for_env_stream: Dict[str, Any] = {}
-        self._streams: Streams = Streams()
         self._seqno: int = 1
         self._aliases: Dict[str, List[str]] = {}
 
@@ -103,7 +99,9 @@ class Environment(IEnvironment):
             explain=node.explain,
         )
 
-    def add_value_node(self, value: bytes, explain: Optional[str] = None) -> Node:
+    def add_value_node(
+        self, value: bytes, streams: IStreams, explain: Optional[str] = None
+    ) -> Node:
         """Add a typed value node to the environment.
 
         Args:
@@ -125,27 +123,9 @@ class Environment(IEnvironment):
         self.nodes[full_name] = node
 
         # Add streams for value and type
-        self._streams.create(full_name, None, value, is_closed=True)
+        streams.create(full_name, None, value, is_closed=True)
 
         return node
-
-    def create_new_stream(self, node_name: str, stream_name: Optional[str]) -> IStream:
-        return self._streams.create(node_name, stream_name)
-
-    def is_node_built(self, node_name: str) -> bool:
-        """Check if a node has been built by checking if it has any finished streams.
-
-        Args:
-            node_name: Name of the node to check
-
-        Returns:
-            True if the node has at least one finished stream, False otherwise
-        """
-        return any(
-            stream.is_closed()
-            for stream in self._streams._streams
-            if stream.node_name == node_name
-        )
 
     def alias(self, alias: str, node_name: Optional[str]) -> None:
         """Associate an alias with a node.
@@ -238,12 +218,3 @@ class Environment(IEnvironment):
         seqno = self.get_next_seqno()
         another_name = f"{to_basename(full_name)}.{seqno}"
         return another_name
-
-    def update_for_env_stream(self, params: Dict[str, Any]) -> None:
-        self._for_env_stream.update(params)
-
-    def get_env_stream(self) -> IStream:
-        return self._streams.make_env_stream(self._for_env_stream)
-
-    def get_fs_output_streams(self) -> Sequence[IStream]:
-        return self._streams.get_fs_output_streams()
