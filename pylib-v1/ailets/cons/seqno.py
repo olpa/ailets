@@ -11,3 +11,7 @@ class Seqno:
         current = self._seqno
         self._seqno += 1
         return current
+
+    def at_least(self, seqno: int) -> None:
+        if self._seqno < seqno:
+            self._seqno = seqno

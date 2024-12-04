@@ -62,28 +62,6 @@ class Dependency:
     stream: Optional[str] = None
     schema: Optional[dict[str, Any]] = None
 
-    def to_json(
-        self,
-    ) -> Tuple[Optional[str], str, Optional[str], Optional[dict[str, Any]]]:
-        """Convert to JSON-serializable format.
-
-        Returns:
-            List of [dep_name, node_name, stream_name, schema]
-        """
-        return (self.name, self.source, self.stream, self.schema)
-
-    @classmethod
-    def from_json(
-        cls,
-        data: Tuple[Optional[str], str, Optional[str], Optional[dict[str, Any]]],
-    ) -> "Dependency":
-        """Create dependency from JSON data.
-
-        Args:
-            data: Tuple of [dep_name, node_name, stream_name, schema]
-        """
-        return cls(name=data[0], source=data[1], stream=data[2], schema=data[3])
-
 
 @dataclass(frozen=True)
 class Node:

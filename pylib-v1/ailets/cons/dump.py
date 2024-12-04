@@ -1,10 +1,71 @@
 import json
-from typing import TextIO
+from typing import Awaitable, Callable, TextIO, Tuple, Optional, Set
 import json
 from typing import Dict, Any
 
-from .cons import Environment
+from ailets.cons.atyping import Dependency, INodeRuntime, Node
+from ailets.cons.seqno import Seqno
+from ailets.cons.util import to_basename
+
 from .plugin import NodeRegistry
+
+
+def dependency_to_json(
+    dep: Dependency,
+) -> tuple[Optional[str], str, Optional[str], Optional[dict[str, Any]]]:
+    return dep.astuple()
+
+def load_dependency(
+    obj: tuple[Optional[str], str, Optional[str], Optional[dict[str, Any]]],
+) -> Dependency:
+    return Dependency.from_tuple(*obj)
+
+
+def dump_node(node: Node, f: TextIO) -> None:
+    json.dump({
+        "name": node.name,
+        "deps": [dependency_to_json(dep) for dep in node.deps],
+        "explain": node.explain,  # Add explain field to JSON
+        # Skip func as it's not serializable
+    }, f, indent=2)
+
+def load_node(
+        node_json: Dict[str, Any],
+        nodereg: NodeRegistry,
+        seqno: Seqno,
+) -> Node:
+    name = node_json["name"]
+
+    func: Callable[[INodeRuntime], Awaitable[None]]
+    base_name = to_basename(name)
+    if base_name.startswith("defunc."):
+        base_name = base_name[7:]
+    if base_name == "value":
+        # Special case for typed value nodes
+        async def func(
+            _: INodeRuntime,
+        ) -> None: ...
+
+    else:
+        node_desc = nodereg.nodes.get(base_name)
+        if node_desc is None:
+            raise KeyError(f"No function registered for node: {name} ({base_name})")
+        func = node_desc.func
+
+    if "." in name:
+        loaded_suffix = int(name.split(".")[-1])
+        seqno.at_least(loaded_suffix + 1)
+    
+    deps = [load_dependency(dep) for dep in node_json["deps"]]
+
+    node = Node(
+        name=name,
+        func=func,
+        deps=deps,
+        explain=node_json.get("explain"),
+    )
+    return node
+
 
 async def dump_environment(env: Environment, f: TextIO) -> None:
     """Convert environment to JSON file.
@@ -59,6 +120,7 @@ async def load_environment(f: TextIO, nodereg: NodeRegistry) -> Environment:
             obj_data, pos = decoder.raw_decode(content, pos)
             if "deps" in obj_data:
                 env.load_node_state(obj_data, nodereg)
+                self.nodes[name] = node
             elif "is_closed" in obj_data:
                 await env._streams.add_stream_from_json(obj_data)
             elif "alias" in obj_data:
@@ -72,14 +134,6 @@ async def load_environment(f: TextIO, nodereg: NodeRegistry) -> Environment:
             raise
 
     return env
-
-def serialize_node(self, name: str, stream: TextIO) -> None:
-    """Serialize a node's state to a JSON stream."""
-    if name not in self.nodes:
-        raise KeyError(f"Node {name} not found")
-
-    json.dump(self.nodes[name].to_json(), stream, indent=2)
-    stream.write("\n")
 
 def print_dependency_tree(
     self,
@@ -151,48 +205,3 @@ def print_dependency_tree(
                 )
 
     visited.remove(node_name)
-
-def load_node_state(self, node_data: Dict[str, Any], nodereg: NodeRegistry) -> Node:
-    """Load a node's state from JSON data.
-
-    Args:
-        node_data: Node state from JSON
-
-    Returns:
-        The loaded node
-    """
-    name = node_data["name"]
-
-    # Try to get function from map, if not found and name has a number suffix,
-    # try without the suffix
-    func: Callable[[INodeRuntime], Awaitable[None]]
-    base_name = to_basename(name)
-    if base_name.startswith("defunc."):
-        base_name = base_name[7:]
-    if base_name == "value":
-        # Special case for typed value nodes
-        async def func(
-            _: INodeRuntime,
-        ) -> None: ...
-
-    else:
-        node_desc = nodereg.nodes.get(base_name)
-        if node_desc is None:
-            raise KeyError(f"No function registered for node: {name} ({base_name})")
-        func = node_desc.func
-
-    # Update counter if needed to stay above loaded node's suffix
-    if "." in name:
-        loaded_suffix = int(name.split(".")[-1])
-        if self._seqno <= loaded_suffix:
-            self._seqno = loaded_suffix + 1
-
-    # Create new node with loaded state
-    node = Node(
-        name=name,
-        func=func,
-        deps=[Dependency.from_json(dep) for dep in node_data["deps"]],
-        explain=node_data.get("explain"),  # Load explain field if present
-    )
-    self.nodes[name] = node
-    return node
