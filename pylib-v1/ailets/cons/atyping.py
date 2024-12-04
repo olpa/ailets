@@ -177,7 +177,9 @@ class IDagops(Protocol):
     def alias(self, alias: str, node_name: Optional[str]) -> None:
         raise NotImplementedError
 
-    def add_value_node(self, value: bytes, explain: Optional[str] = None) -> Node:
+    def add_value_node(
+        self, value: bytes, streams: IStreams, explain: Optional[str] = None
+    ) -> Node:
         raise NotImplementedError
 
     def iter_deps(self, node_name: str) -> Iterator[Dependency]:

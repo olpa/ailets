@@ -33,7 +33,7 @@ async def prompt_to_dagops(
 
         def mk_node(prompt_content: str) -> Node:
             node = dagops.add_value_node(
-                prompt_content.encode("utf-8"), explain="Prompt"
+                prompt_content.encode("utf-8"), streams, explain="Prompt"
             )
             dagops.alias(".prompt", node.name)
             return node
@@ -104,22 +104,21 @@ def toml_to_dagops(
         env.for_env_stream.update(items)
 
 
-def toolspecs_to_dagops(
-    dagops: IDagops, nodereg: INodeRegistry, tools: Sequence[str]
-) -> None:
+def toolspecs_to_dagops(env: IEnvironment, tools: Sequence[str]) -> None:
     for tool in tools:
-        plugin_nodes = nodereg.get_plugin(f".tool.{tool}")
-        schema = nodereg.get_node(plugin_nodes[0]).inputs[0].schema
+        plugin_nodes = env.nodereg.get_plugin(f".tool.{tool}")
+        schema = env.nodereg.get_node(plugin_nodes[0]).inputs[0].schema
         assert schema is not None, f"Tool {tool} has no schema"
 
-        tool_spec = dagops.add_value_node(
+        tool_spec = env.dagops.add_value_node(
             json.dumps(schema).encode("utf-8"),
+            env.streams,
             explain=f"Tool spec {tool}",
         )
 
-        dagops.alias(".toolspecs", tool_spec.name)
+        env.dagops.alias(".toolspecs", tool_spec.name)
     else:
-        dagops.alias(".toolspecs", None)
+        env.dagops.alias(".toolspecs", None)
 
 
 def instantiate_with_deps(
