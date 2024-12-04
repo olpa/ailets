@@ -1,13 +1,14 @@
 import asyncio
 from typing import AsyncIterator, Mapping, Sequence
-from ailets.cons.atyping import Dependency, IEnvironment, INodeRegistry, IStreams
+from ailets.cons.atyping import Dependency, IEnvironment
 from ailets.cons.node_runtime import NodeRuntime
 
 
 class Processes:
-    def __init__(self, env: IEnvironment, streams: IStreams):
+    def __init__(self, env: IEnvironment):
         self.env = env
-        self.streams = streams
+        self.streams = env.streams
+        self.dagops = env.dagops
 
         self.deptree_invalidation_flag = asyncio.Event()
 
@@ -20,8 +21,8 @@ class Processes:
 
     def resolve_deps(self) -> None:
         self.deps = {}
-        for node_name in self.env.get_node_names():
-            self.deps[node_name] = list(self.env.iter_deps(node_name))
+        for node_name in self.dagops.get_node_names():
+            self.deps[node_name] = list(self.dagops.iter_deps(node_name))
 
         rev_deps: dict[str, list[Dependency]] = {}
         for node_name, deps in self.deps.items():
@@ -39,7 +40,7 @@ class Processes:
     async def next_node_iter(self) -> AsyncIterator[str]:
         while True:
             self.deptree_invalidation_flag.clear()
-            for node_name in self.env.get_node_names():
+            for node_name in self.dagops.get_node_names():
                 if node_name in self.finished_nodes or node_name in self.active_nodes:
                     continue
                 if self._can_start_node(node_name):
@@ -52,11 +53,11 @@ class Processes:
             for dep in self.deps[node_name]
         )
 
-    async def build_node_alone(self, nodereg: INodeRegistry, name: str) -> None:
+    async def build_node_alone(self, name: str) -> None:
         """Build a node. Does not build its dependencies."""
-        node = self.env.get_node(name)
+        node = self.dagops.get_node(name)
 
-        runtime = NodeRuntime(self.env, nodereg, self.streams, name, self.deps[name])
+        runtime = NodeRuntime(self.env, name, self.deps[name])
 
         # Execute the node's function with all dependencies
         try:
