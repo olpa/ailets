@@ -301,58 +301,6 @@ class Environment(IEnvironment):
 
         return node
 
-    async def to_json(self, f: TextIO) -> None:
-        """Convert environment to JSON-serializable dict."""
-        # Save nodes
-        for node in self.nodes.values():
-            json.dump(node.to_json(), f, indent=2)
-            f.write("\n")
-
-        await self._streams.to_json(f)
-
-        json.dump({"env": self._for_env_stream}, f, indent=2)
-        f.write("\n")
-
-        for alias, names in self._aliases.items():
-            json.dump({"alias": alias, "names": list(names)}, f, indent=2)
-            f.write("\n")
-
-    @classmethod
-    async def from_json(cls, f: TextIO, nodereg: NodeRegistry) -> "Environment":
-        """Create environment from JSON data."""
-        env = cls()
-
-        content = f.read()
-        decoder = json.JSONDecoder()
-        pos = 0
-
-        # Decode multiple JSON objects from the content
-        while pos < len(content):
-            # Skip whitespace
-            while pos < len(content) and content[pos].isspace():
-                pos += 1
-            if pos >= len(content):
-                break
-
-            # Decode next object
-            try:
-                obj_data, pos = decoder.raw_decode(content, pos)
-                if "deps" in obj_data:
-                    env.load_node_state(obj_data, nodereg)
-                elif "is_closed" in obj_data:
-                    await env._streams.add_stream_from_json(obj_data)
-                elif "alias" in obj_data:
-                    env._aliases[obj_data["alias"]] = obj_data["names"]
-                elif "env" in obj_data:
-                    env._for_env_stream.update(obj_data["env"])
-                else:
-                    raise ValueError(f"Unknown object data: {obj_data}")
-            except json.JSONDecodeError as e:
-                print(f"Error decoding JSON at position {pos}: {e}")
-                raise
-
-        return env
-
     def create_new_stream(self, node_name: str, stream_name: Optional[str]) -> IStream:
         return self._streams.create(node_name, stream_name)
 
