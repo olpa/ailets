@@ -250,6 +250,7 @@ async def main() -> None:
         )
 
     stop_node_name = args.stop_at or target_node_name
+    env.processes.resolve_deps()
 
     if args.dry_run:
         print_dependency_tree(env.dagops, env.processes, target_node_name)
