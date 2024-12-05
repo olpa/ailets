@@ -27,12 +27,13 @@ def load_dependency(
     return Dependency(**obj)
 
 
-def dump_node(node: Node, f: TextIO) -> None:
+def dump_node(node: Node, is_finished: bool, f: TextIO) -> None:
     json.dump(
         {
             "name": node.name,
             "deps": [dependency_to_json(dep) for dep in node.deps],
-            "explain": node.explain,  # Add explain field to JSON
+            "explain": node.explain,
+            "is_finished": is_finished,
             # Skip func as it's not serializable
         },
         f,
@@ -103,10 +104,8 @@ async def load_stream(data: dict[str, Any]) -> Stream:
         content = base64.b64decode(data["b64_content"])
     else:
         content = data["content"].encode("utf-8")
-    buf = AsyncBuffer()
-    await buf.write(content)
-    if data["is_closed"]:
-        await buf.close()
+    is_closed = data.get("is_closed", False)
+    buf = AsyncBuffer(initial_content=content, is_closed=is_closed)
     return Stream(
         node_name=data["node"],
         stream_name=data["name"],
@@ -116,7 +115,7 @@ async def load_stream(data: dict[str, Any]) -> Stream:
 
 async def dump_environment(env: Environment, f: TextIO) -> None:
     for node in env.dagops.nodes.values():
-        dump_node(node, f)
+        dump_node(node, is_finished=env.processes.is_node_finished(node.name), f=f)
         f.write("\n")
     for alias, names in env.dagops.aliases.items():
         json.dump({"alias": alias, "names": list(names)}, f, indent=2)
@@ -148,6 +147,8 @@ async def load_environment(f: TextIO, nodereg: NodeRegistry) -> Environment:
             if "deps" in obj_data:
                 node = load_node(obj_data, nodereg, env.seqno)
                 env.dagops.nodes[node.name] = node
+                if obj_data.get("is_finished", False):
+                    env.processes.add_value_node(node.name)
             elif "is_closed" in obj_data:
                 stream = await load_stream(obj_data)
                 env.streams._streams.append(stream)
