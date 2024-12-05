@@ -60,7 +60,8 @@ def parse_args() -> argparse.Namespace:
         "--load-state", metavar="FILE", help="Load state from specified file"
     )
     parser.add_argument("--one-step", action="store_true", help="Execute only one step")
-    parser.add_argument("--stop-at", help="Stop execution at specified point")
+    parser.add_argument("--stop-after", help="Stop execution after specified point")
+    parser.add_argument("--stop-before", help="Stop execution before specified point")
     parser.add_argument(
         "--tool",
         nargs="+",
@@ -249,17 +250,20 @@ async def main() -> None:
             env.dagops, nodereg, ".stdout", resolve
         )
 
-    stop_node_name = args.stop_at or target_node_name
+    stop_after_node = args.stop_after or target_node_name
+    stop_before_node = args.stop_before
     env.processes.resolve_deps()
 
     if args.dry_run:
         print_dependency_tree(env.dagops, env.processes, target_node_name)
     else:
         async for node_name in env.processes.next_node_iter():
+            if stop_before_node and node_name == stop_before_node:
+                break
             await env.processes.build_node_alone(node_name)
             if args.one_step:
                 break
-            if node_name == stop_node_name:
+            if node_name == stop_after_node:
                 break
 
     if args.save_state:
