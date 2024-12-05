@@ -4,16 +4,17 @@
 import argparse
 import asyncio
 import sys
+from ailets.cons.dump import dump_environment, load_environment, print_dependency_tree
 import localsetup  # noqa: F401
 from typing import Iterator, Literal, Optional, Tuple
-from ailets.cons.cons import Environment
+from ailets.cons.environment import Environment
 from ailets.cons.plugin import NodeRegistry
 from ailets.cons.pipelines import (
     CmdlinePromptItem,
     instantiate_with_deps,
     prompt_to_dagops,
     toml_to_env,
-    toolspecs_to_env,
+    toolspecs_to_dagops,
 )
 import re
 import os
@@ -204,38 +205,44 @@ async def main() -> None:
 
     if args.load_state:
         with open(args.load_state, "r") as f:
-            env = await Environment.from_json(f, nodereg)
+            env = await load_environment(f, nodereg)
         toml_to_env(env, toml=prompt)
         target_node_name = next(
             node_name
-            for node_name in env.nodes.keys()
+            for node_name in env.dagops.get_node_names()
             if node_name.startswith(".stdout")
         )
 
     else:
         env = Environment()
         toml_to_env(env, toml=prompt)
-        toolspecs_to_env(env, nodereg, args.tools)
-        await prompt_to_dagops(env, prompt=prompt)
+        toolspecs_to_dagops(env, args.tools)
+        await prompt_to_dagops(env.dagops, env.streams, prompt=prompt)
 
-        chat_node_name = instantiate_with_deps(env, nodereg, ".prompt_to_messages", {})
-        env.alias(".chat_messages", chat_node_name)
+        chat_node_name = instantiate_with_deps(
+            env.dagops, nodereg, ".prompt_to_messages", {}
+        )
+        env.dagops.alias(".chat_messages", chat_node_name)
 
-        model_node_name = instantiate_with_deps(env, nodereg, f".{args.model}", {})
-        env.alias(".model_output", model_node_name)
+        model_node_name = instantiate_with_deps(
+            env.dagops, nodereg, f".{args.model}", {}
+        )
+        env.dagops.alias(".model_output", model_node_name)
 
         resolve = {
             ".prompt_to_messages": chat_node_name,
         }
-        target_node_name = instantiate_with_deps(env, nodereg, ".stdout", resolve)
+        target_node_name = instantiate_with_deps(
+            env.dagops, nodereg, ".stdout", resolve
+        )
 
     stop_node_name = args.stop_at or target_node_name
 
     if args.dry_run:
-        env.print_dependency_tree(target_node_name)
+        print_dependency_tree(env.dagops, env.processes, target_node_name)
     else:
         async for node_name in env.processes.next_node_iter():
-            await env.processes.build_node_alone(nodereg, node_name)
+            await env.processes.build_node_alone(node_name)
             if args.one_step:
                 break
             if node_name == stop_node_name:
@@ -243,10 +250,10 @@ async def main() -> None:
 
     if args.save_state:
         with open(args.save_state, "w") as f:
-            await env.to_json(f)
+            await dump_environment(env, f)
 
     if not args.dry_run:
-        fs_output_streams = env.get_fs_output_streams()
+        fs_output_streams = env.streams.get_fs_output_streams()
         if len(fs_output_streams):
             os.makedirs(args.download_to, exist_ok=True)
         for stream in fs_output_streams:
