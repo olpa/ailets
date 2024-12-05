@@ -1,4 +1,5 @@
 import base64
+import dataclasses
 import json
 from typing import Awaitable, Callable, List, TextIO, Tuple, Optional, Set
 from typing import Dict, Any
@@ -16,14 +17,14 @@ from .plugin import NodeRegistry
 
 def dependency_to_json(
     dep: Dependency,
-) -> tuple[str, Optional[str], Optional[str], Optional[dict[str, Any]]]:
-    return (dep.source, dep.name, dep.stream, dep.schema)
+) -> dict[str, Any]:
+    return dataclasses.asdict(dep)
 
 
 def load_dependency(
-    obj: tuple[str, Optional[str], Optional[str], Optional[dict[str, Any]]],
+    obj: dict[str, Any],
 ) -> Dependency:
-    return Dependency(source=obj[0], name=obj[1], stream=obj[2], schema=obj[3])
+    return Dependency(**obj)
 
 
 def dump_node(node: Node, f: TextIO) -> None:
