@@ -1,18 +1,31 @@
 import base64
 import dataclasses
 import json
-from typing import Awaitable, Callable, List, TextIO, Tuple, Optional, Set
-from typing import Dict, Any
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Set,
+    TextIO,
+    Tuple,
+)
 
 from ailets.cons.async_buf import AsyncBuffer
-from ailets.cons.atyping import Dependency, INodeRuntime, IProcesses, Node
+from ailets.cons.atyping import (
+    Dependency,
+    INodeRegistry,
+    INodeRuntime,
+    IProcesses,
+    Node,
+)
 from ailets.cons.dagops import Dagops
 from ailets.cons.seqno import Seqno
 from ailets.cons.streams import Stream
 from ailets.cons.util import to_basename
 from ailets.cons.environment import Environment
-
-from .plugin import NodeRegistry
 
 
 def dependency_to_json(
@@ -43,7 +56,7 @@ def dump_node(node: Node, is_finished: bool, f: TextIO) -> None:
 
 def load_node(
     node_json: Dict[str, Any],
-    nodereg: NodeRegistry,
+    nodereg: INodeRegistry,
     seqno: Seqno,
 ) -> Node:
     name = node_json["name"]
@@ -59,7 +72,7 @@ def load_node(
         ) -> None: ...
 
     else:
-        node_desc = nodereg.nodes.get(base_name)
+        node_desc = nodereg.get_node(base_name)
         if node_desc is None:
             raise KeyError(f"No function registered for node: {name} ({base_name})")
         func = node_desc.func
@@ -130,8 +143,8 @@ async def dump_environment(env: Environment, f: TextIO) -> None:
     f.write("\n")
 
 
-async def load_environment(f: TextIO, nodereg: NodeRegistry) -> Environment:
-    env = Environment()
+async def load_environment(f: TextIO, nodereg: INodeRegistry) -> Environment:
+    env = Environment(nodereg)
 
     content = f.read()
     decoder = json.JSONDecoder()

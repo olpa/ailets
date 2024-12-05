@@ -228,7 +228,7 @@ async def main() -> None:
         )
 
     else:
-        env = Environment()
+        env = Environment(nodereg)
         toml_to_env(env, toml=prompt)
         toolspecs_to_dagops(env, args.tools)
         await prompt_to_dagops(env, prompt=prompt)
