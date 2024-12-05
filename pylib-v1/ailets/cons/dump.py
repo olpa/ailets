@@ -105,7 +105,10 @@ async def load_stream(data: dict[str, Any]) -> Stream:
     else:
         content = data["content"].encode("utf-8")
     is_closed = data.get("is_closed", False)
-    buf = AsyncBuffer(initial_content=content, is_closed=is_closed)
+    buf_debug_hint = f"{data['node']}/{data['name']}"
+    buf = AsyncBuffer(
+        initial_content=content, is_closed=is_closed, debug_hint=buf_debug_hint
+    )
     return Stream(
         node_name=data["node"],
         stream_name=data["name"],

@@ -1,7 +1,10 @@
 import asyncio
+import logging
 from typing import AsyncIterator, Mapping, Sequence
 from ailets.cons.atyping import Dependency, IEnvironment, IProcesses
 from ailets.cons.node_runtime import NodeRuntime
+
+logger = logging.getLogger("ailets.processes")
 
 
 class Processes(IProcesses):
@@ -64,6 +67,7 @@ class Processes(IProcesses):
 
     async def build_node_alone(self, name: str) -> None:
         """Build a node. Does not build its dependencies."""
+        logger.debug(f"Starting to build node '{name}'")
         node = self.dagops.get_node(name)
 
         runtime = NodeRuntime(self.env, name, self.deps[name])

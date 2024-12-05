@@ -4,6 +4,7 @@
 import argparse
 import asyncio
 import sys
+import logging
 import localsetup  # noqa: F401
 from ailets.cons.dump import dump_environment, load_environment, print_dependency_tree
 from typing import Iterator, Literal, Optional, Tuple
@@ -75,6 +76,11 @@ def parse_args() -> argparse.Namespace:
             "Directory to download generated files to. "
             "Is a placeholder for future use."
         ),
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging",
     )
     return parser.parse_args()
 
@@ -194,6 +200,13 @@ async def main() -> None:
         "gpt4o",
         "dalle",
     ], "At the moment, only gpt4o and dalle are supported"
+
+    # Setup logging
+    logging_level = logging.DEBUG if args.debug else logging.INFO
+    logging.basicConfig(
+        level=logging_level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
 
     nodereg = NodeRegistry()
     nodereg.load_plugin("ailets.stdlib", "")

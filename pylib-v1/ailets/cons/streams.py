@@ -80,10 +80,16 @@ class Streams(IStreams):
         if self._find_stream(node_name, stream_name) is not None:
             raise ValueError(f"Stream already exists: {node_name}.{stream_name}")
 
+        buf_debug_hint = f"{node_name}/{stream_name}"
+
         stream = Stream(
             node_name=node_name,
             stream_name=stream_name,
-            buf=AsyncBuffer(initial_content=initial_content, is_closed=is_closed),
+            buf=AsyncBuffer(
+                initial_content=initial_content,
+                is_closed=is_closed,
+                debug_hint=buf_debug_hint,
+            ),
         )
         self._streams.append(stream)
         return stream
