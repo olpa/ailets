@@ -14,6 +14,7 @@ from .atyping import (
     Dependency,
     IDagops,
     INodeRuntime,
+    IProcesses,
     IStreams,
     Node,
 )
@@ -97,7 +98,11 @@ class Dagops(IDagops):
         )
 
     def add_value_node(
-        self, value: bytes, streams: IStreams, explain: Optional[str] = None
+        self,
+        value: bytes,
+        streams: IStreams,
+        processes: IProcesses,
+        explain: Optional[str] = None,
     ) -> Node:
         """Add a typed value node to the environment.
 
@@ -121,6 +126,7 @@ class Dagops(IDagops):
 
         # Add streams for value and type
         streams.create(full_name, None, value, is_closed=True)
+        processes.add_value_node(full_name)
 
         return node
 

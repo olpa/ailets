@@ -179,7 +179,11 @@ class IDagops(Protocol):
         raise NotImplementedError
 
     def add_value_node(
-        self, value: bytes, streams: IStreams, explain: Optional[str] = None
+        self,
+        value: bytes,
+        streams: IStreams,
+        processes: "IProcesses",
+        explain: Optional[str] = None,
     ) -> Node:
         raise NotImplementedError
 
@@ -226,6 +230,9 @@ class IProcesses(Protocol):
         raise NotImplementedError
 
     def is_node_active(self, name: str) -> bool:
+        raise NotImplementedError
+
+    def add_value_node(self, name: str) -> None:
         raise NotImplementedError
 
 

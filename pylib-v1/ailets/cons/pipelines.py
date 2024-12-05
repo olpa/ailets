@@ -9,7 +9,6 @@ from .atyping import (
     IDagops,
     IEnvironment,
     INodeRegistry,
-    IStreams,
     Node,
 )
 
@@ -23,8 +22,7 @@ class CmdlinePromptItem:
 
 
 async def prompt_to_dagops(
-    dagops: IDagops,
-    streams: IStreams,
+    env: IEnvironment,
     prompt: Sequence[CmdlinePromptItem] = [CmdlinePromptItem("Hello!", "text")],
 ) -> None:
     async def prompt_to_node(prompt_item: CmdlinePromptItem) -> None:
@@ -32,10 +30,13 @@ async def prompt_to_dagops(
             return
 
         def mk_node(prompt_content: str) -> Node:
-            node = dagops.add_value_node(
-                prompt_content.encode("utf-8"), streams, explain="Prompt"
+            node = env.dagops.add_value_node(
+                prompt_content.encode("utf-8"),
+                env.streams,
+                env.processes,
+                explain="Prompt",
             )
-            dagops.alias(".prompt", node.name)
+            env.dagops.alias(".prompt", node.name)
             return node
 
         if prompt_item.type == "text":
@@ -72,7 +73,7 @@ async def prompt_to_dagops(
             )
             return
 
-        stream_name = dagops.get_next_name(f"media/{base_content_type}")
+        stream_name = env.dagops.get_next_name(f"media/{base_content_type}")
         node = mk_node(
             json.dumps(
                 {
@@ -85,7 +86,7 @@ async def prompt_to_dagops(
 
         with open(prompt_item.value, "rb") as f:
             bytes = f.read()
-            streams.create(
+            env.streams.create(
                 node.name, stream_name, initial_content=bytes, is_closed=True
             )
 
@@ -113,6 +114,7 @@ def toolspecs_to_dagops(env: IEnvironment, tools: Sequence[str]) -> None:
         tool_spec = env.dagops.add_value_node(
             json.dumps(schema).encode("utf-8"),
             env.streams,
+            env.processes,
             explain=f"Tool spec {tool}",
         )
 

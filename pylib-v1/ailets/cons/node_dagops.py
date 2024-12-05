@@ -15,10 +15,11 @@ class NodeDagops(INodeDagops):
         self.nodereg = env.nodereg
         self.dagops = env.dagops
         self.streams = env.streams
+        self.processes = env.processes
         self.node = node
 
     def add_value_node(self, value: bytes, explain: Optional[str] = None) -> str:
-        node = self.dagops.add_value_node(value, self.streams, explain)
+        node = self.dagops.add_value_node(value, self.streams, self.processes, explain)
         return node.name
 
     def instantiate_with_deps(self, target: str, aliases: dict[str, str]) -> str:

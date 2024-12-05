@@ -25,6 +25,9 @@ class Processes(IProcesses):
     def is_node_active(self, name: str) -> bool:
         return name in self.active_nodes
 
+    def add_value_node(self, name: str) -> None:
+        self.finished_nodes.add(name)
+
     def resolve_deps(self) -> None:
         self.deps = {}
         for node_name in self.dagops.get_node_names():

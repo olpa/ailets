@@ -4,8 +4,8 @@
 import argparse
 import asyncio
 import sys
-from ailets.cons.dump import dump_environment, load_environment, print_dependency_tree
 import localsetup  # noqa: F401
+from ailets.cons.dump import dump_environment, load_environment, print_dependency_tree
 from typing import Iterator, Literal, Optional, Tuple
 from ailets.cons.environment import Environment
 from ailets.cons.plugin import NodeRegistry
@@ -217,7 +217,7 @@ async def main() -> None:
         env = Environment()
         toml_to_env(env, toml=prompt)
         toolspecs_to_dagops(env, args.tools)
-        await prompt_to_dagops(env.dagops, env.streams, prompt=prompt)
+        await prompt_to_dagops(env, prompt=prompt)
 
         chat_node_name = instantiate_with_deps(
             env.dagops, nodereg, ".prompt_to_messages", {}
