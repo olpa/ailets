@@ -93,7 +93,7 @@ async def prompt_to_dagops(
         await prompt_to_node(prompt_item)
 
 
-def toml_to_dagops(
+def toml_to_env(
     env: IEnvironment,
     toml: Sequence[CmdlinePromptItem],
 ) -> None:

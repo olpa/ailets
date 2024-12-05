@@ -2,7 +2,7 @@ from dataclasses import dataclass
 import json
 from typing import Any, Dict, Optional, Sequence
 
-from ailets.cons.atyping import Dependency, IStream
+from ailets.cons.atyping import Dependency, IStream, IStreams
 from ailets.cons.async_buf import AsyncBuffer
 
 
@@ -42,7 +42,7 @@ def create_log_stream() -> Stream:
     )
 
 
-class Streams:
+class Streams(IStreams):
     """Manages streams for an environment."""
 
     def __init__(self) -> None:
@@ -134,3 +134,14 @@ class Streams:
             and s.stream_name is not None
             and s.stream_name.startswith(dir_name)
         ]
+
+    def has_input(self, dep: Dependency) -> bool:
+        stream = next(
+            (
+                s
+                for s in self._streams
+                if s.node_name == dep.source and s.stream_name == dep.stream
+            ),
+            None,
+        )
+        return stream is not None and len(stream.buf.buffer) > 0

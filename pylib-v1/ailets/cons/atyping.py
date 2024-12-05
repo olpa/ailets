@@ -44,7 +44,7 @@ class IStreams(Protocol):
     ) -> IStream:
         raise NotImplementedError
 
-    def has_input(self, node_name: str, dep: "Dependency") -> bool:
+    def has_input(self, dep: "Dependency") -> bool:
         raise NotImplementedError
 
     def collect_streams(self, deps: Sequence["Dependency"]) -> Sequence[IStream]:

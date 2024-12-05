@@ -189,9 +189,11 @@ def print_dependency_tree(
         status = (
             "\033[32m✓ built\033[0m"
             if processes.is_node_finished(node_name)
-            else "\033[35m⚡ active\033[0m"
-            if processes.is_node_active(node_name)
-            else "\033[33m⋯ not built\033[0m"
+            else (
+                "\033[35m⚡ active\033[0m"
+                if processes.is_node_active(node_name)
+                else "\033[33m⋯ not built\033[0m"
+            )
         )
 
     # Print current node with explanation if it exists

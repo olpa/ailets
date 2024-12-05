@@ -55,7 +55,7 @@ class Processes(IProcesses):
 
     def _can_start_node(self, node_name: str) -> bool:
         return all(
-            dep.source in self.finished_nodes or self.streams.has_input(node_name, dep)
+            dep.source in self.finished_nodes or self.streams.has_input(dep)
             for dep in self.deps[node_name]
         )
 

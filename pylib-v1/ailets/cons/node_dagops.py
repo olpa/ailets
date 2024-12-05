@@ -22,9 +22,7 @@ class NodeDagops(INodeDagops):
         return node.name
 
     def instantiate_with_deps(self, target: str, aliases: dict[str, str]) -> str:
-        return instantiate_with_deps(
-            self.dagops, self.nodereg, target, aliases
-        )
+        return instantiate_with_deps(self.dagops, self.nodereg, target, aliases)
 
     def alias(self, alias: str, node_name: Optional[str]) -> None:
         self.dagops.alias(alias, node_name)
