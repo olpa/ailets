@@ -69,9 +69,9 @@ async def query(runtime: INodeRuntime) -> None:
                 **body_kwargs,
             ) as response:
                 response.raise_for_status()
-                value = await response.json()
                 fd = await runtime.open_write(None)
-                await write_all(runtime, fd, json.dumps(value).encode("utf-8"))
+                async for chunk in response.content.iter_any():
+                    await write_all(runtime, fd, chunk)
                 await runtime.close(fd)
 
     except aiohttp.ClientError as e:
