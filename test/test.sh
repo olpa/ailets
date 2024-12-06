@@ -14,7 +14,10 @@ echo ======== gpt4o ======== Hello
 
 echo $div======== gpt4o ======== With a system message
 
-../command-line-tool/ailets0.py gpt4o --prompt 'role="system"\n---\nYou are a helpful assistant who answers in Spanish' --prompt "Hello!" --prompt "Hello!"
+../command-line-tool/ailets0.py gpt4o --prompt '''role="system"
+---
+You are a helpful assistant who answers in Spanish''' \
+  --prompt "Hello!"
 
 ##
 
@@ -45,5 +48,9 @@ echo $div======== dalle ======== Generate an image, get as a link
 
 echo $div======== dalle ======== Variate an image, get it back
 
-../command-line-tool/ailets0.py dalle --prompt 'dalle_task="variations"\nresponse_format="b64_json"\nn=3---\n' --prompt @../test/tux.png
+../command-line-tool/ailets0.py dalle --prompt '''dalle_task="variations"
+response_format="b64_json"
+n=3
+---
+''' --prompt @../test/tux.png
 
