@@ -4,16 +4,18 @@
 import argparse
 import asyncio
 import sys
+import logging
 import localsetup  # noqa: F401
+from ailets.cons.dump import dump_environment, load_environment, print_dependency_tree
 from typing import Iterator, Literal, Optional, Tuple
-from ailets.cons.cons import Environment
+from ailets.cons.environment import Environment
 from ailets.cons.plugin import NodeRegistry
 from ailets.cons.pipelines import (
     CmdlinePromptItem,
     instantiate_with_deps,
-    prompt_to_env,
+    prompt_to_dagops,
     toml_to_env,
-    toolspecs_to_env,
+    toolspecs_to_dagops,
 )
 import re
 import os
@@ -58,7 +60,8 @@ def parse_args() -> argparse.Namespace:
         "--load-state", metavar="FILE", help="Load state from specified file"
     )
     parser.add_argument("--one-step", action="store_true", help="Execute only one step")
-    parser.add_argument("--stop-at", help="Stop execution at specified point")
+    parser.add_argument("--stop-after", help="Stop execution after specified point")
+    parser.add_argument("--stop-before", help="Stop execution before specified point")
     parser.add_argument(
         "--tool",
         nargs="+",
@@ -74,6 +77,11 @@ def parse_args() -> argparse.Namespace:
             "Directory to download generated files to. "
             "Is a placeholder for future use."
         ),
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging",
     )
     return parser.parse_args()
 
@@ -194,6 +202,13 @@ async def main() -> None:
         "dalle",
     ], "At the moment, only gpt4o and dalle are supported"
 
+    # Setup logging
+    logging_level = logging.DEBUG if args.debug else logging.INFO
+    logging.basicConfig(
+        level=logging_level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    )
+
     nodereg = NodeRegistry()
     nodereg.load_plugin("ailets.stdlib", "")
     nodereg.load_plugin(f"ailets.models.{args.model}", f".{args.model}")
@@ -204,44 +219,59 @@ async def main() -> None:
 
     if args.load_state:
         with open(args.load_state, "r") as f:
-            env = await Environment.from_json(f, nodereg)
+            env = await load_environment(f, nodereg)
         toml_to_env(env, toml=prompt)
         target_node_name = next(
             node_name
-            for node_name in env.nodes.keys()
+            for node_name in env.dagops.get_node_names()
             if node_name.startswith(".stdout")
         )
 
     else:
-        env = Environment()
+        env = Environment(nodereg)
         toml_to_env(env, toml=prompt)
-        toolspecs_to_env(env, nodereg, args.tools)
-        await prompt_to_env(env, prompt=prompt)
+        toolspecs_to_dagops(env, args.tools)
+        await prompt_to_dagops(env, prompt=prompt)
 
-        chat_node_name = instantiate_with_deps(env, nodereg, ".prompt_to_messages", {})
-        env.alias(".chat_messages", chat_node_name)
+        chat_node_name = instantiate_with_deps(
+            env.dagops, nodereg, ".prompt_to_messages", {}
+        )
+        env.dagops.alias(".chat_messages", chat_node_name)
 
-        model_node_name = instantiate_with_deps(env, nodereg, f".{args.model}", {})
-        env.alias(".model_output", model_node_name)
+        model_node_name = instantiate_with_deps(
+            env.dagops, nodereg, f".{args.model}", {}
+        )
+        env.dagops.alias(".model_output", model_node_name)
 
         resolve = {
             ".prompt_to_messages": chat_node_name,
         }
-        target_node_name = instantiate_with_deps(env, nodereg, ".stdout", resolve)
+        target_node_name = instantiate_with_deps(
+            env.dagops, nodereg, ".stdout", resolve
+        )
 
-    stop_node_name = args.stop_at or target_node_name
+    stop_after_node = args.stop_after or target_node_name
+    stop_before_node = args.stop_before
+    env.processes.resolve_deps()
 
     if args.dry_run:
-        env.print_dependency_tree(target_node_name)
+        print_dependency_tree(env.dagops, env.processes, target_node_name)
     else:
-        await env.build_target(nodereg, stop_node_name, one_step=args.one_step)
+        async for node_name in env.processes.next_node_iter():
+            if stop_before_node and node_name == stop_before_node:
+                break
+            await env.processes.build_node_alone(node_name)
+            if args.one_step:
+                break
+            if node_name == stop_after_node:
+                break
 
     if args.save_state:
         with open(args.save_state, "w") as f:
-            await env.to_json(f)
+            await dump_environment(env, f)
 
     if not args.dry_run:
-        fs_output_streams = env.get_fs_output_streams()
+        fs_output_streams = env.streams.get_fs_output_streams()
         if len(fs_output_streams):
             os.makedirs(args.download_to, exist_ok=True)
         for stream in fs_output_streams:

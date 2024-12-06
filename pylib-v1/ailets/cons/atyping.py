@@ -1,6 +1,7 @@
 from dataclasses import dataclass, field
 from typing import (
     Any,
+    AsyncIterator,
     Awaitable,
     Callable,
     Dict,
@@ -16,6 +17,8 @@ from typing import (
     Union,
 )
 
+from ailets.cons.seqno import Seqno
+
 
 class IStream(Protocol):
     async def read(self, pos: int, size: int = -1) -> bytes:
@@ -28,6 +31,26 @@ class IStream(Protocol):
         raise NotImplementedError
 
     def get_name(self) -> Optional[str]:
+        raise NotImplementedError
+
+
+class IStreams(Protocol):
+    def create(
+        self,
+        node_name: str,
+        stream_name: Optional[str],
+        initial_content: Optional[bytes] = None,
+        is_closed: bool = False,
+    ) -> IStream:
+        raise NotImplementedError
+
+    def has_input(self, dep: "Dependency") -> bool:
+        raise NotImplementedError
+
+    def collect_streams(self, deps: Sequence["Dependency"]) -> Sequence[IStream]:
+        raise NotImplementedError
+
+    async def read_dir(self, dir_name: str, node_names: Sequence[str]) -> Sequence[str]:
         raise NotImplementedError
 
 
@@ -52,28 +75,6 @@ class Dependency:
     stream: Optional[str] = None
     schema: Optional[dict[str, Any]] = None
 
-    def to_json(
-        self,
-    ) -> Tuple[Optional[str], str, Optional[str], Optional[dict[str, Any]]]:
-        """Convert to JSON-serializable format.
-
-        Returns:
-            List of [dep_name, node_name, stream_name, schema]
-        """
-        return (self.name, self.source, self.stream, self.schema)
-
-    @classmethod
-    def from_json(
-        cls,
-        data: Tuple[Optional[str], str, Optional[str], Optional[dict[str, Any]]],
-    ) -> "Dependency":
-        """Create dependency from JSON data.
-
-        Args:
-            data: Tuple of [dep_name, node_name, stream_name, schema]
-        """
-        return cls(name=data[0], source=data[1], stream=data[2], schema=data[3])
-
 
 @dataclass(frozen=True)
 class Node:
@@ -81,15 +82,6 @@ class Node:
     func: Callable[..., Awaitable[Any]]
     deps: List[Dependency] = field(default_factory=list)  # [(node_name, dep_name)]
     explain: Optional[str] = field(default=None)  # New field for explanation
-
-    def to_json(self) -> Dict[str, Any]:
-        """Convert node state to a JSON-serializable dict."""
-        return {
-            "name": self.name,
-            "deps": [dep.to_json() for dep in self.deps],
-            "explain": self.explain,  # Add explain field to JSON
-            # Skip func as it's not serializable
-        }
 
 
 @dataclass(frozen=True)
@@ -164,10 +156,7 @@ class NodeDescFunc:
     func: Callable[[INodeRuntime], Awaitable[None]]
 
 
-class IEnvironment(Protocol):
-    def create_new_stream(self, node_name: str, stream_name: Optional[str]) -> IStream:
-        raise NotImplementedError
-
+class IDagops(Protocol):
     def has_node(self, node_name: str) -> bool:
         raise NotImplementedError
 
@@ -180,13 +169,22 @@ class IEnvironment(Protocol):
     ) -> Node:
         raise NotImplementedError
 
-    def is_node_ever_started(self, node_name: str) -> bool:
+    def get_node(self, name: str) -> Node:
+        raise NotImplementedError
+
+    def get_node_names(self) -> Sequence[str]:
         raise NotImplementedError
 
     def alias(self, alias: str, node_name: Optional[str]) -> None:
         raise NotImplementedError
 
-    def add_value_node(self, value: bytes, explain: Optional[str] = None) -> Node:
+    def add_value_node(
+        self,
+        value: bytes,
+        streams: IStreams,
+        processes: "IProcesses",
+        explain: Optional[str] = None,
+    ) -> Node:
         raise NotImplementedError
 
     def iter_deps(self, node_name: str) -> Iterator[Dependency]:
@@ -200,16 +198,10 @@ class IEnvironment(Protocol):
     ) -> Tuple[Dict[str, Node], Dict[str, List[str]]]:
         raise NotImplementedError
 
-    def get_next_seqno(self) -> int:
-        raise NotImplementedError
-
     def get_next_name(self, full_name: str) -> str:
         raise NotImplementedError
 
-    def update_for_env_stream(self, params: Dict[str, Any]) -> None:
-        raise NotImplementedError
-
-    def get_env_stream(self) -> IStream:
+    def hash_of_nodenames(self) -> int:
         raise NotImplementedError
 
 
@@ -225,6 +217,35 @@ class INodeRegistry(Protocol):
 
     def get_plugin(self, regname: str) -> Sequence[str]:
         raise NotImplementedError
+
+
+class IProcesses(Protocol):
+    def mark_deptree_as_invalid(self) -> None:
+        raise NotImplementedError
+
+    def next_node_iter(self) -> AsyncIterator[str]:
+        raise NotImplementedError
+
+    async def build_node_alone(self, name: str) -> None:
+        raise NotImplementedError
+
+    def is_node_finished(self, name: str) -> bool:
+        raise NotImplementedError
+
+    def is_node_active(self, name: str) -> bool:
+        raise NotImplementedError
+
+    def add_value_node(self, name: str) -> None:
+        raise NotImplementedError
+
+
+class IEnvironment(Protocol):
+    for_env_stream: Dict[str, Any]
+    seqno: Seqno
+    dagops: IDagops
+    streams: IStreams
+    nodereg: INodeRegistry
+    processes: IProcesses
 
 
 #

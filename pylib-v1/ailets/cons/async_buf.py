@@ -1,25 +1,43 @@
 import asyncio
+import logging
 from typing import Optional
+
+logger = logging.getLogger("ailets.io")
 
 
 class AsyncBuffer:
     def __init__(
-        self, initial_content: Optional[bytes] = None, is_closed: bool = False
+        self,
+        initial_content: Optional[bytes] = None,
+        is_closed: bool = False,
+        debug_hint: Optional[str] = None,
     ) -> None:
         self.buffer = initial_content or b""
         self.event = asyncio.Event()
         self._is_closed = is_closed
+        self.debug_hint = debug_hint
 
     async def close(self) -> None:
         self._is_closed = True
         self.event.set()
+        logger.debug(
+            "Buffer closed%s", f" ({self.debug_hint})" if self.debug_hint else ""
+        )
 
     def is_closed(self) -> bool:
         return self._is_closed
 
     async def write(self, data: bytes) -> int:
+        old_pos = len(self.buffer)
         self.buffer += data
+        new_pos = len(self.buffer)
         self.event.set()
+        logger.debug(
+            "Buffer write%s: pos %d->%d",
+            f" ({self.debug_hint})" if self.debug_hint else "",
+            old_pos,
+            new_pos,
+        )
         return len(data)
 
     async def read(self, pos: int, size: int = -1) -> bytes:
@@ -34,6 +52,14 @@ class AsyncBuffer:
         end = pos + size
         if end > len(self.buffer):
             end = len(self.buffer)
+
+        logger.debug(
+            "Buffer read%s: pos %d->%d",
+            f" ({self.debug_hint})" if self.debug_hint else "",
+            pos,
+            end,
+        )
+
         return self.buffer[pos:end]
 
 
