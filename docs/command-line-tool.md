@@ -14,13 +14,16 @@ ailets MODEL [options]
 
 ## Optional Arguments
 
-- `--prompt TEXT`: Input prompt text (default: "-" for stdin). Can be given multiple times.
+- `--prompt TEXT`: Input prompt text (default: "Hello!"). Can be given multiple times.
 - `--dry-run`: Perform a dry run without making changes
 - `--save-state FILE`: Save execution state to specified file
 - `--load-state FILE`: Load execution state from specified file
 - `--one-step`: Execute only one step
-- `--stop-at POINT`: Stop execution at specified point
+- `--stop-before POINT`: Stop execution before specified point
+- `--stop-after POINT`: Stop execution after specified point
 - `--tool TOOL [TOOL ...]`: List of tools to use (e.g., get_user_name)
+- `--download-to DIRECTORY`: Directory to download generated files to (default: "./out")
+- `--debug`: Enable debug logging
 
 ## API key
 
