@@ -132,6 +132,7 @@ async def messages_to_query(runtime: INodeRuntime) -> None:
     body = {
         "model": "gpt-4o-mini",
         "messages": messages,
+        "stream": True,
         **tools_param,
     }
     body.update(await get_overrides(runtime))
