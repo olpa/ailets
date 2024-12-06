@@ -4,6 +4,7 @@ from typing import AsyncIterator, Mapping, Sequence
 from ailets.cons.atyping import Dependency, IEnvironment, IProcesses
 from ailets.cons.node_runtime import NodeRuntime
 
+
 logger = logging.getLogger("ailets.processes")
 
 
@@ -51,12 +52,19 @@ class Processes(IProcesses):
 
     async def next_node_iter(self) -> AsyncIterator[str]:
         while True:
+            last_hash = self.dagops.hash_of_nodenames()
             self.deptree_invalidation_flag.clear()
             for node_name in self.dagops.get_node_names():
+                if last_hash != self.dagops.hash_of_nodenames():
+                    break
                 if node_name in self.finished_nodes or node_name in self.active_nodes:
                     continue
                 if self._can_start_node(node_name):
                     yield node_name
+            if last_hash != self.dagops.hash_of_nodenames():
+                logger.debug("Node set is changed in next_node_iter")
+                self.resolve_deps()
+                continue
             await self.deptree_invalidation_flag.wait()
 
     def _can_start_node(self, node_name: str) -> bool:

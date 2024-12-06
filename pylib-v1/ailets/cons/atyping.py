@@ -201,6 +201,9 @@ class IDagops(Protocol):
     def get_next_name(self, full_name: str) -> str:
         raise NotImplementedError
 
+    def hash_of_nodenames(self) -> int:
+        raise NotImplementedError
+
 
 class INodeRegistry(Protocol):
     def has_node(self, name: str) -> bool:

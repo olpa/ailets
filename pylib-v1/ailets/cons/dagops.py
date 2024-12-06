@@ -217,3 +217,10 @@ class Dagops(IDagops):
         seqno = self.seqno.next_seqno()
         another_name = f"{to_basename(full_name)}.{seqno}"
         return another_name
+
+    def hash_of_nodenames(self) -> int:
+        """Generate a hash based on the names of nodes in the DAG."""
+        # Sort node names for deterministic hashing
+        sorted_names = sorted(self.nodes.keys())
+        # Use tuple since lists aren't hashable
+        return hash(tuple(sorted_names))
