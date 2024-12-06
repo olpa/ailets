@@ -10,7 +10,7 @@ setup(
     version=version,
     packages=find_packages(),
     install_requires=[
-        'requests',
+        'aiohttp',
     ],
     author="Oleg Parashchenko",
     author_email="olpa@uucode.com",

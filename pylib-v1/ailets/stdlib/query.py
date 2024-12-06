@@ -1,5 +1,5 @@
 import json
-import requests
+import aiohttp
 import os
 import re
 from ailets.cons.atyping import INodeRuntime
@@ -36,7 +36,7 @@ async def query(runtime: INodeRuntime) -> None:
         raise RuntimeError(f"Exceeded maximum number of runs ({MAX_RUNS})")
 
     assert runtime.n_of_streams(None) == 1, "Expected exactly one query params dict"
-    fd = await runtime.open_read(None, 0)  # Get the single params dict
+    fd = await runtime.open_read(None, 0)
     params = json.loads((await read_all(runtime, fd)).decode("utf-8"))
     await runtime.close(fd)
 
@@ -61,26 +61,22 @@ async def query(runtime: INodeRuntime) -> None:
         else:
             raise ValueError("Invalid body type")
 
-        response = requests.request(
-            method=params["method"],
-            url=url,
-            headers=headers,
-            **body_kwargs,
-        )
-        response.raise_for_status()  # Raise an exception for bad status codes
+        async with aiohttp.ClientSession() as session:
+            async with session.request(
+                method=params["method"],
+                url=url,
+                headers=headers,
+                **body_kwargs,
+            ) as response:
+                response.raise_for_status()
+                value = await response.json()
+                fd = await runtime.open_write(None)
+                await write_all(runtime, fd, json.dumps(value).encode("utf-8"))
+                await runtime.close(fd)
 
-        value = response.json()
-        fd = await runtime.open_write(None)
-        await write_all(runtime, fd, json.dumps(value).encode("utf-8"))
-        await runtime.close(fd)
-
-    except requests.exceptions.RequestException as e:
+    except aiohttp.ClientError as e:
         print(f"HTTP Request failed: {str(e)}")
-        if hasattr(e, "response") and e.response is not None:
-            print(f"Response text: {e.response.text}")
         raise
     except json.JSONDecodeError as e:
         print(f"Failed to decode JSON response: {str(e)}")
-        if response is not None:
-            print(f"Raw response: {response.text}")
         raise
