@@ -1,5 +1,5 @@
 import json
-from typing import Any, AsyncGenerator, Dict, Literal, Optional
+from typing import Any, AsyncGenerator, Dict, Literal, Optional, Sequence
 from .atyping import INodeRuntime
 
 
@@ -36,7 +36,9 @@ async def write_all(runtime: INodeRuntime, fd: int, data: bytes) -> None:
 
 
 async def iter_streams_objects(
-    runtime: INodeRuntime, stream_name: Optional[str]
+    runtime: INodeRuntime,
+    stream_name: Optional[str],
+    sse_tokens: Sequence[str] = (),
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Iterate over all streams. Each stream contains JSON objects,
     either as a JSON array or as individual objects without separation."""
@@ -60,6 +62,28 @@ async def iter_streams_objects(
 
         pos = 0
         while pos < len(sbuf):
+            #
+            # Skip whitespace and SSE tokens
+            #
+            while pos < len(sbuf) and sbuf[pos].isspace():
+                pos += 1
+            if pos >= len(sbuf):
+                break
+
+            skipped_sse_tokens = False
+            if sbuf[pos] != "{":
+                for token in sse_tokens:
+                    if sbuf[pos:].startswith(token):
+                        skipped_sse_tokens = True
+                        pos += len(token)
+                        break
+
+            if skipped_sse_tokens:
+                continue
+
+            #
+            # Parse JSON object
+            #
             try:
                 obj, obj_len = decoder.raw_decode(sbuf[pos:])
                 pos += obj_len

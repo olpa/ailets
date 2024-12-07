@@ -142,7 +142,9 @@ async def response_to_messages(runtime: INodeRuntime) -> None:
     invalidation_flag = InvalidationFlag(is_invalidated=False)
     messages: List[ChatMessage] = []
 
-    async for response in iter_streams_objects(runtime, None):
+    async for response in iter_streams_objects(
+        runtime, None, sse_tokens=["data:", "[DONE]"]
+    ):
         assert isinstance(response, dict), "Response must be a dictionary"
         assert "choices" in response, "Response must have 'choices' key"
         assert isinstance(response["choices"], list), "'choices' must be a list"
