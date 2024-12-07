@@ -18,6 +18,7 @@ from ailets.cons.util import (
     iter_streams_objects,
     write_all,
 )
+from ailets.models.gpt4o.sse import SseHandler, is_sse_object
 from ailets.models.gpt4o.typing import (
     Gpt4oMessage,
     is_gpt4o_image,
@@ -141,11 +142,19 @@ async def response_to_messages(runtime: INodeRuntime) -> None:
 
     invalidation_flag = InvalidationFlag(is_invalidated=False)
     messages: List[ChatMessage] = []
+    sse_handler: Optional[SseHandler] = None
 
     async for response in iter_streams_objects(
         runtime, None, sse_tokens=["data:", "[DONE]"]
     ):
         assert isinstance(response, dict), "Response must be a dictionary"
+
+        if is_sse_object(response):
+            if sse_handler is None:
+                sse_handler = SseHandler(response, runtime, output)
+            sse_handler.handle_sse_object(response)
+            continue
+
         assert "choices" in response, "Response must have 'choices' key"
         assert isinstance(response["choices"], list), "'choices' must be a list"
 
@@ -155,6 +164,7 @@ async def response_to_messages(runtime: INodeRuntime) -> None:
             if message is not None:
                 messages.append(message)
 
-    value = json.dumps(messages).encode("utf-8")
-    await write_all(runtime, output, value)
+    if len(messages) > 0:
+        value = json.dumps(messages).encode("utf-8")
+        await write_all(runtime, output, value)
     await runtime.close(output)
