@@ -152,7 +152,7 @@ async def response_to_messages(runtime: INodeRuntime) -> None:
         if is_sse_object(response):
             if sse_handler is None:
                 sse_handler = SseHandler(response, runtime, output)
-            sse_handler.handle_sse_object(response)
+            await sse_handler.handle_sse_object(response)
             continue
 
         assert "choices" in response, "Response must have 'choices' key"
@@ -167,4 +167,7 @@ async def response_to_messages(runtime: INodeRuntime) -> None:
     if len(messages) > 0:
         value = json.dumps(messages).encode("utf-8")
         await write_all(runtime, output, value)
+    if sse_handler is not None:
+        await sse_handler.done()
+
     await runtime.close(output)
