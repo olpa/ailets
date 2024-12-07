@@ -100,9 +100,12 @@ async def get_overrides(runtime: INodeRuntime) -> dict[str, Any]:
     ]
     overrides: dict[str, Any] = {}
     async for cfg in iter_streams_objects(runtime, "env"):
-        for key, value in cfg.items():
-            if key in known_model_params:
-                overrides[key] = value
+        gpt4o_cfg = cfg.get("gpt4o")
+        if not gpt4o_cfg:
+            continue
+        for param in known_model_params:
+            if param in gpt4o_cfg:
+                overrides[param] = gpt4o_cfg[param]
     return overrides
 
 
