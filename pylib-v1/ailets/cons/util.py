@@ -50,6 +50,10 @@ async def iter_streams_objects(
         fd = await runtime.open_read(stream_name, i - 1)
         buffer = await read_all(runtime, fd)
         await runtime.close(fd)
+
+        if len(buffer) == 0:
+            continue
+
         sbuf = buffer.decode("utf-8")
 
         decoder = json.JSONDecoder()
