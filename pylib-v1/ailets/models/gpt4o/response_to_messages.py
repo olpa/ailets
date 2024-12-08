@@ -19,7 +19,7 @@ from ailets.cons.util import (
     write_all,
 )
 from ailets.models.gpt4o.sse import SseHandler, is_sse_object
-from ailets.models.gpt4o.typing import (
+from ailets.models.gpt4o.lib.typing import (
     Gpt4oMessage,
     is_gpt4o_image,
 )

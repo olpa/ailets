@@ -8,7 +8,7 @@ from ailets.cons.atyping import (
     INodeRuntime,
 )
 from ailets.cons.util import iter_streams_objects, read_all, write_all
-from ailets.models.gpt4o.typing import Gpt4oContentItem, Gpt4oMessage
+from ailets.models.gpt4o.lib.typing import Gpt4oContentItem, Gpt4oMessage
 
 url = "https://api.openai.com/v1/chat/completions"
 method = "POST"
