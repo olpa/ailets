@@ -10,9 +10,11 @@ class ToolCalls:
 
     def extend(self, tool_calls: Sequence[Mapping[str, Any]]) -> None:
         for tool_call in tool_calls:
-            assert tool_call["index"] == len(
-                self.tool_calls
-            ), "Tool call indices must be sequential"
+            index = tool_call.get("index")
+            if index is not None:
+                assert index == len(
+                    self.tool_calls
+                ), "Tool call indices must be sequential"
             assert is_content_item_function(tool_call), "Tool call must be a function"
             self.tool_calls.append(tool_call)
 
