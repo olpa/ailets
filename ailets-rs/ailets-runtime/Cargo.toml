@@ -1,11 +1,20 @@
 [package]
-name = "ailets-runtime"
+name = "ailets-stdlib"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [dependencies]
 ailets-types = { path = "../ailets-types" }
+ailets-runtime = { path = "../ailets-runtime" }
 serde.workspace = true
 serde_json.workspace = true
+wasm-bindgen.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+
