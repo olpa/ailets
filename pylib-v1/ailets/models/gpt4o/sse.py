@@ -1,6 +1,7 @@
-from typing import Any, Mapping, Optional, cast
+from typing import Any, Mapping, Optional, Sequence, cast
 
-from ailets.cons.atyping import INodeRuntime
+from ailets.cons.atyping import ContentItemFunction, INodeRuntime
+from ailets.cons.typeguards import is_content_item_function
 from ailets.cons.util import write_all
 
 
@@ -42,14 +43,45 @@ def escape_json_value(s: str) -> str:
     return "".join(result)
 
 
+class ToolCalls:
+    def __init__(self, tool_calls: Optional[Sequence[Mapping[str, Any]]]) -> None:
+        self.tool_calls: list[ContentItemFunction] = []
+        if tool_calls is None:
+            return
+        for tool_call in tool_calls:
+            assert tool_call["index"] == len(
+                self.tool_calls
+            ), "Tool call indices must be sequential"
+            assert is_content_item_function(tool_call), "Tool call must be a function"
+            self.tool_calls.append(tool_call)
+
+    def delta(self, tool_calls: Optional[Sequence[Mapping[str, Any]]]) -> None:
+        if tool_calls is None:
+            return
+        for tool_call in tool_calls:
+            index = tool_call["index"]
+            if index < 0 or index >= len(self.tool_calls):
+                raise ValueError(f"Tool call index {index} is out of range")
+            base_tool_call = self.tool_calls[index]
+            assert "function" in tool_call, "Tool call must have 'function' key"
+            function = tool_call["function"]
+            assert isinstance(function, dict), "'function' must be a dictionary"
+            assert list(function.keys()) == [
+                "arguments"
+            ], "'function' must only have 'arguments' key"
+
+            base_tool_call["function"]["arguments"] = function["arguments"]
+
+    def get_tool_calls(self) -> list[ContentItemFunction]:
+        return self.tool_calls
+
+
 class SseHandler:
-    def __init__(
-        self, init_sse_object: Mapping[str, Any], runtime: INodeRuntime, out_fd: int
-    ) -> None:
-        self.init_sse_object = init_sse_object
+    def __init__(self, runtime: INodeRuntime, out_fd: int) -> None:
         self.runtime = runtime
         self.out_fd = out_fd
         self.message_is_started = False
+        self.tool_calls: Optional[ToolCalls] = None
 
     async def handle_sse_object(self, sse_object: Mapping[str, Any]) -> None:
         delta = unwrap_delta(sse_object)
@@ -67,6 +99,14 @@ class SseHandler:
         if content:
             escaped = escape_json_value(content)
             await write_all(self.runtime, self.out_fd, escaped.encode("utf-8"))
+
+        tool_calls = delta.get("tool_calls")
+        if tool_calls:
+            assert isinstance(tool_calls, list), "Tool calls must be a list"
+            if self.tool_calls is None:
+                self.tool_calls = ToolCalls(tool_calls)
+            else:
+                self.tool_calls.delta(tool_calls)
 
     async def done(self) -> None:
         assert self.message_is_started, "Message is not started"

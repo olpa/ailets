@@ -151,7 +151,7 @@ async def response_to_messages(runtime: INodeRuntime) -> None:
 
         if is_sse_object(response):
             if sse_handler is None:
-                sse_handler = SseHandler(response, runtime, output)
+                sse_handler = SseHandler(runtime, output)
             await sse_handler.handle_sse_object(response)
             continue
 
