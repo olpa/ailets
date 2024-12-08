@@ -14,6 +14,11 @@ class Delta(TypedDict):
     role: NotRequired[str]
     content: NotRequired[Optional[str]]
     refusal: NotRequired[Optional[str]]
+    tool_calls: NotRequired[Optional[list[dict[str, Any]]]]
+
+
+def is_sse_object(obj: Mapping[str, Any]) -> bool:
+    return obj.get("object") == "chat.completion.chunk"
 
 
 def unwrap_delta(sse_object: Mapping[str, Any]) -> Delta:
@@ -51,23 +56,30 @@ class SseHandler:
         self.runtime = runtime
         self.tool_calls = tool_calls
         self.out_fd = out_fd
+
+        self.role: Optional[str] = None
         self.message_is_started = False
         self.tool_calls_started = False
 
     async def handle_sse_object(self, sse_object: Mapping[str, Any]) -> None:
         delta = unwrap_delta(sse_object)
-        if not self.message_is_started:
-            role = delta["role"]
-            assert role is not None, "SSE message must start with a role"
 
-            header = f'{{"role":"{role}","content":[{{"type":"text","text":"'.encode(
-                "utf-8"
-            )
-            await write_all(self.runtime, self.out_fd, header)
-            self.message_is_started = True
+        role = delta.get("role")
+        if role:
+            assert not self.message_is_started, "SSE with role, but the message is already started"
+            assert self.role is None, "SSE with role, but the role is already set"
+            self.role = role
 
         content = delta.get("content")
         if content:
+            if not self.message_is_started:
+                assert self.role is not None, "SSE with content, but the 'role' is not set"
+                self.message_is_started = True
+                header = f'{{"role":"{self.role}","content":[{{"type":"text","text":"'.encode(
+                    "utf-8"
+                )
+                await write_all(self.runtime, self.out_fd, header)
+
             escaped = escape_json_value(content)
             await write_all(self.runtime, self.out_fd, escaped.encode("utf-8"))
 
@@ -81,9 +93,6 @@ class SseHandler:
                 self.tool_calls.delta(tool_calls)
 
     async def done(self) -> None:
-        assert self.message_is_started, "Message is not started"
-        await write_all(self.runtime, self.out_fd, b'"}]}')
+        if self.message_is_started:
+            await write_all(self.runtime, self.out_fd, b'"}]}')
 
-
-def is_sse_object(obj: Mapping[str, Any]) -> bool:
-    return obj.get("object") == "chat.completion.chunk"
