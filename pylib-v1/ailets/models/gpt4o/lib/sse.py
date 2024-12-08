@@ -47,12 +47,12 @@ def escape_json_value(s: str) -> str:
 
 
 class SseHandler:
-    def __init__(self, runtime: INodeRuntime, out_fd: int) -> None:
+    def __init__(self, runtime: INodeRuntime, tool_calls: ToolCalls, out_fd: int) -> None:
         self.runtime = runtime
+        self.tool_calls = tool_calls
         self.out_fd = out_fd
         self.message_is_started = False
         self.tool_calls_started = False
-        self.tool_calls = ToolCalls()
 
     async def handle_sse_object(self, sse_object: Mapping[str, Any]) -> None:
         delta = unwrap_delta(sse_object)
