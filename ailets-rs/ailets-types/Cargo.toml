@@ -1,5 +1,5 @@
 [package]
-name = "ailets-stdlib"
+name = "ailets-types"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -9,8 +9,6 @@ license.workspace = true
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-ailets-types = { path = "../ailets-types" }
-ailets-runtime = { path = "../ailets-runtime" }
 serde.workspace = true
 serde_json.workspace = true
 wasm-bindgen.workspace = true
