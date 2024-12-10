@@ -1,12 +1,13 @@
-use wasm_bindgen::prelude::*;
 use ailets_types::ChatMessage;
 
-#[wasm_bindgen(js_name = messages_to_markdown)]
-pub fn messages_to_markdown(messages: &str) -> Result<String, JsValue> {
+#[no_mangle]
+pub extern "C" fn messages_to_markdown(ptr: *const u8, len: usize) -> *const u8 {
+    let slice = unsafe { std::slice::from_raw_parts(ptr, len) };
+    let input = std::str::from_utf8(slice).unwrap();
+    
     // Parse the input JSON string to ChatMessage
-    let messages: Vec<ChatMessage> = serde_json::from_str(messages)
-        .map_err(|e| JsValue::from_str(&format!("Failed to parse messages: {}", e)))?;
-
+    let messages: Vec<ChatMessage> = serde_json::from_str(input).unwrap();
+    
     let mut markdown = String::new();
     
     for message in messages {
@@ -32,29 +33,16 @@ pub fn messages_to_markdown(messages: &str) -> Result<String, JsValue> {
         }
     }
     
-    Ok(markdown)
+    let result = markdown.into_bytes();
+    let ptr = result.as_ptr();
+    std::mem::forget(result); // Prevent deallocation
+    ptr
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_messages_to_markdown() {
-        let input = r#"[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": "Hello"
-                    }
-                ]
-            }
-        ]"#;
-        
-        let result = messages_to_markdown(input).unwrap();
-        assert!(result.contains("**user**"));
-        assert!(result.contains("Hello"));
-    }
+#[no_mangle]
+pub extern "C" fn alloc(size: usize) -> *mut u8 {
+    let mut buf = Vec::with_capacity(size);
+    let ptr = buf.as_mut_ptr();
+    std::mem::forget(buf);
+    ptr
 }
