@@ -116,7 +116,7 @@ class NodeRuntime:
 
         return len(self.streams) - 1
 
-    def read(self, fd: int, buffer: bytearray, count: int) -> int:
+    def read(self, fd: int, buffer: memoryview, ptr: int, count: int) -> int:
         stream = self.streams[fd]
         if stream is None:
             raise ValueError(f"Stream {fd} is not open")
@@ -124,14 +124,16 @@ class NodeRuntime:
         bytes = stream.read(count)
         if bytes is None:
             return 0
-        buffer[: len(bytes)] = bytes
-        return len(bytes)
+        end = ptr + len(bytes)
+        buffer[ptr:end] = bytes
+        return end - ptr
 
-    def write(self, fd: int, buffer: bytes, count: int) -> int:
+    def write(self, fd: int, buffer: memoryview, ptr: int, count: int) -> int:
         stream = self.streams[fd]
         if stream is None:
             raise ValueError(f"Stream {fd} is not open")
-        return stream.write(buffer[:count])
+        end = ptr + count
+        return stream.write(buffer[ptr:end])
 
     def close(self, fd: int) -> None:
         stream = self.streams[fd]
@@ -158,6 +160,11 @@ class BufToStr:
         str_bytes: bytes = self.memory[ptr:end]
         return str_bytes.decode()
 
+    def get_view(self) -> memoryview:
+        if self.memory is None:
+            raise ValueError("Memory is not set")
+        return memoryview(self.memory)
+
 
 def register_node_runtime(
     store: wasmer.Store,
@@ -170,10 +177,32 @@ def register_node_runtime(
         name = buf_to_str.get_string(name_ptr)
         return nr.n_of_streams(name)
 
+    def open_read(name_ptr: int, index: int) -> int:
+        name = buf_to_str.get_string(name_ptr)
+        return nr.open_read(name, index)
+
+    def open_write(name_ptr: int) -> int:
+        name = buf_to_str.get_string(name_ptr)
+        return nr.open_write(name)
+
+    def read(fd: int, buffer_ptr: int, count: int) -> int:
+        return nr.read(fd, buf_to_str.get_view(), buffer_ptr, count)
+
+    def write(fd: int, buffer_ptr: int, count: int) -> int:
+        return nr.write(fd, buf_to_str.get_view(), buffer_ptr, count)
+
+    def close(fd: int) -> None:
+        return nr.close(fd)
+
     import_object.register_function(
         "",
         {
             "n_of_streams": wasmer.Function(store, n_of_streams),
+            "open_read": wasmer.Function(store, open_read),
+            "open_write": wasmer.Function(store, open_write),
+            "read": wasmer.Function(store, read),
+            "write": wasmer.Function(store, write),
+            "close": wasmer.Function(store, close),
         },
     )
 
