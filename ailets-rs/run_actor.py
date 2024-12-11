@@ -154,16 +154,17 @@ class BufToStr:
     def get_string(self, ptr: int) -> str:
         if self.memory is None:
             raise ValueError("Memory is not set")
+        buf = memoryview(self.memory.buffer)
         end = ptr
-        while self.memory[end] != 0:
+        while buf[end] != 0:
             end += 1
-        str_bytes: bytes = self.memory[ptr:end]
+        str_bytes = bytes(buf[ptr:end])
         return str_bytes.decode()
 
     def get_view(self) -> memoryview:
         if self.memory is None:
             raise ValueError("Memory is not set")
-        return memoryview(self.memory)
+        return memoryview(self.memory.buffer)
 
 
 def register_node_runtime(
