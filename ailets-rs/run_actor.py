@@ -194,7 +194,7 @@ def register_node_runtime(
     def close(fd: int) -> None:
         return nr.close(fd)
 
-    import_object.register_function(
+    import_object.register(
         "",
         {
             "n_of_streams": wasmer.Function(store, n_of_streams),
@@ -224,8 +224,14 @@ def main() -> None:
 
     instance = wasmer.Instance(module, import_object)
 
-    assert len(instance.exports) == 1, f"Expected 1 export, got {len(instance.exports)}"
-    run_fn = instance.exports[0]
+    callable_exports = [
+        (name, export) for name, export in instance.exports if callable(export)
+    ]
+    export_names = [name for name, _ in callable_exports]
+    assert (
+        len(callable_exports) == 1
+    ), f"Expected 1 export, got {len(callable_exports)}: {export_names}"
+    run_fn = callable_exports[0][1]
 
     memory = instance.exports.memory
     assert isinstance(memory, wasmer.Memory), "Memory is not a Memory"
