@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import io
 import sys
 from typing import Literal, Optional, Protocol, Sequence, cast
+import wasmer  # type: ignore[import-untyped]
 
 
 @dataclass
@@ -55,11 +56,6 @@ def parse_arguments() -> tuple[str, Sequence[Spec]]:
         specs.append(parse_name_value(arg))
 
     return args.wasm_path, specs
-
-
-def main() -> None:
-    wasm_path, specs = parse_arguments()
-    print(wasm_path, specs)
 
 
 # ----
@@ -146,7 +142,67 @@ class NodeRuntime:
         self.streams[fd] = None
 
 
+class BufToStr:
+    def __init__(self) -> None:
+        self.memory: Optional[wasmer.Memory] = None
+
+    def set_memory(self, memory: wasmer.Memory) -> None:
+        self.memory = memory
+
+    def get_string(self, ptr: int) -> str:
+        if self.memory is None:
+            raise ValueError("Memory is not set")
+        end = ptr
+        while self.memory[end] != 0:
+            end += 1
+        str_bytes: bytes = self.memory[ptr:end]
+        return str_bytes.decode()
+
+
+def register_node_runtime(
+    store: wasmer.Store,
+    import_object: wasmer.ImportObject,
+    buf_to_str: BufToStr,
+    nr: NodeRuntime,
+) -> None:
+
+    def n_of_streams(name_ptr: int) -> int:
+        name = buf_to_str.get_string(name_ptr)
+        return nr.n_of_streams(name)
+
+    import_object.register_function(
+        "",
+        {
+            "n_of_streams": wasmer.Function(store, n_of_streams),
+        },
+    )
+
+
 # ----
+
+
+def main() -> None:
+    wasm_path, specs = parse_arguments()
+    nr = NodeRuntime(specs)
+
+    with open(wasm_path, "rb") as f:
+        wasm_bytes = f.read()
+    store = wasmer.Store()
+    module = wasmer.Module(store, wasm_bytes)
+    import_object = wasmer.ImportObject()
+    buf_to_str = BufToStr()
+    register_node_runtime(store, import_object, buf_to_str, nr)
+
+    instance = wasmer.Instance(module, import_object)
+
+    assert len(instance.exports) == 1, f"Expected 1 export, got {len(instance.exports)}"
+    run_fn = instance.exports[0]
+
+    memory = instance.exports.memory
+    assert isinstance(memory, wasmer.Memory), "Memory is not a Memory"
+    buf_to_str.set_memory(memory)
+
+    run_fn()
 
 
 if __name__ == "__main__":
