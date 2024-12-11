@@ -2,7 +2,8 @@
 members = [
     "ailets-types",
     "ailets-runtime",
-    "ailets-stdlib"
+    "ailets-stdlib",
+    "cat",
 ]
 resolver = "2"
 
