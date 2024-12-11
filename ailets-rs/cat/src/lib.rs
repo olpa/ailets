@@ -8,7 +8,8 @@ extern "C" {
     fn close(fd: i32);
 }
 
-fn main() {
+#[no_mangle]
+pub extern "C" fn execute() {
     // Get number of input streams
     let input_name = b"";
     
