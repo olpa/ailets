@@ -16,4 +16,5 @@ lint:
 
 fix:
 	black run_actor.py
+	cargo fmt
 

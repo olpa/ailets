@@ -12,10 +12,10 @@ extern "C" {
 pub extern "C" fn execute() {
     // Get number of input streams
     let input_name = b"";
-    
+
     // Open output stream
     let output_fd = unsafe { open_write(input_name.as_ptr()) };
-    
+
     // Process each input stream
     let mut i = 0;
     loop {
@@ -25,24 +25,24 @@ pub extern "C" fn execute() {
         }
 
         let input_fd = unsafe { open_read(input_name.as_ptr(), i) };
-        
+
         // Create buffer for reading
         let mut buffer = [0u8; 1024];
-        
+
         // Copy contents
         loop {
             let bytes_read = unsafe { read(input_fd, buffer.as_mut_ptr(), buffer.len() as i32) };
             if bytes_read <= 0 {
                 break;
             }
-            
+
             let mut bytes_written = 0;
             while bytes_written < bytes_read {
-                let n = unsafe { 
+                let n = unsafe {
                     write(
-                        output_fd, 
-                        buffer.as_ptr().add(bytes_written as usize), 
-                        bytes_read - bytes_written
+                        output_fd,
+                        buffer.as_ptr().add(bytes_written as usize),
+                        bytes_read - bytes_written,
                     )
                 };
                 if n <= 0 {
@@ -52,7 +52,7 @@ pub extern "C" fn execute() {
                 bytes_written += n;
             }
         }
-        
+
         // Close input stream
         unsafe { close(input_fd) };
 
