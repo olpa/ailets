@@ -1,19 +1,19 @@
 #[link(wasm_import_module = "")]
 extern "C" {
-    fn n_of_streams(name_ptr: *const u8) -> i32;
-    fn open_read(name_ptr: *const u8, index: i32) -> i32;
-    fn open_write(name_ptr: *const u8) -> i32;
-    fn read(fd: i32, buffer_ptr: *mut u8, count: i32) -> i32;
-    fn write(fd: i32, buffer_ptr: *const u8, count: i32) -> i32;
-    fn close(fd: i32);
+    fn n_of_streams(name_ptr: *const u8) -> u32;
+    fn open_read(name_ptr: *const u8, index: u32) -> u32;
+    fn open_write(name_ptr: *const u8) -> u32;
+    fn read(fd: u32, buffer_ptr: *mut u8, count: u32) -> u32;
+    fn write(fd: u32, buffer_ptr: *const u8, count: u32) -> u32;
+    fn close(fd: u32);
 }
+
+const BUFFER_SIZE: u32 = 1024;
 
 #[no_mangle]
 pub extern "C" fn execute() {
-    // Get number of input streams
     let input_name = b"";
-
-    // Open output stream
+    let mut buffer = [0u8; BUFFER_SIZE as usize];
     let output_fd = unsafe { open_write(input_name.as_ptr()) };
 
     // Process each input stream
@@ -26,13 +26,10 @@ pub extern "C" fn execute() {
 
         let input_fd = unsafe { open_read(input_name.as_ptr(), i) };
 
-        // Create buffer for reading
-        let mut buffer = [0u8; 1024];
-
         // Copy contents
         loop {
-            let bytes_read = unsafe { read(input_fd, buffer.as_mut_ptr(), buffer.len() as i32) };
-            if bytes_read <= 0 {
+            let bytes_read = unsafe { read(input_fd, buffer.as_mut_ptr(), BUFFER_SIZE) };
+            if bytes_read == 0 {
                 break;
             }
 
@@ -45,7 +42,7 @@ pub extern "C" fn execute() {
                         bytes_read - bytes_written,
                     )
                 };
-                if n <= 0 {
+                if n == 0 {
                     // Handle write error
                     break;
                 }
