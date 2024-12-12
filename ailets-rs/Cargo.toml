@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "cat",
+    "cat", "messages_to_markdown",
 ]
 resolver = "2"
 

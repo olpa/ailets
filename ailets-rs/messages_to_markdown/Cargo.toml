@@ -1,0 +1,9 @@
+[package]
+name = "messages_to_markdown"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+jiter = "0.8.2"
