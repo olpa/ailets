@@ -58,7 +58,7 @@ pub extern "C" fn execute() {
 
         i += 1;
     }
-    
+
     // Close output stream
     unsafe { close(output_fd) };
-} 
+}

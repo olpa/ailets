@@ -1,8 +1,5 @@
 [workspace]
 members = [
-    "ailets-types",
-    "ailets-runtime",
-    "ailets-stdlib",
     "cat",
 ]
 resolver = "2"
@@ -12,7 +9,3 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Oleg Parashchenko <olpa@uucode.com>"]
 license = "MIT"
-
-[workspace.dependencies]
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
