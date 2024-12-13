@@ -2,18 +2,18 @@
 
 #[link(wasm_import_module = "")]
 extern "C" {
-//    // fn n_of_streams(name_ptr: *const u8) -> u32;
-//    // fn open_read(name_ptr: *const u8, index: u32) -> u32;
+    //    // fn n_of_streams(name_ptr: *const u8) -> u32;
+    //    // fn open_read(name_ptr: *const u8, index: u32) -> u32;
     fn open_write(name_ptr: *const u8) -> u32;
-//    // fn read(fd: u32, buffer_ptr: *mut u8, count: u32) -> u32;
+    //    // fn read(fd: u32, buffer_ptr: *mut u8, count: u32) -> u32;
     fn awrite(fd: u32, buffer_ptr: *const u8, count: u32) -> u32;
     fn aclose(fd: u32);
 }
 
 /// Converts a JSON message format to markdown.
-/// 
+///
 /// # Panics
-/// 
+///
 /// This function will panic if:
 /// - The input JSON is malformed
 /// - The JSON structure doesn't match the expected format of
@@ -21,8 +21,6 @@ extern "C" {
 pub fn messages_to_markdown() {
     println!("!!!!!!!!!!!!!!!!!!!!!!!!! messages_to_markdown");
 
-    let func_ptr: *const () = open_write as *const ();
-    println!("!!!!!!!!!!!!!!!!!!!!!!!!! {:p}", func_ptr);
     //let json_data = r#"
     //{
     //    "role":"assistant",
@@ -38,7 +36,7 @@ pub fn messages_to_markdown() {
     //assert_eq!(jiter.next_array().unwrap(), Some(Peek::String));
 
     let output_fd = unsafe { open_write(b"".as_ptr()) };
-    println!("!!!!!!!!!!!!!!!!!!!!!!!!! output_fd: {}", output_fd);
-    unsafe { awrite(output_fd, b"Hello!\n".as_ptr(), 6) };  // FIXME: write_all()
+    println!("!!!!!!!!!!!!!!!!!!!!!!!!! output_fd: {output_fd}");
+    unsafe { awrite(output_fd, b"Hello!\n".as_ptr(), 7) }; // FIXME: write_all()
     unsafe { aclose(output_fd) };
 }
