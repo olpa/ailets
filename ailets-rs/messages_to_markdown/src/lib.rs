@@ -3,12 +3,14 @@
 #[link(wasm_import_module = "")]
 extern "C" {
     //    // fn n_of_streams(name_ptr: *const u8) -> u32;
-    //    // fn open_read(name_ptr: *const u8, index: u32) -> u32;
+    fn open_read(name_ptr: *const u8, index: u32) -> u32;
     fn open_write(name_ptr: *const u8) -> u32;
-    //    // fn read(fd: u32, buffer_ptr: *mut u8, count: u32) -> u32;
+    fn aread(fd: u32, buffer_ptr: *mut u8, count: u32) -> u32;
     fn awrite(fd: u32, buffer_ptr: *const u8, count: u32) -> u32;
     fn aclose(fd: u32);
 }
+
+const BUFFER_SIZE: u32 = 1024;
 
 /// Converts a JSON message format to markdown.
 ///
@@ -20,14 +22,12 @@ extern "C" {
 ///   ```
 pub fn messages_to_markdown() {
     println!("!!!!!!!!!!!!!!!!!!!!!!!!! messages_to_markdown");
+    let mut buffer = [0u8; BUFFER_SIZE as usize];
 
-    //let json_data = r#"
-    //{
-    //    "role":"assistant",
-    //    "content":[
-    //        {"type":"text", "text":"Hello!"}
-    //    ]
-    //}"#;
+    let input_fd = unsafe { open_read(b"".as_ptr(), 0) };
+    let bytes_read = unsafe { aread(input_fd, buffer.as_mut_ptr(), BUFFER_SIZE) };
+    let json_data = std::str::from_utf8(&buffer[..bytes_read as usize]).unwrap();
+    println!("!!!!!!!!!!!!!!!!!!!!!!!!! json_data: {json_data}");
 
     //let mut jiter = Jiter::new(json_data.as_bytes());
     //assert_eq!(jiter.next_object().unwrap(), Some("role"));
