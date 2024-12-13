@@ -1,5 +1,15 @@
 use jiter::{Jiter, NumberInt, Peek};
 
+#[link(wasm_import_module = "")]
+extern "C" {
+    // fn n_of_streams(name_ptr: *const u8) -> u32;
+    // fn open_read(name_ptr: *const u8, index: u32) -> u32;
+    fn open_write(name_ptr: *const u8) -> u32;
+    // fn read(fd: u32, buffer_ptr: *mut u8, count: u32) -> u32;
+    fn write(fd: u32, buffer_ptr: *const u8, count: u32) -> u32;
+    fn close(fd: u32);
+}
+
 /// Demonstrates the use of the `jiter` crate.
 /// 
 /// # Panics
@@ -53,7 +63,7 @@ pub extern "C" fn messages_to_markdown() {
     {
         "role":"assistant",
         "content":[
-            {"type":"text", "text":"Hello! How can I assist you today?"}
+            {"type":"text", "text":"Hello!"}
         ]
     }"#;
 
@@ -62,4 +72,8 @@ pub extern "C" fn messages_to_markdown() {
     assert_eq!(jiter.next_str().unwrap(), "assistant");
     assert_eq!(jiter.next_key().unwrap(), Some("content"));
     assert_eq!(jiter.next_array().unwrap(), Some(Peek::String));
+
+    let output_fd = unsafe { open_write(b"".as_ptr()) };
+    unsafe { write(output_fd, b"Hello!\n".as_ptr(), 6) };  // FIXME: write_all()
+    unsafe { close(output_fd) };
 }

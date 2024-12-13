@@ -2,6 +2,8 @@ use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use messages_to_markdown::messages_to_markdown;
+
 // Mock storage for our file descriptors and data
 lazy_static! {
     static ref MOCK_FILES: Mutex<HashMap<String, Vec<Vec<u8>>>> = Mutex::new(HashMap::new());
@@ -119,4 +121,23 @@ fn test_file_operations() {
     setup_mock_file("test.txt", vec![b"stream1".to_vec(), b"stream2".to_vec()]);
 
     // Your test code here
+}
+
+#[test]
+fn test_basic_conversion() {
+    use test_helpers::*;
+
+    clear_mocks();
+
+    messages_to_markdown();
+
+    // Get the written content from the mock file system
+    let written = MOCK_FILES.lock().unwrap()
+        .get("")
+        .expect("Output file should exist")
+        .first()
+        .expect("Output file should have content")
+        .clone();
+
+    assert_eq!(written, b"Hello!\n");
 }
