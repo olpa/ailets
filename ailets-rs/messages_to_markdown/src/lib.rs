@@ -6,8 +6,8 @@ extern "C" {
 //    // fn open_read(name_ptr: *const u8, index: u32) -> u32;
     fn open_write(name_ptr: *const u8) -> u32;
 //    // fn read(fd: u32, buffer_ptr: *mut u8, count: u32) -> u32;
-    fn write(fd: u32, buffer_ptr: *const u8, count: u32) -> u32;
-    fn close(fd: u32);
+    fn awrite(fd: u32, buffer_ptr: *const u8, count: u32) -> u32;
+    fn aclose(fd: u32);
 }
 
 /// Converts a JSON message format to markdown.
@@ -39,6 +39,6 @@ pub fn messages_to_markdown() {
 
     let output_fd = unsafe { open_write(b"".as_ptr()) };
     println!("!!!!!!!!!!!!!!!!!!!!!!!!! output_fd: {}", output_fd);
-    unsafe { write(output_fd, b"Hello!\n".as_ptr(), 6) };  // FIXME: write_all()
-    unsafe { close(output_fd) };
+    unsafe { awrite(output_fd, b"Hello!\n".as_ptr(), 6) };  // FIXME: write_all()
+    unsafe { aclose(output_fd) };
 }
