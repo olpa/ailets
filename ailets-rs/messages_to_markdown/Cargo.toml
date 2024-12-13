@@ -5,5 +5,9 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[lib]
+crate-type = ["cdylib"]
+
 [dependencies]
 jiter = "0.8.2"
+lazy_static = "1.5.0"

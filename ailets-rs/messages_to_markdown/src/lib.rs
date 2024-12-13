@@ -1,7 +1,15 @@
 use jiter::{Jiter, NumberInt, Peek};
 
-
-fn main() {
+/// Demonstrates the use of the `jiter` crate.
+/// 
+/// # Panics
+/// 
+/// This function will panic if:
+/// - The input JSON is malformed
+/// - The JSON structure doesn't match the expected format of
+///   ```
+#[no_mangle]
+pub extern "C" fn xmain() {
     let json_data = r#"
     {
         "name": "John Doe",
@@ -31,7 +39,16 @@ fn main() {
     jiter.finish().unwrap();
 }
 
-fn parse_message() {
+/// Converts a JSON message format to markdown.
+/// 
+/// # Panics
+/// 
+/// This function will panic if:
+/// - The input JSON is malformed
+/// - The JSON structure doesn't match the expected format of
+///   ```
+#[no_mangle]
+pub extern "C" fn messages_to_markdown() {
     let json_data = r#"
     {
         "role":"assistant",
