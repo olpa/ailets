@@ -30,3 +30,19 @@ fn main() {
     // and we check there's nothing else in the input
     jiter.finish().unwrap();
 }
+
+fn parse_message() {
+    let json_data = r#"
+    {
+        "role":"assistant",
+        "content":[
+            {"type":"text", "text":"Hello! How can I assist you today?"}
+        ]
+    }"#;
+
+    let mut jiter = Jiter::new(json_data.as_bytes());
+    assert_eq!(jiter.next_object().unwrap(), Some("role"));
+    assert_eq!(jiter.next_str().unwrap(), "assistant");
+    assert_eq!(jiter.next_key().unwrap(), Some("content"));
+    assert_eq!(jiter.next_array().unwrap(), Some(Peek::String));
+}
