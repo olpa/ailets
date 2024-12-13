@@ -1,4 +1,4 @@
-use jiter::{Jiter};
+use jiter::{Jiter, Peek};
 
 #[link(wasm_import_module = "")]
 extern "C" {
@@ -13,10 +13,10 @@ extern "C" {
 const BUFFER_SIZE: u32 = 1024;
 
 #[derive(Debug, PartialEq)]
-enum State {
-    TopLevel,
-    InsideMessage,
-    InsideBody,
+enum Level {
+    Top,
+    Message,
+    Body,
     // InsideContentItem,
 }
 
@@ -36,13 +36,31 @@ pub fn messages_to_markdown() {
     let bytes_read = unsafe { aread(input_fd, buffer.as_mut_ptr(), BUFFER_SIZE) };
 
     let mut jiter = Jiter::new(&buffer[..bytes_read as usize]);
-    let mut state = State::TopLevel;
-    let mut expect_object = true;
+    let mut level = Level::Top;
+    let mut at_begin = true;
 
     loop {
-        let next = if expect_object { jiter.next_object() } else { jiter.next_key() };
-        println!("! top level next: {next:?} in state: {state:?}");
-        expect_object = false;
+        if level == Level::Top {
+            if jiter.finish().is_ok() {
+                break;
+            }
+            let peek = jiter.peek();
+            println!("! top level peek: {peek:?}");
+            if peek.is_err() {
+                panic!("Error: {peek:?}");
+            }
+            if peek != Ok(Peek::Object) {
+                panic!("Expected object at top level");
+            }
+            // level = Level::Message;
+            let consumed = jiter.next_value();
+            println!("! top level consumed: {consumed:?}");
+            continue;
+        }
+
+        let next = if at_begin { jiter.next_object() } else { jiter.next_key() };
+        println!("! top level next: {next:?} in level: {level:?}");
+        at_begin = false;
 
         if next.is_err() {
             println!("Error: {next:?}");  // FIXME
@@ -50,21 +68,45 @@ pub fn messages_to_markdown() {
         }
         let key = next.unwrap();
 
-        if state == State::TopLevel {
-            state = State::InsideMessage;
+        if level == Level::Top {
+            level = Level::Message;
         }
-        if state == State::InsideMessage {
+        if level == Level::Message {
             if key.is_none() {
-                state = State::TopLevel;
+                level = Level::Top;
                 continue;
             }
-            if key.unwrap() == "content" {
-                state = State::InsideBody;
-                expect_object = true;
+            if key.unwrap() != "content" {
+                jiter.next_skip().unwrap();
                 continue;
             }
+            level = Level::Body;
+            // Get first array item
+            let next2 = jiter.next_array();
+            println!("! inside body next2: {next2:?}");
+
+            let next2a = jiter.next_value();
+            println!("! inside body next2a: {next2a:?}");
+
+            // Iterate through remaining array items
+            loop {
+                let step = jiter.array_step();
+                println!("! array step: {step:?}");
+                if step.is_err() {
+                    println!("Error: {step:?}");  // FIXME
+                    break;
+                }
+
+                let next3a = jiter.next_value();
+                println!("! inside body next3a: {next3a:?}");
+            }
+
+            let next3 = jiter.next_array();
+            println!("! inside body next3: {next3:?}");
+            at_begin = true;
+            continue;
         }
-        panic!("Unexpected state: {state:?}");
+        panic!("Unexpected level: {level:?}");
     }
 
     let output_fd = unsafe { open_write(b"".as_ptr()) };
