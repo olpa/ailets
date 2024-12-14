@@ -1,12 +1,14 @@
+mod areader;
 mod node_runtime;
 mod writer;
 
 use jiter::{Jiter, Peek};
+use std::io::Read;
 
-use node_runtime::{aread, open_read};
+use areader::AReader;
 use writer::Writer;
 
-const BUFFER_SIZE: u32 = 1024;
+// const BUFFER_SIZE: u32 = 1024;
 
 #[derive(Debug, PartialEq)]
 enum Level {
@@ -25,13 +27,13 @@ enum Level {
 /// - The JSON structure doesn't match the expected format of
 ///   ```
 pub fn messages_to_markdown() {
-    let mut buffer = [0u8; BUFFER_SIZE as usize];
-
-    let input_fd = unsafe { open_read(b"".as_ptr(), 0) };
-    let bytes_read = unsafe { aread(input_fd, buffer.as_mut_ptr(), BUFFER_SIZE) };
+    let mut reader = AReader::new("");
     let mut writer = Writer::new("");
 
-    let mut jiter = Jiter::new(&buffer[..bytes_read as usize]);
+    let mut buffer = Vec::new();
+    reader.read_to_end(&mut buffer).unwrap();
+
+    let mut jiter = Jiter::new(&buffer);
     let mut level = Level::Top;
     let mut at_begin = true;
 
