@@ -133,3 +133,15 @@ fn test_two_messages() {
     let file = MOCK_WRITE_FILE.lock().unwrap();
     assert_eq!(&*file, b"First message\n\nSecond message\n\nExtra text");
 }
+
+#[test]
+fn test_empty_input() {
+    clear_mocks();
+    let json_data = "";
+    set_input(&[json_data]);
+
+    messages_to_markdown();
+
+    let file = MOCK_WRITE_FILE.lock().unwrap();
+    assert_eq!(&*file, b"");
+}
