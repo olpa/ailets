@@ -145,3 +145,26 @@ fn test_empty_input() {
     let file = MOCK_WRITE_FILE.lock().unwrap();
     assert_eq!(&*file, b"");
 }
+
+#[test]
+fn test_long_text() {
+    clear_mocks();
+    // Create a 4KB text string
+    let long_text = "x".repeat(4096);
+    let json_data = format!(
+        r#"
+    {{
+        "role":"assistant",
+        "content":[
+            {{"type":"text", "text":"{}"}}
+        ]
+    }}"#,
+        long_text
+    );
+    set_input(&[&json_data]);
+
+    messages_to_markdown();
+
+    let file = MOCK_WRITE_FILE.lock().unwrap();
+    assert_eq!(&*file, long_text.as_bytes());
+}
