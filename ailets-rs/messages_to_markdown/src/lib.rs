@@ -1,14 +1,10 @@
+mod node_runtime;
+mod writer;
+
 use jiter::{Jiter, Peek};
 
-#[link(wasm_import_module = "")]
-extern "C" {
-    //    // fn n_of_streams(name_ptr: *const u8) -> u32;
-    fn open_read(name_ptr: *const u8, index: u32) -> u32;
-    fn open_write(name_ptr: *const u8) -> u32;
-    fn aread(fd: u32, buffer_ptr: *mut u8, count: u32) -> u32;
-    fn awrite(fd: u32, buffer_ptr: *const u8, count: u32) -> u32;
-    fn aclose(fd: u32);
-}
+use node_runtime::{aread, open_read};
+use writer::Writer;
 
 const BUFFER_SIZE: u32 = 1024;
 
@@ -33,7 +29,7 @@ pub fn messages_to_markdown() {
 
     let input_fd = unsafe { open_read(b"".as_ptr(), 0) };
     let bytes_read = unsafe { aread(input_fd, buffer.as_mut_ptr(), BUFFER_SIZE) };
-    let output_fd = unsafe { open_write(b"".as_ptr()) };
+    let writer = Writer::new("");
 
     let mut jiter = Jiter::new(&buffer[..bytes_read as usize]);
     let mut level = Level::Top;
@@ -124,7 +120,7 @@ pub fn messages_to_markdown() {
             let text = jiter.next_str();
             assert!(text.is_ok(), "Error on the content item level: {text:?}");
             let text = text.unwrap();
-            unsafe { awrite(output_fd, text.as_ptr(), u32::try_from(text.len()).unwrap()) };
+            writer.str(text);
 
             continue;
         }
@@ -145,6 +141,4 @@ pub fn messages_to_markdown() {
 
         panic!("Unexpected level: {level:?}");
     }
-
-    unsafe { aclose(output_fd) };
 }
