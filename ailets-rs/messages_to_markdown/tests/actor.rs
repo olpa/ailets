@@ -108,3 +108,28 @@ fn test_multiple_content_items() {
     let file = MOCK_WRITE_FILE.lock().unwrap();
     assert_eq!(&*file, b"First item\n\nSecond item\n\nThird item");
 }
+
+#[test]
+fn test_two_messages() {
+    clear_mocks();
+    let json_data = r#"
+    {
+        "role":"assistant", 
+        "content":[
+            {"type":"text", "text":"First message"}
+        ]
+    }
+    {
+        "role":"assistant",
+        "content":[
+            {"type":"text", "text":"Second message"},
+            {"type":"text", "text":"Extra text"}
+        ]
+    }"#;
+    set_input(&[json_data]);
+
+    messages_to_markdown();
+
+    let file = MOCK_WRITE_FILE.lock().unwrap();
+    assert_eq!(&*file, b"First message\n\nSecond message\n\nExtra text");
+}
