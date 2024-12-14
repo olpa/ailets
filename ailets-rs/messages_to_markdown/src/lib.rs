@@ -29,7 +29,7 @@ pub fn messages_to_markdown() {
 
     let input_fd = unsafe { open_read(b"".as_ptr(), 0) };
     let bytes_read = unsafe { aread(input_fd, buffer.as_mut_ptr(), BUFFER_SIZE) };
-    let writer = Writer::new("");
+    let mut writer = Writer::new("");
 
     let mut jiter = Jiter::new(&buffer[..bytes_read as usize]);
     let mut level = Level::Top;
@@ -117,6 +117,7 @@ pub fn messages_to_markdown() {
                 continue;
             }
 
+            writer.start_paragraph();
             let text = jiter.next_str();
             assert!(text.is_ok(), "Error on the content item level: {text:?}");
             let text = text.unwrap();

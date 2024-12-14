@@ -2,12 +2,23 @@ use crate::node_runtime::{aclose, awrite, open_write};
 
 pub struct Writer {
     fd: Option<u32>,
+    need_para_divider: bool,
 }
 
 impl Writer {
     pub fn new(filename: &str) -> Self {
         let fd = unsafe { open_write(filename.as_ptr()) };
-        Writer { fd: Some(fd) }
+        Writer {
+            fd: Some(fd),
+            need_para_divider: false,
+        }
+    }
+
+    pub fn start_paragraph(&mut self) {
+        if self.need_para_divider {
+            self.str("\n\n");
+        }
+        self.need_para_divider = true;
     }
 
     pub fn str(&self, text: &str) {
