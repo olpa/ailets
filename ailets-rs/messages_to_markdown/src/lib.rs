@@ -1,14 +1,13 @@
 mod areader;
 mod node_runtime;
+mod rjiter;
 mod writer;
 
-use jiter::{Jiter, Peek};
-use std::io::Read;
-
 use areader::AReader;
+use rjiter::{Peek, RJiter};
 use writer::Writer;
 
-// const BUFFER_SIZE: u32 = 1024;
+const BUFFER_SIZE: u32 = 1024;
 
 #[derive(Debug, PartialEq)]
 enum Level {
@@ -30,10 +29,10 @@ pub fn messages_to_markdown() {
     let mut reader = AReader::new("");
     let mut writer = Writer::new("");
 
-    let mut buffer = Vec::new();
-    reader.read_to_end(&mut buffer).unwrap();
+    let mut buffer = [0u8; BUFFER_SIZE as usize];
 
-    let mut jiter = Jiter::new(&buffer);
+    let mut rjiter = RJiter::new(&mut reader, &mut buffer);
+
     let mut level = Level::Top;
     let mut at_begin = true;
 
@@ -42,10 +41,10 @@ pub fn messages_to_markdown() {
         // Top level
         //
         if level == Level::Top {
-            if jiter.finish().is_ok() {
+            if rjiter.finish().is_ok() {
                 break;
             }
-            let peek = jiter.peek();
+            let peek = rjiter.peek();
             assert!(peek.is_ok(), "Error: {peek:?}");
             assert!(peek == Ok(Peek::Object), "Expected object at top level");
 
@@ -60,9 +59,9 @@ pub fn messages_to_markdown() {
 
         if level == Level::Body {
             let next = if at_begin {
-                jiter.next_array()
+                rjiter.next_array()
             } else {
-                jiter.array_step()
+                rjiter.array_step()
             };
             println!("! message body next: {next:?}"); // FIXME
             assert!(next.is_ok(), "Error on the message body level: {next:?}");
@@ -83,9 +82,9 @@ pub fn messages_to_markdown() {
         // Get the next object key
         //
         let next = if at_begin {
-            jiter.next_object()
+            rjiter.next_object_bytes()
         } else {
-            jiter.next_key()
+            rjiter.next_key_bytes()
         };
         println!("! top loop next: {next:?} in level: {level:?}");
         at_begin = false;
@@ -114,13 +113,13 @@ pub fn messages_to_markdown() {
         // Content item level
         //
         if level == Level::ContentItem {
-            if key != "text" {
-                jiter.next_skip().unwrap();
+            if key != b"text" {
+                rjiter.next_skip().unwrap();
                 continue;
             }
 
             writer.start_paragraph();
-            let text = jiter.next_str();
+            let text = rjiter.next_str();
             assert!(text.is_ok(), "Error on the content item level: {text:?}");
             let text = text.unwrap();
             writer.str(text);
@@ -132,8 +131,8 @@ pub fn messages_to_markdown() {
         // Message level: loop through content items
         //
         if level == Level::Message {
-            if key != "content" {
-                jiter.next_skip().unwrap();
+            if key != b"content" {
+                rjiter.next_skip().unwrap();
                 continue;
             }
 
