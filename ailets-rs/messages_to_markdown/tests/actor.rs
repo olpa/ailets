@@ -86,5 +86,5 @@ fn test_basic_conversion() {
     messages_to_markdown();
 
     let file = MOCK_WRITE_FILE.lock().unwrap();
-    assert_eq!(&*file, b"Hello!\n");
+    assert_eq!(&*file, b"Hello!");
 }

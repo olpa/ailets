@@ -33,6 +33,7 @@ pub fn messages_to_markdown() {
 
     let input_fd = unsafe { open_read(b"".as_ptr(), 0) };
     let bytes_read = unsafe { aread(input_fd, buffer.as_mut_ptr(), BUFFER_SIZE) };
+    let output_fd = unsafe { open_write(b"".as_ptr()) };
 
     let mut jiter = Jiter::new(&buffer[..bytes_read as usize]);
     let mut level = Level::Top;
@@ -68,6 +69,13 @@ pub fn messages_to_markdown() {
             println!("! message body next: {next:?}"); // FIXME
             assert!(next.is_ok(), "Error on the message body level: {next:?}");
 
+            if next.unwrap().is_none() {
+                level = Level::Message;
+
+                at_begin = false;
+                continue;
+            }
+
             level = Level::ContentItem;
             at_begin = true;
             // not continue, but fall-through
@@ -81,7 +89,7 @@ pub fn messages_to_markdown() {
         } else {
             jiter.next_key()
         };
-        println!("! top level next: {next:?} in level: {level:?}");
+        println!("! top loop next: {next:?} in level: {level:?}");
         at_begin = false;
 
         //
@@ -98,10 +106,28 @@ pub fn messages_to_markdown() {
             } else {
                 panic!("Unexpected level {level:?}");
             }
+
             at_begin = false;
             continue;
         }
         let key = key.unwrap();
+
+        //
+        // Content item level
+        //
+        if level == Level::ContentItem {
+            if key != "text" {
+                jiter.next_skip().unwrap();
+                continue;
+            }
+
+            let text = jiter.next_str();
+            assert!(text.is_ok(), "Error on the content item level: {text:?}");
+            let text = text.unwrap();
+            unsafe { awrite(output_fd, text.as_ptr(), u32::try_from(text.len()).unwrap()) };
+
+            continue;
+        }
 
         //
         // Message level: loop through content items
@@ -120,8 +146,5 @@ pub fn messages_to_markdown() {
         panic!("Unexpected level: {level:?}");
     }
 
-    let output_fd = unsafe { open_write(b"".as_ptr()) };
-    println!("!!!!!!!!!!!!!!!!!!!!!!!!! output_fd: {output_fd}");
-    unsafe { awrite(output_fd, b"Hello!\n".as_ptr(), 7) }; // FIXME: write_all()
     unsafe { aclose(output_fd) };
 }
