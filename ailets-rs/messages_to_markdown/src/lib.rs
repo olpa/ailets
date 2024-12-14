@@ -17,7 +17,7 @@ enum Level {
     Top,
     Message,
     Body,
-    // InsideContentItem,
+    ContentItem,
 }
 
 /// Converts a JSON message format to markdown.
@@ -29,7 +29,6 @@ enum Level {
 /// - The JSON structure doesn't match the expected format of
 ///   ```
 pub fn messages_to_markdown() {
-    println!("!!!!!!!!!!!!!!!!!!!!!!!!! messages_to_markdown");
     let mut buffer = [0u8; BUFFER_SIZE as usize];
 
     let input_fd = unsafe { open_read(b"".as_ptr(), 0) };
@@ -40,72 +39,84 @@ pub fn messages_to_markdown() {
     let mut at_begin = true;
 
     loop {
+        //
+        // Top level
+        //
         if level == Level::Top {
             if jiter.finish().is_ok() {
                 break;
             }
             let peek = jiter.peek();
-            println!("! top level peek: {peek:?}");
-            if peek.is_err() {
-                panic!("Error: {peek:?}");
-            }
-            if peek != Ok(Peek::Object) {
-                panic!("Expected object at top level");
-            }
-            // level = Level::Message;
-            let consumed = jiter.next_value();
-            println!("! top level consumed: {consumed:?}");
-            continue;
+            assert!(peek.is_ok(), "Error: {peek:?}");
+            assert!(peek == Ok(Peek::Object), "Expected object at top level");
+
+            level = Level::Message;
+            at_begin = true;
+            // not continue, but fall-through
         }
 
-        let next = if at_begin { jiter.next_object() } else { jiter.next_key() };
+        //
+        // Message body level: loop through content items
+        //
+
+        if level == Level::Body {
+            let next = if at_begin {
+                jiter.next_array()
+            } else {
+                jiter.array_step()
+            };
+            println!("! message body next: {next:?}"); // FIXME
+            assert!(next.is_ok(), "Error on the message body level: {next:?}");
+
+            level = Level::ContentItem;
+            at_begin = true;
+            // not continue, but fall-through
+        }
+
+        //
+        // Get the next object key
+        //
+        let next = if at_begin {
+            jiter.next_object()
+        } else {
+            jiter.next_key()
+        };
         println!("! top level next: {next:?} in level: {level:?}");
         at_begin = false;
 
-        if next.is_err() {
-            println!("Error: {next:?}");  // FIXME
-            break;
-        }
+        //
+        // End of object: level up
+        //
         let key = next.unwrap();
-
-        if level == Level::Top {
-            level = Level::Message;
-        }
-        if level == Level::Message {
-            if key.is_none() {
+        if key.is_none() {
+            if level == Level::ContentItem {
+                level = Level::Body;
+            } else if level == Level::Body {
+                level = Level::Message;
+            } else if level == Level::Message {
                 level = Level::Top;
-                continue;
+            } else {
+                panic!("Unexpected level {level:?}");
             }
-            if key.unwrap() != "content" {
+            at_begin = false;
+            continue;
+        }
+        let key = key.unwrap();
+
+        //
+        // Message level: loop through content items
+        //
+        if level == Level::Message {
+            if key != "content" {
                 jiter.next_skip().unwrap();
                 continue;
             }
+
             level = Level::Body;
-            // Get first array item
-            let next2 = jiter.next_array();
-            println!("! inside body next2: {next2:?}");
-
-            let next2a = jiter.next_value();
-            println!("! inside body next2a: {next2a:?}");
-
-            // Iterate through remaining array items
-            loop {
-                let step = jiter.array_step();
-                println!("! array step: {step:?}");
-                if step.is_err() {
-                    println!("Error: {step:?}");  // FIXME
-                    break;
-                }
-
-                let next3a = jiter.next_value();
-                println!("! inside body next3a: {next3a:?}");
-            }
-
-            let next3 = jiter.next_array();
-            println!("! inside body next3: {next3:?}");
             at_begin = true;
             continue;
         }
+
         panic!("Unexpected level: {level:?}");
     }
 
