@@ -88,3 +88,23 @@ fn test_basic_conversion() {
     let file = MOCK_WRITE_FILE.lock().unwrap();
     assert_eq!(&*file, b"Hello!");
 }
+
+#[test]
+fn test_multiple_content_items() {
+    clear_mocks();
+    let json_data = r#"
+    {
+        "role":"assistant",
+        "content":[
+            {"type":"text", "text":"First item"},
+            {"type":"text", "text":"Second item"},
+            {"type":"text", "text":"Third item"}
+        ]
+    }"#;
+    set_input(&[json_data]);
+
+    messages_to_markdown();
+
+    let file = MOCK_WRITE_FILE.lock().unwrap();
+    assert_eq!(&*file, b"First item\n\nSecond item\n\nThird item");
+}
