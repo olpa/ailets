@@ -6,28 +6,25 @@ pub type Peek = jiter::Peek;
 
 pub struct RJiter<'rj> {
     jiter: Jiter<'rj>,
-    // reader: &'rj mut dyn Read,
-    // buffer: &'rj [u8],
+    pos_before_call_jiter: usize,
+    reader: &'rj mut dyn Read,
+    buffer: &'rj [u8],
+    bytes_in_buffer: usize,
 }
 
 impl<'rj> RJiter<'rj> {
     #[allow(clippy::missing_errors_doc)]
     #[allow(clippy::missing_panics_doc)]
     pub fn new(reader: &'rj mut dyn Read, buffer: &'rj mut [u8]) -> Self {
-        let mut pos = 0;
-        loop {
-            let buf_mut = &mut buffer[pos..];
-            let bytes_read = reader.read(buf_mut).unwrap();
-            if bytes_read == 0 {
-                break;
-            }
-            pos += bytes_read;
-        }
-        let buffer = &buffer[..pos];
+        let bytes_in_buffer = reader.read(buffer).unwrap();
+        let jiter_buffer = &buffer[..bytes_in_buffer];
 
-        // RJiter { jiter: Jiter::new(buffer), reader, buffer }
         RJiter {
-            jiter: Jiter::new(buffer),
+            jiter: Jiter::new(jiter_buffer),
+            pos_before_call_jiter: 0,
+            reader,
+            buffer,
+            bytes_in_buffer,
         }
     }
 
@@ -73,6 +70,51 @@ impl<'rj> RJiter<'rj> {
 
     #[allow(clippy::missing_errors_doc)]
     pub fn next_value(&mut self) -> JiterResult<JsonValue<'rj>> {
-        self.jiter.next_value()
+        loop {
+            self.on_before_call_jiter();
+            let result = self.jiter.next_value();
+            if result.is_ok() {
+                return result;
+            }
+            if !self.feed() {
+                return result;
+            }
+        }
+    }
+
+    fn on_before_call_jiter(&mut self) {
+        self.pos_before_call_jiter = self.jiter.current_index();
+    }
+
+    pub fn feed(&mut self) -> bool {
+        let pos = self.pos_before_call_jiter;
+
+        //
+        // Skip whitespaces
+        //
+        let skip_ws_parser = Jiter::Parser::new(self.buffer[pos..]);
+        skip_ws_parser.finish();
+        let pos = pos + skip_ws_parser.current_index();
+
+        //
+        // Copy remaining bytes to the beginning of the buffer
+        //
+        if pos > 0 {
+            self.buffer.copy_within(pos..self.bytes_in_buffer, 0);
+            self.bytes_in_buffer -= pos;
+        }
+
+        //
+        // Read new bytes
+        //
+        let n_new_bytes = self.reader.read(self.buffer[self.bytes_in_buffer..]).unwrap();
+        self.bytes_in_buffer += n_new_bytes;
+
+        //
+        // Create new Jiter and inform caller if any new bytes were read
+        //
+        self.jiter = Jiter::new(self.buffer[..self.bytes_in_buffer]);
+        return n_new_bytes > 0;
     }
 }
+

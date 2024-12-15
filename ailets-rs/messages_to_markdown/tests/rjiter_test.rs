@@ -21,21 +21,19 @@ fn sanity_check() {
 }
 
 #[test]
-fn test_rjiter_with_leading_spaces() {
+fn skip_spaces() {
     // Create input with 33 spaces followed by an empty JSON object
+    // Use a 16-byte buffer
     let input = "                                 {}".as_bytes();
+    let mut buffer = [0u8; 16];
     let mut reader = Cursor::new(input);
 
-    // Create a 16-byte buffer
-    let mut buffer = [0u8; 16];
-
-    // Create RJiter instance
     let mut rjiter = RJiter::new(&mut reader, &mut buffer);
 
-    // Try to parse the input
-    let result = rjiter.next_object_bytes();
+    let result = rjiter.next_value();
+    println!("result: {:?}", result);  // FIXME
+    assert!(result.is_ok());
 
-    // Verify that we get an error because the buffer is too small
-    // for the leading spaces
-    assert!(result.is_err());
+    let empty_object = JsonValue::Object(Arc::new(LazyIndexMap::new()));
+    assert_eq!(result.unwrap(), empty_object);
 }
