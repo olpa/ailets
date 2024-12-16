@@ -38,3 +38,20 @@ impl Drop for AWriter {
         }
     }
 }
+
+impl std::io::Write for AWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if let Some(fd) = self.fd {
+            unsafe {
+                awrite(fd, buf.as_ptr(), u32::try_from(buf.len()).unwrap());
+            }
+            Ok(buf.len())
+        } else {
+            Ok(0)
+        }
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}

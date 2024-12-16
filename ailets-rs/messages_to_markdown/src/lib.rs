@@ -1,11 +1,11 @@
 mod areader;
+mod awriter;
 mod node_runtime;
 pub mod rjiter;
-mod awriter;
 
 use areader::AReader;
-use rjiter::{Peek, RJiter};
 use awriter::AWriter;
+use rjiter::{Peek, RJiter};
 
 const BUFFER_SIZE: u32 = 1024;
 
