@@ -25,7 +25,8 @@ enum Level {
 /// - The input JSON is malformed
 /// - The JSON structure doesn't match the expected format of
 ///   ```
-pub fn messages_to_markdown() {
+#[no_mangle]
+pub extern "C" fn messages_to_markdown() {
     let mut reader = AReader::new("");
     let mut writer = AWriter::new("");
 

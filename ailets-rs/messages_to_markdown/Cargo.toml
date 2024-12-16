@@ -6,12 +6,13 @@ authors.workspace = true
 license.workspace = true
 
 [lib]
-crate-type = ["cdylib", "lib"]
+# To run tests, two types are needed
+# crate-type = ["cdylib", "lib"]
+crate-type = ["cdylib"]
 
 [dependencies]
 jiter = "0.8.2"
 lazy_static = "1.5.0"
-getrandom = { version = "0.2", features = ["js"] }
+getrandom = { version = "0.2", features = ["custom"] }
 
 [target.wasm32-unknown-unknown]
-rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
