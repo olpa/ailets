@@ -1,4 +1,5 @@
 use std::io::Read;
+use std::io::Write;
 
 use jiter::{Jiter, JiterResult, JsonValue};
 
@@ -69,6 +70,11 @@ impl<'rj> RJiter<'rj> {
     }
 
     #[allow(clippy::missing_errors_doc)]
+    pub fn next_object(&mut self) -> JiterResult<Option<&str>> {
+        self.jiter.next_object()
+    }
+
+    #[allow(clippy::missing_errors_doc)]
     pub fn next_key_bytes(&mut self) -> JiterResult<Option<&[u8]>> {
         self.jiter.next_key_bytes()
     }
@@ -85,6 +91,17 @@ impl<'rj> RJiter<'rj> {
                 return result;
             }
         }
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    #[allow(clippy::missing_panics_doc)]
+    pub fn write_bytes(&mut self, writer: &mut dyn Write) -> JiterResult<()> {
+        let result = self.jiter.known_bytes();
+        if let Ok(bytes) = result {
+            writer.write_all(bytes).unwrap();
+            return Ok(());
+        }
+        Err(result.unwrap_err())
     }
 
     fn on_before_call_jiter(&mut self) {
