@@ -1,14 +1,14 @@
 use crate::node_runtime::{aclose, awrite, open_write};
 
-pub struct Writer {
+pub struct AWriter {
     fd: Option<u32>,
     need_para_divider: bool,
 }
 
-impl Writer {
+impl AWriter {
     pub fn new(filename: &str) -> Self {
         let fd = unsafe { open_write(filename.as_ptr()) };
-        Writer {
+        AWriter {
             fd: Some(fd),
             need_para_divider: false,
         }
@@ -31,7 +31,7 @@ impl Writer {
     }
 }
 
-impl Drop for Writer {
+impl Drop for AWriter {
     fn drop(&mut self) {
         if let Some(fd) = self.fd.take() {
             unsafe { aclose(fd) };

@@ -1,11 +1,11 @@
 mod areader;
 mod node_runtime;
 pub mod rjiter;
-mod writer;
+mod awriter;
 
 use areader::AReader;
 use rjiter::{Peek, RJiter};
-use writer::Writer;
+use awriter::AWriter;
 
 const BUFFER_SIZE: u32 = 1024;
 
@@ -27,7 +27,7 @@ enum Level {
 ///   ```
 pub fn messages_to_markdown() {
     let mut reader = AReader::new("");
-    let mut writer = Writer::new("");
+    let mut writer = AWriter::new("");
 
     let mut buffer = [0u8; BUFFER_SIZE as usize];
 
@@ -119,10 +119,8 @@ pub fn messages_to_markdown() {
             }
 
             writer.start_paragraph();
-            let text = rjiter.next_str();
-            assert!(text.is_ok(), "Error on the content item level: {text:?}");
-            let text = text.unwrap();
-            writer.str(text);
+            let wb = rjiter.write_bytes(&mut writer);
+            assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
 
             continue;
         }
