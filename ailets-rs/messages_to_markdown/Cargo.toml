@@ -11,3 +11,7 @@ crate-type = ["cdylib", "lib"]
 [dependencies]
 jiter = "0.8.2"
 lazy_static = "1.5.0"
+getrandom = { version = "0.2", features = ["js"] }
+
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']
