@@ -6,11 +6,11 @@ use jiter::{Jiter, JiterResult, JsonValue};
 pub type Peek = jiter::Peek;
 
 pub struct RJiter<'rj> {
-    pub jiter: Jiter<'rj>,            // FIXME pub
-    pub pos_before_call_jiter: usize, // FIXME pub
+    jiter: Jiter<'rj>,
+    pos_before_call_jiter: usize,
     reader: &'rj mut dyn Read,
-    pub buffer: &'rj mut [u8],  // FIXME pub
-    pub bytes_in_buffer: usize, // FIXME pub
+    buffer: &'rj mut [u8],
+    bytes_in_buffer: usize,
 }
 
 impl<'rj> RJiter<'rj> {
@@ -96,26 +96,11 @@ impl<'rj> RJiter<'rj> {
     #[allow(clippy::missing_errors_doc)]
     #[allow(clippy::missing_panics_doc)]
     pub fn write_bytes(&mut self, writer: &mut dyn Write) -> JiterResult<()> {
-        println!("\n\n\n\n! write_bytes: jiter: {:?}", self.jiter); // FIXME
         loop {
-            println!(
-                "! write_bytes: loop begin: pos:{:?}, buffer:{:?}, as_str:{:?}",
-                self.jiter.current_index(),
-                self.buffer,
-                std::str::from_utf8(self.buffer).unwrap_or("invalid utf-8")
-            ); // FIXME
             self.on_before_call_jiter();
             let result = self.jiter.known_bytes();
             if let Ok(bytes) = result {
                 writer.write_all(bytes).unwrap();
-                println!(
-                    "! write_bytes: inside loop, current index:, bytes in buffer:{:?}, buffer:{:?}, as_str:{:?}, bytes:{:?}",
-                    //self.jiter.current_index(),
-                    self.bytes_in_buffer,
-                    self.buffer,
-                    std::str::from_utf8(self.buffer).unwrap_or("invalid utf-8"),
-                    std::str::from_utf8(bytes).unwrap_or("invalid utf-8")
-                ); // FIXME
                 if self.jiter.current_index() <= self.bytes_in_buffer {
                     return Ok(());
                 }
@@ -141,7 +126,6 @@ impl<'rj> RJiter<'rj> {
 
     fn feed_inner(&mut self, is_partial_string: bool) -> bool {
         let mut pos = self.pos_before_call_jiter;
-        println!("! feed_inner start: is_partial_string:{:?}, pos:{:?}, buffer:{:?}", is_partial_string, pos, self.buffer); // FIXME
 
         //
         // Skip whitespaces
@@ -163,7 +147,6 @@ impl<'rj> RJiter<'rj> {
                 );
                 self.buffer.copy_within(pos..self.bytes_in_buffer, 0);
                 self.bytes_in_buffer -= pos;
-                println!("! feed_inner after copy_within: bytes_in_buffer:{:?}, buffer:{:?}", self.bytes_in_buffer, self.buffer); // FIXME
             } else {
                 self.bytes_in_buffer = 0;
             }
@@ -180,10 +163,6 @@ impl<'rj> RJiter<'rj> {
             self.bytes_in_buffer
         };
         let n_new_bytes = self.reader.read(&mut self.buffer[start_index..]).unwrap();
-        println!(
-            "! feed_inner after read: n_new_bytes:{:?}, start_index:{:?}",
-            n_new_bytes, start_index
-        ); // FIXME
         self.bytes_in_buffer += n_new_bytes;
 
         if is_partial_string {
@@ -198,7 +177,6 @@ impl<'rj> RJiter<'rj> {
         let jiter_buffer = unsafe { std::mem::transmute::<&[u8], &'rj [u8]>(jiter_buffer_2) };
         self.jiter = Jiter::new(jiter_buffer).with_allow_partial_strings();
 
-        println!("! feed_inner end: buffer:{:?}", self.buffer); // FIXME
         n_new_bytes > 0
     }
 }
