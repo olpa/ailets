@@ -31,7 +31,7 @@ fn skip_spaces() {
     let mut rjiter = RJiter::new(&mut reader, &mut buffer);
 
     let result = rjiter.next_value();
-    println!("result: {:?}", result);  // FIXME
+    println!("result: {:?}", result); // FIXME
     assert!(result.is_ok());
 
     let empty_object = JsonValue::Object(Arc::new(LazyIndexMap::new()));

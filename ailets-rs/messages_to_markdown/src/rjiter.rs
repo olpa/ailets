@@ -8,7 +8,7 @@ pub struct RJiter<'rj> {
     jiter: Jiter<'rj>,
     pos_before_call_jiter: usize,
     reader: &'rj mut dyn Read,
-    buffer: &'rj [u8],
+    buffer: &'rj mut [u8],
     bytes_in_buffer: usize,
 }
 
@@ -18,12 +18,17 @@ impl<'rj> RJiter<'rj> {
     pub fn new(reader: &'rj mut dyn Read, buffer: &'rj mut [u8]) -> Self {
         let bytes_in_buffer = reader.read(buffer).unwrap();
         let jiter_buffer = &buffer[..bytes_in_buffer];
+        let rjiter_buffer = unsafe {
+            #[allow(mutable_transmutes)]
+            #[allow(clippy::transmute_ptr_to_ptr)]
+            std::mem::transmute::<&[u8], &'rj mut [u8]>(buffer)
+        };
 
         RJiter {
             jiter: Jiter::new(jiter_buffer),
             pos_before_call_jiter: 0,
             reader,
-            buffer,
+            buffer: rjiter_buffer,
             bytes_in_buffer,
         }
     }
@@ -86,14 +91,15 @@ impl<'rj> RJiter<'rj> {
         self.pos_before_call_jiter = self.jiter.current_index();
     }
 
+    #[allow(clippy::missing_panics_doc)]
     pub fn feed(&mut self) -> bool {
         let pos = self.pos_before_call_jiter;
 
         //
         // Skip whitespaces
         //
-        let skip_ws_parser = Jiter::Parser::new(self.buffer[pos..]);
-        skip_ws_parser.finish();
+        let mut skip_ws_parser = Jiter::new(&self.buffer[pos..self.bytes_in_buffer]);
+        let _ = skip_ws_parser.finish();
         let pos = pos + skip_ws_parser.current_index();
 
         //
@@ -107,14 +113,19 @@ impl<'rj> RJiter<'rj> {
         //
         // Read new bytes
         //
-        let n_new_bytes = self.reader.read(self.buffer[self.bytes_in_buffer..]).unwrap();
+        let n_new_bytes = self
+            .reader
+            .read(&mut self.buffer[self.bytes_in_buffer..])
+            .unwrap();
         self.bytes_in_buffer += n_new_bytes;
 
         //
         // Create new Jiter and inform caller if any new bytes were read
         //
-        self.jiter = Jiter::new(self.buffer[..self.bytes_in_buffer]);
-        return n_new_bytes > 0;
+        let jiter_buffer_2 = &self.buffer[..self.bytes_in_buffer];
+        let jiter_buffer = unsafe { std::mem::transmute::<&[u8], &'rj [u8]>(jiter_buffer_2) };
+        self.jiter = Jiter::new(jiter_buffer);
+
+        n_new_bytes > 0
     }
 }
-
