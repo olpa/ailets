@@ -102,6 +102,10 @@ impl<'rj> RJiter<'rj> {
             let result = self.jiter.known_bytes();
             if let Ok(bytes) = result {
                 writer.write_all(bytes).unwrap();
+                println!("! write_bytes: bytes: pos:{:?}, bytes_in_buffer:{:?}", self.jiter.current_index(), self.bytes_in_buffer); // FIXME
+                if self.jiter.current_index() <= self.bytes_in_buffer {
+                    return Ok(());
+                }
                 if !self.feed() {
                     return Ok(());
                 }
@@ -138,9 +142,15 @@ impl<'rj> RJiter<'rj> {
         //
         // Copy remaining bytes to the beginning of the buffer
         //
-        if pos > 0 && pos < self.bytes_in_buffer {
-            self.buffer.copy_within(pos..self.bytes_in_buffer, 0);
-            self.bytes_in_buffer -= pos;
+        if pos > 0 {
+            if pos < self.bytes_in_buffer {
+                self.buffer.copy_within(pos..self.bytes_in_buffer, 0);
+                self.bytes_in_buffer = self.bytes_in_buffer - pos;
+            } else {
+                self.bytes_in_buffer = 0;
+            }
+        } else {
+            self.bytes_in_buffer = 0;
         }
 
         //
