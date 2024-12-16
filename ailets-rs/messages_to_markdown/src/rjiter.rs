@@ -116,7 +116,7 @@ impl<'rj> RJiter<'rj> {
                     std::str::from_utf8(self.buffer).unwrap_or("invalid utf-8"),
                     std::str::from_utf8(bytes).unwrap_or("invalid utf-8")
                 ); // FIXME
-                if self.jiter.current_index() < self.bytes_in_buffer {
+                if self.jiter.current_index() <= self.bytes_in_buffer {
                     return Ok(());
                 }
                 self.on_before_call_jiter();
