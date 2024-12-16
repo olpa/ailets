@@ -1,7 +1,7 @@
 use std::io::Read;
 use std::io::Write;
 
-use jiter::{Jiter, JsonErrorType, JiterErrorType, JiterResult, JsonValue};
+use jiter::{Jiter, JiterResult, JsonValue};
 
 pub type Peek = jiter::Peek;
 
@@ -26,7 +26,7 @@ impl<'rj> RJiter<'rj> {
         };
 
         RJiter {
-            jiter: Jiter::new(jiter_buffer),
+            jiter: Jiter::new(jiter_buffer).with_allow_partial_strings(),
             pos_before_call_jiter: 0,
             reader,
             buffer: rjiter_buffer,
@@ -96,17 +96,19 @@ impl<'rj> RJiter<'rj> {
     #[allow(clippy::missing_errors_doc)]
     #[allow(clippy::missing_panics_doc)]
     pub fn write_bytes(&mut self, writer: &mut dyn Write) -> JiterResult<()> {
-        let result = self.jiter.known_bytes();
-        if let Ok(bytes) = result {
-            writer.write_all(bytes).unwrap();
-            return Ok(());
+        println!("! write_bytes: jiter: {:?}", self.jiter); // FIXME
+        loop {
+            self.on_before_call_jiter();
+            let result = self.jiter.known_bytes();
+            if let Ok(bytes) = result {
+                writer.write_all(bytes).unwrap();
+                if !self.feed() {
+                    return Ok(());
+                }
+            } else {
+                return Err(result.unwrap_err());
+            }
         }
-        let err = result.unwrap_err();
-        println!("! write_bytes: err: {:?}", err); // FIXME
-        if err.error_type == JiterErrorType::JsonError(JsonErrorType::EofWhileParsingString) {
-            writer.write_all(&self.buffer[self.jiter.current_index()..self.bytes_in_buffer]).unwrap();
-        }
-        Err(err)
     }
 
     fn on_before_call_jiter(&mut self) {
@@ -126,15 +128,17 @@ impl<'rj> RJiter<'rj> {
         //
         // Skip whitespaces
         //
-        let mut skip_ws_parser = Jiter::new(&self.buffer[pos..self.bytes_in_buffer]);
-        let _ = skip_ws_parser.finish();
-        let pos = pos + skip_ws_parser.current_index();
-        println!("! feed: pos after skip_ws_parser: {:?}", pos); // FIXME
+        if pos < self.bytes_in_buffer {
+            let mut skip_ws_parser = Jiter::new(&self.buffer[pos..self.bytes_in_buffer]);
+            let _ = skip_ws_parser.finish();
+            let pos = pos + skip_ws_parser.current_index();
+            println!("! feed: pos after skip_ws_parser: {:?}", pos); // FIXME
+        }
 
         //
         // Copy remaining bytes to the beginning of the buffer
         //
-        if pos > 0 {
+        if pos > 0 && pos < self.bytes_in_buffer {
             self.buffer.copy_within(pos..self.bytes_in_buffer, 0);
             self.bytes_in_buffer -= pos;
         }
@@ -153,7 +157,7 @@ impl<'rj> RJiter<'rj> {
         //
         let jiter_buffer_2 = &self.buffer[..self.bytes_in_buffer];
         let jiter_buffer = unsafe { std::mem::transmute::<&[u8], &'rj [u8]>(jiter_buffer_2) };
-        self.jiter = Jiter::new(jiter_buffer);
+        self.jiter = Jiter::new(jiter_buffer).with_allow_partial_strings();
 
         n_new_bytes > 0
     }
