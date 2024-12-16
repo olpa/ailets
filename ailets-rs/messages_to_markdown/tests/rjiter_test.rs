@@ -42,7 +42,7 @@ fn skip_spaces() {
 #[test]
 fn pass_through_long_string() {
     let input = r#"{ "text": "very very very long string" }"#;
-    let mut buffer = [0u8; 8]; // Small buffer to force multiple reads
+    let mut buffer = [0u8; 10]; // Small buffer to force multiple reads
     let mut reader = Cursor::new(input.as_bytes());
     let mut writer = Vec::new();
 
@@ -50,10 +50,22 @@ fn pass_through_long_string() {
 
     // Consume object start
     assert_eq!(rjiter.next_object().unwrap(), Some("text"));
+    println!("!!! rjiter before feed: {:?}, n bytes: {:?}, pos: {:?}",
+        rjiter.buffer, rjiter.bytes_in_buffer,
+        rjiter.jiter.current_index()
+    );
+    rjiter.feed();
+    println!("!!! rjiter after feed: {:?}, n bytes: {:?}, pos: {:?}",
+        rjiter.buffer, rjiter.bytes_in_buffer,
+        rjiter.jiter.current_index()
+    );
     assert_eq!(rjiter.peek().unwrap(), Peek::String);
 
     // Consume the string value
-    rjiter.write_bytes(&mut writer).unwrap();
+    let wb = rjiter.write_bytes(&mut writer);
+    println!("! pos after write_bytes: {:?}", rjiter.jiter.current_index()); // FIXME
+    println!("! writer after consume: {}", String::from_utf8_lossy(&writer)); // FIXME
+    wb.unwrap();
 
     assert_eq!(writer, "very very very long string".as_bytes());
 }

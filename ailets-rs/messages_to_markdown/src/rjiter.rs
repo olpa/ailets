@@ -1,16 +1,16 @@
 use std::io::Read;
 use std::io::Write;
 
-use jiter::{Jiter, JiterResult, JsonValue};
+use jiter::{Jiter, JsonErrorType, JiterErrorType, JiterResult, JsonValue};
 
 pub type Peek = jiter::Peek;
 
 pub struct RJiter<'rj> {
-    jiter: Jiter<'rj>,
-    pos_before_call_jiter: usize,
+    pub jiter: Jiter<'rj>, // FIXME pub
+    pub pos_before_call_jiter: usize, // FIXME pub
     reader: &'rj mut dyn Read,
-    buffer: &'rj mut [u8],
-    bytes_in_buffer: usize,
+    pub buffer: &'rj mut [u8], // FIXME pub
+    pub bytes_in_buffer: usize, // FIXME pub
 }
 
 impl<'rj> RJiter<'rj> {
@@ -101,7 +101,12 @@ impl<'rj> RJiter<'rj> {
             writer.write_all(bytes).unwrap();
             return Ok(());
         }
-        Err(result.unwrap_err())
+        let err = result.unwrap_err();
+        println!("! write_bytes: err: {:?}", err); // FIXME
+        if err.error_type == JiterErrorType::JsonError(JsonErrorType::EofWhileParsingString) {
+            writer.write_all(&self.buffer[self.jiter.current_index()..self.bytes_in_buffer]).unwrap();
+        }
+        Err(err)
     }
 
     fn on_before_call_jiter(&mut self) {
@@ -110,7 +115,13 @@ impl<'rj> RJiter<'rj> {
 
     #[allow(clippy::missing_panics_doc)]
     pub fn feed(&mut self) -> bool {
+        self.on_before_call_jiter();
+        self.feed_inner()
+    }
+
+    fn feed_inner(&mut self) -> bool {
         let pos = self.pos_before_call_jiter;
+        println!("! feed: pos now:{:?}, buffer:{:?}", pos, self.buffer); // FIXME
 
         //
         // Skip whitespaces
@@ -118,6 +129,7 @@ impl<'rj> RJiter<'rj> {
         let mut skip_ws_parser = Jiter::new(&self.buffer[pos..self.bytes_in_buffer]);
         let _ = skip_ws_parser.finish();
         let pos = pos + skip_ws_parser.current_index();
+        println!("! feed: pos after skip_ws_parser: {:?}", pos); // FIXME
 
         //
         // Copy remaining bytes to the beginning of the buffer
