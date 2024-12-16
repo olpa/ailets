@@ -36,61 +36,62 @@ impl<'rj> RJiter<'rj> {
 
     #[allow(clippy::missing_errors_doc)]
     pub fn peek(&mut self) -> JiterResult<Peek> {
+        self.maybe_feed();
         self.jiter.peek()
     }
 
     #[allow(clippy::missing_errors_doc)]
     pub fn next_array(&mut self) -> JiterResult<Option<Peek>> {
+        self.maybe_feed();
         self.jiter.next_array()
     }
 
     #[allow(clippy::missing_errors_doc)]
     pub fn array_step(&mut self) -> JiterResult<Option<Peek>> {
+        self.maybe_feed();
         self.jiter.array_step()
     }
 
     #[allow(clippy::missing_errors_doc)]
     pub fn next_object_bytes(&mut self) -> JiterResult<Option<&[u8]>> {
+        self.maybe_feed();
         self.jiter.next_object_bytes()
     }
 
     #[allow(clippy::missing_errors_doc)]
     pub fn next_skip(&mut self) -> JiterResult<()> {
+        self.maybe_feed();
         self.jiter.next_skip()
     }
 
     #[allow(clippy::missing_errors_doc)]
     pub fn next_str(&mut self) -> JiterResult<&str> {
+        self.maybe_feed();
         self.jiter.next_str()
     }
 
     #[allow(clippy::missing_errors_doc)]
     pub fn finish(&mut self) -> JiterResult<()> {
+        self.maybe_feed();
         self.jiter.finish()
     }
 
     #[allow(clippy::missing_errors_doc)]
     pub fn next_object(&mut self) -> JiterResult<Option<&str>> {
+        self.maybe_feed();
         self.jiter.next_object()
     }
 
     #[allow(clippy::missing_errors_doc)]
     pub fn next_key_bytes(&mut self) -> JiterResult<Option<&[u8]>> {
+        self.maybe_feed();
         self.jiter.next_key_bytes()
     }
 
     #[allow(clippy::missing_errors_doc)]
     pub fn next_value(&mut self) -> JiterResult<JsonValue<'rj>> {
-        loop {
-            self.on_before_call_jiter();
-            let result = self.jiter.next_value();
-            if result.is_ok() {
-                return result;
-            }
-            if !self.feed() {
-                return result;
-            }
-        }
+        self.feed();
+        self.jiter.next_value()
     }
 
     #[allow(clippy::missing_errors_doc)]
@@ -178,5 +179,11 @@ impl<'rj> RJiter<'rj> {
         self.jiter = Jiter::new(jiter_buffer).with_allow_partial_strings();
 
         n_new_bytes > 0
+    }
+
+    fn maybe_feed(&mut self) {
+        if self.jiter.current_index() > self.bytes_in_buffer / 2 {
+            self.feed();
+        }
     }
 }
