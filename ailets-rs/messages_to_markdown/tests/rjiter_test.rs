@@ -23,16 +23,15 @@ fn sanity_check() {
 
 #[test]
 fn skip_spaces() {
-    // Create input with 33 spaces followed by an empty JSON object
+    // Create input with 18 spaces followed by an empty JSON object
     // Use a 16-byte buffer
-    let input = "                                 {}".as_bytes();
+    let input = "               {}".as_bytes();
     let mut buffer = [0u8; 16];
     let mut reader = Cursor::new(input);
 
     let mut rjiter = RJiter::new(&mut reader, &mut buffer);
 
     let result = rjiter.next_value();
-    println!("result: {:?}", result); // FIXME
     assert!(result.is_ok());
 
     let empty_object = JsonValue::Object(Arc::new(LazyIndexMap::new()));

@@ -151,8 +151,6 @@ impl<'rj> RJiter<'rj> {
             } else {
                 self.bytes_in_buffer = 0;
             }
-        } else {
-            self.bytes_in_buffer = 0;
         }
 
         //
