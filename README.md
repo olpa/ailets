@@ -18,7 +18,7 @@ We provide the lowest possible abstraction that generalizes the specifics of AI 
 
 ## Quote from you
 
-> Ailets now is like C in 1970s, portable and not Cobol.
+> Ailets now is like C in the 1970s, portable and not Cobol.
 
 
 ## How to get started

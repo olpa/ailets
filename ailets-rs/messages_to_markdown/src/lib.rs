@@ -142,4 +142,6 @@ pub extern "C" fn messages_to_markdown() {
 
         panic!("Unexpected level: {level:?}");
     }
+
+    writer.str("\n");
 }
