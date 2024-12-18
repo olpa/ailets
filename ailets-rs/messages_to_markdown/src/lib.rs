@@ -64,7 +64,6 @@ pub extern "C" fn messages_to_markdown() {
             } else {
                 rjiter.array_step()
             };
-            println!("! message body next: {next:?}"); // FIXME
             assert!(next.is_ok(), "Error on the message body level: {next:?}");
 
             if next.unwrap().is_none() {
@@ -87,7 +86,6 @@ pub extern "C" fn messages_to_markdown() {
         } else {
             rjiter.next_key_bytes()
         };
-        println!("! top loop next: {next:?} in level: {level:?}");
         at_begin = false;
 
         //
