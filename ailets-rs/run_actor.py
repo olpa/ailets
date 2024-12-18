@@ -77,11 +77,14 @@ class NodeRuntime:
     def _collect_streams(
         self, direction: Literal["in", "out"], name: str
     ) -> Sequence[Spec]:
-        return [
+        found = [
             spec
             for spec in self.specs
             if spec.direction == direction and spec.name == name
         ]
+        if len(found) or name != "":
+            return found
+        return [Spec(direction=direction, name="", value_or_file="-")]
 
     def n_of_streams(self, stream_name: str) -> int:
         return len(self._collect_streams("in", stream_name))
@@ -116,7 +119,7 @@ class NodeRuntime:
 
         return len(self.streams) - 1
 
-    def read(self, fd: int, buffer: memoryview, ptr: int, count: int) -> int:
+    def aread(self, fd: int, buffer: memoryview, ptr: int, count: int) -> int:
         stream = self.streams[fd]
         if stream is None:
             raise ValueError(f"Stream {fd} is not open")
@@ -128,14 +131,14 @@ class NodeRuntime:
         buffer[ptr:end] = bytes
         return end - ptr
 
-    def write(self, fd: int, buffer: memoryview, ptr: int, count: int) -> int:
+    def awrite(self, fd: int, buffer: memoryview, ptr: int, count: int) -> int:
         stream = self.streams[fd]
         if stream is None:
             raise ValueError(f"Stream {fd} is not open")
         end = ptr + count
         return stream.write(buffer[ptr:end])
 
-    def close(self, fd: int) -> None:
+    def aclose(self, fd: int) -> None:
         stream = self.streams[fd]
         if stream is None:
             raise ValueError(f"Stream {fd} is not open")
@@ -186,14 +189,14 @@ def register_node_runtime(
         name = buf_to_str.get_string(name_ptr)
         return nr.open_write(name)
 
-    def read(fd: int, buffer_ptr: int, count: int) -> int:
-        return nr.read(fd, buf_to_str.get_view(), buffer_ptr, count)
+    def aread(fd: int, buffer_ptr: int, count: int) -> int:
+        return nr.aread(fd, buf_to_str.get_view(), buffer_ptr, count)
 
-    def write(fd: int, buffer_ptr: int, count: int) -> int:
-        return nr.write(fd, buf_to_str.get_view(), buffer_ptr, count)
+    def awrite(fd: int, buffer_ptr: int, count: int) -> int:
+        return nr.awrite(fd, buf_to_str.get_view(), buffer_ptr, count)
 
-    def close(fd: int) -> None:
-        return nr.close(fd)
+    def aclose(fd: int) -> None:
+        return nr.aclose(fd)
 
     import_object.register(
         "",
@@ -201,9 +204,9 @@ def register_node_runtime(
             "n_of_streams": wasmer.Function(store, n_of_streams),
             "open_read": wasmer.Function(store, open_read),
             "open_write": wasmer.Function(store, open_write),
-            "read": wasmer.Function(store, read),
-            "write": wasmer.Function(store, write),
-            "close": wasmer.Function(store, close),
+            "aread": wasmer.Function(store, aread),
+            "awrite": wasmer.Function(store, awrite),
+            "aclose": wasmer.Function(store, aclose),
         },
     )
 

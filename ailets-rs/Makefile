@@ -2,7 +2,8 @@
 
 build:
 	./build.sh
-	cp */pkg/*.wasm python-bindings/ailets_rs/
+	mkdir -p dist
+	cp ./target/wasm32-unknown-unknown/debug/*.wasm ./dist
 
 test: build
 	cd python-bindings && python -m pytest tests/

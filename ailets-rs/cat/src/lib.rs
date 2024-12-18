@@ -3,9 +3,9 @@ extern "C" {
     fn n_of_streams(name_ptr: *const u8) -> u32;
     fn open_read(name_ptr: *const u8, index: u32) -> u32;
     fn open_write(name_ptr: *const u8) -> u32;
-    fn read(fd: u32, buffer_ptr: *mut u8, count: u32) -> u32;
-    fn write(fd: u32, buffer_ptr: *const u8, count: u32) -> u32;
-    fn close(fd: u32);
+    fn aread(fd: u32, buffer_ptr: *mut u8, count: u32) -> u32;
+    fn awrite(fd: u32, buffer_ptr: *const u8, count: u32) -> u32;
+    fn aclose(fd: u32);
 }
 
 const BUFFER_SIZE: u32 = 1024;
@@ -28,7 +28,7 @@ pub extern "C" fn execute() {
 
         // Copy contents
         loop {
-            let bytes_read = unsafe { read(input_fd, buffer.as_mut_ptr(), BUFFER_SIZE) };
+            let bytes_read = unsafe { aread(input_fd, buffer.as_mut_ptr(), BUFFER_SIZE) };
             if bytes_read == 0 {
                 break;
             }
@@ -36,7 +36,7 @@ pub extern "C" fn execute() {
             let mut bytes_written = 0;
             while bytes_written < bytes_read {
                 let n = unsafe {
-                    write(
+                    awrite(
                         output_fd,
                         buffer.as_ptr().add(bytes_written as usize),
                         bytes_read - bytes_written,
@@ -51,11 +51,11 @@ pub extern "C" fn execute() {
         }
 
         // Close input stream
-        unsafe { close(input_fd) };
+        unsafe { aclose(input_fd) };
 
         i += 1;
     }
 
     // Close output stream
-    unsafe { close(output_fd) };
+    unsafe { aclose(output_fd) };
 }
