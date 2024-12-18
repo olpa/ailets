@@ -77,11 +77,14 @@ class NodeRuntime:
     def _collect_streams(
         self, direction: Literal["in", "out"], name: str
     ) -> Sequence[Spec]:
-        return [
+        found = [
             spec
             for spec in self.specs
             if spec.direction == direction and spec.name == name
         ]
+        if len(found) or name != "":
+            return found
+        return [Spec(direction=direction, name="", value_or_file="-")]
 
     def n_of_streams(self, stream_name: str) -> int:
         return len(self._collect_streams("in", stream_name))
