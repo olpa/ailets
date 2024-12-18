@@ -17,7 +17,7 @@ fn test_basic_conversion() {
 
     messages_to_markdown();
 
-    assert_eq!(get_output(), "Hello!");
+    assert_eq!(get_output(), "Hello!\n");
 }
 
 #[test]
@@ -36,7 +36,7 @@ fn test_multiple_content_items() {
 
     messages_to_markdown();
 
-    assert_eq!(get_output(), "First item\n\nSecond item\n\nThird item");
+    assert_eq!(get_output(), "First item\n\nSecond item\n\nThird item\n");
 }
 
 #[test]
@@ -62,7 +62,7 @@ fn test_two_messages() {
 
     assert_eq!(
         get_output(),
-        "First message\n\nSecond message\n\nExtra text"
+        "First message\n\nSecond message\n\nExtra text\n"
     );
 }
 
@@ -74,7 +74,7 @@ fn test_empty_input() {
 
     messages_to_markdown();
 
-    assert_eq!(get_output(), "");
+    assert_eq!(get_output(), "\n");
 }
 
 #[test]
@@ -96,5 +96,24 @@ fn test_long_text() {
 
     messages_to_markdown();
 
-    assert_eq!(get_output(), long_text);
+    assert_eq!(get_output(), format!("{}\n", long_text));
+}
+
+#[test]
+fn test_skip_unknown_key_object() {
+    clear_mocks();
+    let json_data = r#"
+    {
+        "role":"assistant", 
+        "content":[
+            {"type":"text", "text":"First message"},
+            {"unknown_key": {"some": "object"}},
+            {"type":"text", "text":"Second message"}
+        ]
+    }"#;
+    set_input(&[json_data]);
+
+    messages_to_markdown();
+
+    assert_eq!(get_output(), "First message\n\nSecond message\n");
 }
