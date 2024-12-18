@@ -15,4 +15,6 @@ jiter = "0.8.2"
 lazy_static = "1.5.0"
 getrandom = { version = "0.2", features = ["custom"] }
 
-[target.wasm32-unknown-unknown]
+[env]
+RUST_TEST_THREADS = "1"
+RUST_TEST_NOCAPTURE = "1"
