@@ -1,6 +1,6 @@
 from typing import Optional
 from ailets.cons.atyping import INodeRuntime
-from ailets.cons.util import write_all
+from ailets.cons.node_runtime_wasm import BufToStr, fill_wasm_import_object
 
 import wasmer  # type: ignore[import-untyped]
 
@@ -27,7 +27,22 @@ def load_wasm_module() -> wasmer.Module:
 
 
 async def messages_to_markdown_wasm(runtime: INodeRuntime) -> None:
-    fd = await runtime.open_write(None)
-    content = "from wasm placeholder"
-    await write_all(runtime, fd, content.encode("utf-8"))
-    await runtime.close(fd)
+    assert module is not None, "WASM module not loaded"
+
+    # Set up WASM environment
+    import_object = wasmer.ImportObject()
+    buf_to_str = BufToStr()
+    fill_wasm_import_object(store, import_object, buf_to_str, runtime)
+
+    # Create WASM instance
+    instance = wasmer.Instance(module, import_object)
+    run_fn = instance.exports.messages_to_markdown
+
+    # Set up memory for string handling
+    memory = instance.exports.memory
+    if not isinstance(memory, wasmer.Memory):
+        raise ValueError("Memory is not a Memory")
+    buf_to_str.set_memory(memory)
+
+    # Run the WASM function
+    run_fn()
