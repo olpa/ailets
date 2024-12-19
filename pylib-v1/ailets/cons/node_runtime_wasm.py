@@ -28,7 +28,7 @@ class BufToStr:
         return memoryview(self.memory.buffer)
 
 
-def create_wasm_runtime(
+def fill_wasm_import_object(
     store: wasmer.Store,
     import_object: wasmer.ImportObject,
     buf_to_str: BufToStr,

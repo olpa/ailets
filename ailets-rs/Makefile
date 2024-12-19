@@ -4,6 +4,7 @@ build:
 	./build.sh
 	mkdir -p dist
 	cp ./target/wasm32-unknown-unknown/debug/*.wasm ./dist
+	cp ./target/wasm32-unknown-unknown/debug/*.wasm ../pylib-v1/ailets/wasm/
 
 test: build
 	cd python-bindings && python -m pytest tests/

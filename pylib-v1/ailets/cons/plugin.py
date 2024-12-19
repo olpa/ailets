@@ -100,7 +100,12 @@ class NodeRegistry(INodeRegistry):
 
 
 def hijack_msg2md(nodereg: NodeRegistry) -> None:
-    from ailets.stdlib.messages_to_markdown_wasm import messages_to_markdown_wasm
+    from ailets.stdlib.messages_to_markdown_wasm import (
+        messages_to_markdown_wasm,
+        load_wasm_module,
+    )
+
+    load_wasm_module()
 
     orig_msg2md = nodereg.get_node(".messages_to_markdown")
 

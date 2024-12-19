@@ -1,3 +1,4 @@
 ailets.egg-info
 build
 dist
+ailets/wasm
