@@ -1,6 +1,5 @@
-from typing import Any
-
 import wasmer  # type: ignore[import-untyped]
+import asyncio
 
 from .atyping import INodeRuntime
 
@@ -63,24 +62,33 @@ def fill_wasm_import_object(
     async def aclose(fd: int) -> None:
         await runtime.close(fd)
 
-    # Convert async functions to sync for WASM compatibility
-    def make_sync(f: Any) -> Any:
-        def wrapper(*args: Any) -> Any:
-            import asyncio
+    def sync_n_of_streams(name_ptr: int) -> int:
+        return asyncio.run(n_of_streams(name_ptr))
 
-            return asyncio.run(f(*args))
+    def sync_open_read(name_ptr: int, index: int) -> int:
+        return asyncio.run(open_read(name_ptr, index))
 
-        return wrapper
+    def sync_open_write(name_ptr: int) -> int:
+        return asyncio.run(open_write(name_ptr))
+
+    def sync_aread(fd: int, buffer_ptr: int, count: int) -> int:
+        return asyncio.run(aread(fd, buffer_ptr, count))
+
+    def sync_awrite(fd: int, buffer_ptr: int, count: int) -> int:
+        return asyncio.run(awrite(fd, buffer_ptr, count))
+
+    def sync_aclose(fd: int) -> None:
+        return asyncio.run(aclose(fd))
 
     # Register functions with WASM
     import_object.register(
         "",
         {
-            "n_of_streams": wasmer.Function(store, make_sync(n_of_streams)),
-            "open_read": wasmer.Function(store, make_sync(open_read)),
-            "open_write": wasmer.Function(store, make_sync(open_write)),
-            "aread": wasmer.Function(store, make_sync(aread)),
-            "awrite": wasmer.Function(store, make_sync(awrite)),
-            "aclose": wasmer.Function(store, make_sync(aclose)),
+            "n_of_streams": wasmer.Function(store, sync_n_of_streams),
+            "open_read": wasmer.Function(store, sync_open_read),
+            "open_write": wasmer.Function(store, sync_open_write),
+            "aread": wasmer.Function(store, sync_aread),
+            "awrite": wasmer.Function(store, sync_awrite),
+            "aclose": wasmer.Function(store, sync_aclose),
         },
     )
