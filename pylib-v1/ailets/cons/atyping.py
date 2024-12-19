@@ -8,7 +8,6 @@ from typing import (
     Iterator,
     List,
     Literal,
-    NotRequired,
     Optional,
     Protocol,
     Sequence,
@@ -16,6 +15,7 @@ from typing import (
     TypedDict,
     Union,
 )
+from typing_extensions import NotRequired
 
 from ailets.cons.seqno import Seqno
 

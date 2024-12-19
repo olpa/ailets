@@ -1,8 +1,7 @@
-from typing import Any, cast
+from typing import Any
 
 import wasmer  # type: ignore[import-untyped]
 
-from .node_runtime import NodeRuntime
 from .atyping import INodeRuntime
 
 
@@ -51,12 +50,14 @@ def create_wasm_runtime(
         buffer = bytearray(count)
         bytes_read = await runtime.read(fd, buffer, count)
         buf_view = buf_to_str.get_view()
-        buf_view[buffer_ptr:buffer_ptr + bytes_read] = buffer[:bytes_read]
+        end = buffer_ptr + bytes_read
+        buf_view[buffer_ptr:end] = buffer[:bytes_read]
         return bytes_read
 
     async def awrite(fd: int, buffer_ptr: int, count: int) -> int:
         buf_view = buf_to_str.get_view()
-        buffer = bytes(buf_view[buffer_ptr:buffer_ptr + count])
+        end = buffer_ptr + count
+        buffer = bytes(buf_view[buffer_ptr:end])
         return await runtime.write(fd, buffer, count)
 
     async def aclose(fd: int) -> None:
@@ -66,7 +67,9 @@ def create_wasm_runtime(
     def make_sync(f: Any) -> Any:
         def wrapper(*args: Any) -> Any:
             import asyncio
+
             return asyncio.run(f(*args))
+
         return wrapper
 
     # Register functions with WASM

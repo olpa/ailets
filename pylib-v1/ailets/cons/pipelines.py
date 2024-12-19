@@ -1,8 +1,13 @@
 from dataclasses import dataclass
 from typing import Literal, Optional
 import json
-import tomllib
 from typing import Sequence
+import sys
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    import tomli as tomllib
 
 from .atyping import (
     Dependency,
