@@ -223,7 +223,7 @@ class IProcesses(Protocol):
     def mark_deptree_as_invalid(self) -> None:
         raise NotImplementedError
 
-    def next_node_iter(self) -> AsyncIterator[str]:
+    def next_node_iter(self, target_node_name: str) -> AsyncIterator[str]:
         raise NotImplementedError
 
     async def build_node_alone(self, name: str) -> None:

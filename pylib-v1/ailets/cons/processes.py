@@ -50,11 +50,34 @@ class Processes(IProcesses):
     def mark_deptree_as_invalid(self) -> None:
         self.deptree_invalidation_flag.set()
 
-    async def next_node_iter(self) -> AsyncIterator[str]:
+    def get_nodes_to_build(self, target_node_name: str) -> list[str]:
+        nodes_to_build = []
+        visited = set()
+
+        def visit_node(node_name: str) -> None:
+            if node_name in visited:
+                return
+            visited.add(node_name)
+
+            # Visit dependencies first
+            if node_name in self.deps:
+                for dep in self.deps[node_name]:
+                    visit_node(dep.source)
+
+            # Add this node if not already built
+            if node_name not in self.finished_nodes:
+                nodes_to_build.append(node_name)
+
+        visit_node(target_node_name)
+        return nodes_to_build
+
+    async def next_node_iter(self, target_node_name: str) -> AsyncIterator[str]:
         while True:
+            nodes_to_build = self.get_nodes_to_build(target_node_name)
+
             last_hash = self.dagops.hash_of_nodenames()
             self.deptree_invalidation_flag.clear()
-            for node_name in self.dagops.get_node_names():
+            for node_name in nodes_to_build:
                 if last_hash != self.dagops.hash_of_nodenames():
                     break
                 if node_name in self.finished_nodes or node_name in self.active_nodes:
