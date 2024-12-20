@@ -29,10 +29,15 @@ messages_to_markdown = NodeDesc(
     ],
 )
 
+tmptmp = NodeDesc(
+    name="tmptmp",
+    inputs=[],
+)
+
 stdout = NodeDesc(
     name="stdout",
     inputs=[
-        Dependency(source=".messages_to_markdown"),
+        Dependency(source=".tmptmp"),
     ],
 )
 
@@ -41,5 +46,6 @@ nodes = [
     toolcall_to_messages,
     query,
     messages_to_markdown,
+    tmptmp,
     stdout,
 ]
