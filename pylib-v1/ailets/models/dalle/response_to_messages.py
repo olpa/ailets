@@ -13,9 +13,9 @@ from ailets.cons.util import iter_streams_objects, write_all
 async def response_to_messages(runtime: INodeRuntime) -> None:
     """Convert DALL-E response to messages."""
 
-    output_fd = await runtime.open_write(None)
+    output_fd = await runtime.open_write("")
 
-    async for response in iter_streams_objects(runtime, None):
+    async for response in iter_streams_objects(runtime, ""):
         # `response` format:
         # {
         #   "created": 1726961295,

@@ -78,14 +78,14 @@ def _process_single_message(
 async def response_to_messages(runtime: INodeRuntime) -> None:
     """Convert multiple responses to messages."""
 
-    output = await runtime.open_write(None)
+    output = await runtime.open_write("")
 
     messages: List[ChatMessage] = []
     sse_handler: Optional[SseHandler] = None
     tool_calls = ToolCalls()
 
     async for response in iter_streams_objects(
-        runtime, None, sse_tokens=["data:", "[DONE]"]
+        runtime, "", sse_tokens=["data:", "[DONE]"]
     ):
         assert isinstance(response, dict), "Response must be a dictionary"
 

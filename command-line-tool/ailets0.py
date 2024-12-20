@@ -9,7 +9,7 @@ import localsetup  # noqa: F401
 from ailets.cons.dump import dump_environment, load_environment, print_dependency_tree
 from typing import Iterator, Literal, Optional, Tuple
 from ailets.cons.environment import Environment
-from ailets.cons.plugin import NodeRegistry
+from ailets.cons.plugin import NodeRegistry, hijack_msg2md
 from ailets.cons.pipelines import (
     CmdlinePromptItem,
     instantiate_with_deps,
@@ -214,6 +214,9 @@ async def main() -> None:
     nodereg.load_plugin(f"ailets.models.{args.model}", f".{args.model}")
     for tool in args.tools:
         nodereg.load_plugin(f"ailets.tools.{tool}", f".tool.{tool}")
+
+    if args.model == "gpt4o":
+        hijack_msg2md(nodereg)
 
     prompt = get_prompt(args.prompt)
 

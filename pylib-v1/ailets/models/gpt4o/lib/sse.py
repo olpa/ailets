@@ -5,7 +5,8 @@ from ailets.cons.typeguards import is_content_item_function
 from ailets.cons.util import write_all
 
 
-from typing import TypedDict, NotRequired
+from typing import TypedDict
+from typing_extensions import NotRequired
 
 from ailets.models.gpt4o.lib.tool_calls import ToolCalls
 

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, Optional, Sequence
+from typing import Dict, Sequence
 
 from ailets.cons.streams import Streams
 
@@ -32,7 +32,7 @@ class NodeRuntime(INodeRuntime):
         self.deps = deps
         self.open_fds: Dict[int, OpenFd] = {}
 
-    def _get_streams(self, stream_name: Optional[str]) -> Sequence[IStream]:
+    def _get_streams(self, stream_name: str) -> Sequence[IStream]:
         # Special stream "env"
         if stream_name == "env":
             return [Streams.make_env_stream(self.env.for_env_stream)]
@@ -50,12 +50,12 @@ class NodeRuntime(INodeRuntime):
     def get_name(self) -> str:
         return self.node_name
 
-    def n_of_streams(self, stream_name: Optional[str]) -> int:
+    def n_of_streams(self, stream_name: str) -> int:
         if stream_name == "env":
             return 1
         return len(self._get_streams(stream_name))
 
-    async def open_read(self, stream_name: Optional[str], index: int) -> int:
+    async def open_read(self, stream_name: str, index: int) -> int:
         streams = self._get_streams(stream_name)
         if index >= len(streams) or index < 0:
             raise ValueError(f"Stream index out of bounds: {index} for {stream_name}")
@@ -71,7 +71,7 @@ class NodeRuntime(INodeRuntime):
         fd_obj.pos += n_bytes
         return n_bytes
 
-    async def open_write(self, stream_name: Optional[str]) -> int:
+    async def open_write(self, stream_name: str) -> int:
         stream = self.streams.create(self.node_name, stream_name)
         fd = self.env.seqno.next_seqno()
         self.open_fds[fd] = OpenFd(stream=stream, pos=0)

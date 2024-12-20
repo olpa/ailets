@@ -125,7 +125,7 @@ class Dagops(IDagops):
         self.nodes[full_name] = node
 
         # Add streams for value and type
-        streams.create(full_name, None, value, is_closed=True)
+        streams.create(full_name, "", value, is_closed=True)
         processes.add_value_node(full_name)
 
         return node

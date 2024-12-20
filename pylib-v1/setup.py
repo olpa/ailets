@@ -11,6 +11,8 @@ setup(
     packages=find_packages(),
     install_requires=[
         'aiohttp',
+        'typing_extensions',
+        'aiohttp',
     ],
     author="Oleg Parashchenko",
     author_email="olpa@uucode.com",

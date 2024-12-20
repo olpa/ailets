@@ -97,3 +97,22 @@ class NodeRegistry(INodeRegistry):
 
         except ImportError as e:
             raise ImportError(f"Could not load plugin {regname}: {e}")
+
+
+def hijack_msg2md(nodereg: NodeRegistry) -> None:
+    from ailets.stdlib.messages_to_markdown_wasm import (
+        messages_to_markdown_wasm,
+        load_wasm_module,
+    )
+
+    load_wasm_module()
+
+    orig_msg2md = nodereg.get_node(".messages_to_markdown")
+
+    new_msg2md = NodeDescFunc(
+        name=".messages_to_markdown",
+        inputs=orig_msg2md.inputs,
+        func=messages_to_markdown_wasm,
+    )
+
+    nodereg.add_node_def(new_msg2md)

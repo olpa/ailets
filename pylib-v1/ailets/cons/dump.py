@@ -187,7 +187,7 @@ def print_dependency_tree(
     node_name: str,
     indent: str = "",
     visited: Optional[Set[str]] = None,
-    stream_name: Optional[str] = None,
+    stream_name: str = "",
 ) -> None:
     """Print a tree showing node dependencies and build status.
 
@@ -216,7 +216,7 @@ def print_dependency_tree(
 
     # Print current node with explanation if it exists
     display_name = node.name
-    if stream_name is not None:
+    if stream_name:
         display_name = f"{display_name}.{stream_name}"
 
     node_text = f"{indent}├── {display_name} [{status}]"
@@ -231,7 +231,7 @@ def print_dependency_tree(
     visited.add(node_name)
 
     # Group dependencies by parameter name
-    deps_by_param: Dict[Optional[str], List[Tuple[str, Optional[str]]]] = {}
+    deps_by_param: Dict[str, List[Tuple[str, str]]] = {}
     for dep in dagops.iter_deps(node_name):
         if dep.name not in deps_by_param:
             deps_by_param[dep.name] = []
@@ -240,14 +240,14 @@ def print_dependency_tree(
     next_indent = f"{indent}│   "
 
     # Print default dependencies (param_name is None)
-    for dep_name, stream_name in deps_by_param.get(None, []):
+    for dep_name, stream_name in deps_by_param.get("", []):
         print_dependency_tree(
             dagops, processes, dep_name, next_indent, visited.copy(), stream_name
         )
 
     # Print named dependencies grouped by parameter
     for param_name, dep_names in deps_by_param.items():
-        if param_name is not None:  # Skip None group as it's already printed
+        if param_name:  # Skip "" group as it's already printed
             print(f"{next_indent}├── (param: {param_name})")
             param_indent = f"{next_indent}│   "
             for dep_name, stream_name in dep_names:
