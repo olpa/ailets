@@ -99,10 +99,10 @@ async def messages_to_markdown(runtime: INodeRuntime) -> None:
     global need_separator
     need_separator = False
 
-    fd = await runtime.open_write(None)
+    fd = await runtime.open_write("")
 
     try:
-        async for message in iter_streams_objects(runtime, None):
+        async for message in iter_streams_objects(runtime, ""):
             content = message["content"]
             if isinstance(content, str):
                 await separator(runtime, fd)

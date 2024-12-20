@@ -120,7 +120,7 @@ async def messages_to_query(runtime: INodeRuntime) -> None:
     ), "Invalid DALL-E task, expected one of: generations, variations, edits"
 
     prompt = ExtractedPrompt(prompt_parts=[], image=None, mask=None)
-    async for message in iter_streams_objects(runtime, None):
+    async for message in iter_streams_objects(runtime, ""):
         role = message.get("role")
         if role != "user":
             await log(runtime, "info", f"Skipping message with role {role}")
@@ -161,6 +161,6 @@ async def messages_to_query(runtime: INodeRuntime) -> None:
         body_field: body,
     }
 
-    output = await runtime.open_write(None)
+    output = await runtime.open_write("")
     await write_all(runtime, output, json.dumps(value).encode("utf-8"))
     await runtime.close(output)

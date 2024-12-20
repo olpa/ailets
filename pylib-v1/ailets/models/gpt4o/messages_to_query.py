@@ -113,7 +113,7 @@ async def messages_to_query(runtime: INodeRuntime) -> None:
     """Convert chat messages into a query."""
 
     messages: list[Gpt4oMessage] = []
-    async for message in iter_streams_objects(runtime, None):
+    async for message in iter_streams_objects(runtime, ""):
         new_content, tool_calls = await rewrite_content(runtime, message["content"])
         new_message: Gpt4oMessage = message.copy()  # type: ignore[assignment]
         new_message["content"] = new_content
@@ -147,6 +147,6 @@ async def messages_to_query(runtime: INodeRuntime) -> None:
         "body": body,
     }
 
-    fd = await runtime.open_write(None)
+    fd = await runtime.open_write("")
     await write_all(runtime, fd, json.dumps(value).encode("utf-8"))
     await runtime.close(fd)

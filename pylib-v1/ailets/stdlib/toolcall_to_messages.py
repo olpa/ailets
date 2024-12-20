@@ -13,14 +13,14 @@ async def toolcall_to_messages(runtime: INodeRuntime) -> None:
     Writes:
         A single message in OpenAI chat format
     """
-    n_tool_results = runtime.n_of_streams(None)
+    n_tool_results = runtime.n_of_streams("")
     assert (
         n_tool_results == 1
     ), f"Expected exactly one tool result, got {n_tool_results}"
     n_specs = runtime.n_of_streams("llm_tool_spec")
     assert n_specs == 1, f"Expected exactly one tool spec, got {n_specs}"
 
-    fd = await runtime.open_read(None, 0)
+    fd = await runtime.open_read("", 0)
     tool_result = (await read_all(runtime, fd)).decode("utf-8")
     await runtime.close(fd)
 
@@ -82,7 +82,7 @@ async def toolcall_to_messages(runtime: INodeRuntime) -> None:
         "tool_call_id": tool_call_id,
     }
 
-    fd = await runtime.open_write(None)
+    fd = await runtime.open_write("")
     value = json.dumps([chat_message]).encode("utf-8")
     await write_all(runtime, fd, value)
     await runtime.close(fd)

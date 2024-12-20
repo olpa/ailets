@@ -7,6 +7,6 @@ async def call(runtime: INodeRuntime) -> None:
     """Call the get_user_name tool."""
     value = os.environ["USER"]
 
-    fd = await runtime.open_write(None)
+    fd = await runtime.open_write("")
     await write_all(runtime, fd, value.encode("utf-8"))
     await runtime.close(fd)

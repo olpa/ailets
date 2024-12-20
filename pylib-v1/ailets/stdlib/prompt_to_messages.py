@@ -6,7 +6,7 @@ from ailets.cons.util import iter_streams_objects, write_all
 
 async def prompt_to_messages(runtime: INodeRuntime) -> None:
     role_to_content: Dict[str, Any] = {}
-    async for content_item in iter_streams_objects(runtime, None):
+    async for content_item in iter_streams_objects(runtime, ""):
         role = content_item.get("role", "user")
         role_to_content.setdefault(role, []).append(content_item)
 
@@ -20,7 +20,7 @@ async def prompt_to_messages(runtime: INodeRuntime) -> None:
         keys,
     )
 
-    fd_out = await runtime.open_write(None)
+    fd_out = await runtime.open_write("")
     await write_all(runtime, fd_out, json.dumps(list(messages)).encode("utf-8"))
     await runtime.close(fd_out)
 

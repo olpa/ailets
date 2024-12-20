@@ -1,5 +1,5 @@
 import json
-from typing import Any, AsyncGenerator, Dict, Literal, Optional, Sequence
+from typing import Any, AsyncGenerator, Dict, Literal, Sequence
 from .atyping import INodeRuntime
 
 
@@ -37,7 +37,7 @@ async def write_all(runtime: INodeRuntime, fd: int, data: bytes) -> None:
 
 async def iter_streams_objects(
     runtime: INodeRuntime,
-    stream_name: Optional[str],
+    stream_name: str,
     sse_tokens: Sequence[str] = (),
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Iterate over all streams. Each stream contains JSON objects,

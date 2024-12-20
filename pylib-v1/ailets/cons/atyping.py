@@ -38,7 +38,7 @@ class IStreams(Protocol):
     def create(
         self,
         node_name: str,
-        stream_name: Optional[str],
+        stream_name: str,
         initial_content: Optional[bytes] = None,
         is_closed: bool = False,
     ) -> IStream:
@@ -71,8 +71,8 @@ class Dependency:
     """
 
     source: str
-    name: Optional[str] = None
-    stream: Optional[str] = None
+    name: str = ""
+    stream: str = ""
     schema: Optional[dict[str, Any]] = None
 
 
@@ -113,13 +113,13 @@ class INodeRuntime(Protocol):
     def get_name(self) -> str:
         raise NotImplementedError
 
-    def n_of_streams(self, stream_name: Optional[str]) -> int:
+    def n_of_streams(self, stream_name: str) -> int:
         raise NotImplementedError
 
-    async def open_read(self, stream_name: Optional[str], index: int) -> int:
+    async def open_read(self, stream_name: str, index: int) -> int:
         raise NotImplementedError
 
-    async def open_write(self, stream_name: Optional[str]) -> int:
+    async def open_write(self, stream_name: str) -> int:
         raise NotImplementedError
 
     async def read(self, fd: int, buffer: bytearray, count: int) -> int:
