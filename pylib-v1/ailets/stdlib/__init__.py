@@ -37,7 +37,8 @@ tmptmp = NodeDesc(
 stdout = NodeDesc(
     name="stdout",
     inputs=[
-        Dependency(source=".tmptmp"),
+        Dependency(source=".messages_to_markdown"),
+        #Dependency(source=".tmptmp"),
     ],
 )
 
