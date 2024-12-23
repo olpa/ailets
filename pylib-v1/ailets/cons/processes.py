@@ -1,4 +1,5 @@
 import asyncio
+import itertools
 import logging
 from typing import AsyncIterator, Iterator, Mapping, Optional, Sequence
 from ailets.cons.atyping import Dependency, IEnvironment, IProcesses
@@ -137,6 +138,24 @@ class Processes(IProcesses):
             dep.source in self.finished_nodes or self.streams.has_input(dep)
             for dep in self.deps[node_name]
         )
+
+    async def run_nodes(self, node_iter: Iterator[str | None]) -> None:
+        pool: list[asyncio.Task[None]] = []
+
+        def extend_pool() -> None:
+            node_names = itertools.takewhile(lambda x: x is not None, node_iter)
+            pool.extend(
+                asyncio.create_task(self.build_node_alone(name), name=name)
+                for name in node_names
+            )
+
+        extend_pool()
+        while len(pool):
+            done, pool = await asyncio.wait(pool, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                if task.exception():
+                    raise task.exception()
+            extend_pool()
 
     async def build_node_alone(self, name: str) -> None:
         """Build a node. Does not build its dependencies."""

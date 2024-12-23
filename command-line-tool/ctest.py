@@ -10,6 +10,7 @@ flag_want_more: bool = False
 
 returned_tasks = set()
 
+
 def find_next_task() -> str | None:
     global flag_want_more
     if not flag_want_more:
@@ -20,8 +21,9 @@ def find_next_task() -> str | None:
         if wtc not in returned_tasks:
             returned_tasks.add(wtc)
             return wtc
-    
+
     return None
+
 
 async def foo():
     global flag_want_more
@@ -32,6 +34,7 @@ async def foo():
             flag_want_more = True
             event_awaker.set()
     event_awaker.set()
+
 
 async def bar():
     global flag_want_more
@@ -44,6 +47,7 @@ async def bar():
             event_awaker.set()
     event_awaker.set()
 
+
 async def zak():
     global flag_want_more
     for i in range(10):
@@ -52,7 +56,9 @@ async def zak():
     flag_want_more = True
     event_awaker.set()
 
+
 current_tasks: set[asyncio.Task] = set()
+
 
 def add_next_task():
     task_name = find_next_task()
@@ -62,13 +68,15 @@ def add_next_task():
         "foo": foo,
         "bar": bar,
         "zak": zak,
-    }[task_name];
+    }[task_name]
 
     task = asyncio.create_task(task(), name=task_name)
     current_tasks.add(task)
 
+
 async def awaker():
     await event_awaker.wait()
+
 
 async def runner():
     i = 0
@@ -79,8 +87,7 @@ async def runner():
         event_awaker.clear()
         awaker_task = asyncio.create_task(awaker(), name="awaker")
         (done, pending) = await asyncio.wait(
-            [*current_tasks, awaker_task],
-            return_when=asyncio.FIRST_COMPLETED
+            [*current_tasks, awaker_task], return_when=asyncio.FIRST_COMPLETED
         )
 
         for task in done:
@@ -94,16 +101,20 @@ async def runner():
             remove_task(task)
         add_next_task()
 
+
 def remove_task(task: asyncio.Task):
     if task in current_tasks:
         current_tasks.remove(task)
 
+
 async def finish_tasks():
     await asyncio.gather(*current_tasks)
+
 
 async def seed():
     global flag_want_more
     flag_want_more = True
+
 
 async def main():
     """Main function that coordinates the iterator and processing"""
@@ -113,6 +124,7 @@ async def main():
     await runner()
 
     await finish_tasks()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -260,14 +260,10 @@ async def main() -> None:
     if args.dry_run:
         print_dependency_tree(env.dagops, env.processes, target_node_name)
     else:
-        async for node_name in env.processes.next_node_iter(target_node_name):
-            if stop_before_node and node_name == stop_before_node:
-                break
-            await env.processes.build_node_alone(node_name)
-            if args.one_step:
-                break
-            if node_name == stop_after_node:
-                break
+        node_iter = env.processes.next_node_iter(
+            target_node_name, args.one_step, stop_before_node, stop_after_node
+        )
+        await env.processes.run_nodes(node_iter)
 
     if args.save_state:
         with open(args.save_state, "w") as f:
