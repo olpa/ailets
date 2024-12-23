@@ -222,9 +222,6 @@ class INodeRegistry(Protocol):
 
 
 class IProcesses(Protocol):
-    def mark_deptree_as_invalid(self) -> None:
-        raise NotImplementedError
-
     def next_node_iter(
         self,
         target_node_name: str,

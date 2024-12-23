@@ -15,7 +15,6 @@ class Processes(IProcesses):
         self.streams = env.streams
         self.dagops = env.dagops
 
-        self.deptree_invalidation_flag: bool = False
         self.node_started_writing_event: asyncio.Event = asyncio.Event()
 
         self.finished_nodes: set[str] = set()
@@ -50,9 +49,6 @@ class Processes(IProcesses):
                     Dependency(source=node_name, name=dep.name, stream=dep.stream)
                 )
         self.rev_deps = rev_deps
-
-    def mark_deptree_as_invalid(self) -> None:
-        self.deptree_invalidation_flag = True
 
     def mark_node_started_writing(self) -> None:
         self.node_started_writing_event.set()
@@ -96,7 +92,6 @@ class Processes(IProcesses):
             nodes_to_build = self.get_nodes_to_build(target_node_name)
 
             last_hash = self.dagops.hash_of_nodenames()
-            self.deptree_invalidation_flag = False
 
             # Inner loop: return nodes to build as they are ready to be built
             has_yielded = False
@@ -127,11 +122,7 @@ class Processes(IProcesses):
 
             if last_hash != self.dagops.hash_of_nodenames():
                 logger.debug("Node set is changed in next_node_iter")
-                self.deptree_invalidation_flag = True
-            if self.deptree_invalidation_flag:
                 self.resolve_deps()
-                self.deptree_invalidation_flag = False
-                continue
 
         while True:
             yield None
@@ -188,7 +179,6 @@ class Processes(IProcesses):
             self.active_nodes.add(name)
             await node.func(runtime)
             self.finished_nodes.add(name)
-            self.mark_deptree_as_invalid()
         except Exception:
             print(f"Error building node '{name}'")
             print(f"Function: {node.func.__name__}")
