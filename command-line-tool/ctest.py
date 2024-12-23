@@ -1,5 +1,4 @@
 import asyncio
-import sys
 
 
 want_to_call: list[str] = ["foo", "bar"]  # eventually also "zak"
@@ -25,7 +24,7 @@ def find_next_task() -> str | None:
     return None
 
 
-async def foo():
+async def foo() -> None:
     global flag_want_more
     for i in range(10):
         print(f"foo {i}")
@@ -36,7 +35,7 @@ async def foo():
     event_awaker.set()
 
 
-async def bar():
+async def bar() -> None:
     global flag_want_more
     for i in range(10):
         print(f"bar {i}")
@@ -48,7 +47,7 @@ async def bar():
     event_awaker.set()
 
 
-async def zak():
+async def zak() -> None:
     global flag_want_more
     for i in range(10):
         print(f"zak {i}")
@@ -57,28 +56,28 @@ async def zak():
     event_awaker.set()
 
 
-current_tasks: set[asyncio.Task] = set()
+current_tasks: set[asyncio.Task[None]] = set()
 
 
-def add_next_task():
+def add_next_task() -> None:
     task_name = find_next_task()
     if task_name is None:
         return
-    task = {
+    task_func = {
         "foo": foo,
         "bar": bar,
         "zak": zak,
     }[task_name]
 
-    task = asyncio.create_task(task(), name=task_name)
+    task = asyncio.create_task(task_func(), name=task_name)
     current_tasks.add(task)
 
 
-async def awaker():
+async def awaker() -> None:
     await event_awaker.wait()
 
 
-async def runner():
+async def runner() -> None:
     i = 0
     while len(current_tasks) > 0:
         i += 1
@@ -102,21 +101,21 @@ async def runner():
         add_next_task()
 
 
-def remove_task(task: asyncio.Task):
+def remove_task(task: asyncio.Task[None]) -> None:
     if task in current_tasks:
         current_tasks.remove(task)
 
 
-async def finish_tasks():
+async def finish_tasks() -> None:
     await asyncio.gather(*current_tasks)
 
 
-async def seed():
+async def seed() -> None:
     global flag_want_more
     flag_want_more = True
 
 
-async def main():
+async def main() -> None:
     """Main function that coordinates the iterator and processing"""
 
     next_task = asyncio.create_task(seed(), name="seed")

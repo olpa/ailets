@@ -1,7 +1,7 @@
 import asyncio
 import itertools
 import logging
-from typing import AsyncIterator, Iterator, Mapping, Optional, Sequence
+from typing import Iterator, Mapping, Optional, Sequence
 from ailets.cons.atyping import Dependency, IEnvironment, IProcesses
 from ailets.cons.node_runtime import NodeRuntime
 
@@ -16,6 +16,7 @@ class Processes(IProcesses):
         self.dagops = env.dagops
 
         self.deptree_invalidation_flag: bool = False
+        self.node_started_writing_event: asyncio.Event = asyncio.Event()
 
         self.finished_nodes: set[str] = set()
         self.active_nodes: set[str] = set()
@@ -24,7 +25,7 @@ class Processes(IProcesses):
         self.deps: Mapping[str, Sequence[Dependency]] = {}
         self.rev_deps: Mapping[str, Sequence[Dependency]] = {}
 
-        self.streams.set_on_write_started(self.mark_deptree_as_invalid)
+        self.streams.set_on_write_started(self.mark_node_started_writing)
 
     def is_node_finished(self, name: str) -> bool:
         return name in self.finished_nodes
@@ -51,8 +52,10 @@ class Processes(IProcesses):
         self.rev_deps = rev_deps
 
     def mark_deptree_as_invalid(self) -> None:
-        print("!!! mark_deptree_as_invalid")  # FIXME
         self.deptree_invalidation_flag = True
+
+    def mark_node_started_writing(self) -> None:
+        self.node_started_writing_event.set()
 
     def get_nodes_to_build(self, target_node_name: str) -> list[str]:
         nodes_to_build = []
@@ -140,11 +143,15 @@ class Processes(IProcesses):
         )
 
     async def run_nodes(self, node_iter: Iterator[str | None]) -> None:
-        pool: list[asyncio.Task[None]] = []
+        pool: set[asyncio.Task[None]] = set()
 
         def extend_pool() -> None:
-            node_names = itertools.takewhile(lambda x: x is not None, node_iter)
-            pool.extend(
+            node_names: Sequence[str] = list(
+                name
+                for name in itertools.takewhile(lambda x: x is not None, node_iter)
+                if isinstance(name, str)
+            )
+            pool.update(
                 asyncio.create_task(self.build_node_alone(name), name=name)
                 for name in node_names
             )
@@ -153,8 +160,8 @@ class Processes(IProcesses):
         while len(pool):
             done, pool = await asyncio.wait(pool, return_when=asyncio.FIRST_COMPLETED)
             for task in done:
-                if task.exception():
-                    raise task.exception()
+                if exc := task.exception():
+                    raise exc
             extend_pool()
 
     async def build_node_alone(self, name: str) -> None:
