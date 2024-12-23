@@ -55,6 +55,7 @@ class Processes(IProcesses):
         self.deptree_invalidation_flag = True
 
     def mark_node_started_writing(self) -> None:
+        print("!!! mark_node_started_writing")  # FIXME
         self.node_started_writing_event.set()
 
     def get_nodes_to_build(self, target_node_name: str) -> list[str]:
@@ -145,6 +146,10 @@ class Processes(IProcesses):
     async def run_nodes(self, node_iter: Iterator[str | None]) -> None:
         pool: set[asyncio.Task[None]] = set()
 
+        async def awaker() -> None:
+            await self.node_started_writing_event.wait()
+            print("!!! awaker after wait")  # FIXME
+
         def extend_pool() -> None:
             node_names: Sequence[str] = list(
                 name
@@ -158,10 +163,18 @@ class Processes(IProcesses):
 
         extend_pool()
         while len(pool):
+            awaiker_task = asyncio.create_task(awaker())
+            pool.add(awaiker_task)
+
             done, pool = await asyncio.wait(pool, return_when=asyncio.FIRST_COMPLETED)
             for task in done:
                 if exc := task.exception():
                     raise exc
+
+            if not awaiker_task.done():
+                awaiker_task.cancel()
+                pool.remove(awaiker_task)
+
             extend_pool()
 
     async def build_node_alone(self, name: str) -> None:
