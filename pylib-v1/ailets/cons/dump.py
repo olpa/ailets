@@ -120,7 +120,10 @@ async def load_stream(data: dict[str, Any]) -> Stream:
     is_closed = data.get("is_closed", False)
     buf_debug_hint = f"{data['node']}/{data['name']}"
     buf = AsyncBuffer(
-        initial_content=content, is_closed=is_closed, debug_hint=buf_debug_hint
+        initial_content=content,
+        is_closed=is_closed,
+        on_write_started=lambda: None,
+        debug_hint=buf_debug_hint,
     )
     return Stream(
         node_name=data["node"],

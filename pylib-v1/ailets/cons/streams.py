@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 import json
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Callable, Dict, Optional, Sequence
 
 from ailets.cons.atyping import Dependency, IStream, IStreams
 from ailets.cons.async_buf import AsyncBuffer
@@ -38,7 +38,7 @@ def create_log_stream() -> Stream:
     return Stream(
         node_name=".",
         stream_name="log",
-        buf=LogStream(),
+        buf=LogStream(b"", False, lambda: None),
     )
 
 
@@ -47,6 +47,10 @@ class Streams(IStreams):
 
     def __init__(self) -> None:
         self._streams: list[Stream] = []
+        self.on_write_started: Callable[[], None] = lambda: None
+
+    def set_on_write_started(self, on_write_started: Callable[[], None]) -> None:
+        self.on_write_started = on_write_started
 
     def _find_stream(
         self, node_name: str, stream_name: Optional[str]
@@ -88,6 +92,7 @@ class Streams(IStreams):
             buf=AsyncBuffer(
                 initial_content=initial_content,
                 is_closed=is_closed,
+                on_write_started=self.on_write_started,
                 debug_hint=buf_debug_hint,
             ),
         )
@@ -102,7 +107,9 @@ class Streams(IStreams):
     @staticmethod
     def make_env_stream(params: Dict[str, Any]) -> Stream:
         content = json.dumps(params).encode("utf-8")
-        buf = AsyncBuffer(initial_content=content, is_closed=True)
+        buf = AsyncBuffer(
+            initial_content=content, is_closed=True, on_write_started=lambda: None
+        )
         return Stream(
             node_name=".",
             stream_name="env",

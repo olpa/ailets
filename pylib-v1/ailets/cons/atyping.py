@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from typing import (
     Any,
-    AsyncIterator,
     Awaitable,
     Callable,
     Dict,
@@ -51,6 +50,9 @@ class IStreams(Protocol):
         raise NotImplementedError
 
     async def read_dir(self, dir_name: str, node_names: Sequence[str]) -> Sequence[str]:
+        raise NotImplementedError
+
+    def set_on_write_started(self, func: Callable[[], None]) -> None:
         raise NotImplementedError
 
 
@@ -220,10 +222,13 @@ class INodeRegistry(Protocol):
 
 
 class IProcesses(Protocol):
-    def mark_deptree_as_invalid(self) -> None:
-        raise NotImplementedError
-
-    def next_node_iter(self) -> AsyncIterator[str]:
+    def next_node_iter(
+        self,
+        target_node_name: str,
+        flag_one_step: bool,
+        stop_before: Optional[str],
+        stop_after: Optional[str],
+    ) -> Iterator[str | None]:
         raise NotImplementedError
 
     async def build_node_alone(self, name: str) -> None:
