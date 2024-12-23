@@ -18,6 +18,7 @@ def find_next_task() -> str | None:
 
     for wtc in want_to_call:
         if wtc not in returned_tasks:
+            returned_tasks.add(wtc)
             return wtc
     
     return None
@@ -53,8 +54,7 @@ async def zak():
 
 current_tasks: set[asyncio.Task] = set()
 
-async def awaker():
-    await event_awaker.wait()
+def add_next_task():
     task_name = find_next_task()
     if task_name is None:
         return
@@ -67,6 +67,9 @@ async def awaker():
     task = asyncio.create_task(task(), name=task_name)
     current_tasks.add(task)
 
+async def awaker():
+    await event_awaker.wait()
+
 async def runner():
     i = 0
     while len(current_tasks) > 0:
@@ -74,7 +77,7 @@ async def runner():
         print(f"{i}: Current tasks: {[t.get_name() for t in current_tasks]}")
 
         event_awaker.clear()
-        awaker_task = asyncio.create_task(awaker())
+        awaker_task = asyncio.create_task(awaker(), name="awaker")
         (done, pending) = await asyncio.wait(
             [*current_tasks, awaker_task],
             return_when=asyncio.FIRST_COMPLETED
@@ -89,6 +92,7 @@ async def runner():
             awaker_task.cancel()
         for task in done:
             remove_task(task)
+        add_next_task()
 
 def remove_task(task: asyncio.Task):
     if task in current_tasks:
@@ -98,11 +102,13 @@ async def finish_tasks():
     await asyncio.gather(*current_tasks)
 
 async def seed():
-    return None
+    global flag_want_more
+    flag_want_more = True
+
 async def main():
     """Main function that coordinates the iterator and processing"""
 
-    next_task = asyncio.create_task(seed())
+    next_task = asyncio.create_task(seed(), name="seed")
     current_tasks.add(next_task)
     await runner()
 
