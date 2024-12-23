@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from typing import AsyncIterator, Mapping, Sequence
+from typing import AsyncIterator, Iterator, Mapping, Optional, Sequence
 from ailets.cons.atyping import Dependency, IEnvironment, IProcesses
 from ailets.cons.node_runtime import NodeRuntime
 
@@ -14,7 +14,7 @@ class Processes(IProcesses):
         self.streams = env.streams
         self.dagops = env.dagops
 
-        self.deptree_invalidation_flag = asyncio.Event()
+        self.deptree_invalidation_flag: bool = False
 
         self.finished_nodes: set[str] = set()
         self.active_nodes: set[str] = set()
@@ -22,6 +22,8 @@ class Processes(IProcesses):
         # With resolved aliases
         self.deps: Mapping[str, Sequence[Dependency]] = {}
         self.rev_deps: Mapping[str, Sequence[Dependency]] = {}
+
+        self.streams.set_on_write_started(self.mark_deptree_as_invalid)
 
     def is_node_finished(self, name: str) -> bool:
         return name in self.finished_nodes
@@ -48,7 +50,8 @@ class Processes(IProcesses):
         self.rev_deps = rev_deps
 
     def mark_deptree_as_invalid(self) -> None:
-        self.deptree_invalidation_flag.set()
+        print("!!! mark_deptree_as_invalid")  # FIXME
+        self.deptree_invalidation_flag = True
 
     def get_nodes_to_build(self, target_node_name: str) -> list[str]:
         nodes_to_build = []
@@ -71,24 +74,63 @@ class Processes(IProcesses):
         visit_node(target_node_name)
         return nodes_to_build
 
-    async def next_node_iter(self, target_node_name: str) -> AsyncIterator[str]:
-        while True:
+    # Infinite iterator that yields nodes to build as they are ready to be built
+    # Returns None if no nodes are ready to be built
+    def next_node_iter(
+        self,
+        target_node_name: str,
+        flag_one_step: bool,
+        stop_before: Optional[str],
+        stop_after: Optional[str],
+    ) -> Iterator[str | None]:
+        is_finished = False
+        yielded_nodes: set[str] = set()
+
+        # Outer loop: deptree is invalidated
+        while not is_finished:
+
             nodes_to_build = self.get_nodes_to_build(target_node_name)
 
             last_hash = self.dagops.hash_of_nodenames()
-            self.deptree_invalidation_flag.clear()
+            self.deptree_invalidation_flag = False
+
+            # Inner loop: return nodes to build as they are ready to be built
+            has_yielded = False
             for node_name in nodes_to_build:
+                if is_finished:
+                    break
+                if node_name in yielded_nodes:
+                    continue
                 if last_hash != self.dagops.hash_of_nodenames():
                     break
                 if node_name in self.finished_nodes or node_name in self.active_nodes:
                     continue
                 if self._can_start_node(node_name):
-                    yield node_name
+                    if (
+                        flag_one_step
+                        or node_name == stop_before
+                        or node_name == stop_after
+                    ):
+                        is_finished = True
+                    if node_name != stop_before:
+                        yielded_nodes.add(node_name)
+                        yield node_name
+
+            if is_finished:
+                break
+            if not has_yielded:
+                yield None
+
             if last_hash != self.dagops.hash_of_nodenames():
                 logger.debug("Node set is changed in next_node_iter")
+                self.deptree_invalidation_flag = True
+            if self.deptree_invalidation_flag:
                 self.resolve_deps()
+                self.deptree_invalidation_flag = False
                 continue
-            await self.deptree_invalidation_flag.wait()
+
+        while True:
+            yield None
 
     def _can_start_node(self, node_name: str) -> bool:
         return all(
@@ -106,7 +148,9 @@ class Processes(IProcesses):
         # Execute the node's function with all dependencies
         try:
             self.active_nodes.add(name)
+            print(f"!!! bna MARK1: {name}")  # FIXME
             await node.func(runtime)
+            print(f"!!! bna MARK2: {name}")  # FIXME
             self.finished_nodes.add(name)
             self.mark_deptree_as_invalid()
         except Exception:
