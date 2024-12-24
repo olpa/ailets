@@ -18,7 +18,7 @@ const BUFFER_SIZE: usize = 1024;
 pub extern "C" fn process_gpt() {
     let mut reader = AReader::new("");
     let mut writer = AWriter::new("");
-    
+
     let mut buffer = vec![0u8; BUFFER_SIZE];
     let mut bytes_read;
 
@@ -28,9 +28,9 @@ pub extern "C" fn process_gpt() {
         if bytes_read == 0 {
             break;
         }
-        
+
         // Process the buffer here
         // For now, just echo the input
         writer.write_all(&buffer[..bytes_read]).unwrap();
     }
-} 
+}

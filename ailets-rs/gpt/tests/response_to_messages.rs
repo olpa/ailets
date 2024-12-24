@@ -3,6 +3,10 @@ use gpt::process_gpt;
 mod mocked_node_runtime;
 use mocked_node_runtime::{clear_mocks, get_output, set_input};
 
+fn get_expected_basic_message() -> String {
+    "{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Hello! How can I assist you today?\"}]}".to_string()
+}
+
 #[test]
 fn test_basic_processing() {
     clear_mocks();
@@ -12,7 +16,7 @@ fn test_basic_processing() {
 
     process_gpt();
 
-    assert_eq!(get_output(), fixture_content);
+    assert_eq!(get_output(), get_expected_basic_message());
 }
 
 #[test]
@@ -24,5 +28,5 @@ fn test_basic_streaming() {
 
     process_gpt();
 
-    assert_eq!(get_output(), fixture_content);
-} 
+    assert_eq!(get_output(), get_expected_basic_message());
+}

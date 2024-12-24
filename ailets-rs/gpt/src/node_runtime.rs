@@ -6,4 +6,4 @@ extern "C" {
     pub fn aread(fd: u32, buffer_ptr: *mut u8, count: u32) -> u32;
     pub fn awrite(fd: u32, buffer_ptr: *const u8, count: u32) -> u32;
     pub fn aclose(fd: u32);
-} 
+}
