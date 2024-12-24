@@ -119,12 +119,46 @@ pub extern "C" fn process_gpt() {
                 continue;
             }
 
-            // FIXME: just to satisfy the linter
-            writer.start_message();
-            writer.str("{\"role\":\"assistant\",\"content\":[");
-
             level = Level::Choices;
             at_begin = true;
+            continue;
+        }
+
+        //
+        // Choice level: loop until "message"
+        //
+        if level == Level::Choice {
+            if key != b"message" {
+                rjiter.next_skip().unwrap();
+                continue;
+            }
+
+            writer.begin_message();
+
+            level = Level::Message;
+            at_begin = true;
+            continue;
+        }
+
+        //
+        // Message level: write content
+        //
+        if level == Level::Message {
+            if key == b"role" {
+                let role = rjiter.next_str().unwrap();
+                writer.role(role);
+                continue;
+            }
+
+            if key == b"content" {
+                writer.begin_text_content();
+                let wb = rjiter.write_bytes(&mut writer);
+                assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
+                writer.end_text_content();
+                continue;
+            }
+
+            rjiter.next_skip().unwrap();
             continue;
         }
 

@@ -2,20 +2,51 @@ use crate::node_runtime::{aclose, awrite, open_write};
 
 pub struct AWriter {
     fd: Option<u32>,
+    message_has_field: bool,
 }
 
 impl AWriter {
     pub fn new(filename: &str) -> Self {
         let fd = unsafe { open_write(filename.as_ptr()) };
-        AWriter { fd: Some(fd) }
+        AWriter {
+            fd: Some(fd),
+            message_has_field: false,
+        }
     }
 
-    pub fn start_message(&mut self) {
-        self.str("{");
+    pub fn begin_message(&mut self) {
+        self.message_has_field = false;
+    }
+
+    fn _in_message(&mut self) {
+        if !self.message_has_field {
+            self.str("{");
+            self.message_has_field = true;
+        } else {
+            self.str(",");
+        }   
     }
 
     pub fn end_message(&mut self) {
-        self.str("}");
+        if self.message_has_field {
+            self.str("}\n");
+        }
+    }
+
+    pub fn role(&mut self, role: &str) {
+        self._in_message();
+        self.str("\"role\":\"");
+        self.str(role);
+        self.str("\"");
+    }
+
+    pub fn begin_text_content(&mut self) {
+        self._in_message();
+        self.str("\"content\":[{type:\"text\",text:\"");
+    }
+
+    pub fn end_text_content(&mut self) {
+        self.str("\"}]");
     }
 
     pub fn str(&self, text: &str) {
