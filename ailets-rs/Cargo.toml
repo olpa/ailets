@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "cat", "messages_to_markdown",
+    "cat", "gpt", "messages_to_markdown"
 ]
 resolver = "2"
 

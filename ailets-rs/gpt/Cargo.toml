@@ -1,0 +1,17 @@
+[package]
+name = "gpt"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+lazy_static = "1.5.0"
+getrandom = { version = "0.2", features = ["custom"] }
+
+[env]
+RUST_TEST_THREADS = "1"
+RUST_TEST_NOCAPTURE = "1" 
