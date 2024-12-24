@@ -11,6 +11,7 @@ crate-type = ["cdylib", "lib"]
 [dependencies]
 lazy_static = "1.5.0"
 getrandom = { version = "0.2", features = ["custom"] }
+jiter = "0.8.2"
 
 [env]
 RUST_TEST_THREADS = "1"
