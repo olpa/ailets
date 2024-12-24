@@ -42,7 +42,7 @@ impl AWriter {
 
     pub fn begin_text_content(&mut self) {
         self._in_message();
-        self.str("\"content\":[{type:\"text\",text:\"");
+        self.str("\"content\":[{\"type\":\"text\",\"text\":\"");
     }
 
     pub fn end_text_content(&mut self) {
