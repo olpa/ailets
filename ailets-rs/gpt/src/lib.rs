@@ -18,6 +18,7 @@ enum Level {
 }
 
 #[no_mangle]
+#[allow(clippy::missing_panics_doc)]
 pub extern "C" fn process_gpt() {
     let mut reader = AReader::new("");
     let mut writer = AWriter::new("");
@@ -62,6 +63,7 @@ pub extern "C" fn process_gpt() {
         let key = next.unwrap();
         if key.is_none() {
             if level == Level::Message {
+                writer.end_message();
                 level = Level::Choice;
             } else if level == Level::Choice {
                 level = Level::Choices;
@@ -86,6 +88,10 @@ pub extern "C" fn process_gpt() {
                 rjiter.next_skip().unwrap();
                 continue;
             }
+
+            // FIXME: just to satisfy the linter
+            writer.start_message();
+            writer.str("{\"role\":\"assistant\",\"content\":[");
 
             level = Level::Choices;
             at_begin = true;

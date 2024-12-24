@@ -2,7 +2,6 @@ use crate::node_runtime::{aclose, awrite, open_write};
 
 pub struct AWriter {
     fd: Option<u32>,
-    need_para_divider: bool,
 }
 
 impl AWriter {
@@ -10,15 +9,15 @@ impl AWriter {
         let fd = unsafe { open_write(filename.as_ptr()) };
         AWriter {
             fd: Some(fd),
-            need_para_divider: false,
         }
     }
 
-    pub fn start_paragraph(&mut self) {
-        if self.need_para_divider {
-            self.str("\n\n");
-        }
-        self.need_para_divider = true;
+    pub fn start_message(&mut self) {
+        self.str("{");
+    }
+
+    pub fn end_message(&mut self) {
+        self.str("}");
     }
 
     pub fn str(&self, text: &str) {
