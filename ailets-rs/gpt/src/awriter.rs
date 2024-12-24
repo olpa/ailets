@@ -7,9 +7,7 @@ pub struct AWriter {
 impl AWriter {
     pub fn new(filename: &str) -> Self {
         let fd = unsafe { open_write(filename.as_ptr()) };
-        AWriter {
-            fd: Some(fd),
-        }
+        AWriter { fd: Some(fd) }
     }
 
     pub fn start_message(&mut self) {

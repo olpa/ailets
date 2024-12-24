@@ -11,7 +11,8 @@ const BUFFER_SIZE: u32 = 1024;
 
 #[derive(Debug, PartialEq)]
 enum Level {
-    Top,
+    TopOutside,
+    TopObject,
     Choices,
     Choice,
     Message,
@@ -27,14 +28,14 @@ pub extern "C" fn process_gpt() {
 
     let mut rjiter = RJiter::new(&mut reader, &mut buffer);
 
-    let mut level = Level::Top;
+    let mut level = Level::TopOutside;
     let mut at_begin = true;
 
     loop {
         //
-        // Top level
+        // Top level: outside the objects
         //
-        if level == Level::Top {
+        if level == Level::TopOutside {
             if rjiter.finish().is_ok() {
                 break;
             }
@@ -42,7 +43,7 @@ pub extern "C" fn process_gpt() {
             assert!(peek.is_ok(), "Error: {peek:?}");
             assert!(peek == Ok(Peek::Object), "Expected object at top level");
 
-            level = Level::Message;
+            level = Level::TopObject;
             at_begin = true;
             // do not continue, but fall-through
         }
@@ -60,7 +61,7 @@ pub extern "C" fn process_gpt() {
             assert!(next.is_ok(), "Error on the choices level: {next:?}");
 
             if next.unwrap().is_none() {
-                level = Level::Top;
+                level = Level::TopObject;
 
                 at_begin = false;
                 continue;
@@ -94,7 +95,9 @@ pub extern "C" fn process_gpt() {
             } else if level == Level::Choice {
                 level = Level::Choices;
             } else if level == Level::Choices {
-                level = Level::Top;
+                level = Level::TopObject;
+            } else if level == Level::TopObject {
+                level = Level::TopOutside;
             } else {
                 panic!("Unexpected level {level:?}");
             }
@@ -104,13 +107,13 @@ pub extern "C" fn process_gpt() {
         }
         let key = key.unwrap();
 
-        let key_str = std::str::from_utf8(&key).unwrap(); // FIXME
+        let key_str = std::str::from_utf8(key).unwrap(); // FIXME
         println!("key in the big loop: {key_str}"); // FIXME
 
         //
-        // Message level: loop through content items
+        // Top object level: loop through content items
         //
-        if level == Level::Message {
+        if level == Level::TopObject {
             if key != b"choices" {
                 rjiter.next_skip().unwrap();
                 continue;
