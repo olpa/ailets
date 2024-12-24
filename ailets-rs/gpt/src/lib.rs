@@ -42,9 +42,33 @@ pub extern "C" fn process_gpt() {
             assert!(peek.is_ok(), "Error: {peek:?}");
             assert!(peek == Ok(Peek::Object), "Expected object at top level");
 
-            level = Level::Choices;
+            level = Level::Message;
             at_begin = true;
             // do not continue, but fall-through
+        }
+
+        //
+        // Choices level: loop through individual  choices
+        //
+
+        if level == Level::Choices {
+            let next = if at_begin {
+                rjiter.next_array()
+            } else {
+                rjiter.array_step()
+            };
+            assert!(next.is_ok(), "Error on the choices level: {next:?}");
+
+            if next.unwrap().is_none() {
+                level = Level::Top;
+
+                at_begin = false;
+                continue;
+            }
+
+            level = Level::Choice;
+            at_begin = true;
+            // not continue, but fall-through
         }
 
         //
@@ -56,6 +80,8 @@ pub extern "C" fn process_gpt() {
             rjiter.next_key_bytes()
         };
         at_begin = false;
+
+        println!("next in the big loop: {next:?}"); // FIXME
 
         //
         // End of object: level up
@@ -78,12 +104,13 @@ pub extern "C" fn process_gpt() {
         }
         let key = key.unwrap();
 
-        println!("key in the big loop: {key:?}"); // FIXME
+        let key_str = std::str::from_utf8(&key).unwrap(); // FIXME
+        println!("key in the big loop: {key_str}"); // FIXME
 
         //
-        // Top level: loop through content items
+        // Message level: loop through content items
         //
-        if level == Level::Top {
+        if level == Level::Message {
             if key != b"choices" {
                 rjiter.next_skip().unwrap();
                 continue;
