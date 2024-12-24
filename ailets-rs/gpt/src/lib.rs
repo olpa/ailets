@@ -152,8 +152,14 @@ pub extern "C" fn process_gpt() {
 
             if key == b"content" {
                 let peeked = rjiter.peek();
-                assert!(peeked.is_ok(), "Error on the content item level: {peeked:?}");
-                assert!(peeked == Ok(Peek::String), "Expected string at content level");
+                assert!(
+                    peeked.is_ok(),
+                    "Error on the content item level: {peeked:?}"
+                );
+                assert!(
+                    peeked == Ok(Peek::String),
+                    "Expected string at content level"
+                );
 
                 writer.begin_text_content();
                 let wb = rjiter.write_bytes(&mut writer);

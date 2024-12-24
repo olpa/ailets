@@ -19,12 +19,12 @@ impl AWriter {
     }
 
     fn _in_message(&mut self) {
-        if !self.message_has_field {
+        if self.message_has_field {
+            self.str(",");
+        } else {
             self.str("{");
             self.message_has_field = true;
-        } else {
-            self.str(",");
-        }   
+        }
     }
 
     pub fn end_message(&mut self) {

@@ -5,7 +5,8 @@ use mocked_node_runtime::{clear_mocks, get_output, set_input};
 
 fn get_expected_basic_message() -> String {
     "{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\
-    \"Hello! How can I assist you today?\"}]}\n".to_string()
+    \"Hello! How can I assist you today?\"}]}\n"
+        .to_string()
 }
 
 #[test]
