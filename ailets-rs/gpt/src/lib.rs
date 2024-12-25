@@ -45,152 +45,34 @@ pub extern "C" fn process_gpt() {
             writer.end_message();
         }),
     );
+    let message_role = Trigger::new(
+        Matcher::new("role", Some("message"), None, None),
+        Box::new(|writer: &mut AWriter| {
+            let role = rjiter.next_str().unwrap();
+            writer.role(role);
+        }),
+    );
+    let message_content = Trigger::new(
+        Matcher::new("content", Some("message"), None, None),
+        Box::new(|writer: &mut AWriter| {
+            let peeked = rjiter.peek();
+            assert!(
+                peeked.is_ok(),
+                "Error on the content item level: {peeked:?}"
+            );
+            assert!(
+                peeked == Ok(Peek::String),
+                "Expected string at content level"
+            );
+
+            writer.begin_text_content();
+            let wb = rjiter.write_bytes(&mut writer);
+            assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
+            writer.end_text_content();
+        }),
+    );
     println!("begin_of_message: {begin_of_message:#?}");
     println!("end_of_message: {end_of_message:#?}");
-    drop(begin_of_message);
-    drop(end_of_message);
-
-    loop {
-        //
-        // Top level: outside the objects
-        //
-        if level == Level::TopOutside {
-            if rjiter.finish().is_ok() {
-                break;
-            }
-            let peek = rjiter.peek();
-            assert!(peek.is_ok(), "Error: {peek:?}");
-            assert!(peek == Ok(Peek::Object), "Expected object at top level");
-
-            level = Level::TopObject;
-            at_begin = true;
-            // do not continue, but fall-through
-        }
-
-        //
-        // Choices level: loop through individual  choices
-        //
-
-        if level == Level::Choices {
-            let next = if at_begin {
-                rjiter.next_array()
-            } else {
-                rjiter.array_step()
-            };
-            assert!(next.is_ok(), "Error on the choices level: {next:?}");
-
-            if next.unwrap().is_none() {
-                level = Level::TopObject;
-
-                at_begin = false;
-                continue;
-            }
-
-            level = Level::Choice;
-            at_begin = true;
-            // not continue, but fall-through
-        }
-
-        //
-        // Get the next object key
-        //
-        let next = if at_begin {
-            rjiter.next_object_bytes()
-        } else {
-            rjiter.next_key_bytes()
-        };
-        at_begin = false;
-
-        println!("next in the big loop: {next:?}"); // FIXME
-
-        //
-        // End of object: level up
-        //
-        let key = next.unwrap();
-        if key.is_none() {
-            if level == Level::Message {
-                writer.end_message();
-                level = Level::Choice;
-            } else if level == Level::Choice {
-                level = Level::Choices;
-            } else if level == Level::Choices {
-                level = Level::TopObject;
-            } else if level == Level::TopObject {
-                level = Level::TopOutside;
-            } else {
-                panic!("Unexpected level {level:?}");
-            }
-
-            at_begin = false;
-            continue;
-        }
-        let key = key.unwrap();
-
-        let key_str = std::str::from_utf8(key).unwrap(); // FIXME
-        println!("key in the big loop: {key_str}"); // FIXME
-
-        //
-        // Top object level: loop through content items
-        //
-        if level == Level::TopObject {
-            if key != b"choices" {
-                rjiter.next_skip().unwrap();
-                continue;
-            }
-
-            level = Level::Choices;
-            at_begin = true;
-            continue;
-        }
-
-        //
-        // Choice level: loop until "message"
-        //
-        if level == Level::Choice {
-            if key != b"message" {
-                rjiter.next_skip().unwrap();
-                continue;
-            }
-
-            writer.begin_message();
-
-            level = Level::Message;
-            at_begin = true;
-            continue;
-        }
-
-        //
-        // Message level: write content
-        //
-        if level == Level::Message {
-            if key == b"role" {
-                let role = rjiter.next_str().unwrap();
-                writer.role(role);
-                continue;
-            }
-
-            if key == b"content" {
-                let peeked = rjiter.peek();
-                assert!(
-                    peeked.is_ok(),
-                    "Error on the content item level: {peeked:?}"
-                );
-                assert!(
-                    peeked == Ok(Peek::String),
-                    "Expected string at content level"
-                );
-
-                writer.begin_text_content();
-                let wb = rjiter.write_bytes(&mut writer);
-                assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
-                writer.end_text_content();
-                continue;
-            }
-
-            rjiter.next_skip().unwrap();
-            continue;
-        }
-
-        panic!("Unexpected level: {level:?}");
-    }
+    println!("message_role: {message_role:#?}");
+    println!("message_content: {message_content:#?}");
 }
