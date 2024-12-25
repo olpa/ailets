@@ -20,3 +20,14 @@ impl<'a> SxsltMatcher<'a> {
         }
     }
 }
+
+pub struct SxsltTrigger {
+    matcher: SxsltMatcher,
+    action: fn() -> (),
+}
+
+impl SxsltTrigger {
+    pub fn new(matcher: SxsltMatcher, action: fn() -> ()) -> Self {
+        Self { matcher, action }
+    }
+}
