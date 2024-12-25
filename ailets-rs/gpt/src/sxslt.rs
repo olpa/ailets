@@ -23,9 +23,11 @@ impl<'a> Matcher<'a> {
     }
 }
 
+type TriggerAction<'a, T> = Box<dyn FnMut(&mut RJiter, T) + 'a>;
+
 pub struct Trigger<'a, T> {
     matcher: Matcher<'a>,
-    action: Box<dyn FnMut(&mut RJiter, T) + 'a>,
+    action: TriggerAction<'a, T>,
 }
 
 impl<'a, T> std::fmt::Debug for Trigger<'a, T> {
@@ -35,7 +37,11 @@ impl<'a, T> std::fmt::Debug for Trigger<'a, T> {
 }
 
 impl<'a, T> Trigger<'a, T> {
-    pub fn new(matcher: Matcher<'a>, action: Box<dyn FnMut(&mut RJiter, T) + 'a>) -> Self {
+    pub fn new(matcher: Matcher<'a>, action: TriggerAction<'a, T>) -> Self {
         Self { matcher, action }
     }
+}
+
+pub fn scan_json<T>(triggers: &[Trigger<T>], rjiter: &mut RJiter, _baton: T) {
+    println!("scan_json: triggers={triggers:?}, rjiter={rjiter:?}");
 }

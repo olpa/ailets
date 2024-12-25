@@ -7,7 +7,7 @@ mod sxslt;
 use areader::AReader;
 use awriter::AWriter;
 use rjiter::{Peek, RJiter};
-use sxslt::{Matcher, Trigger};
+use sxslt::{scan_json, Matcher, Trigger};
 
 const BUFFER_SIZE: u32 = 1024;
 
@@ -54,13 +54,19 @@ pub extern "C" fn process_gpt() {
             );
 
             writer.begin_text_content();
-            let wb = rjiter.write_bytes(&mut writer);
+            let wb = rjiter.write_bytes(writer);
             assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
             writer.end_text_content();
         }),
     );
-    println!("begin_of_message: {begin_of_message:#?}");
-    println!("end_of_message: {end_of_message:#?}");
-    println!("message_role: {message_role:#?}");
-    println!("message_content: {message_content:#?}");
+    scan_json(
+        &[
+            begin_of_message,
+            end_of_message,
+            message_role,
+            message_content,
+        ],
+        &mut rjiter,
+        &mut writer,
+    );
 }

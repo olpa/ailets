@@ -13,6 +13,14 @@ pub struct RJiter<'rj> {
     bytes_in_buffer: usize,
 }
 
+impl<'rj> std::fmt::Debug for RJiter<'rj> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f,
+            "RJiter {{ jiter: {:?}, pos_before_call_jiter: {:?}, buffer: {:?}, bytes_in_buffer: {:?} }}",
+            self.jiter, self.pos_before_call_jiter, self.buffer, self.bytes_in_buffer)
+    }
+}
+
 impl<'rj> RJiter<'rj> {
     #[allow(clippy::missing_errors_doc)]
     #[allow(clippy::missing_panics_doc)]
