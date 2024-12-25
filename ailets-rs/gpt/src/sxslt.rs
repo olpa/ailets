@@ -1,3 +1,4 @@
+use crate::RJiter;
 #[derive(Debug)]
 pub struct Matcher<'a> {
     name: &'a str,
@@ -24,7 +25,7 @@ impl<'a> Matcher<'a> {
 
 pub struct Trigger<'a, T> {
     matcher: Matcher<'a>,
-    action: Box<dyn FnMut(T) + 'a>,
+    action: Box<dyn FnMut(&mut RJiter, T) + 'a>,
 }
 
 impl<'a, T> std::fmt::Debug for Trigger<'a, T> {
@@ -34,7 +35,7 @@ impl<'a, T> std::fmt::Debug for Trigger<'a, T> {
 }
 
 impl<'a, T> Trigger<'a, T> {
-    pub fn new(matcher: Matcher<'a>, action: Box<dyn FnMut(T) + 'a>) -> Self {
+    pub fn new(matcher: Matcher<'a>, action: Box<dyn FnMut(&mut RJiter, T) + 'a>) -> Self {
         Self { matcher, action }
     }
 }

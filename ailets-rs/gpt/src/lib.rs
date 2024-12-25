@@ -11,15 +11,6 @@ use sxslt::{Matcher, Trigger};
 
 const BUFFER_SIZE: u32 = 1024;
 
-#[derive(Debug, PartialEq)]
-enum Level {
-    TopOutside,
-    TopObject,
-    Choices,
-    Choice,
-    Message,
-}
-
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
 pub extern "C" fn process_gpt() {
@@ -30,31 +21,28 @@ pub extern "C" fn process_gpt() {
 
     let mut rjiter = RJiter::new(&mut reader, &mut buffer);
 
-    let mut level = Level::TopOutside;
-    let mut at_begin = true;
-
     let begin_of_message = Trigger::new(
         Matcher::new("message", None, None, None),
-        Box::new(|writer: &mut AWriter| {
+        Box::new(|_rjiter: &mut RJiter, writer: &mut AWriter| {
             writer.begin_message();
         }),
     );
     let end_of_message = Trigger::new(
         Matcher::new("#end", Some("message"), None, None),
-        Box::new(|writer: &mut AWriter| {
+        Box::new(|_rjiter: &mut RJiter, writer: &mut AWriter| {
             writer.end_message();
         }),
     );
     let message_role = Trigger::new(
         Matcher::new("role", Some("message"), None, None),
-        Box::new(|writer: &mut AWriter| {
+        Box::new(|rjiter: &mut RJiter, writer: &mut AWriter| {
             let role = rjiter.next_str().unwrap();
             writer.role(role);
         }),
     );
     let message_content = Trigger::new(
         Matcher::new("content", Some("message"), None, None),
-        Box::new(|writer: &mut AWriter| {
+        Box::new(|rjiter: &mut RJiter, writer: &mut AWriter| {
             let peeked = rjiter.peek();
             assert!(
                 peeked.is_ok(),
