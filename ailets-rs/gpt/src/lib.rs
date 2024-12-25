@@ -33,13 +33,21 @@ pub extern "C" fn process_gpt() {
     let mut level = Level::TopOutside;
     let mut at_begin = true;
 
-    let end_of_message = Trigger::new(
+    let begin_of_message = Trigger::new(
         Matcher::new("message", None, None, None),
-        Box::new(|| {
+        Box::new(|writer: &mut AWriter| {
+            writer.begin_message();
+        }),
+    );
+    let end_of_message = Trigger::new(
+        Matcher::new("#end", Some("message"), None, None),
+        Box::new(|writer: &mut AWriter| {
             writer.end_message();
         }),
     );
-    println!("endOfMessage: {end_of_message:?}");
+    println!("begin_of_message: {begin_of_message:#?}");
+    println!("end_of_message: {end_of_message:#?}");
+    drop(begin_of_message);
     drop(end_of_message);
 
     loop {

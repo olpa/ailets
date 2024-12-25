@@ -22,19 +22,19 @@ impl<'a> Matcher<'a> {
     }
 }
 
-pub struct Trigger<'a> {
+pub struct Trigger<'a, T> {
     matcher: Matcher<'a>,
-    action: Box<dyn FnMut() + 'a>,
+    action: Box<dyn FnMut(T) + 'a>,
 }
 
-impl<'a> std::fmt::Debug for Trigger<'a> {
+impl<'a, T> std::fmt::Debug for Trigger<'a, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Trigger {{ matcher: {:?}, action: <fn> }}", self.matcher)
     }
 }
 
-impl<'a> Trigger<'a> {
-    pub fn new(matcher: Matcher<'a>, action: Box<dyn FnMut() + 'a>) -> Self {
+impl<'a, T> Trigger<'a, T> {
+    pub fn new(matcher: Matcher<'a>, action: Box<dyn FnMut(T) + 'a>) -> Self {
         Self { matcher, action }
     }
 }
