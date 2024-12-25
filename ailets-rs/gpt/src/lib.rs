@@ -2,10 +2,12 @@ mod areader;
 mod awriter;
 mod node_runtime;
 pub mod rjiter;
+mod sxslt;
 
 use areader::AReader;
 use awriter::AWriter;
 use rjiter::{Peek, RJiter};
+use sxslt::{Matcher, Trigger};
 
 const BUFFER_SIZE: u32 = 1024;
 
@@ -30,6 +32,15 @@ pub extern "C" fn process_gpt() {
 
     let mut level = Level::TopOutside;
     let mut at_begin = true;
+
+    let end_of_message = Trigger::new(
+        Matcher::new("message", None, None, None),
+        Box::new(|| {
+            writer.end_message();
+        }),
+    );
+    println!("endOfMessage: {end_of_message:?}");
+    drop(end_of_message);
 
     loop {
         //
