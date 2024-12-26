@@ -53,7 +53,6 @@ struct Context {
 
 #[allow(clippy::missing_panics_doc)]
 pub fn scan_json<T>(triggers: &[Trigger<T>], rjiter: &mut RJiter, _baton: T) {
-    println!("scan_json: triggers={triggers:?}");
     let mut context: Vec<Context> = Vec::new();
     let mut is_object_begin = false;
     let mut is_in_object = false;
@@ -117,7 +116,6 @@ pub fn scan_json<T>(triggers: &[Trigger<T>], rjiter: &mut RJiter, _baton: T) {
 
             peeked = Some(peekedr.unwrap());
         };
-        println!("main loop: peeked={peeked:?}");
 
         let peeked = peeked.unwrap();
 
