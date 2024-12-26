@@ -60,12 +60,27 @@ pub fn scan_json<T>(triggers: &[Trigger<T>], rjiter: &mut RJiter, _baton: T) {
     let mut is_in_array = false;
     //let mut peeked = Peek::None;
     let mut current_key: String = "#top".to_string();
-    let mut peeked: Option<Peek> = None;
+    let mut peeked: Option<Peek>;
     loop {
         peeked = None;
 
         if is_in_object {
-            panic!("scan_json: is_in_object={is_in_object}");
+            let keyr = if is_object_begin {
+                rjiter.next_object()
+            } else {
+                rjiter.next_key()
+            };
+            is_object_begin = false;
+            let key = keyr.unwrap();
+            if key == None {
+                let ctx = context.pop().unwrap();
+                current_key = ctx.current_key;
+                is_in_array = ctx.is_in_array;
+                is_in_object = ctx.is_in_object;
+                continue;                                   // continue
+            }
+            current_key = key.unwrap().to_string();
+            // pass-through to consume the key value
         }
 
         if is_in_array {
@@ -74,6 +89,7 @@ pub fn scan_json<T>(triggers: &[Trigger<T>], rjiter: &mut RJiter, _baton: T) {
             } else {
                 rjiter.array_step()
             };
+            is_object_begin = false;
             peeked = apickedr.unwrap();
             if peeked == None {
                 let ctx = context.pop().unwrap();
@@ -86,14 +102,16 @@ pub fn scan_json<T>(triggers: &[Trigger<T>], rjiter: &mut RJiter, _baton: T) {
 
         if peeked == None {
             let peekedr = rjiter.peek();
-            println!("main loop: peeked={peekedr:?}, exit");
+            println!("main loop: peeked={peekedr:?}");
             if let Err(jiter::JiterError {
                 error_type: jiter::JiterErrorType::JsonError(jiter::JsonErrorType::EofWhileParsingValue),
                 ..
             }) = peekedr
             {
-                // TODO: check that we are on top, not inside object or array
-                break;
+                if context.len() == 0 && !is_in_object && !is_in_array {
+                    break;
+                }
+                panic!("scan_json: eof while parsing value");
             }
 
             peeked = Some(peekedr.unwrap());
@@ -103,13 +121,25 @@ pub fn scan_json<T>(triggers: &[Trigger<T>], rjiter: &mut RJiter, _baton: T) {
 
         if peeked == Peek::Array {
             context.push(Context {
-                current_key: current_key,
+                current_key: current_key.clone(),
                 is_in_object: is_in_object,
-                is_in_array: true,
+                is_in_array: is_in_array,
             });
             current_key = "#array".to_string();
             is_in_array = true;
             is_in_object = false;
+            is_object_begin = true;
+            continue;
+        }
+
+        if peeked == Peek::Object {
+            context.push(Context {
+                current_key: current_key.clone(),
+                is_in_object: is_in_object,
+                is_in_array: is_in_array,
+            });
+            is_in_array = false;
+            is_in_object = true;
             is_object_begin = true;
             continue;
         }
@@ -132,7 +162,7 @@ pub fn scan_json<T>(triggers: &[Trigger<T>], rjiter: &mut RJiter, _baton: T) {
         }
 
         let maybe_number = rjiter.next_number();
-        if let Ok(number) = maybe_number {
+        if let Ok(_) = maybe_number {
             continue;
         }
         panic!("scan_json: unhandled: peeked={peeked:?}");
