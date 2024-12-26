@@ -1,7 +1,7 @@
 use std::io::Read;
 use std::io::Write;
 
-use jiter::{Jiter, JiterResult, JsonValue};
+use jiter::{Jiter, JiterResult, JsonValue, NumberAny, NumberInt};
 
 pub type Peek = jiter::Peek;
 
@@ -49,6 +49,66 @@ impl<'rj> RJiter<'rj> {
     }
 
     #[allow(clippy::missing_errors_doc)]
+    pub fn known_array(&mut self) -> JiterResult<Option<Peek>> {
+        self.jiter.known_array()
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn known_bool(&mut self, peek: Peek) -> JiterResult<bool> {
+        self.jiter.known_bool(peek)
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn known_bytes(&mut self) -> JiterResult<&[u8]> {
+        self.jiter.known_bytes()
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn known_float(&mut self, peek: Peek) -> JiterResult<f64> {
+        self.jiter.known_float(peek)
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn known_int(&mut self, peek: Peek) -> JiterResult<NumberInt> {
+        self.jiter.known_int(peek)
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn known_null(&mut self) -> JiterResult<()> {
+        self.jiter.known_null()
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn known_number(&mut self, peek: Peek) -> JiterResult<NumberAny> {
+        self.jiter.known_number(peek)
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn known_object(&mut self) -> JiterResult<Option<&str>> {
+        self.jiter.known_object()
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn known_skip(&mut self, peek: Peek) -> JiterResult<()> {
+        self.jiter.known_skip(peek)
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn known_str(&mut self) -> JiterResult<&str> {
+        self.jiter.known_str()
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn known_value(&mut self, peek: Peek) -> JiterResult<JsonValue<'rj>> {
+        self.jiter.known_value(peek)
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn known_value_owned(&mut self, peek: Peek) -> JiterResult<JsonValue<'static>> {
+        self.jiter.known_value_owned(peek)
+    }
+
+    #[allow(clippy::missing_errors_doc)]
     pub fn next_array(&mut self) -> JiterResult<Option<Peek>> {
         self.maybe_feed();
         self.jiter.next_array()
@@ -58,6 +118,66 @@ impl<'rj> RJiter<'rj> {
     pub fn array_step(&mut self) -> JiterResult<Option<Peek>> {
         self.maybe_feed();
         self.jiter.array_step()
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn next_bool(&mut self) -> JiterResult<bool> {
+        self.maybe_feed();
+        self.jiter.next_bool()
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn next_bytes(&mut self) -> JiterResult<&[u8]> {
+        self.maybe_feed();
+        self.jiter.next_bytes()
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn next_float(&mut self) -> JiterResult<f64> {
+        self.maybe_feed();
+        self.jiter.next_float()
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn next_int(&mut self) -> JiterResult<NumberInt> {
+        self.maybe_feed();
+        self.jiter.next_int()
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn next_key(&mut self) -> JiterResult<Option<&str>> {
+        self.maybe_feed();
+        self.jiter.next_key()
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn next_key_bytes(&mut self) -> JiterResult<Option<&[u8]>> {
+        self.maybe_feed();
+        self.jiter.next_key_bytes()
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn next_null(&mut self) -> JiterResult<()> {
+        self.maybe_feed();
+        self.jiter.next_null()
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn next_number(&mut self) -> JiterResult<NumberAny> {
+        self.maybe_feed();
+        self.jiter.next_number()
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn next_number_bytes(&mut self) -> JiterResult<&[u8]> {
+        self.maybe_feed();
+        self.jiter.next_number_bytes()
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn next_object(&mut self) -> JiterResult<Option<&str>> {
+        self.maybe_feed();
+        self.jiter.next_object()
     }
 
     #[allow(clippy::missing_errors_doc)]
@@ -79,28 +199,24 @@ impl<'rj> RJiter<'rj> {
     }
 
     #[allow(clippy::missing_errors_doc)]
+    pub fn next_value(&mut self) -> JiterResult<JsonValue<'rj>> {
+        self.feed();
+        self.jiter.next_value()
+    }
+
+    #[allow(clippy::missing_errors_doc)]
+    pub fn next_value_owned(&mut self) -> JiterResult<JsonValue<'static>> {
+        self.feed();
+        self.jiter.next_value_owned()
+    }
+
+    #[allow(clippy::missing_errors_doc)]
     pub fn finish(&mut self) -> JiterResult<()> {
         self.maybe_feed();
         self.jiter.finish()
     }
 
-    #[allow(clippy::missing_errors_doc)]
-    pub fn next_object(&mut self) -> JiterResult<Option<&str>> {
-        self.maybe_feed();
-        self.jiter.next_object()
-    }
-
-    #[allow(clippy::missing_errors_doc)]
-    pub fn next_key_bytes(&mut self) -> JiterResult<Option<&[u8]>> {
-        self.maybe_feed();
-        self.jiter.next_key_bytes()
-    }
-
-    #[allow(clippy::missing_errors_doc)]
-    pub fn next_value(&mut self) -> JiterResult<JsonValue<'rj>> {
-        self.feed();
-        self.jiter.next_value()
-    }
+    // ----------------
 
     #[allow(clippy::missing_errors_doc)]
     #[allow(clippy::missing_panics_doc)]
