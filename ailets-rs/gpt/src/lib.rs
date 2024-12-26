@@ -2,12 +2,12 @@ mod areader;
 mod awriter;
 mod node_runtime;
 pub mod rjiter;
-mod sxslt;
+pub mod scan_json;
 
 use areader::AReader;
 use awriter::AWriter;
 use rjiter::{Peek, RJiter};
-use sxslt::{scan_json, Matcher, Trigger};
+use scan_json::{scan_json, Matcher, Trigger};
 
 const BUFFER_SIZE: u32 = 1024;
 

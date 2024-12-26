@@ -1,4 +1,6 @@
+use crate::Peek;
 use crate::RJiter;
+
 #[derive(Debug)]
 pub struct Matcher<'a> {
     name: &'a str,
@@ -42,6 +44,30 @@ impl<'a, T> Trigger<'a, T> {
     }
 }
 
+#[allow(clippy::missing_panics_doc)]
 pub fn scan_json<T>(triggers: &[Trigger<T>], rjiter: &mut RJiter, _baton: T) {
-    println!("scan_json: triggers={triggers:?}, rjiter={rjiter:?}");
+    println!("scan_json: triggers={triggers:?}");
+    let mut context: Vec<String> = Vec::new();
+    let mut at_object_begin = false;
+    let mut is_in_object = false;
+    //let mut peeked = Peek::None;
+    let mut peeked = rjiter.peek(); // FIXME
+    loop {
+        if is_in_object {
+            peeked = rjiter.peek();
+            println!("in object: peeked={peeked:?}, exit");
+            break;
+        }
+
+        peeked = rjiter.peek();
+        if let Err(jiter::JiterError {
+            error_type: jiter::JiterErrorType::JsonError(jiter::JsonErrorType::EofWhileParsingValue),
+            ..
+        }) = peeked
+        {
+            break;
+        }
+
+        panic!("scan_json: unhandled: peeked={peeked:?}");
+    }
 }
