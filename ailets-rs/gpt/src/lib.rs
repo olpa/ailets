@@ -54,7 +54,7 @@ pub extern "C" fn process_gpt() {
             );
 
             writer.begin_text_content();
-            let wb = rjiter.write_bytes(writer);
+            let wb = rjiter.write_bytes(Some(writer));
             assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
             writer.end_text_content();
         }),
