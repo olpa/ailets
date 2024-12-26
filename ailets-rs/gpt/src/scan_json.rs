@@ -51,23 +51,47 @@ pub fn scan_json<T>(triggers: &[Trigger<T>], rjiter: &mut RJiter, _baton: T) {
     let mut at_object_begin = false;
     let mut is_in_object = false;
     //let mut peeked = Peek::None;
-    let mut peeked = rjiter.peek(); // FIXME
+    let mut peeked = rjiter.peek().unwrap(); // FIXME
     loop {
         if is_in_object {
-            peeked = rjiter.peek();
-            println!("in object: peeked={peeked:?}, exit");
+            let peekedr = rjiter.peek();
+            println!("in object: peeked={peekedr:?}, exit");
             break;
         }
 
-        peeked = rjiter.peek();
+        let peekedr = rjiter.peek();
         if let Err(jiter::JiterError {
             error_type: jiter::JiterErrorType::JsonError(jiter::JsonErrorType::EofWhileParsingValue),
             ..
-        }) = peeked
+        }) = peekedr
         {
+            // TODO: check that we are on top, not inside object or array
             break;
         }
 
+        peeked = peekedr.unwrap();
+
+        if peeked == Peek::Null {
+            rjiter.known_null().unwrap();
+            continue;
+        }
+        if peeked == Peek::True {
+            rjiter.known_bool(peeked).unwrap();
+            continue;
+        }
+        if peeked == Peek::False {
+            rjiter.known_bool(peeked).unwrap();
+            continue;
+        }
+        if peeked == Peek::String {
+            rjiter.write_bytes(None).unwrap();
+            continue;
+        }
+
+        let maybe_number = rjiter.next_number();
+        if let Ok(number) = maybe_number {
+            continue;
+        }
         panic!("scan_json: unhandled: peeked={peeked:?}");
     }
 }
