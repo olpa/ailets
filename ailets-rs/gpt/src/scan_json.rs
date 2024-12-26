@@ -102,20 +102,22 @@ pub fn scan_json<T>(triggers: &[Trigger<T>], rjiter: &mut RJiter, _baton: T) {
 
         if peeked == None {
             let peekedr = rjiter.peek();
-            println!("main loop: peeked={peekedr:?}");
             if let Err(jiter::JiterError {
                 error_type: jiter::JiterErrorType::JsonError(jiter::JsonErrorType::EofWhileParsingValue),
                 ..
             }) = peekedr
             {
-                if context.len() == 0 && !is_in_object && !is_in_array {
-                    break;
+                if context.len() > 0 {
+                    panic!("scan_json: eof while parsing value");
                 }
-                panic!("scan_json: eof while parsing value");
+                let eof = rjiter.finish();
+                eof.unwrap();
+                break;
             }
 
             peeked = Some(peekedr.unwrap());
         };
+        println!("main loop: peeked={peeked:?}");
 
         let peeked = peeked.unwrap();
 
