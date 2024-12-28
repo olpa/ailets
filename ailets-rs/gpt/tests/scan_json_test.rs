@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use gpt::rjiter::RJiter;
 use gpt::scan_json::{scan_json, Matcher, Trigger};
 
@@ -74,4 +76,23 @@ fn test_scan_json_nested_complex() {
 
     let triggers: Vec<Trigger<()>> = vec![];
     scan_json(&triggers, &mut rjiter, ());
+}
+
+#[test]
+fn test_call_begin() {
+    let json = r#"{"foo": "bar"}"#;
+    let mut reader = json.as_bytes();
+    let mut buffer = vec![0u8; 16];
+    let mut rjiter = RJiter::new(&mut reader, &mut buffer);
+
+    let mut called: RefCell<bool> = RefCell::new(false);
+    let triggers = vec![
+        Trigger {
+            matcher: Matcher::new("foo".to_string(), None, None, None),
+            action: Box::new(|_, _| *called.borrow_mut() = true),
+        }
+    ];
+
+    scan_json(&triggers, &mut rjiter, ());
+    assert!(*called.borrow(), "Trigger should have been called for 'foo'");
 }

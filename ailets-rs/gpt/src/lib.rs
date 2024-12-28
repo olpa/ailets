@@ -22,26 +22,26 @@ pub extern "C" fn process_gpt() {
     let mut rjiter = RJiter::new(&mut reader, &mut buffer);
 
     let begin_of_message = Trigger::new(
-        Matcher::new("message", None, None, None),
+        Matcher::new("message".to_string(), None, None, None),
         Box::new(|_rjiter: &mut RJiter, writer: &mut AWriter| {
             writer.begin_message();
         }),
     );
     let end_of_message = Trigger::new(
-        Matcher::new("#end", Some("message"), None, None),
+        Matcher::new("end".to_string(), Some("message".to_string()), None, None),
         Box::new(|_rjiter: &mut RJiter, writer: &mut AWriter| {
             writer.end_message();
         }),
     );
     let message_role = Trigger::new(
-        Matcher::new("role", Some("message"), None, None),
+        Matcher::new("role".to_string(), Some("message".to_string()), None, None),
         Box::new(|rjiter: &mut RJiter, writer: &mut AWriter| {
             let role = rjiter.next_str().unwrap();
             writer.role(role);
         }),
     );
     let message_content = Trigger::new(
-        Matcher::new("content", Some("message"), None, None),
+        Matcher::new("content".to_string(), Some("message".to_string()), None, None),
         Box::new(|rjiter: &mut RJiter, writer: &mut AWriter| {
             let peeked = rjiter.peek();
             assert!(
@@ -59,7 +59,7 @@ pub extern "C" fn process_gpt() {
             writer.end_text_content();
         }),
     );
-    scan_json(
+    scan_json::<&mut AWriter>(
         &[
             begin_of_message,
             end_of_message,

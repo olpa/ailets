@@ -2,19 +2,19 @@ use crate::Peek;
 use crate::RJiter;
 
 #[derive(Debug)]
-pub struct Matcher<'a> {
-    name: &'a str,
-    ctx: Option<&'a str>,
-    ctx2: Option<&'a str>,
-    ctx3: Option<&'a str>,
+pub struct Matcher {
+    name: String,
+    ctx: Option<String>,
+    ctx2: Option<String>,
+    ctx3: Option<String>,
 }
 
-impl<'a> Matcher<'a> {
+impl Matcher {
     pub fn new(
-        name: &'a str,
-        ctx: Option<&'a str>,
-        ctx2: Option<&'a str>,
-        ctx3: Option<&'a str>,
+        name: String,
+        ctx: Option<String>,
+        ctx2: Option<String>,
+        ctx3: Option<String>,
     ) -> Self {
         Self {
             name,
@@ -25,21 +25,21 @@ impl<'a> Matcher<'a> {
     }
 }
 
-type TriggerAction<'a, T> = Box<dyn FnMut(&mut RJiter, T) + 'a>;
+type TriggerAction<'rjiter, T> = Box<dyn FnMut(&'rjiter mut RJiter, T) + 'rjiter>;
 
-pub struct Trigger<'a, T> {
-    matcher: Matcher<'a>,
-    action: TriggerAction<'a, T>,
+pub struct Trigger<'rjiter, T> {
+    pub matcher: Matcher,
+    pub action: TriggerAction<'rjiter, T>,
 }
 
-impl<'a, T> std::fmt::Debug for Trigger<'a, T> {
+impl<'rjiter, T> std::fmt::Debug for Trigger<'rjiter, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Trigger {{ matcher: {:?}, action: <fn> }}", self.matcher)
     }
 }
 
-impl<'a, T> Trigger<'a, T> {
-    pub fn new(matcher: Matcher<'a>, action: TriggerAction<'a, T>) -> Self {
+impl<'rjiter, T> Trigger<'rjiter, T> {
+    pub fn new(matcher: Matcher, action: TriggerAction<'rjiter, T>) -> Self {
         Self { matcher, action }
     }
 }
@@ -51,8 +51,25 @@ struct Context {
     is_in_array: bool,
 }
 
+fn find_action<'triggers, 'rjiter, T>(
+    triggers: &'triggers [Trigger<'rjiter, T>],
+    for_key: &String,
+    _context: &[Context],
+) -> Option<&'triggers TriggerAction<'rjiter, T>> {
+    for trigger in triggers {
+        if trigger.matcher.name == *for_key {
+            return Some(&trigger.action);
+        }
+    }
+    None
+}
+
 #[allow(clippy::missing_panics_doc)]
-pub fn scan_json<T>(triggers: &[Trigger<T>], rjiter: &mut RJiter, _baton: T) {
+pub fn scan_json<'triggers, 'rjiter, T>(
+    triggers: &'triggers [Trigger<'rjiter, T>],
+    rjiter: &'rjiter mut RJiter,
+    baton: T,
+) {
     let mut context: Vec<Context> = Vec::new();
     let mut is_object_begin = false;
     let mut is_in_object = false;
@@ -79,6 +96,11 @@ pub fn scan_json<T>(triggers: &[Trigger<T>], rjiter: &mut RJiter, _baton: T) {
                 continue;                                   // continue
             }
             current_key = key.unwrap().to_string();
+
+            let action = find_action(triggers, &current_key, &context);
+            if let Some(action) = action {
+                action(rjiter, baton);
+            }
             // pass-through to consume the key value
         }
 
