@@ -92,6 +92,19 @@ fn find_action<'a, 'b, 'c, T>(
     None
 }
 
+fn find_end_action<'a, 'b, 'c, T>(
+    triggers: &'a Vec<TriggerEnd<T>>,
+    for_key: &'b String,
+    _context: &'c Vec<Context>,
+) -> Option<&'a TriggerEndAction<T>> {
+    for trigger in triggers {
+        if trigger.matcher.name == *for_key {
+            return Some(&trigger.action);
+        }
+    }
+    None
+}
+
 #[allow(clippy::missing_panics_doc)]
 pub fn scan_json<T>(
     triggers: &Vec<Trigger<T>>,
@@ -125,6 +138,10 @@ pub fn scan_json<T>(
                 current_key = ctx.current_key;
                 is_in_array = ctx.is_in_array;
                 is_in_object = ctx.is_in_object;
+                let end_action = find_end_action(triggers_end, &current_key, &context);
+                if let Some(end_action) = end_action {
+                    end_action(baton_cell);
+                }
                 continue;                                   // continue
             }
             current_key = key.unwrap().to_string();

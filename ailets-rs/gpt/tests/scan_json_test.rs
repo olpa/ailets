@@ -130,7 +130,7 @@ fn test_call_begin_consume_value() {
 
 #[test]
 fn test_call_end() {
-    let json = r#"{"aa": "bb", "cc": {"foo": "bar"}, "baz": "qux"}"#;
+    let json = r#"{"aa": "bb", "foo": {"bar": "baz"}, "baz": "qux"}"#;
     let mut reader = json.as_bytes();
     let mut buffer = vec![0u8; 16];
     let rjiter = RJiter::new(&mut reader, &mut buffer);
