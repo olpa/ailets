@@ -7,10 +7,10 @@ use gpt::scan_json::{scan_json, Matcher, Trigger};
 fn test_scan_json_empty_input() {
     let mut reader = std::io::empty();
     let mut buffer = vec![0u8; 16];
-    let mut rjiter = RJiter::new(&mut reader, &mut buffer);
+    let rjiter = RJiter::new(&mut reader, &mut buffer);
 
     let triggers: Vec<Trigger<()>> = vec![];
-    scan_json(&triggers, &mut rjiter, ());
+    scan_json(&triggers, &RefCell::new(rjiter), &RefCell::new(()));
 }
 
 #[test]
@@ -18,10 +18,10 @@ fn test_scan_json_top_level_types() {
     let json = r#"null true false 42 3.14 "hello" [] {}"#;
     let mut reader = json.as_bytes();
     let mut buffer = vec![0u8; 16];
-    let mut rjiter = RJiter::new(&mut reader, &mut buffer);
+    let rjiter = RJiter::new(&mut reader, &mut buffer);
 
     let triggers: Vec<Trigger<()>> = vec![];
-    scan_json(&triggers, &mut rjiter, ());
+    scan_json(&triggers, &RefCell::new(rjiter), &RefCell::new(()));
 }
 
 #[test]
@@ -29,10 +29,10 @@ fn test_scan_json_simple_object() {
     let json = r#"{"null": null, "bool": true, "num": 42, "float": 3.14, "str": "hello"}"#;
     let mut reader = json.as_bytes();
     let mut buffer = vec![0u8; 16];
-    let mut rjiter = RJiter::new(&mut reader, &mut buffer);
+    let rjiter = RJiter::new(&mut reader, &mut buffer);
 
     let triggers: Vec<Trigger<()>> = vec![];
-    scan_json(&triggers, &mut rjiter, ());
+    scan_json(&triggers, &RefCell::new(rjiter), &RefCell::new(()));
 }
 
 #[test]
@@ -40,10 +40,10 @@ fn test_scan_json_simple_array() {
     let json = r#"[null, true, false, 42, 3.14, "hello"]"#;
     let mut reader = json.as_bytes();
     let mut buffer = vec![0u8; 16];
-    let mut rjiter = RJiter::new(&mut reader, &mut buffer);
+    let rjiter = RJiter::new(&mut reader, &mut buffer);
 
     let triggers: Vec<Trigger<()>> = vec![];
-    scan_json(&triggers, &mut rjiter, ());
+    scan_json(&triggers, &RefCell::new(rjiter), &RefCell::new(()));
 }
 
 #[test]
@@ -72,10 +72,10 @@ fn test_scan_json_nested_complex() {
     }"#;
     let mut reader = json.as_bytes();
     let mut buffer = vec![0u8; 64];
-    let mut rjiter = RJiter::new(&mut reader, &mut buffer);
+    let rjiter = RJiter::new(&mut reader, &mut buffer);
 
     let triggers: Vec<Trigger<()>> = vec![];
-    scan_json(&triggers, &mut rjiter, ());
+    scan_json(&triggers, &RefCell::new(rjiter), &RefCell::new(()));
 }
 
 #[test]
@@ -83,9 +83,9 @@ fn test_call_begin() {
     let json = r#"{"foo": "bar"}"#;
     let mut reader = json.as_bytes();
     let mut buffer = vec![0u8; 16];
-    let mut rjiter = RJiter::new(&mut reader, &mut buffer);
+    let rjiter = RJiter::new(&mut reader, &mut buffer);
 
-    let mut called: RefCell<bool> = RefCell::new(false);
+    let called = RefCell::new(false);
     let triggers = vec![
         Trigger {
             matcher: Matcher::new("foo".to_string(), None, None, None),
@@ -93,6 +93,6 @@ fn test_call_begin() {
         }
     ];
 
-    scan_json(&triggers, &mut rjiter, ());
+    scan_json(&triggers, &RefCell::new(rjiter), &RefCell::new(()));
     assert!(*called.borrow(), "Trigger should have been called for 'foo'");
 }

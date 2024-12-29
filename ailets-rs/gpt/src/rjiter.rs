@@ -220,14 +220,12 @@ impl<'rj> RJiter<'rj> {
 
     #[allow(clippy::missing_errors_doc)]
     #[allow(clippy::missing_panics_doc)]
-    pub fn write_bytes(&mut self, mut writer: Option<&mut dyn Write>) -> JiterResult<()> {
+    pub fn write_bytes(&mut self, writer: &mut dyn Write) -> JiterResult<()> {
         loop {
             self.on_before_call_jiter();
             let result = self.jiter.known_bytes();
             if let Ok(bytes) = result {
-                if let Some(ref mut real_writer) = writer {
-                    real_writer.write_all(bytes).unwrap();
-                }
+                writer.write_all(bytes).unwrap();
                 if self.jiter.current_index() <= self.bytes_in_buffer {
                     return Ok(());
                 }

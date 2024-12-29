@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+use std::io;
 use crate::Peek;
 use crate::RJiter;
 
@@ -25,21 +27,21 @@ impl Matcher {
     }
 }
 
-type TriggerAction<'rjiter, T> = Box<dyn FnMut(&'rjiter mut RJiter, T) + 'rjiter>;
+type TriggerAction<T> = Box<dyn Fn(&RefCell<RJiter>, &RefCell<T>)>;
 
-pub struct Trigger<'rjiter, T> {
+pub struct Trigger<T> {
     pub matcher: Matcher,
-    pub action: TriggerAction<'rjiter, T>,
+    pub action: TriggerAction<T>,
 }
 
-impl<'rjiter, T> std::fmt::Debug for Trigger<'rjiter, T> {
+impl<T> std::fmt::Debug for Trigger<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "Trigger {{ matcher: {:?}, action: <fn> }}", self.matcher)
     }
 }
 
-impl<'rjiter, T> Trigger<'rjiter, T> {
-    pub fn new(matcher: Matcher, action: TriggerAction<'rjiter, T>) -> Self {
+impl<T> Trigger<T> {
+    pub fn new(matcher: Matcher, action: TriggerAction<T>) -> Self {
         Self { matcher, action }
     }
 }
@@ -51,11 +53,11 @@ struct Context {
     is_in_array: bool,
 }
 
-fn find_action<'triggers, 'rjiter, T>(
-    triggers: &'triggers [Trigger<'rjiter, T>],
-    for_key: &String,
-    _context: &[Context],
-) -> Option<&'triggers TriggerAction<'rjiter, T>> {
+fn find_action<'a, 'b, 'c, T>(
+    triggers: &'a Vec<Trigger<T>>,
+    for_key: &'b String,
+    _context: &'c Vec<Context>,
+) -> Option<&'a TriggerAction<T>> {
     for trigger in triggers {
         if trigger.matcher.name == *for_key {
             return Some(&trigger.action);
@@ -65,10 +67,10 @@ fn find_action<'triggers, 'rjiter, T>(
 }
 
 #[allow(clippy::missing_panics_doc)]
-pub fn scan_json<'triggers, 'rjiter, T>(
-    triggers: &'triggers [Trigger<'rjiter, T>],
-    rjiter: &'rjiter mut RJiter,
-    baton: T,
+pub fn scan_json<T>(
+    triggers: &Vec<Trigger<T>>,
+    rjiter_cell: &RefCell<RJiter>,
+    baton_cell: &RefCell<T>,
 ) {
     let mut context: Vec<Context> = Vec::new();
     let mut is_object_begin = false;
@@ -79,6 +81,7 @@ pub fn scan_json<'triggers, 'rjiter, T>(
     let mut peeked: Option<Peek>;
     loop {
         peeked = None;
+        let mut rjiter = rjiter_cell.borrow_mut();
 
         if is_in_object {
             let keyr = if is_object_begin {
@@ -99,7 +102,7 @@ pub fn scan_json<'triggers, 'rjiter, T>(
 
             let action = find_action(triggers, &current_key, &context);
             if let Some(action) = action {
-                action(rjiter, baton);
+                action(rjiter_cell, baton_cell);
             }
             // pass-through to consume the key value
         }
@@ -179,7 +182,7 @@ pub fn scan_json<'triggers, 'rjiter, T>(
             continue;
         }
         if peeked == Peek::String {
-            rjiter.write_bytes(None).unwrap();
+            rjiter.write_bytes(&mut io::sink()).unwrap();
             continue;
         }
 
