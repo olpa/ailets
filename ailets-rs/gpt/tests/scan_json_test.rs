@@ -85,14 +85,14 @@ fn test_call_begin() {
     let mut buffer = vec![0u8; 16];
     let rjiter = RJiter::new(&mut reader, &mut buffer);
 
-    let called = RefCell::new(false);
+    let state = RefCell::new(false);
     let triggers = vec![
         Trigger {
             matcher: Matcher::new("foo".to_string(), None, None, None),
-            action: Box::new(|_, _| *called.borrow_mut() = true),
+            action: Box::new(|_, state| *state.borrow_mut() = true),
         }
     ];
 
-    scan_json(&triggers, &RefCell::new(rjiter), &RefCell::new(()));
-    assert!(*called.borrow(), "Trigger should have been called for 'foo'");
+    scan_json(&triggers, &RefCell::new(rjiter), &state);
+    assert!(*state.borrow(), "Trigger should have been called for 'foo'");
 }
