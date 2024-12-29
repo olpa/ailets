@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use areader::AReader;
 use awriter::AWriter;
 use rjiter::{Peek, RJiter};
-use scan_json::{scan_json, Matcher, Trigger};
+use scan_json::{scan_json, Matcher, Trigger, ActionResult};
 
 const BUFFER_SIZE: u32 = 1024;
 
@@ -27,12 +27,14 @@ pub extern "C" fn process_gpt() {
         Matcher::new("message".to_string(), None, None, None),
         Box::new(|_rjiter: &RefCell<RJiter>, writer: &RefCell<AWriter>| {
             writer.borrow_mut().begin_message();
+            ActionResult::Ok
         }),
     );
     let end_of_message = Trigger::new(
         Matcher::new("end".to_string(), Some("message".to_string()), None, None),
         Box::new(|_rjiter: &RefCell<RJiter>, writer: &RefCell<AWriter>| {
             writer.borrow_mut().end_message();
+            ActionResult::Ok
         }),
     );
     let message_role = Trigger::new(
@@ -41,6 +43,7 @@ pub extern "C" fn process_gpt() {
             let mut rjiter = rjiter_cell.borrow_mut();
             let role = rjiter.next_str().unwrap();
             writer.borrow_mut().role(role);
+            ActionResult::OkValueIsConsumed
         }),
     );
     let message_content = Trigger::new(
@@ -62,6 +65,7 @@ pub extern "C" fn process_gpt() {
             let wb = rjiter.write_bytes(&mut *writer);
             assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
             writer.end_text_content();
+            ActionResult::OkValueIsConsumed
         }),
     );
     let triggers = vec![

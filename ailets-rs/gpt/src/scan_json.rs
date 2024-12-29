@@ -27,7 +27,13 @@ impl Matcher {
     }
 }
 
-type TriggerAction<T> = Box<dyn Fn(&RefCell<RJiter>, &RefCell<T>)>;
+#[derive(Debug, PartialEq)]
+pub enum ActionResult {
+    Ok,
+    OkValueIsConsumed,
+}
+
+type TriggerAction<T> = Box<dyn Fn(&RefCell<RJiter>, &RefCell<T>) -> ActionResult>;
 
 pub struct Trigger<T> {
     pub matcher: Matcher,
@@ -103,11 +109,13 @@ pub fn scan_json<T>(
             current_key = key.unwrap().to_string();
 
             action = find_action(triggers, &current_key, &context);
-            // pass-through to consume the key value
         }
 
         if let Some(action) = action {
-            action(rjiter_cell, baton_cell);
+            let result = action(rjiter_cell, baton_cell);
+            if result == ActionResult::OkValueIsConsumed {
+                continue;
+            }
         }
 
         let mut rjiter = rjiter_cell.borrow_mut();

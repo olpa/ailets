@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
 use gpt::rjiter::RJiter;
-use gpt::scan_json::{scan_json, Matcher, Trigger};
+use gpt::scan_json::{scan_json, Matcher, Trigger, ActionResult};
 
 #[test]
 fn test_scan_json_empty_input() {
@@ -79,17 +79,48 @@ fn test_scan_json_nested_complex() {
 }
 
 #[test]
-fn test_call_begin() {
-    let json = r#"{"foo": "bar"}"#;
+fn test_call_begin_dont_touch_value() {
+    let json = r#"{"foo": "bar", "baz": "qux"}"#;
     let mut reader = json.as_bytes();
     let mut buffer = vec![0u8; 16];
     let rjiter = RJiter::new(&mut reader, &mut buffer);
 
     let state = RefCell::new(false);
+    let action = Box::new(|_: &RefCell<RJiter>, state: &RefCell<bool>| {
+        *state.borrow_mut() = true;
+        ActionResult::Ok
+    });
     let triggers = vec![
         Trigger {
             matcher: Matcher::new("foo".to_string(), None, None, None),
-            action: Box::new(|_, state| *state.borrow_mut() = true),
+            action,
+        }
+    ];
+
+    scan_json(&triggers, &RefCell::new(rjiter), &state);
+    assert!(*state.borrow(), "Trigger should have been called for 'foo'");
+}
+
+#[test]
+fn test_call_begin_consume_value() {
+    let json = r#"{"foo": "bar", "baz": "qux"}"#;
+    let mut reader = json.as_bytes();
+    let mut buffer = vec![0u8; 16];
+    let rjiter = RJiter::new(&mut reader, &mut buffer);
+
+    let state = RefCell::new(false);
+    let action = Box::new(|rjiter_cell: &RefCell<RJiter>, state: &RefCell<bool>| {
+        let mut rjiter = rjiter_cell.borrow_mut();
+        let next = rjiter.next_value();
+        next.unwrap();
+
+        *state.borrow_mut() = true;
+        ActionResult::OkValueIsConsumed
+    });
+    let triggers = vec![
+        Trigger {
+            matcher: Matcher::new("foo".to_string(), None, None, None),
+            action,
         }
     ];
 
