@@ -52,6 +52,26 @@ impl<T> Trigger<T> {
     }
 }
 
+type TriggerEndAction<T> = Box<dyn Fn(&RefCell<T>)>;
+
+pub struct TriggerEnd<T> {
+    pub matcher: Matcher,
+    pub action: TriggerEndAction<T>,
+}
+
+impl<T> std::fmt::Debug for TriggerEnd<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "TriggerEnd {{ matcher: {:?}, action: <fn> }}", self.matcher)
+    }
+}
+
+impl<T> TriggerEnd<T> {
+    pub fn new(matcher: Matcher, action: TriggerEndAction<T>) -> Self {
+        Self { matcher, action }
+    }
+}
+
+
 #[derive(Debug)]
 struct Context {
     current_key: String,
@@ -75,6 +95,7 @@ fn find_action<'a, 'b, 'c, T>(
 #[allow(clippy::missing_panics_doc)]
 pub fn scan_json<T>(
     triggers: &Vec<Trigger<T>>,
+    triggers_end: &Vec<TriggerEnd<T>>,
     rjiter_cell: &RefCell<RJiter>,
     baton_cell: &RefCell<T>,
 ) {

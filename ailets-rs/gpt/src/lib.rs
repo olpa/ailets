@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use areader::AReader;
 use awriter::AWriter;
 use rjiter::{Peek, RJiter};
-use scan_json::{scan_json, Matcher, Trigger, ActionResult};
+use scan_json::{scan_json, Matcher, Trigger, ActionResult, TriggerEnd};
 
 const BUFFER_SIZE: u32 = 1024;
 
@@ -30,11 +30,10 @@ pub extern "C" fn process_gpt() {
             ActionResult::Ok
         }),
     );
-    let end_of_message = Trigger::new(
-        Matcher::new("end".to_string(), Some("message".to_string()), None, None),
-        Box::new(|_rjiter: &RefCell<RJiter>, writer: &RefCell<AWriter>| {
+    let end_of_message = TriggerEnd::new(
+        Matcher::new("message".to_string(), None, None, None),
+        Box::new(|writer: &RefCell<AWriter>| {
             writer.borrow_mut().end_message();
-            ActionResult::Ok
         }),
     );
     let message_role = Trigger::new(
@@ -70,9 +69,11 @@ pub extern "C" fn process_gpt() {
     );
     let triggers = vec![
         begin_of_message,
-        end_of_message,
         message_role,
         message_content,
     ];
-    scan_json(&triggers, &rjiter_cell, &writer_cell);
+    let triggers_end = vec![
+        end_of_message,
+    ];
+    scan_json(&triggers, &triggers_end, &rjiter_cell, &writer_cell);
 }
