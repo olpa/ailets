@@ -81,9 +81,11 @@ pub fn scan_json<T>(
     let mut peeked: Option<Peek>;
     loop {
         peeked = None;
-        let mut rjiter = rjiter_cell.borrow_mut();
 
+        let mut action = None;
         if is_in_object {
+            let mut rjiter = rjiter_cell.borrow_mut();
+
             let keyr = if is_object_begin {
                 rjiter.next_object()
             } else {
@@ -100,12 +102,15 @@ pub fn scan_json<T>(
             }
             current_key = key.unwrap().to_string();
 
-            let action = find_action(triggers, &current_key, &context);
-            if let Some(action) = action {
-                action(rjiter_cell, baton_cell);
-            }
+            action = find_action(triggers, &current_key, &context);
             // pass-through to consume the key value
         }
+
+        if let Some(action) = action {
+            action(rjiter_cell, baton_cell);
+        }
+
+        let mut rjiter = rjiter_cell.borrow_mut();
 
         if is_in_array {
             let apickedr = if is_object_begin {
