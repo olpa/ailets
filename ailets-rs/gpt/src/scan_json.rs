@@ -129,7 +129,7 @@ impl<T> HasMatcher<TriggerAction<T>> for Trigger<T> {
     fn get_action(&self) -> &TriggerAction<T> {
         &self.action
     }
-    
+
     fn get_matcher(&self) -> &Matcher {
         &self.matcher
     }
@@ -139,7 +139,7 @@ impl<T> HasMatcher<TriggerEndAction<T>> for TriggerEnd<T> {
     fn get_action(&self) -> &TriggerEndAction<T> {
         &self.action
     }
-    
+
     fn get_matcher(&self) -> &Matcher {
         &self.matcher
     }
@@ -162,7 +162,6 @@ fn find_end_action<'a, T>(
 }
 
 // ----
-
 
 #[derive(Debug)]
 struct Context {
@@ -188,20 +187,21 @@ fn handle_object<T>(
             rjiter.next_key()
         };
         cur_level.is_object_begin = false;
-        
+
         let key = keyr.unwrap();
         if key.is_none() {
-            if let Some(end_action) = find_end_action(triggers_end, &cur_level.current_key, context) {
+            let cur_level = context.pop().unwrap();
+            if let Some(end_action) = find_end_action(triggers_end, &cur_level.current_key, context)
+            {
                 end_action(baton_cell);
             }
-            let new_cur_level = context.pop().unwrap();
-            return (ActionResult::OkValueIsConsumed, new_cur_level);
+            return (ActionResult::OkValueIsConsumed, cur_level);
         }
-        
+
         let key_str = key.unwrap().to_string();
         cur_level.current_key = key_str;
     }
-    
+
     if let Some(action) = find_action(triggers, &cur_level.current_key, context) {
         return (action(rjiter_cell, baton_cell), cur_level);
     }
@@ -219,7 +219,7 @@ fn handle_array(
         rjiter.array_step()
     };
     cur_level.is_object_begin = false;
-    
+
     let peeked = apickedr.unwrap();
     if peeked.is_none() {
         let new_cur_level = context.pop().unwrap();
@@ -242,7 +242,7 @@ pub fn scan_json<T>(
         is_in_object: false,
         is_in_array: false,
     };
-    
+
     loop {
         let mut peeked = None;
 
@@ -265,11 +265,7 @@ pub fn scan_json<T>(
         let mut rjiter = rjiter_cell.borrow_mut();
 
         if cur_level.is_in_array {
-            let (arr_peeked, new_cur_level) = handle_array(
-                &mut rjiter,
-                cur_level,
-                &mut context,
-            );
+            let (arr_peeked, new_cur_level) = handle_array(&mut rjiter, cur_level, &mut context);
             cur_level = new_cur_level;
 
             if arr_peeked.is_none() {
