@@ -80,13 +80,6 @@ impl<T> TriggerEnd<T> {
     }
 }
 
-#[derive(Debug)]
-struct Context {
-    current_key: String,
-    is_in_object: bool,
-    is_in_array: bool,
-}
-
 trait HasMatcher<A> {
     fn get_action(&self) -> &A;
     fn get_matcher(&self) -> &Matcher;
@@ -170,6 +163,71 @@ fn find_end_action<'a, T>(
 
 // ----
 
+
+#[derive(Debug)]
+struct Context {
+    current_key: String,
+    is_in_object: bool,
+    is_in_array: bool,
+    is_object_begin: bool,
+}
+
+fn handle_object<T>(
+    rjiter_cell: &RefCell<RJiter>,
+    baton_cell: &RefCell<T>,
+    triggers: &[Trigger<T>],
+    triggers_end: &[TriggerEnd<T>],
+    mut cur_level: Context,
+    context: &mut Vec<Context>,
+) -> (ActionResult, Context) {
+    {
+        let mut rjiter = rjiter_cell.borrow_mut();
+        let keyr = if cur_level.is_object_begin {
+            rjiter.next_object()
+        } else {
+            rjiter.next_key()
+        };
+        cur_level.is_object_begin = false;
+        
+        let key = keyr.unwrap();
+        if key.is_none() {
+            if let Some(end_action) = find_end_action(triggers_end, &cur_level.current_key, context) {
+                end_action(baton_cell);
+            }
+            let new_cur_level = context.pop().unwrap();
+            return (ActionResult::OkValueIsConsumed, new_cur_level);
+        }
+        
+        let key_str = key.unwrap().to_string();
+        cur_level.current_key = key_str;
+    }
+    
+    if let Some(action) = find_action(triggers, &cur_level.current_key, context) {
+        return (action(rjiter_cell, baton_cell), cur_level);
+    }
+    (ActionResult::Ok, cur_level)
+}
+
+fn handle_array(
+    rjiter: &mut RJiter,
+    mut cur_level: Context,
+    context: &mut Vec<Context>,
+) -> (Option<Peek>, Context) {
+    let apickedr = if cur_level.is_object_begin {
+        rjiter.known_array()
+    } else {
+        rjiter.array_step()
+    };
+    cur_level.is_object_begin = false;
+    
+    let peeked = apickedr.unwrap();
+    if peeked.is_none() {
+        let new_cur_level = context.pop().unwrap();
+        return (None, new_cur_level);
+    }
+    (peeked, cur_level)
+}
+
 #[allow(clippy::missing_panics_doc)]
 pub fn scan_json<T>(
     triggers: &[Trigger<T>],
@@ -178,66 +236,46 @@ pub fn scan_json<T>(
     baton_cell: &RefCell<T>,
 ) {
     let mut context: Vec<Context> = Vec::new();
-    let mut is_object_begin = false;
-    let mut is_in_object = false;
-    let mut is_in_array = false;
-    //let mut peeked = Peek::None;
-    let mut current_key: String = "#top".to_string();
-    let mut peeked: Option<Peek>;
+    let mut cur_level = Context {
+        current_key: "#top".to_string(),
+        is_object_begin: false,
+        is_in_object: false,
+        is_in_array: false,
+    };
+    
     loop {
-        peeked = None;
+        let mut peeked = None;
 
-        let mut action = None;
-        if is_in_object {
-            let mut rjiter = rjiter_cell.borrow_mut();
+        if cur_level.is_in_object {
+            let (action_result, new_cur_level) = handle_object(
+                rjiter_cell,
+                baton_cell,
+                triggers,
+                triggers_end,
+                cur_level,
+                &mut context,
+            );
+            cur_level = new_cur_level;
 
-            let keyr = if is_object_begin {
-                rjiter.next_object()
-            } else {
-                rjiter.next_key()
-            };
-            is_object_begin = false;
-            let key = keyr.unwrap();
-            if key.is_none() {
-                let ctx = context.pop().unwrap();
-                current_key = ctx.current_key;
-                is_in_array = ctx.is_in_array;
-                is_in_object = ctx.is_in_object;
-                let end_action = find_end_action(triggers_end, &current_key, &context);
-                if let Some(end_action) = end_action {
-                    end_action(baton_cell);
-                }
-                continue; // continue
-            }
-            current_key = key.unwrap().to_string();
-
-            action = find_action(triggers, &current_key, &context);
-        }
-
-        if let Some(action) = action {
-            let result = action(rjiter_cell, baton_cell);
-            if result == ActionResult::OkValueIsConsumed {
+            if action_result == ActionResult::OkValueIsConsumed {
                 continue;
             }
         }
 
         let mut rjiter = rjiter_cell.borrow_mut();
 
-        if is_in_array {
-            let apickedr = if is_object_begin {
-                rjiter.known_array()
-            } else {
-                rjiter.array_step()
-            };
-            is_object_begin = false;
-            peeked = apickedr.unwrap();
-            if peeked.is_none() {
-                let ctx = context.pop().unwrap();
-                current_key = ctx.current_key;
-                is_in_array = ctx.is_in_array;
-                is_in_object = ctx.is_in_object;
-                continue; // continue
+        if cur_level.is_in_array {
+            let (arr_peeked, new_cur_level) = handle_array(
+                &mut rjiter,
+                cur_level,
+                &mut context,
+            );
+            cur_level = new_cur_level;
+
+            if arr_peeked.is_none() {
+                continue;
             }
+            peeked = arr_peeked;
         }
 
         if peeked.is_none() {
@@ -260,27 +298,24 @@ pub fn scan_json<T>(
         let peeked = peeked.unwrap();
 
         if peeked == Peek::Array {
-            context.push(Context {
-                current_key: current_key.clone(),
-                is_in_object,
-                is_in_array,
-            });
-            current_key = "#array".to_string();
-            is_in_array = true;
-            is_in_object = false;
-            is_object_begin = true;
+            context.push(cur_level);
+            cur_level = Context {
+                current_key: "#array".to_string(),
+                is_in_array: true,
+                is_in_object: false,
+                is_object_begin: true,
+            };
             continue;
         }
 
         if peeked == Peek::Object {
-            context.push(Context {
-                current_key: current_key.clone(),
-                is_in_object,
-                is_in_array,
-            });
-            is_in_array = false;
-            is_in_object = true;
-            is_object_begin = true;
+            context.push(cur_level);
+            cur_level = Context {
+                current_key: "#object".to_string(),
+                is_in_object: true,
+                is_in_array: false,
+                is_object_begin: true,
+            };
             continue;
         }
 
