@@ -308,4 +308,18 @@ impl<'rj> RJiter<'rj> {
             self.feed();
         }
     }
+
+    pub fn drop_token(&mut self, token: &[u8]) -> bool {
+        self.maybe_feed();
+
+        let buf_view = &self.buffer[self.jiter.current_index()..self.bytes_in_buffer];
+        if buf_view.starts_with(token) {
+            for i in self.jiter.current_index()..self.jiter.current_index() + token.len() {
+                self.buffer[i] = b' ';
+            }
+            return true;
+        }
+
+        false
+    }
 }

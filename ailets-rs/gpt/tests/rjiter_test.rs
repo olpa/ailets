@@ -1,10 +1,10 @@
 use std::io::Cursor;
 use std::sync::Arc;
 
+use gpt::rjiter::RJiter;
 use jiter::JsonValue;
 use jiter::LazyIndexMap;
 use jiter::Peek;
-use gpt::rjiter::RJiter;
 
 #[test]
 fn sanity_check() {
@@ -78,4 +78,23 @@ fn pass_through_small_string() {
     wb.unwrap();
 
     assert_eq!(writer, "small".as_bytes());
+}
+
+#[test]
+fn drop_token() {
+    let input = r#"data:  {}"#;
+    let mut buffer = [0u8; 16];
+    let mut reader = Cursor::new(input.as_bytes());
+
+    let mut rjiter = RJiter::new(&mut reader, &mut buffer);
+
+    // Consume the "data:token
+    let result = rjiter.drop_token(b"data:");
+    assert!(result, "drop_token failed");
+
+    // Consume empty object
+    let result = rjiter.next_value();
+    assert!(result.is_ok());
+    let empty_object = JsonValue::Object(Arc::new(LazyIndexMap::new()));
+    assert_eq!(result.unwrap(), empty_object);
 }
