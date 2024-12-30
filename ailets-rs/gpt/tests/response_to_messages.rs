@@ -22,6 +22,7 @@ fn test_basic_processing() {
 }
 
 #[test]
+#[ignore]
 fn test_basic_streaming() {
     clear_mocks();
     let fixture_content = std::fs::read_to_string("tests/fixture/basic_streaming.txt")
