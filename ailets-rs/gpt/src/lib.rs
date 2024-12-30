@@ -76,5 +76,6 @@ pub extern "C" fn process_gpt() {
     );
     let triggers = vec![begin_of_message, message_role, message_content];
     let triggers_end = vec![end_of_message];
-    scan_json(&triggers, &triggers_end, &rjiter_cell, &writer_cell);
+    let sse_tokens = vec!["data:", "[DONE]"];
+    scan_json(&triggers, &triggers_end, &sse_tokens, &rjiter_cell, &writer_cell);
 }

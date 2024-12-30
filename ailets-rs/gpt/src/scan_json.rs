@@ -232,6 +232,7 @@ fn handle_array(
 pub fn scan_json<T>(
     triggers: &[Trigger<T>],
     triggers_end: &[TriggerEnd<T>],
+    sse_tokens: &[&str],
     rjiter_cell: &RefCell<RJiter>,
     baton_cell: &RefCell<T>,
 ) {
