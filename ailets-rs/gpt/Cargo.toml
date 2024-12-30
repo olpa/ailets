@@ -1,16 +1,14 @@
 [package]
-name = "messages_to_markdown"
+name = "gpt"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
 [lib]
-# To run tests, two types are needed
 crate-type = ["cdylib", "lib"]
-# crate-type = ["cdylib"]
 
 [dependencies]
-jiter = "0.8.2"
 lazy_static = "1.5.0"
 getrandom = { version = "0.2", features = ["custom"] }
+jiter = "0.8.2"

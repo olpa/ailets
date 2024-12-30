@@ -117,6 +117,16 @@ pub extern "C" fn messages_to_markdown() {
                 continue;
             }
 
+            let peeked = rjiter.peek();
+            assert!(
+                peeked.is_ok(),
+                "Error on the content item level: {peeked:?}"
+            );
+            assert!(
+                peeked == Ok(Peek::String),
+                "Expected string at content level"
+            );
+
             writer.start_paragraph();
             let wb = rjiter.write_bytes(&mut writer);
             assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
