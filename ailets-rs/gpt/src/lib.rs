@@ -9,7 +9,7 @@ use std::cell::RefCell;
 use areader::AReader;
 use awriter::AWriter;
 use rjiter::{Peek, RJiter};
-use scan_json::{scan_json, Matcher, Trigger, ActionResult, TriggerEnd};
+use scan_json::{scan_json, ActionResult, Matcher, Trigger, TriggerEnd};
 
 const BUFFER_SIZE: u32 = 1024;
 
@@ -46,34 +46,35 @@ pub extern "C" fn process_gpt() {
         }),
     );
     let message_content = Trigger::new(
-        Matcher::new("content".to_string(), Some("message".to_string()), None, None),
-        Box::new(|rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>| {
-            let mut rjiter = rjiter_cell.borrow_mut();
-            let peeked = rjiter.peek();
-            assert!(
-                peeked.is_ok(),
-                "Error on the content item level: {peeked:?}"
-            );
-            assert!(
-                peeked == Ok(Peek::String),
-                "Expected string at content level"
-            );
+        Matcher::new(
+            "content".to_string(),
+            Some("message".to_string()),
+            None,
+            None,
+        ),
+        Box::new(
+            |rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>| {
+                let mut rjiter = rjiter_cell.borrow_mut();
+                let peeked = rjiter.peek();
+                assert!(
+                    peeked.is_ok(),
+                    "Error on the content item level: {peeked:?}"
+                );
+                assert!(
+                    peeked == Ok(Peek::String),
+                    "Expected string at content level"
+                );
 
-            let mut writer = writer_cell.borrow_mut();
-            writer.begin_text_content();
-            let wb = rjiter.write_bytes(&mut *writer);
-            assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
-            writer.end_text_content();
-            ActionResult::OkValueIsConsumed
-        }),
+                let mut writer = writer_cell.borrow_mut();
+                writer.begin_text_content();
+                let wb = rjiter.write_bytes(&mut *writer);
+                assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
+                writer.end_text_content();
+                ActionResult::OkValueIsConsumed
+            },
+        ),
     );
-    let triggers = vec![
-        begin_of_message,
-        message_role,
-        message_content,
-    ];
-    let triggers_end = vec![
-        end_of_message,
-    ];
+    let triggers = vec![begin_of_message, message_role, message_content];
+    let triggers_end = vec![end_of_message];
     scan_json(&triggers, &triggers_end, &rjiter_cell, &writer_cell);
 }

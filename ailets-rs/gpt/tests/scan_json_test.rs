@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
 use gpt::rjiter::RJiter;
-use gpt::scan_json::{scan_json, Matcher, Trigger, ActionResult, TriggerEnd};
+use gpt::scan_json::{scan_json, ActionResult, Matcher, Trigger, TriggerEnd};
 
 #[test]
 fn test_scan_json_empty_input() {
@@ -90,12 +90,10 @@ fn test_call_begin_dont_touch_value() {
         *state.borrow_mut() = true;
         ActionResult::Ok
     });
-    let triggers = vec![
-        Trigger {
-            matcher: Matcher::new("foo".to_string(), None, None, None),
-            action,
-        }
-    ];
+    let triggers = vec![Trigger {
+        matcher: Matcher::new("foo".to_string(), None, None, None),
+        action,
+    }];
 
     scan_json(&triggers, &vec![], &RefCell::new(rjiter), &state);
     assert!(*state.borrow(), "Trigger should have been called for 'foo'");
@@ -117,12 +115,10 @@ fn test_call_begin_consume_value() {
         *state.borrow_mut() = true;
         ActionResult::OkValueIsConsumed
     });
-    let triggers = vec![
-        Trigger {
-            matcher: Matcher::new("foo".to_string(), None, None, None),
-            action,
-        }
-    ];
+    let triggers = vec![Trigger {
+        matcher: Matcher::new("foo".to_string(), None, None, None),
+        action,
+    }];
 
     scan_json(&triggers, &vec![], &RefCell::new(rjiter), &state);
     assert!(*state.borrow(), "Trigger should have been called for 'foo'");
@@ -137,12 +133,10 @@ fn test_call_end() {
 
     let state = RefCell::new(false);
     let action = Box::new(|state: &RefCell<bool>| *state.borrow_mut() = true);
-    let triggers_end = vec![
-        TriggerEnd {
-            matcher: Matcher::new("foo".to_string(), None, None, None),
-            action,
-        }
-    ];
+    let triggers_end = vec![TriggerEnd {
+        matcher: Matcher::new("foo".to_string(), None, None, None),
+        action,
+    }];
 
     scan_json(&vec![], &triggers_end, &RefCell::new(rjiter), &state);
     assert!(*state.borrow(), "Trigger should have been called for 'foo'");

@@ -1,7 +1,7 @@
-use std::cell::RefCell;
-use std::io;
 use crate::Peek;
 use crate::RJiter;
+use std::cell::RefCell;
+use std::io;
 
 #[derive(Debug)]
 pub struct Matcher {
@@ -61,7 +61,11 @@ pub struct TriggerEnd<T> {
 
 impl<T> std::fmt::Debug for TriggerEnd<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "TriggerEnd {{ matcher: {:?}, action: <fn> }}", self.matcher)
+        write!(
+            f,
+            "TriggerEnd {{ matcher: {:?}, action: <fn> }}",
+            self.matcher
+        )
     }
 }
 
@@ -70,7 +74,6 @@ impl<T> TriggerEnd<T> {
         Self { matcher, action }
     }
 }
-
 
 #[derive(Debug)]
 struct Context {
@@ -142,7 +145,7 @@ pub fn scan_json<T>(
                 if let Some(end_action) = end_action {
                     end_action(baton_cell);
                 }
-                continue;                                   // continue
+                continue; // continue
             }
             current_key = key.unwrap().to_string();
 
@@ -171,14 +174,15 @@ pub fn scan_json<T>(
                 current_key = ctx.current_key;
                 is_in_array = ctx.is_in_array;
                 is_in_object = ctx.is_in_object;
-                continue;                                    // continue
+                continue; // continue
             }
         }
 
         if peeked == None {
             let peekedr = rjiter.peek();
             if let Err(jiter::JiterError {
-                error_type: jiter::JiterErrorType::JsonError(jiter::JsonErrorType::EofWhileParsingValue),
+                error_type:
+                    jiter::JiterErrorType::JsonError(jiter::JsonErrorType::EofWhileParsingValue),
                 ..
             }) = peekedr
             {
