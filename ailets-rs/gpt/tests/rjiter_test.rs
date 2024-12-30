@@ -81,20 +81,19 @@ fn pass_through_small_string() {
 }
 
 #[test]
-fn drop_token() {
-    let input = r#"data:  {}"#;
+fn skip_token() {
+    let input = r#"data:  42"#;
     let mut buffer = [0u8; 16];
     let mut reader = Cursor::new(input.as_bytes());
 
     let mut rjiter = RJiter::new(&mut reader, &mut buffer);
 
     // Consume the "data:token
-    let result = rjiter.drop_token(b"data:");
-    assert!(result, "drop_token failed");
+    let result = rjiter.skip_token(b"data:");
+    assert!(result, "skip_token failed");
 
-    // Consume empty object
-    let result = rjiter.next_value();
+    // Consume a number
+    let result = rjiter.next_int();
     assert!(result.is_ok());
-    let empty_object = JsonValue::Object(Arc::new(LazyIndexMap::new()));
-    assert_eq!(result.unwrap(), empty_object);
+    assert_eq!(result.unwrap(), jiter::NumberInt::Int(42));
 }

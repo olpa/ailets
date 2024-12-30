@@ -343,7 +343,7 @@ pub fn scan_json<T>(
         // parsed as an array with one element, the string "DONE".
         if context.is_empty() || (cur_level.is_in_array && context.len() == 1) {
             for sse_token in sse_tokens {
-                if rjiter.drop_token(sse_token.as_bytes()) {
+                if rjiter.skip_token(sse_token.as_bytes()) {
                     continue 'main_loop;
                 }
             }
