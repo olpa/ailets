@@ -244,7 +244,7 @@ pub fn scan_json<T>(
         is_in_array: false,
     };
 
-    loop {
+    'main_loop: loop {
         let mut peeked = None;
 
         if cur_level.is_in_object {
@@ -337,6 +337,18 @@ pub fn scan_json<T>(
         if maybe_number.is_ok() {
             continue;
         }
+
+        // If we are at the top level, we need to drop the SSE tokens
+        // The array condition is to handle the token "[DONE]", which is
+        // parsed as an array with one element, the string "DONE".
+        if context.is_empty() || (cur_level.is_in_array && context.len() == 1) {
+            for sse_token in sse_tokens {
+                if rjiter.drop_token(sse_token.as_bytes()) {
+                    continue 'main_loop;
+                }
+            }
+        }
+
         panic!("scan_json: unhandled: peeked={peeked:?}");
     }
 }
