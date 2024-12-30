@@ -12,6 +12,7 @@ pub struct Matcher {
 }
 
 impl Matcher {
+    #[must_use]
     pub fn new(
         name: String,
         ctx: Option<String>,
@@ -49,6 +50,7 @@ impl<T> std::fmt::Debug for Trigger<T> {
 }
 
 impl<T> Trigger<T> {
+    #[must_use]
     pub fn new(matcher: Matcher, action: TriggerAction<T>) -> Self {
         Self { matcher, action }
     }
@@ -72,6 +74,7 @@ impl<T> std::fmt::Debug for TriggerEnd<T> {
 }
 
 impl<T> TriggerEnd<T> {
+    #[must_use]
     pub fn new(matcher: Matcher, action: TriggerEndAction<T>) -> Self {
         Self { matcher, action }
     }
@@ -89,10 +92,10 @@ trait HasMatcher<A> {
     fn get_matcher(&self) -> &Matcher;
 }
 
-fn find_trigger_action<'a, 'b, 'c, T, A>(
-    triggers: &'a Vec<T>,
-    for_key: &'b String,
-    context: &'c Vec<Context>,
+fn find_trigger_action<'a, T, A>(
+    triggers: &'a [T],
+    for_key: &String,
+    context: &[Context],
 ) -> Option<&'a A>
 where
     T: HasMatcher<A>,
@@ -126,7 +129,7 @@ where
 
             true
         })
-        .map(|trigger| trigger.get_action())
+        .map(HasMatcher::get_action)
 }
 
 impl<T> HasMatcher<TriggerAction<T>> for Trigger<T> {
@@ -149,18 +152,18 @@ impl<T> HasMatcher<TriggerEndAction<T>> for TriggerEnd<T> {
     }
 }
 
-fn find_action<'a, 'b, 'c, T>(
-    triggers: &'a Vec<Trigger<T>>,
-    for_key: &'b String,
-    context: &'c Vec<Context>,
+fn find_action<'a, T>(
+    triggers: &'a [Trigger<T>],
+    for_key: &String,
+    context: &[Context],
 ) -> Option<&'a TriggerAction<T>> {
     find_trigger_action(triggers, for_key, context)
 }
 
-fn find_end_action<'a, 'b, 'c, T>(
-    triggers: &'a Vec<TriggerEnd<T>>,
-    for_key: &'b String,
-    context: &'c Vec<Context>,
+fn find_end_action<'a, T>(
+    triggers: &'a [TriggerEnd<T>],
+    for_key: &String,
+    context: &[Context],
 ) -> Option<&'a TriggerEndAction<T>> {
     find_trigger_action(triggers, for_key, context)
 }
@@ -169,8 +172,8 @@ fn find_end_action<'a, 'b, 'c, T>(
 
 #[allow(clippy::missing_panics_doc)]
 pub fn scan_json<T>(
-    triggers: &Vec<Trigger<T>>,
-    triggers_end: &Vec<TriggerEnd<T>>,
+    triggers: &[Trigger<T>],
+    triggers_end: &[TriggerEnd<T>],
     rjiter_cell: &RefCell<RJiter>,
     baton_cell: &RefCell<T>,
 ) {
