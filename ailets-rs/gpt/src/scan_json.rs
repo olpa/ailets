@@ -33,6 +33,8 @@ pub enum ActionResult {
     OkValueIsConsumed,
 }
 
+// ----
+
 type TriggerAction<T> = Box<dyn Fn(&RefCell<RJiter>, &RefCell<T>) -> ActionResult>;
 
 pub struct Trigger<T> {
@@ -82,31 +84,88 @@ struct Context {
     is_in_array: bool,
 }
 
+trait HasMatcher<A> {
+    fn get_action(&self) -> &A;
+    fn get_matcher(&self) -> &Matcher;
+}
+
+fn find_trigger_action<'a, 'b, 'c, T, A>(
+    triggers: &'a Vec<T>,
+    for_key: &'b String,
+    context: &'c Vec<Context>,
+) -> Option<&'a A>
+where
+    T: HasMatcher<A>,
+{
+    triggers
+        .iter()
+        .find(|trigger| {
+            let matcher = trigger.get_matcher();
+            if matcher.name != *for_key {
+                return false;
+            }
+
+            let ctx_depth = context.len();
+            if let Some(ref ctx1) = matcher.ctx {
+                if ctx_depth < 1 || context[ctx_depth - 1].current_key != *ctx1 {
+                    return false;
+                }
+            }
+
+            if let Some(ref ctx2) = matcher.ctx2 {
+                if ctx_depth < 2 || context[ctx_depth - 2].current_key != *ctx2 {
+                    return false;
+                }
+            }
+
+            if let Some(ref ctx3) = matcher.ctx3 {
+                if ctx_depth < 3 || context[ctx_depth - 3].current_key != *ctx3 {
+                    return false;
+                }
+            }
+
+            true
+        })
+        .map(|trigger| trigger.get_action())
+}
+
+impl<T> HasMatcher<TriggerAction<T>> for Trigger<T> {
+    fn get_action(&self) -> &TriggerAction<T> {
+        &self.action
+    }
+    
+    fn get_matcher(&self) -> &Matcher {
+        &self.matcher
+    }
+}
+
+impl<T> HasMatcher<TriggerEndAction<T>> for TriggerEnd<T> {
+    fn get_action(&self) -> &TriggerEndAction<T> {
+        &self.action
+    }
+    
+    fn get_matcher(&self) -> &Matcher {
+        &self.matcher
+    }
+}
+
 fn find_action<'a, 'b, 'c, T>(
     triggers: &'a Vec<Trigger<T>>,
     for_key: &'b String,
-    _context: &'c Vec<Context>,
+    context: &'c Vec<Context>,
 ) -> Option<&'a TriggerAction<T>> {
-    for trigger in triggers {
-        if trigger.matcher.name == *for_key {
-            return Some(&trigger.action);
-        }
-    }
-    None
+    find_trigger_action(triggers, for_key, context)
 }
 
 fn find_end_action<'a, 'b, 'c, T>(
     triggers: &'a Vec<TriggerEnd<T>>,
     for_key: &'b String,
-    _context: &'c Vec<Context>,
+    context: &'c Vec<Context>,
 ) -> Option<&'a TriggerEndAction<T>> {
-    for trigger in triggers {
-        if trigger.matcher.name == *for_key {
-            return Some(&trigger.action);
-        }
-    }
-    None
+    find_trigger_action(triggers, for_key, context)
 }
+
+// ----
 
 #[allow(clippy::missing_panics_doc)]
 pub fn scan_json<T>(
@@ -136,7 +195,7 @@ pub fn scan_json<T>(
             };
             is_object_begin = false;
             let key = keyr.unwrap();
-            if key == None {
+            if key.is_none() {
                 let ctx = context.pop().unwrap();
                 current_key = ctx.current_key;
                 is_in_array = ctx.is_in_array;
@@ -169,7 +228,7 @@ pub fn scan_json<T>(
             };
             is_object_begin = false;
             peeked = apickedr.unwrap();
-            if peeked == None {
+            if peeked.is_none() {
                 let ctx = context.pop().unwrap();
                 current_key = ctx.current_key;
                 is_in_array = ctx.is_in_array;
@@ -178,7 +237,7 @@ pub fn scan_json<T>(
             }
         }
 
-        if peeked == None {
+        if peeked.is_none() {
             let peekedr = rjiter.peek();
             if let Err(jiter::JiterError {
                 error_type:
@@ -186,9 +245,7 @@ pub fn scan_json<T>(
                 ..
             }) = peekedr
             {
-                if context.len() > 0 {
-                    panic!("scan_json: eof while parsing value");
-                }
+                assert!(context.is_empty(), "scan_json: eof while inside an object");
                 let eof = rjiter.finish();
                 eof.unwrap();
                 break;
@@ -202,8 +259,8 @@ pub fn scan_json<T>(
         if peeked == Peek::Array {
             context.push(Context {
                 current_key: current_key.clone(),
-                is_in_object: is_in_object,
-                is_in_array: is_in_array,
+                is_in_object,
+                is_in_array,
             });
             current_key = "#array".to_string();
             is_in_array = true;
@@ -215,8 +272,8 @@ pub fn scan_json<T>(
         if peeked == Peek::Object {
             context.push(Context {
                 current_key: current_key.clone(),
-                is_in_object: is_in_object,
-                is_in_array: is_in_array,
+                is_in_object,
+                is_in_array,
             });
             is_in_array = false;
             is_in_object = true;
@@ -242,7 +299,7 @@ pub fn scan_json<T>(
         }
 
         let maybe_number = rjiter.next_number();
-        if let Ok(_) = maybe_number {
+        if maybe_number.is_ok() {
             continue;
         }
         panic!("scan_json: unhandled: peeked={peeked:?}");
