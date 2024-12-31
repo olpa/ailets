@@ -1,8 +1,9 @@
-mod areader;
-mod awriter;
-mod node_runtime;
+pub mod areader;
+pub mod awriter;
+pub mod node_runtime;
 pub mod rjiter;
 pub mod scan_json;
+pub mod sse_handler;
 
 use std::cell::RefCell;
 

@@ -6,17 +6,19 @@ pub struct AWriter {
 }
 
 
+/*
 fn escape_json_value(s: &str) -> &str {
     s.chars()
         .map(|c| match c {
-            '\\' => String::from("\\\\"),
-            '"' => String::from("\\\""),
-            '\n' => String::from("\\n"),
-            c if c < '\x20' => format!("\\u{:04x}", c as u32),
-            c => c.to_string(),
+            '\\' => "\\",
+            '"' => "\"",
+            '\n' => "\\n",
+            c if c < '\x20' => format!("\\u{:04x}", c as u32).as_str(),
+            c => c.to_string().as_str(), // FIXME
         })
         .collect()
 }
+*/
 
 impl AWriter {
     pub fn new(filename: &str) -> Self {

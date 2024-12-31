@@ -4,10 +4,9 @@ use std::io;
 mod mocked_node_runtime;
 use mocked_node_runtime::{clear_mocks, get_output, set_input};
 
-use crate::awriter::AWriter;
-use crate::rjiter::RJiter;
-use crate::sse_handler::{on_begin_delta, on_end_delta, on_delta_role, SSEHandler};
-
+use gpt::awriter::AWriter;
+use gpt::rjiter::RJiter;
+use gpt::sse_handler::{on_begin_delta, on_end_delta, on_delta_role, SSEHandler};
 
 #[test]
 fn basic_pass() {
