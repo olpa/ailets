@@ -1,18 +1,15 @@
 use std::cell::RefCell;
-
 use crate::awriter::AWriter;
 use crate::rjiter::RJiter;
 use crate::scan_json::{ActionResult};
 
-pub struct SSEHandler<'rjiter, 'awriter> {
-    awriter: &'awriter RefCell<AWriter>,
-    role: Option<&'rjiter str>,
-    content: Option<&'rjiter str>,
+pub struct SSEHandler {
+    awriter: RefCell<AWriter>,
 }
 
-impl<'rjiter, 'awriter> SSEHandler<'rjiter, 'awriter> {
-    pub fn new(awriter: &'awriter RefCell<AWriter>) -> Self {
-        SSEHandler { awriter, role: None, content: None }
+impl SSEHandler {
+    pub fn new(awriter: RefCell<AWriter>) -> Self {
+        SSEHandler { awriter }
     }
 
     pub fn end(&mut self) {
@@ -21,45 +18,37 @@ impl<'rjiter, 'awriter> SSEHandler<'rjiter, 'awriter> {
     }
 }
 
-pub fn on_begin_delta(_rjiter: &RefCell<RJiter>, sh: &RefCell<SSEHandler>) -> ActionResult {
-    let mut sh = sh.borrow_mut();
-    sh.role = None;
-    sh.content = None;
-    ActionResult::Ok
-}
-
-pub fn on_end_delta(rjiter: &RefCell<RJiter>, sh: &RefCell<SSEHandler>) -> ActionResult {
-    let mut sh = sh.borrow_mut();
-    if sh.role.is_some() {
-        let mut awriter = sh.awriter.borrow_mut();
-        awriter.begin_message();
-        awriter.role(sh.role.unwrap());
-    }
-    if sh.content.is_some() {
-        let mut awriter = sh.awriter.borrow_mut();
-        awriter.begin_text_content();
-        awriter.str(sh.content.unwrap());
-        awriter.end_text_content();
-    }
-
-    sh.role = None;
-    sh.content = None;
+/*
+pub fn on_end_delta(_rjiter: &RefCell<RJiter>, sh: &RefCell<SSEHandler>) -> ActionResult {
     rjiter.borrow_mut().feed();
     ActionResult::Ok
 }
+*/
 
-pub fn on_delta_role(rjiter: &RefCell<RJiter>, sh: &RefCell<SSEHandler>) -> ActionResult {
+pub fn on_delta_role<'rj>(
+    rjiter: &'rj RefCell<RJiter<'rj>>,
+    sh: &'rj RefCell<SSEHandler>
+) -> ActionResult {
     let mut rjiter = rjiter.borrow_mut();
-    let role = rjiter.next_str().unwrap();
-    let mut sh = sh.borrow_mut();
-    sh.role = Some(role);
+    let sh = sh.borrow();
+    let awriter = &mut *sh.awriter.borrow_mut();
+    let wb = rjiter.write_bytes(awriter);
+    assert!(wb.is_ok(), "Error handling role: {wb:?}");
     ActionResult::OkValueIsConsumed
 }
 
-pub fn on_delta_content(rjiter: &RefCell<RJiter>, sh: &RefCell<SSEHandler>) -> ActionResult {
+pub fn on_delta_content<'rj>(
+    rjiter: &'rj RefCell<RJiter<'rj>>,
+    sh: &'rj RefCell<SSEHandler>
+) -> ActionResult {
     let mut rjiter = rjiter.borrow_mut();
-    let content = rjiter.next_str().unwrap();
-    let mut sh = sh.borrow_mut();
-    sh.content = Some(content);
+    let sh = sh.borrow();
+    let awriter = &mut *sh.awriter.borrow_mut();
+
+    awriter.begin_text_content();
+    let wb = rjiter.write_bytes(awriter);
+    assert!(wb.is_ok(), "Error handling content: {wb:?}");
+    awriter.end_text_content();
+
     ActionResult::OkValueIsConsumed
 }
