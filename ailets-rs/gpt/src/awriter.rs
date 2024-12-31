@@ -3,6 +3,7 @@ use crate::node_runtime::{aclose, awrite, open_write};
 pub struct AWriter {
     fd: Option<u32>,
     message_has_field: bool,
+    message_has_content: bool,
 }
 
 /*
@@ -26,11 +27,13 @@ impl AWriter {
         AWriter {
             fd: Some(fd),
             message_has_field: false,
+            message_has_content: false,
         }
     }
 
     pub fn begin_message(&mut self) {
         self.message_has_field = false;
+        self.message_has_content = false;
     }
 
     fn _in_message(&mut self) {
@@ -44,11 +47,17 @@ impl AWriter {
 
     pub fn end_message(&mut self) {
         if self.message_has_field {
+            if !self.message_has_content {
+                self.str(",\"content\":[]");
+            }
             self.str("}\n");
         }
     }
 
     pub fn role(&mut self, role: &str) {
+        if self.message_has_field {
+            return;
+        }
         self._in_message();
         self.str("\"role\":\"");
         self.str(role);
@@ -58,10 +67,14 @@ impl AWriter {
     pub fn begin_text_content(&mut self) {
         self._in_message();
         self.str("\"content\":[{\"type\":\"text\",\"text\":\"");
+        self.message_has_content = true;
     }
 
     pub fn end_text_content(&mut self) {
-        self.str("\"}]");
+        if self.message_has_content {
+            self.str("\"}]");
+            self.message_has_content = false;
+        }
     }
 
     #[allow(clippy::missing_panics_doc)]
