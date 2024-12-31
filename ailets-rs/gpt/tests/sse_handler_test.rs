@@ -33,6 +33,32 @@ fn basic_pass() {
 }
 
 #[test]
+fn join_multiple_content_deltas() {
+    // Arrange
+    clear_mocks();
+    let input = r#""role""Hello"" world""!""#;
+    let mut buffer = vec![0u8; 16];
+    let mut cursor = io::Cursor::new(input);
+    let rjiter = RJiter::new(&mut cursor, &mut buffer);
+    let awriter = AWriter::new("");
+    let rjiter_cell = RefCell::new(rjiter);
+    let handler = SSEHandler::new(RefCell::new(awriter));
+    let handler_cell = RefCell::new(handler);
+
+    // Act
+    on_delta_role(&rjiter_cell, &handler_cell);
+    on_delta_content(&rjiter_cell, &handler_cell);
+    on_delta_content(&rjiter_cell, &handler_cell);
+    on_delta_content(&rjiter_cell, &handler_cell);
+    handler_cell.borrow_mut().end();
+
+    // Assert
+    let expected =
+        r#"{"role":"role","content":[{"type":"text","text":"Hello world!"}]}"#.to_owned() + "\n";
+    assert_eq!(get_output(), expected);
+}
+
+#[test]
 fn ignore_additional_role() {
     // Arrange
     clear_mocks();
