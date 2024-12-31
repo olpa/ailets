@@ -5,7 +5,6 @@ pub struct AWriter {
     message_has_field: bool,
 }
 
-
 /*
 fn escape_json_value(s: &str) -> &str {
     s.chars()
@@ -21,6 +20,7 @@ fn escape_json_value(s: &str) -> &str {
 */
 
 impl AWriter {
+    #[must_use]
     pub fn new(filename: &str) -> Self {
         let fd = unsafe { open_write(filename.as_ptr()) };
         AWriter {
@@ -64,6 +64,7 @@ impl AWriter {
         self.str("\"}]");
     }
 
+    #[allow(clippy::missing_panics_doc)]
     pub fn str(&self, text: &str) {
         // FIXME: write_all
         if let Some(fd) = self.fd {

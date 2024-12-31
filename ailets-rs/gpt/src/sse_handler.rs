@@ -1,7 +1,7 @@
-use std::cell::RefCell;
 use crate::awriter::AWriter;
 use crate::rjiter::RJiter;
-use crate::scan_json::{ActionResult};
+use crate::scan_json::ActionResult;
+use std::cell::RefCell;
 
 pub struct SSEHandler {
     awriter: RefCell<AWriter>,
@@ -25,9 +25,10 @@ pub fn on_end_delta(_rjiter: &RefCell<RJiter>, sh: &RefCell<SSEHandler>) -> Acti
 }
 */
 
+#[allow(clippy::missing_panics_doc)]
 pub fn on_delta_role<'rj>(
     rjiter: &'rj RefCell<RJiter<'rj>>,
-    sh: &'rj RefCell<SSEHandler>
+    sh: &'rj RefCell<SSEHandler>,
 ) -> ActionResult {
     let mut rjiter = rjiter.borrow_mut();
     let sh = sh.borrow();
@@ -40,9 +41,10 @@ pub fn on_delta_role<'rj>(
     ActionResult::OkValueIsConsumed
 }
 
+#[allow(clippy::missing_panics_doc)]
 pub fn on_delta_content<'rj>(
     rjiter: &'rj RefCell<RJiter<'rj>>,
-    sh: &'rj RefCell<SSEHandler>
+    sh: &'rj RefCell<SSEHandler>,
 ) -> ActionResult {
     let mut rjiter = rjiter.borrow_mut();
     let sh = sh.borrow();

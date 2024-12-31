@@ -27,6 +27,7 @@ fn basic_pass() {
     handler_cell.borrow_mut().end();
 
     // Assert
-    let expected = r#"{"role":"assistant","content":[{"type":"text","text":"hello"}]}"#.to_owned() + "\n";
+    let expected =
+        r#"{"role":"assistant","content":[{"type":"text","text":"hello"}]}"#.to_owned() + "\n";
     assert_eq!(get_output(), expected);
 }
