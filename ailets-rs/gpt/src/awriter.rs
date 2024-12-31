@@ -65,6 +65,9 @@ impl AWriter {
     }
 
     pub fn begin_text_content(&mut self) {
+        if !self.message_has_field {
+            self.role("assistant");
+        }
         self._in_message();
         self.str("\"content\":[{\"type\":\"text\",\"text\":\"");
         self.message_has_content = true;
@@ -73,7 +76,6 @@ impl AWriter {
     pub fn end_text_content(&mut self) {
         if self.message_has_content {
             self.str("\"}]");
-            self.message_has_content = false;
         }
     }
 
