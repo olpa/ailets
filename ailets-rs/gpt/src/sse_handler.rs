@@ -32,8 +32,11 @@ pub fn on_delta_role<'rj>(
     let mut rjiter = rjiter.borrow_mut();
     let sh = sh.borrow();
     let awriter = &mut *sh.awriter.borrow_mut();
-    let wb = rjiter.write_bytes(awriter);
-    assert!(wb.is_ok(), "Error handling role: {wb:?}");
+
+    let role = rjiter.next_str();
+    assert!(role.is_ok(), "Error handling role: {role:?}");
+    awriter.role(role.unwrap());
+
     ActionResult::OkValueIsConsumed
 }
 

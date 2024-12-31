@@ -12,7 +12,7 @@ use gpt::sse_handler::{on_delta_content, on_delta_role, SSEHandler};
 fn basic_pass() {
     // Arrange
     clear_mocks();
-    let input = r#""assistant" "hello""#;
+    let input = r#""assistant""hello""#;
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
@@ -27,8 +27,6 @@ fn basic_pass() {
     handler_cell.borrow_mut().end();
 
     // Assert
-    assert_eq!(
-        get_output(),
-        r#"{"role":"assistant","content":[{"type":"text","text":"hello"}]}"#
-    );
+    let expected = r#"{"role":"assistant","content":[{"type":"text","text":"hello"}]}"#.to_owned() + "\n";
+    assert_eq!(get_output(), expected);
 }
