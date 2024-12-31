@@ -5,6 +5,19 @@ pub struct AWriter {
     message_has_field: bool,
 }
 
+
+fn escape_json_value(s: &str) -> &str {
+    s.chars()
+        .map(|c| match c {
+            '\\' => String::from("\\\\"),
+            '"' => String::from("\\\""),
+            '\n' => String::from("\\n"),
+            c if c < '\x20' => format!("\\u{:04x}", c as u32),
+            c => c.to_string(),
+        })
+        .collect()
+}
+
 impl AWriter {
     pub fn new(filename: &str) -> Self {
         let fd = unsafe { open_write(filename.as_ptr()) };
