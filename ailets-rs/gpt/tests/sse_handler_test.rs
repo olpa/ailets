@@ -6,7 +6,7 @@ use mocked_node_runtime::{clear_mocks, get_output};
 
 use gpt::awriter::AWriter;
 use gpt::rjiter::RJiter;
-use gpt::sse_handler::{on_delta_content, on_delta_role, SSEHandler};
+use gpt::{on_content, on_role};
 
 #[test]
 fn basic_pass() {
@@ -16,15 +16,14 @@ fn basic_pass() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let mut awriter = AWriter::new("");
     let rjiter_cell = RefCell::new(rjiter);
-    let handler = SSEHandler::new(&mut awriter);
-    let handler_cell = RefCell::new(handler);
+    let awriter = AWriter::new("");
+    let awriter_cell = RefCell::new(awriter);
 
     // Act
-    on_delta_role(&rjiter_cell, &handler_cell);
-    on_delta_content(&rjiter_cell, &handler_cell);
-    handler_cell.borrow_mut().end();
+    on_role(&rjiter_cell, &awriter_cell);
+    on_content(&rjiter_cell, &awriter_cell);
+    awriter_cell.borrow_mut().end_message();
 
     // Assert
     let expected =
@@ -40,17 +39,16 @@ fn join_multiple_content_deltas() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let mut awriter = AWriter::new("");
+    let awriter = AWriter::new("");
     let rjiter_cell = RefCell::new(rjiter);
-    let handler = SSEHandler::new(&mut awriter);
-    let handler_cell = RefCell::new(handler);
+    let awriter_cell = RefCell::new(awriter);
 
     // Act
-    on_delta_role(&rjiter_cell, &handler_cell);
-    on_delta_content(&rjiter_cell, &handler_cell);
-    on_delta_content(&rjiter_cell, &handler_cell);
-    on_delta_content(&rjiter_cell, &handler_cell);
-    handler_cell.borrow_mut().end();
+    on_role(&rjiter_cell, &awriter_cell);
+    on_content(&rjiter_cell, &awriter_cell);
+    on_content(&rjiter_cell, &awriter_cell);
+    on_content(&rjiter_cell, &awriter_cell);
+    awriter_cell.borrow_mut().end_message();
 
     // Assert
     let expected =
@@ -66,16 +64,15 @@ fn ignore_additional_role() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let mut awriter = AWriter::new("");
+    let awriter = AWriter::new("");
     let rjiter_cell = RefCell::new(rjiter);
-    let handler = SSEHandler::new(&mut awriter);
-    let handler_cell = RefCell::new(handler);
+    let awriter_cell = RefCell::new(awriter);
 
     // Act
-    on_delta_role(&rjiter_cell, &handler_cell);
-    on_delta_role(&rjiter_cell, &handler_cell);
-    on_delta_role(&rjiter_cell, &handler_cell);
-    handler_cell.borrow_mut().end();
+    on_role(&rjiter_cell, &awriter_cell);
+    on_role(&rjiter_cell, &awriter_cell);
+    on_role(&rjiter_cell, &awriter_cell);
+    awriter_cell.borrow_mut().end_message();
 
     // Assert
     let expected = r#"{"role":"a1","content":[]}"#.to_owned() + "\n";
@@ -90,14 +87,13 @@ fn create_message_without_input_role() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let mut awriter = AWriter::new("");
+    let awriter = AWriter::new("");
     let rjiter_cell = RefCell::new(rjiter);
-    let handler = SSEHandler::new(&mut awriter);
-    let handler_cell = RefCell::new(handler);
+    let awriter_cell = RefCell::new(awriter);
 
     // Act
-    on_delta_content(&rjiter_cell, &handler_cell);
-    handler_cell.borrow_mut().end();
+    on_content(&rjiter_cell, &awriter_cell);
+    awriter_cell.borrow_mut().end_message();
 
     // Assert
     let expected =

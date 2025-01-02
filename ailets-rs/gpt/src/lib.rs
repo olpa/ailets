@@ -3,7 +3,6 @@ pub mod awriter;
 pub mod node_runtime;
 pub mod rjiter;
 pub mod scan_json;
-pub mod sse_handler;
 
 use std::cell::RefCell;
 
@@ -14,23 +13,26 @@ use scan_json::{scan_json, ActionResult, Matcher, Trigger, TriggerEnd};
 
 const BUFFER_SIZE: u32 = 1024;
 
-fn on_begin_message(_rjiter: &RefCell<RJiter>, writer: &RefCell<AWriter>) -> ActionResult {
+pub fn on_begin_message(_rjiter: &RefCell<RJiter>, writer: &RefCell<AWriter>) -> ActionResult {
     writer.borrow_mut().begin_message();
     ActionResult::Ok
 }
 
-fn on_end_message(writer: &RefCell<AWriter>) {
+pub fn on_end_message(writer: &RefCell<AWriter>) {
     writer.borrow_mut().end_message();
 }
 
-fn on_role(rjiter_cell: &RefCell<RJiter>, writer: &RefCell<AWriter>) -> ActionResult {
+pub fn on_role(rjiter_cell: &RefCell<RJiter>, writer: &RefCell<AWriter>) -> ActionResult {
     let mut rjiter = rjiter_cell.borrow_mut();
     let role = rjiter.next_str().unwrap();
     writer.borrow_mut().role(role);
     ActionResult::OkValueIsConsumed
 }
 
-fn on_content(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>) -> ActionResult {
+pub fn on_content(
+    rjiter_cell: &RefCell<RJiter>,
+    writer_cell: &RefCell<AWriter>,
+) -> ActionResult {
     let mut rjiter = rjiter_cell.borrow_mut();
     let peeked = rjiter.peek();
     assert!(
