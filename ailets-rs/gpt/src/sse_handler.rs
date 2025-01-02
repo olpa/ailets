@@ -3,18 +3,17 @@ use crate::rjiter::RJiter;
 use crate::scan_json::ActionResult;
 use std::cell::RefCell;
 
-pub struct SSEHandler {
-    awriter: RefCell<AWriter>,
+pub struct SSEHandler<'awriter> {
+    awriter: &'awriter mut AWriter,
 }
 
-impl SSEHandler {
-    pub fn new(awriter: RefCell<AWriter>) -> Self {
+impl<'awriter> SSEHandler<'awriter> {
+    pub fn new(awriter: &'awriter mut AWriter) -> Self {
         SSEHandler { awriter }
     }
 
     pub fn end(&mut self) {
-        let mut awriter = self.awriter.borrow_mut();
-        awriter.end_message();
+        self.awriter.end_message();
     }
 }
 
@@ -24,12 +23,11 @@ pub fn on_delta_role<'rj>(
     sh: &'rj RefCell<SSEHandler>,
 ) -> ActionResult {
     let mut rjiter = rjiter.borrow_mut();
-    let sh = sh.borrow();
-    let awriter = &mut *sh.awriter.borrow_mut();
+    let mut sh = sh.borrow_mut();
 
     let role = rjiter.next_str();
     assert!(role.is_ok(), "Error handling role: {role:?}");
-    awriter.role(role.unwrap());
+    sh.awriter.role(role.unwrap());
 
     ActionResult::OkValueIsConsumed
 }
@@ -40,11 +38,10 @@ pub fn on_delta_content<'rj>(
     sh: &'rj RefCell<SSEHandler>,
 ) -> ActionResult {
     let mut rjiter = rjiter.borrow_mut();
-    let sh = sh.borrow();
-    let awriter = &mut *sh.awriter.borrow_mut();
+    let mut sh = sh.borrow_mut();
 
-    awriter.begin_text_chunk();
-    let wb = rjiter.write_bytes(awriter);
+    sh.awriter.begin_text_chunk();
+    let wb = rjiter.write_bytes(sh.awriter);
     assert!(wb.is_ok(), "Error handling content: {wb:?}");
 
     ActionResult::OkValueIsConsumed

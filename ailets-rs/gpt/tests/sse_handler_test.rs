@@ -16,9 +16,9 @@ fn basic_pass() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let awriter = AWriter::new("");
+    let mut awriter = AWriter::new("");
     let rjiter_cell = RefCell::new(rjiter);
-    let handler = SSEHandler::new(RefCell::new(awriter));
+    let handler = SSEHandler::new(&mut awriter);
     let handler_cell = RefCell::new(handler);
 
     // Act
@@ -40,9 +40,9 @@ fn join_multiple_content_deltas() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let awriter = AWriter::new("");
+    let mut awriter = AWriter::new("");
     let rjiter_cell = RefCell::new(rjiter);
-    let handler = SSEHandler::new(RefCell::new(awriter));
+    let handler = SSEHandler::new(&mut awriter);
     let handler_cell = RefCell::new(handler);
 
     // Act
@@ -66,9 +66,9 @@ fn ignore_additional_role() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let awriter = AWriter::new("");
+    let mut awriter = AWriter::new("");
     let rjiter_cell = RefCell::new(rjiter);
-    let handler = SSEHandler::new(RefCell::new(awriter));
+    let handler = SSEHandler::new(&mut awriter);
     let handler_cell = RefCell::new(handler);
 
     // Act
@@ -90,9 +90,9 @@ fn create_message_without_input_role() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let awriter = AWriter::new("");
+    let mut awriter = AWriter::new("");
     let rjiter_cell = RefCell::new(rjiter);
-    let handler = SSEHandler::new(RefCell::new(awriter));
+    let handler = SSEHandler::new(&mut awriter);
     let handler_cell = RefCell::new(handler);
 
     // Act
