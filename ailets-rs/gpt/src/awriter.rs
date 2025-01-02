@@ -44,7 +44,7 @@ impl AWriter {
             return;
         }
         if !self.message_has_content {
-            self.begin_text_chunk();
+            self.begin_content();
         }
         if self.text_is_open {
             self.str("\"}");
@@ -66,14 +66,21 @@ impl AWriter {
         self.message_has_role = true;
     }
 
-    pub fn begin_text_chunk(&mut self) {
+    pub fn begin_content(&mut self) {
+        if self.message_has_content {
+            return;
+        }
         if !self.message_has_role {
             self.role("assistant");
         }
+        self.str(",\"content\":[");
+        self.message_has_content = true;
+        self.text_is_open = false;
+    }
+
+    pub fn begin_text_chunk(&mut self) {
         if !self.message_has_content {
-            self.str(",\"content\":[");
-            self.message_has_content = true;
-            self.text_is_open = false;
+            self.begin_content();
         }
         if !self.text_is_open {
             self.str("{\"type\":\"text\",\"text\":\"");
