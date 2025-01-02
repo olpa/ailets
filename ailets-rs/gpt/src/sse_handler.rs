@@ -18,13 +18,6 @@ impl SSEHandler {
     }
 }
 
-/*
-pub fn on_end_delta(_rjiter: &RefCell<RJiter>, sh: &RefCell<SSEHandler>) -> ActionResult {
-    rjiter.borrow_mut().feed();
-    ActionResult::Ok
-}
-*/
-
 #[allow(clippy::missing_panics_doc)]
 pub fn on_delta_role<'rj>(
     rjiter: &'rj RefCell<RJiter<'rj>>,
@@ -50,10 +43,9 @@ pub fn on_delta_content<'rj>(
     let sh = sh.borrow();
     let awriter = &mut *sh.awriter.borrow_mut();
 
-    awriter.begin_text_content();
+    awriter.begin_text_chunk();
     let wb = rjiter.write_bytes(awriter);
     assert!(wb.is_ok(), "Error handling content: {wb:?}");
-    awriter.end_text_content();
 
     ActionResult::OkValueIsConsumed
 }

@@ -67,10 +67,9 @@ pub extern "C" fn process_gpt() {
                 );
 
                 let mut writer = writer_cell.borrow_mut();
-                writer.begin_text_content();
+                writer.begin_text_chunk();
                 let wb = rjiter.write_bytes(&mut *writer);
                 assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
-                writer.end_text_content();
                 ActionResult::OkValueIsConsumed
             },
         ),
