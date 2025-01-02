@@ -14,6 +14,41 @@ use scan_json::{scan_json, ActionResult, Matcher, Trigger, TriggerEnd};
 
 const BUFFER_SIZE: u32 = 1024;
 
+fn on_begin_of_message(_rjiter: &RefCell<RJiter>, writer: &RefCell<AWriter>) -> ActionResult {
+    writer.borrow_mut().begin_message();
+    ActionResult::Ok
+}
+
+fn on_end_of_message(writer: &RefCell<AWriter>) {
+    writer.borrow_mut().end_message();
+}
+
+fn on_message_role(rjiter_cell: &RefCell<RJiter>, writer: &RefCell<AWriter>) -> ActionResult {
+    let mut rjiter = rjiter_cell.borrow_mut();
+    let role = rjiter.next_str().unwrap();
+    writer.borrow_mut().role(role);
+    ActionResult::OkValueIsConsumed
+}
+
+fn on_message_content(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>) -> ActionResult {
+    let mut rjiter = rjiter_cell.borrow_mut();
+    let peeked = rjiter.peek();
+    assert!(
+        peeked.is_ok(),
+        "Error on the content item level: {peeked:?}"
+    );
+    assert!(
+        peeked == Ok(Peek::String),
+        "Expected string at content level"
+    );
+
+    let mut writer = writer_cell.borrow_mut();
+    writer.begin_text_chunk();
+    let wb = rjiter.write_bytes(&mut *writer);
+    assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
+    ActionResult::OkValueIsConsumed
+}
+
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
 pub extern "C" fn process_gpt() {
@@ -26,25 +61,15 @@ pub extern "C" fn process_gpt() {
 
     let begin_of_message = Trigger::new(
         Matcher::new("message".to_string(), None, None, None),
-        Box::new(|_rjiter: &RefCell<RJiter>, writer: &RefCell<AWriter>| {
-            writer.borrow_mut().begin_message();
-            ActionResult::Ok
-        }),
+        Box::new(on_begin_of_message),
     );
     let end_of_message = TriggerEnd::new(
         Matcher::new("message".to_string(), None, None, None),
-        Box::new(|writer: &RefCell<AWriter>| {
-            writer.borrow_mut().end_message();
-        }),
+        Box::new(on_end_of_message),
     );
     let message_role = Trigger::new(
         Matcher::new("role".to_string(), Some("message".to_string()), None, None),
-        Box::new(|rjiter_cell: &RefCell<RJiter>, writer: &RefCell<AWriter>| {
-            let mut rjiter = rjiter_cell.borrow_mut();
-            let role = rjiter.next_str().unwrap();
-            writer.borrow_mut().role(role);
-            ActionResult::OkValueIsConsumed
-        }),
+        Box::new(on_message_role),
     );
     let message_content = Trigger::new(
         Matcher::new(
@@ -53,26 +78,7 @@ pub extern "C" fn process_gpt() {
             None,
             None,
         ),
-        Box::new(
-            |rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>| {
-                let mut rjiter = rjiter_cell.borrow_mut();
-                let peeked = rjiter.peek();
-                assert!(
-                    peeked.is_ok(),
-                    "Error on the content item level: {peeked:?}"
-                );
-                assert!(
-                    peeked == Ok(Peek::String),
-                    "Expected string at content level"
-                );
-
-                let mut writer = writer_cell.borrow_mut();
-                writer.begin_text_chunk();
-                let wb = rjiter.write_bytes(&mut *writer);
-                assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
-                ActionResult::OkValueIsConsumed
-            },
-        ),
+        Box::new(on_message_content),
     );
     let triggers = vec![begin_of_message, message_role, message_content];
     let triggers_end = vec![end_of_message];
