@@ -69,11 +69,15 @@ pub extern "C" fn process_gpt() {
         Matcher::new("message".to_string(), None, None, None),
         Box::new(on_end_message),
     );
-    let role = Trigger::new(
+    let message_role = Trigger::new(
         Matcher::new("role".to_string(), Some("message".to_string()), None, None),
         Box::new(on_role),
     );
-    let content = Trigger::new(
+    let delta_role = Trigger::new(
+        Matcher::new("role".to_string(), Some("delta".to_string()), None, None),
+        Box::new(on_role),
+    );
+    let message_content = Trigger::new(
         Matcher::new(
             "content".to_string(),
             Some("message".to_string()),
@@ -82,7 +86,17 @@ pub extern "C" fn process_gpt() {
         ),
         Box::new(on_content),
     );
-    let triggers = vec![begin_message, role, content];
+    let delta_content = Trigger::new(
+        Matcher::new("content".to_string(), Some("delta".to_string()), None, None),
+        Box::new(on_content),
+    );
+    let triggers = vec![
+        begin_message,
+        message_role,
+        message_content,
+        delta_role,
+        delta_content,
+    ];
     let triggers_end = vec![end_message];
     let sse_tokens = vec!["data:", "DONE"];
     scan_json(
