@@ -52,6 +52,7 @@ class Processes(IProcesses):
         self.rev_deps = rev_deps
 
     def mark_node_started_writing(self) -> None:
+        logger.debug("mark_node_started_writing")
         self.node_started_writing_event.set()
 
     def get_nodes_to_build(self, target_node_name: str) -> list[str]:
@@ -139,6 +140,7 @@ class Processes(IProcesses):
 
         async def awaker() -> None:
             await self.node_started_writing_event.wait()
+            logger.debug("awaker woke up")
 
         def extend_pool() -> None:
             node_names: Sequence[str] = list(
