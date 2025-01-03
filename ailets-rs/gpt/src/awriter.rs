@@ -5,6 +5,7 @@ pub struct AWriter {
     message_has_role: bool,
     message_has_content: bool,
     text_is_open: bool,
+    message_is_closed: bool,
 }
 
 /*
@@ -30,6 +31,7 @@ impl AWriter {
             message_has_role: false,
             message_has_content: false,
             text_is_open: false,
+            message_is_closed: false,
         }
     }
 
@@ -37,9 +39,13 @@ impl AWriter {
         self.message_has_role = false;
         self.message_has_content = false;
         self.text_is_open = false;
+        self.message_is_closed = false;
     }
 
     pub fn end_message(&mut self) {
+        if self.message_is_closed {
+            return;
+        }
         if !self.message_has_role && !self.message_has_content {
             return;
         }
@@ -54,6 +60,7 @@ impl AWriter {
             self.str("]");
         }
         self.str("}\n");
+        self.message_is_closed = true;
     }
 
     pub fn role(&mut self, role: &str) {

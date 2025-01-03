@@ -100,3 +100,27 @@ fn create_message_without_input_role() {
         r#"{"role":"assistant","content":[{"type":"text","text":"hello"}]}"#.to_owned() + "\n";
     assert_eq!(get_output(), expected);
 }
+
+#[test]
+fn can_call_end_message_multiple_times() {
+    // Arrange
+    clear_mocks();
+    let input = r#""hello""#;
+    let mut buffer = vec![0u8; 16];
+    let mut cursor = io::Cursor::new(input);
+    let rjiter = RJiter::new(&mut cursor, &mut buffer);
+    let awriter = AWriter::new("");
+    let rjiter_cell = RefCell::new(rjiter);
+    let awriter_cell = RefCell::new(awriter);
+
+    // Act
+    on_content(&rjiter_cell, &awriter_cell);
+    awriter_cell.borrow_mut().end_message();
+    awriter_cell.borrow_mut().end_message();
+    awriter_cell.borrow_mut().end_message();
+
+    // Assert
+    let expected =
+        r#"{"role":"assistant","content":[{"type":"text","text":"hello"}]}"#.to_owned() + "\n";
+    assert_eq!(get_output(), expected);
+}
