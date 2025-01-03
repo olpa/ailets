@@ -29,5 +29,9 @@ class MiniShell(cmd.Cmd):
         for task in self.env.processes.get_processes():
             print(task)
 
+    def do_awake(self, arg: str) -> None:
+        """Awake a process."""
+        self.env.processes.mark_node_started_writing()
+
     # Aliases
     do_quit = do_exit
