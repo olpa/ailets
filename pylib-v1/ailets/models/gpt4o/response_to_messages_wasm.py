@@ -31,7 +31,7 @@ async def response_to_messages_wasm(runtime: INodeRuntime) -> None:
 
         # Create WASM instance
         instance = wasmer.Instance(module, import_object)
-        run_fn = instance.exports.response_to_messages
+        run_fn = instance.exports.process_gpt
 
         # Set up memory for string handling
         memory = instance.exports.memory
