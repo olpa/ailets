@@ -1,5 +1,6 @@
 use crate::node_runtime::{aclose, awrite, open_write};
 
+#[allow(clippy::struct_excessive_bools)]
 pub struct AWriter {
     fd: Option<u32>,
     message_has_role: bool,

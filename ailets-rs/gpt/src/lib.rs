@@ -22,6 +22,7 @@ pub fn on_end_message(writer: &RefCell<AWriter>) {
     writer.borrow_mut().end_message();
 }
 
+#[allow(clippy::missing_panics_doc)]
 pub fn on_role(rjiter_cell: &RefCell<RJiter>, writer: &RefCell<AWriter>) -> ActionResult {
     let mut rjiter = rjiter_cell.borrow_mut();
     let role = rjiter.next_str().unwrap();
@@ -29,19 +30,14 @@ pub fn on_role(rjiter_cell: &RefCell<RJiter>, writer: &RefCell<AWriter>) -> Acti
     ActionResult::OkValueIsConsumed
 }
 
-pub fn on_content(
-    rjiter_cell: &RefCell<RJiter>,
-    writer_cell: &RefCell<AWriter>,
-) -> ActionResult {
+#[allow(clippy::missing_panics_doc)]
+pub fn on_content(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>) -> ActionResult {
     let mut rjiter = rjiter_cell.borrow_mut();
     let peeked = rjiter.peek();
-    assert!(
-        peeked.is_ok(),
-        "Error on the content item level: {peeked:?}"
-    );
+    assert!(peeked.is_ok(), "Error peeking 'content' value: {peeked:?}");
     assert!(
         peeked == Ok(Peek::String),
-        "Expected string at content level"
+        "Expected string for 'content' value, got {peeked:?}"
     );
 
     let mut writer = writer_cell.borrow_mut();
