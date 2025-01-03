@@ -116,3 +116,21 @@ def hijack_msg2md(nodereg: NodeRegistry) -> None:
     )
 
     nodereg.add_node_def(new_msg2md)
+
+
+def hijack_gpt_resp2msg(nodereg: NodeRegistry) -> None:
+    from ailets.models.gpt4o.response_to_messages_wasm import (
+        response_to_messages_wasm,
+        load_wasm_module,
+    )
+
+    load_wasm_module()
+
+    orig_gpt = nodereg.get_node(".gpt4o.response_to_messages")
+    new_gpt = NodeDescFunc(
+        name=".gpt4o.response_to_messages",
+        inputs=orig_gpt.inputs,
+        func=response_to_messages_wasm,
+    )
+
+    nodereg.add_node_def(new_gpt)
