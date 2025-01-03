@@ -1,28 +1,33 @@
 import cmd
+from ailets.cons.environment import Environment
+
 
 class MiniShell(cmd.Cmd):
-    intro = 'Welcome to MiniShell. Type help or ? to list commands.\n'
-    prompt = '(ailets) '
+    intro = "Welcome to MiniShell. Type help or ? to list commands.\n"
+    prompt = "(ailets) "
 
-    def do_echo(self, arg):
+    def __init__(self, env: Environment) -> None:
+        super().__init__()
+        self.env = env
+
+    def do_echo(self, arg: str) -> None:
         """Echo the input arguments.
         Usage: echo [message]"""
         print(arg)
 
-    def do_help(self, arg):
+    def do_help(self, arg: str) -> None:
         """List available commands with "help" or detailed help with "help cmd"."""
         super().do_help(arg)
 
-    def do_exit(self, arg):
+    def do_exit(self, arg: str) -> bool:
         """Exit the shell."""
-        print('Goodbye!')
+        print("Goodbye!")
         return True
+
+    def do_ps(self, arg: str) -> None:
+        """List processes."""
+        for task in self.env.processes.get_processes():
+            print(task)
 
     # Aliases
     do_quit = do_exit
-
-def main():
-    MiniShell().cmdloop()
-
-if __name__ == '__main__':
-    main()

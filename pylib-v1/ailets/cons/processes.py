@@ -25,6 +25,7 @@ class Processes(IProcesses):
         self.rev_deps: Mapping[str, Sequence[Dependency]] = {}
 
         self.streams.set_on_write_started(self.mark_node_started_writing)
+        self.pool: set[asyncio.Task[None]] = set()
 
     def is_node_finished(self, name: str) -> bool:
         return name in self.finished_nodes
@@ -134,7 +135,7 @@ class Processes(IProcesses):
         )
 
     async def run_nodes(self, node_iter: Iterator[str | None]) -> None:
-        pool: set[asyncio.Task[None]] = set()
+        self.pool = set()
 
         async def awaker() -> None:
             await self.node_started_writing_event.wait()
@@ -145,25 +146,27 @@ class Processes(IProcesses):
                 for name in itertools.takewhile(lambda x: x is not None, node_iter)
                 if isinstance(name, str)
             )
-            pool.update(
+            self.pool.update(
                 asyncio.create_task(self.build_node_alone(name), name=name)
                 for name in node_names
             )
 
         extend_pool()
-        while len(pool):
+        while len(self.pool):
             awaiker_task = asyncio.create_task(awaker())
-            pool.add(awaiker_task)
+            self.pool.add(awaiker_task)
             self.node_started_writing_event.clear()
 
-            done, pool = await asyncio.wait(pool, return_when=asyncio.FIRST_COMPLETED)
+            done, self.pool = await asyncio.wait(
+                self.pool, return_when=asyncio.FIRST_COMPLETED
+            )
             for task in done:
                 if exc := task.exception():
                     raise exc
 
             if not awaiker_task.done():
                 awaiker_task.cancel()
-                pool.remove(awaiker_task)
+                self.pool.remove(awaiker_task)
 
             extend_pool()
 
@@ -186,3 +189,6 @@ class Processes(IProcesses):
             for dep in self.deps[name]:
                 print(f"  {dep.source} ({dep.stream}) -> {dep.name}")
             raise
+
+    def get_processes(self) -> set[asyncio.Task[None]]:
+        return self.pool

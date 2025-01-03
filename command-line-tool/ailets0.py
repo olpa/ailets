@@ -7,7 +7,7 @@ import sys
 import logging
 import localsetup  # noqa: F401
 from ailets.cons.dump import dump_environment, load_environment, print_dependency_tree
-from typing import Iterator, Literal, Optional, Tuple
+from typing import Any, Iterator, Literal, Optional, Tuple
 from ailets.cons.environment import Environment
 from ailets.cons.plugin import NodeRegistry, hijack_gpt_resp2msg, hijack_msg2md
 from ailets.cons.pipelines import (
@@ -20,6 +20,8 @@ from ailets.cons.pipelines import (
 import re
 import os
 from urllib.parse import urlparse
+import signal
+import ailets.cons.minishell as minishell
 
 
 def parse_args() -> argparse.Namespace:
@@ -262,10 +264,18 @@ async def main() -> None:
     if args.dry_run:
         print_dependency_tree(env.dagops, env.processes, target_node_name)
     else:
+        # Setup Ctrl+Z handler
+        def ctrl_z_handler(signum: int, frame: Any) -> None:
+            minishell.MiniShell(env).cmdloop()
+
+        signal.signal(signal.SIGTSTP, ctrl_z_handler)
+
         node_iter = env.processes.next_node_iter(
             target_node_name, args.one_step, stop_before_node, stop_after_node
         )
         await env.processes.run_nodes(node_iter)
+        # Reset SIGTSTP handler back to default
+        signal.signal(signal.SIGTSTP, signal.SIG_DFL)
 
     if args.save_state:
         with open(args.save_state, "w") as f:
