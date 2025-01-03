@@ -12,8 +12,8 @@ fn get_expected_basic_message() -> String {
 #[test]
 fn test_basic_processing() {
     clear_mocks();
-    let fixture_content = std::fs::read_to_string("tests/fixture/basic_reponse.txt")
-        .expect("Failed to read fixture file 'basic_reponse.txt'");
+    let fixture_content = std::fs::read_to_string("tests/fixture/basic_response.txt")
+        .expect("Failed to read fixture file 'basic_response.txt'");
     set_input(&[&fixture_content]);
 
     process_gpt();
@@ -22,8 +22,7 @@ fn test_basic_processing() {
 }
 
 #[test]
-#[ignore]
-fn test_basic_streaming() {
+fn test_streaming() {
     clear_mocks();
     let fixture_content = std::fs::read_to_string("tests/fixture/basic_streaming.txt")
         .expect("Failed to read fixture file 'basic_streaming.txt'");

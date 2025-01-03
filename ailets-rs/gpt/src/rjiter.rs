@@ -308,4 +308,21 @@ impl<'rj> RJiter<'rj> {
             self.feed();
         }
     }
+
+    pub fn skip_token(&mut self, token: &[u8]) -> bool {
+        self.maybe_feed();
+
+        let buf_view = &mut self.buffer[self.jiter.current_index()..self.bytes_in_buffer];
+        if !buf_view.starts_with(token) {
+            return false;
+        }
+
+        for byte in buf_view.iter_mut().take(token.len()) {
+            *byte = b' ';
+        }
+        let _ = self.jiter.finish(); // feed jiter to the next content
+        buf_view[..token.len()].copy_from_slice(token);
+
+        true
+    }
 }

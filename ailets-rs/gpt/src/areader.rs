@@ -9,6 +9,7 @@ pub struct AReader {
 }
 
 impl AReader {
+    #[must_use]
     pub fn new(stream_name: &str) -> Self {
         AReader {
             fd: None,

@@ -10,7 +10,13 @@ fn test_scan_json_empty_input() {
     let rjiter = RJiter::new(&mut reader, &mut buffer);
 
     let triggers: Vec<Trigger<()>> = vec![];
-    scan_json(&triggers, &vec![], &RefCell::new(rjiter), &RefCell::new(()));
+    scan_json(
+        &triggers,
+        &vec![],
+        &vec![],
+        &RefCell::new(rjiter),
+        &RefCell::new(()),
+    );
 }
 
 #[test]
@@ -21,7 +27,13 @@ fn test_scan_json_top_level_types() {
     let rjiter = RJiter::new(&mut reader, &mut buffer);
 
     let triggers: Vec<Trigger<()>> = vec![];
-    scan_json(&triggers, &vec![], &RefCell::new(rjiter), &RefCell::new(()));
+    scan_json(
+        &triggers,
+        &vec![],
+        &vec![],
+        &RefCell::new(rjiter),
+        &RefCell::new(()),
+    );
 }
 
 #[test]
@@ -32,7 +44,13 @@ fn test_scan_json_simple_object() {
     let rjiter = RJiter::new(&mut reader, &mut buffer);
 
     let triggers: Vec<Trigger<()>> = vec![];
-    scan_json(&triggers, &vec![], &RefCell::new(rjiter), &RefCell::new(()));
+    scan_json(
+        &triggers,
+        &vec![],
+        &vec![],
+        &RefCell::new(rjiter),
+        &RefCell::new(()),
+    );
 }
 
 #[test]
@@ -43,7 +61,13 @@ fn test_scan_json_simple_array() {
     let rjiter = RJiter::new(&mut reader, &mut buffer);
 
     let triggers: Vec<Trigger<()>> = vec![];
-    scan_json(&triggers, &vec![], &RefCell::new(rjiter), &RefCell::new(()));
+    scan_json(
+        &triggers,
+        &vec![],
+        &vec![],
+        &RefCell::new(rjiter),
+        &RefCell::new(()),
+    );
 }
 
 #[test]
@@ -75,7 +99,30 @@ fn test_scan_json_nested_complex() {
     let rjiter = RJiter::new(&mut reader, &mut buffer);
 
     let triggers: Vec<Trigger<()>> = vec![];
-    scan_json(&triggers, &vec![], &RefCell::new(rjiter), &RefCell::new(()));
+    scan_json(
+        &triggers,
+        &vec![],
+        &vec![],
+        &RefCell::new(rjiter),
+        &RefCell::new(()),
+    );
+}
+
+#[test]
+fn test_skip_sse_tokens() {
+    let json = r#"data: {"foo": "bar"} [DONE] "#;
+    let mut reader = json.as_bytes();
+    let mut buffer = vec![0u8; 16];
+    let rjiter = RJiter::new(&mut reader, &mut buffer);
+
+    let sse_tokens = vec!["data:", "DONE"];
+    scan_json(
+        &vec![],
+        &vec![],
+        &sse_tokens,
+        &RefCell::new(rjiter),
+        &RefCell::new(()),
+    );
 }
 
 #[test]
@@ -95,7 +142,7 @@ fn test_call_begin_dont_touch_value() {
         action,
     }];
 
-    scan_json(&triggers, &vec![], &RefCell::new(rjiter), &state);
+    scan_json(&triggers, &vec![], &vec![], &RefCell::new(rjiter), &state);
     assert!(*state.borrow(), "Trigger should have been called for 'foo'");
 }
 
@@ -120,7 +167,7 @@ fn test_call_begin_consume_value() {
         action,
     }];
 
-    scan_json(&triggers, &vec![], &RefCell::new(rjiter), &state);
+    scan_json(&triggers, &vec![], &vec![], &RefCell::new(rjiter), &state);
     assert!(*state.borrow(), "Trigger should have been called for 'foo'");
 }
 
@@ -138,6 +185,12 @@ fn test_call_end() {
         action,
     }];
 
-    scan_json(&vec![], &triggers_end, &RefCell::new(rjiter), &state);
+    scan_json(
+        &vec![],
+        &triggers_end,
+        &vec![],
+        &RefCell::new(rjiter),
+        &state,
+    );
     assert!(*state.borrow(), "Trigger should have been called for 'foo'");
 }
