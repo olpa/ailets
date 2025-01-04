@@ -1,6 +1,7 @@
 import asyncio
 import itertools
 import logging
+import sys
 from typing import Iterator, Mapping, Optional, Sequence
 from ailets.cons.atyping import Dependency, IEnvironment, IProcesses
 from ailets.cons.node_runtime import NodeRuntime
@@ -25,6 +26,9 @@ class Processes(IProcesses):
         self.rev_deps: Mapping[str, Sequence[Dependency]] = {}
 
         self.streams.set_on_write_started(self.mark_node_started_writing)
+        self.pool: set[asyncio.Task[None]] = set()
+
+        self.loop = asyncio.get_event_loop()
 
     def is_node_finished(self, name: str) -> bool:
         return name in self.finished_nodes
@@ -51,7 +55,8 @@ class Processes(IProcesses):
         self.rev_deps = rev_deps
 
     def mark_node_started_writing(self) -> None:
-        self.node_started_writing_event.set()
+        logger.debug("mark_node_started_writing")
+        self.loop.call_soon_threadsafe(self.node_started_writing_event.set)
 
     def get_nodes_to_build(self, target_node_name: str) -> list[str]:
         nodes_to_build = []
@@ -134,10 +139,11 @@ class Processes(IProcesses):
         )
 
     async def run_nodes(self, node_iter: Iterator[str | None]) -> None:
-        pool: set[asyncio.Task[None]] = set()
+        self.pool = set()
 
         async def awaker() -> None:
             await self.node_started_writing_event.wait()
+            logger.debug("awaker woke up")
 
         def extend_pool() -> None:
             node_names: Sequence[str] = list(
@@ -145,25 +151,27 @@ class Processes(IProcesses):
                 for name in itertools.takewhile(lambda x: x is not None, node_iter)
                 if isinstance(name, str)
             )
-            pool.update(
+            self.pool.update(
                 asyncio.create_task(self.build_node_alone(name), name=name)
                 for name in node_names
             )
 
         extend_pool()
-        while len(pool):
+        while len(self.pool):
             awaiker_task = asyncio.create_task(awaker())
-            pool.add(awaiker_task)
+            self.pool.add(awaiker_task)
             self.node_started_writing_event.clear()
 
-            done, pool = await asyncio.wait(pool, return_when=asyncio.FIRST_COMPLETED)
+            done, self.pool = await asyncio.wait(
+                self.pool, return_when=asyncio.FIRST_COMPLETED
+            )
             for task in done:
                 if exc := task.exception():
                     raise exc
 
             if not awaiker_task.done():
                 awaiker_task.cancel()
-                pool.remove(awaiker_task)
+                self.pool.remove(awaiker_task)
 
             extend_pool()
 
@@ -180,9 +188,14 @@ class Processes(IProcesses):
             await node.func(runtime)
             self.finished_nodes.add(name)
         except Exception:
+            exc = sys.exc_info()[1]
             print(f"Error building node '{name}'")
             print(f"Function: {node.func.__name__}")
             print("Dependencies:")
             for dep in self.deps[name]:
                 print(f"  {dep.source} ({dep.stream}) -> {dep.name}")
+            print(f"Exception: {exc}")
             raise
+
+    def get_processes(self) -> set[asyncio.Task[None]]:
+        return self.pool

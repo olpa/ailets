@@ -1,21 +1,25 @@
 from ailets.cons.atyping import INodeRuntime
-from ailets.cons.util import read_all, write_all
+from ailets.cons.util import write_all
 
 
 async def stdout(runtime: INodeRuntime) -> None:
     """Print each value to stdout and return them unchanged."""
 
+    buffer = bytearray(1024)
     div = ""
 
     for i in range(runtime.n_of_streams("")):
         fd = await runtime.open_read("", i)
-        value = (await read_all(runtime, fd)).decode("utf-8")
+        while True:
+            count = await runtime.read(fd, buffer, len(buffer))
+            if count == 0:
+                break
+            if div:
+                print(div, end="")
+                div = ""
+            print(buffer[:count].decode("utf-8"), end="", flush=True)
         await runtime.close(fd)
 
-        if value == "":
-            continue
-        print(div, end="")
-        print(value, end="")
         div = "\n"
 
     fd = await runtime.open_write("")

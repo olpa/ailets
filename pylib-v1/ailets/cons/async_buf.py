@@ -1,8 +1,19 @@
 import asyncio
+from dataclasses import dataclass
 import logging
-from typing import Callable, Optional
+from typing import Callable, Optional, Set
 
 logger = logging.getLogger("ailets.io")
+
+
+@dataclass(frozen=True)
+class ReaderSync:
+    loop: asyncio.AbstractEventLoop
+    event: asyncio.Event
+
+    @classmethod
+    def new(cls) -> "ReaderSync":
+        return cls(loop=asyncio.get_event_loop(), event=asyncio.Event())
 
 
 class AsyncBuffer:
@@ -14,14 +25,21 @@ class AsyncBuffer:
         debug_hint: Optional[str] = None,
     ) -> None:
         self.buffer = initial_content or b""
-        self.event = asyncio.Event()
         self._is_closed = is_closed
         self.on_write_started = on_write_started
         self.debug_hint = debug_hint
+        self.reader_sync: Set[ReaderSync] = set()
+
+    def notify_readers(self) -> None:
+        # copy to avoid race condition (Set changed size during iteration)
+        readers = self.reader_sync.copy()
+        for reader in readers:
+            if reader in self.reader_sync:
+                reader.loop.call_soon_threadsafe(reader.event.set)
 
     async def close(self) -> None:
         self._is_closed = True
-        self.event.set()
+        self.notify_readers()
         logger.debug(
             "Buffer closed%s", f" ({self.debug_hint})" if self.debug_hint else ""
         )
@@ -33,23 +51,28 @@ class AsyncBuffer:
         old_pos = len(self.buffer)
         self.buffer += data
         new_pos = len(self.buffer)
-        self.event.set()
         logger.debug(
             "Buffer write%s: pos %d->%d",
             f" ({self.debug_hint})" if self.debug_hint else "",
             old_pos,
             new_pos,
         )
+        self.notify_readers()
         if old_pos == 0 and new_pos > 0:
             self.on_write_started()
         return len(data)
 
     async def read(self, pos: int, size: int = -1) -> bytes:
-        while len(self.buffer) <= pos:
-            if self.is_closed():
-                return b""
-            await self.event.wait()
-            self.event.clear()
+        reader_sync = ReaderSync.new()
+        try:
+            self.reader_sync.add(reader_sync)
+            while len(self.buffer) <= pos:
+                if self.is_closed():
+                    return b""
+                await reader_sync.event.wait()
+                reader_sync.event.clear()
+        finally:
+            self.reader_sync.remove(reader_sync)
 
         if size < 0:
             return self.buffer[pos:]
@@ -102,4 +125,5 @@ if __name__ == "__main__":
 
         await asyncio.gather(writer_task, rt1, rt2, rt3)
 
+    logging.basicConfig(level=logging.DEBUG)
     asyncio.run(main())
