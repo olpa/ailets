@@ -1,6 +1,7 @@
 import asyncio
 import itertools
 import logging
+import sys
 from typing import Iterator, Mapping, Optional, Sequence
 from ailets.cons.atyping import Dependency, IEnvironment, IProcesses
 from ailets.cons.node_runtime import NodeRuntime
@@ -187,11 +188,13 @@ class Processes(IProcesses):
             await node.func(runtime)
             self.finished_nodes.add(name)
         except Exception:
+            exc = sys.exc_info()[1]
             print(f"Error building node '{name}'")
             print(f"Function: {node.func.__name__}")
             print("Dependencies:")
             for dep in self.deps[name]:
                 print(f"  {dep.source} ({dep.stream}) -> {dep.name}")
+            print(f"Exception: {exc}")
             raise
 
     def get_processes(self) -> set[asyncio.Task[None]]:
