@@ -27,6 +27,8 @@ class Processes(IProcesses):
         self.streams.set_on_write_started(self.mark_node_started_writing)
         self.pool: set[asyncio.Task[None]] = set()
 
+        self.loop = asyncio.get_event_loop()
+
     def is_node_finished(self, name: str) -> bool:
         return name in self.finished_nodes
 
@@ -53,7 +55,7 @@ class Processes(IProcesses):
 
     def mark_node_started_writing(self) -> None:
         logger.debug("mark_node_started_writing")
-        self.node_started_writing_event.set()
+        self.loop.call_soon_threadsafe(self.node_started_writing_event.set)
 
     def get_nodes_to_build(self, target_node_name: str) -> list[str]:
         nodes_to_build = []
