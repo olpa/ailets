@@ -31,8 +31,11 @@ class AsyncBuffer:
         self.reader_sync: Set[ReaderSync] = set()
 
     def notify_readers(self) -> None:
-        for reader in self.reader_sync:
-            reader.loop.call_soon_threadsafe(reader.event.set)
+        # copy to avoid race condition (Set changed size during iteration)
+        readers = self.reader_sync.copy()
+        for reader in readers:
+            if reader in self.reader_sync:
+                reader.loop.call_soon_threadsafe(reader.event.set)
 
     async def close(self) -> None:
         self._is_closed = True
