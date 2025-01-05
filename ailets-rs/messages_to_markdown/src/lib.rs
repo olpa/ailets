@@ -1,7 +1,6 @@
 mod areader;
 mod awriter;
 mod node_runtime;
-pub mod rjiter;
 
 use areader::AReader;
 use awriter::AWriter;

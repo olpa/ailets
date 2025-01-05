@@ -1,5 +1,5 @@
-use crate::Peek;
-use crate::RJiter;
+use rjiter::Peek;
+use rjiter::RJiter;
 use std::cell::RefCell;
 use std::io;
 
@@ -277,9 +277,9 @@ pub fn scan_json<T>(
 
         if peeked.is_none() {
             let peekedr = rjiter.peek();
-            if let Err(jiter::JiterError {
+            if let Err(rjiter::JiterError {
                 error_type:
-                    jiter::JiterErrorType::JsonError(jiter::JsonErrorType::EofWhileParsingValue),
+                    rjiter::JiterErrorType::JsonError(rjiter::JsonErrorType::EofWhileParsingValue),
                 ..
             }) = peekedr
             {
