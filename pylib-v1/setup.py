@@ -11,7 +11,7 @@ setup(
     packages=find_packages() + ['ailets.wasm'],
     include_package_data=True,
     package_data={
-        'ailets.wasm': ['wasm/*.wasm'],
+        'ailets.wasm': ['*.wasm'],
         },
     install_requires=[
         'aiohttp',

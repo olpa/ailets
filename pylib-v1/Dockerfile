@@ -4,6 +4,7 @@ FROM python:3.11-slim as builder
 WORKDIR /build
 COPY ./setup.py ./MANIFEST.in ./README.md ./
 COPY ./ailets/. ./ailets/
+COPY --from=ailets-wasm-actors /dist/*.wasm ./ailets/wasm/
 
 # Install build dependencies and build the wheel
 RUN pip install --no-cache-dir build wheel \
@@ -22,4 +23,4 @@ RUN pip install --no-cache-dir *.whl \
 # Verify installation
 RUN python -c "import ailets; print(f'ailets version {ailets.__version__}')"
 
-CMD ["python", "-m", "ailets"] 
+CMD ["python", "-m", "ailets"]
