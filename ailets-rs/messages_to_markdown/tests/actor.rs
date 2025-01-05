@@ -118,7 +118,6 @@ fn test_skip_unknown_key_object() {
     assert_eq!(get_output(), "First message\n\nSecond message\n");
 }
 
-
 #[test]
 fn test_json_escapes() {
     clear_mocks();

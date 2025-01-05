@@ -329,7 +329,7 @@ pub fn scan_json<T>(
             continue;
         }
         if peeked == Peek::String {
-            rjiter.write_bytes(&mut io::sink()).unwrap();
+            rjiter.write_long_bytes(&mut io::sink()).unwrap();
             continue;
         }
 
