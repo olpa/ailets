@@ -127,7 +127,7 @@ pub extern "C" fn messages_to_markdown() {
             );
 
             writer.start_paragraph();
-            let wb = rjiter.write_bytes(&mut writer);
+            let wb = rjiter.write_long_str(&mut writer);
             assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
 
             continue;

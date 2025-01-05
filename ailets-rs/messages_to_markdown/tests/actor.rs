@@ -117,3 +117,20 @@ fn test_skip_unknown_key_object() {
 
     assert_eq!(get_output(), "First message\n\nSecond message\n");
 }
+
+#[test]
+fn test_json_escapes() {
+    clear_mocks();
+    let json_data = r#"
+    {
+        "role":"assistant",
+        "content":[
+            {"type":"text", "text":"a\n\"\u0401\""}
+        ]
+    }"#;
+    set_input(&[json_data]);
+
+    messages_to_markdown();
+
+    assert_eq!(get_output(), "a\n\"\u{0401}\"\n");
+}

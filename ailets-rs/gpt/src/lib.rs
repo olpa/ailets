@@ -41,7 +41,7 @@ pub fn on_content(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>)
 
     let mut writer = writer_cell.borrow_mut();
     writer.begin_text_chunk();
-    let wb = rjiter.write_bytes(&mut *writer);
+    let wb = rjiter.write_long_bytes(&mut *writer);
     assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
     ActionResult::OkValueIsConsumed
 }
