@@ -5,8 +5,8 @@ mod mocked_node_runtime;
 use mocked_node_runtime::{clear_mocks, get_output};
 
 use gpt::awriter::AWriter;
-use gpt::rjiter::RJiter;
 use gpt::{on_content, on_role};
+use rjiter::RJiter;
 
 #[test]
 fn basic_pass() {

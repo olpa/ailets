@@ -1,7 +1,6 @@
 pub mod areader;
 pub mod awriter;
 pub mod node_runtime;
-pub mod rjiter;
 pub mod scan_json;
 
 use std::cell::RefCell;

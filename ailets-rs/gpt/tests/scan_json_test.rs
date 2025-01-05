@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
-use gpt::rjiter::RJiter;
 use gpt::scan_json::{scan_json, ActionResult, Matcher, Trigger, TriggerEnd};
+use rjiter::RJiter;
 
 #[test]
 fn test_scan_json_empty_input() {
