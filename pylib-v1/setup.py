@@ -8,11 +8,17 @@ with open('ailets/_version.py', 'r') as f:
 setup(
     name="ailets",
     version=version,
-    packages=find_packages(),
+    packages=find_packages() + ['ailets.wasm'],
+    include_package_data=True,
+    package_data={
+        'ailets.wasm': ['*.wasm'],
+        },
     install_requires=[
         'aiohttp',
+        'tomli',
         'typing_extensions',
-        'aiohttp',
+        'wasmer',
+        'wasmer_compiler_cranelift',
     ],
     author="Oleg Parashchenko",
     author_email="olpa@uucode.com",

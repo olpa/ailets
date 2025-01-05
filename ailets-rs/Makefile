@@ -25,3 +25,7 @@ lint-py:
 
 fix-py:
 	black run_actor.py
+
+build-docker-image:
+	docker build -t ailets-wasm-actors .
+

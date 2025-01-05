@@ -1,0 +1,6 @@
+**/wasm
+**/*.wasm
+**/__pycache__
+build
+dist
+ailets.egg-info
