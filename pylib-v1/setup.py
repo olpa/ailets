@@ -15,7 +15,10 @@ setup(
         },
     install_requires=[
         'aiohttp',
+        'tomli',
         'typing_extensions',
+        'wasmer',
+        'wasmer_compiler_cranelift',
     ],
     author="Oleg Parashchenko",
     author_email="olpa@uucode.com",
