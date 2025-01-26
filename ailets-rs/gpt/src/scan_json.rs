@@ -1,4 +1,4 @@
-use rjiter::Peek;
+use rjiter::jiter::Peek;
 use rjiter::RJiter;
 use std::cell::RefCell;
 use std::io;
@@ -277,9 +277,9 @@ pub fn scan_json<T>(
 
         if peeked.is_none() {
             let peekedr = rjiter.peek();
-            if let Err(rjiter::JiterError {
+            if let Err(rjiter::Error {
                 error_type:
-                    rjiter::JiterErrorType::JsonError(rjiter::JsonErrorType::EofWhileParsingValue),
+                    rjiter::error::ErrorType::JsonError(rjiter::jiter::JsonErrorType::EofWhileParsingValue),
                 ..
             }) = peekedr
             {
@@ -343,7 +343,8 @@ pub fn scan_json<T>(
         // parsed as an array with one element, the string "DONE".
         if context.is_empty() || (cur_level.is_in_array && context.len() == 1) {
             for sse_token in sse_tokens {
-                if rjiter.skip_token(sse_token.as_bytes()) {
+                let found = rjiter.known_skip_token(sse_token.as_bytes());
+                if found.is_ok() {
                     continue 'main_loop;
                 }
             }

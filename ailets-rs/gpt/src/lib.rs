@@ -7,7 +7,8 @@ use std::cell::RefCell;
 
 use areader::AReader;
 use awriter::AWriter;
-use rjiter::{Peek, RJiter};
+use rjiter::RJiter;
+use rjiter::jiter::Peek;
 use scan_json::{scan_json, ActionResult, Matcher, Trigger, TriggerEnd};
 
 const BUFFER_SIZE: u32 = 1024;
@@ -34,8 +35,9 @@ pub fn on_content(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>)
     let mut rjiter = rjiter_cell.borrow_mut();
     let peeked = rjiter.peek();
     assert!(peeked.is_ok(), "Error peeking 'content' value: {peeked:?}");
+    let peeked = peeked.unwrap();
     assert!(
-        peeked == Ok(Peek::String),
+        peeked == Peek::String,
         "Expected string for 'content' value, got {peeked:?}"
     );
 
