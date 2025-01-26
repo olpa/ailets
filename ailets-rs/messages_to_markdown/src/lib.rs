@@ -4,7 +4,8 @@ mod node_runtime;
 
 use areader::AReader;
 use awriter::AWriter;
-use rjiter::{Peek, RJiter};
+use rjiter::jiter::Peek;
+use rjiter::RJiter;
 
 const BUFFER_SIZE: u32 = 1024;
 
@@ -46,7 +47,8 @@ pub extern "C" fn messages_to_markdown() {
             }
             let peek = rjiter.peek();
             assert!(peek.is_ok(), "Error: {peek:?}");
-            assert!(peek == Ok(Peek::Object), "Expected object at top level");
+            let peek = peek.unwrap();
+            assert!(peek == Peek::Object, "Expected object at top level");
 
             level = Level::Message;
             at_begin = true;
@@ -121,10 +123,8 @@ pub extern "C" fn messages_to_markdown() {
                 peeked.is_ok(),
                 "Error on the content item level: {peeked:?}"
             );
-            assert!(
-                peeked == Ok(Peek::String),
-                "Expected string at content level"
-            );
+            let peeked = peeked.unwrap();
+            assert!(peeked == Peek::String, "Expected string at content level");
 
             writer.start_paragraph();
             let wb = rjiter.write_long_str(&mut writer);
