@@ -279,7 +279,9 @@ pub fn scan_json<T>(
             let peekedr = rjiter.peek();
             if let Err(rjiter::Error {
                 error_type:
-                    rjiter::error::ErrorType::JsonError(rjiter::jiter::JsonErrorType::EofWhileParsingValue),
+                    rjiter::error::ErrorType::JsonError(
+                        rjiter::jiter::JsonErrorType::EofWhileParsingValue,
+                    ),
                 ..
             }) = peekedr
             {

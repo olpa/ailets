@@ -7,8 +7,8 @@ use std::cell::RefCell;
 
 use areader::AReader;
 use awriter::AWriter;
-use rjiter::RJiter;
 use rjiter::jiter::Peek;
+use rjiter::RJiter;
 use scan_json::{scan_json, ActionResult, Matcher, Trigger, TriggerEnd};
 
 const BUFFER_SIZE: u32 = 1024;
