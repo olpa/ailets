@@ -6,12 +6,6 @@ build:
 	cp ./target/wasm32-unknown-unknown/debug/*.wasm ./dist
 	cp ./target/wasm32-unknown-unknown/debug/*.wasm ../pylib-v1/ailets/wasm/
 
-test: build
-	cd python-bindings && python -m pytest tests/
-
-install: build
-	cd python-bindings && pip install -e . 
-
 fix:
 	cargo fmt
 
