@@ -55,16 +55,13 @@ ailets dalle --prompt "linux logo"
 
 ## Closing and call to action
 
+Read the [technical thoughts](./docs/technical-thoughts.md)
+
 Developers:
 
 - ⭐ Star the repository
 - Join [Ailets Discord](https://discord.gg/HEBE3gv2)
 - Eventually, start using ailets in your code
-
-Contributors:
-
-- Read the [technical thoughts](./docs/technical-thoughts.md)
-- Follow [contribution guidelines](https://github.com/olpa/ailets/wiki/Contribution-guidelines-MOOC-hackathon)
 
 Sponsors:
 
