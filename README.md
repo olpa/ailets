@@ -1,6 +1,6 @@
 # ailets: Building blocks for realtime AI apps
 
-It's components that make AI services interchangeable. Based on WebAssembly, the components can be used from any programming language and run anywhere.
+Ailets are components that make AI services interchangeable. Based on WebAssembly, the components can be used from any programming language and run anywhere.
 
 
 ## Problems with existing solutions
@@ -47,16 +47,6 @@ ailets dalle --prompt "linux logo"
 # Output: ![image](https://oaidalleapiprodscus.blob.core.windows.net/....)
 
 ```
-
-### User playground in the browser
-
-Open the page TODO.
-
-The shell in the browser is the same as in the Docker container. Run the same commands.
-
-### Sample Python code
-
-Too unstable to show yet.
 
 ## Customer quote
 
