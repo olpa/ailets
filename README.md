@@ -81,6 +81,10 @@ The Ailets project is unique, tames AI agents, ambitious, and requires a lot of 
 * A2: The command-line tool works already. https://hub.docker.com/r/olpa/ailets, https://github.com/olpa/ailets/blob/master/docs/command-line-tool.md
 
 
-## Contact
+# Contact
 
-Oleg Parashchenko, <olpa@uucode.com>
+Author: Oleg Parashchenko, olpa@ <https://uucode.com/>
+
+Contact: via email or [Ailets Discord](https://discord.gg/HEBE3gv2)
+
+License: MIT
