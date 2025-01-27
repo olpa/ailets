@@ -55,20 +55,29 @@ ailets dalle --prompt "linux logo"
 
 ## Closing and call to action
 
-Developers: Start using ailets in your code. Quick start for languages: TODO python * TODO TypeScript * TODO Golang * TODO more
+Developers:
+
+- ⭐ Star the repository
+- Join [Ailets Discord](https://discord.gg/HEBE3gv2)
+- Eventually, start using ailets in your code
 
 Contributors:
 
 - Read the [technical thoughts](./docs/technical-thoughts.md)
-- Follow [contribution guidelines MOOC hackathon](https://github.com/olpa/ailets/wiki/Contribution-guidelines-MOOC-hackathon)
+- Follow [contribution guidelines](https://github.com/olpa/ailets/wiki/Contribution-guidelines-MOOC-hackathon)
 
-Sponsors: For a small amount (up to $100), pay to the GeWoVa project: <https://gewova.com/buy.html>. For a larger amount, schedule a meeting with me by sending an invitation link to <olpa@uucode.com>.
+Sponsors:
+
+The Ailets project is unique, tames AI agents, ambitious, and requires a lot of work. I need to raise funds.
+
+- Crowdfunding: For a small amount (up to $100), pay to the GeWoVa project: <https://gewova.com/buy.html>
+- Venture capital: Potentially, Ailets is a multi-million dollar business. [View the pitch](https://youtu.be/0-YYUNn_EDU?si=GyaEbXYif8t3yjk6), [https://drive.google.com/file/d/1xakK9fJkjzBbi9tO6ZFB16IMPCa_D2rR/view?usp=sharing](read the slides).
 
 
 ## FAQ
 
 * Q: Does it really work?
-* A1: Not yet. A proof of concept is expected in mid-December 2024.
+* A1: Not yet. However, the ideas is validated by a working proof of concept.
 * A2: The command-line tool works already. https://hub.docker.com/r/olpa/ailets, https://github.com/olpa/ailets/blob/master/docs/command-line-tool.md
 
 
