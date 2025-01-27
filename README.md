@@ -1,4 +1,4 @@
-# ailets: Building blocks for realtime AI apps
+# Ailets: Building blocks for realtime AI apps
 
 Ailets are components that make AI services interchangeable. Based on WebAssembly, the components can be used from any programming language and run anywhere.
 
@@ -71,7 +71,7 @@ Sponsors:
 The Ailets project is unique, tames AI agents, ambitious, and requires a lot of work. I need to raise funds.
 
 - Crowdfunding: For a small amount (up to $100), pay to the GeWoVa project: <https://gewova.com/buy.html>
-- Venture capital: Potentially, Ailets is a multi-million dollar business. [View the pitch](https://youtu.be/0-YYUNn_EDU?si=GyaEbXYif8t3yjk6), [https://drive.google.com/file/d/1xakK9fJkjzBbi9tO6ZFB16IMPCa_D2rR/view?usp=sharing](read the slides).
+- Venture capital: Potentially, Ailets is a multi-million dollar business. [View the pitch](https://youtu.be/0-YYUNn_EDU?si=GyaEbXYif8t3yjk6), [read the slides](https://drive.google.com/file/d/1xakK9fJkjzBbi9tO6ZFB16IMPCa_D2rR/view?usp=sharing).
 
 
 ## FAQ
