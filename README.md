@@ -5,7 +5,7 @@ Ailets are components that make AI services interchangeable. Based on WebAssembl
 
 ## Problems with existing solutions
 
-There is a number of AI frameworks, but they have limitations.
+There are a number of AI frameworks, but they have limitations.
 
 First, the code is not language independent. If a framework is written in Python, it can't be used from JavaScript or Ruby.
 
@@ -25,7 +25,7 @@ We provide the lowest possible abstraction that generalizes the specifics of AI 
 
 ### User playground on the command line
 
-```
+```bash
 # One-time setup
 OPENAI_API_KEY=sk-.....
 ailets() {
@@ -80,7 +80,7 @@ The Ailets project is unique, tames AI agents, ambitious, and requires a lot of 
 ## FAQ
 
 * Q: Does it really work?
-* A1: Not yet. However, the ideas is validated by a working proof of concept.
+* A1: Not yet. However, the idea is validated by a working proof of concept.
 * A2: The command-line tool works already. <https://hub.docker.com/r/olpa/ailets>, <https://github.com/olpa/ailets/blob/master/docs/command-line-tool.md>
 
 
