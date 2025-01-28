@@ -1,11 +1,11 @@
-# ailets: Building blocks for realtime AI apps
+# Ailets: Building blocks for realtime AI apps
 
-It's components that make AI services interchangeable. Based on WebAssembly, the components can be used from any programming language and run anywhere.
+Ailets are components that make AI services interchangeable. Based on WebAssembly, the components can be used from any programming language and run anywhere.
 
 
 ## Problems with existing solutions
 
-There is a number of AI frameworks, but they have limitations.
+There are a number of AI frameworks, but they have limitations.
 
 First, the code is not language independent. If a framework is written in Python, it can't be used from JavaScript or Ruby.
 
@@ -25,7 +25,7 @@ We provide the lowest possible abstraction that generalizes the specifics of AI 
 
 ### User playground on the command line
 
-```
+```bash
 # One-time setup
 OPENAI_API_KEY=sk-.....
 ailets() {
@@ -41,22 +41,18 @@ ailets gpt4o --prompt "Hello!" --tool get_user_name
 # Output: Hello, ailets! How can I assist you today?
 
 ailets gpt4o --prompt "What is it?" --prompt @https://rdi.berkeley.edu/llm-agents-hackathon/assets/img/llm_agents_hackathon_banner.png
-# Output: The image is an announcement or promotional banner for the "LLM Agents MOOC Hackathon," hosted by Berkeley's Center for Responsible, Decentralized Intelligence. It likely pertains to a hackathon focused on leveraging Large Language Models (LLMs) and their integration into various applications. The event may encourage collaboration and innovation in the field of artificial intelligence and machine learning, while also emphasizing responsible and decentralized practices in technology.
+# Output: The image is an announcement or promotional banner for the "LLM
+# Agents MOOC Hackathon," hosted by Berkeley's Center for Responsible, De
+# centralized Intelligence. It likely pertains to a hackathon focused on
+# leveraging Large Language Models (LLMs) and their integration into vari
+# ous applications. The event may encourage collaboration and innovation
+# in the field of artificial intelligence and machine learning, while als
+# o emphasizing responsible and decentralized practices in technology.
 
 ailets dalle --prompt "linux logo"
 # Output: ![image](https://oaidalleapiprodscus.blob.core.windows.net/....)
 
 ```
-
-### User playground in the browser
-
-Open the page TODO.
-
-The shell in the browser is the same as in the Docker container. Run the same commands.
-
-### Sample Python code
-
-Too unstable to show yet.
 
 ## Customer quote
 
@@ -65,23 +61,35 @@ Too unstable to show yet.
 
 ## Closing and call to action
 
-Developers: Start using ailets in your code. Quick start for languages: TODO python * TODO TypeScript * TODO Golang * TODO more
+Read the [technical thoughts](./docs/technical-thoughts.md)
 
-Contributors:
+Developers:
 
-- Read the [technical thoughts](./docs/technical-thoughts.md)
-- Follow [contribution guidelines MOOC hackathon](https://github.com/olpa/ailets/wiki/Contribution-guidelines-MOOC-hackathon)
+- ⭐ Star the repository
+- Join [Ailets Discord](https://discord.gg/HEBE3gv2)
+- Eventually, start using ailets in your code
 
-Sponsors: For a small amount (up to $100), pay to the GeWoVa project: <https://gewova.com/buy.html>. For a larger amount, schedule a meeting with me by sending an invitation link to <olpa@uucode.com>.
+Sponsors:
+
+The Ailets project is unique, tames AI agents, ambitious, and requires a lot of work. I need to raise funds.
+
+- Crowdfunding: For a small amount (up to $100), pay to the GeWoVa project: <https://gewova.com/buy.html>
+- Venture capital: Potentially, Ailets is a multi-million dollar business. [View the pitch](https://youtu.be/0-YYUNn_EDU?si=GyaEbXYif8t3yjk6), [read the slides](https://drive.google.com/file/d/1xakK9fJkjzBbi9tO6ZFB16IMPCa_D2rR/view?usp=sharing).
 
 
 ## FAQ
 
 * Q: Does it really work?
-* A1: Not yet. A proof of concept is expected in mid-December 2024.
-* A2: The command-line tool works already. https://hub.docker.com/r/olpa/ailets, https://github.com/olpa/ailets/blob/master/docs/command-line-tool.md
+* A1: Not yet. However, the idea is validated by a working proof of concept.
+* A2: The command-line tool works already. <https://hub.docker.com/r/olpa/ailets>, <https://github.com/olpa/ailets/blob/master/docs/command-line-tool.md>
 
 
-## Contact
+# Contact
 
-Oleg Parashchenko, <olpa@uucode.com>
+Author: Oleg Parashchenko, olpa@ <https://uucode.com/>
+
+Contact: via email or [Ailets Discord](https://discord.gg/HEBE3gv2)
+
+Website: [Ailets home](https://ailets.org), [github repository](https://github.com/olpa/ailets)
+
+License: MIT
