@@ -8,13 +8,13 @@ use areader::AReader;
 use awriter::AWriter;
 use rjiter::jiter::Peek;
 use rjiter::RJiter;
-use scan_json::{scan_json, ActionResult, Matcher, Trigger, TriggerEnd};
+use scan_json::{scan, StreamOp, Trigger, Name, ParentAndName, BoxedAction, BoxedEndAction};
 
 const BUFFER_SIZE: u32 = 1024;
 
-pub fn on_begin_message(_rjiter: &RefCell<RJiter>, writer: &RefCell<AWriter>) -> ActionResult {
+pub fn on_begin_message(_rjiter: &RefCell<RJiter>, writer: &RefCell<AWriter>) -> StreamOp {
     writer.borrow_mut().begin_message();
-    ActionResult::Ok
+    StreamOp::None
 }
 
 pub fn on_end_message(writer: &RefCell<AWriter>) {
@@ -22,15 +22,15 @@ pub fn on_end_message(writer: &RefCell<AWriter>) {
 }
 
 #[allow(clippy::missing_panics_doc)]
-pub fn on_role(rjiter_cell: &RefCell<RJiter>, writer: &RefCell<AWriter>) -> ActionResult {
+pub fn on_role(rjiter_cell: &RefCell<RJiter>, writer: &RefCell<AWriter>) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
     let role = rjiter.next_str().unwrap();
     writer.borrow_mut().role(role);
-    ActionResult::OkValueIsConsumed
+    StreamOp::ValueIsConsumed
 }
 
 #[allow(clippy::missing_panics_doc)]
-pub fn on_content(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>) -> ActionResult {
+pub fn on_content(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
     let peeked = rjiter.peek();
     assert!(peeked.is_ok(), "Error peeking 'content' value: {peeked:?}");
@@ -44,8 +44,11 @@ pub fn on_content(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>)
     writer.begin_text_chunk();
     let wb = rjiter.write_long_bytes(&mut *writer);
     assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
-    ActionResult::OkValueIsConsumed
+    StreamOp::ValueIsConsumed
 }
+
+type BA = BoxedAction<AWriter>;
+type BEA = BoxedEndAction<AWriter>;
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
@@ -58,33 +61,28 @@ pub extern "C" fn process_gpt() {
     let rjiter_cell = RefCell::new(RJiter::new(&mut reader, &mut buffer));
 
     let begin_message = Trigger::new(
-        Matcher::new("message".to_string(), None, None, None),
-        Box::new(on_begin_message),
+        Box::new(Name::new("message".to_string())),
+        Box::new(on_begin_message) as BA,
     );
-    let end_message = TriggerEnd::new(
-        Matcher::new("message".to_string(), None, None, None),
-        Box::new(on_end_message),
+    let end_message = Trigger::new(
+        Box::new(Name::new("message".to_string())),
+        Box::new(on_end_message) as BEA,
     );
     let message_role = Trigger::new(
-        Matcher::new("role".to_string(), Some("message".to_string()), None, None),
-        Box::new(on_role),
+        Box::new(ParentAndName::new("message".to_string(), "role".to_string())),
+        Box::new(on_role) as BA,
     );
     let delta_role = Trigger::new(
-        Matcher::new("role".to_string(), Some("delta".to_string()), None, None),
-        Box::new(on_role),
+        Box::new(ParentAndName::new("delta".to_string(), "role".to_string())),
+        Box::new(on_role) as BA,
     );
     let message_content = Trigger::new(
-        Matcher::new(
-            "content".to_string(),
-            Some("message".to_string()),
-            None,
-            None,
-        ),
-        Box::new(on_content),
+        Box::new(ParentAndName::new("message".to_string(), "content".to_string())),
+        Box::new(on_content) as BA,
     );
     let delta_content = Trigger::new(
-        Matcher::new("content".to_string(), Some("delta".to_string()), None, None),
-        Box::new(on_content),
+        Box::new(ParentAndName::new("delta".to_string(), "content".to_string())),
+        Box::new(on_content) as BA,
     );
     let triggers = vec![
         begin_message,
@@ -95,7 +93,7 @@ pub extern "C" fn process_gpt() {
     ];
     let triggers_end = vec![end_message];
     let sse_tokens = vec!["data:", "DONE"];
-    scan_json(
+    scan(
         &triggers,
         &triggers_end,
         &sse_tokens,
