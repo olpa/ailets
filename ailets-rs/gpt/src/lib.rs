@@ -8,7 +8,7 @@ use areader::AReader;
 use awriter::AWriter;
 use rjiter::jiter::Peek;
 use rjiter::RJiter;
-use scan_json::{scan, StreamOp, Trigger, Name, ParentAndName, BoxedAction, BoxedEndAction};
+use scan_json::{scan, BoxedAction, BoxedEndAction, Name, ParentAndName, StreamOp, Trigger};
 
 const BUFFER_SIZE: u32 = 1024;
 
@@ -48,7 +48,6 @@ pub fn on_content(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>)
 }
 
 type BA = BoxedAction<AWriter>;
-type BEA = BoxedEndAction<AWriter>;
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
@@ -66,10 +65,13 @@ pub extern "C" fn process_gpt() {
     );
     let end_message = Trigger::new(
         Box::new(Name::new("message".to_string())),
-        Box::new(on_end_message) as BEA,
+        Box::new(on_end_message) as BoxedEndAction<AWriter>,
     );
     let message_role = Trigger::new(
-        Box::new(ParentAndName::new("message".to_string(), "role".to_string())),
+        Box::new(ParentAndName::new(
+            "message".to_string(),
+            "role".to_string(),
+        )),
         Box::new(on_role) as BA,
     );
     let delta_role = Trigger::new(
@@ -77,11 +79,17 @@ pub extern "C" fn process_gpt() {
         Box::new(on_role) as BA,
     );
     let message_content = Trigger::new(
-        Box::new(ParentAndName::new("message".to_string(), "content".to_string())),
+        Box::new(ParentAndName::new(
+            "message".to_string(),
+            "content".to_string(),
+        )),
         Box::new(on_content) as BA,
     );
     let delta_content = Trigger::new(
-        Box::new(ParentAndName::new("delta".to_string(), "content".to_string())),
+        Box::new(ParentAndName::new(
+            "delta".to_string(),
+            "content".to_string(),
+        )),
         Box::new(on_content) as BA,
     );
     let triggers = vec![
