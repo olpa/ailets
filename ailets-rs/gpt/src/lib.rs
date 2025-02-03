@@ -107,6 +107,7 @@ pub extern "C" fn process_gpt() {
         &sse_tokens,
         &rjiter_cell,
         &writer_cell,
-    );
+    )
+    .unwrap();
     writer_cell.borrow_mut().end_message();
 }
