@@ -4,8 +4,8 @@ mod node_runtime;
 
 use areader::AReader;
 use awriter::AWriter;
-use rjiter::jiter::Peek;
-use rjiter::RJiter;
+use scan_json::jiter::Peek;
+use scan_json::RJiter;
 
 const BUFFER_SIZE: u32 = 1024;
 
