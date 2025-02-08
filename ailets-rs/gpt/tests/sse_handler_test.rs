@@ -6,7 +6,7 @@ use mocked_node_runtime::{clear_mocks, get_output};
 
 use gpt::awriter::AWriter;
 use gpt::{on_content, on_role};
-use rjiter::RJiter;
+use scan_json::RJiter;
 
 #[test]
 fn basic_pass() {

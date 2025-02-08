@@ -11,5 +11,4 @@ crate-type = ["cdylib", "lib"]
 [dependencies]
 lazy_static = "1.5.0"
 getrandom = { version = "0.2", features = ["custom"] }
-rjiter = "1.1.0"
 scan_json = { version = "0.1.0", path = "../../../streaming_json/scan_json" }

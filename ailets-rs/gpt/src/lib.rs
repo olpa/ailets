@@ -6,8 +6,8 @@ use std::cell::RefCell;
 
 use areader::AReader;
 use awriter::AWriter;
-use rjiter::jiter::Peek;
-use rjiter::RJiter;
+use scan_json::jiter::Peek;
+use scan_json::RJiter;
 use scan_json::{scan, BoxedAction, BoxedEndAction, Name, ParentAndName, StreamOp, Trigger};
 
 const BUFFER_SIZE: u32 = 1024;
@@ -17,8 +17,9 @@ pub fn on_begin_message(_rjiter: &RefCell<RJiter>, writer: &RefCell<AWriter>) ->
     StreamOp::None
 }
 
-pub fn on_end_message(writer: &RefCell<AWriter>) {
+pub fn on_end_message(writer: &RefCell<AWriter>) -> Result<(), Box<dyn std::error::Error>> {
     writer.borrow_mut().end_message();
+    Ok(())
 }
 
 #[allow(clippy::missing_panics_doc)]
@@ -47,7 +48,7 @@ pub fn on_content(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>)
     StreamOp::ValueIsConsumed
 }
 
-type BA = BoxedAction<AWriter>;
+type BA<'a> = BoxedAction<'a, AWriter>;
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
