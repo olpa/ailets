@@ -6,14 +6,15 @@ use areader::AReader;
 use awriter::AWriter;
 use scan_json::jiter::Peek;
 use scan_json::RJiter;
-use scan_json::{StreamOp, BoxedAction};
+use scan_json::{scan, BoxedAction, BoxedEndAction, Name, ParentAndName, StreamOp, Trigger};
+use std::cell::RefCell;
 
 const BUFFER_SIZE: u32 = 1024;
 
 type BA<'a> = BoxedAction<'a, AWriter>;
 
 #[allow(clippy::missing_panics_doc)]
-pub fn on_content_text(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>) -> StreamOp {
+fn on_content_text(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
 
     let peeked = rjiter.peek();
@@ -27,14 +28,15 @@ pub fn on_content_text(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWri
     let mut writer = writer_cell.borrow_mut();
 
     writer.start_paragraph();
-    let wb = rjiter.write_long_str(&mut writer);
+    let wb = rjiter.write_long_str(&mut *writer);
     assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
 
     StreamOp::ValueIsConsumed
 }
 
 #[allow(clippy::missing_panics_doc)]
-pub fn on_end_message(writer: &RefCell<AWriter>) -> Result<(), Box<dyn std::error::Error>> {
+#[allow(clippy::unnecessary_wraps)]
+fn on_end_message(writer: &RefCell<AWriter>) -> Result<(), Box<dyn std::error::Error>> {
     writer.borrow_mut().str("\n");
     Ok(())
 }
@@ -50,14 +52,10 @@ pub fn on_end_message(writer: &RefCell<AWriter>) -> Result<(), Box<dyn std::erro
 #[no_mangle]
 pub extern "C" fn messages_to_markdown() {
     let mut reader = AReader::new("");
-    let mut writer = AWriter::new("");
+    let writer_cell = RefCell::new(AWriter::new(""));
 
     let mut buffer = [0u8; BUFFER_SIZE as usize];
-
-    let mut rjiter = RJiter::new(&mut reader, &mut buffer);
-
-    let mut level = Level::Top;
-    let mut at_begin = true;
+    let rjiter_cell = RefCell::new(RJiter::new(&mut reader, &mut buffer));
 
     let content_text = Trigger::new(
         Box::new(ParentAndName::new(
@@ -75,7 +73,8 @@ pub extern "C" fn messages_to_markdown() {
         &[content_text],
         &[end_message],
         &[],
-        &rjiter,
-        &writer,
+        &rjiter_cell,
+        &writer_cell,
     )
     .unwrap();
+}
