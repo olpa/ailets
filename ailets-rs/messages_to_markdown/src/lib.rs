@@ -6,15 +6,28 @@ use areader::AReader;
 use awriter::AWriter;
 use scan_json::jiter::Peek;
 use scan_json::RJiter;
-use scan_json::{scan, BoxedAction, BoxedEndAction, Name, ParentAndName, StreamOp, Trigger};
+use scan_json::{scan, BoxedAction, BoxedEndAction, Name, ParentAndName, ParentParentAndName, StreamOp, Trigger};
 use std::cell::RefCell;
 
 const BUFFER_SIZE: u32 = 1024;
 
 type BA<'a> = BoxedAction<'a, AWriter>;
 
+#[derive(Debug)]
+struct TmpM { }
+
+impl scan_json::Matcher for TmpM {
+    fn matches(&self, name: &str, context: &[scan_json::ContextFrame]) -> bool {
+        println!("!!! name: {name}"); // FIXME
+        println!("!!! context: {context:?}"); // FIXME
+        false
+    }
+}
+
+
 #[allow(clippy::missing_panics_doc)]
 fn on_content_text(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>) -> StreamOp {
+    println!("!!! on_content_text"); // FIXME
     let mut rjiter = rjiter_cell.borrow_mut();
 
     let peeked = rjiter.peek();
@@ -37,6 +50,7 @@ fn on_content_text(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>
 #[allow(clippy::missing_panics_doc)]
 #[allow(clippy::unnecessary_wraps)]
 fn on_end_message(writer: &RefCell<AWriter>) -> Result<(), Box<dyn std::error::Error>> {
+    println!("!!! on_end_message"); // FIXME
     writer.borrow_mut().str("\n");
     Ok(())
 }
@@ -58,15 +72,16 @@ pub extern "C" fn messages_to_markdown() {
     let rjiter_cell = RefCell::new(RJiter::new(&mut reader, &mut buffer));
 
     let content_text = Trigger::new(
-        Box::new(ParentAndName::new(
+        Box::new(ParentParentAndName::new(
             "content".to_string(),
+            "#array".to_string(),
             "text".to_string(),
         )),
         Box::new(on_content_text) as BA,
     );
 
     let end_message = Trigger::new(
-        Box::new(Name::new("#top".to_string())),
+        Box::new(ParentAndName::new("#top".to_string(), "#object".to_string())),
         Box::new(on_end_message) as BoxedEndAction<AWriter>,
     );
     scan(
