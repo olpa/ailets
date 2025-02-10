@@ -59,13 +59,6 @@ pub extern "C" fn messages_to_markdown() {
         Box::new(on_content_text) as BA,
     );
 
-    scan(
-        &[content_text],
-        &[],
-        &[],
-        &rjiter_cell,
-        &writer_cell,
-    )
-    .unwrap();
+    scan(&[content_text], &[], &[], &rjiter_cell, &writer_cell).unwrap();
     writer_cell.borrow_mut().finish_with_newline();
 }
