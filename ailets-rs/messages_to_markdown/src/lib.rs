@@ -6,9 +6,7 @@ use areader::AReader;
 use awriter::AWriter;
 use scan_json::jiter::Peek;
 use scan_json::RJiter;
-use scan_json::{
-    scan, BoxedAction, BoxedEndAction, ParentAndName, ParentParentAndName, StreamOp, Trigger,
-};
+use scan_json::{scan, BoxedAction, ParentParentAndName, StreamOp, Trigger};
 use std::cell::RefCell;
 
 const BUFFER_SIZE: u32 = 1024;
@@ -36,13 +34,6 @@ fn on_content_text(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>
     StreamOp::ValueIsConsumed
 }
 
-#[allow(clippy::missing_panics_doc)]
-#[allow(clippy::unnecessary_wraps)]
-fn on_end_message(writer: &RefCell<AWriter>) -> Result<(), Box<dyn std::error::Error>> {
-    writer.borrow_mut().str("\n");
-    Ok(())
-}
-
 /// Converts a JSON message format to markdown.
 ///
 /// # Panics
@@ -68,19 +59,13 @@ pub extern "C" fn messages_to_markdown() {
         Box::new(on_content_text) as BA,
     );
 
-    let end_message = Trigger::new(
-        Box::new(ParentAndName::new(
-            "#top".to_string(),
-            "#object".to_string(),
-        )),
-        Box::new(on_end_message) as BoxedEndAction<AWriter>,
-    );
     scan(
         &[content_text],
-        &[end_message],
+        &[],
         &[],
         &rjiter_cell,
         &writer_cell,
     )
     .unwrap();
+    writer_cell.borrow_mut().finish_with_newline();
 }
