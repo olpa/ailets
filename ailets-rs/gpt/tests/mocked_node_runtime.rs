@@ -20,6 +20,7 @@ pub fn clear_mocks() {
     file.clear();
 }
 
+#[allow(dead_code)]
 pub fn set_input(inputs: &[&str]) {
     let mut file = MOCK_READ_FILE.lock().unwrap();
     file.buffer.clear();

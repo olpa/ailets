@@ -74,7 +74,7 @@ fn test_empty_input() {
 
     messages_to_markdown();
 
-    assert_eq!(get_output(), "\n");
+    assert_eq!(get_output(), "");
 }
 
 #[test]

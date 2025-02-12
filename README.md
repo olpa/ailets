@@ -65,7 +65,7 @@ Read the [technical thoughts](./docs/technical-thoughts.md)
 
 Developers:
 
-- ⭐ Star the repository
+- ⭐ Star the [repository](https://github.com/olpa/ailets)
 - Join [Ailets Discord](https://discord.gg/HEBE3gv2)
 - Eventually, start using ailets in your code
 

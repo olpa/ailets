@@ -29,6 +29,13 @@ impl AWriter {
             }
         }
     }
+
+    pub fn finish_with_newline(&mut self) {
+        if self.need_para_divider {
+            self.str("\n");
+        }
+        self.need_para_divider = false;
+    }
 }
 
 impl Drop for AWriter {

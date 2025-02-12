@@ -4,17 +4,34 @@ mod node_runtime;
 
 use areader::AReader;
 use awriter::AWriter;
-use rjiter::jiter::Peek;
-use rjiter::RJiter;
+use scan_json::jiter::Peek;
+use scan_json::RJiter;
+use scan_json::{scan, BoxedAction, ParentParentAndName, StreamOp, Trigger};
+use std::cell::RefCell;
 
 const BUFFER_SIZE: u32 = 1024;
 
-#[derive(Debug, PartialEq)]
-enum Level {
-    Top,
-    Message,
-    Body,
-    ContentItem,
+type BA<'a> = BoxedAction<'a, AWriter>;
+
+#[allow(clippy::missing_panics_doc)]
+fn on_content_text(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>) -> StreamOp {
+    let mut rjiter = rjiter_cell.borrow_mut();
+
+    let peeked = rjiter.peek();
+    assert!(peeked.is_ok(), "Error peeking 'text' value: {peeked:?}");
+    let peeked = peeked.unwrap();
+    assert!(
+        peeked == Peek::String,
+        "Expected string for 'text' value, got {peeked:?}"
+    );
+
+    let mut writer = writer_cell.borrow_mut();
+
+    writer.start_paragraph();
+    let wb = rjiter.write_long_str(&mut *writer);
+    assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
+
+    StreamOp::ValueIsConsumed
 }
 
 /// Converts a JSON message format to markdown.
@@ -28,127 +45,20 @@ enum Level {
 #[no_mangle]
 pub extern "C" fn messages_to_markdown() {
     let mut reader = AReader::new("");
-    let mut writer = AWriter::new("");
+    let writer_cell = RefCell::new(AWriter::new(""));
 
     let mut buffer = [0u8; BUFFER_SIZE as usize];
+    let rjiter_cell = RefCell::new(RJiter::new(&mut reader, &mut buffer));
 
-    let mut rjiter = RJiter::new(&mut reader, &mut buffer);
+    let content_text = Trigger::new(
+        Box::new(ParentParentAndName::new(
+            "content".to_string(),
+            "#array".to_string(),
+            "text".to_string(),
+        )),
+        Box::new(on_content_text) as BA,
+    );
 
-    let mut level = Level::Top;
-    let mut at_begin = true;
-
-    loop {
-        //
-        // Top level
-        //
-        if level == Level::Top {
-            if rjiter.finish().is_ok() {
-                break;
-            }
-            let peek = rjiter.peek();
-            assert!(peek.is_ok(), "Error: {peek:?}");
-            let peek = peek.unwrap();
-            assert!(peek == Peek::Object, "Expected object at top level");
-
-            level = Level::Message;
-            at_begin = true;
-            // not continue, but fall-through
-        }
-
-        //
-        // Message body level: loop through content items
-        //
-
-        if level == Level::Body {
-            let next = if at_begin {
-                rjiter.next_array()
-            } else {
-                rjiter.array_step()
-            };
-            assert!(next.is_ok(), "Error on the message body level: {next:?}");
-
-            if next.unwrap().is_none() {
-                level = Level::Message;
-
-                at_begin = false;
-                continue;
-            }
-
-            level = Level::ContentItem;
-            at_begin = true;
-            // not continue, but fall-through
-        }
-
-        //
-        // Get the next object key
-        //
-        let next = if at_begin {
-            rjiter.next_object_bytes()
-        } else {
-            rjiter.next_key_bytes()
-        };
-        at_begin = false;
-
-        //
-        // End of object: level up
-        //
-        let key = next.unwrap();
-        if key.is_none() {
-            if level == Level::ContentItem {
-                level = Level::Body;
-            } else if level == Level::Body {
-                level = Level::Message;
-            } else if level == Level::Message {
-                level = Level::Top;
-            } else {
-                panic!("Unexpected level {level:?}");
-            }
-
-            at_begin = false;
-            continue;
-        }
-        let key = key.unwrap();
-
-        //
-        // Content item level
-        //
-        if level == Level::ContentItem {
-            if key != b"text" {
-                rjiter.next_skip().unwrap();
-                continue;
-            }
-
-            let peeked = rjiter.peek();
-            assert!(
-                peeked.is_ok(),
-                "Error on the content item level: {peeked:?}"
-            );
-            let peeked = peeked.unwrap();
-            assert!(peeked == Peek::String, "Expected string at content level");
-
-            writer.start_paragraph();
-            let wb = rjiter.write_long_str(&mut writer);
-            assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
-
-            continue;
-        }
-
-        //
-        // Message level: loop through content items
-        //
-        if level == Level::Message {
-            if key != b"content" {
-                rjiter.next_skip().unwrap();
-                continue;
-            }
-
-            level = Level::Body;
-            at_begin = true;
-            continue;
-        }
-
-        panic!("Unexpected level: {level:?}");
-    }
-
-    writer.str("\n");
+    scan(&[content_text], &[], &[], &rjiter_cell, &writer_cell).unwrap();
+    writer_cell.borrow_mut().finish_with_newline();
 }
