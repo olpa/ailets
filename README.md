@@ -59,6 +59,12 @@ ailets dalle --prompt "linux logo"
 > I've used ailets in my startup and got a billion dollars in funding. Thank you!
 
 
+## Deliverables
+
+- Command-line tool to use gpt4o and dall-e. <https://hub.docker.com/r/olpa/ailets>, <https://github.com/olpa/ailets/blob/master/docs/command-line-tool.md>
+
+
+
 ## Closing and call to action
 
 Read the [technical thoughts](./docs/technical-thoughts.md)
@@ -75,13 +81,6 @@ The Ailets project is unique, tames AI agents, ambitious, and requires a lot of 
 
 - Crowdfunding: For a small amount (up to $100), pay to the GeWoVa project: <https://gewova.com/buy.html>
 - Venture capital: Potentially, Ailets is a multi-million dollar business. [View the pitch](https://youtu.be/0-YYUNn_EDU?si=GyaEbXYif8t3yjk6), [read the slides](https://drive.google.com/file/d/1xakK9fJkjzBbi9tO6ZFB16IMPCa_D2rR/view?usp=sharing).
-
-
-## FAQ
-
-* Q: Does it really work?
-* A1: Not yet. However, the idea is validated by a working proof of concept.
-* A2: The command-line tool works already. <https://hub.docker.com/r/olpa/ailets>, <https://github.com/olpa/ailets/blob/master/docs/command-line-tool.md>
 
 
 # Contact
