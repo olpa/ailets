@@ -59,10 +59,20 @@ ailets dalle --prompt "linux logo"
 > I've used ailets in my startup and got a billion dollars in funding. Thank you!
 
 
+## Milestones
+
+- [x] Command-line tool complete
+- [x] Proof of concept (async-orchestration) implemented in Python
+- [~] In progress: Rewriting actors in Rust
+- [ ] To do: Rewrite the runtime in Rust
+- [ ] To do: Rewrite the command-line tool in Rust
+- [ ] To do: Integrate Ailets with hosts
+
+
 ## Deliverables
 
 - Command-line tool to use gpt4o and dall-e. <https://hub.docker.com/r/olpa/ailets>, <https://github.com/olpa/ailets/blob/master/docs/command-line-tool.md>
-- [RJiter](https://crates.io/crates/rjiter) crate, a streaming JSON parser for Rust
+- Rust crate [RJiter](https://crates.io/crates/rjiter), a streaming JSON parser for Rust
 - Rust crate [scan_json](https://crates.io/crates/scan_json): React to elements in a JSON stream before the entire JSON document is available
 
 
