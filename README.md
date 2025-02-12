@@ -62,7 +62,8 @@ ailets dalle --prompt "linux logo"
 ## Deliverables
 
 - Command-line tool to use gpt4o and dall-e. <https://hub.docker.com/r/olpa/ailets>, <https://github.com/olpa/ailets/blob/master/docs/command-line-tool.md>
-
+- [RJiter](https://crates.io/crates/rjiter) crate, a streaming JSON parser for Rust
+- Rust crate [scan_json](https://crates.io/crates/scan_json): React to elements in a JSON stream before the entire JSON document is available
 
 
 ## Closing and call to action
