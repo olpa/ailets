@@ -12,12 +12,13 @@ use scan_json::{scan, BoxedAction, BoxedEndAction, Name, ParentAndName, StreamOp
 
 const BUFFER_SIZE: u32 = 1024;
 
-pub fn on_begin_message(_rjiter: &RefCell<RJiter>, writer: &RefCell<AWriter>) -> StreamOp {
+fn on_begin_message(_rjiter: &RefCell<RJiter>, writer: &RefCell<AWriter>) -> StreamOp {
     writer.borrow_mut().begin_message();
     StreamOp::None
 }
 
-pub fn on_end_message(writer: &RefCell<AWriter>) -> Result<(), Box<dyn std::error::Error>> {
+#[allow(clippy::unnecessary_wraps)]
+fn on_end_message(writer: &RefCell<AWriter>) -> Result<(), Box<dyn std::error::Error>> {
     writer.borrow_mut().end_message();
     Ok(())
 }
