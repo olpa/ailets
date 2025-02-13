@@ -1,7 +1,6 @@
 use messages_to_markdown::messages_to_markdown;
 
-mod mocked_node_runtime;
-use mocked_node_runtime::{clear_mocks, get_output, set_input};
+use areader::mocked_actor_runtime::{clear_mocks, get_output, set_input};
 
 #[test]
 fn test_basic_conversion() {
