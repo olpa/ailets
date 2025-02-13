@@ -1,4 +1,4 @@
-use crate::node_runtime::{aclose, awrite, open_write};
+use actor_runtime::{aclose, awrite, open_write};
 
 #[allow(clippy::struct_excessive_bools)]
 pub struct AWriter {
