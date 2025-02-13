@@ -1,8 +1,7 @@
 use std::cell::RefCell;
 use std::io;
 
-mod mocked_node_runtime;
-use mocked_node_runtime::{clear_mocks, get_output};
+use areader::mocked_actor_runtime::{clear_mocks, get_output};
 
 use gpt::awriter::AWriter;
 use gpt::{on_content, on_role};

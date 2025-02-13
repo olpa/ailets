@@ -1,6 +1,6 @@
 use std::io::{self, Read};
 
-use crate::node_runtime::{aclose, aread, n_of_streams, open_read};
+use actor_runtime::{aclose, aread, n_of_streams, open_read};
 
 pub struct AReader {
     fd: Option<u32>,
@@ -45,7 +45,7 @@ impl Drop for AReader {
     fn drop(&mut self) {
         if let Some(fd) = self.fd.take() {
             unsafe {
-                crate::node_runtime::aclose(fd);
+                aclose(fd);
             }
         }
     }

@@ -1,3 +1,7 @@
+#![allow(clippy::pedantic)] // FIXME
+#![allow(clippy::not_unsafe_ptr_arg_deref)] // FIXME
+#![allow(clippy::unnecessary_cast)] // FIXME
+
 use lazy_static::lazy_static;
 
 use std::sync::Mutex;
@@ -20,6 +24,7 @@ pub fn clear_mocks() {
     file.clear();
 }
 
+#[allow(dead_code)]
 pub fn set_input(inputs: &[&str]) {
     let mut file = MOCK_READ_FILE.lock().unwrap();
     file.buffer.clear();

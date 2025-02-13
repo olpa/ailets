@@ -1,0 +1,9 @@
+[package]
+name = "areader"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+lazy_static = "1.5.0"

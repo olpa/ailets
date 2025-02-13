@@ -1,7 +1,5 @@
+use areader::mocked_actor_runtime::{clear_mocks, get_output, set_input};
 use gpt::process_gpt;
-
-mod mocked_node_runtime;
-use mocked_node_runtime::{clear_mocks, get_output, set_input};
 
 fn get_expected_basic_message() -> String {
     "{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\
