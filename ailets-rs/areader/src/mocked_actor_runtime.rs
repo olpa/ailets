@@ -1,3 +1,7 @@
+#![allow(clippy::pedantic)] // FIXME
+#![allow(clippy::not_unsafe_ptr_arg_deref)] // FIXME
+#![allow(clippy::unnecessary_cast)] // FIXME
+
 use lazy_static::lazy_static;
 
 use std::sync::Mutex;
