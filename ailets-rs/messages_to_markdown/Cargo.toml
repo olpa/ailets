@@ -11,5 +11,6 @@ crate-type = ["cdylib", "lib"]
 # crate-type = ["cdylib"]
 
 [dependencies]
+actor_runtime = { version = "0.1.0", path = "../actor_runtime" }
 getrandom = { version = "0.2", features = ["custom"] }
 scan_json = "1.0.0"
