@@ -1,6 +1,6 @@
-use messages_to_markdown::messages_to_markdown;
-
-use areader::mocked_actor_runtime::{clear_mocks, get_output, set_input};
+use areader::mocked_actor_runtime::{clear_mocks, get_output};
+use messages_to_markdown::_messages_to_markdown;
+use std::io::Cursor;
 
 #[test]
 fn test_basic_conversion() {
@@ -12,9 +12,9 @@ fn test_basic_conversion() {
             {"type":"text", "text":"Hello!"}
         ]
     }"#;
-    set_input(&[json_data]);
+    let reader = Cursor::new(json_data);
 
-    messages_to_markdown();
+    _messages_to_markdown(reader);
 
     assert_eq!(get_output(), "Hello!\n");
 }
@@ -31,9 +31,9 @@ fn test_multiple_content_items() {
             {"type":"text", "text":"Third item"}
         ]
     }"#;
-    set_input(&[json_data]);
+    let reader = Cursor::new(json_data);
 
-    messages_to_markdown();
+    _messages_to_markdown(reader);
 
     assert_eq!(get_output(), "First item\n\nSecond item\n\nThird item\n");
 }
@@ -55,9 +55,9 @@ fn test_two_messages() {
             {"type":"text", "text":"Extra text"}
         ]
     }"#;
-    set_input(&[json_data]);
+    let reader = Cursor::new(json_data);
 
-    messages_to_markdown();
+    _messages_to_markdown(reader);
 
     assert_eq!(
         get_output(),
@@ -69,9 +69,9 @@ fn test_two_messages() {
 fn test_empty_input() {
     clear_mocks();
     let json_data = "";
-    set_input(&[json_data]);
+    let reader = Cursor::new(json_data);
 
-    messages_to_markdown();
+    _messages_to_markdown(reader);
 
     assert_eq!(get_output(), "");
 }
@@ -91,9 +91,9 @@ fn test_long_text() {
     }}"#,
         long_text
     );
-    set_input(&[&json_data]);
+    let reader = Cursor::new(json_data);
 
-    messages_to_markdown();
+    _messages_to_markdown(reader);
 
     assert_eq!(get_output(), format!("{}\n", long_text));
 }
@@ -110,9 +110,9 @@ fn test_skip_unknown_key_object() {
             {"type":"text", "text":"Second message"}
         ]
     }"#;
-    set_input(&[json_data]);
+    let reader = Cursor::new(json_data);
 
-    messages_to_markdown();
+    _messages_to_markdown(reader);
 
     assert_eq!(get_output(), "First message\n\nSecond message\n");
 }
@@ -127,9 +127,9 @@ fn test_json_escapes() {
             {"type":"text", "text":"a\n\"\u0401\""}
         ]
     }"#;
-    set_input(&[json_data]);
+    let reader = Cursor::new(json_data);
 
-    messages_to_markdown();
+    _messages_to_markdown(reader);
 
     assert_eq!(get_output(), "a\n\"\u{0401}\"\n");
 }
