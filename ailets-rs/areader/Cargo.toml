@@ -6,4 +6,5 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+actor_runtime = { version = "0.1.0", path = "../actor_runtime" }
 lazy_static = "1.5.0"

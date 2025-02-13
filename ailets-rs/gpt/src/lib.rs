@@ -1,4 +1,3 @@
-pub mod areader;
 pub mod awriter;
 
 use std::cell::RefCell;
