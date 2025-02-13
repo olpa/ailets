@@ -7,3 +7,4 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies] 
+actor_runtime = { version = "0.1.0", path = "../actor_runtime" }
