@@ -1,5 +1,6 @@
-use areader::mocked_actor_runtime::{clear_mocks, get_output, set_input};
-use gpt::process_gpt;
+use areader::mocked_actor_runtime::{clear_mocks, get_output};
+use gpt::_process_gpt;
+use std::io::Cursor;
 
 fn get_expected_basic_message() -> String {
     "{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\
@@ -12,9 +13,9 @@ fn test_basic_processing() {
     clear_mocks();
     let fixture_content = std::fs::read_to_string("tests/fixture/basic_response.txt")
         .expect("Failed to read fixture file 'basic_response.txt'");
-    set_input(&[&fixture_content]);
+    let reader = Cursor::new(fixture_content);
 
-    process_gpt();
+    _process_gpt(reader);
 
     assert_eq!(get_output(), get_expected_basic_message());
 }
@@ -24,9 +25,9 @@ fn test_streaming() {
     clear_mocks();
     let fixture_content = std::fs::read_to_string("tests/fixture/basic_streaming.txt")
         .expect("Failed to read fixture file 'basic_streaming.txt'");
-    set_input(&[&fixture_content]);
+    let reader = Cursor::new(fixture_content);
 
-    process_gpt();
+    _process_gpt(reader);
 
     assert_eq!(get_output(), get_expected_basic_message());
 }

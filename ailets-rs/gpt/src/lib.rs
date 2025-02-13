@@ -49,10 +49,8 @@ pub fn on_content(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>)
 
 type BA<'a> = BoxedAction<'a, AWriter>;
 
-#[no_mangle]
 #[allow(clippy::missing_panics_doc)]
-pub extern "C" fn process_gpt() {
-    let mut reader = AReader::new("");
+pub fn _process_gpt(mut reader: impl std::io::Read) {
     let writer_cell = RefCell::new(AWriter::new(""));
 
     let mut buffer = vec![0u8; BUFFER_SIZE as usize];
@@ -110,4 +108,11 @@ pub extern "C" fn process_gpt() {
     )
     .unwrap();
     writer_cell.borrow_mut().end_message();
+}
+
+#[no_mangle]
+#[allow(clippy::missing_panics_doc)]
+pub extern "C" fn process_gpt() {
+    let reader = AReader::new("");
+    _process_gpt(reader);
 }
