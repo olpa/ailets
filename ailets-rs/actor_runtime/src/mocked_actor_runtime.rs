@@ -45,7 +45,23 @@ pub extern "C" fn n_of_streams(_name_ptr: *const u8) -> u32 {
 }
 
 #[no_mangle]
-pub extern "C" fn open_read(_name_ptr: *const u8, _index: u32) -> u32 {
+pub extern "C" fn open_read(name_ptr: *const u8, index: u32) -> u32 {
+    let mut fixture = FIXTURE.lock().unwrap();
+    
+    let raw_name = unsafe { CStr::from_ptr(name_ptr) };
+    let name = raw_name.to_string_lossy();
+
+    let name = format!("{}_{}", name, index);
+
+    if let Some(vfs_index) = fixture.files.iter().position(|f| f.name == name) {
+        let handle = FileHandle {
+            vfs_index,
+            pos: 0,
+        };
+        fixture.handles.push(handle);
+        return (fixture.handles.len() - 1) as u32;
+    }
+
     -1
 }
 
