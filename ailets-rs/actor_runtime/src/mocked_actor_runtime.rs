@@ -1,5 +1,5 @@
 use lazy_static::lazy_static;
-
+use std::ffi::CStr;
 use std::sync::Mutex;
 
 struct VfsFile {
@@ -12,27 +12,21 @@ struct FileHandle {
     pos: usize,
 }
 
-struct TestFixture {
-    files: Vec<VfsFile>,
-    handles: Vec<FileHandle>,
-}
-
 lazy_static! {
-    static ref FIXTURE: Mutex<TestFixture> = Mutex::new(TestFixture {
-        files: Vec::new(),
-        handles: Vec::new(),
-    });
+    static ref FILES: Mutex<Vec<VfsFile>> = Mutex::new(Vec::new());
+    static ref HANDLES: Mutex<Vec<FileHandle>> = Mutex::new(Vec::new());
 }
 
 pub fn clear_mocks() {
-    let mut fixture = FIXTURE.lock().unwrap();
-    fixture.files.clear();
-    fixture.handles.clear();
+    let mut files = FILES.lock().unwrap();
+    files.clear();
+    let mut handles = HANDLES.lock().unwrap();
+    handles.clear();
 }
 
 pub fn add_file(name: String, buffer: Vec<u8>) {
-    let mut fixture = FIXTURE.lock().unwrap();
-    fixture.files.push(VfsFile {
+    let mut files = FILES.lock().unwrap();
+    files.push(VfsFile {
         name,
         buffer,
     });
@@ -45,88 +39,79 @@ pub extern "C" fn n_of_streams(_name_ptr: *const u8) -> u32 {
 }
 
 #[no_mangle]
-pub extern "C" fn open_read(name_ptr: *const u8, index: u32) -> u32 {
-    let mut fixture = FIXTURE.lock().unwrap();
+pub extern "C" fn open_read(name_ptr: *const u8, index: usize) -> i32 {
+    let mut files = FILES.lock().unwrap();
+    let mut handles = HANDLES.lock().unwrap();
     
-    let raw_name = unsafe { CStr::from_ptr(name_ptr) };
+    let raw_name = unsafe { CStr::from_ptr(name_ptr.cast::<i8>()) };
     let name = raw_name.to_string_lossy();
 
-    let name = format!("{}_{}", name, index);
+    let name = format!("{name}_{index}");
 
-    if let Some(vfs_index) = fixture.files.iter().position(|f| f.name == name) {
+    if let Some(vfs_index) = files.iter().position(|f| f.name == name) {
         let handle = FileHandle {
             vfs_index,
             pos: 0,
         };
-        fixture.handles.push(handle);
-        return (fixture.handles.len() - 1) as u32;
+        handles.push(handle);
+        return i32::try_from(handles.len()).unwrap_or(-1) - 1;
     }
 
     -1
 }
 
 #[no_mangle]
-pub extern "C" fn open_write(_name_ptr: *const u8) -> u32 {
+pub extern "C" fn open_write(_name_ptr: *const u8) -> i32 {
     -1
 }
 
 #[no_mangle]
-pub extern "C" fn aread(_fd: u32, buffer_ptr: *mut u8, count: u32) -> u32 {
-    let fixture = FIXTURE.lock().unwrap();
+pub extern "C" fn aread(fd: usize, buffer_ptr: *mut u8, count: usize) -> i32 {
+    let mut files = FILES.lock().unwrap();
+    let mut handles = HANDLES.lock().unwrap();
     
-    let handle = match fixture.handles.get(_fd as usize) {
-        Some(h) => h,
-        None => return -1,
-    };
-
-    let file = match fixture.files.get(handle.vfs_index) {
-        Some(f) => f,
-        None => return -1,
-    };
+    let Some(handle) = handles.get_mut(fd) else { return -1 };
+    let Some(file) = files.get(handle.vfs_index) else { return -1 };
     
-    let buffer = unsafe { std::slice::from_raw_parts_mut(buffer_ptr, count as usize) };
-    let remaining = file.buffer.len() - handle.offset;
-    let to_copy = std::cmp::min(count as usize, remaining);
+    let buffer = unsafe { std::slice::from_raw_parts_mut(buffer_ptr, count) };
+    let pos_before = handle.pos;
+    let remaining = file.buffer.len() - pos_before;
+    let to_copy = std::cmp::min(count, remaining);
 
-    for i in 0..to_copy {
-        buffer[i] = file.buffer[handle.offset + i];
+    for b in buffer.iter_mut().take(to_copy) {
+        *b = file.buffer[handle.pos];
+        handle.pos += 1;
     }
 
-    to_copy as u32
+    handle.pos as i32 - pos_before as i32
 }
 
 #[no_mangle]
-pub extern "C" fn awrite(_fd: u32, buffer_ptr: *mut u8, count: u32) -> u32 {
-    let mut fixture = FIXTURE.lock().unwrap();
+pub extern "C" fn awrite(fd: usize, buffer_ptr: *mut u8, count: usize) -> i32 {
+    let mut files = FILES.lock().unwrap();
+    let mut handles = HANDLES.lock().unwrap();
     
-    let handle = match fixture.handles.get(_fd as usize) {
-        Some(h) => h,
-        None => return -1,
+    let vfs_index = if let Some(handle) = handles.get(fd) {
+        handle.vfs_index
+    } else {
+        return -1
     };
-
-    let file = match fixture.files.get_mut(handle.vfs_index) {
-        Some(f) => f,
-        None => return -1,
-    };
+    let Some(file) = files.get_mut(vfs_index) else { return -1 };
     
     let buffer = unsafe { std::slice::from_raw_parts(buffer_ptr, count as usize) };
 
     for i in 0..count as usize {
-        file.buffer[handle.offset + i] = buffer[i];
+        file.buffer.push(buffer[i]);
     }
 
-    count
+    count as i32
 }
 
 #[no_mangle]
-pub extern "C" fn aclose(_fd: u32) -> i32 {
-    let mut fixture = FIXTURE.lock().unwrap();
+pub extern "C" fn aclose(fd: usize) -> i32 {
+    let mut handles = HANDLES.lock().unwrap();
     
-    match fixture.handles.get_mut(_fd as usize) {
-        Some(handle) => {
-            handle.vfs_index = -1;
-            0
-        },
-        None => -1,
-    }
+    let Some(handle) = handles.get_mut(fd) else { return -1 };
+    handle.vfs_index = usize::MAX;
+    0
 }
