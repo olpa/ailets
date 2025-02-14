@@ -6,47 +6,56 @@ use lazy_static::lazy_static;
 
 use std::sync::Mutex;
 
-struct MockReadFile {
+struct VfsFile {
+    name: String,
     buffer: Vec<u8>,
+}
+
+struct FileHandle {
+    vfs_index: usize,
     pos: usize,
 }
 
+struct TestFixture {
+    files: Vec<VfsFile>,
+    read_handles: Vec<FileHandle>,
+}
+
 lazy_static! {
-    static ref MOCK_WRITE_FILE: Mutex<Vec<u8>> = Mutex::new(Vec::new());
-    static ref MOCK_READ_FILE: Mutex<MockReadFile> = Mutex::new(MockReadFile {
-        buffer: Vec::new(),
-        pos: 0,
+    static ref FIXTURE: Mutex<TestFixture> = Mutex::new(TestFixture {
+        files: Vec::new(),
+        read_handles: Vec::new(),
     });
 }
 
 pub fn clear_mocks() {
-    let mut file = MOCK_WRITE_FILE.lock().unwrap();
-    file.clear();
+    let mut fixture = FIXTURE.lock().unwrap();
+    fixture.files.clear();
+    fixture.read_handles.clear();
 }
 
-#[allow(dead_code)]
-pub fn set_input(inputs: &[&str]) {
-    let mut file = MOCK_READ_FILE.lock().unwrap();
-    file.buffer.clear();
-    for input in inputs {
-        file.buffer.extend_from_slice(input.as_bytes());
-    }
-    file.pos = 0;
+pub fn add_file(name: String, buffer: Vec<u8>) {
+    let mut fixture = FIXTURE.lock().unwrap();
+    fixture.files.push(VfsFile {
+        name,
+        buffer,
+    });
 }
+
 
 #[no_mangle]
 pub extern "C" fn n_of_streams(_name_ptr: *const u8) -> u32 {
-    1
+    0
 }
 
 #[no_mangle]
 pub extern "C" fn open_read(_name_ptr: *const u8, _index: u32) -> u32 {
-    0
+    -1
 }
 
 #[no_mangle]
 pub extern "C" fn open_write(_name_ptr: *const u8) -> u32 {
-    0
+    -1
 }
 
 #[no_mangle]
