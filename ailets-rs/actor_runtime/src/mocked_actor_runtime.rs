@@ -1,7 +1,3 @@
-#![allow(clippy::pedantic)] // FIXME
-#![allow(clippy::not_unsafe_ptr_arg_deref)] // FIXME
-#![allow(clippy::unnecessary_cast)] // FIXME
-
 use lazy_static::lazy_static;
 
 use std::sync::Mutex;
@@ -62,42 +58,59 @@ pub extern "C" fn open_write(_name_ptr: *const u8) -> u32 {
 pub extern "C" fn aread(_fd: u32, buffer_ptr: *mut u8, count: u32) -> u32 {
     let fixture = FIXTURE.lock().unwrap();
     
-    // Get the file handle
-    if _fd as usize >= fixture.handles.len() {
-        return 0;
+    let handle = match fixture.handles.get(_fd as usize) {
+        Some(h) => h,
+        None => return -1,
+    };
+
+    let file = match fixture.files.get(handle.vfs_index) {
+        Some(f) => f,
+        None => return -1,
+    };
+    
+    let buffer = unsafe { std::slice::from_raw_parts_mut(buffer_ptr, count as usize) };
+    let remaining = file.buffer.len() - handle.offset;
+    let to_copy = std::cmp::min(count as usize, remaining);
+
+    for i in 0..to_copy {
+        buffer[i] = file.buffer[handle.offset + i];
     }
-    let handle = &fixture.handles[_fd as usize];
-    
-    // Get the file
-    let file = &fixture.files[handle.vfs_index];
-    
-    // Calculate how many bytes we can read
-    let remaining = file.buffer.len() - handle.pos;
-    let to_read = std::cmp::min(count as usize, remaining);
-    
-    if to_read == 0 {
-        return 0;
-    }
-    
-    // Copy bytes to the output buffer
-    let buffer = unsafe { std::slice::from_raw_parts_mut(buffer_ptr, to_read) };
-    buffer.copy_from_slice(&file.buffer[handle.pos..handle.pos + to_read]);
-    
-    to_read as u32
+
+    to_copy as u32
 }
 
 #[no_mangle]
 pub extern "C" fn awrite(_fd: u32, buffer_ptr: *mut u8, count: u32) -> u32 {
-    let mut file = MOCK_WRITE_FILE.lock().unwrap();
+    let mut fixture = FIXTURE.lock().unwrap();
+    
+    let handle = match fixture.handles.get(_fd as usize) {
+        Some(h) => h,
+        None => return -1,
+    };
+
+    let file = match fixture.files.get_mut(handle.vfs_index) {
+        Some(f) => f,
+        None => return -1,
+    };
+    
     let buffer = unsafe { std::slice::from_raw_parts(buffer_ptr, count as usize) };
-    file.extend_from_slice(buffer);
-    count as u32
+
+    for i in 0..count as usize {
+        file.buffer[handle.offset + i] = buffer[i];
+    }
+
+    count
 }
 
 #[no_mangle]
-pub extern "C" fn aclose(_fd: u32) {}
-
-pub fn get_output() -> String {
-    let file = MOCK_WRITE_FILE.lock().unwrap();
-    String::from_utf8(file.to_vec()).unwrap()
+pub extern "C" fn aclose(_fd: u32) -> i32 {
+    let mut fixture = FIXTURE.lock().unwrap();
+    
+    match fixture.handles.get_mut(_fd as usize) {
+        Some(handle) => {
+            handle.vfs_index = -1;
+            0
+        },
+        None => -1,
+    }
 }
