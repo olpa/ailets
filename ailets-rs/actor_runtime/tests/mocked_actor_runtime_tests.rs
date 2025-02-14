@@ -1,4 +1,4 @@
-use crate::mocked_actor_runtime::{clear_mocks, open_read};
+use actor_runtime::mocked_actor_runtime::{clear_mocks, open_read};
 use std::ffi::CString;
 
 #[test]

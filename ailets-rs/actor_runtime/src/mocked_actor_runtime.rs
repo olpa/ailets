@@ -24,6 +24,7 @@ pub fn clear_mocks() {
     handles.clear();
 }
 
+#[allow(clippy::missing_panics_doc)]
 pub fn add_file(name: String, buffer: Vec<u8>) {
     let mut files = FILES.lock().unwrap();
     files.push(VfsFile {
@@ -34,12 +35,13 @@ pub fn add_file(name: String, buffer: Vec<u8>) {
 
 
 #[no_mangle]
-pub extern "C" fn n_of_streams(_name_ptr: *const u8) -> u32 {
+pub extern "C" fn n_of_streams(_name_ptr: *const i8) -> u32 {
     0
 }
 
 #[no_mangle]
-pub extern "C" fn open_read(name_ptr: *const u8, index: usize) -> i32 {
+#[allow(clippy::missing_panics_doc)]
+pub extern "C" fn open_read(name_ptr: *const i8, index: usize) -> i32 {
     let files = FILES.lock().unwrap();
     let mut handles = HANDLES.lock().unwrap();
     
@@ -61,11 +63,13 @@ pub extern "C" fn open_read(name_ptr: *const u8, index: usize) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn open_write(_name_ptr: *const u8) -> i32 {
+#[allow(clippy::missing_panics_doc)]
+pub extern "C" fn open_write(_name_ptr: *const i8) -> i32 {
     -1
 }
 
 #[no_mangle]
+#[allow(clippy::missing_panics_doc)]
 pub extern "C" fn aread(fd: usize, buffer_ptr: *mut u8, count: usize) -> i32 {
     let files = FILES.lock().unwrap();
     let mut handles = HANDLES.lock().unwrap();
@@ -87,6 +91,7 @@ pub extern "C" fn aread(fd: usize, buffer_ptr: *mut u8, count: usize) -> i32 {
 }
 
 #[no_mangle]
+#[allow(clippy::missing_panics_doc)]
 pub extern "C" fn awrite(fd: usize, buffer_ptr: *mut u8, count: usize) -> i32 {
     let mut files = FILES.lock().unwrap();
     let handles = HANDLES.lock().unwrap();
@@ -108,6 +113,7 @@ pub extern "C" fn awrite(fd: usize, buffer_ptr: *mut u8, count: usize) -> i32 {
 }
 
 #[no_mangle]
+#[allow(clippy::missing_panics_doc)]
 pub extern "C" fn aclose(fd: usize) -> i32 {
     let mut handles = HANDLES.lock().unwrap();
     
