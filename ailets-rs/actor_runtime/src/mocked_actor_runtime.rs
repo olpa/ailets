@@ -40,7 +40,7 @@ pub extern "C" fn n_of_streams(_name_ptr: *const u8) -> u32 {
 
 #[no_mangle]
 pub extern "C" fn open_read(name_ptr: *const u8, index: usize) -> i32 {
-    let mut files = FILES.lock().unwrap();
+    let files = FILES.lock().unwrap();
     let mut handles = HANDLES.lock().unwrap();
     
     let raw_name = unsafe { CStr::from_ptr(name_ptr.cast::<i8>()) };
@@ -67,7 +67,7 @@ pub extern "C" fn open_write(_name_ptr: *const u8) -> i32 {
 
 #[no_mangle]
 pub extern "C" fn aread(fd: usize, buffer_ptr: *mut u8, count: usize) -> i32 {
-    let mut files = FILES.lock().unwrap();
+    let files = FILES.lock().unwrap();
     let mut handles = HANDLES.lock().unwrap();
     
     let Some(handle) = handles.get_mut(fd) else { return -1 };
@@ -83,13 +83,13 @@ pub extern "C" fn aread(fd: usize, buffer_ptr: *mut u8, count: usize) -> i32 {
         handle.pos += 1;
     }
 
-    handle.pos as i32 - pos_before as i32
+    (handle.pos - pos_before).try_into().unwrap()
 }
 
 #[no_mangle]
 pub extern "C" fn awrite(fd: usize, buffer_ptr: *mut u8, count: usize) -> i32 {
     let mut files = FILES.lock().unwrap();
-    let mut handles = HANDLES.lock().unwrap();
+    let handles = HANDLES.lock().unwrap();
     
     let vfs_index = if let Some(handle) = handles.get(fd) {
         handle.vfs_index
@@ -98,13 +98,13 @@ pub extern "C" fn awrite(fd: usize, buffer_ptr: *mut u8, count: usize) -> i32 {
     };
     let Some(file) = files.get_mut(vfs_index) else { return -1 };
     
-    let buffer = unsafe { std::slice::from_raw_parts(buffer_ptr, count as usize) };
+    let buffer = unsafe { std::slice::from_raw_parts(buffer_ptr, count) };
 
-    for i in 0..count as usize {
-        file.buffer.push(buffer[i]);
+    for &b in buffer.iter().take(count) {
+        file.buffer.push(b);
     }
 
-    count as i32
+    count.try_into().unwrap()
 }
 
 #[no_mangle]
