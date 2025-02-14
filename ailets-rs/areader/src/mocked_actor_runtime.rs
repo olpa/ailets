@@ -18,20 +18,20 @@ struct FileHandle {
 
 struct TestFixture {
     files: Vec<VfsFile>,
-    read_handles: Vec<FileHandle>,
+    handles: Vec<FileHandle>,
 }
 
 lazy_static! {
     static ref FIXTURE: Mutex<TestFixture> = Mutex::new(TestFixture {
         files: Vec::new(),
-        read_handles: Vec::new(),
+        handles: Vec::new(),
     });
 }
 
 pub fn clear_mocks() {
     let mut fixture = FIXTURE.lock().unwrap();
     fixture.files.clear();
-    fixture.read_handles.clear();
+    fixture.handles.clear();
 }
 
 pub fn add_file(name: String, buffer: Vec<u8>) {
@@ -60,12 +60,30 @@ pub extern "C" fn open_write(_name_ptr: *const u8) -> u32 {
 
 #[no_mangle]
 pub extern "C" fn aread(_fd: u32, buffer_ptr: *mut u8, count: u32) -> u32 {
-    let mut file = MOCK_READ_FILE.lock().unwrap();
-    let buffer: &mut [u8] = unsafe { std::slice::from_raw_parts_mut(buffer_ptr, count as usize) };
-    let bytes_to_copy = std::cmp::min(count as usize, file.buffer.len() - file.pos);
-    buffer[..bytes_to_copy].copy_from_slice(&file.buffer[file.pos..file.pos + bytes_to_copy]);
-    file.pos += bytes_to_copy;
-    bytes_to_copy as u32
+    let fixture = FIXTURE.lock().unwrap();
+    
+    // Get the file handle
+    if _fd as usize >= fixture.handles.len() {
+        return 0;
+    }
+    let handle = &fixture.handles[_fd as usize];
+    
+    // Get the file
+    let file = &fixture.files[handle.vfs_index];
+    
+    // Calculate how many bytes we can read
+    let remaining = file.buffer.len() - handle.pos;
+    let to_read = std::cmp::min(count as usize, remaining);
+    
+    if to_read == 0 {
+        return 0;
+    }
+    
+    // Copy bytes to the output buffer
+    let buffer = unsafe { std::slice::from_raw_parts_mut(buffer_ptr, to_read) };
+    buffer.copy_from_slice(&file.buffer[handle.pos..handle.pos + to_read]);
+    
+    to_read as u32
 }
 
 #[no_mangle]
