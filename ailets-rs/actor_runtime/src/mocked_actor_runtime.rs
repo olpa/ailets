@@ -17,6 +17,8 @@ lazy_static! {
     static ref HANDLES: Mutex<Vec<FileHandle>> = Mutex::new(Vec::new());
 }
 
+pub const WANT_ERROR: char = '\u{0001}';
+
 #[allow(clippy::missing_panics_doc)]
 pub fn clear_mocks() {
     let mut files = FILES.lock().unwrap();
@@ -80,8 +82,13 @@ pub extern "C" fn open_read(name_ptr: *const i8, index: usize) -> i32 {
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
-pub extern "C" fn open_write(_name_ptr: *const i8) -> i32 {
-    -1
+pub extern "C" fn open_write(name_ptr: *const i8) -> i32 {
+    let name = cstr_to_string(name_ptr);
+    if name.contains(WANT_ERROR) {
+        return -1;
+    }
+
+    0
 }
 
 fn cbuf_to_slice<'a>(ptr: *mut u8, count: usize) -> &'a mut [u8] {
