@@ -132,13 +132,13 @@ pub extern "C" fn aread(fd: i32, buffer_ptr: *mut u8, count: usize) -> i32 {
 
     for b in buffer.iter_mut().take(to_copy) {
         let ch = file.buffer[handle.pos];
+        if ch == WANT_ERROR as u8 {
+            return -1;
+        }
         *b = ch;
         handle.pos += 1;
         if ch == IO_INTERRUPT as u8 {
             break;
-        }
-        if ch == WANT_ERROR as u8 {
-            return -1;
         }
     }
 
@@ -162,12 +162,22 @@ pub extern "C" fn awrite(fd: i32, buffer_ptr: *mut u8, count: usize) -> i32 {
     };
 
     let buffer = cbuf_to_slice(buffer_ptr, count);
+    let len_before = file.buffer.len();
 
-    for &b in buffer.iter().take(count) {
-        file.buffer.push(b);
+    for &ch in buffer.iter().take(count) {
+        if ch == WANT_ERROR as u8 {
+            return -1;
+        }
+        file.buffer.push(ch);
+        if ch == IO_INTERRUPT as u8 {
+            break;
+        }
     }
 
-    count.try_into().unwrap()
+    let len_after = file.buffer.len();
+    let bytes_written = len_after - len_before;
+
+    bytes_written.try_into().unwrap()
 }
 
 #[no_mangle]

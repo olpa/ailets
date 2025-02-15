@@ -1,5 +1,6 @@
 use actor_runtime::mocked_actor_runtime::{
-    aclose, add_file, aread, clear_mocks, get_file, n_of_streams, open_read, open_write, WANT_ERROR,
+    aclose, add_file, aread, awrite, clear_mocks, get_file, n_of_streams, open_read, open_write,
+    WANT_ERROR,
 };
 use std::ffi::CString;
 
@@ -234,19 +235,31 @@ fn write_in_chunks_with_io_interrupt() {
     assert!(fd >= 0);
 
     // Write first chunk
-    let bytes_written = awrite(fd, content_buffer.as_ptr() as *mut u8, 1000);
+    let bytes_written = awrite(fd, content_buffer.as_ptr() as *mut u8, 100);
     assert_eq!(bytes_written, 4);
 
     // Write second chunk
-    let bytes_written = awrite(fd, 4 + content_buffer.as_ptr() as *mut u8, 1000);
+    let bytes_written = awrite(
+        fd,
+        unsafe { content_buffer.as_ptr().add(4) } as *mut u8,
+        100,
+    );
     assert_eq!(bytes_written, 4);
 
     // Write third chunk
-    let bytes_written = awrite(fd, 12 + content_buffer.as_ptr() as *mut u8, 1000);
+    let bytes_written = awrite(
+        fd,
+        unsafe { content_buffer.as_ptr().add(8) } as *mut u8,
+        100,
+    );
     assert_eq!(bytes_written, 6);
 
     // Write fourth chunk and get an error
-    let bytes_written = awrite(fd, 18 + content_buffer.as_ptr() as *mut u8, 1000);
+    let bytes_written = awrite(
+        fd,
+        unsafe { content_buffer.as_ptr().add(14) } as *mut u8,
+        100,
+    );
     assert_eq!(bytes_written, -1);
 
     // Verify complete (until error) content
