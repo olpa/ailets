@@ -18,6 +18,7 @@ lazy_static! {
 }
 
 pub const WANT_ERROR: char = '\u{0001}';
+pub const IO_INTERRUPT: char = '\n';
 
 #[allow(clippy::missing_panics_doc)]
 pub fn clear_mocks() {

@@ -1,5 +1,5 @@
 use actor_runtime::mocked_actor_runtime::{
-    aclose, add_file, clear_mocks, get_file, n_of_streams, open_read, open_write, WANT_ERROR,
+    aclose, add_file, aread, clear_mocks, get_file, n_of_streams, open_read, open_write, WANT_ERROR,
 };
 use std::ffi::CString;
 
@@ -103,4 +103,73 @@ fn close_returns_zero_if_ok_for_read_and_write_handles() {
     assert_eq!(result, 0);
     let result = aclose(write_fd);
     assert_eq!(result, 0);
+}
+
+#[test]
+fn read_returns_minus_one_for_invalid_handle() {
+    clear_mocks();
+
+    let mut buffer = [0u8; 10];
+    let result = aread(999, buffer.as_mut_ptr(), buffer.len());
+
+    assert_eq!(result, -1);
+}
+
+#[test]
+fn read_returns_all_content() {
+    clear_mocks();
+
+    // Create test file
+    let content = b"Hello World!";
+    add_file("test.0".to_string(), content.to_vec());
+
+    // Open file for reading
+    let name = CString::new("test").unwrap();
+    let fd = open_read(name.as_ptr(), 0);
+    assert!(fd >= 0);
+
+    // Read entire content
+    let mut buffer = [0u8; 32];
+    let bytes_read = aread(fd, buffer.as_mut_ptr(), buffer.len());
+
+    assert_eq!(bytes_read, content.len() as i32);
+    assert_eq!(&buffer[..content.len()], content);
+
+    // Verify EOF (should return 0 bytes)
+    let bytes_read = aread(fd, buffer.as_mut_ptr(), buffer.len());
+    assert_eq!(bytes_read, 0);
+}
+
+#[test]
+fn read_in_chunks_with_io_interrupt() {
+    clear_mocks();
+
+    // Create test file with IO_INTERRUPT character
+    let file_content = format!("one\ntwo\nthree\nx{WANT_ERROR}x");
+    add_file("test.0".to_string(), file_content.as_bytes().to_vec());
+
+    // Open file for reading
+    let name = CString::new("test").unwrap();
+    let fd = open_read(name.as_ptr(), 0);
+    assert!(fd >= 0);
+
+    // Read first chunk
+    let mut buffer = [0u8; 10];
+    let bytes_read = aread(fd, buffer.as_mut_ptr(), buffer.len());
+    assert_eq!(bytes_read, 4);
+    assert_eq!(&buffer[..4], b"one\n");
+
+    // Read second chunk
+    let bytes_read = aread(fd, buffer.as_mut_ptr(), buffer.len());
+    assert_eq!(bytes_read, 4);
+    assert_eq!(&buffer[..4], b"two\n");
+
+    // Read third chunk
+    let bytes_read = aread(fd, buffer.as_mut_ptr(), buffer.len());
+    assert_eq!(bytes_read, 6);
+    assert_eq!(&buffer[..6], b"three\n");
+
+    // Get an error
+    let bytes_read = aread(fd, buffer.as_mut_ptr(), buffer.len());
+    assert_eq!(bytes_read, -1);
 }
