@@ -173,3 +173,83 @@ fn read_in_chunks_with_io_interrupt() {
     let bytes_read = aread(fd, buffer.as_mut_ptr(), buffer.len());
     assert_eq!(bytes_read, -1);
 }
+
+#[test]
+fn write_returns_minus_one_for_invalid_handle() {
+    clear_mocks();
+
+    let buffer = [1u8, 2, 3];
+    let bytes_written = awrite(999, buffer.as_ptr() as *mut u8, buffer.len());
+    assert_eq!(bytes_written, -1);
+}
+
+#[test]
+fn write_returns_bytes_written() {
+    clear_mocks();
+
+    // Open file for writing
+    let name = CString::new("test").unwrap();
+    let fd = open_write(name.as_ptr());
+    assert!(fd >= 0);
+
+    // Write some content
+    let content = b"Hello world!";
+    let bytes_written = awrite(fd, content.as_ptr() as *mut u8, content.len());
+
+    assert_eq!(bytes_written, content.len() as i32);
+
+    // Verify written content
+    let written = get_file("test").unwrap();
+    assert_eq!(written, content);
+}
+
+#[test]
+fn write_all_content() {
+    clear_mocks();
+
+    // Try to open file with WANT_ERROR in name
+    let name = CString::new("test").unwrap();
+    let fd = open_write(name.as_ptr());
+    assert!(fd >= 0);
+
+    // Write some content
+    let content = b"Hello world!";
+    let bytes_written = awrite(fd, content.as_ptr() as *mut u8, content.len());
+    assert_eq!(bytes_written, content.len() as i32);
+
+    // Verify written content
+    let written = get_file("test").unwrap();
+    assert_eq!(written, content);
+}
+
+#[test]
+fn write_in_chunks_with_io_interrupt() {
+    clear_mocks();
+    let content = format!("one\ntwo\nthree\nx{WANT_ERROR}x");
+    let content_buffer = content.as_bytes();
+
+    // Open file for writing
+    let name = CString::new("test").unwrap();
+    let fd = open_write(name.as_ptr());
+    assert!(fd >= 0);
+
+    // Write first chunk
+    let bytes_written = awrite(fd, content_buffer.as_ptr() as *mut u8, 1000);
+    assert_eq!(bytes_written, 4);
+
+    // Write second chunk
+    let bytes_written = awrite(fd, 4 + content_buffer.as_ptr() as *mut u8, 1000);
+    assert_eq!(bytes_written, 4);
+
+    // Write third chunk
+    let bytes_written = awrite(fd, 12 + content_buffer.as_ptr() as *mut u8, 1000);
+    assert_eq!(bytes_written, 6);
+
+    // Write fourth chunk and get an error
+    let bytes_written = awrite(fd, 18 + content_buffer.as_ptr() as *mut u8, 1000);
+    assert_eq!(bytes_written, -1);
+
+    // Verify complete (until error) content
+    let written = get_file("test").unwrap();
+    assert_eq!(written, b"one\ntwo\nthree\nx");
+}
