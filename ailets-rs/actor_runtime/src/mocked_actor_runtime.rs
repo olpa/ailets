@@ -131,8 +131,15 @@ pub extern "C" fn aread(fd: i32, buffer_ptr: *mut u8, count: usize) -> i32 {
     let to_copy = std::cmp::min(count, remaining);
 
     for b in buffer.iter_mut().take(to_copy) {
-        *b = file.buffer[handle.pos];
+        let ch = file.buffer[handle.pos];
+        *b = ch;
         handle.pos += 1;
+        if ch == IO_INTERRUPT as u8 {
+            break;
+        }
+        if ch == WANT_ERROR as u8 {
+            return -1;
+        }
     }
 
     (handle.pos - pos_before).try_into().unwrap()
