@@ -17,6 +17,7 @@ lazy_static! {
     static ref HANDLES: Mutex<Vec<FileHandle>> = Mutex::new(Vec::new());
 }
 
+#[allow(clippy::missing_panics_doc)]
 pub fn clear_mocks() {
     let mut files = FILES.lock().unwrap();
     files.clear();
@@ -27,12 +28,14 @@ pub fn clear_mocks() {
 #[allow(clippy::missing_panics_doc)]
 pub fn add_file(name: String, buffer: Vec<u8>) {
     let mut files = FILES.lock().unwrap();
-    files.push(VfsFile {
-        name,
-        buffer,
-    });
+    files.push(VfsFile { name, buffer });
 }
 
+fn cstr_to_string(ptr: *const i8) -> String {
+    unsafe { CStr::from_ptr(ptr.cast::<i8>()) }
+        .to_string_lossy()
+        .to_string()
+}
 
 #[no_mangle]
 pub extern "C" fn n_of_streams(_name_ptr: *const i8) -> u32 {
@@ -44,17 +47,12 @@ pub extern "C" fn n_of_streams(_name_ptr: *const i8) -> u32 {
 pub extern "C" fn open_read(name_ptr: *const i8, index: usize) -> i32 {
     let files = FILES.lock().unwrap();
     let mut handles = HANDLES.lock().unwrap();
-    
-    let raw_name = unsafe { CStr::from_ptr(name_ptr.cast::<i8>()) };
-    let name = raw_name.to_string_lossy();
 
+    let name = cstr_to_string(name_ptr);
     let name = format!("{name}_{index}");
 
     if let Some(vfs_index) = files.iter().position(|f| f.name == name) {
-        let handle = FileHandle {
-            vfs_index,
-            pos: 0,
-        };
+        let handle = FileHandle { vfs_index, pos: 0 };
         handles.push(handle);
         return i32::try_from(handles.len()).unwrap_or(-1) - 1;
     }
@@ -68,16 +66,24 @@ pub extern "C" fn open_write(_name_ptr: *const i8) -> i32 {
     -1
 }
 
+fn cbuf_to_slice<'a>(ptr: *mut u8, count: usize) -> &'a mut [u8] {
+    unsafe { std::slice::from_raw_parts_mut(ptr, count) }
+}
+
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
 pub extern "C" fn aread(fd: usize, buffer_ptr: *mut u8, count: usize) -> i32 {
     let files = FILES.lock().unwrap();
     let mut handles = HANDLES.lock().unwrap();
-    
-    let Some(handle) = handles.get_mut(fd) else { return -1 };
-    let Some(file) = files.get(handle.vfs_index) else { return -1 };
-    
-    let buffer = unsafe { std::slice::from_raw_parts_mut(buffer_ptr, count) };
+
+    let Some(handle) = handles.get_mut(fd) else {
+        return -1;
+    };
+    let Some(file) = files.get(handle.vfs_index) else {
+        return -1;
+    };
+
+    let buffer = cbuf_to_slice(buffer_ptr, count);
     let pos_before = handle.pos;
     let remaining = file.buffer.len() - pos_before;
     let to_copy = std::cmp::min(count, remaining);
@@ -95,15 +101,17 @@ pub extern "C" fn aread(fd: usize, buffer_ptr: *mut u8, count: usize) -> i32 {
 pub extern "C" fn awrite(fd: usize, buffer_ptr: *mut u8, count: usize) -> i32 {
     let mut files = FILES.lock().unwrap();
     let handles = HANDLES.lock().unwrap();
-    
+
     let vfs_index = if let Some(handle) = handles.get(fd) {
         handle.vfs_index
     } else {
-        return -1
+        return -1;
     };
-    let Some(file) = files.get_mut(vfs_index) else { return -1 };
-    
-    let buffer = unsafe { std::slice::from_raw_parts(buffer_ptr, count) };
+    let Some(file) = files.get_mut(vfs_index) else {
+        return -1;
+    };
+
+    let buffer = cbuf_to_slice(buffer_ptr, count);
 
     for &b in buffer.iter().take(count) {
         file.buffer.push(b);
@@ -116,8 +124,10 @@ pub extern "C" fn awrite(fd: usize, buffer_ptr: *mut u8, count: usize) -> i32 {
 #[allow(clippy::missing_panics_doc)]
 pub extern "C" fn aclose(fd: usize) -> i32 {
     let mut handles = HANDLES.lock().unwrap();
-    
-    let Some(handle) = handles.get_mut(fd) else { return -1 };
+
+    let Some(handle) = handles.get_mut(fd) else {
+        return -1;
+    };
     handle.vfs_index = usize::MAX;
     0
 }
