@@ -110,10 +110,13 @@ fn cbuf_to_slice<'a>(ptr: *mut u8, count: usize) -> &'a mut [u8] {
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
-pub extern "C" fn aread(fd: usize, buffer_ptr: *mut u8, count: usize) -> i32 {
+pub extern "C" fn aread(fd: i32, buffer_ptr: *mut u8, count: usize) -> i32 {
     let files = FILES.lock().unwrap();
     let mut handles = HANDLES.lock().unwrap();
 
+    let Ok(fd) = usize::try_from(fd) else {
+        return -1;
+    };
     let Some(handle) = handles.get_mut(fd) else {
         return -1;
     };
@@ -136,16 +139,17 @@ pub extern "C" fn aread(fd: usize, buffer_ptr: *mut u8, count: usize) -> i32 {
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
-pub extern "C" fn awrite(fd: usize, buffer_ptr: *mut u8, count: usize) -> i32 {
+pub extern "C" fn awrite(fd: i32, buffer_ptr: *mut u8, count: usize) -> i32 {
     let mut files = FILES.lock().unwrap();
     let handles = HANDLES.lock().unwrap();
 
-    let vfs_index = if let Some(handle) = handles.get(fd) {
-        handle.vfs_index
-    } else {
+    let Ok(fd) = usize::try_from(fd) else {
         return -1;
     };
-    let Some(file) = files.get_mut(vfs_index) else {
+    let Some(handle) = handles.get(fd) else {
+        return -1;
+    };
+    let Some(file) = files.get_mut(handle.vfs_index) else {
         return -1;
     };
 
@@ -160,9 +164,12 @@ pub extern "C" fn awrite(fd: usize, buffer_ptr: *mut u8, count: usize) -> i32 {
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
-pub extern "C" fn aclose(fd: usize) -> i32 {
+pub extern "C" fn aclose(fd: i32) -> i32 {
     let mut handles = HANDLES.lock().unwrap();
 
+    let Ok(fd) = usize::try_from(fd) else {
+        return -1;
+    };
     let Some(handle) = handles.get_mut(fd) else {
         return -1;
     };

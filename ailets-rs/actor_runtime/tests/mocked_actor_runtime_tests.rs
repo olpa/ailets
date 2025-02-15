@@ -1,5 +1,5 @@
 use actor_runtime::mocked_actor_runtime::{
-    add_file, clear_mocks, get_file, n_of_streams, open_read, open_write, WANT_ERROR,
+    aclose, add_file, clear_mocks, get_file, n_of_streams, open_read, open_write, WANT_ERROR,
 };
 use std::ffi::CString;
 
@@ -74,4 +74,33 @@ fn open_write_creates_file() {
 
     // File should exist after open_write
     assert!(get_file(name_str).is_ok());
+}
+
+#[test]
+fn close_returns_minus_one_for_invalid_handle() {
+    clear_mocks();
+
+    let result = aclose(999);
+
+    assert_eq!(result, -1);
+}
+
+#[test]
+fn close_returns_zero_if_ok_for_read_and_write_handles() {
+    clear_mocks();
+    add_file("foo.0".to_string(), Vec::new());
+
+    // Open handles
+    let name_foo = CString::new("foo").unwrap();
+    let read_fd = open_read(name_foo.as_ptr(), 0);
+    assert!(read_fd >= 0);
+    let name_bar = CString::new("bar").unwrap();
+    let write_fd = open_write(name_bar.as_ptr());
+    assert!(write_fd >= 0);
+
+    // Act and assert: Close handles
+    let result = aclose(read_fd);
+    assert_eq!(result, 0);
+    let result = aclose(write_fd);
+    assert_eq!(result, 0);
 }
