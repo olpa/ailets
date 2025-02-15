@@ -27,6 +27,27 @@ fn n_of_streams_returns_number_of_sequential_files() {
 }
 
 #[test]
+fn open_read_returns_minus_one_if_file_not_found() {
+    clear_mocks();
+
+    let name = CString::new("test").unwrap();
+    let fd = open_read(name.as_ptr(), 0);
+
+    assert_eq!(fd, -1);
+}
+
+#[test]
+fn open_read_returns_non_negative_if_file_exists() {
+    clear_mocks();
+
+    let name = CString::new("test").unwrap();
+    add_file("test.0".to_string(), Vec::new());
+    let fd = open_read(name.as_ptr(), 0);
+
+    assert!(fd >= 0);
+}
+
+#[test]
 fn open_read_returns_negative_one_if_no_file() {
     clear_mocks();
 

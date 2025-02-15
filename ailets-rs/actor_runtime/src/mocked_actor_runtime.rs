@@ -57,7 +57,7 @@ pub extern "C" fn open_read(name_ptr: *const i8, index: usize) -> i32 {
     let mut handles = HANDLES.lock().unwrap();
 
     let name = cstr_to_string(name_ptr);
-    let name = format!("{name}_{index}");
+    let name = format!("{name}.{index}");
 
     if let Some(vfs_index) = files.iter().position(|f| f.name == name) {
         let handle = FileHandle { vfs_index, pos: 0 };
