@@ -31,6 +31,16 @@ pub fn add_file(name: String, buffer: Vec<u8>) {
     files.push(VfsFile { name, buffer });
 }
 
+#[allow(clippy::missing_errors_doc)]
+pub fn get_file(name: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let files = FILES.lock()?;
+    files
+        .iter()
+        .find(|f| f.name == name)
+        .map(|f| f.buffer.clone())
+        .ok_or(format!("File not found: {name}").into())
+}
+
 fn cstr_to_string(ptr: *const i8) -> String {
     unsafe { CStr::from_ptr(ptr.cast::<i8>()) }
         .to_string_lossy()
