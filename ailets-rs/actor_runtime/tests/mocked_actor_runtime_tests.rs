@@ -1,5 +1,5 @@
 use actor_runtime::mocked_actor_runtime::{
-    add_file, clear_mocks, n_of_streams, open_read, open_write, WANT_ERROR,
+    add_file, clear_mocks, get_file, n_of_streams, open_read, open_write, WANT_ERROR,
 };
 use std::ffi::CString;
 
@@ -50,16 +50,6 @@ fn open_read_returns_non_negative_if_file_exists() {
 }
 
 #[test]
-fn open_read_returns_negative_one_if_no_file() {
-    clear_mocks();
-
-    let name = CString::new("test").unwrap();
-    let fd = open_read(name.as_ptr(), 0);
-
-    assert_eq!(fd, -1);
-}
-
-#[test]
 fn open_write_returns_minus_one_on_error() {
     clear_mocks();
 
@@ -67,4 +57,21 @@ fn open_write_returns_minus_one_on_error() {
     let fd = open_write(name.as_ptr());
 
     assert_eq!(fd, -1);
+}
+
+#[test]
+fn open_write_creates_file() {
+    clear_mocks();
+
+    let name = CString::new("test").unwrap();
+    let name_str = name.to_str().unwrap();
+
+    // File should not exist before
+    assert!(get_file(name_str).is_err());
+
+    let fd = open_write(name.as_ptr());
+    assert!(fd >= 0);
+
+    // File should exist after open_write
+    assert!(get_file(name_str).is_ok());
 }

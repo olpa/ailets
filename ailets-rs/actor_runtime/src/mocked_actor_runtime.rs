@@ -83,12 +83,25 @@ pub extern "C" fn open_read(name_ptr: *const i8, index: usize) -> i32 {
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
 pub extern "C" fn open_write(name_ptr: *const i8) -> i32 {
+    let mut files = FILES.lock().unwrap();
+    let mut handles = HANDLES.lock().unwrap();
+
     let name = cstr_to_string(name_ptr);
     if name.contains(WANT_ERROR) {
         return -1;
     }
 
-    0
+    files.push(VfsFile {
+        name,
+        buffer: Vec::new(),
+    });
+    let vfs_index = files.len() - 1;
+
+    let handle = FileHandle { vfs_index, pos: 0 };
+    handles.push(handle);
+    let handle_index = handles.len() - 1;
+
+    i32::try_from(handle_index).unwrap_or(-1)
 }
 
 fn cbuf_to_slice<'a>(ptr: *mut u8, count: usize) -> &'a mut [u8] {
