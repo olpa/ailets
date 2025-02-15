@@ -1,3 +1,22 @@
+/// Mocked actor runtime and a virtual file system.
+/// Use the feature `+mocked` to enable this module.
+///
+/// - `clear_mocks` clears the mocks.
+/// - `add_file` adds a file to the virtual file system.
+/// - `get_file` gets the content of a file from the virtual file system.
+/// - `WANT_ERROR` is a character that can be used to simulate an error.
+/// - `IO_INTERRUPT` is a character that can be used to simulate an interrupt.
+///
+/// `open_read(name, index)`:
+/// - expects a file named `name.index` in the virtual file system.
+///
+/// `open_write(name)`:
+/// - returns an error if `name` contains `WANT_ERROR`.
+///
+/// `aread`, `awrite`:
+/// - stops on `IO_INTERRUPT` or `WANT_ERROR`.
+/// - return an error if `WANT_ERROR` is encountered.
+
 use lazy_static::lazy_static;
 use std::ffi::CStr;
 use std::sync::Mutex;
