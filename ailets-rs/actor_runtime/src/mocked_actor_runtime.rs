@@ -38,8 +38,16 @@ fn cstr_to_string(ptr: *const i8) -> String {
 }
 
 #[no_mangle]
-pub extern "C" fn n_of_streams(_name_ptr: *const i8) -> u32 {
-    0
+#[allow(clippy::missing_panics_doc)]
+pub extern "C" fn n_of_streams(name_ptr: *const i8) -> u32 {
+    let files = FILES.lock().unwrap();
+    let name = cstr_to_string(name_ptr);
+
+    let mut count = 0;
+    while files.iter().any(|f| f.name == format!("{name}.{count}")) {
+        count += 1;
+    }
+    count
 }
 
 #[no_mangle]
