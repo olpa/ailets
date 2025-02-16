@@ -1,15 +1,15 @@
 pub use actor_runtime::*;
 
-const BUFFER_SIZE: u32 = 1024;
+const BUFFER_SIZE: usize = 1024;
 
 #[no_mangle]
 pub extern "C" fn execute() {
-    let input_name = b"";
-    let mut buffer = [0u8; BUFFER_SIZE as usize];
+    let input_name = c"";
+    let mut buffer = [0u8; BUFFER_SIZE];
     let output_fd = unsafe { open_write(input_name.as_ptr()) };
 
     // Process each input stream
-    let mut i = 0;
+    let mut i: usize = 0;
     loop {
         let current_n_streams = unsafe { n_of_streams(input_name.as_ptr()) };
         if i >= current_n_streams {
@@ -30,8 +30,8 @@ pub extern "C" fn execute() {
                 let n = unsafe {
                     awrite(
                         output_fd,
-                        buffer.as_ptr().add(bytes_written as usize),
-                        bytes_read - bytes_written,
+                        buffer.as_ptr().add(bytes_written),
+                        (bytes_read - bytes_written).try_into().unwrap(),
                     )
                 };
                 if n == 0 {
