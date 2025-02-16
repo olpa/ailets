@@ -2,28 +2,24 @@ use actor_runtime::mocked_actor_runtime::{
     aclose, add_file, aread, awrite, clear_mocks, get_file, n_of_streams, open_read, open_write,
     WANT_ERROR,
 };
-use std::ffi::CString;
 
 #[test]
 fn n_of_streams_returns_zero() {
     clear_mocks();
-
-    let name = CString::new("test").unwrap();
-    let n = n_of_streams(name.as_ptr());
-
+    let n = n_of_streams(c"test".as_ptr() as *const u8);
     assert_eq!(n, 0);
 }
+
 #[test]
 fn n_of_streams_returns_number_of_sequential_files() {
     clear_mocks();
-
-    let name = CString::new("foo").unwrap();
+    let name = c"foo";
     let name_str = name.to_str().unwrap();
     for i in [0, 1, 2, 10] {
         add_file(format!("{name_str}.{i}"), Vec::new());
     }
 
-    let n = n_of_streams(name.as_ptr());
+    let n = n_of_streams(name.as_ptr() as *const u8);
 
     // Should only count sequential files (0,1,2) and not 10
     assert_eq!(n, 3);
@@ -32,10 +28,7 @@ fn n_of_streams_returns_number_of_sequential_files() {
 #[test]
 fn open_read_returns_minus_one_if_file_not_found() {
     clear_mocks();
-
-    let name = CString::new("test").unwrap();
-    let fd = open_read(name.as_ptr(), 0);
-
+    let fd = open_read(c"test".as_ptr() as *const u8, 0);
     assert_eq!(fd, -1);
 }
 
@@ -43,9 +36,8 @@ fn open_read_returns_minus_one_if_file_not_found() {
 fn open_read_returns_non_negative_if_file_exists() {
     clear_mocks();
 
-    let name = CString::new("test").unwrap();
     add_file("test.0".to_string(), Vec::new());
-    let fd = open_read(name.as_ptr(), 0);
+    let fd = open_read(c"test".as_ptr() as *const u8, 0);
 
     assert!(fd >= 0);
 }
@@ -54,8 +46,7 @@ fn open_read_returns_non_negative_if_file_exists() {
 fn open_write_returns_minus_one_on_error() {
     clear_mocks();
 
-    let name = CString::new(format!("test{}", WANT_ERROR)).unwrap();
-    let fd = open_write(name.as_ptr());
+    let fd = open_write(c"test\u{1}".as_ptr() as *const u8);
 
     assert_eq!(fd, -1);
 }
@@ -64,13 +55,13 @@ fn open_write_returns_minus_one_on_error() {
 fn open_write_creates_file() {
     clear_mocks();
 
-    let name = CString::new("test").unwrap();
+    let name = c"test";
     let name_str = name.to_str().unwrap();
 
     // File should not exist before
     assert!(get_file(name_str).is_err());
 
-    let fd = open_write(name.as_ptr());
+    let fd = open_write(name.as_ptr() as *const u8);
     assert!(fd >= 0);
 
     // File should exist after open_write
@@ -92,11 +83,9 @@ fn close_returns_zero_if_ok_for_read_and_write_handles() {
     add_file("foo.0".to_string(), Vec::new());
 
     // Open handles
-    let name_foo = CString::new("foo").unwrap();
-    let read_fd = open_read(name_foo.as_ptr(), 0);
+    let read_fd = open_read(c"foo".as_ptr() as *const u8, 0);
     assert!(read_fd >= 0);
-    let name_bar = CString::new("bar").unwrap();
-    let write_fd = open_write(name_bar.as_ptr());
+    let write_fd = open_write(c"bar".as_ptr() as *const u8);
     assert!(write_fd >= 0);
 
     // Act and assert: Close handles
@@ -125,8 +114,7 @@ fn read_returns_all_content() {
     add_file("test.0".to_string(), content.to_vec());
 
     // Open file for reading
-    let name = CString::new("test").unwrap();
-    let fd = open_read(name.as_ptr(), 0);
+    let fd = open_read(c"test".as_ptr() as *const u8, 0);
     assert!(fd >= 0);
 
     // Read entire content
@@ -150,8 +138,7 @@ fn read_in_chunks_with_io_interrupt() {
     add_file("test.0".to_string(), file_content.as_bytes().to_vec());
 
     // Open file for reading
-    let name = CString::new("test").unwrap();
-    let fd = open_read(name.as_ptr(), 0);
+    let fd = open_read(c"test".as_ptr() as *const u8, 0);
     assert!(fd >= 0);
 
     // Read first chunk
@@ -189,8 +176,7 @@ fn write_returns_bytes_written() {
     clear_mocks();
 
     // Open file for writing
-    let name = CString::new("test").unwrap();
-    let fd = open_write(name.as_ptr());
+    let fd = open_write(c"test".as_ptr() as *const u8);
     assert!(fd >= 0);
 
     // Write some content
@@ -208,9 +194,7 @@ fn write_returns_bytes_written() {
 fn write_all_content() {
     clear_mocks();
 
-    // Try to open file with WANT_ERROR in name
-    let name = CString::new("test").unwrap();
-    let fd = open_write(name.as_ptr());
+    let fd = open_write(c"test".as_ptr() as *const u8);
     assert!(fd >= 0);
 
     // Write some content
@@ -230,8 +214,7 @@ fn write_in_chunks_with_io_interrupt() {
     let content_buffer = content.as_bytes();
 
     // Open file for writing
-    let name = CString::new("test").unwrap();
-    let fd = open_write(name.as_ptr());
+    let fd = open_write(c"test".as_ptr() as *const u8);
     assert!(fd >= 0);
 
     // Write first chunk

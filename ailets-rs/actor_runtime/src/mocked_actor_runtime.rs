@@ -16,7 +16,6 @@
 /// `aread`, `awrite`:
 /// - stops on `IO_INTERRUPT` or `WANT_ERROR`.
 /// - return an error if `WANT_ERROR` is encountered.
-
 use lazy_static::lazy_static;
 use std::ffi::CStr;
 use std::sync::Mutex;
@@ -63,7 +62,7 @@ pub fn get_file(name: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         .ok_or(format!("File not found: {name}").into())
 }
 
-fn cstr_to_string(ptr: *const i8) -> String {
+fn cstr_to_string(ptr: *const u8) -> String {
     unsafe { CStr::from_ptr(ptr.cast::<i8>()) }
         .to_string_lossy()
         .to_string()
@@ -71,7 +70,7 @@ fn cstr_to_string(ptr: *const i8) -> String {
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
-pub extern "C" fn n_of_streams(name_ptr: *const i8) -> u32 {
+pub extern "C" fn n_of_streams(name_ptr: *const u8) -> u32 {
     let files = FILES.lock().unwrap();
     let name = cstr_to_string(name_ptr);
 
@@ -84,7 +83,7 @@ pub extern "C" fn n_of_streams(name_ptr: *const i8) -> u32 {
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
-pub extern "C" fn open_read(name_ptr: *const i8, index: usize) -> i32 {
+pub extern "C" fn open_read(name_ptr: *const u8, index: usize) -> i32 {
     let files = FILES.lock().unwrap();
     let mut handles = HANDLES.lock().unwrap();
 
@@ -102,7 +101,7 @@ pub extern "C" fn open_read(name_ptr: *const i8, index: usize) -> i32 {
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
-pub extern "C" fn open_write(name_ptr: *const i8) -> i32 {
+pub extern "C" fn open_write(name_ptr: *const u8) -> i32 {
     let mut files = FILES.lock().unwrap();
     let mut handles = HANDLES.lock().unwrap();
 
