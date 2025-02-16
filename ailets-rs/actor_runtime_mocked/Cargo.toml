@@ -1,5 +1,5 @@
 [package]
-name = "actor_runtime"
+name = "actor_runtime_mocked"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -7,3 +7,6 @@ license.workspace = true
 
 [lib]
 crate-type = ["cdylib", "lib"]
+
+[dependencies]
+lazy_static = { version = "1.5.0" }
