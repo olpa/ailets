@@ -1,4 +1,4 @@
-use actor_runtime::mocked_actor_runtime::{
+use actor_runtime_mocked::vfs::{
     aclose, add_file, aread, awrite, clear_mocks, get_file, n_of_streams, open_read, open_write,
     WANT_ERROR,
 };
