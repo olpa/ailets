@@ -69,9 +69,13 @@ fn cstr_to_string(ptr: *const c_char) -> String {
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
-pub extern "C" fn n_of_streams(name_ptr: *const c_char) -> u32 {
+pub extern "C" fn n_of_streams(name_ptr: *const c_char) -> i32 {
     let files = FILES.lock().unwrap();
+
     let name = cstr_to_string(name_ptr);
+    if name.contains(WANT_ERROR) {
+        return -1;
+    }
 
     let mut count = 0;
     while files.iter().any(|f| f.name == format!("{name}.{count}")) {

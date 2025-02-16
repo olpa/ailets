@@ -26,6 +26,13 @@ fn n_of_streams_returns_number_of_sequential_files() {
 }
 
 #[test]
+fn n_of_streams_returns_minus_one_on_error() {
+    clear_mocks();
+    let n = n_of_streams(c"test\u{1}".as_ptr());
+    assert_eq!(n, -1);
+}
+
+#[test]
 fn open_read_returns_minus_one_if_file_not_found() {
     clear_mocks();
     let fd = open_read(c"test".as_ptr(), 0);
