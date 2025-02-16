@@ -4,10 +4,12 @@ const BUFFER_SIZE: usize = 1024;
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
-pub extern "C" fn execute() {
+pub extern "C" fn execute() -> i32 {
     let input_name = c"";
     let mut buffer = [0u8; BUFFER_SIZE];
+
     let output_fd = unsafe { open_write(input_name.as_ptr()) };
+    assert!(output_fd >= 0, "Failed to open output stream");
 
     // Process each input stream
     let mut i: usize = 0;
@@ -52,5 +54,8 @@ pub extern "C" fn execute() {
     }
 
     // Close output stream
-    unsafe { aclose(output_fd) };
+    let result = unsafe { aclose(output_fd) };
+    assert!(result >= 0, "Failed to close output stream");
+
+    0
 }
