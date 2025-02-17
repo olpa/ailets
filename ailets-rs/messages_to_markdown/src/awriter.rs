@@ -24,7 +24,7 @@ impl AWriter {
 
     pub fn str(&mut self, text: &str) {
         let text_bytes = text.as_bytes();
-        self.write(text_bytes).unwrap();
+        self.write_all(text_bytes).unwrap();
     }
 
     pub fn finish_with_newline(&mut self) {
@@ -46,22 +46,12 @@ impl Drop for AWriter {
 impl std::io::Write for AWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         if let Some(fd) = self.fd {
-            let mut bytes_written: usize = 0;
-            while bytes_written < buf.len() {
-                let n = unsafe {
-                    awrite(
-                        fd,
-                        buf.as_ptr().add(bytes_written),
-                        (buf.len() - bytes_written).try_into().unwrap(),
-                    )
-                };
-                let n: usize = match n {
-                    n if n <= 0 => panic!("Failed to write to output stream"),
-                    n => n.try_into().unwrap(),
-                };
-                bytes_written += n;
-            }
-            Ok(buf.len())
+            let n = unsafe { awrite(fd, buf.as_ptr(), buf.len().try_into().unwrap()) };
+            let n: usize = match n {
+                n if n <= 0 => panic!("Failed to write to output stream"),
+                n => n.try_into().unwrap(),
+            };
+            Ok(n)
         } else {
             Ok(0)
         }
