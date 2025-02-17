@@ -1,18 +1,18 @@
 pub use actor_runtime::*;
 
-const BUFFER_SIZE: usize = 1024;
+const BUFFER_SIZE: u32 = 1024;
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
 pub extern "C" fn execute() -> i32 {
     let input_name = c"";
-    let mut buffer = [0u8; BUFFER_SIZE];
+    let mut buffer = [0u8; BUFFER_SIZE as usize];
 
     let output_fd = unsafe { open_write(input_name.as_ptr()) };
     assert!(output_fd >= 0, "Failed to open output stream");
 
     // Process each input stream
-    let mut i: usize = 0;
+    let mut i: u32 = 0;
     loop {
         let current_n_streams = unsafe { n_of_streams(input_name.as_ptr()) };
         if current_n_streams <= i32::try_from(i).unwrap() {
@@ -24,22 +24,22 @@ pub extern "C" fn execute() -> i32 {
         // Copy contents
         loop {
             let bytes_read = unsafe { aread(input_fd, buffer.as_mut_ptr(), BUFFER_SIZE) };
-            let bytes_read: usize = match bytes_read {
+            let bytes_read: u32 = match bytes_read {
                 -1 => panic!("Failed to read input stream"),
                 0 => break,
                 n => n.try_into().unwrap(),
             };
 
-            let mut bytes_written: usize = 0;
+            let mut bytes_written: u32 = 0;
             while bytes_written < bytes_read {
                 let n = unsafe {
                     awrite(
                         output_fd,
-                        buffer.as_ptr().add(bytes_written),
+                        buffer.as_ptr().add(bytes_written as usize),
                         bytes_read - bytes_written,
                     )
                 };
-                let n: usize = match n {
+                let n: u32 = match n {
                     n if n <= 0 => panic!("Failed to write to output stream"),
                     n => n.try_into().unwrap(),
                 };
