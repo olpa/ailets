@@ -18,8 +18,8 @@
 /// - return an error if `WANT_ERROR` is encountered.
 use lazy_static::lazy_static;
 use std::ffi::CStr;
-use std::os::raw::c_char;
 use std::sync::Mutex;
+use std::os::raw::{c_char, c_int, c_uint};
 
 struct VfsFile {
     name: String,
@@ -69,7 +69,7 @@ fn cstr_to_string(ptr: *const c_char) -> String {
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
-pub extern "C" fn n_of_streams(name_ptr: *const c_char) -> i32 {
+pub extern "C" fn n_of_streams(name_ptr: *const c_char) -> c_int {
     let files = FILES.lock().unwrap();
 
     let name = cstr_to_string(name_ptr);
@@ -86,7 +86,7 @@ pub extern "C" fn n_of_streams(name_ptr: *const c_char) -> i32 {
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
-pub extern "C" fn open_read(name_ptr: *const c_char, index: usize) -> i32 {
+pub extern "C" fn open_read(name_ptr: *const c_char, index: c_uint) -> c_int {
     let files = FILES.lock().unwrap();
     let mut handles = HANDLES.lock().unwrap();
 
@@ -96,7 +96,7 @@ pub extern "C" fn open_read(name_ptr: *const c_char, index: usize) -> i32 {
     if let Some(vfs_index) = files.iter().position(|f| f.name == name) {
         let handle = FileHandle { vfs_index, pos: 0 };
         handles.push(handle);
-        return i32::try_from(handles.len()).unwrap_or(-1) - 1;
+        return c_int::try_from(handles.len()).unwrap_or(-1) - 1;
     }
 
     -1
@@ -104,7 +104,7 @@ pub extern "C" fn open_read(name_ptr: *const c_char, index: usize) -> i32 {
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
-pub extern "C" fn open_write(name_ptr: *const c_char) -> i32 {
+pub extern "C" fn open_write(name_ptr: *const c_char) -> c_int {
     let mut files = FILES.lock().unwrap();
     let mut handles = HANDLES.lock().unwrap();
 
@@ -123,7 +123,7 @@ pub extern "C" fn open_write(name_ptr: *const c_char) -> i32 {
     handles.push(handle);
     let handle_index = handles.len() - 1;
 
-    i32::try_from(handle_index).unwrap_or(-1)
+    c_int::try_from(handle_index).unwrap_or(-1)
 }
 
 fn cbuf_to_slice<'a>(ptr: *mut u8, count: usize) -> &'a mut [u8] {
@@ -132,7 +132,7 @@ fn cbuf_to_slice<'a>(ptr: *mut u8, count: usize) -> &'a mut [u8] {
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
-pub extern "C" fn aread(fd: i32, buffer_ptr: *mut u8, count: usize) -> i32 {
+pub extern "C" fn aread(fd: c_int, buffer_ptr: *mut u8, count: c_uint) -> c_int {
     let files = FILES.lock().unwrap();
     let mut handles = HANDLES.lock().unwrap();
 
@@ -146,10 +146,10 @@ pub extern "C" fn aread(fd: i32, buffer_ptr: *mut u8, count: usize) -> i32 {
         return -1;
     };
 
-    let buffer = cbuf_to_slice(buffer_ptr, count);
+    let buffer = cbuf_to_slice(buffer_ptr, count as usize);
     let pos_before = handle.pos;
     let remaining = file.buffer.len() - pos_before;
-    let to_copy = std::cmp::min(count, remaining);
+    let to_copy = std::cmp::min(count as usize, remaining);
 
     for b in buffer.iter_mut().take(to_copy) {
         let ch = file.buffer[handle.pos];
@@ -168,7 +168,7 @@ pub extern "C" fn aread(fd: i32, buffer_ptr: *mut u8, count: usize) -> i32 {
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
-pub extern "C" fn awrite(fd: i32, buffer_ptr: *mut u8, count: usize) -> i32 {
+pub extern "C" fn awrite(fd: c_int, buffer_ptr: *mut u8, count: c_uint) -> c_int {
     let mut files = FILES.lock().unwrap();
     let handles = HANDLES.lock().unwrap();
 
@@ -182,10 +182,10 @@ pub extern "C" fn awrite(fd: i32, buffer_ptr: *mut u8, count: usize) -> i32 {
         return -1;
     };
 
-    let buffer = cbuf_to_slice(buffer_ptr, count);
+    let buffer = cbuf_to_slice(buffer_ptr, count as usize);
     let len_before = file.buffer.len();
 
-    for &ch in buffer.iter().take(count) {
+    for &ch in buffer.iter().take(count as usize) {
         if ch == WANT_ERROR as u8 {
             return -1;
         }
@@ -203,7 +203,7 @@ pub extern "C" fn awrite(fd: i32, buffer_ptr: *mut u8, count: usize) -> i32 {
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
-pub extern "C" fn aclose(fd: i32) -> i32 {
+pub extern "C" fn aclose(fd: c_int) -> c_int {
     let mut handles = HANDLES.lock().unwrap();
 
     let Ok(fd) = usize::try_from(fd) else {
