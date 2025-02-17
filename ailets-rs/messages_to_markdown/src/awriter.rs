@@ -22,10 +22,23 @@ impl AWriter {
     }
 
     pub fn str(&self, text: &str) {
-        // FIXME: write_all
+        let text_bytes = text.as_bytes();
+        let text_bytes_len = text_bytes.len() as u32;
         if let Some(fd) = self.fd {
-            unsafe {
-                awrite(fd, text.as_ptr(), u32::try_from(text.len()).unwrap());
+            let mut bytes_written: u32 = 0;
+            while bytes_written < text_bytes_len {
+                let n = unsafe {
+                    awrite(
+                        fd,
+                        text_bytes.as_ptr().add(bytes_written as usize),
+                        text_bytes_len - bytes_written,
+                    )
+                };
+                let n: u32 = match n {
+                    n if n <= 0 => panic!("Failed to write to output stream"),
+                    n => n.try_into().unwrap(),
+                };
+                bytes_written += n;
             }
         }
     }
