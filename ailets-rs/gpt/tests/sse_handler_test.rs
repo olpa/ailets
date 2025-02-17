@@ -16,7 +16,7 @@ fn basic_pass() {
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
     let rjiter_cell = RefCell::new(rjiter);
-    let awriter = AWriter::new("");
+    let awriter = AWriter::new(c"");
     let awriter_cell = RefCell::new(awriter);
 
     // Act
@@ -38,7 +38,7 @@ fn join_multiple_content_deltas() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let awriter = AWriter::new("");
+    let awriter = AWriter::new(c"");
     let rjiter_cell = RefCell::new(rjiter);
     let awriter_cell = RefCell::new(awriter);
 
@@ -63,7 +63,7 @@ fn ignore_additional_role() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let awriter = AWriter::new("");
+    let awriter = AWriter::new(c"");
     let rjiter_cell = RefCell::new(rjiter);
     let awriter_cell = RefCell::new(awriter);
 
@@ -86,7 +86,7 @@ fn create_message_without_input_role() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let awriter = AWriter::new("");
+    let awriter = AWriter::new(c"");
     let rjiter_cell = RefCell::new(rjiter);
     let awriter_cell = RefCell::new(awriter);
 
@@ -108,7 +108,7 @@ fn can_call_end_message_multiple_times() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let awriter = AWriter::new("");
+    let awriter = AWriter::new(c"");
     let rjiter_cell = RefCell::new(rjiter);
     let awriter_cell = RefCell::new(awriter);
 

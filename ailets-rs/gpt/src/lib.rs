@@ -1,12 +1,11 @@
 pub mod awriter;
 
-use std::cell::RefCell;
-
 use areader::AReader;
 use awriter::AWriter;
 use scan_json::jiter::Peek;
 use scan_json::RJiter;
 use scan_json::{scan, BoxedAction, BoxedEndAction, Name, ParentAndName, StreamOp, Trigger};
+use std::cell::RefCell;
 
 const BUFFER_SIZE: u32 = 1024;
 
@@ -51,7 +50,7 @@ type BA<'a> = BoxedAction<'a, AWriter>;
 
 #[allow(clippy::missing_panics_doc)]
 pub fn _process_gpt(mut reader: impl std::io::Read) {
-    let writer_cell = RefCell::new(AWriter::new(""));
+    let writer_cell = RefCell::new(AWriter::new(c""));
 
     let mut buffer = vec![0u8; BUFFER_SIZE as usize];
 
@@ -113,6 +112,6 @@ pub fn _process_gpt(mut reader: impl std::io::Read) {
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
 pub extern "C" fn process_gpt() {
-    let reader = AReader::new("");
+    let reader = AReader::new(c"");
     _process_gpt(reader);
 }

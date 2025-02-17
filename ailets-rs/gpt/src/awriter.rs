@@ -1,8 +1,10 @@
+use std::ffi::CStr;
+
 use actor_runtime::{aclose, awrite, open_write};
 
 #[allow(clippy::struct_excessive_bools)]
 pub struct AWriter {
-    fd: Option<u32>,
+    fd: Option<i32>,
     message_has_role: bool,
     message_has_content: bool,
     text_is_open: bool,
@@ -25,7 +27,7 @@ fn escape_json_value(s: &str) -> &str {
 
 impl AWriter {
     #[must_use]
-    pub fn new(filename: &str) -> Self {
+    pub fn new(filename: &CStr) -> Self {
         let fd = unsafe { open_write(filename.as_ptr()) };
         AWriter {
             fd: Some(fd),
