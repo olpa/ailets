@@ -1,5 +1,6 @@
 use actor_runtime::{aclose, awrite, open_write};
 use std::ffi::CStr;
+use std::io::Write;
 pub struct AWriter {
     fd: Option<i32>,
     need_para_divider: bool,
@@ -21,26 +22,9 @@ impl AWriter {
         self.need_para_divider = true;
     }
 
-    pub fn str(&self, text: &str) {
+    pub fn str(&mut self, text: &str) {
         let text_bytes = text.as_bytes();
-        let text_bytes_len = text_bytes.len() as u32;
-        if let Some(fd) = self.fd {
-            let mut bytes_written: u32 = 0;
-            while bytes_written < text_bytes_len {
-                let n = unsafe {
-                    awrite(
-                        fd,
-                        text_bytes.as_ptr().add(bytes_written as usize),
-                        text_bytes_len - bytes_written,
-                    )
-                };
-                let n: u32 = match n {
-                    n if n <= 0 => panic!("Failed to write to output stream"),
-                    n => n.try_into().unwrap(),
-                };
-                bytes_written += n;
-            }
-        }
+        self.write(text_bytes).unwrap();
     }
 
     pub fn finish_with_newline(&mut self) {
@@ -62,8 +46,20 @@ impl Drop for AWriter {
 impl std::io::Write for AWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         if let Some(fd) = self.fd {
-            unsafe {
-                awrite(fd, buf.as_ptr(), u32::try_from(buf.len()).unwrap());
+            let mut bytes_written: usize = 0;
+            while bytes_written < buf.len() {
+                let n = unsafe {
+                    awrite(
+                        fd,
+                        buf.as_ptr().add(bytes_written),
+                        (buf.len() - bytes_written).try_into().unwrap(),
+                    )
+                };
+                let n: usize = match n {
+                    n if n <= 0 => panic!("Failed to write to output stream"),
+                    n => n.try_into().unwrap(),
+                };
+                bytes_written += n;
             }
             Ok(buf.len())
         } else {
