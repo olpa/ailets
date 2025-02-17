@@ -18,8 +18,8 @@
 /// - return an error if `WANT_ERROR` is encountered.
 use lazy_static::lazy_static;
 use std::ffi::CStr;
-use std::sync::Mutex;
 use std::os::raw::{c_char, c_int, c_uint};
+use std::sync::Mutex;
 
 struct VfsFile {
     name: String,

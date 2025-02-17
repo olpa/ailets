@@ -2,6 +2,7 @@ use actor_runtime_mocked::vfs::{
     aclose, add_file, aread, awrite, clear_mocks, get_file, n_of_streams, open_read, open_write,
     WANT_ERROR,
 };
+use std::os::raw::c_uint;
 
 #[test]
 fn n_of_streams_returns_zero() {
@@ -107,7 +108,7 @@ fn read_returns_minus_one_for_invalid_handle() {
     clear_mocks();
 
     let mut buffer = [0u8; 10];
-    let result = aread(999, buffer.as_mut_ptr(), buffer.len());
+    let result = aread(999, buffer.as_mut_ptr(), buffer.len() as c_uint);
 
     assert_eq!(result, -1);
 }
@@ -126,13 +127,13 @@ fn read_returns_all_content() {
 
     // Read entire content
     let mut buffer = [0u8; 32];
-    let bytes_read = aread(fd, buffer.as_mut_ptr(), buffer.len());
+    let bytes_read = aread(fd, buffer.as_mut_ptr(), buffer.len() as c_uint);
 
     assert_eq!(bytes_read, content.len() as i32);
     assert_eq!(&buffer[..content.len()], content);
 
     // Verify EOF (should return 0 bytes)
-    let bytes_read = aread(fd, buffer.as_mut_ptr(), buffer.len());
+    let bytes_read = aread(fd, buffer.as_mut_ptr(), buffer.len() as c_uint);
     assert_eq!(bytes_read, 0);
 }
 
@@ -150,22 +151,22 @@ fn read_in_chunks_with_io_interrupt() {
 
     // Read first chunk
     let mut buffer = [0u8; 10];
-    let bytes_read = aread(fd, buffer.as_mut_ptr(), buffer.len());
+    let bytes_read = aread(fd, buffer.as_mut_ptr(), buffer.len() as c_uint);
     assert_eq!(bytes_read, 4);
     assert_eq!(&buffer[..4], b"one\n");
 
     // Read second chunk
-    let bytes_read = aread(fd, buffer.as_mut_ptr(), buffer.len());
+    let bytes_read = aread(fd, buffer.as_mut_ptr(), buffer.len() as c_uint);
     assert_eq!(bytes_read, 4);
     assert_eq!(&buffer[..4], b"two\n");
 
     // Read third chunk
-    let bytes_read = aread(fd, buffer.as_mut_ptr(), buffer.len());
+    let bytes_read = aread(fd, buffer.as_mut_ptr(), buffer.len() as c_uint);
     assert_eq!(bytes_read, 6);
     assert_eq!(&buffer[..6], b"three\n");
 
     // Get an error
-    let bytes_read = aread(fd, buffer.as_mut_ptr(), buffer.len());
+    let bytes_read = aread(fd, buffer.as_mut_ptr(), buffer.len() as c_uint);
     assert_eq!(bytes_read, -1);
 }
 
@@ -174,7 +175,7 @@ fn write_returns_minus_one_for_invalid_handle() {
     clear_mocks();
 
     let buffer = [1u8, 2, 3];
-    let bytes_written = awrite(999, buffer.as_ptr() as *mut u8, buffer.len());
+    let bytes_written = awrite(999, buffer.as_ptr() as *mut u8, buffer.len() as c_uint);
     assert_eq!(bytes_written, -1);
 }
 
@@ -188,7 +189,7 @@ fn write_returns_bytes_written() {
 
     // Write some content
     let content = b"Hello world!";
-    let bytes_written = awrite(fd, content.as_ptr() as *mut u8, content.len());
+    let bytes_written = awrite(fd, content.as_ptr() as *mut u8, content.len() as c_uint);
 
     assert_eq!(bytes_written, content.len() as i32);
 
@@ -206,7 +207,7 @@ fn write_all_content() {
 
     // Write some content
     let content = b"Hello world!";
-    let bytes_written = awrite(fd, content.as_ptr() as *mut u8, content.len());
+    let bytes_written = awrite(fd, content.as_ptr() as *mut u8, content.len() as c_uint);
     assert_eq!(bytes_written, content.len() as i32);
 
     // Verify written content
