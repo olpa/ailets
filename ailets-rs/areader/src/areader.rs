@@ -10,7 +10,10 @@ pub struct AReader<'a> {
 }
 
 impl<'a> AReader<'a> {
-    #[must_use]
+    /// Create a new `AReader` for the given stream name.
+    ///
+    /// # Errors
+    /// Returns an error if opening fails.
     pub fn new(stream_name: &'a CStr) -> Result<Self> {
         let fd = unsafe { open_read(stream_name.as_ptr(), 0) };
         if fd < 0 {
