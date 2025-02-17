@@ -1,6 +1,6 @@
 use actor_runtime::{aclose, aread, n_of_streams, open_read};
 use std::ffi::CStr;
-use std::io::{self, Read};
+use std::io::{Error, ErrorKind, Read, Result};
 use std::os::raw::{c_int, c_uint};
 
 pub struct AReader<'a> {
@@ -11,17 +11,21 @@ pub struct AReader<'a> {
 
 impl<'a> AReader<'a> {
     #[must_use]
-    pub fn new(stream_name: &'a CStr) -> Self {
-        AReader {
-            fd: None,
+    pub fn new(stream_name: &'a CStr) -> Result<Self> {
+        let fd = unsafe { open_read(stream_name.as_ptr(), 0) };
+        if fd < 0 {
+            return Err(Error::new(ErrorKind::Other, "Failed to open read stream"));
+        }
+        Ok(AReader {
+            fd: Some(fd),
             stream_index: 0,
             stream_name,
-        }
+        })
     }
 }
 
 impl<'a> Read for AReader<'a> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         if self.fd.is_none() {
             let n = unsafe { n_of_streams(self.stream_name.as_ptr()) };
             let n: c_uint = match n {

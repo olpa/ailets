@@ -1,5 +1,6 @@
 use actor_runtime_mocked::{add_file, clear_mocks};
 use areader::AReader;
+use std::io::Read;
 
 #[test]
 fn happy_path() {
@@ -10,7 +11,11 @@ fn happy_path() {
     add_file("test.2".to_string(), b"baz".to_vec());
 
     let mut reader = AReader::new(c"test").expect("Should create reader");
-    let result = reader.read_all().expect("Should read all content");
+    let mut result = String::new();
 
-    assert_eq!(result, b"foobarbaz");
+    reader
+        .read_to_string(&mut result)
+        .expect("Should read all content");
+
+    assert_eq!(result, "foobarbaz");
 }
