@@ -1,4 +1,4 @@
-use areader::mocked_actor_runtime::{clear_mocks, get_output};
+use actor_runtime_mocked::{clear_mocks, get_file};
 use messages_to_markdown::_messages_to_markdown;
 use std::io::Cursor;
 
@@ -16,7 +16,8 @@ fn test_basic_conversion() {
 
     _messages_to_markdown(reader);
 
-    assert_eq!(get_output(), "Hello!\n");
+    let result = String::from_utf8(get_file("").unwrap()).unwrap();
+    assert_eq!(result, "Hello!\n");
 }
 
 #[test]
@@ -35,7 +36,8 @@ fn test_multiple_content_items() {
 
     _messages_to_markdown(reader);
 
-    assert_eq!(get_output(), "First item\n\nSecond item\n\nThird item\n");
+    let result = String::from_utf8(get_file("").unwrap()).unwrap();
+    assert_eq!(result, "First item\n\nSecond item\n\nThird item\n");
 }
 
 #[test]
@@ -59,10 +61,8 @@ fn test_two_messages() {
 
     _messages_to_markdown(reader);
 
-    assert_eq!(
-        get_output(),
-        "First message\n\nSecond message\n\nExtra text\n"
-    );
+    let result = String::from_utf8(get_file("").unwrap()).unwrap();
+    assert_eq!(result, "First message\n\nSecond message\n\nExtra text\n");
 }
 
 #[test]
@@ -73,7 +73,8 @@ fn test_empty_input() {
 
     _messages_to_markdown(reader);
 
-    assert_eq!(get_output(), "");
+    let result = String::from_utf8(get_file("").unwrap()).unwrap();
+    assert_eq!(result, "");
 }
 
 #[test]
@@ -95,7 +96,8 @@ fn test_long_text() {
 
     _messages_to_markdown(reader);
 
-    assert_eq!(get_output(), format!("{}\n", long_text));
+    let result = String::from_utf8(get_file("").unwrap()).unwrap();
+    assert_eq!(result, format!("{}\n", long_text));
 }
 
 #[test]
@@ -114,7 +116,8 @@ fn test_skip_unknown_key_object() {
 
     _messages_to_markdown(reader);
 
-    assert_eq!(get_output(), "First message\n\nSecond message\n");
+    let result = String::from_utf8(get_file("").unwrap()).unwrap();
+    assert_eq!(result, "First message\n\nSecond message\n");
 }
 
 #[test]
@@ -131,5 +134,6 @@ fn test_json_escapes() {
 
     _messages_to_markdown(reader);
 
-    assert_eq!(get_output(), "a\n\"\u{0401}\"\n");
+    let result = String::from_utf8(get_file("").unwrap()).unwrap();
+    assert_eq!(result, "a\n\"\u{0401}\"\n");
 }
