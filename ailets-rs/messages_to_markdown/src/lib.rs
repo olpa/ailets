@@ -42,7 +42,7 @@ fn on_content_text(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>
 ///   ```
 #[allow(clippy::missing_panics_doc)]
 pub fn _messages_to_markdown(mut reader: impl std::io::Read) {
-    let writer_cell = RefCell::new(AWriter::new(""));
+    let writer_cell = RefCell::new(AWriter::new(c""));
 
     let mut buffer = [0u8; BUFFER_SIZE as usize];
     let rjiter_cell = RefCell::new(RJiter::new(&mut reader, &mut buffer));
@@ -63,6 +63,6 @@ pub fn _messages_to_markdown(mut reader: impl std::io::Read) {
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
 pub extern "C" fn messages_to_markdown() {
-    let reader = AReader::new("");
+    let reader = AReader::new(c"");
     _messages_to_markdown(reader);
 }

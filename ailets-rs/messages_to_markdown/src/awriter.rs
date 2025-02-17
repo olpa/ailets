@@ -1,12 +1,12 @@
 use actor_runtime::{aclose, awrite, open_write};
-
+use std::ffi::CStr;
 pub struct AWriter {
-    fd: Option<u32>,
+    fd: Option<i32>,
     need_para_divider: bool,
 }
 
 impl AWriter {
-    pub fn new(filename: &str) -> Self {
+    pub fn new(filename: &CStr) -> Self {
         let fd = unsafe { open_write(filename.as_ptr()) };
         AWriter {
             fd: Some(fd),
