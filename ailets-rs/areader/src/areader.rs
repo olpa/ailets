@@ -1,11 +1,11 @@
-use std::io::{self, Read};
-use std::ffi::CStr;
-
 use actor_runtime::{aclose, aread, n_of_streams, open_read};
+use std::ffi::CStr;
+use std::io::{self, Read};
+use std::os::raw::{c_int, c_uint};
 
 pub struct AReader<'a> {
-    fd: Option<i32>,
-    stream_index: usize,
+    fd: Option<c_int>,
+    stream_index: c_uint,
     stream_name: &'a CStr,
 }
 
@@ -24,7 +24,7 @@ impl<'a> Read for AReader<'a> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if self.fd.is_none() {
             let n = unsafe { n_of_streams(self.stream_name.as_ptr()) };
-            let n: usize = match n {
+            let n: c_uint = match n {
                 n if n < 0 => panic!("Failed to get number of streams"),
                 n => n.try_into().unwrap(),
             };
@@ -36,7 +36,8 @@ impl<'a> Read for AReader<'a> {
             self.fd = Some(fd);
         }
         let fd = self.fd.unwrap();
-        let bytes_read = unsafe { aread(fd, buf.as_mut_ptr(), buf.len()) };
+        let bytes_read =
+            unsafe { aread(fd, buf.as_mut_ptr(), c_uint::try_from(buf.len()).unwrap()) };
         match bytes_read {
             n if n < 0 => panic!("Failed to read stream"),
             0 => {
