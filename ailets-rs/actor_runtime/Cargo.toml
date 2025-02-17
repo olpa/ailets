@@ -7,5 +7,3 @@ license.workspace = true
 
 [lib]
 crate-type = ["cdylib", "lib"]
-
-[dependencies]

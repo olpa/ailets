@@ -1,5 +1,5 @@
 [workspace]
-members = [ "actor_runtime", "areader", "cat", "gpt", "messages_to_markdown" ]
+members = [ "actor_runtime", "actor_runtime_mocked", "areader", "cat", "gpt", "messages_to_markdown" ]
 resolver = "2"
 
 [workspace.package]

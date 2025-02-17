@@ -3,16 +3,19 @@ pub use actor_runtime::*;
 const BUFFER_SIZE: u32 = 1024;
 
 #[no_mangle]
-pub extern "C" fn execute() {
-    let input_name = b"";
+#[allow(clippy::missing_panics_doc)]
+pub extern "C" fn execute() -> i32 {
+    let input_name = c"";
     let mut buffer = [0u8; BUFFER_SIZE as usize];
+
     let output_fd = unsafe { open_write(input_name.as_ptr()) };
+    assert!(output_fd >= 0, "Failed to open output stream");
 
     // Process each input stream
-    let mut i = 0;
+    let mut i: u32 = 0;
     loop {
         let current_n_streams = unsafe { n_of_streams(input_name.as_ptr()) };
-        if i >= current_n_streams {
+        if current_n_streams <= i32::try_from(i).unwrap() {
             break;
         }
 
@@ -21,11 +24,13 @@ pub extern "C" fn execute() {
         // Copy contents
         loop {
             let bytes_read = unsafe { aread(input_fd, buffer.as_mut_ptr(), BUFFER_SIZE) };
-            if bytes_read == 0 {
-                break;
-            }
+            let bytes_read: u32 = match bytes_read {
+                -1 => panic!("Failed to read input stream"),
+                0 => break,
+                n => n.try_into().unwrap(),
+            };
 
-            let mut bytes_written = 0;
+            let mut bytes_written: u32 = 0;
             while bytes_written < bytes_read {
                 let n = unsafe {
                     awrite(
@@ -34,10 +39,10 @@ pub extern "C" fn execute() {
                         bytes_read - bytes_written,
                     )
                 };
-                if n == 0 {
-                    // Handle write error
-                    break;
-                }
+                let n: u32 = match n {
+                    n if n <= 0 => panic!("Failed to write to output stream"),
+                    n => n.try_into().unwrap(),
+                };
                 bytes_written += n;
             }
         }
@@ -49,5 +54,8 @@ pub extern "C" fn execute() {
     }
 
     // Close output stream
-    unsafe { aclose(output_fd) };
+    let result = unsafe { aclose(output_fd) };
+    assert!(result >= 0, "Failed to close output stream");
+
+    0
 }

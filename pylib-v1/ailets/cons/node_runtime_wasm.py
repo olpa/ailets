@@ -59,8 +59,9 @@ def fill_wasm_import_object(
         buffer = bytes(buf_view[buffer_ptr:end])
         return await runtime.write(fd, buffer, count)
 
-    async def aclose(fd: int) -> None:
+    async def aclose(fd: int) -> int:
         await runtime.close(fd)
+        return 0
 
     def sync_n_of_streams(name_ptr: int) -> int:
         return asyncio.run(n_of_streams(name_ptr))
@@ -77,7 +78,7 @@ def fill_wasm_import_object(
     def sync_awrite(fd: int, buffer_ptr: int, count: int) -> int:
         return asyncio.run(awrite(fd, buffer_ptr, count))
 
-    def sync_aclose(fd: int) -> None:
+    def sync_aclose(fd: int) -> int:
         return asyncio.run(aclose(fd))
 
     # Register functions with WASM

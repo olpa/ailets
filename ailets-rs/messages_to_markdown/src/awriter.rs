@@ -1,12 +1,13 @@
 use actor_runtime::{aclose, awrite, open_write};
-
+use std::ffi::CStr;
+use std::io::Write;
 pub struct AWriter {
-    fd: Option<u32>,
+    fd: Option<i32>,
     need_para_divider: bool,
 }
 
 impl AWriter {
-    pub fn new(filename: &str) -> Self {
+    pub fn new(filename: &CStr) -> Self {
         let fd = unsafe { open_write(filename.as_ptr()) };
         AWriter {
             fd: Some(fd),
@@ -21,13 +22,9 @@ impl AWriter {
         self.need_para_divider = true;
     }
 
-    pub fn str(&self, text: &str) {
-        // FIXME: write_all
-        if let Some(fd) = self.fd {
-            unsafe {
-                awrite(fd, text.as_ptr(), u32::try_from(text.len()).unwrap());
-            }
-        }
+    pub fn str(&mut self, text: &str) {
+        let text_bytes = text.as_bytes();
+        self.write_all(text_bytes).unwrap();
     }
 
     pub fn finish_with_newline(&mut self) {
@@ -49,10 +46,12 @@ impl Drop for AWriter {
 impl std::io::Write for AWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         if let Some(fd) = self.fd {
-            unsafe {
-                awrite(fd, buf.as_ptr(), u32::try_from(buf.len()).unwrap());
-            }
-            Ok(buf.len())
+            let n = unsafe { awrite(fd, buf.as_ptr(), buf.len().try_into().unwrap()) };
+            let n: usize = match n {
+                n if n <= 0 => panic!("Failed to write to output stream"),
+                n => n.try_into().unwrap(),
+            };
+            Ok(n)
         } else {
             Ok(0)
         }

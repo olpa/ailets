@@ -1,4 +1,3 @@
-mod areader;
 mod awriter;
 
 use areader::AReader;
@@ -41,10 +40,9 @@ fn on_content_text(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>
 /// - The input JSON is malformed
 /// - The JSON structure doesn't match the expected format of
 ///   ```
-#[no_mangle]
-pub extern "C" fn messages_to_markdown() {
-    let mut reader = AReader::new("");
-    let writer_cell = RefCell::new(AWriter::new(""));
+#[allow(clippy::missing_panics_doc)]
+pub fn _messages_to_markdown(mut reader: impl std::io::Read) {
+    let writer_cell = RefCell::new(AWriter::new(c""));
 
     let mut buffer = [0u8; BUFFER_SIZE as usize];
     let rjiter_cell = RefCell::new(RJiter::new(&mut reader, &mut buffer));
@@ -60,4 +58,11 @@ pub extern "C" fn messages_to_markdown() {
 
     scan(&[content_text], &[], &[], &rjiter_cell, &writer_cell).unwrap();
     writer_cell.borrow_mut().finish_with_newline();
+}
+
+#[no_mangle]
+#[allow(clippy::missing_panics_doc)]
+pub extern "C" fn messages_to_markdown() {
+    let reader = AReader::new(c"");
+    _messages_to_markdown(reader);
 }

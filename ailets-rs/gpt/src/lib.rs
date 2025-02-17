@@ -1,13 +1,11 @@
-pub mod areader;
 pub mod awriter;
-
-use std::cell::RefCell;
 
 use areader::AReader;
 use awriter::AWriter;
 use scan_json::jiter::Peek;
 use scan_json::RJiter;
 use scan_json::{scan, BoxedAction, BoxedEndAction, Name, ParentAndName, StreamOp, Trigger};
+use std::cell::RefCell;
 
 const BUFFER_SIZE: u32 = 1024;
 
@@ -50,11 +48,9 @@ pub fn on_content(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>)
 
 type BA<'a> = BoxedAction<'a, AWriter>;
 
-#[no_mangle]
 #[allow(clippy::missing_panics_doc)]
-pub extern "C" fn process_gpt() {
-    let mut reader = AReader::new("");
-    let writer_cell = RefCell::new(AWriter::new(""));
+pub fn _process_gpt(mut reader: impl std::io::Read) {
+    let writer_cell = RefCell::new(AWriter::new(c""));
 
     let mut buffer = vec![0u8; BUFFER_SIZE as usize];
 
@@ -111,4 +107,11 @@ pub extern "C" fn process_gpt() {
     )
     .unwrap();
     writer_cell.borrow_mut().end_message();
+}
+
+#[no_mangle]
+#[allow(clippy::missing_panics_doc)]
+pub extern "C" fn process_gpt() {
+    let reader = AReader::new(c"");
+    _process_gpt(reader);
 }

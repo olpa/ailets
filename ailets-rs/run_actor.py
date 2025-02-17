@@ -138,13 +138,14 @@ class NodeRuntime:
         end = ptr + count
         return stream.write(buffer[ptr:end])
 
-    def aclose(self, fd: int) -> None:
+    def aclose(self, fd: int) -> int:
         stream = self.streams[fd]
         if stream is None:
             raise ValueError(f"Stream {fd} is not open")
         if stream is not sys.stdin.buffer and stream is not sys.stdout.buffer:
             stream.close()
         self.streams[fd] = None
+        return 0
 
 
 class BufToStr:
@@ -195,7 +196,7 @@ def register_node_runtime(
     def awrite(fd: int, buffer_ptr: int, count: int) -> int:
         return nr.awrite(fd, buf_to_str.get_view(), buffer_ptr, count)
 
-    def aclose(fd: int) -> None:
+    def aclose(fd: int) -> int:
         return nr.aclose(fd)
 
     import_object.register(
