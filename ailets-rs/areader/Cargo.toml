@@ -7,4 +7,5 @@ license.workspace = true
 
 [dependencies]
 actor_runtime = { version = "0.1.0", path = "../actor_runtime" }
+actor_runtime_mocked = { version = "0.1.0", path = "../actor_runtime_mocked" }
 lazy_static = "1.5.0"
