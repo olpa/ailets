@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 use std::io;
 
-use areader::mocked_actor_runtime::{clear_mocks, get_output};
+use actor_runtime_mocked::{clear_mocks, get_file};
 
 use gpt::awriter::AWriter;
 use gpt::{on_content, on_role};
@@ -27,7 +27,8 @@ fn basic_pass() {
     // Assert
     let expected =
         r#"{"role":"assistant","content":[{"type":"text","text":"hello"}]}"#.to_owned() + "\n";
-    assert_eq!(get_output(), expected);
+    let result = String::from_utf8(get_file("").unwrap()).unwrap();
+    assert_eq!(result, expected);
 }
 
 #[test]
@@ -52,7 +53,8 @@ fn join_multiple_content_deltas() {
     // Assert
     let expected =
         r#"{"role":"role","content":[{"type":"text","text":"Hello world!"}]}"#.to_owned() + "\n";
-    assert_eq!(get_output(), expected);
+    let result = String::from_utf8(get_file("").unwrap()).unwrap();
+    assert_eq!(result, expected);
 }
 
 #[test]
@@ -75,7 +77,8 @@ fn ignore_additional_role() {
 
     // Assert
     let expected = r#"{"role":"a1","content":[]}"#.to_owned() + "\n";
-    assert_eq!(get_output(), expected);
+    let result = String::from_utf8(get_file("").unwrap()).unwrap();
+    assert_eq!(result, expected);
 }
 
 #[test]
@@ -97,7 +100,8 @@ fn create_message_without_input_role() {
     // Assert
     let expected =
         r#"{"role":"assistant","content":[{"type":"text","text":"hello"}]}"#.to_owned() + "\n";
-    assert_eq!(get_output(), expected);
+    let result = String::from_utf8(get_file("").unwrap()).unwrap();
+    assert_eq!(result, expected);
 }
 
 #[test]
@@ -121,5 +125,6 @@ fn can_call_end_message_multiple_times() {
     // Assert
     let expected =
         r#"{"role":"assistant","content":[{"type":"text","text":"hello"}]}"#.to_owned() + "\n";
-    assert_eq!(get_output(), expected);
+    let result = String::from_utf8(get_file("").unwrap()).unwrap();
+    assert_eq!(result, expected);
 }

@@ -1,4 +1,4 @@
-use areader::mocked_actor_runtime::{clear_mocks, get_output};
+use actor_runtime_mocked::{clear_mocks, get_file};
 use gpt::_process_gpt;
 use std::io::Cursor;
 
@@ -17,7 +17,8 @@ fn test_basic_processing() {
 
     _process_gpt(reader);
 
-    assert_eq!(get_output(), get_expected_basic_message());
+    let result = String::from_utf8(get_file("").unwrap()).unwrap();
+    assert_eq!(result, get_expected_basic_message());
 }
 
 #[test]
@@ -29,5 +30,6 @@ fn test_streaming() {
 
     _process_gpt(reader);
 
-    assert_eq!(get_output(), get_expected_basic_message());
+    let result = String::from_utf8(get_file("").unwrap()).unwrap();
+    assert_eq!(result, get_expected_basic_message());
 }
