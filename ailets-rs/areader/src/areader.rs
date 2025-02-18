@@ -89,10 +89,14 @@ impl<'a> Read for AReader<'a> {
             let fd = Self::open(self.stream_name, self.stream_index)?;
             self.fd = Some(fd);
         }
+        let Some(fd) = self.fd else {
+            return Ok(0);
+        };
 
-        let fd = self.fd.unwrap();
-        let bytes_read =
-            unsafe { aread(fd, buf.as_mut_ptr(), c_uint::try_from(buf.len()).unwrap()) };
+        #[allow(clippy::cast_possible_truncation)]
+        let buf_len = buf.len() as c_uint;
+        let bytes_read = unsafe { aread(fd, buf.as_mut_ptr(), buf_len) };
+
         match bytes_read {
             n if n < 0 => Err(Error::new(
                 ErrorKind::Other,
@@ -106,7 +110,8 @@ impl<'a> Read for AReader<'a> {
                 self.stream_index += 1;
                 self.read(buf)
             }
-            n => Ok(usize::try_from(n).unwrap()),
+            #[allow(clippy::cast_sign_loss)]
+            n => Ok(n as usize),
         }
     }
 }
