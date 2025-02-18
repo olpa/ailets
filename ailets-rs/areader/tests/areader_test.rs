@@ -51,6 +51,21 @@ fn read_in_chunks() {
 }
 
 #[test]
+fn skip_empty_streams_in_read() {
+    clear_mocks();
+
+    add_file("empty.0".to_string(), b"".to_vec());
+    add_file("empty.1".to_string(), b"".to_vec());
+    add_file("empty.2".to_string(), b"contents".to_vec());
+
+    let mut reader = AReader::new(c"empty").expect("Should create reader");
+
+    let mut buf = [0u8; 10];
+    let n = reader.read(&mut buf).unwrap();
+    assert_eq!(&buf[..n], b"contents");
+}
+
+#[test]
 fn cant_open_nonexistent_file() {
     clear_mocks();
 
