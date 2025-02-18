@@ -17,7 +17,13 @@ impl<'a> AReader<'a> {
     pub fn new(stream_name: &'a CStr) -> Result<Self> {
         let fd = unsafe { open_read(stream_name.as_ptr(), 0) };
         if fd < 0 {
-            return Err(Error::new(ErrorKind::Other, "Failed to open read stream"));
+            return Err(Error::new(
+                ErrorKind::Other,
+                format!(
+                    "Failed to open read stream '{}'",
+                    stream_name.to_string_lossy()
+                ),
+            ));
         }
         Ok(AReader {
             fd: Some(fd),

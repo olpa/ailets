@@ -19,3 +19,15 @@ fn happy_path() {
 
     assert_eq!(result, "foobarbaz");
 }
+
+#[test]
+fn cant_open_nonexistent_file() {
+    clear_mocks();
+
+    let err = AReader::new(c"no-such-file").expect_err("Should fail to create reader");
+
+    assert!(
+        err.to_string().contains("no-such-file"),
+        "Error message should contain the file name"
+    );
+}
