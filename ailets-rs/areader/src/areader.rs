@@ -1,3 +1,20 @@
+//! A module providing functionality for reading from actor streams.
+//!
+//! The `AReader` type implements a reader that can sequentially read from multiple
+//! actor streams sharing the same name. It automatically handles stream transitions
+//! and provides a standard `Read` trait implementation.
+//!
+//! # Example
+//!
+//! ```no_run
+//! use std::io::Read;
+//!
+//! let mut reader = AReader::new(c"my_stream").unwrap();
+//!
+//! let mut buffer = Vec::new();
+//! reader.read_to_end(&mut buffer).unwrap();
+//! ```
+
 use actor_runtime::{aclose, aread, n_of_streams, open_read};
 use std::ffi::CStr;
 use std::io::{Error, ErrorKind, Read, Result};
