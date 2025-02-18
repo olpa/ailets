@@ -21,6 +21,36 @@ fn happy_path() {
 }
 
 #[test]
+fn read_in_chunks() {
+    clear_mocks();
+
+    add_file(
+        "chunks.0".to_string(),
+        b"first\nchunk\nthird\nfourth\nfifth".to_vec(),
+    );
+    add_file("chunks.1".to_string(), b"next\nfile\ncontents".to_vec());
+
+    let mut reader = AReader::new(c"chunks").expect("Should create reader");
+    let mut buf = [0u8; 10];
+
+    // Read first chunk manually
+    let n = reader.read(&mut buf).expect("Should read first chunk");
+    assert_eq!(&buf[..n], b"first\n");
+
+    // Read second chunk manually
+    let n = reader.read(&mut buf).expect("Should read second chunk");
+    assert_eq!(&buf[..n], b"chunk\n");
+
+    // Read the rest
+    let mut result = String::new();
+    reader
+        .read_to_string(&mut result)
+        .expect("Should read remaining content");
+
+    assert_eq!(result, "third\nfourth\nfifthnext\nfile\ncontents");
+}
+
+#[test]
 fn cant_open_nonexistent_file() {
     clear_mocks();
 
