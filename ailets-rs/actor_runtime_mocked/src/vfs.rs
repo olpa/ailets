@@ -40,6 +40,7 @@ pub const WANT_ERROR: char = '\u{0001}';
 pub const IO_INTERRUPT: char = '\n';
 
 #[allow(clippy::missing_panics_doc)]
+#[allow(clippy::unwrap_used)]
 pub fn clear_mocks() {
     let mut files = FILES.lock().unwrap();
     files.clear();
@@ -48,12 +49,14 @@ pub fn clear_mocks() {
 }
 
 #[allow(clippy::missing_panics_doc)]
+#[allow(clippy::unwrap_used)]
 pub fn add_file(name: String, buffer: Vec<u8>) {
     let mut files = FILES.lock().unwrap();
     files.push(VfsFile { name, buffer });
 }
 
 #[allow(clippy::missing_errors_doc)]
+#[allow(clippy::unwrap_used)]
 pub fn get_file(name: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
     let files = FILES.lock()?;
     files
@@ -69,6 +72,7 @@ fn cstr_to_string(ptr: *const c_char) -> String {
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
+#[allow(clippy::unwrap_used)]
 pub extern "C" fn n_of_streams(name_ptr: *const c_char) -> c_int {
     let files = FILES.lock().unwrap();
 
@@ -86,6 +90,7 @@ pub extern "C" fn n_of_streams(name_ptr: *const c_char) -> c_int {
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
+#[allow(clippy::unwrap_used)]
 pub extern "C" fn open_read(name_ptr: *const c_char, index: c_uint) -> c_int {
     let files = FILES.lock().unwrap();
     let mut handles = HANDLES.lock().unwrap();
@@ -104,6 +109,7 @@ pub extern "C" fn open_read(name_ptr: *const c_char, index: c_uint) -> c_int {
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
+#[allow(clippy::unwrap_used)]
 pub extern "C" fn open_write(name_ptr: *const c_char) -> c_int {
     let mut files = FILES.lock().unwrap();
     let mut handles = HANDLES.lock().unwrap();
@@ -132,6 +138,7 @@ fn cbuf_to_slice<'a>(ptr: *mut u8, count: usize) -> &'a mut [u8] {
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
+#[allow(clippy::unwrap_used)]
 pub extern "C" fn aread(fd: c_int, buffer_ptr: *mut u8, count: c_uint) -> c_int {
     let files = FILES.lock().unwrap();
     let mut handles = HANDLES.lock().unwrap();
@@ -152,6 +159,7 @@ pub extern "C" fn aread(fd: c_int, buffer_ptr: *mut u8, count: c_uint) -> c_int 
     let to_copy = std::cmp::min(count as usize, remaining);
 
     for b in buffer.iter_mut().take(to_copy) {
+        #[allow(clippy::indexing_slicing)]
         let ch = file.buffer[handle.pos];
         if ch == WANT_ERROR as u8 {
             return -1;
@@ -168,6 +176,7 @@ pub extern "C" fn aread(fd: c_int, buffer_ptr: *mut u8, count: c_uint) -> c_int 
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
+#[allow(clippy::unwrap_used)]
 pub extern "C" fn awrite(fd: c_int, buffer_ptr: *mut u8, count: c_uint) -> c_int {
     let mut files = FILES.lock().unwrap();
     let handles = HANDLES.lock().unwrap();
@@ -203,6 +212,7 @@ pub extern "C" fn awrite(fd: c_int, buffer_ptr: *mut u8, count: c_uint) -> c_int
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
+#[allow(clippy::unwrap_used)]
 pub extern "C" fn aclose(fd: c_int) -> c_int {
     let mut handles = HANDLES.lock().unwrap();
 

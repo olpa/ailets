@@ -11,7 +11,7 @@ fix:
 
 lint:
 	cargo check
-	cargo clippy -- -W clippy::pedantic
+	cargo clippy -- -W clippy::pedantic -W clippy::panic -W clippy::unwrap_used -W clippy::expect_used -W clippy::indexing_slicing
 
 lint-py:
 	flake8 --max-line-length=88 run_actor.py

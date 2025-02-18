@@ -63,6 +63,6 @@ pub fn _messages_to_markdown(mut reader: impl std::io::Read) {
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
 pub extern "C" fn messages_to_markdown() {
-    let reader = AReader::new(c"");
+    let reader = AReader::new(c"").unwrap();
     _messages_to_markdown(reader);
 }
