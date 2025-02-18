@@ -27,6 +27,16 @@ impl<'a> AReader<'a> {
     }
 }
 
+impl<'a> std::fmt::Debug for AReader<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AReader")
+            .field("fd", &self.fd)
+            .field("stream_index", &self.stream_index)
+            .field("stream_name", &self.stream_name)
+            .finish()
+    }
+}
+
 impl<'a> Read for AReader<'a> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         if self.fd.is_none() {
