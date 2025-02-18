@@ -74,8 +74,14 @@ impl<'a> Read for AReader<'a> {
         if self.fd.is_none() {
             let n = unsafe { n_of_streams(self.stream_name.as_ptr()) };
             let n: c_uint = match n {
-                n if n < 0 => panic!("Failed to get number of streams"),
-                n => n.try_into().unwrap(),
+                n if n < 0 => {
+                    return Err(Error::new(
+                        ErrorKind::Other,
+                        "Failed to get number of streams",
+                    ));
+                }
+                #[allow(clippy::cast_sign_loss)]
+                n => n as c_uint,
             };
             if self.stream_index >= n {
                 return Ok(0);
