@@ -31,3 +31,16 @@ fn cant_open_nonexistent_file() {
         "Error message should contain the file name"
     );
 }
+
+#[test]
+fn close_can_raise_error() {
+    clear_mocks();
+
+    add_file("test.0".to_string(), b"foo".to_vec());
+
+    let mut reader = AReader::new(c"test").expect("Should create reader");
+
+    // Mock a close error by clearing the mocks while file is still open
+    clear_mocks();
+    reader.close().expect_err("Should fail to close");
+}

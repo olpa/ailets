@@ -36,6 +36,27 @@ impl<'a> AReader<'a> {
         }
         Ok(fd)
     }
+
+    /// Close the stream.
+    ///
+    /// # Errors
+    /// Returns an error if closing fails.
+    pub fn close(&mut self) -> Result<()> {
+        if let Some(fd) = self.fd {
+            let result = unsafe { aclose(fd) };
+            if result < 0 {
+                return Err(Error::new(
+                    ErrorKind::Other,
+                    format!(
+                        "Failed to close stream '{}'",
+                        self.stream_name.to_string_lossy()
+                    ),
+                ));
+            }
+            self.fd = None;
+        }
+        Ok(())
+    }
 }
 
 impl<'a> std::fmt::Debug for AReader<'a> {
@@ -69,8 +90,7 @@ impl<'a> Read for AReader<'a> {
         match bytes_read {
             n if n < 0 => panic!("Failed to read stream"),
             0 => {
-                unsafe { aclose(fd) };
-                self.fd = None;
+                self.close()?;
                 self.stream_index += 1;
                 self.read(buf)
             }
@@ -81,10 +101,6 @@ impl<'a> Read for AReader<'a> {
 
 impl<'a> Drop for AReader<'a> {
     fn drop(&mut self) {
-        if let Some(fd) = self.fd.take() {
-            unsafe {
-                aclose(fd);
-            }
-        }
+        let _ = self.close();
     }
 }
