@@ -8,6 +8,7 @@
 //!
 //! ```no_run
 //! use std::io::Read;
+//! use areader::AReader;
 //!
 //! let mut reader = AReader::new(c"my_stream").unwrap();
 //!
@@ -54,7 +55,34 @@ impl<'a> AReader<'a> {
         Ok(fd)
     }
 
+    /// Closes the current stream "foo.N" and opens the next one "foo.N+1".
+    /// Checks the number of streams for "foo" and doesn't open more streams than that.
+    fn close_current_open_next(&mut self) -> Result<()> {
+        self.close()?;
+        let n = unsafe { n_of_streams(self.stream_name.as_ptr()) };
+        let n: c_uint = match n {
+            n if n < 0 => {
+                return Err(Error::new(
+                    ErrorKind::Other,
+                    "Failed to get number of streams",
+                ));
+            }
+            #[allow(clippy::cast_sign_loss)]
+            n => n as c_uint,
+        };
+
+        self.stream_index += 1;
+        if self.stream_index >= n {
+            return Ok(());
+        }
+        let fd = Self::open(self.stream_name, self.stream_index)?;
+        self.fd = Some(fd);
+        Ok(())
+    }
+
     /// Close the stream.
+    /// Can be called multiple times.
+    /// "read" and "drop" will call "close" automatically.
     ///
     /// # Errors
     /// Returns an error if closing fails.
@@ -88,24 +116,6 @@ impl<'a> std::fmt::Debug for AReader<'a> {
 
 impl<'a> Read for AReader<'a> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
-        if self.fd.is_none() {
-            let n = unsafe { n_of_streams(self.stream_name.as_ptr()) };
-            let n: c_uint = match n {
-                n if n < 0 => {
-                    return Err(Error::new(
-                        ErrorKind::Other,
-                        "Failed to get number of streams",
-                    ));
-                }
-                #[allow(clippy::cast_sign_loss)]
-                n => n as c_uint,
-            };
-            if self.stream_index >= n {
-                return Ok(0);
-            }
-            let fd = Self::open(self.stream_name, self.stream_index)?;
-            self.fd = Some(fd);
-        }
         let Some(fd) = self.fd else {
             return Ok(0);
         };
@@ -123,8 +133,7 @@ impl<'a> Read for AReader<'a> {
                 ),
             )),
             0 => {
-                self.close()?;
-                self.stream_index += 1;
+                self.close_current_open_next()?;
                 self.read(buf)
             }
             #[allow(clippy::cast_sign_loss)]
