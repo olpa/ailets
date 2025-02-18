@@ -88,7 +88,13 @@ impl<'a> Read for AReader<'a> {
         let bytes_read =
             unsafe { aread(fd, buf.as_mut_ptr(), c_uint::try_from(buf.len()).unwrap()) };
         match bytes_read {
-            n if n < 0 => panic!("Failed to read stream"),
+            n if n < 0 => Err(Error::new(
+                ErrorKind::Other,
+                format!(
+                    "Failed to read stream '{}'",
+                    self.stream_name.to_string_lossy()
+                ),
+            )),
             0 => {
                 self.close()?;
                 self.stream_index += 1;
