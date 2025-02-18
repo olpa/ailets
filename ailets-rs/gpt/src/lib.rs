@@ -112,6 +112,6 @@ pub fn _process_gpt(mut reader: impl std::io::Read) {
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
 pub extern "C" fn process_gpt() {
-    let reader = AReader::new(c"");
+    let reader = AReader::new(c"").unwrap();
     _process_gpt(reader);
 }
