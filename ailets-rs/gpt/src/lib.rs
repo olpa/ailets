@@ -1,6 +1,7 @@
 pub mod structure_builder;
 
 use areader::AReader;
+use awriter::AWriter;
 use scan_json::jiter::Peek;
 use scan_json::RJiter;
 use scan_json::{scan, BoxedAction, BoxedEndAction, Name, ParentAndName, StreamOp, Trigger};
@@ -31,7 +32,7 @@ pub fn on_role(rjiter_cell: &RefCell<RJiter>, writer: &RefCell<StructureBuilder>
 #[allow(clippy::missing_panics_doc)]
 pub fn on_content(
     rjiter_cell: &RefCell<RJiter>,
-    writer_cell: &RefCell<StructureBuilder>,
+    builder_cell: &RefCell<StructureBuilder>,
 ) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
     let peeked = rjiter.peek();
@@ -42,9 +43,10 @@ pub fn on_content(
         "Expected string for 'content' value, got {peeked:?}"
     );
 
-    let mut writer = writer_cell.borrow_mut();
-    writer.begin_text_chunk();
-    let wb = rjiter.write_long_bytes(&mut *writer);
+    let mut builder = builder_cell.borrow_mut();
+    builder.begin_text_chunk();
+    let awriter = builder.get_awriter();
+    let wb = rjiter.write_long_bytes(awriter);
     assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
     StreamOp::ValueIsConsumed
 }
@@ -53,7 +55,8 @@ type BA<'a> = BoxedAction<'a, StructureBuilder>;
 
 #[allow(clippy::missing_panics_doc)]
 pub fn _process_gpt(mut reader: impl std::io::Read) {
-    let writer_cell = RefCell::new(StructureBuilder::new(c""));
+    let awriter = AWriter::new(c"");
+    let builder_cell = RefCell::new(StructureBuilder::new(awriter));
 
     let mut buffer = vec![0u8; BUFFER_SIZE as usize];
 
@@ -106,10 +109,10 @@ pub fn _process_gpt(mut reader: impl std::io::Read) {
         &triggers_end,
         &sse_tokens,
         &rjiter_cell,
-        &writer_cell,
+        &builder_cell,
     )
     .unwrap();
-    writer_cell.borrow_mut().end_message();
+    builder_cell.borrow_mut().end_message();
 }
 
 #[no_mangle]

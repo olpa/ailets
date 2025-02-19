@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::io;
 
 use actor_runtime_mocked::{clear_mocks, get_file};
-
+use awriter::AWriter;
 use gpt::structure_builder::StructureBuilder;
 use gpt::{on_content, on_role};
 use scan_json::RJiter;
@@ -16,7 +16,8 @@ fn basic_pass() {
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
     let rjiter_cell = RefCell::new(rjiter);
-    let builder = StructureBuilder::new(c"");
+    let awriter = AWriter::new(c"");
+    let builder = StructureBuilder::new(awriter);
     let builder_cell = RefCell::new(builder);
 
     // Act
@@ -39,7 +40,8 @@ fn join_multiple_content_deltas() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let builder = StructureBuilder::new(c"");
+    let awriter = AWriter::new(c"");
+    let builder = StructureBuilder::new(awriter);
     let rjiter_cell = RefCell::new(rjiter);
     let builder_cell = RefCell::new(builder);
 
@@ -65,7 +67,8 @@ fn ignore_additional_role() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let builder = StructureBuilder::new(c"");
+    let awriter = AWriter::new(c"");
+    let builder = StructureBuilder::new(awriter);
     let rjiter_cell = RefCell::new(rjiter);
     let builder_cell = RefCell::new(builder);
 
@@ -89,7 +92,8 @@ fn create_message_without_input_role() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let builder = StructureBuilder::new(c"");
+    let awriter = AWriter::new(c"");
+    let builder = StructureBuilder::new(awriter);
     let rjiter_cell = RefCell::new(rjiter);
     let builder_cell = RefCell::new(builder);
 
@@ -112,7 +116,8 @@ fn can_call_end_message_multiple_times() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let builder = StructureBuilder::new(c"");
+    let awriter = AWriter::new(c"");
+    let builder = StructureBuilder::new(awriter);
     let rjiter_cell = RefCell::new(rjiter);
     let builder_cell = RefCell::new(builder);
 
