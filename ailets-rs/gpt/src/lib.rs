@@ -6,33 +6,42 @@ use scan_json::jiter::Peek;
 use scan_json::RJiter;
 use scan_json::{scan, BoxedAction, BoxedEndAction, Name, ParentAndName, StreamOp, Trigger};
 use std::cell::RefCell;
+use std::io::Write;
 use structure_builder::StructureBuilder;
 
 const BUFFER_SIZE: u32 = 1024;
 
-fn on_begin_message(_rjiter: &RefCell<RJiter>, writer: &RefCell<StructureBuilder>) -> StreamOp {
-    writer.borrow_mut().begin_message();
+fn on_begin_message<W: Write>(
+    _rjiter: &RefCell<RJiter>,
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> StreamOp {
+    builder_cell.borrow_mut().begin_message();
     StreamOp::None
 }
 
 #[allow(clippy::unnecessary_wraps)]
-fn on_end_message(writer: &RefCell<StructureBuilder>) -> Result<(), Box<dyn std::error::Error>> {
-    writer.borrow_mut().end_message();
+fn on_end_message<W: Write>(
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    builder_cell.borrow_mut().end_message();
     Ok(())
 }
 
 #[allow(clippy::missing_panics_doc)]
-pub fn on_role(rjiter_cell: &RefCell<RJiter>, writer: &RefCell<StructureBuilder>) -> StreamOp {
+pub fn on_role<W: Write>(
+    rjiter_cell: &RefCell<RJiter>,
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
     let role = rjiter.next_str().unwrap();
-    writer.borrow_mut().role(role);
+    builder_cell.borrow_mut().role(role);
     StreamOp::ValueIsConsumed
 }
 
 #[allow(clippy::missing_panics_doc)]
-pub fn on_content(
+pub fn on_content<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder>,
+    builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
     let peeked = rjiter.peek();
@@ -51,11 +60,13 @@ pub fn on_content(
     StreamOp::ValueIsConsumed
 }
 
-type BA<'a> = BoxedAction<'a, StructureBuilder>;
+type BA<'a, W> = BoxedAction<'a, StructureBuilder<W>>;
 
 #[allow(clippy::missing_panics_doc)]
-pub fn _process_gpt(mut reader: impl std::io::Read, mut writer: impl std::io::Write) {
-    let writer = Box::new(writer);
+pub fn _process_gpt<W: Write>(
+    mut reader: impl std::io::Read,
+    mut writer: W,
+) {
     let builder = StructureBuilder::new(writer);
     let builder_cell = RefCell::new(builder);
 
@@ -65,36 +76,36 @@ pub fn _process_gpt(mut reader: impl std::io::Read, mut writer: impl std::io::Wr
 
     let begin_message = Trigger::new(
         Box::new(Name::new("message".to_string())),
-        Box::new(on_begin_message) as BA,
+        Box::new(on_begin_message) as BA<'_, W>,
     );
     let end_message = Trigger::new(
         Box::new(Name::new("message".to_string())),
-        Box::new(on_end_message) as BoxedEndAction<StructureBuilder>,
+        Box::new(on_end_message) as BoxedEndAction<StructureBuilder<W>>,
     );
     let message_role = Trigger::new(
         Box::new(ParentAndName::new(
             "message".to_string(),
             "role".to_string(),
         )),
-        Box::new(on_role) as BA,
+        Box::new(on_role) as BA<'_, W>,
     );
     let delta_role = Trigger::new(
         Box::new(ParentAndName::new("delta".to_string(), "role".to_string())),
-        Box::new(on_role) as BA,
+        Box::new(on_role) as BA<'_, W>,
     );
     let message_content = Trigger::new(
         Box::new(ParentAndName::new(
             "message".to_string(),
             "content".to_string(),
         )),
-        Box::new(on_content) as BA,
+        Box::new(on_content) as BA<'_, W>,
     );
     let delta_content = Trigger::new(
         Box::new(ParentAndName::new(
             "delta".to_string(),
             "content".to_string(),
         )),
-        Box::new(on_content) as BA,
+        Box::new(on_content) as BA<'_, W>,
     );
     let triggers = vec![
         begin_message,

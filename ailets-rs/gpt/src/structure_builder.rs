@@ -1,17 +1,17 @@
 use std::io::Write;
 
 #[allow(clippy::struct_excessive_bools)]
-pub struct StructureBuilder {
-    writer: Box<dyn std::io::Write>,
+pub struct StructureBuilder<W: Write> {
+    writer: W,
     message_has_role: bool,
     message_has_content: bool,
     text_is_open: bool,
     message_is_closed: bool,
 }
 
-impl StructureBuilder {
+impl<W: Write> StructureBuilder<W> {
     #[must_use]
-    pub fn new(writer: Box<dyn std::io::Write>) -> Self {
+    pub fn new(writer: W) -> Self {
         StructureBuilder {
             writer,
             message_has_role: false,
@@ -22,7 +22,7 @@ impl StructureBuilder {
     }
 
     #[must_use]
-    pub fn get_writer(&mut self) -> &mut Box<dyn std::io::Write> {
+    pub fn get_writer(&mut self) -> &mut W {
         &mut self.writer
     }
 
