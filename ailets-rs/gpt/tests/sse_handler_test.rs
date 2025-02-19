@@ -3,7 +3,7 @@ use std::io;
 
 use actor_runtime_mocked::{clear_mocks, get_file};
 
-use gpt::awriter::AWriter;
+use gpt::structure_builder::StructureBuilder;
 use gpt::{on_content, on_role};
 use scan_json::RJiter;
 
@@ -16,13 +16,13 @@ fn basic_pass() {
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
     let rjiter_cell = RefCell::new(rjiter);
-    let awriter = AWriter::new(c"");
-    let awriter_cell = RefCell::new(awriter);
+    let builder = StructureBuilder::new(c"");
+    let builder_cell = RefCell::new(builder);
 
     // Act
-    on_role(&rjiter_cell, &awriter_cell);
-    on_content(&rjiter_cell, &awriter_cell);
-    awriter_cell.borrow_mut().end_message();
+    on_role(&rjiter_cell, &builder_cell);
+    on_content(&rjiter_cell, &builder_cell);
+    builder_cell.borrow_mut().end_message();
 
     // Assert
     let expected =
@@ -39,16 +39,16 @@ fn join_multiple_content_deltas() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let awriter = AWriter::new(c"");
+    let builder = StructureBuilder::new(c"");
     let rjiter_cell = RefCell::new(rjiter);
-    let awriter_cell = RefCell::new(awriter);
+    let builder_cell = RefCell::new(builder);
 
     // Act
-    on_role(&rjiter_cell, &awriter_cell);
-    on_content(&rjiter_cell, &awriter_cell);
-    on_content(&rjiter_cell, &awriter_cell);
-    on_content(&rjiter_cell, &awriter_cell);
-    awriter_cell.borrow_mut().end_message();
+    on_role(&rjiter_cell, &builder_cell);
+    on_content(&rjiter_cell, &builder_cell);
+    on_content(&rjiter_cell, &builder_cell);
+    on_content(&rjiter_cell, &builder_cell);
+    builder_cell.borrow_mut().end_message();
 
     // Assert
     let expected =
@@ -65,15 +65,15 @@ fn ignore_additional_role() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let awriter = AWriter::new(c"");
+    let builder = StructureBuilder::new(c"");
     let rjiter_cell = RefCell::new(rjiter);
-    let awriter_cell = RefCell::new(awriter);
+    let builder_cell = RefCell::new(builder);
 
     // Act
-    on_role(&rjiter_cell, &awriter_cell);
-    on_role(&rjiter_cell, &awriter_cell);
-    on_role(&rjiter_cell, &awriter_cell);
-    awriter_cell.borrow_mut().end_message();
+    on_role(&rjiter_cell, &builder_cell);
+    on_role(&rjiter_cell, &builder_cell);
+    on_role(&rjiter_cell, &builder_cell);
+    builder_cell.borrow_mut().end_message();
 
     // Assert
     let expected = r#"{"role":"a1","content":[]}"#.to_owned() + "\n";
@@ -89,13 +89,13 @@ fn create_message_without_input_role() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let awriter = AWriter::new(c"");
+    let builder = StructureBuilder::new(c"");
     let rjiter_cell = RefCell::new(rjiter);
-    let awriter_cell = RefCell::new(awriter);
+    let builder_cell = RefCell::new(builder);
 
     // Act
-    on_content(&rjiter_cell, &awriter_cell);
-    awriter_cell.borrow_mut().end_message();
+    on_content(&rjiter_cell, &builder_cell);
+    builder_cell.borrow_mut().end_message();
 
     // Assert
     let expected =
@@ -112,15 +112,15 @@ fn can_call_end_message_multiple_times() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let awriter = AWriter::new(c"");
+    let builder = StructureBuilder::new(c"");
     let rjiter_cell = RefCell::new(rjiter);
-    let awriter_cell = RefCell::new(awriter);
+    let builder_cell = RefCell::new(builder);
 
     // Act
-    on_content(&rjiter_cell, &awriter_cell);
-    awriter_cell.borrow_mut().end_message();
-    awriter_cell.borrow_mut().end_message();
-    awriter_cell.borrow_mut().end_message();
+    on_content(&rjiter_cell, &builder_cell);
+    builder_cell.borrow_mut().end_message();
+    builder_cell.borrow_mut().end_message();
+    builder_cell.borrow_mut().end_message();
 
     // Assert
     let expected =

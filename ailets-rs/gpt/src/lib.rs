@@ -1,27 +1,27 @@
-pub mod awriter;
+pub mod structure_builder;
 
 use areader::AReader;
-use awriter::AWriter;
 use scan_json::jiter::Peek;
 use scan_json::RJiter;
 use scan_json::{scan, BoxedAction, BoxedEndAction, Name, ParentAndName, StreamOp, Trigger};
 use std::cell::RefCell;
+use structure_builder::StructureBuilder;
 
 const BUFFER_SIZE: u32 = 1024;
 
-fn on_begin_message(_rjiter: &RefCell<RJiter>, writer: &RefCell<AWriter>) -> StreamOp {
+fn on_begin_message(_rjiter: &RefCell<RJiter>, writer: &RefCell<StructureBuilder>) -> StreamOp {
     writer.borrow_mut().begin_message();
     StreamOp::None
 }
 
 #[allow(clippy::unnecessary_wraps)]
-fn on_end_message(writer: &RefCell<AWriter>) -> Result<(), Box<dyn std::error::Error>> {
+fn on_end_message(writer: &RefCell<StructureBuilder>) -> Result<(), Box<dyn std::error::Error>> {
     writer.borrow_mut().end_message();
     Ok(())
 }
 
 #[allow(clippy::missing_panics_doc)]
-pub fn on_role(rjiter_cell: &RefCell<RJiter>, writer: &RefCell<AWriter>) -> StreamOp {
+pub fn on_role(rjiter_cell: &RefCell<RJiter>, writer: &RefCell<StructureBuilder>) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
     let role = rjiter.next_str().unwrap();
     writer.borrow_mut().role(role);
@@ -29,7 +29,10 @@ pub fn on_role(rjiter_cell: &RefCell<RJiter>, writer: &RefCell<AWriter>) -> Stre
 }
 
 #[allow(clippy::missing_panics_doc)]
-pub fn on_content(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>) -> StreamOp {
+pub fn on_content(
+    rjiter_cell: &RefCell<RJiter>,
+    writer_cell: &RefCell<StructureBuilder>,
+) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
     let peeked = rjiter.peek();
     assert!(peeked.is_ok(), "Error peeking 'content' value: {peeked:?}");
@@ -46,11 +49,11 @@ pub fn on_content(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>)
     StreamOp::ValueIsConsumed
 }
 
-type BA<'a> = BoxedAction<'a, AWriter>;
+type BA<'a> = BoxedAction<'a, StructureBuilder>;
 
 #[allow(clippy::missing_panics_doc)]
 pub fn _process_gpt(mut reader: impl std::io::Read) {
-    let writer_cell = RefCell::new(AWriter::new(c""));
+    let writer_cell = RefCell::new(StructureBuilder::new(c""));
 
     let mut buffer = vec![0u8; BUFFER_SIZE as usize];
 
@@ -62,7 +65,7 @@ pub fn _process_gpt(mut reader: impl std::io::Read) {
     );
     let end_message = Trigger::new(
         Box::new(Name::new("message".to_string())),
-        Box::new(on_end_message) as BoxedEndAction<AWriter>,
+        Box::new(on_end_message) as BoxedEndAction<StructureBuilder>,
     );
     let message_role = Trigger::new(
         Box::new(ParentAndName::new(

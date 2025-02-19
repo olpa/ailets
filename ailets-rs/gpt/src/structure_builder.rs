@@ -3,7 +3,7 @@ use std::ffi::CStr;
 use actor_runtime::{aclose, awrite, open_write};
 
 #[allow(clippy::struct_excessive_bools)]
-pub struct AWriter {
+pub struct StructureBuilder {
     fd: Option<i32>,
     message_has_role: bool,
     message_has_content: bool,
@@ -25,11 +25,11 @@ fn escape_json_value(s: &str) -> &str {
 }
 */
 
-impl AWriter {
+impl StructureBuilder {
     #[must_use]
     pub fn new(filename: &CStr) -> Self {
         let fd = unsafe { open_write(filename.as_ptr()) };
-        AWriter {
+        StructureBuilder {
             fd: Some(fd),
             message_has_role: false,
             message_has_content: false,
@@ -109,7 +109,7 @@ impl AWriter {
     }
 }
 
-impl Drop for AWriter {
+impl Drop for StructureBuilder {
     fn drop(&mut self) {
         if let Some(fd) = self.fd.take() {
             unsafe { aclose(fd) };
@@ -117,7 +117,7 @@ impl Drop for AWriter {
     }
 }
 
-impl std::io::Write for AWriter {
+impl std::io::Write for StructureBuilder {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         if let Some(fd) = self.fd {
             unsafe {
