@@ -1,15 +1,15 @@
 use actor_runtime::{aclose, awrite, open_write};
 use std::ffi::CStr;
 use std::io::Write;
-pub struct AWriter {
+pub struct StructureBuilder {
     fd: Option<i32>,
     need_para_divider: bool,
 }
 
-impl AWriter {
+impl StructureBuilder {
     pub fn new(filename: &CStr) -> Self {
         let fd = unsafe { open_write(filename.as_ptr()) };
-        AWriter {
+        StructureBuilder {
             fd: Some(fd),
             need_para_divider: false,
         }
@@ -35,7 +35,7 @@ impl AWriter {
     }
 }
 
-impl Drop for AWriter {
+impl Drop for StructureBuilder {
     fn drop(&mut self) {
         if let Some(fd) = self.fd.take() {
             unsafe { aclose(fd) };
@@ -43,7 +43,7 @@ impl Drop for AWriter {
     }
 }
 
-impl std::io::Write for AWriter {
+impl std::io::Write for StructureBuilder {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         if let Some(fd) = self.fd {
             let n = unsafe { awrite(fd, buf.as_ptr(), buf.len().try_into().unwrap()) };

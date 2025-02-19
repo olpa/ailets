@@ -1,7 +1,7 @@
-mod awriter;
+mod structure_builder;
 
 use areader::AReader;
-use awriter::AWriter;
+use structure_builder::StructureBuilder;
 use scan_json::jiter::Peek;
 use scan_json::RJiter;
 use scan_json::{scan, BoxedAction, ParentParentAndName, StreamOp, Trigger};
@@ -9,10 +9,13 @@ use std::cell::RefCell;
 
 const BUFFER_SIZE: u32 = 1024;
 
-type BA<'a> = BoxedAction<'a, AWriter>;
+type BA<'a> = BoxedAction<'a, StructureBuilder>;
 
 #[allow(clippy::missing_panics_doc)]
-fn on_content_text(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>) -> StreamOp {
+fn on_content_text(
+    rjiter_cell: &RefCell<RJiter>,
+    builder_cell: &RefCell<StructureBuilder>,
+) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
 
     let peeked = rjiter.peek();
@@ -23,10 +26,10 @@ fn on_content_text(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>
         "Expected string for 'text' value, got {peeked:?}"
     );
 
-    let mut writer = writer_cell.borrow_mut();
+    let mut builder = builder_cell.borrow_mut();
 
-    writer.start_paragraph();
-    let wb = rjiter.write_long_str(&mut *writer);
+    builder.start_paragraph();
+    let wb = rjiter.write_long_str(&mut *builder);
     assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
 
     StreamOp::ValueIsConsumed
@@ -42,7 +45,7 @@ fn on_content_text(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>
 ///   ```
 #[allow(clippy::missing_panics_doc)]
 pub fn _messages_to_markdown(mut reader: impl std::io::Read) {
-    let writer_cell = RefCell::new(AWriter::new(c""));
+    let builder_cell = RefCell::new(StructureBuilder::new(c""));
 
     let mut buffer = [0u8; BUFFER_SIZE as usize];
     let rjiter_cell = RefCell::new(RJiter::new(&mut reader, &mut buffer));
@@ -56,8 +59,8 @@ pub fn _messages_to_markdown(mut reader: impl std::io::Read) {
         Box::new(on_content_text) as BA,
     );
 
-    scan(&[content_text], &[], &[], &rjiter_cell, &writer_cell).unwrap();
-    writer_cell.borrow_mut().finish_with_newline();
+    scan(&[content_text], &[], &[], &rjiter_cell, &builder_cell).unwrap();
+    builder_cell.borrow_mut().finish_with_newline();
 }
 
 #[no_mangle]
