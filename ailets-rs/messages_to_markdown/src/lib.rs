@@ -1,6 +1,7 @@
 mod structure_builder;
 
 use areader::AReader;
+use awriter::AWriter;
 use structure_builder::StructureBuilder;
 use scan_json::jiter::Peek;
 use scan_json::RJiter;
@@ -29,7 +30,8 @@ fn on_content_text(
     let mut builder = builder_cell.borrow_mut();
 
     builder.start_paragraph();
-    let wb = rjiter.write_long_str(&mut *builder);
+    let awriter = builder.get_awriter();
+    let wb = rjiter.write_long_str(awriter);
     assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
 
     StreamOp::ValueIsConsumed
@@ -45,7 +47,8 @@ fn on_content_text(
 ///   ```
 #[allow(clippy::missing_panics_doc)]
 pub fn _messages_to_markdown(mut reader: impl std::io::Read) {
-    let builder_cell = RefCell::new(StructureBuilder::new(c""));
+    let awriter = AWriter::new(c"");
+    let builder_cell = RefCell::new(StructureBuilder::new(awriter));
 
     let mut buffer = [0u8; BUFFER_SIZE as usize];
     let rjiter_cell = RefCell::new(RJiter::new(&mut reader, &mut buffer));

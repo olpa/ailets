@@ -26,14 +26,17 @@ impl Drop for AWriter {
 impl std::io::Write for AWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         if let Some(fd) = self.fd {
-            unsafe {
-                awrite(fd, buf.as_ptr(), u32::try_from(buf.len()).unwrap());
-            }
-            Ok(buf.len())
+            let n = unsafe { awrite(fd, buf.as_ptr(), buf.len().try_into().unwrap()) };
+            let n: usize = match n {
+                n if n <= 0 => panic!("Failed to write to output stream"),
+                n => n.try_into().unwrap(),
+            };
+            Ok(n)
         } else {
             Ok(0)
         }
     }
+
 
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
