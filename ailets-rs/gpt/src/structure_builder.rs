@@ -1,9 +1,8 @@
 use std::io::Write;
-use awriter::AWriter;
 
 #[allow(clippy::struct_excessive_bools)]
 pub struct StructureBuilder {
-    awriter: AWriter,
+    writer: Box<dyn std::io::Write>,
     message_has_role: bool,
     message_has_content: bool,
     text_is_open: bool,
@@ -12,9 +11,9 @@ pub struct StructureBuilder {
 
 impl StructureBuilder {
     #[must_use]
-    pub fn new(awriter: AWriter) -> Self {
+    pub fn new(writer: Box<dyn std::io::Write>) -> Self {
         StructureBuilder {
-            awriter,
+            writer,
             message_has_role: false,
             message_has_content: false,
             text_is_open: false,
@@ -23,8 +22,8 @@ impl StructureBuilder {
     }
 
     #[must_use]
-    pub fn get_awriter(&mut self) -> &mut AWriter {
-        &mut self.awriter
+    pub fn get_writer(&mut self) -> &mut Box<dyn std::io::Write> {
+        &mut self.writer
     }
 
     pub fn begin_message(&mut self) {
@@ -89,6 +88,6 @@ impl StructureBuilder {
 
     #[allow(clippy::missing_panics_doc)]
     pub fn str(&mut self, text: &str) {
-        self.awriter.write_all(text.as_bytes()).unwrap();
+        self.writer.write_all(text.as_bytes()).unwrap();
     }
 }

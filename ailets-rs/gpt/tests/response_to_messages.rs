@@ -1,4 +1,3 @@
-use actor_runtime_mocked::{clear_mocks, get_file};
 use gpt::_process_gpt;
 use std::io::Cursor;
 
@@ -10,7 +9,6 @@ fn get_expected_basic_message() -> String {
 
 #[test]
 fn test_basic_processing() {
-    clear_mocks();
     let fixture_content = std::fs::read_to_string("tests/fixture/basic_response.txt")
         .expect("Failed to read fixture file 'basic_response.txt'");
     let reader = Cursor::new(fixture_content);

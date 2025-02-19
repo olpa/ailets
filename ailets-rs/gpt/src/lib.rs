@@ -45,8 +45,8 @@ pub fn on_content(
 
     let mut builder = builder_cell.borrow_mut();
     builder.begin_text_chunk();
-    let awriter = builder.get_awriter();
-    let wb = rjiter.write_long_bytes(awriter);
+    let writer = builder.get_writer();
+    let wb = rjiter.write_long_bytes(writer);
     assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
     StreamOp::ValueIsConsumed
 }
@@ -54,9 +54,10 @@ pub fn on_content(
 type BA<'a> = BoxedAction<'a, StructureBuilder>;
 
 #[allow(clippy::missing_panics_doc)]
-pub fn _process_gpt(mut reader: impl std::io::Read) {
-    let awriter = AWriter::new(c"");
-    let builder_cell = RefCell::new(StructureBuilder::new(awriter));
+pub fn _process_gpt(mut reader: impl std::io::Read, mut writer: impl std::io::Write) {
+    let writer = Box::new(writer);
+    let builder = StructureBuilder::new(writer);
+    let builder_cell = RefCell::new(builder);
 
     let mut buffer = vec![0u8; BUFFER_SIZE as usize];
 
@@ -119,5 +120,6 @@ pub fn _process_gpt(mut reader: impl std::io::Read) {
 #[allow(clippy::missing_panics_doc)]
 pub extern "C" fn process_gpt() {
     let reader = AReader::new(c"").unwrap();
-    _process_gpt(reader);
+    let writer = AWriter::new(c"");
+    _process_gpt(reader, writer);
 }
