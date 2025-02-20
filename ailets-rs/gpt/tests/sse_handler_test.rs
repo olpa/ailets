@@ -1,8 +1,6 @@
 use std::cell::RefCell;
 use std::io;
 
-use actor_runtime_mocked::{clear_mocks, get_file};
-use awriter::AWriter;
 use gpt::structure_builder::StructureBuilder;
 use gpt::{on_content, on_role};
 use scan_json::RJiter;
@@ -10,14 +8,12 @@ use scan_json::RJiter;
 #[test]
 fn basic_pass() {
     // Arrange
-    clear_mocks();
     let input = r#""assistant""hello""#;
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
     let rjiter_cell = RefCell::new(rjiter);
-    let awriter = AWriter::new(c"");
-    let builder = StructureBuilder::new(awriter);
+    let builder = StructureBuilder::new(Vec::new());
     let builder_cell = RefCell::new(builder);
 
     // Act
@@ -28,20 +24,17 @@ fn basic_pass() {
     // Assert
     let expected =
         r#"{"role":"assistant","content":[{"type":"text","text":"hello"}]}"#.to_owned() + "\n";
-    let result = String::from_utf8(get_file("").unwrap()).unwrap();
-    assert_eq!(result, expected);
+    assert_eq!(get_output(&builder_cell), expected);
 }
 
 #[test]
 fn join_multiple_content_deltas() {
     // Arrange
-    clear_mocks();
     let input = r#""role""Hello"" world""!""#;
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let awriter = AWriter::new(c"");
-    let builder = StructureBuilder::new(awriter);
+    let builder = StructureBuilder::new(Vec::new());
     let rjiter_cell = RefCell::new(rjiter);
     let builder_cell = RefCell::new(builder);
 
@@ -55,20 +48,17 @@ fn join_multiple_content_deltas() {
     // Assert
     let expected =
         r#"{"role":"role","content":[{"type":"text","text":"Hello world!"}]}"#.to_owned() + "\n";
-    let result = String::from_utf8(get_file("").unwrap()).unwrap();
-    assert_eq!(result, expected);
+    assert_eq!(get_output(&builder_cell), expected);
 }
 
 #[test]
 fn ignore_additional_role() {
     // Arrange
-    clear_mocks();
     let input = r#""a1""a2""a3""#;
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let awriter = AWriter::new(c"");
-    let builder = StructureBuilder::new(awriter);
+    let builder = StructureBuilder::new(Vec::new());
     let rjiter_cell = RefCell::new(rjiter);
     let builder_cell = RefCell::new(builder);
 
@@ -80,20 +70,17 @@ fn ignore_additional_role() {
 
     // Assert
     let expected = r#"{"role":"a1","content":[]}"#.to_owned() + "\n";
-    let result = String::from_utf8(get_file("").unwrap()).unwrap();
-    assert_eq!(result, expected);
+    assert_eq!(get_output(&builder_cell), expected);
 }
 
 #[test]
 fn create_message_without_input_role() {
     // Arrange
-    clear_mocks();
     let input = r#""hello""#;
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let awriter = AWriter::new(c"");
-    let builder = StructureBuilder::new(awriter);
+    let builder = StructureBuilder::new(Vec::new());
     let rjiter_cell = RefCell::new(rjiter);
     let builder_cell = RefCell::new(builder);
 
@@ -104,20 +91,17 @@ fn create_message_without_input_role() {
     // Assert
     let expected =
         r#"{"role":"assistant","content":[{"type":"text","text":"hello"}]}"#.to_owned() + "\n";
-    let result = String::from_utf8(get_file("").unwrap()).unwrap();
-    assert_eq!(result, expected);
+    assert_eq!(get_output(&builder_cell), expected);
 }
 
 #[test]
 fn can_call_end_message_multiple_times() {
     // Arrange
-    clear_mocks();
     let input = r#""hello""#;
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let awriter = AWriter::new(c"");
-    let builder = StructureBuilder::new(awriter);
+    let builder = StructureBuilder::new(Vec::new());
     let rjiter_cell = RefCell::new(rjiter);
     let builder_cell = RefCell::new(builder);
 
@@ -130,6 +114,11 @@ fn can_call_end_message_multiple_times() {
     // Assert
     let expected =
         r#"{"role":"assistant","content":[{"type":"text","text":"hello"}]}"#.to_owned() + "\n";
-    let result = String::from_utf8(get_file("").unwrap()).unwrap();
-    assert_eq!(result, expected);
+    assert_eq!(get_output(&builder_cell), expected);
+}
+
+fn get_output(builder_cell: &RefCell<StructureBuilder<Vec<u8>>>) -> String {
+    let builder = builder_cell.borrow();
+    let writer = builder.get_writer();
+    String::from_utf8_lossy(writer).to_string()
 }
