@@ -1,3 +1,15 @@
+//! A writer implementation that stores written data in memory for later inspection.
+//!
+//! # Example
+//! ```
+//! use actor_runtime_mocked::RcWriter;
+//! use std::io::Write;
+//!
+//! let mut writer = RcWriter::new();
+//! writer.write_all(b"Hello, world!").unwrap();
+//! assert_eq!(writer.get_output(), "Hello, world!");
+//! ```
+
 use std::cell::RefCell;
 use std::io::{Result, Write};
 use std::rc::Rc;
