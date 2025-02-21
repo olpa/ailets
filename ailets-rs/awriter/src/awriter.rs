@@ -1,3 +1,23 @@
+//! A writer implementation for the actor runtime system.
+//!
+//! `AWriter` provides an implementation of the standard [`std::io::Write`] trait.
+//! It manages a file descriptor internally and ensures proper cleanup through the Drop trait.
+//!
+//! # Example
+//! ```no_run
+//! use std::io::Write;
+//! use awriter::AWriter;
+//!
+//! let mut writer = AWriter::new(c"example.txt").unwrap();
+//! writer.write_all(b"Hello, world!").unwrap();
+//! writer.close().unwrap();
+//! ```
+//!
+//! # Safety
+//! This module uses unsafe code to interact with the actor runtime's C FFI interface.
+//! The safety guarantees are maintained through proper file descriptor management
+//! and automatic cleanup in the Drop implementation.
+
 use std::ffi::CStr;
 use std::os::raw::{c_int, c_uint};
 
