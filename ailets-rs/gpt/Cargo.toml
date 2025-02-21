@@ -13,4 +13,5 @@ getrandom = { version = "0.2", features = ["custom"] }
 scan_json = "1.0.0"
 actor_runtime = { version = "0.1.0", path = "../actor_runtime" }
 areader = { version = "0.1.0", path = "../areader" }
+awriter = { version = "0.1.0", path = "../awriter" }
 actor_runtime_mocked = { version = "0.1.0", path = "../actor_runtime_mocked" }

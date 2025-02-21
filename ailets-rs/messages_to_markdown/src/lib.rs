@@ -1,4 +1,4 @@
-mod awriter;
+mod structure_builder;
 
 use areader::AReader;
 use awriter::AWriter;
@@ -6,13 +6,18 @@ use scan_json::jiter::Peek;
 use scan_json::RJiter;
 use scan_json::{scan, BoxedAction, ParentParentAndName, StreamOp, Trigger};
 use std::cell::RefCell;
+use std::io::Write;
+use structure_builder::StructureBuilder;
 
 const BUFFER_SIZE: u32 = 1024;
 
-type BA<'a> = BoxedAction<'a, AWriter>;
+type BA<'a, W> = BoxedAction<'a, StructureBuilder<W>>;
 
 #[allow(clippy::missing_panics_doc)]
-fn on_content_text(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>) -> StreamOp {
+fn on_content_text<W: Write>(
+    rjiter_cell: &RefCell<RJiter>,
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
 
     let peeked = rjiter.peek();
@@ -23,10 +28,11 @@ fn on_content_text(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>
         "Expected string for 'text' value, got {peeked:?}"
     );
 
-    let mut writer = writer_cell.borrow_mut();
+    let mut builder = builder_cell.borrow_mut();
 
-    writer.start_paragraph();
-    let wb = rjiter.write_long_str(&mut *writer);
+    builder.start_paragraph();
+    let writer = builder.get_writer();
+    let wb = rjiter.write_long_str(writer);
     assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
 
     StreamOp::ValueIsConsumed
@@ -41,8 +47,8 @@ fn on_content_text(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<AWriter>
 /// - The JSON structure doesn't match the expected format of
 ///   ```
 #[allow(clippy::missing_panics_doc)]
-pub fn _messages_to_markdown(mut reader: impl std::io::Read) {
-    let writer_cell = RefCell::new(AWriter::new(c""));
+pub fn _messages_to_markdown<W: Write>(mut reader: impl std::io::Read, writer: W) {
+    let builder_cell = RefCell::new(StructureBuilder::new(writer));
 
     let mut buffer = [0u8; BUFFER_SIZE as usize];
     let rjiter_cell = RefCell::new(RJiter::new(&mut reader, &mut buffer));
@@ -53,16 +59,17 @@ pub fn _messages_to_markdown(mut reader: impl std::io::Read) {
             "#array".to_string(),
             "text".to_string(),
         )),
-        Box::new(on_content_text) as BA,
+        Box::new(on_content_text) as BA<'_, W>,
     );
 
-    scan(&[content_text], &[], &[], &rjiter_cell, &writer_cell).unwrap();
-    writer_cell.borrow_mut().finish_with_newline();
+    scan(&[content_text], &[], &[], &rjiter_cell, &builder_cell).unwrap();
+    builder_cell.borrow_mut().finish_with_newline();
 }
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
 pub extern "C" fn messages_to_markdown() {
     let reader = AReader::new(c"").unwrap();
-    _messages_to_markdown(reader);
+    let writer = AWriter::new(c"").unwrap();
+    _messages_to_markdown(reader, writer);
 }

@@ -1,41 +1,29 @@
-use std::ffi::CStr;
-
-use actor_runtime::{aclose, awrite, open_write};
+use std::io::Write;
 
 #[allow(clippy::struct_excessive_bools)]
-pub struct AWriter {
-    fd: Option<i32>,
+pub struct StructureBuilder<W: Write> {
+    writer: W,
     message_has_role: bool,
     message_has_content: bool,
     text_is_open: bool,
     message_is_closed: bool,
 }
 
-/*
-fn escape_json_value(s: &str) -> &str {
-    s.chars()
-        .map(|c| match c {
-            '\\' => "\\",
-            '"' => "\"",
-            '\n' => "\\n",
-            c if c < '\x20' => format!("\\u{:04x}", c as u32).as_str(),
-            c => c.to_string().as_str(), // FIXME
-        })
-        .collect()
-}
-*/
-
-impl AWriter {
+impl<W: Write> StructureBuilder<W> {
     #[must_use]
-    pub fn new(filename: &CStr) -> Self {
-        let fd = unsafe { open_write(filename.as_ptr()) };
-        AWriter {
-            fd: Some(fd),
+    pub fn new(writer: W) -> Self {
+        StructureBuilder {
+            writer,
             message_has_role: false,
             message_has_content: false,
             text_is_open: false,
             message_is_closed: false,
         }
+    }
+
+    #[must_use]
+    pub fn get_writer(&mut self) -> &mut W {
+        &mut self.writer
     }
 
     pub fn begin_message(&mut self) {
@@ -99,37 +87,7 @@ impl AWriter {
     }
 
     #[allow(clippy::missing_panics_doc)]
-    pub fn str(&self, text: &str) {
-        // FIXME: write_all
-        if let Some(fd) = self.fd {
-            unsafe {
-                awrite(fd, text.as_ptr(), u32::try_from(text.len()).unwrap());
-            }
-        }
-    }
-}
-
-impl Drop for AWriter {
-    fn drop(&mut self) {
-        if let Some(fd) = self.fd.take() {
-            unsafe { aclose(fd) };
-        }
-    }
-}
-
-impl std::io::Write for AWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        if let Some(fd) = self.fd {
-            unsafe {
-                awrite(fd, buf.as_ptr(), u32::try_from(buf.len()).unwrap());
-            }
-            Ok(buf.len())
-        } else {
-            Ok(0)
-        }
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
+    pub fn str(&mut self, text: &str) {
+        self.writer.write_all(text.as_bytes()).unwrap();
     }
 }
