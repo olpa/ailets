@@ -28,6 +28,10 @@ pub struct AWriter {
 }
 
 impl AWriter {
+    /// Create a new `AWriter` instance for the specified file.
+    ///
+    /// # Errors
+    /// Returns an error if the file could not be created.
     pub fn new(filename: &CStr) -> Result<Self, std::io::Error> {
         let fd = unsafe { open_write(filename.as_ptr()) };
         if fd < 0 {
