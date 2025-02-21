@@ -35,7 +35,10 @@ fn test_multiple_content_items() {
 
     _messages_to_markdown(reader, writer.clone());
 
-    assert_eq!(writer.get_output(), "First item\n\nSecond item\n\nThird item\n");
+    assert_eq!(
+        writer.get_output(),
+        "First item\n\nSecond item\n\nThird item\n"
+    );
 }
 
 #[test]
@@ -59,7 +62,10 @@ fn test_two_messages() {
 
     _messages_to_markdown(reader, writer.clone());
 
-    assert_eq!(writer.get_output(), "First message\n\nSecond message\n\nExtra text\n");
+    assert_eq!(
+        writer.get_output(),
+        "First message\n\nSecond message\n\nExtra text\n"
+    );
 }
 
 #[test]

@@ -2,12 +2,12 @@ mod structure_builder;
 
 use areader::AReader;
 use awriter::AWriter;
-use structure_builder::StructureBuilder;
 use scan_json::jiter::Peek;
 use scan_json::RJiter;
 use scan_json::{scan, BoxedAction, ParentParentAndName, StreamOp, Trigger};
 use std::cell::RefCell;
 use std::io::Write;
+use structure_builder::StructureBuilder;
 
 const BUFFER_SIZE: u32 = 1024;
 
@@ -70,6 +70,6 @@ pub fn _messages_to_markdown<W: Write>(mut reader: impl std::io::Read, writer: W
 #[allow(clippy::missing_panics_doc)]
 pub extern "C" fn messages_to_markdown() {
     let reader = AReader::new(c"").unwrap();
-    let writer = AWriter::new(c"");
+    let writer = AWriter::new(c"").unwrap();
     _messages_to_markdown(reader, writer);
 }

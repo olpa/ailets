@@ -63,10 +63,7 @@ pub fn on_content<W: Write>(
 type BA<'a, W> = BoxedAction<'a, StructureBuilder<W>>;
 
 #[allow(clippy::missing_panics_doc)]
-pub fn _process_gpt<W: Write>(
-    mut reader: impl std::io::Read,
-    writer: W,
-) {
+pub fn _process_gpt<W: Write>(mut reader: impl std::io::Read, writer: W) {
     let builder = StructureBuilder::new(writer);
     let builder_cell = RefCell::new(builder);
 
@@ -131,6 +128,6 @@ pub fn _process_gpt<W: Write>(
 #[allow(clippy::missing_panics_doc)]
 pub extern "C" fn process_gpt() {
     let reader = AReader::new(c"").unwrap();
-    let writer = AWriter::new(c"");
+    let writer = AWriter::new(c"").unwrap();
     _process_gpt(reader, writer);
 }
