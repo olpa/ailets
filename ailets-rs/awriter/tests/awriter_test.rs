@@ -1,7 +1,17 @@
-use actor_runtime_mocked::clear_mocks;
-use actor_runtime_mocked::WANT_ERROR;
+use actor_runtime_mocked::{clear_mocks, get_file, WANT_ERROR};
 use awriter::AWriter;
 use std::io::Write;
+
+#[test]
+fn happy_path() {
+    clear_mocks();
+    let mut writer = AWriter::new(c"test").expect("Should create writer");
+
+    writer.write_all(b"Hello,").unwrap();
+    writer.write_all(b" world!").unwrap();
+
+    assert_eq!(get_file("test").unwrap(), b"Hello, world!");
+}
 
 #[test]
 fn cant_open_nonexistent_file() {
