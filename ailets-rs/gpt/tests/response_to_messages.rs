@@ -1,43 +1,12 @@
+use actor_runtime_mocked::RcWriter;
 use gpt::_process_gpt;
 use std::io::Cursor;
-use std::io::Result;
-use std::rc::Rc;
-use std::io::Write;
-use std::cell::RefCell;
 
 fn get_expected_basic_message() -> String {
     "{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\
     \"Hello! How can I assist you today?\"}]}\n"
         .to_string()
 }
-
-#[derive(Clone)]
-struct RcWriter {
-    inner: Rc<RefCell<Vec<u8>>>,
-}
-
-impl Write for RcWriter {
-    fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        self.inner.borrow_mut().write(buf)
-    }
-
-    fn flush(&mut self) -> Result<()> {
-        self.inner.borrow_mut().flush()
-    }
-}
-
-impl RcWriter {
-    fn new() -> Self {
-        RcWriter {
-            inner: Rc::new(RefCell::new(Vec::new())),
-        }
-    }
-
-    fn get_output(&self) -> String {
-        String::from_utf8_lossy(&self.inner.borrow()).to_string()
-    }
-}
-
 
 #[test]
 fn test_basic_processing() {
@@ -48,8 +17,7 @@ fn test_basic_processing() {
 
     _process_gpt(reader, writer.clone());
 
-    let result = writer.get_output();
-    assert_eq!(result, get_expected_basic_message());
+    assert_eq!(writer.get_output(), get_expected_basic_message());
 }
 
 #[test]
@@ -61,6 +29,5 @@ fn test_streaming() {
 
     _process_gpt(reader, writer.clone());
 
-    let result = writer.get_output();
-    assert_eq!(result, get_expected_basic_message());
+    assert_eq!(writer.get_output(), get_expected_basic_message());
 }
