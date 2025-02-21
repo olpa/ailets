@@ -9,9 +9,16 @@ pub struct AWriter {
 
 impl AWriter {
     #[must_use]
-    pub fn new(filename: &CStr) -> Self {
+    pub fn new(filename: &CStr) -> Result<Self, std::io::Error> {
         let fd = unsafe { open_write(filename.as_ptr()) };
-        AWriter { fd: Some(fd) }
+        if fd < 0 {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to open file '{}'", filename.to_string_lossy()),
+            ))
+        } else {
+            Ok(AWriter { fd: Some(fd) })
+        }
     }
 }
 
@@ -37,8 +44,13 @@ impl std::io::Write for AWriter {
         }
     }
 
-
     fn flush(&mut self) -> std::io::Result<()> {
         Ok(())
+    }
+}
+
+impl std::fmt::Debug for AWriter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AWriter").field("fd", &self.fd).finish()
     }
 }
