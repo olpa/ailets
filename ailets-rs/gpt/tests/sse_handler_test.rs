@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::io;
 
+use actor_runtime_mocked::RcWriter;
 use gpt::structure_builder::StructureBuilder;
 use gpt::{on_content, on_role};
 use scan_json::RJiter;
@@ -13,7 +14,8 @@ fn basic_pass() {
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
     let rjiter_cell = RefCell::new(rjiter);
-    let builder = StructureBuilder::new(Vec::new());
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone());
     let builder_cell = RefCell::new(builder);
 
     // Act
@@ -24,7 +26,7 @@ fn basic_pass() {
     // Assert
     let expected =
         r#"{"role":"assistant","content":[{"type":"text","text":"hello"}]}"#.to_owned() + "\n";
-    assert_eq!(get_output(&builder_cell), expected);
+    assert_eq!(writer.get_output(), expected);
 }
 
 #[test]
@@ -34,7 +36,8 @@ fn join_multiple_content_deltas() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let builder = StructureBuilder::new(Vec::new());
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone());
     let rjiter_cell = RefCell::new(rjiter);
     let builder_cell = RefCell::new(builder);
 
@@ -48,7 +51,7 @@ fn join_multiple_content_deltas() {
     // Assert
     let expected =
         r#"{"role":"role","content":[{"type":"text","text":"Hello world!"}]}"#.to_owned() + "\n";
-    assert_eq!(get_output(&builder_cell), expected);
+    assert_eq!(writer.get_output(), expected);
 }
 
 #[test]
@@ -58,7 +61,8 @@ fn ignore_additional_role() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let builder = StructureBuilder::new(Vec::new());
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone());
     let rjiter_cell = RefCell::new(rjiter);
     let builder_cell = RefCell::new(builder);
 
@@ -70,7 +74,7 @@ fn ignore_additional_role() {
 
     // Assert
     let expected = r#"{"role":"a1","content":[]}"#.to_owned() + "\n";
-    assert_eq!(get_output(&builder_cell), expected);
+    assert_eq!(writer.get_output(), expected);
 }
 
 #[test]
@@ -80,7 +84,8 @@ fn create_message_without_input_role() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let builder = StructureBuilder::new(Vec::new());
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone());
     let rjiter_cell = RefCell::new(rjiter);
     let builder_cell = RefCell::new(builder);
 
@@ -91,7 +96,7 @@ fn create_message_without_input_role() {
     // Assert
     let expected =
         r#"{"role":"assistant","content":[{"type":"text","text":"hello"}]}"#.to_owned() + "\n";
-    assert_eq!(get_output(&builder_cell), expected);
+    assert_eq!(writer.get_output(), expected);
 }
 
 #[test]
@@ -101,7 +106,8 @@ fn can_call_end_message_multiple_times() {
     let mut buffer = vec![0u8; 16];
     let mut cursor = io::Cursor::new(input);
     let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let builder = StructureBuilder::new(Vec::new());
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone());
     let rjiter_cell = RefCell::new(rjiter);
     let builder_cell = RefCell::new(builder);
 
@@ -114,11 +120,5 @@ fn can_call_end_message_multiple_times() {
     // Assert
     let expected =
         r#"{"role":"assistant","content":[{"type":"text","text":"hello"}]}"#.to_owned() + "\n";
-    assert_eq!(get_output(&builder_cell), expected);
-}
-
-fn get_output(builder_cell: &RefCell<StructureBuilder<Vec<u8>>>) -> String {
-    let builder = builder_cell.borrow();
-    let writer = builder.get_writer();
-    String::from_utf8_lossy(writer).to_string()
+    assert_eq!(writer.get_output(), expected);
 }
