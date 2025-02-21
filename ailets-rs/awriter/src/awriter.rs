@@ -1,5 +1,5 @@
 use std::ffi::CStr;
-use std::os::raw::c_int;
+use std::os::raw::{c_int, c_uint};
 
 use actor_runtime::{aclose, awrite, open_write};
 
@@ -8,7 +8,6 @@ pub struct AWriter {
 }
 
 impl AWriter {
-    #[must_use]
     pub fn new(filename: &CStr) -> Result<Self, std::io::Error> {
         let fd = unsafe { open_write(filename.as_ptr()) };
         if fd < 0 {
@@ -33,7 +32,7 @@ impl AWriter {
             if result < 0 {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
-                    format!("Failed to close output stream {}", fd),
+                    "Failed to close output stream {fd}",
                 ));
             }
             self.fd = None;
@@ -51,17 +50,17 @@ impl Drop for AWriter {
 impl std::io::Write for AWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         if let Some(fd) = self.fd {
-            let n = unsafe { awrite(fd, buf.as_ptr(), buf.len().try_into().unwrap()) };
-            let n: usize = match n {
-                n if n <= 0 => {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::Other,
-                        format!("Failed to write to output stream {}", fd),
-                    ))
-                }
-                n => n.try_into().unwrap(),
-            };
-            Ok(n)
+            #[allow(clippy::cast_possible_truncation)]
+            let buf_len = buf.len() as c_uint;
+            let n = unsafe { awrite(fd, buf.as_ptr(), buf_len) };
+            if n < 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    "Failed to write to output stream {fd}",
+                ));
+            }
+            #[allow(clippy::cast_sign_loss)]
+            Ok(n as usize)
         } else {
             Ok(0)
         }
