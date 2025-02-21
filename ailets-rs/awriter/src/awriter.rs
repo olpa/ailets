@@ -20,13 +20,31 @@ impl AWriter {
             Ok(AWriter { fd: Some(fd) })
         }
     }
+
+    /// Close the writer.
+    /// Can be called multiple times.
+    /// "drop" will call "close" automatically.
+    ///
+    /// # Errors
+    /// Returns an error if closing fails.
+    pub fn close(&mut self) -> std::io::Result<()> {
+        if let Some(fd) = self.fd {
+            let result = unsafe { aclose(fd) };
+            if result < 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to close output stream {}", fd),
+                ));
+            }
+            self.fd = None;
+        }
+        Ok(())
+    }
 }
 
 impl Drop for AWriter {
     fn drop(&mut self) {
-        if let Some(fd) = self.fd.take() {
-            unsafe { aclose(fd) };
-        }
+        let _ = self.close();
     }
 }
 

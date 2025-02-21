@@ -12,3 +12,13 @@ fn cant_open_nonexistent_file() {
         "Error message should contain the file name"
     );
 }
+
+#[test]
+fn close_can_raise_error() {
+    clear_mocks();
+
+    let mut writer = AWriter::new(c"fname-close-error").expect("Should create writer");
+
+    clear_mocks();
+    writer.close().expect_err("Should fail to close");
+}
