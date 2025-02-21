@@ -65,7 +65,7 @@ type BA<'a, W> = BoxedAction<'a, StructureBuilder<W>>;
 #[allow(clippy::missing_panics_doc)]
 pub fn _process_gpt<W: Write>(
     mut reader: impl std::io::Read,
-    mut writer: W,
+    writer: W,
 ) {
     let builder = StructureBuilder::new(writer);
     let builder_cell = RefCell::new(builder);

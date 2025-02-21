@@ -3,7 +3,7 @@ use std::io::Cursor;
 use std::io::Result;
 use std::rc::Rc;
 use std::io::Write;
-use std::borrow::BorrowMut;
+use std::cell::RefCell;
 
 fn get_expected_basic_message() -> String {
     "{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\
@@ -13,28 +13,28 @@ fn get_expected_basic_message() -> String {
 
 #[derive(Clone)]
 struct RcWriter {
-    inner: Rc<Vec<u8>>,
+    inner: Rc<RefCell<Vec<u8>>>,
 }
 
 impl Write for RcWriter {
     fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        Rc::get_mut(&mut self.inner).unwrap().write(buf)
+        self.inner.borrow_mut().write(buf)
     }
 
     fn flush(&mut self) -> Result<()> {
-        Rc::get_mut(&mut self.inner).unwrap().flush()
+        self.inner.borrow_mut().flush()
     }
 }
 
 impl RcWriter {
     fn new() -> Self {
         RcWriter {
-            inner: Rc::new(Vec::new()),
+            inner: Rc::new(RefCell::new(Vec::new())),
         }
     }
 
     fn get_output(&self) -> String {
-        String::from_utf8_lossy(self.inner.as_slice()).to_string()
+        String::from_utf8_lossy(&self.inner.borrow()).to_string()
     }
 }
 
