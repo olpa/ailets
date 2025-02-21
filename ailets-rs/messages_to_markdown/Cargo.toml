@@ -12,6 +12,7 @@ crate-type = ["cdylib", "lib"]
 
 [dependencies]
 actor_runtime = { version = "0.1.0", path = "../actor_runtime" }
+actor_runtime_mocked = { version = "0.1.0", path = "../actor_runtime_mocked" }
 areader = { version = "0.1.0", path = "../areader" }
 awriter = { version = "0.1.0", path = "../awriter" }
 getrandom = { version = "0.2", features = ["custom"] }

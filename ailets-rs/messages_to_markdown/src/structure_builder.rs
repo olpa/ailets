@@ -1,22 +1,21 @@
 use std::io::Write;
-use awriter::AWriter;
 
-pub struct StructureBuilder {
-    awriter: AWriter,
+pub struct StructureBuilder<W: Write> {
+    writer: W,
     need_para_divider: bool,
 }
 
-impl StructureBuilder {
-    pub fn new(awriter: AWriter) -> Self {
+impl<W: Write> StructureBuilder<W> {
+    pub fn new(writer: W) -> Self {
         StructureBuilder {
-            awriter,
+            writer,
             need_para_divider: false,
         }
     }
 
     #[must_use]
-    pub fn get_awriter(&mut self) -> &mut AWriter {
-        &mut self.awriter
+    pub fn get_writer(&mut self) -> &mut W {
+        &mut self.writer
     }
 
     pub fn start_paragraph(&mut self) {
@@ -28,7 +27,7 @@ impl StructureBuilder {
 
     pub fn str(&mut self, text: &str) {
         let text_bytes = text.as_bytes();
-        self.awriter.write_all(text_bytes).unwrap();
+        self.writer.write_all(text_bytes).unwrap();
     }
 
     pub fn finish_with_newline(&mut self) {
