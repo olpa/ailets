@@ -6,7 +6,7 @@
 //! # Example
 //! ```no_run
 //! use std::io::Write;
-//! use awriter::AWriter;
+//! use actor_io::AWriter;
 //!
 //! let mut writer = AWriter::new(c"example.txt").unwrap();
 //! writer.write_all(b"Hello, world!").unwrap();
