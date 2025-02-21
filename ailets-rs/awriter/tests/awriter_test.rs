@@ -14,6 +14,24 @@ fn happy_path() {
 }
 
 #[test]
+fn write_in_chunks() {
+    clear_mocks();
+    let mut writer = AWriter::new(c"test").expect("Should create writer");
+
+    let data = b"one\ntwo\nthree\n";
+    for _ in 0..3 {
+        let n = writer.write(data).unwrap();
+        assert!(n == 4, "Should write 4 bytes (o, n, e, nl)");
+    }
+    writer.write_all(data).unwrap();
+
+    assert_eq!(
+        get_file("test").unwrap(),
+        b"one\none\none\none\ntwo\nthree\n"
+    );
+}
+
+#[test]
 fn cant_open_nonexistent_file() {
     clear_mocks();
 
