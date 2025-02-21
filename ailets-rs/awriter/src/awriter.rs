@@ -53,7 +53,12 @@ impl std::io::Write for AWriter {
         if let Some(fd) = self.fd {
             let n = unsafe { awrite(fd, buf.as_ptr(), buf.len().try_into().unwrap()) };
             let n: usize = match n {
-                n if n <= 0 => panic!("Failed to write to output stream"),
+                n if n <= 0 => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::Other,
+                        format!("Failed to write to output stream {}", fd),
+                    ))
+                }
                 n => n.try_into().unwrap(),
             };
             Ok(n)
