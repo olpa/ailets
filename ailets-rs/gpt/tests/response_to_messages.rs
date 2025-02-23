@@ -15,7 +15,7 @@ fn test_basic_processing() {
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
 
-    _process_gpt(reader, writer.clone());
+    _process_gpt(reader, writer.clone()).unwrap();
 
     assert_eq!(writer.get_output(), get_expected_basic_message());
 }
@@ -27,7 +27,7 @@ fn test_streaming() {
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
 
-    _process_gpt(reader, writer.clone());
+    _process_gpt(reader, writer.clone()).unwrap();
 
     assert_eq!(writer.get_output(), get_expected_basic_message());
 }
