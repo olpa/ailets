@@ -1,7 +1,6 @@
 mod structure_builder;
 
-use areader::AReader;
-use awriter::AWriter;
+use actor_io::{AReader, AWriter};
 use scan_json::jiter::Peek;
 use scan_json::RJiter;
 use scan_json::{scan, BoxedAction, ParentParentAndName, StreamOp, Trigger};
