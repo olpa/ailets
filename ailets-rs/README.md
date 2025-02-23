@@ -16,7 +16,7 @@ cargo test
 Run an actor:
 
 ```
-python run_actor.py dist/cat.wasm 
+python run_actor.py dist/cat.wasm
 cat x.txt | python run_actor.py ./dist/messages_to_markdown.wasm in:=- out:=-
 ```
 
