@@ -21,7 +21,7 @@ fn on_begin_message<W: Write>(
 fn on_end_message<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    builder_cell.borrow_mut().end_message();
+    builder_cell.borrow_mut().end_message()?;
     Ok(())
 }
 
@@ -30,8 +30,17 @@ pub fn on_role<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
-    let role = rjiter.next_str().unwrap();
-    builder_cell.borrow_mut().role(role);
+    let role = match rjiter.next_str() {
+        Ok(r) => r,
+        Err(e) => {
+            return StreamOp::Error(
+                format!("Error getting role value. Expected string, got: {e:?}").into(),
+            )
+        }
+    };
+    if let Err(e) = builder_cell.borrow_mut().role(role) {
+        return StreamOp::Error(Box::new(e));
+    }
     StreamOp::ValueIsConsumed
 }
 
@@ -49,16 +58,22 @@ pub fn on_content<W: Write>(
     );
 
     let mut builder = builder_cell.borrow_mut();
-    builder.begin_text_chunk();
+    if let Err(e) = builder.begin_text_chunk() {
+        return StreamOp::Error(Box::new(e));
+    }
     let writer = builder.get_writer();
-    let wb = rjiter.write_long_bytes(writer);
-    assert!(wb.is_ok(), "Error on the content item level: {wb:?}");
+    if let Err(e) = rjiter.write_long_bytes(writer) {
+        return StreamOp::Error(Box::new(e));
+    }
     StreamOp::ValueIsConsumed
 }
 
 type BA<'a, W> = BoxedAction<'a, StructureBuilder<W>>;
 
-pub fn _process_gpt<W: Write>(mut reader: impl std::io::Read, writer: W) {
+pub fn _process_gpt<W: Write>(
+    mut reader: impl std::io::Read,
+    writer: W,
+) -> Result<(), Box<dyn std::error::Error>> {
     let builder = StructureBuilder::new(writer);
     let builder_cell = RefCell::new(builder);
 
@@ -116,12 +131,13 @@ pub fn _process_gpt<W: Write>(mut reader: impl std::io::Read, writer: W) {
         &builder_cell,
     )
     .unwrap();
-    builder_cell.borrow_mut().end_message();
+    builder_cell.borrow_mut().end_message()?;
+    Ok(())
 }
 
 #[no_mangle]
 pub extern "C" fn process_gpt() {
     let reader = AReader::new(c"").unwrap();
     let writer = AWriter::new(c"").unwrap();
-    _process_gpt(reader, writer);
+    _process_gpt(reader, writer).unwrap();
 }

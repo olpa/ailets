@@ -41,7 +41,7 @@ impl<W: Write> StructureBuilder<W> {
             return Ok(());
         }
         if !self.message_has_content {
-            self.begin_content();
+            self.begin_content()?;
         }
         if self.text_is_open {
             self.writer.write_all(b"\"}")?;
