@@ -49,14 +49,15 @@ pub fn on_content<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
-    let peeked = rjiter.peek();
-    assert!(peeked.is_ok(), "Error peeking 'content' value: {peeked:?}");
-    let peeked = peeked.unwrap();
-    assert!(
-        peeked == Peek::String,
-        "Expected string for 'content' value, got {peeked:?}"
-    );
-
+    let peeked = match rjiter.peek() {
+        Ok(p) => p,
+        Err(e) => return StreamOp::Error(Box::new(e)),
+    };
+    if peeked != Peek::String {
+        let error: Box<dyn std::error::Error> =
+            format!("Expected string for 'content' value, got {peeked:?}").into();
+        return StreamOp::Error(error);
+    }
     let mut builder = builder_cell.borrow_mut();
     if let Err(e) = builder.begin_text_chunk() {
         return StreamOp::Error(Box::new(e));
@@ -70,6 +71,8 @@ pub fn on_content<W: Write>(
 
 type BA<'a, W> = BoxedAction<'a, StructureBuilder<W>>;
 
+/// # Errors
+/// If anything goes wrong.
 pub fn _process_gpt<W: Write>(
     mut reader: impl std::io::Read,
     writer: W,
@@ -129,15 +132,23 @@ pub fn _process_gpt<W: Write>(
         &sse_tokens,
         &rjiter_cell,
         &builder_cell,
-    )
-    .unwrap();
+    )?;
     builder_cell.borrow_mut().end_message()?;
     Ok(())
 }
 
+/// # Panics
+/// If anything goes wrong.
 #[no_mangle]
+#[allow(clippy::panic)]
 pub extern "C" fn process_gpt() {
-    let reader = AReader::new(c"").unwrap();
-    let writer = AWriter::new(c"").unwrap();
-    _process_gpt(reader, writer).unwrap();
+    let reader = AReader::new(c"").unwrap_or_else(|e| {
+        panic!("Failed to create reader: {e:?}");
+    });
+    let writer = AWriter::new(c"").unwrap_or_else(|e| {
+        panic!("Failed to create writer: {e:?}");
+    });
+    _process_gpt(reader, writer).unwrap_or_else(|e| {
+        panic!("Failed to process GPT: {e:?}");
+    });
 }
