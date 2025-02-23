@@ -33,6 +33,9 @@ impl<W: Write> StructureBuilder<W> {
         self.message_is_closed = false;
     }
 
+    /// End the current message.
+    /// # Errors
+    /// I/O
     pub fn end_message(&mut self) -> Result<(), std::io::Error> {
         if self.message_is_closed {
             return Ok(());
@@ -55,6 +58,9 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
+    /// Add a role to the current message.
+    /// # Errors
+    /// I/O
     pub fn role(&mut self, role: &str) -> Result<(), std::io::Error> {
         if self.message_has_role {
             return Ok(());
@@ -66,6 +72,9 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
+    /// Add a content to the current message.
+    /// # Errors
+    /// I/O
     pub fn begin_content(&mut self) -> Result<(), std::io::Error> {
         if self.message_has_content {
             return Ok(());
@@ -79,6 +88,9 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
+    /// Add a text chunk to the current message.
+    /// # Errors
+    /// I/O
     pub fn begin_text_chunk(&mut self) -> Result<(), std::io::Error> {
         if !self.message_has_content {
             self.begin_content()?;
