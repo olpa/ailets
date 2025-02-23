@@ -33,60 +33,60 @@ impl<W: Write> StructureBuilder<W> {
         self.message_is_closed = false;
     }
 
-    pub fn end_message(&mut self) {
+    pub fn end_message(&mut self) -> Result<(), std::io::Error> {
         if self.message_is_closed {
-            return;
+            return Ok(());
         }
         if !self.message_has_role && !self.message_has_content {
-            return;
+            return Ok(());
         }
         if !self.message_has_content {
             self.begin_content();
         }
         if self.text_is_open {
-            self.str("\"}");
+            self.writer.write_all(b"\"}")?;
             self.text_is_open = false;
         }
         if self.message_has_content {
-            self.str("]");
+            self.writer.write_all(b"]")?;
         }
-        self.str("}\n");
+        self.writer.write_all(b"}\n")?;
         self.message_is_closed = true;
+        Ok(())
     }
 
-    pub fn role(&mut self, role: &str) {
+    pub fn role(&mut self, role: &str) -> Result<(), std::io::Error> {
         if self.message_has_role {
-            return;
+            return Ok(());
         }
-        self.str("{\"role\":\"");
-        self.str(role);
-        self.str("\"");
+        self.writer.write_all(b"{\"role\":\"")?;
+        self.writer.write_all(role.as_bytes())?;
+        self.writer.write_all(b"\"")?;
         self.message_has_role = true;
+        Ok(())
     }
 
-    pub fn begin_content(&mut self) {
+    pub fn begin_content(&mut self) -> Result<(), std::io::Error> {
         if self.message_has_content {
-            return;
+            return Ok(());
         }
         if !self.message_has_role {
-            self.role("assistant");
+            self.role("assistant")?;
         }
-        self.str(",\"content\":[");
+        self.writer.write_all(b",\"content\":[")?;
         self.message_has_content = true;
         self.text_is_open = false;
+        Ok(())
     }
 
-    pub fn begin_text_chunk(&mut self) {
+    pub fn begin_text_chunk(&mut self) -> Result<(), std::io::Error> {
         if !self.message_has_content {
-            self.begin_content();
+            self.begin_content()?;
         }
         if !self.text_is_open {
-            self.str("{\"type\":\"text\",\"text\":\"");
+            self.writer.write_all(b"{\"type\":\"text\",\"text\":\"")?;
             self.text_is_open = true;
         }
-    }
-
-    pub fn str(&mut self, text: &str) {
-        self.writer.write_all(text.as_bytes()).unwrap();
+        Ok(())
     }
 }
