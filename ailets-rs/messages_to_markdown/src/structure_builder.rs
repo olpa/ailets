@@ -18,22 +18,19 @@ impl<W: Write> StructureBuilder<W> {
         &mut self.writer
     }
 
-    pub fn start_paragraph(&mut self) {
+    pub fn start_paragraph(&mut self) -> Result<(), std::io::Error> {
         if self.need_para_divider {
-            self.str("\n\n");
+            self.writer.write_all(b"\n\n")?;
         }
         self.need_para_divider = true;
+        Ok(())
     }
 
-    pub fn str(&mut self, text: &str) {
-        let text_bytes = text.as_bytes();
-        self.writer.write_all(text_bytes).unwrap();
-    }
-
-    pub fn finish_with_newline(&mut self) {
+    pub fn finish_with_newline(&mut self) -> Result<(), std::io::Error> {
         if self.need_para_divider {
-            self.str("\n");
+            self.writer.write_all(b"\n")?;
         }
         self.need_para_divider = false;
+        Ok(())
     }
 }

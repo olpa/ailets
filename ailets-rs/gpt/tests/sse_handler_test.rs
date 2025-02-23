@@ -21,7 +21,7 @@ fn basic_pass() {
     // Act
     on_role(&rjiter_cell, &builder_cell);
     on_content(&rjiter_cell, &builder_cell);
-    builder_cell.borrow_mut().end_message();
+    builder_cell.borrow_mut().end_message().unwrap();
 
     // Assert
     let expected =
@@ -46,7 +46,7 @@ fn join_multiple_content_deltas() {
     on_content(&rjiter_cell, &builder_cell);
     on_content(&rjiter_cell, &builder_cell);
     on_content(&rjiter_cell, &builder_cell);
-    builder_cell.borrow_mut().end_message();
+    builder_cell.borrow_mut().end_message().unwrap();
 
     // Assert
     let expected =
@@ -70,7 +70,7 @@ fn ignore_additional_role() {
     on_role(&rjiter_cell, &builder_cell);
     on_role(&rjiter_cell, &builder_cell);
     on_role(&rjiter_cell, &builder_cell);
-    builder_cell.borrow_mut().end_message();
+    builder_cell.borrow_mut().end_message().unwrap();
 
     // Assert
     let expected = r#"{"role":"a1","content":[]}"#.to_owned() + "\n";
@@ -91,7 +91,7 @@ fn create_message_without_input_role() {
 
     // Act
     on_content(&rjiter_cell, &builder_cell);
-    builder_cell.borrow_mut().end_message();
+    builder_cell.borrow_mut().end_message().unwrap();
 
     // Assert
     let expected =
@@ -113,9 +113,9 @@ fn can_call_end_message_multiple_times() {
 
     // Act
     on_content(&rjiter_cell, &builder_cell);
-    builder_cell.borrow_mut().end_message();
-    builder_cell.borrow_mut().end_message();
-    builder_cell.borrow_mut().end_message();
+    builder_cell.borrow_mut().end_message().unwrap();
+    builder_cell.borrow_mut().end_message().unwrap();
+    builder_cell.borrow_mut().end_message().unwrap();
 
     // Assert
     let expected =
