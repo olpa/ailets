@@ -5,8 +5,8 @@ use std::io;
 #[allow(clippy::missing_panics_doc)]
 #[allow(clippy::expect_used)]
 pub extern "C" fn execute() -> i32 {
-    let mut reader = AReader::new(c"my_stream").expect("Failed to open to read");
-    let mut writer = AWriter::new(c"my_stream").expect("Failed to open to write");
+    let mut reader = AReader::new(c"").expect("Failed to open to read");
+    let mut writer = AWriter::new(c"").expect("Failed to open to write");
 
     io::copy(&mut reader, &mut writer).expect("Failed to copy");
 

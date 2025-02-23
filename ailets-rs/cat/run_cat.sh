@@ -1,4 +1,4 @@
-set -eu
+set -eux
 
 this=$(dirname $0)
 echo $this
