@@ -1,5 +1,5 @@
 [package]
-name = "areader"
+name = "actor_io"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

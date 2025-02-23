@@ -8,7 +8,7 @@
 //!
 //! ```no_run
 //! use std::io::Read;
-//! use areader::AReader;
+//! use actor_io::AReader;
 //!
 //! let mut reader = AReader::new(c"my_stream").unwrap();
 //!

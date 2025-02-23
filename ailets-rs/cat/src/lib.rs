@@ -1,61 +1,17 @@
-pub use actor_runtime::*;
-
-const BUFFER_SIZE: u32 = 1024;
+use actor_io::{AReader, AWriter};
+use std::io;
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
+#[allow(clippy::expect_used)]
 pub extern "C" fn execute() -> i32 {
-    let input_name = c"";
-    let mut buffer = [0u8; BUFFER_SIZE as usize];
+    let mut reader = AReader::new(c"").expect("Failed to open to read");
+    let mut writer = AWriter::new(c"").expect("Failed to open to write");
 
-    let output_fd = unsafe { open_write(input_name.as_ptr()) };
-    assert!(output_fd >= 0, "Failed to open output stream");
+    io::copy(&mut reader, &mut writer).expect("Failed to copy");
 
-    // Process each input stream
-    let mut i: u32 = 0;
-    loop {
-        let current_n_streams = unsafe { n_of_streams(input_name.as_ptr()) };
-        if current_n_streams <= i32::try_from(i).unwrap() {
-            break;
-        }
-
-        let input_fd = unsafe { open_read(input_name.as_ptr(), i) };
-
-        // Copy contents
-        loop {
-            let bytes_read = unsafe { aread(input_fd, buffer.as_mut_ptr(), BUFFER_SIZE) };
-            let bytes_read: u32 = match bytes_read {
-                -1 => panic!("Failed to read input stream"),
-                0 => break,
-                n => n.try_into().unwrap(),
-            };
-
-            let mut bytes_written: u32 = 0;
-            while bytes_written < bytes_read {
-                let n = unsafe {
-                    awrite(
-                        output_fd,
-                        buffer.as_ptr().add(bytes_written as usize),
-                        bytes_read - bytes_written,
-                    )
-                };
-                let n: u32 = match n {
-                    n if n <= 0 => panic!("Failed to write to output stream"),
-                    n => n.try_into().unwrap(),
-                };
-                bytes_written += n;
-            }
-        }
-
-        // Close input stream
-        unsafe { aclose(input_fd) };
-
-        i += 1;
-    }
-
-    // Close output stream
-    let result = unsafe { aclose(output_fd) };
-    assert!(result >= 0, "Failed to close output stream");
+    writer.close().expect("Failed to close writer");
+    reader.close().expect("Failed to close reader");
 
     0
 }
