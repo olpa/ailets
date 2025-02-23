@@ -12,7 +12,6 @@ const BUFFER_SIZE: u32 = 1024;
 
 type BA<'a, W> = BoxedAction<'a, StructureBuilder<W>>;
 
-#[allow(clippy::missing_panics_doc)]
 fn on_content_text<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
@@ -45,7 +44,6 @@ fn on_content_text<W: Write>(
 /// - The input JSON is malformed
 /// - The JSON structure doesn't match the expected format of
 ///   ```
-#[allow(clippy::missing_panics_doc)]
 pub fn _messages_to_markdown<W: Write>(mut reader: impl std::io::Read, writer: W) {
     let builder_cell = RefCell::new(StructureBuilder::new(writer));
 
@@ -66,7 +64,6 @@ pub fn _messages_to_markdown<W: Write>(mut reader: impl std::io::Read, writer: W
 }
 
 #[no_mangle]
-#[allow(clippy::missing_panics_doc)]
 pub extern "C" fn messages_to_markdown() {
     let reader = AReader::new(c"").unwrap();
     let writer = AWriter::new(c"").unwrap();

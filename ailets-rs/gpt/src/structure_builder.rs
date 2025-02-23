@@ -86,7 +86,6 @@ impl<W: Write> StructureBuilder<W> {
         }
     }
 
-    #[allow(clippy::missing_panics_doc)]
     pub fn str(&mut self, text: &str) {
         self.writer.write_all(text.as_bytes()).unwrap();
     }

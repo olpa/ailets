@@ -18,7 +18,6 @@ fn on_begin_message<W: Write>(
     StreamOp::None
 }
 
-#[allow(clippy::unnecessary_wraps)]
 fn on_end_message<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -26,7 +25,6 @@ fn on_end_message<W: Write>(
     Ok(())
 }
 
-#[allow(clippy::missing_panics_doc)]
 pub fn on_role<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
@@ -37,7 +35,6 @@ pub fn on_role<W: Write>(
     StreamOp::ValueIsConsumed
 }
 
-#[allow(clippy::missing_panics_doc)]
 pub fn on_content<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
@@ -61,7 +58,6 @@ pub fn on_content<W: Write>(
 
 type BA<'a, W> = BoxedAction<'a, StructureBuilder<W>>;
 
-#[allow(clippy::missing_panics_doc)]
 pub fn _process_gpt<W: Write>(mut reader: impl std::io::Read, writer: W) {
     let builder = StructureBuilder::new(writer);
     let builder_cell = RefCell::new(builder);
@@ -124,7 +120,6 @@ pub fn _process_gpt<W: Write>(mut reader: impl std::io::Read, writer: W) {
 }
 
 #[no_mangle]
-#[allow(clippy::missing_panics_doc)]
 pub extern "C" fn process_gpt() {
     let reader = AReader::new(c"").unwrap();
     let writer = AWriter::new(c"").unwrap();
