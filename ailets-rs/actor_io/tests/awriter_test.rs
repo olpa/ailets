@@ -1,5 +1,5 @@
-use actor_runtime_mocked::{clear_mocks, get_file, WANT_ERROR};
 use actor_io::AWriter;
+use actor_runtime_mocked::{clear_mocks, get_file, WANT_ERROR};
 use std::io::Write;
 
 #[test]

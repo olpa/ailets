@@ -1,5 +1,5 @@
-use actor_runtime_mocked::{add_file, clear_mocks};
 use actor_io::AReader;
+use actor_runtime_mocked::{add_file, clear_mocks};
 use std::io::Read;
 
 #[test]
