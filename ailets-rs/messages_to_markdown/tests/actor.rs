@@ -14,7 +14,7 @@ fn test_basic_conversion() {
     let reader = Cursor::new(json_data);
     let writer = RcWriter::new();
 
-    _messages_to_markdown(reader, writer.clone());
+    _messages_to_markdown(reader, writer.clone()).unwrap();
 
     assert_eq!(writer.get_output(), "Hello!\n");
 }
@@ -33,7 +33,7 @@ fn test_multiple_content_items() {
     let reader = Cursor::new(json_data);
     let writer = RcWriter::new();
 
-    _messages_to_markdown(reader, writer.clone());
+    _messages_to_markdown(reader, writer.clone()).unwrap();
 
     assert_eq!(
         writer.get_output(),
@@ -60,7 +60,7 @@ fn test_two_messages() {
     let reader = Cursor::new(json_data);
     let writer = RcWriter::new();
 
-    _messages_to_markdown(reader, writer.clone());
+    _messages_to_markdown(reader, writer.clone()).unwrap();
 
     assert_eq!(
         writer.get_output(),
@@ -74,7 +74,7 @@ fn test_empty_input() {
     let reader = Cursor::new(json_data);
     let writer = RcWriter::new();
 
-    _messages_to_markdown(reader, writer.clone());
+    _messages_to_markdown(reader, writer.clone()).unwrap();
 
     assert_eq!(writer.get_output(), "");
 }
@@ -96,7 +96,7 @@ fn test_long_text() {
     let reader = Cursor::new(json_data);
     let writer = RcWriter::new();
 
-    _messages_to_markdown(reader, writer.clone());
+    _messages_to_markdown(reader, writer.clone()).unwrap();
 
     assert_eq!(writer.get_output(), format!("{}\n", long_text));
 }
@@ -115,7 +115,7 @@ fn test_skip_unknown_key_object() {
     let reader = Cursor::new(json_data);
     let writer = RcWriter::new();
 
-    _messages_to_markdown(reader, writer.clone());
+    _messages_to_markdown(reader, writer.clone()).unwrap();
 
     assert_eq!(writer.get_output(), "First message\n\nSecond message\n");
 }
@@ -132,7 +132,7 @@ fn test_json_escapes() {
     let reader = Cursor::new(json_data);
     let writer = RcWriter::new();
 
-    _messages_to_markdown(reader, writer.clone());
+    _messages_to_markdown(reader, writer.clone()).unwrap();
 
     assert_eq!(writer.get_output(), "a\n\"\u{0401}\"\n");
 }
