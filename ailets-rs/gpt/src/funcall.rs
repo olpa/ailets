@@ -1,3 +1,13 @@
+//! Collect function calls from an AI model response
+//! 
+//! - Tracking individual function calls with their IDs, names, and arguments
+//! - Managing collections of function calls
+//! - Incrementally building function calls through delta updates
+//!
+//! The primary structures are:
+//! - [`ContentItemFunction`]: Represents a single function call with its metadata
+//! - [`FunCalls`]: Manages a collection of function calls with delta-based updates
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct ContentItemFunction {
     // type: "function",
@@ -59,7 +69,6 @@ impl FunCalls {
         }
     }
 
-    #[allow(clippy::missing_errors_doc)]
     pub fn delta_index(&mut self, index: usize) -> Result<(), String> {
         if self.idx == index {
             return Ok(());
@@ -70,21 +79,18 @@ impl FunCalls {
         ))
     }
 
-    #[allow(clippy::missing_errors_doc)]
     pub fn delta_id(&mut self, id: &str) -> Result<(), String> {
         let cell = self.get_cell()?;
         cell.id.push_str(id);
         Ok(())
     }
 
-    #[allow(clippy::missing_errors_doc)]
     pub fn delta_function_name(&mut self, function_name: &str) -> Result<(), String> {
         let cell = self.get_cell()?;
         cell.function_name.push_str(function_name);
         Ok(())
     }
 
-    #[allow(clippy::missing_errors_doc)]
     pub fn delta_function_arguments(&mut self, function_arguments: &str) -> Result<(), String> {
         let cell = self.get_cell()?;
         cell.function_arguments.push_str(function_arguments);
