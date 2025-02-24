@@ -161,3 +161,22 @@ fn start_delta_reuse() {
         ]
     );
 }
+
+#[test]
+fn has_cell_for_delta() {
+    let mut funcalls = FunCalls::new();
+    let expected_err = format!(
+        "Delta index is out of bounds: {}, n of deltas: 0",
+        usize::MAX
+    );
+    funcalls.start_delta_round();
+
+    let result = funcalls.delta_id("foo");
+    assert_eq!(result.unwrap_err(), expected_err);
+
+    let result = funcalls.delta_function_name("foo");
+    assert_eq!(result.unwrap_err(), expected_err);
+
+    let result = funcalls.delta_function_arguments("foo");
+    assert_eq!(result.unwrap_err(), expected_err);
+}
