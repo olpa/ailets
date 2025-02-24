@@ -1,3 +1,4 @@
+pub mod funcall;
 pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
