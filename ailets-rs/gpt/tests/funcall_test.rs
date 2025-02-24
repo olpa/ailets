@@ -11,9 +11,13 @@ fn single_funcall() {
     funcalls.start_delta();
 
     // Set the function call details
-    funcalls.delta_id("call_9cFpsOXfVWMUoDz1yyyP1QXD".to_string());
-    funcalls.delta_function_name("get_user_name".to_string());
-    funcalls.delta_function_arguments("{}".to_string());
+    funcalls
+        .delta_id("call_9cFpsOXfVWMUoDz1yyyP1QXD".to_string())
+        .unwrap();
+    funcalls
+        .delta_function_name("get_user_name".to_string())
+        .unwrap();
+    funcalls.delta_function_arguments("{}".to_string()).unwrap();
 
     // Get and verify results
     let tool_calls = funcalls.get_tool_calls();

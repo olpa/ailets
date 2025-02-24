@@ -20,9 +20,13 @@ impl ContentItemFunction {
 pub trait FunCallsTrait {
     fn start_delta_round(&mut self);
     fn start_delta(&mut self);
+    #[allow(clippy::missing_errors_doc)]
     fn delta_index(&mut self, index: usize) -> Result<(), String>;
+    #[allow(clippy::missing_errors_doc)]
     fn delta_id(&mut self, id: String) -> Result<(), String>;
+    #[allow(clippy::missing_errors_doc)]
     fn delta_function_name(&mut self, function_name: String) -> Result<(), String>;
+    #[allow(clippy::missing_errors_doc)]
     fn delta_function_arguments(&mut self, function_arguments: String) -> Result<(), String>;
     fn get_tool_calls(&self) -> &Vec<ContentItemFunction>;
 }
@@ -43,13 +47,13 @@ impl FunCalls {
     }
 
     fn get_cell(&mut self) -> Result<&mut ContentItemFunction, String> {
+        let len = self.tool_calls.len();
         let cell = self.tool_calls.get_mut(self.idx);
         match cell {
             Some(cell) => Ok(cell),
             None => Err(format!(
                 "Delta index is out of bounds: {}, n of deltas: {}",
-                self.idx,
-                self.tool_calls.len()
+                self.idx, len
             )),
         }
     }
