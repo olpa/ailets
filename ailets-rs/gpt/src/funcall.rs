@@ -8,11 +8,11 @@ pub struct ContentItemFunction {
 
 impl ContentItemFunction {
     #[must_use]
-    pub fn new(id: String, function_name: String, function_arguments: String) -> Self {
+    pub fn new(id: &str, function_name: &str, function_arguments: &str) -> Self {
         Self {
-            id,
-            function_name,
-            function_arguments,
+            id: id.to_string(),
+            function_name: function_name.to_string(),
+            function_arguments: function_arguments.to_string(),
         }
     }
 }
@@ -23,11 +23,11 @@ pub trait FunCallsTrait {
     #[allow(clippy::missing_errors_doc)]
     fn delta_index(&mut self, index: usize) -> Result<(), String>;
     #[allow(clippy::missing_errors_doc)]
-    fn delta_id(&mut self, id: String) -> Result<(), String>;
+    fn delta_id(&mut self, id: &str) -> Result<(), String>;
     #[allow(clippy::missing_errors_doc)]
-    fn delta_function_name(&mut self, function_name: String) -> Result<(), String>;
+    fn delta_function_name(&mut self, function_name: &str) -> Result<(), String>;
     #[allow(clippy::missing_errors_doc)]
-    fn delta_function_arguments(&mut self, function_arguments: String) -> Result<(), String>;
+    fn delta_function_arguments(&mut self, function_arguments: &str) -> Result<(), String>;
     fn get_tool_calls(&self) -> &Vec<ContentItemFunction>;
 }
 
@@ -85,21 +85,21 @@ impl FunCallsTrait for FunCalls {
         ))
     }
 
-    fn delta_id(&mut self, id: String) -> Result<(), String> {
+    fn delta_id(&mut self, id: &str) -> Result<(), String> {
         let cell = self.get_cell()?;
-        cell.id = id;
+        cell.id = id.to_string();
         Ok(())
     }
 
-    fn delta_function_name(&mut self, function_name: String) -> Result<(), String> {
+    fn delta_function_name(&mut self, function_name: &str) -> Result<(), String> {
         let cell = self.get_cell()?;
-        cell.function_name = function_name;
+        cell.function_name = function_name.to_string();
         Ok(())
     }
 
-    fn delta_function_arguments(&mut self, function_arguments: String) -> Result<(), String> {
+    fn delta_function_arguments(&mut self, function_arguments: &str) -> Result<(), String> {
         let cell = self.get_cell()?;
-        cell.function_arguments = function_arguments;
+        cell.function_arguments = function_arguments.to_string();
         Ok(())
     }
 
