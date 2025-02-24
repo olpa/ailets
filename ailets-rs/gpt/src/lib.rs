@@ -1,4 +1,5 @@
 pub mod structure_builder;
+pub mod funcall;
 
 use actor_io::{AReader, AWriter};
 use scan_json::jiter::Peek;
