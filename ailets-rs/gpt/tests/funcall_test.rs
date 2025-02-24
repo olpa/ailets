@@ -22,3 +22,19 @@ fn single_funcall() {
         )]
     );
 }
+
+#[test]
+fn check_index() {
+    // Arrange
+    let mut funcalls = FunCalls::new();
+    funcalls.start_delta_round();
+
+    // Act
+    funcalls.start_delta();
+    assert!(funcalls.delta_index(0).is_ok());
+    assert!(funcalls.delta_index(1).is_err());
+
+    funcalls.start_delta();
+    assert!(funcalls.delta_index(1).is_ok());
+    assert!(funcalls.delta_index(0).is_err());
+}
