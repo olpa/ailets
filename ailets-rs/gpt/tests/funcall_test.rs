@@ -66,3 +66,44 @@ fn delta_appends() {
         )]
     );
 }
+
+#[test]
+fn several_rounds_with_delta() {
+    let mut funcalls = FunCalls::new();
+
+    // Act: first round
+    funcalls.start_delta_round();
+    funcalls.start_delta();
+    funcalls.delta_index(0).unwrap();
+    funcalls.delta_id("call_1").unwrap();
+    funcalls.delta_function_name("func1").unwrap();
+    funcalls.delta_function_arguments("{}").unwrap();
+    funcalls.start_delta();
+    funcalls.delta_index(1).unwrap();
+    funcalls.delta_id("call_2").unwrap();
+    funcalls.delta_function_name("func2").unwrap();
+    funcalls.delta_function_arguments("{\"param\":2}").unwrap();
+
+    // Act: second round
+    funcalls.start_delta_round();
+    funcalls.start_delta();
+    funcalls.delta_index(0).unwrap();
+    funcalls.delta_id("++").unwrap();
+    funcalls.delta_function_name("++").unwrap();
+    funcalls.delta_function_arguments("++").unwrap();
+    funcalls.start_delta();
+    funcalls.delta_index(1).unwrap();
+    funcalls.delta_id("==").unwrap();
+    funcalls.delta_function_name("==").unwrap();
+    funcalls.delta_function_arguments("==").unwrap();
+
+    // Assert
+    let tool_calls = funcalls.get_tool_calls();
+    assert_eq!(
+        tool_calls,
+        &vec![
+            ContentItemFunction::new("call_1++", "func1++", "{}++"),
+            ContentItemFunction::new("call_2==", "func2==", "{\"param\":2}=="),
+        ]
+    );
+}
