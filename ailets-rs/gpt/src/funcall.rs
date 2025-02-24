@@ -49,13 +49,13 @@ impl FunCalls {
     }
 
     pub fn start_delta(&mut self) {
-        if self.idx == usize::MAX || self.idx >= self.tool_calls.len() {
-            self.tool_calls.push(ContentItemFunction::default());
-        }
-        if self.idx == usize::MAX {
-            self.idx = 0;
+        self.idx = if self.idx == usize::MAX {
+            0
         } else {
-            self.idx += 1;
+            self.idx + 1
+        };
+        if self.idx >= self.tool_calls.len() {
+            self.tool_calls.push(ContentItemFunction::default());
         }
     }
 

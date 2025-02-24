@@ -107,3 +107,57 @@ fn several_rounds_with_delta() {
         ]
     );
 }
+
+#[test]
+fn start_delta_reuse() {
+    let mut funcalls = FunCalls::new();
+
+    // Act: first round - create 3 items
+    funcalls.start_delta_round();
+    funcalls.start_delta();
+    funcalls.start_delta();
+    funcalls.start_delta();
+
+    // Assert: first round - 3 items are created
+    let tool_calls = funcalls.get_tool_calls();
+    assert_eq!(
+        tool_calls,
+        &vec![
+            ContentItemFunction::default(),
+            ContentItemFunction::default(),
+            ContentItemFunction::default(),
+        ]
+    );
+
+    // Act: second round - reuse 3 items
+    funcalls.start_delta_round();
+    funcalls.start_delta();
+    funcalls.start_delta();
+    funcalls.start_delta();
+
+    // Assert: second round - so far 3 items are reused
+    let tool_calls = funcalls.get_tool_calls();
+    assert_eq!(
+        tool_calls,
+        &vec![
+            ContentItemFunction::default(),
+            ContentItemFunction::default(),
+            ContentItemFunction::default(),
+        ]
+    );
+
+    // Act: second round - create a new item
+    funcalls.start_delta();
+
+    // Assert: second round - now there are 4 items
+    let tool_calls = funcalls.get_tool_calls();
+    assert_eq!(
+        tool_calls,
+        &vec![
+            ContentItemFunction::default(),
+            ContentItemFunction::default(),
+            ContentItemFunction::default(),
+            ContentItemFunction::default(),
+        ]
+    );
+}
