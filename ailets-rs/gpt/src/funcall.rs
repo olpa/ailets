@@ -17,20 +17,6 @@ impl ContentItemFunction {
     }
 }
 
-pub trait FunCallsTrait {
-    fn start_delta_round(&mut self);
-    fn start_delta(&mut self);
-    #[allow(clippy::missing_errors_doc)]
-    fn delta_index(&mut self, index: usize) -> Result<(), String>;
-    #[allow(clippy::missing_errors_doc)]
-    fn delta_id(&mut self, id: &str) -> Result<(), String>;
-    #[allow(clippy::missing_errors_doc)]
-    fn delta_function_name(&mut self, function_name: &str) -> Result<(), String>;
-    #[allow(clippy::missing_errors_doc)]
-    fn delta_function_arguments(&mut self, function_arguments: &str) -> Result<(), String>;
-    fn get_tool_calls(&self) -> &Vec<ContentItemFunction>;
-}
-
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct FunCalls {
     idx: usize,
@@ -57,14 +43,12 @@ impl FunCalls {
             )),
         }
     }
-}
 
-impl FunCallsTrait for FunCalls {
-    fn start_delta_round(&mut self) {
+    pub fn start_delta_round(&mut self) {
         self.idx = usize::MAX;
     }
 
-    fn start_delta(&mut self) {
+    pub fn start_delta(&mut self) {
         if self.idx == usize::MAX || self.idx >= self.tool_calls.len() {
             self.tool_calls.push(ContentItemFunction::default());
         }
@@ -75,7 +59,8 @@ impl FunCallsTrait for FunCalls {
         }
     }
 
-    fn delta_index(&mut self, index: usize) -> Result<(), String> {
+    #[allow(clippy::missing_errors_doc)]
+    pub fn delta_index(&mut self, index: usize) -> Result<(), String> {
         if self.idx == index {
             return Ok(());
         }
@@ -85,25 +70,29 @@ impl FunCallsTrait for FunCalls {
         ))
     }
 
-    fn delta_id(&mut self, id: &str) -> Result<(), String> {
+    #[allow(clippy::missing_errors_doc)]
+    pub fn delta_id(&mut self, id: &str) -> Result<(), String> {
         let cell = self.get_cell()?;
         cell.id = id.to_string();
         Ok(())
     }
 
-    fn delta_function_name(&mut self, function_name: &str) -> Result<(), String> {
+    #[allow(clippy::missing_errors_doc)]
+    pub fn delta_function_name(&mut self, function_name: &str) -> Result<(), String> {
         let cell = self.get_cell()?;
         cell.function_name = function_name.to_string();
         Ok(())
     }
 
-    fn delta_function_arguments(&mut self, function_arguments: &str) -> Result<(), String> {
+    #[allow(clippy::missing_errors_doc)]
+    pub fn delta_function_arguments(&mut self, function_arguments: &str) -> Result<(), String> {
         let cell = self.get_cell()?;
         cell.function_arguments = function_arguments.to_string();
         Ok(())
     }
 
-    fn get_tool_calls(&self) -> &Vec<ContentItemFunction> {
+    #[must_use]
+    pub fn get_tool_calls(&self) -> &Vec<ContentItemFunction> {
         &self.tool_calls
     }
 }

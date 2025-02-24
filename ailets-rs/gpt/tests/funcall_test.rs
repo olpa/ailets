@@ -1,4 +1,4 @@
-use gpt::funcall::{ContentItemFunction, FunCalls, FunCallsTrait};
+use gpt::funcall::{ContentItemFunction, FunCalls};
 
 #[test]
 fn single_funcall() {
