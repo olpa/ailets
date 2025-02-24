@@ -73,21 +73,21 @@ impl FunCalls {
     #[allow(clippy::missing_errors_doc)]
     pub fn delta_id(&mut self, id: &str) -> Result<(), String> {
         let cell = self.get_cell()?;
-        cell.id = id.to_string();
+        cell.id.push_str(id);
         Ok(())
     }
 
     #[allow(clippy::missing_errors_doc)]
     pub fn delta_function_name(&mut self, function_name: &str) -> Result<(), String> {
         let cell = self.get_cell()?;
-        cell.function_name = function_name.to_string();
+        cell.function_name.push_str(function_name);
         Ok(())
     }
 
     #[allow(clippy::missing_errors_doc)]
     pub fn delta_function_arguments(&mut self, function_arguments: &str) -> Result<(), String> {
         let cell = self.get_cell()?;
-        cell.function_arguments = function_arguments.to_string();
+        cell.function_arguments.push_str(function_arguments);
         Ok(())
     }
 
