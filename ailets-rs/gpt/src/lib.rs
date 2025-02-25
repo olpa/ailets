@@ -55,6 +55,9 @@ pub fn on_content<W: Write>(
         Ok(p) => p,
         Err(e) => return StreamOp::Error(Box::new(e)),
     };
+    if peeked == Peek::Null {
+        return StreamOp::None;
+    }
     if peeked != Peek::String {
         let error: Box<dyn std::error::Error> =
             format!("Expected string for 'content' value, got {peeked:?}").into();
