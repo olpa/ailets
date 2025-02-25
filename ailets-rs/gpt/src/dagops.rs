@@ -1,4 +1,4 @@
-use crate::funcall::{ContentItemFunction, FunCalls};
+use crate::funcalls::{ContentItemFunction, FunCalls};
 use std::cell::RefCell;
 #[allow(clippy::missing_errors_doc)]
 pub trait DagOpsTrait {

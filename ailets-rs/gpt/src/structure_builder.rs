@@ -1,4 +1,4 @@
-use crate::funcall::FunCalls;
+use crate::funcalls::FunCalls;
 use std::io::Write;
 #[allow(clippy::struct_excessive_bools)]
 pub struct StructureBuilder<W: Write> {

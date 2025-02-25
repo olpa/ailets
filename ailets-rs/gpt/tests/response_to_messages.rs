@@ -2,7 +2,7 @@ use actor_runtime_mocked::RcWriter;
 use gpt::_process_gpt;
 use gpt::dagops::DummyDagOps;
 use gpt::dagops::TrackedDagOps;
-use gpt::funcall::ContentItemFunction;
+use gpt::funcalls::ContentItemFunction;
 use std::io::Cursor;
 
 fn get_expected_basic_message() -> String {
