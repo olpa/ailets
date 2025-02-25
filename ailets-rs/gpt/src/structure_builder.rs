@@ -1,5 +1,5 @@
+use crate::funcall::FunCalls;
 use std::io::Write;
-
 #[allow(clippy::struct_excessive_bools)]
 pub struct StructureBuilder<W: Write> {
     writer: W,
@@ -7,6 +7,7 @@ pub struct StructureBuilder<W: Write> {
     message_has_content: bool,
     text_is_open: bool,
     message_is_closed: bool,
+    funcalls: FunCalls,
 }
 
 impl<W: Write> StructureBuilder<W> {
@@ -18,12 +19,18 @@ impl<W: Write> StructureBuilder<W> {
             message_has_content: false,
             text_is_open: false,
             message_is_closed: false,
+            funcalls: FunCalls::new(),
         }
     }
 
     #[must_use]
     pub fn get_writer(&mut self) -> &mut W {
         &mut self.writer
+    }
+
+    #[must_use]
+    pub fn get_funcalls(&self) -> &FunCalls {
+        &self.funcalls
     }
 
     pub fn begin_message(&mut self) {

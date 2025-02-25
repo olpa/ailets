@@ -1,5 +1,6 @@
 use actor_runtime_mocked::RcWriter;
 use gpt::_process_gpt;
+use gpt::dagops::DummyDagOps;
 use std::io::Cursor;
 
 fn get_expected_basic_message() -> String {
@@ -15,7 +16,7 @@ fn test_basic_processing() {
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
 
-    _process_gpt(reader, writer.clone()).unwrap();
+    _process_gpt(reader, writer.clone(), &DummyDagOps::new()).unwrap();
 
     assert_eq!(writer.get_output(), get_expected_basic_message());
 }
@@ -27,7 +28,7 @@ fn test_streaming() {
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
 
-    _process_gpt(reader, writer.clone()).unwrap();
+    _process_gpt(reader, writer.clone(), &DummyDagOps::new()).unwrap();
 
     assert_eq!(writer.get_output(), get_expected_basic_message());
 }

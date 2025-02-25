@@ -1,14 +1,15 @@
+pub mod dagops;
 pub mod funcall;
 pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
+use dagops::{DagOpsTrait, DummyDagOps};
 use scan_json::jiter::Peek;
 use scan_json::RJiter;
 use scan_json::{scan, BoxedAction, BoxedEndAction, Name, ParentAndName, StreamOp, Trigger};
 use std::cell::RefCell;
 use std::io::Write;
 use structure_builder::StructureBuilder;
-
 const BUFFER_SIZE: u32 = 1024;
 
 fn on_begin_message<W: Write>(
@@ -77,6 +78,7 @@ type BA<'a, W> = BoxedAction<'a, StructureBuilder<W>>;
 pub fn _process_gpt<W: Write>(
     mut reader: impl std::io::Read,
     writer: W,
+    dagops: &impl DagOpsTrait,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let builder = StructureBuilder::new(writer);
     let builder_cell = RefCell::new(builder);
@@ -118,6 +120,7 @@ pub fn _process_gpt<W: Write>(
         )),
         Box::new(on_content) as BA<'_, W>,
     );
+
     let triggers = vec![
         begin_message,
         message_role,
@@ -127,6 +130,7 @@ pub fn _process_gpt<W: Write>(
     ];
     let triggers_end = vec![end_message];
     let sse_tokens = vec!["data:", "DONE"];
+
     scan(
         &triggers,
         &triggers_end,
@@ -134,7 +138,11 @@ pub fn _process_gpt<W: Write>(
         &rjiter_cell,
         &builder_cell,
     )?;
-    builder_cell.borrow_mut().end_message()?;
+    let mut builder = builder_cell.borrow_mut();
+    builder.end_message()?;
+
+    let funcalls = builder.get_funcalls();
+    dagops.inject_funcalls(funcalls)?;
     Ok(())
 }
 
@@ -149,7 +157,8 @@ pub extern "C" fn process_gpt() {
     let writer = AWriter::new(c"").unwrap_or_else(|e| {
         panic!("Failed to create writer: {e:?}");
     });
-    _process_gpt(reader, writer).unwrap_or_else(|e| {
+    let dagops = DummyDagOps::new();
+    _process_gpt(reader, writer, &dagops).unwrap_or_else(|e| {
         panic!("Failed to process GPT: {e:?}");
     });
 }
