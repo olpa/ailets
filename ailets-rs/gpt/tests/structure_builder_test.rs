@@ -1,5 +1,6 @@
 use std::cell::RefCell;
 use std::io;
+use std::io::Write;
 
 use actor_runtime_mocked::RcWriter;
 use gpt::handlers::{on_content, on_role};
@@ -9,19 +10,15 @@ use scan_json::RJiter;
 #[test]
 fn basic_pass() {
     // Arrange
-    let input = r#""assistant""hello""#;
-    let mut buffer = vec![0u8; 16];
-    let mut cursor = io::Cursor::new(input);
-    let rjiter = RJiter::new(&mut cursor, &mut buffer);
-    let rjiter_cell = RefCell::new(rjiter);
-    let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone());
-    let builder_cell = RefCell::new(builder);
+    let mut writer = RcWriter::new();
+    let mut builder = StructureBuilder::new(writer.clone());
 
     // Act
-    on_role(&rjiter_cell, &builder_cell);
-    on_content(&rjiter_cell, &builder_cell);
-    builder_cell.borrow_mut().end_message().unwrap();
+    builder.begin_message();
+    builder.role("assistant").unwrap();
+    builder.begin_text_chunk().unwrap();
+    writer.write_all(b"hello").unwrap();
+    builder.end_message().unwrap();
 
     // Assert
     let expected =
