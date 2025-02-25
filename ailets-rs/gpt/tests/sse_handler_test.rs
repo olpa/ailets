@@ -2,8 +2,8 @@ use std::cell::RefCell;
 use std::io;
 
 use actor_runtime_mocked::RcWriter;
+use gpt::handlers::{on_content, on_role};
 use gpt::structure_builder::StructureBuilder;
-use gpt::{on_content, on_role};
 use scan_json::RJiter;
 
 #[test]

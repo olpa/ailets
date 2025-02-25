@@ -1,78 +1,18 @@
 pub mod dagops;
 pub mod funcall;
+pub mod handlers;
 pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
 use dagops::{DagOpsTrait, DummyDagOps};
-use scan_json::jiter::Peek;
+use handlers::{on_begin_message, on_content, on_end_message, on_role};
 use scan_json::RJiter;
-use scan_json::{scan, BoxedAction, BoxedEndAction, Name, ParentAndName, StreamOp, Trigger};
+use scan_json::{scan, BoxedAction, BoxedEndAction, Name, ParentAndName, Trigger};
 use std::cell::RefCell;
 use std::io::Write;
 use structure_builder::StructureBuilder;
+
 const BUFFER_SIZE: u32 = 1024;
-
-fn on_begin_message<W: Write>(
-    _rjiter: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
-) -> StreamOp {
-    builder_cell.borrow_mut().begin_message();
-    StreamOp::None
-}
-
-fn on_end_message<W: Write>(
-    builder_cell: &RefCell<StructureBuilder<W>>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    builder_cell.borrow_mut().end_message()?;
-    Ok(())
-}
-
-pub fn on_role<W: Write>(
-    rjiter_cell: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
-) -> StreamOp {
-    let mut rjiter = rjiter_cell.borrow_mut();
-    let role = match rjiter.next_str() {
-        Ok(r) => r,
-        Err(e) => {
-            return StreamOp::Error(
-                format!("Error getting role value. Expected string, got: {e:?}").into(),
-            )
-        }
-    };
-    if let Err(e) = builder_cell.borrow_mut().role(role) {
-        return StreamOp::Error(Box::new(e));
-    }
-    StreamOp::ValueIsConsumed
-}
-
-pub fn on_content<W: Write>(
-    rjiter_cell: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
-) -> StreamOp {
-    let mut rjiter = rjiter_cell.borrow_mut();
-    let peeked = match rjiter.peek() {
-        Ok(p) => p,
-        Err(e) => return StreamOp::Error(Box::new(e)),
-    };
-    if peeked == Peek::Null {
-        return StreamOp::None;
-    }
-    if peeked != Peek::String {
-        let error: Box<dyn std::error::Error> =
-            format!("Expected string for 'content' value, got {peeked:?}").into();
-        return StreamOp::Error(error);
-    }
-    let mut builder = builder_cell.borrow_mut();
-    if let Err(e) = builder.begin_text_chunk() {
-        return StreamOp::Error(Box::new(e));
-    }
-    let writer = builder.get_writer();
-    if let Err(e) = rjiter.write_long_bytes(writer) {
-        return StreamOp::Error(Box::new(e));
-    }
-    StreamOp::ValueIsConsumed
-}
 
 type BA<'a, W> = BoxedAction<'a, StructureBuilder<W>>;
 
