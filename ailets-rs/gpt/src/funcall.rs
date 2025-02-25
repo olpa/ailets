@@ -14,7 +14,7 @@
 /// - A unique identifier
 /// - The name of the function to be called
 /// - The arguments to pass to the function (as a JSON string)
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct ContentItemFunction {
     // type: "function",
     id: String,
@@ -35,7 +35,7 @@ impl ContentItemFunction {
 }
 
 /// A collection of function calls with support for incremental updates
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct FunCalls {
     idx: usize,
     tool_calls: Vec<ContentItemFunction>,
