@@ -1,7 +1,9 @@
 use crate::funcalls::{ContentItemFunction, FunCalls};
 use std::cell::RefCell;
-#[allow(clippy::missing_errors_doc)]
+
 pub trait DagOpsTrait {
+    /// # Errors
+    /// If anything goes wrong.
     fn inject_funcalls(&self, funcalls: &FunCalls) -> Result<(), String>;
 }
 
