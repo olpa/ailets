@@ -44,23 +44,14 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// I/O
     pub fn end_message(&mut self) -> Result<(), std::io::Error> {
-        if self.message_is_closed {
+        if !self.message_has_content || self.message_is_closed {
             return Ok(());
-        }
-        if self.role.is_none() && !self.message_has_content {
-            return Ok(());
-        }
-        if !self.message_has_content {
-            self.begin_content()?;
         }
         if self.text_is_open {
             self.writer.write_all(b"\"}")?;
             self.text_is_open = false;
         }
-        if self.message_has_content {
-            self.writer.write_all(b"]")?;
-        }
-        self.writer.write_all(b"}\n")?;
+        self.writer.write_all(b"]}\n")?;
         self.message_is_closed = true;
         Ok(())
     }

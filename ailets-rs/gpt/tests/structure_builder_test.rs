@@ -33,10 +33,11 @@ fn ignore_additional_role() {
     builder.role("a1").unwrap();
     builder.role("a2").unwrap(); // Should be ignored
     builder.role("a3").unwrap(); // Should be ignored
+    builder.begin_text_chunk().unwrap(); // otherwise message isn't written
     builder.end_message().unwrap();
 
     // Assert
-    let expected = r#"{"role":"a1","content":[]}"#.to_owned() + "\n";
+    let expected = r#"{"role":"a1","content":[{"type":"text","text":""}]}"#.to_owned() + "\n";
     assert_eq!(writer.get_output(), expected);
 }
 
@@ -79,7 +80,7 @@ fn can_call_end_message_multiple_times() {
 }
 
 #[test]
-fn dont_write_message_if_text_chunk_never_started() {
+fn dont_write_message_if_content_is_missing() {
     // Arrange
     let writer = RcWriter::new();
     let mut builder = StructureBuilder::new(writer.clone());
