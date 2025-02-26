@@ -7,9 +7,7 @@ use actor_io::{AReader, AWriter};
 use dagops::{DagOpsTrait, DummyDagOps};
 use handlers::{on_begin_message, on_content, on_end_message, on_function_id, on_role};
 use scan_json::RJiter;
-use scan_json::{
-    scan, BoxedAction, BoxedEndAction, Name, ParentAndName, ParentParentAndName, Trigger,
-};
+use scan_json::{scan, BoxedAction, BoxedEndAction, ContextFrame, Name, ParentAndName, Trigger};
 use std::cell::RefCell;
 use std::io::Write;
 use structure_builder::StructureBuilder;
@@ -17,6 +15,31 @@ use structure_builder::StructureBuilder;
 const BUFFER_SIZE: u32 = 1024;
 
 type BA<'a, W> = BoxedAction<'a, StructureBuilder<W>>;
+
+#[derive(Debug)]
+struct MatchInToolCall {
+    field: String,
+}
+
+impl scan_json::Matcher for MatchInToolCall {
+    fn matches(&self, name: &str, context: &[ContextFrame]) -> bool {
+        // Check the field name
+        if name != self.field {
+            return false;
+        }
+
+        // Check the "tool_calls" context
+        for frame in context.iter().rev() {
+            let key: &str = &frame.current_key;
+            match key {
+                "function" | "#object" | "#array" => continue,
+                "tool_calls" => return true,
+                _ => return false,
+            }
+        }
+        false
+    }
+}
 
 /// # Errors
 /// If anything goes wrong.
@@ -66,11 +89,9 @@ pub fn _process_gpt<W: Write>(
         Box::new(on_content) as BA<'_, W>,
     );
     let function_id = Trigger::new(
-        Box::new(ParentParentAndName::new(
-            "#array".to_string(),
-            "#object".to_string(),
-            "id".to_string(),
-        )),
+        Box::new(MatchInToolCall {
+            field: "id".to_string(),
+        }),
         Box::new(on_function_id) as BA<'_, W>,
     );
 
