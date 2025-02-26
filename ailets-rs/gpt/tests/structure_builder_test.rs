@@ -77,3 +77,18 @@ fn can_call_end_message_multiple_times() {
         r#"{"role":"assistant","content":[{"type":"text","text":"hello"}]}"#.to_owned() + "\n";
     assert_eq!(writer.get_output(), expected);
 }
+
+#[test]
+fn dont_write_message_if_text_chunk_never_started() {
+    // Arrange
+    let writer = RcWriter::new();
+    let mut builder = StructureBuilder::new(writer.clone());
+
+    // Act
+    builder.begin_message();
+    builder.role("user").unwrap();
+    builder.end_message().unwrap();
+
+    // Assert
+    assert_eq!(writer.get_output(), "");
+}
