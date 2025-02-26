@@ -72,3 +72,23 @@ pub fn on_content<W: Write>(
     }
     StreamOp::ValueIsConsumed
 }
+
+pub fn on_function_id<W: Write>(
+    rjiter_cell: &RefCell<RJiter>,
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> StreamOp {
+    let mut rjiter = rjiter_cell.borrow_mut();
+    let id = match rjiter.next_str() {
+        Ok(id) => id,
+        Err(e) => {
+            let error: Box<dyn std::error::Error> =
+                format!("Expected string as the function id, got {e:?}").into();
+            return StreamOp::Error(error);
+        }
+    };
+    if let Err(e) = builder_cell.borrow_mut().get_funcalls_mut().delta_id(id) {
+        let error: Box<dyn std::error::Error> = e.into();
+        return StreamOp::Error(error);
+    }
+    StreamOp::ValueIsConsumed
+}

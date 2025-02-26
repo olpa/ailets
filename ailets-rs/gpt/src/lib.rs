@@ -5,9 +5,11 @@ pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
 use dagops::{DagOpsTrait, DummyDagOps};
-use handlers::{on_begin_message, on_content, on_end_message, on_role};
+use handlers::{on_begin_message, on_content, on_end_message, on_function_id, on_role};
 use scan_json::RJiter;
-use scan_json::{scan, BoxedAction, BoxedEndAction, Name, ParentAndName, Trigger};
+use scan_json::{
+    scan, BoxedAction, BoxedEndAction, Name, ParentAndName, ParentParentAndName, Trigger,
+};
 use std::cell::RefCell;
 use std::io::Write;
 use structure_builder::StructureBuilder;
@@ -63,6 +65,14 @@ pub fn _process_gpt<W: Write>(
         )),
         Box::new(on_content) as BA<'_, W>,
     );
+    let function_id = Trigger::new(
+        Box::new(ParentParentAndName::new(
+            "#array".to_string(),
+            "#object".to_string(),
+            "id".to_string(),
+        )),
+        Box::new(on_function_id) as BA<'_, W>,
+    );
 
     let triggers = vec![
         begin_message,
@@ -70,6 +80,7 @@ pub fn _process_gpt<W: Write>(
         message_content,
         delta_role,
         delta_content,
+        function_id,
     ];
     let triggers_end = vec![end_message];
     let sse_tokens = vec!["data:", "DONE"];

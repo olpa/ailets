@@ -33,6 +33,10 @@ impl<W: Write> StructureBuilder<W> {
         &self.funcalls
     }
 
+    pub fn get_funcalls_mut(&mut self) -> &mut FunCalls {
+        &mut self.funcalls
+    }
+
     pub fn begin_message(&mut self) {
         self.role = None;
         self.message_has_content = false;
