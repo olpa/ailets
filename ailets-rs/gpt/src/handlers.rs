@@ -52,7 +52,10 @@ pub fn on_content<W: Write>(
         Err(e) => return StreamOp::Error(Box::new(e)),
     };
     if peeked == Peek::Null {
-        return StreamOp::None;
+        if let Err(e) = rjiter.known_null() {
+            return StreamOp::Error(Box::new(e));
+        }
+        return StreamOp::ValueIsConsumed;
     }
     if peeked != Peek::String {
         let error: Box<dyn std::error::Error> =
