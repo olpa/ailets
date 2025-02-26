@@ -46,7 +46,7 @@ impl FunCalls {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            idx: 0,
+            idx: usize::MAX,
             tool_calls: Vec::new(),
         }
     }
