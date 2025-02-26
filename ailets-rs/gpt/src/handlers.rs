@@ -73,6 +73,14 @@ pub fn on_content<W: Write>(
     StreamOp::ValueIsConsumed
 }
 
+pub fn on_function_begin<W: Write>(
+    _rjiter_cell: &RefCell<RJiter>,
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> StreamOp {
+    builder_cell.borrow_mut().get_funcalls_mut().start_delta();
+    StreamOp::None
+}
+
 pub fn on_function_id<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,

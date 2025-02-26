@@ -5,7 +5,9 @@ pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
 use dagops::{DagOpsTrait, DummyDagOps};
-use handlers::{on_begin_message, on_content, on_end_message, on_function_id, on_role};
+use handlers::{
+    on_begin_message, on_content, on_end_message, on_function_begin, on_function_id, on_role,
+};
 use scan_json::RJiter;
 use scan_json::{scan, BoxedAction, BoxedEndAction, ContextFrame, Name, ParentAndName, Trigger};
 use std::cell::RefCell;
@@ -32,7 +34,14 @@ impl scan_json::Matcher for MatchInToolCall {
         for frame in context.iter().rev() {
             let key: &str = &frame.current_key;
             match key {
-                "function" | "#object" | "#array" => continue,
+                "#object" | "#array" => continue,
+                "function" => {
+                    // match only top-level #object
+                    if self.field == "#object" {
+                        return false;
+                    }
+                    continue;
+                }
                 "tool_calls" => return true,
                 _ => return false,
             }
@@ -88,6 +97,13 @@ pub fn _process_gpt<W: Write>(
         )),
         Box::new(on_content) as BA<'_, W>,
     );
+
+    let function_begin = Trigger::new(
+        Box::new(MatchInToolCall {
+            field: "#object".to_string(),
+        }),
+        Box::new(on_function_begin) as BA<'_, W>,
+    );
     let function_id = Trigger::new(
         Box::new(MatchInToolCall {
             field: "id".to_string(),
@@ -101,6 +117,7 @@ pub fn _process_gpt<W: Write>(
         message_content,
         delta_role,
         delta_content,
+        function_begin,
         function_id,
     ];
     let triggers_end = vec![end_message];
