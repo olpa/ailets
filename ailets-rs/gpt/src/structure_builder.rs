@@ -1,3 +1,7 @@
+//! A module for building structured messages in a streaming fashion.
+//!
+//! Collects function calls from the JSON stream and stores them in a `FunCalls` struct.
+
 use crate::funcalls::FunCalls;
 use std::io::Write;
 
