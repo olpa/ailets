@@ -55,3 +55,23 @@ fn funcall_response() {
         )]
     );
 }
+#[test]
+fn funcall_streaming() {
+    let fixture_content = std::fs::read_to_string("tests/fixture/funcall_streaming.txt")
+        .expect("Failed to read fixture file 'funcall_streaming.txt'");
+    let reader = Cursor::new(fixture_content);
+    let writer = RcWriter::new();
+    let dagops = TrackedDagOps::new();
+
+    _process_gpt(reader, writer.clone(), &dagops).unwrap();
+
+    assert_eq!(writer.get_output(), "");
+    assert_eq!(
+        dagops.get_funcalls(),
+        [ContentItemFunction::new(
+            "B3yQ752R6apthnynEA3sm1CqXn0ju",
+            "get_user_name",
+            "{}"
+        )]
+    );
+}
