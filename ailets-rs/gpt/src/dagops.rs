@@ -1,3 +1,14 @@
+//! DAG Operations Module
+//!
+//! This module provides traits and implementations for managing function calls in a DAG-like structure.
+//! It includes:
+//! - [`DagOpsTrait`]: A trait defining the interface for injecting function calls
+//! - [`DummyDagOps`]: A no-op implementation that does nothing with injected calls
+//! - [`TrackedDagOps`]: An implementation that tracks and stores function calls for later retrieval
+//!
+//! The module is designed to support both testing scenarios (using `DummyDagOps`) and
+//! actual function call tracking (using `TrackedDagOps`).
+
 use crate::funcalls::{ContentItemFunction, FunCalls};
 use std::cell::RefCell;
 
