@@ -7,7 +7,7 @@ use actor_io::{AReader, AWriter};
 use dagops::{DagOpsTrait, DummyDagOps};
 use handlers::{
     on_begin_message, on_content, on_end_message, on_function_arguments, on_function_begin,
-    on_function_id, on_function_name, on_role,
+    on_function_id, on_function_index, on_function_name, on_role,
 };
 use scan_json::RJiter;
 use scan_json::{scan, BoxedAction, BoxedEndAction, ContextFrame, Name, ParentAndName, Trigger};
@@ -123,6 +123,12 @@ pub fn _process_gpt<W: Write>(
         }),
         Box::new(on_function_arguments) as BA<'_, W>,
     );
+    let function_index = Trigger::new(
+        Box::new(MatchInToolCall {
+            field: "index".to_string(),
+        }),
+        Box::new(on_function_index) as BA<'_, W>,
+    );
 
     let triggers = vec![
         begin_message,
@@ -134,6 +140,7 @@ pub fn _process_gpt<W: Write>(
         function_id,
         function_name,
         function_arguments,
+        function_index,
     ];
     let triggers_end = vec![end_message];
     let sse_tokens = vec!["data:", "DONE"];
