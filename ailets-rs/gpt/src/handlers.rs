@@ -1,3 +1,9 @@
+//! Handlers for processing JSON stream operations in message processing.
+//!
+//! Each handler works with a `StructureBuilder` to construct the message structure
+//! and a `RJiter` for JSON stream iteration. The handlers return `StreamOp` to
+//! indicate the result of their operations.
+
 use std::cell::RefCell;
 use std::io::Write;
 
