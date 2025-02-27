@@ -100,3 +100,51 @@ pub fn on_function_id<W: Write>(
     }
     StreamOp::ValueIsConsumed
 }
+
+pub fn on_function_name<W: Write>(
+    rjiter_cell: &RefCell<RJiter>,
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> StreamOp {
+    let mut rjiter = rjiter_cell.borrow_mut();
+    let name = match rjiter.next_str() {
+        Ok(name) => name,
+        Err(e) => {
+            let error: Box<dyn std::error::Error> =
+                format!("Expected string as the function name, got {e:?}").into();
+            return StreamOp::Error(error);
+        }
+    };
+    if let Err(e) = builder_cell
+        .borrow_mut()
+        .get_funcalls_mut()
+        .delta_function_name(name)
+    {
+        let error: Box<dyn std::error::Error> = e.into();
+        return StreamOp::Error(error);
+    }
+    StreamOp::ValueIsConsumed
+}
+
+pub fn on_function_arguments<W: Write>(
+    rjiter_cell: &RefCell<RJiter>,
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> StreamOp {
+    let mut rjiter = rjiter_cell.borrow_mut();
+    let args = match rjiter.next_str() {
+        Ok(args) => args,
+        Err(e) => {
+            let error: Box<dyn std::error::Error> =
+                format!("Expected string as the function arguments, got {e:?}").into();
+            return StreamOp::Error(error);
+        }
+    };
+    if let Err(e) = builder_cell
+        .borrow_mut()
+        .get_funcalls_mut()
+        .delta_function_arguments(args)
+    {
+        let error: Box<dyn std::error::Error> = e.into();
+        return StreamOp::Error(error);
+    }
+    StreamOp::ValueIsConsumed
+}
