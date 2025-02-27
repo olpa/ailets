@@ -51,90 +51,73 @@ impl scan_json::Matcher for MatchInToolCall {
     }
 }
 
-/// # Errors
-/// If anything goes wrong.
-pub fn _process_gpt<W: Write>(
-    mut reader: impl std::io::Read,
-    writer: W,
-    dagops: &impl DagOpsTrait,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let builder = StructureBuilder::new(writer);
-    let builder_cell = RefCell::new(builder);
-
-    let mut buffer = vec![0u8; BUFFER_SIZE as usize];
-
-    let rjiter_cell = RefCell::new(RJiter::new(&mut reader, &mut buffer));
-
+fn make_triggers<'a, W: Write + 'a>() -> Vec<Trigger<'a, BA<'a, W>>> {
     let begin_message = Trigger::new(
         Box::new(Name::new("message".to_string())),
-        Box::new(on_begin_message) as BA<'_, W>,
-    );
-    let end_message = Trigger::new(
-        Box::new(Name::new("message".to_string())),
-        Box::new(on_end_message) as BoxedEndAction<StructureBuilder<W>>,
+        Box::new(on_begin_message) as BA<'a, W>,
     );
     let choices = Trigger::new(
         Box::new(ParentAndName::new(
             "#top".to_string(),
             "choices".to_string(),
         )),
-        Box::new(on_choices) as BA<'_, W>,
+        Box::new(on_choices) as BA<'a, W>,
     );
     let message_role = Trigger::new(
         Box::new(ParentAndName::new(
             "message".to_string(),
             "role".to_string(),
         )),
-        Box::new(on_role) as BA<'_, W>,
+        Box::new(on_role) as BA<'a, W>,
     );
     let delta_role = Trigger::new(
         Box::new(ParentAndName::new("delta".to_string(), "role".to_string())),
-        Box::new(on_role) as BA<'_, W>,
+        Box::new(on_role) as BA<'a, W>,
     );
     let message_content = Trigger::new(
         Box::new(ParentAndName::new(
             "message".to_string(),
             "content".to_string(),
         )),
-        Box::new(on_content) as BA<'_, W>,
+        Box::new(on_content) as BA<'a, W>,
     );
     let delta_content = Trigger::new(
         Box::new(ParentAndName::new(
             "delta".to_string(),
             "content".to_string(),
         )),
-        Box::new(on_content) as BA<'_, W>,
+        Box::new(on_content) as BA<'a, W>,
     );
 
     let function_begin = Trigger::new(
         Box::new(MatchInToolCall {
             field: "#object".to_string(),
         }),
-        Box::new(on_function_begin) as BA<'_, W>,
+        Box::new(on_function_begin) as BA<'a, W>,
     );
     let function_id = Trigger::new(
         Box::new(MatchInToolCall {
             field: "id".to_string(),
         }),
-        Box::new(on_function_id) as BA<'_, W>,
+        Box::new(on_function_id) as BA<'a, W>,
     );
     let function_name = Trigger::new(
         Box::new(MatchInToolCall {
             field: "name".to_string(),
         }),
-        Box::new(on_function_name) as BA<'_, W>,
+        Box::new(on_function_name) as BA<'a, W>,
     );
     let function_arguments = Trigger::new(
         Box::new(MatchInToolCall {
             field: "arguments".to_string(),
         }),
-        Box::new(on_function_arguments) as BA<'_, W>,
+        Box::new(on_function_arguments) as BA<'a, W>,
     );
     let function_index = Trigger::new(
         Box::new(MatchInToolCall {
             field: "index".to_string(),
         }),
-        Box::new(on_function_index) as BA<'_, W>,
+        Box::new(on_function_index) as BA<'a, W>,
     );
 
     let triggers = vec![
@@ -150,6 +133,29 @@ pub fn _process_gpt<W: Write>(
         function_arguments,
         function_index,
     ];
+
+    triggers
+}
+
+/// # Errors
+/// If anything goes wrong.
+pub fn _process_gpt<W: Write>(
+    mut reader: impl std::io::Read,
+    writer: W,
+    dagops: &impl DagOpsTrait,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let builder = StructureBuilder::new(writer);
+    let builder_cell = RefCell::new(builder);
+
+    let mut buffer = vec![0u8; BUFFER_SIZE as usize];
+
+    let rjiter_cell = RefCell::new(RJiter::new(&mut reader, &mut buffer));
+
+    let end_message = Trigger::new(
+        Box::new(Name::new("message".to_string())),
+        Box::new(on_end_message) as BoxedEndAction<StructureBuilder<W>>,
+    );
+    let triggers = make_triggers::<W>();
     let triggers_end = vec![end_message];
     let sse_tokens = vec!["data:", "DONE"];
 
