@@ -11,6 +11,10 @@ pub fn on_begin_message<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
     builder_cell.borrow_mut().begin_message();
+    builder_cell
+        .borrow_mut()
+        .get_funcalls_mut()
+        .start_delta_round();
     StreamOp::None
 }
 
@@ -171,4 +175,15 @@ pub fn on_function_index<W: Write>(
         return StreamOp::Error(error);
     }
     StreamOp::ValueIsConsumed
+}
+
+pub fn on_choices<W: Write>(
+    _rjiter_cell: &RefCell<RJiter>,
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> StreamOp {
+    builder_cell
+        .borrow_mut()
+        .get_funcalls_mut()
+        .start_delta_round();
+    StreamOp::None
 }

@@ -69,7 +69,7 @@ fn funcall_streaming() {
     assert_eq!(
         dagops.get_funcalls(),
         [ContentItemFunction::new(
-            "B3yQ752R6apthnynEA3sm1CqXn0ju",
+            "call_9cFpsOXfVWMUoDz1yyyP1QXD",
             "get_user_name",
             "{}"
         )]

@@ -6,8 +6,8 @@ pub mod structure_builder;
 use actor_io::{AReader, AWriter};
 use dagops::{DagOpsTrait, DummyDagOps};
 use handlers::{
-    on_begin_message, on_content, on_end_message, on_function_arguments, on_function_begin,
-    on_function_id, on_function_index, on_function_name, on_role,
+    on_begin_message, on_choices, on_content, on_end_message, on_function_arguments,
+    on_function_begin, on_function_id, on_function_index, on_function_name, on_role,
 };
 use scan_json::RJiter;
 use scan_json::{scan, BoxedAction, BoxedEndAction, ContextFrame, Name, ParentAndName, Trigger};
@@ -73,6 +73,13 @@ pub fn _process_gpt<W: Write>(
         Box::new(Name::new("message".to_string())),
         Box::new(on_end_message) as BoxedEndAction<StructureBuilder<W>>,
     );
+    let choices = Trigger::new(
+        Box::new(ParentAndName::new(
+            "#top".to_string(),
+            "choices".to_string(),
+        )),
+        Box::new(on_choices) as BA<'_, W>,
+    );
     let message_role = Trigger::new(
         Box::new(ParentAndName::new(
             "message".to_string(),
@@ -132,6 +139,7 @@ pub fn _process_gpt<W: Write>(
 
     let triggers = vec![
         begin_message,
+        choices,
         message_role,
         message_content,
         delta_role,

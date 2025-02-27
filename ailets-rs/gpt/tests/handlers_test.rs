@@ -1,6 +1,8 @@
 use actor_runtime_mocked::RcWriter;
 use gpt::funcalls::ContentItemFunction;
-use gpt::handlers::{on_content, on_function_begin, on_function_index, on_function_name};
+use gpt::handlers::{
+    on_choices, on_content, on_function_begin, on_function_index, on_function_name,
+};
 use gpt::structure_builder::StructureBuilder;
 use scan_json::{RJiter, StreamOp};
 use std::cell::RefCell;
@@ -129,10 +131,7 @@ fn test_on_function_index() {
     assert!(matches!(result, StreamOp::ValueIsConsumed));
 
     // Act and assert: Index mismatch
-    builder_cell
-        .borrow_mut()
-        .get_funcalls_mut()
-        .start_delta_round();
+    on_choices(&rjiter_cell, &builder_cell);
     on_function_begin(&rjiter_cell, &builder_cell);
     let result = on_function_index(&rjiter_cell, &builder_cell);
     assert!(matches!(result, StreamOp::Error(_)));
