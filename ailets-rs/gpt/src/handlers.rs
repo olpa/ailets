@@ -132,3 +132,11 @@ pub fn on_function_arguments<W: Write>(
         funcalls.delta_function_arguments(value)
     })
 }
+pub fn on_function_index<W: Write>(
+    rjiter_cell: &RefCell<RJiter>,
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> StreamOp {
+    on_function_str_field(rjiter_cell, builder_cell, "index", |funcalls, value| {
+        funcalls.delta_index(value)
+    })
+}

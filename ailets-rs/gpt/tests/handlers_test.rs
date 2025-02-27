@@ -48,7 +48,7 @@ fn content_can_be_null() {
 }
 
 #[test]
-fn test_on_function_string_field() {
+fn on_function_string_field() {
     // Arrange
     let mut buffer = Cursor::new(Vec::new());
     let builder = StructureBuilder::new(&mut buffer);
@@ -76,7 +76,7 @@ fn test_on_function_string_field() {
 }
 
 #[test]
-fn test_on_function_string_field_invalid_value_type() {
+fn on_function_string_field_invalid_value_type() {
     // Arrange
     let mut buffer = Cursor::new(Vec::new());
     let builder = StructureBuilder::new(&mut buffer);
@@ -101,4 +101,57 @@ fn test_on_function_string_field_invalid_value_type() {
         funcalls.get_tool_calls(),
         &[ContentItemFunction::new("", "", "")]
     );
+}
+
+#[test]
+fn on_function_index() {
+    // Arrange
+    let mut buffer = Cursor::new(Vec::new());
+    let builder = StructureBuilder::new(&mut buffer);
+    let builder_cell = RefCell::new(builder);
+
+    // Arrange: Create RJiter with input for 3 tests
+    let json = "2 2 2";
+    let rjiter = RJiter::new(json.as_bytes());
+    let rjiter_cell = RefCell::new(rjiter);
+
+    // Act and assert: Out of range
+    let result = on_function_index(&rjiter_cell, &builder_cell);
+    println!("result: {:?}", result); // FIXME
+    assert!(matches!(result, StreamOp::Error(_)));
+
+    // Act and assert: Valid index
+    on_function_begin(&rjiter_cell, &builder_cell);
+    on_function_begin(&rjiter_cell, &builder_cell);
+    on_function_begin(&rjiter_cell, &builder_cell);
+    let result = on_function_index(&rjiter_cell, &builder_cell);
+    println!("result: {:?}", result); // FIXME
+    assert!(matches!(result, StreamOp::ValueIsConsumed));
+
+    // Act and assert: Index mismatch
+    builder_cell
+        .borrow_mut()
+        .get_funcalls_mut()
+        .start_delta_round();
+    let result = on_function_index(&rjiter_cell, &builder_cell);
+    println!("result: {:?}", result); // FIXME
+    assert!(matches!(result, StreamOp::Error(_)));
+}
+
+#[test]
+fn on_function_index_invalid_value_type() {
+    // Arrange: Setup with invalid JSON (float instead of integer)
+    let mut buffer = Cursor::new(Vec::new());
+    let builder = StructureBuilder::new(&mut buffer);
+    let builder_cell = RefCell::new(builder);
+
+    let json = r#"3.14"#; // Invalid - should be an integer
+    let rjiter = RJiter::new(json.as_bytes());
+    let rjiter_cell = RefCell::new(rjiter);
+
+    // Act
+    let result = on_function_index(&rjiter_cell, &builder_cell);
+
+    // Assert
+    assert!(matches!(result, StreamOp::Error(_)));
 }
