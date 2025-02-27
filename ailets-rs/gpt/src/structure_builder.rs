@@ -1,12 +1,17 @@
+//! A module for building structured messages in a streaming fashion.
+//!
+//! Collects function calls from the JSON stream and stores them in a `FunCalls` struct.
+
+use crate::funcalls::FunCalls;
 use std::io::Write;
 
-#[allow(clippy::struct_excessive_bools)]
 pub struct StructureBuilder<W: Write> {
     writer: W,
-    message_has_role: bool,
+    role: Option<String>,
     message_has_content: bool,
     text_is_open: bool,
     message_is_closed: bool,
+    funcalls: FunCalls,
 }
 
 impl<W: Write> StructureBuilder<W> {
@@ -14,10 +19,11 @@ impl<W: Write> StructureBuilder<W> {
     pub fn new(writer: W) -> Self {
         StructureBuilder {
             writer,
-            message_has_role: false,
+            role: None,
             message_has_content: false,
             text_is_open: false,
             message_is_closed: false,
+            funcalls: FunCalls::new(),
         }
     }
 
@@ -26,8 +32,17 @@ impl<W: Write> StructureBuilder<W> {
         &mut self.writer
     }
 
+    #[must_use]
+    pub fn get_funcalls(&self) -> &FunCalls {
+        &self.funcalls
+    }
+
+    pub fn get_funcalls_mut(&mut self) -> &mut FunCalls {
+        &mut self.funcalls
+    }
+
     pub fn begin_message(&mut self) {
-        self.message_has_role = false;
+        self.role = None;
         self.message_has_content = false;
         self.text_is_open = false;
         self.message_is_closed = false;
@@ -37,23 +52,14 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// I/O
     pub fn end_message(&mut self) -> Result<(), std::io::Error> {
-        if self.message_is_closed {
+        if !self.message_has_content || self.message_is_closed {
             return Ok(());
-        }
-        if !self.message_has_role && !self.message_has_content {
-            return Ok(());
-        }
-        if !self.message_has_content {
-            self.begin_content()?;
         }
         if self.text_is_open {
             self.writer.write_all(b"\"}")?;
             self.text_is_open = false;
         }
-        if self.message_has_content {
-            self.writer.write_all(b"]")?;
-        }
-        self.writer.write_all(b"}\n")?;
+        self.writer.write_all(b"]}\n")?;
         self.message_is_closed = true;
         Ok(())
     }
@@ -62,27 +68,28 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// I/O
     pub fn role(&mut self, role: &str) -> Result<(), std::io::Error> {
-        if self.message_has_role {
+        if self.role.is_some() {
             return Ok(());
         }
-        self.writer.write_all(b"{\"role\":\"")?;
-        self.writer.write_all(role.as_bytes())?;
-        self.writer.write_all(b"\"")?;
-        self.message_has_role = true;
+        self.role = Some(role.to_owned());
         Ok(())
     }
 
-    /// Add a content to the current message.
+    /// Write a message boilerplate with "role" (completed) and "content" (open) keys
     /// # Errors
     /// I/O
     pub fn begin_content(&mut self) -> Result<(), std::io::Error> {
         if self.message_has_content {
             return Ok(());
         }
-        if !self.message_has_role {
-            self.role("assistant")?;
+        if let Some(role) = &self.role {
+            self.writer.write_all(b"{\"role\":\"")?;
+            self.writer.write_all(role.as_bytes())?;
+            self.writer.write_all(b"\",\"content\":[")?;
+        } else {
+            self.writer
+                .write_all(b"{\"role\":\"assistant\",\"content\":[")?;
         }
-        self.writer.write_all(b",\"content\":[")?;
         self.message_has_content = true;
         self.text_is_open = false;
         Ok(())

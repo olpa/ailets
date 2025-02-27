@@ -14,7 +14,7 @@
 /// - A unique identifier
 /// - The name of the function to be called
 /// - The arguments to pass to the function (as a JSON string)
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct ContentItemFunction {
     // type: "function",
     id: String,
@@ -35,9 +35,9 @@ impl ContentItemFunction {
 }
 
 /// A collection of function calls with support for incremental updates
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct FunCalls {
-    idx: usize,
+    idx: Option<usize>,
     tool_calls: Vec<ContentItemFunction>,
 }
 
@@ -46,38 +46,38 @@ impl FunCalls {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            idx: 0,
+            idx: None,
             tool_calls: Vec::new(),
         }
     }
 
     fn get_cell(&mut self) -> Result<&mut ContentItemFunction, String> {
         let len = self.tool_calls.len();
-        let cell = self.tool_calls.get_mut(self.idx);
-        match cell {
-            Some(cell) => Ok(cell),
-            None => Err(format!(
-                "Delta index is out of bounds: {}, n of deltas: {}",
-                self.idx, len
-            )),
+        match self.idx {
+            Some(idx) => self
+                .tool_calls
+                .get_mut(idx)
+                .ok_or_else(|| format!("Delta index is out of bounds: {idx}, n of deltas: {len}")),
+            None => Err("No active delta index".to_string()),
         }
     }
 
     /// Initiates a new round of delta updates by resetting the index
     pub fn start_delta_round(&mut self) {
-        self.idx = usize::MAX;
+        self.idx = None;
     }
 
     /// Starts a new delta update by incrementing the index and ensuring space
     /// for the new function call
     pub fn start_delta(&mut self) {
-        self.idx = if self.idx == usize::MAX {
-            0
-        } else {
-            self.idx + 1
-        };
-        if self.idx >= self.tool_calls.len() {
-            self.tool_calls.push(ContentItemFunction::default());
+        self.idx = Some(match self.idx {
+            None => 0,
+            Some(idx) => idx + 1,
+        });
+        if let Some(idx) = self.idx {
+            if idx >= self.tool_calls.len() {
+                self.tool_calls.push(ContentItemFunction::default());
+            }
         }
     }
 
@@ -89,11 +89,11 @@ impl FunCalls {
     /// # Errors
     /// Returns an error if the provided index doesn't match the current position
     pub fn delta_index(&mut self, index: usize) -> Result<(), String> {
-        if self.idx == index {
+        if self.idx.unwrap_or(usize::MAX) == index {
             return Ok(());
         }
         Err(format!(
-            "Delta index mismatch. Got: {}, expected: {}",
+            "Delta index mismatch. Got: {}, expected: {:?}",
             index, self.idx
         ))
     }

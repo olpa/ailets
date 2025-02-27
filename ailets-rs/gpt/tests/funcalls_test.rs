@@ -1,4 +1,4 @@
-use gpt::funcall::{ContentItemFunction, FunCalls};
+use gpt::funcalls::{ContentItemFunction, FunCalls};
 
 #[test]
 fn single_funcall() {
@@ -165,10 +165,7 @@ fn start_delta_reuse() {
 #[test]
 fn has_cell_for_delta() {
     let mut funcalls = FunCalls::new();
-    let expected_err = format!(
-        "Delta index is out of bounds: {}, n of deltas: 0",
-        usize::MAX
-    );
+    let expected_err = "No active delta index";
     funcalls.start_delta_round();
 
     let result = funcalls.delta_id("foo");
