@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::io::Write;
 
 use crate::structure_builder::StructureBuilder;
-use scan_json::rjiter::jiter::Peek;
+use scan_json::rjiter::jiter::{NumberInt, Peek};
 use scan_json::RJiter;
 use scan_json::StreamOp;
 
@@ -132,11 +132,43 @@ pub fn on_function_arguments<W: Write>(
         funcalls.delta_function_arguments(value)
     })
 }
+
 pub fn on_function_index<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
-    on_function_str_field(rjiter_cell, builder_cell, "index", |funcalls, value| {
-        funcalls.delta_index(value)
-    })
+    let mut rjiter = rjiter_cell.borrow_mut();
+    let value = match rjiter.next_int() {
+        Ok(value) => value,
+        Err(e) => {
+            let error: Box<dyn std::error::Error> =
+                format!("Expected integer as the function index, got {e:?}").into();
+            return StreamOp::Error(error);
+        }
+    };
+    let idx: usize = match value {
+        NumberInt::BigInt(_) => {
+            let error: Box<dyn std::error::Error> =
+                format!("Can't convert the function index to usize, got {value:?}").into();
+            return StreamOp::Error(error);
+        }
+        NumberInt::Int(i) => {
+            if let Ok(idx) = usize::try_from(i) {
+                idx
+            } else {
+                let error: Box<dyn std::error::Error> =
+                    format!("Can't convert the function index to usize, got {value:?}").into();
+                return StreamOp::Error(error);
+            }
+        }
+    };
+    if let Err(e) = builder_cell
+        .borrow_mut()
+        .get_funcalls_mut()
+        .delta_index(idx)
+    {
+        let error: Box<dyn std::error::Error> = e.into();
+        return StreamOp::Error(error);
+    }
+    StreamOp::ValueIsConsumed
 }
