@@ -1,7 +1,7 @@
 use actor_runtime_mocked::RcWriter;
 use gpt::_process_gpt;
 mod dagops_mock;
-use dagops_mock::TrackedDagOps;
+use dagops_mock::TrackedInjectDagOps;
 use gpt::funcalls::ContentItemFunction;
 use std::io::Cursor;
 
@@ -18,7 +18,7 @@ fn test_basic_processing() {
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
 
-    _process_gpt(reader, writer.clone(), &TrackedDagOps::new()).unwrap();
+    _process_gpt(reader, writer.clone(), &TrackedInjectDagOps::new()).unwrap();
 
     assert_eq!(writer.get_output(), get_expected_basic_message());
 }
@@ -30,7 +30,7 @@ fn test_streaming() {
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
 
-    _process_gpt(reader, writer.clone(), &TrackedDagOps::new()).unwrap();
+    _process_gpt(reader, writer.clone(), &TrackedInjectDagOps::new()).unwrap();
 
     assert_eq!(writer.get_output(), get_expected_basic_message());
 }
@@ -41,7 +41,7 @@ fn funcall_response() {
         .expect("Failed to read fixture file 'funcall_response.txt'");
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
-    let dagops = TrackedDagOps::new();
+    let dagops = TrackedInjectDagOps::new();
 
     _process_gpt(reader, writer.clone(), &dagops).unwrap();
 
@@ -61,7 +61,7 @@ fn funcall_streaming() {
         .expect("Failed to read fixture file 'funcall_streaming.txt'");
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
-    let dagops = TrackedDagOps::new();
+    let dagops = TrackedInjectDagOps::new();
 
     _process_gpt(reader, writer.clone(), &dagops).unwrap();
 
