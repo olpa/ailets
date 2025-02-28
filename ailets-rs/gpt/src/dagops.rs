@@ -1,7 +1,6 @@
 //! DAG Operations Module
 
-use crate::funcalls::{ContentItemFunction, FunCalls};
-use std::cell::RefCell;
+use crate::funcalls::FunCalls;
 
 pub trait InjectDagOpsTrait {
     /// # Errors
@@ -9,7 +8,7 @@ pub trait InjectDagOpsTrait {
     fn inject_funcalls(&self, funcalls: &FunCalls) -> Result<(), String>;
 }
 
-struct InjectDagOps;
+pub struct InjectDagOps;
 
 impl InjectDagOpsTrait for InjectDagOps {
     fn inject_funcalls(&self, _funcalls: &FunCalls) -> Result<(), String> {

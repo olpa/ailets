@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
-use crate::dagops::InjectDagOpsTrait;
-use crate::funcalls::{ContentItemFunction, FunCalls};
+use gpt::dagops::InjectDagOpsTrait;
+use gpt::funcalls::{ContentItemFunction, FunCalls};
 
 pub struct TrackedDagOps {
     funcalls: RefCell<FunCalls>,

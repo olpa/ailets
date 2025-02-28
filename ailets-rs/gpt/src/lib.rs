@@ -4,7 +4,7 @@ pub mod handlers;
 pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
-use dagops::{InjectDagOpsTrait, InjectDagOps};
+use dagops::{InjectDagOps, InjectDagOpsTrait};
 use handlers::{
     on_begin_message, on_choices, on_content, on_end_message, on_function_arguments,
     on_function_begin, on_function_id, on_function_index, on_function_name, on_role,
@@ -185,7 +185,7 @@ pub extern "C" fn process_gpt() {
     let writer = AWriter::new(c"").unwrap_or_else(|e| {
         panic!("Failed to create writer: {e:?}");
     });
-    let dagops = InjectDagOps::new();
+    let dagops = InjectDagOps {};
     _process_gpt(reader, writer, &dagops).unwrap_or_else(|e| {
         panic!("Failed to process GPT: {e:?}");
     });
