@@ -1,12 +1,12 @@
 //! DAG Operations Module
 
-use crate::funcalls::FunCalls;
+use crate::funcalls::ContentItemFunction;
 
 /// One level of indirection to test that funcalls are collected correctly
 pub trait InjectDagOpsTrait {
     /// # Errors
     /// Promotes errors from the host.
-    fn inject_funcalls(&self, funcalls: &FunCalls) -> Result<(), String>;
+    fn inject_tool_calls(&self, tool_calls: &Vec<ContentItemFunction>) -> Result<(), String>;
 }
 
 pub struct InjectDagOps {
@@ -21,19 +21,19 @@ impl InjectDagOps {
 }
 
 impl InjectDagOpsTrait for InjectDagOps {
-    fn inject_funcalls(&self, funcalls: &FunCalls) -> Result<(), String> {
-        inject_funcalls_to_dagops(&self.dagops, funcalls)
+    fn inject_tool_calls(&self, tool_calls: &Vec<ContentItemFunction>) -> Result<(), String> {
+        inject_tool_calls_to_dagops(&self.dagops, tool_calls)
     }
 }
 
 /// Inject function calls into a DagOpsTrait implementation
-pub fn inject_funcalls_to_dagops(dagops: &impl DagOpsTrait, funcalls: &FunCalls) -> Result<(), String> {
+pub fn inject_tool_calls_to_dagops(dagops: &impl DagOpsTrait, tool_calls: &Vec<ContentItemFunction>) -> Result<(), String> {
     // Create chat history value node
     dagops.value_node(b"tool_calls", "Feed \"tool_calls\" from output to input")?;
     dagops.alias(".chat_messages", 0)?;
 
     // Process each tool call
-    for tool_call in funcalls.get_tool_calls() {
+    for tool_call in tool_calls {
         // Create tool spec value node
         let tool_spec_handle = dagops.value_node(
             tool_call.function_arguments.as_bytes(),

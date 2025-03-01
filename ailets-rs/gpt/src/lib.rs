@@ -171,7 +171,7 @@ pub fn _process_gpt<W: Write>(
     builder.end_message()?;
 
     let funcalls = builder.get_funcalls();
-    dagops.inject_funcalls(funcalls)?;
+    dagops.inject_tool_calls(funcalls.get_tool_calls())?;
     Ok(())
 }
 

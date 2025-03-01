@@ -7,26 +7,17 @@ mod dagops_mock;
 #[test]
 fn test_inject_funcalls_to_dag() {
     // Arrange
-    let mut funcalls = FunCalls::new();
-    let tracked_inject = TrackedInjectDagOps::new();
+    let tracked_dagops = TrackedDagOps::default();
+    let inject_dagops = InjectDagOps::new(tracked_dagops);
 
-    // Create two function calls
-    funcalls.start_delta_round();
-    
-    // First function call
-    funcalls.start_delta();
-    funcalls.delta_id("call_1").unwrap();
-    funcalls.delta_function_name("get_weather").unwrap();
-    funcalls.delta_function_arguments("{\"city\":\"London\"}").unwrap();
-
-    // Second function call
-    funcalls.start_delta();
-    funcalls.delta_id("call_2").unwrap();
-    funcalls.delta_function_name("get_forecast").unwrap();
-    funcalls.delta_function_arguments("{\"days\":5}").unwrap();
+    let tool_calls = vec![
+        ContentItemFunction::new("call_1", "get_weather", "{\"city\":\"London\"}"),
+        ContentItemFunction::new("call_2", "get_forecast", "{\"days\":5}"),
+    ];
 
     // Act
-    tracked_inject.inject_funcalls(&funcalls).unwrap();
+    inject_dagops.inject_tool_calls(&tool_calls).unwrap();
+
 
     // Assert
     let injected_calls = tracked_inject.get_funcalls();
