@@ -2,17 +2,27 @@
 
 use crate::funcalls::FunCalls;
 
+/// One level of indirection to test that funcalls are collected correctly
 pub trait InjectDagOpsTrait {
     /// # Errors
     /// Promotes errors from the host.
     fn inject_funcalls(&self, funcalls: &FunCalls) -> Result<(), String>;
 }
 
-pub struct InjectDagOps;
+pub struct InjectDagOps {
+    dagops: DagOpsTrait,
+}
+
+impl InjectDagOps {
+    #[must_use]
+    pub fn new(dagops: DagOpsTrait) -> Self {
+        Self { dagops }
+    }
+}
 
 impl InjectDagOpsTrait for InjectDagOps {
-    fn inject_funcalls(&self, _funcalls: &FunCalls) -> Result<(), String> {
-        Ok(())
+    fn inject_funcalls(&self, funcalls: &FunCalls) -> Result<(), String> {
+        inject_funcalls_to_dagops(&self.dagops, funcalls)
     }
 }
 
