@@ -5,7 +5,7 @@ use crate::dagops_mock::{TrackedDagOps, TrackedInjectDagOps};
 mod dagops_mock;
 
 #[test]
-fn test_inject_funcalls_to_dag() {
+fn inject_tool_calls_to_dag() {
     // Arrange
     let tracked_dagops = TrackedDagOps::default();
     let inject_dagops = InjectDagOps::new(tracked_dagops);

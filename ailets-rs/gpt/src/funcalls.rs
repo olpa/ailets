@@ -17,9 +17,9 @@
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct ContentItemFunction {
     // type: "function",
-    id: String,
-    function_name: String,
-    function_arguments: String,
+    pub id: String,
+    pub function_name: String,
+    pub function_arguments: String,
 }
 
 impl ContentItemFunction {

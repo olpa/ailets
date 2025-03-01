@@ -1,6 +1,8 @@
 //! DAG Operations Module
 
 use crate::funcalls::ContentItemFunction;
+use actor_runtime::DagOpsTrait;
+use std::collections::HashMap;
 
 /// One level of indirection to test that funcalls are collected correctly
 pub trait InjectDagOpsTrait {
@@ -9,18 +11,18 @@ pub trait InjectDagOpsTrait {
     fn inject_tool_calls(&self, tool_calls: &Vec<ContentItemFunction>) -> Result<(), String>;
 }
 
-pub struct InjectDagOps {
-    dagops: DagOpsTrait,
+pub struct InjectDagOps<T: DagOpsTrait> {
+    dagops: T,
 }
 
-impl InjectDagOps {
+impl<T: DagOpsTrait> InjectDagOps<T> {
     #[must_use]
-    pub fn new(dagops: DagOpsTrait) -> Self {
+    pub fn new(dagops: T) -> Self {
         Self { dagops }
     }
 }
 
-impl InjectDagOpsTrait for InjectDagOps {
+impl<T: DagOpsTrait> InjectDagOpsTrait for InjectDagOps<T> {
     fn inject_tool_calls(&self, tool_calls: &Vec<ContentItemFunction>) -> Result<(), String> {
         inject_tool_calls_to_dagops(&self.dagops, tool_calls)
     }
@@ -44,22 +46,22 @@ pub fn inject_tool_calls_to_dagops(dagops: &impl DagOpsTrait, tool_calls: &Vec<C
         let tool_name = &tool_call.function_name;
         let tool_handle = dagops.instantiate_with_deps(
             &format!(".tool.{tool_name}"),
-            &HashMap::from([(".tool_input".to_string(), tool_spec_handle)]),
+            HashMap::from([(".tool_input".to_string(), tool_spec_handle)]).into_iter(),
         )?;
 
         // Convert tool output to messages
         let msg_handle = dagops.instantiate_with_deps(
             ".toolcall_to_messages",
-            &HashMap::from([
+            HashMap::from([
                 (".llm_tool_spec".to_string(), tool_spec_handle),
                 (".tool_output".to_string(), tool_handle),
-            ]),
+            ]).into_iter(),
         )?;
         dagops.alias(".chat_messages", msg_handle)?;
     }
 
     // Rerun model
-    let rerun_handle = dagops.instantiate_with_deps(".gpt4o", &HashMap::new())?;
+    let rerun_handle = dagops.instantiate_with_deps(".gpt4o", HashMap::new().into_iter())?;
     dagops.alias(".model_output", rerun_handle)?;
 
     Ok(())

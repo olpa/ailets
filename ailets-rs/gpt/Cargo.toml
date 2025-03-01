@@ -11,6 +11,6 @@ crate-type = ["cdylib", "lib"]
 [dependencies]
 getrandom = { version = "0.2", features = ["custom"] }
 scan_json = "1.0.0"
-actor_runtime = { version = "0.1.0", path = "../actor_runtime" }
+actor_runtime = { version = "0.1.0", path = "../actor_runtime", features = ["dagops"] }
 actor_runtime_mocked = { version = "0.1.0", path = "../actor_runtime_mocked" }
 actor_io = { version = "0.1.0", path = "../actor_io" }
