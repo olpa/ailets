@@ -4,16 +4,16 @@ use std::iter::Iterator;
 pub trait DagOpsTrait {
     /// # Errors
     /// From the host
-    fn value_node(&self, value: &[u8], explain: &str) -> Result<u32, String>;
+    fn value_node(&mut self, value: &[u8], explain: &str) -> Result<u32, String>;
 
     /// # Errors
     /// From the host
-    fn alias(&self, alias: &str, node_handle: u32) -> Result<u32, String>;
+    fn alias(&mut self, alias: &str, node_handle: u32) -> Result<u32, String>;
 
     /// # Errors
     /// From the host
     fn instantiate_with_deps(
-        &self,
+        &mut self,
         workflow_name: &str,
         deps: impl Iterator<Item = (String, u32)>,
     ) -> Result<u32, String>;
@@ -22,20 +22,20 @@ pub trait DagOpsTrait {
 pub struct DagOps;
 
 impl DagOpsTrait for DagOps {
-    fn value_node(&self, value: &[u8], explain: &str) -> Result<u32, String> {
+    fn value_node(&mut self, value: &[u8], explain: &str) -> Result<u32, String> {
         println!("dag_value_node: {value:?}, explain: {explain}");
         unsafe { dag_value_node(value.as_ptr(), explain.as_ptr() as *const i8) };
         Ok(0)
     }
 
-    fn alias(&self, alias: &str, node_handle: u32) -> Result<u32, String> {
+    fn alias(&mut self, alias: &str, node_handle: u32) -> Result<u32, String> {
         println!("dag_alias: {alias}, node_handle: {node_handle}");
         unsafe { dag_alias(alias.as_ptr() as *const i8, node_handle.try_into().unwrap()) };
         Ok(0)
     }
 
     fn instantiate_with_deps(
-        &self,
+        &mut self,
         workflow_name: &str,
         deps: impl Iterator<Item = (String, u32)>,
     ) -> Result<u32, String> {

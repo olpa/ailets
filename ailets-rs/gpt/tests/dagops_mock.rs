@@ -1,13 +1,13 @@
 use std::cell::RefCell;
-use std::collections::HashMap;
-use std::iter::Map;
 
+use actor_runtime::DagOpsTrait;
 use gpt::dagops::InjectDagOpsTrait;
 use gpt::funcalls::{ContentItemFunction, FunCalls};
+use gpt::dagops::inject_tool_calls_to_dagops;
 
 pub struct TrackedInjectDagOps {
-    funcalls: RefCell<FunCalls>,
     dagops: RefCell<TrackedDagOps>,
+    tool_calls: Vec<ContentItemFunction>,
 }
 
 impl TrackedInjectDagOps {
@@ -15,24 +15,21 @@ impl TrackedInjectDagOps {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            funcalls: RefCell::new(FunCalls::new()),
             dagops: RefCell::new(TrackedDagOps::default()),
+            tool_calls: Vec::new(),
         }
     }
 
-    pub fn get_funcalls(&self) -> Vec<ContentItemFunction> {
-        self.funcalls.borrow().get_tool_calls().clone()
-    }
-
-    pub fn get_dagops(&self) -> TrackedDagOps {
-        self.dagops.borrow().clone()
+    #[must_use]
+    pub fn get_tool_calls(&self) -> &Vec<ContentItemFunction> {
+        &self.tool_calls
     }
 }
 
 impl InjectDagOpsTrait for TrackedInjectDagOps {
-    fn inject_funcalls(&self, funcalls: &FunCalls) -> Result<(), String> {
-        *self.funcalls.borrow_mut() = funcalls.clone();
-        inject_funcalls_to_dagops(&*self.dagops.borrow_mut(), funcalls)
+    fn inject_tool_calls(&mut self, tool_calls: &Vec<ContentItemFunction>) -> Result<(), String> {
+        self.tool_calls = tool_calls.clone();
+        inject_tool_calls_to_dagops(&mut *self.dagops.borrow_mut(), tool_calls)
     }
 }
 
@@ -43,23 +40,30 @@ pub struct TrackedDagOps {
     pub workflows: Vec<String>,
 }
 
-impl TrackedDagOps {
-    pub fn value_node(&mut self, value: &[u8], explain: &str) -> Result<u32, String> {
+impl DagOpsTrait for TrackedDagOps {
+    fn value_node(&mut self, value: &[u8], explain: &str) -> Result<u32, String> {
         self.value_nodes.push(format!("{explain}:{value:?}"));
-        Ok(self.value_nodes.len() + self.aliases.len() + self.workflows.len())
+        Ok((self.value_nodes.len() + self.aliases.len() + self.workflows.len()) as u32)
     }
 
-    pub fn alias(&mut self, alias: &str, node_handle: u32) -> Result<u32, String> {
+    fn alias(&mut self, alias: &str, node_handle: u32) -> Result<u32, String> {
         self.aliases.push(format!("{alias}:{node_handle}"));
-        Ok(self.aliases.len() + self.value_nodes.len() + self.workflows.len())
+        Ok((self.aliases.len() + self.value_nodes.len() + self.workflows.len()) as u32)
     }
 
-    pub fn instantiate_with_deps(
+    fn instantiate_with_deps(
         &mut self,
         workflow_name: &str,
-        deps: &HashMap<String, u32>,
+        deps: impl Iterator<Item = (String, u32)>,
     ) -> Result<u32, String> {
-        self.workflows.push(format!("{workflow_name}:{deps:?}"));
-        Ok(self.workflows.len() + self.aliases.len() + self.value_nodes.len())
+        let mut deps_str = String::new();
+        for (key, value) in deps {
+            deps_str.push_str(key.as_str());
+            deps_str.push(',');
+            deps_str.push_str(&value.to_string());
+            deps_str.push(',');
+        }
+        self.workflows.push(format!("{workflow_name}:{deps_str}"));
+        Ok((self.workflows.len() + self.aliases.len() + self.value_nodes.len()) as u32)
     }
 }

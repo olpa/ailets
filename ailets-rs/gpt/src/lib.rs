@@ -143,7 +143,7 @@ fn make_triggers<'a, W: Write + 'a>() -> Vec<Trigger<'a, BA<'a, W>>> {
 pub fn _process_gpt<W: Write>(
     mut reader: impl std::io::Read,
     writer: W,
-    dagops: &impl InjectDagOpsTrait,
+    dagops: &mut impl InjectDagOpsTrait,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let builder = StructureBuilder::new(writer);
     let builder_cell = RefCell::new(builder);
@@ -186,8 +186,8 @@ pub extern "C" fn process_gpt() {
     let writer = AWriter::new(c"").unwrap_or_else(|e| {
         panic!("Failed to create writer: {e:?}");
     });
-    let dagops = InjectDagOps::new(DagOps{});
-    _process_gpt(reader, writer, &dagops).unwrap_or_else(|e| {
+    let mut dagops = InjectDagOps::new(DagOps{});
+    _process_gpt(reader, writer, &mut dagops).unwrap_or_else(|e| {
         panic!("Failed to process GPT: {e:?}");
     });
 }
