@@ -24,14 +24,16 @@ fn inject_tool_calls_to_dag() {
     // Assert that the value nodes are created:
     // - 1 for chat history, with 2 tool calls
     // - 2 for tool calls input
-    let value_nodes = tracked_dagops.value_nodes;
+    let value_nodes = &tracked_dagops.value_nodes;
     assert_that!(value_nodes.len(), is(equal_to(3)));
 
-    // FIXME
-    let tc = &value_nodes[0];
+    // Parse first value node
+    let tc = &tracked_dagops.value_nodes[0];
     println!("tc: {:?}", tc);
-
-
+    let (handle, explain, value) = tracked_dagops.parse_value_node(&tc);
+    println!("handle: {:?}", handle);
+    println!("explain: {:?}", explain);
+    println!("value: {:?}", value);
 
     assert_that!(
         &value_nodes[0],

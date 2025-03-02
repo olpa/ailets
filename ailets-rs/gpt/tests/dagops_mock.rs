@@ -42,7 +42,8 @@ pub struct TrackedDagOps {
 impl DagOpsTrait for TrackedDagOps {
     fn value_node(&mut self, value: &[u8], explain: &str) -> Result<u32, String> {
         let handle = self.value_nodes.len() + self.aliases.len() + self.workflows.len();
-        self.value_nodes.push(format!("{handle}:{explain}:{value:?}"));
+        self.value_nodes
+            .push(format!("{handle}:{explain}:{value:?}"));
         Ok(handle as u32)
     }
 
@@ -65,7 +66,23 @@ impl DagOpsTrait for TrackedDagOps {
             deps_str.push(',');
         }
         let handle = self.workflows.len() + self.aliases.len() + self.value_nodes.len();
-        self.workflows.push(format!("{handle}:{workflow_name}:{deps_str}"));
+        self.workflows
+            .push(format!("{handle}:{workflow_name}:{deps_str}"));
         Ok(handle as u32)
+    }
+}
+
+impl TrackedDagOps {
+    pub fn parse_value_node(&self, value_node: &str) -> (u32, String, String) {
+        let parts = value_node.split(':').collect::<Vec<&str>>();
+        assert_eq!(parts.len(), 3);
+        let handle = parts[0].parse::<u32>().unwrap();
+        let explain = parts[1].to_string();
+
+        let value = parts[2].to_string();
+        let bytes: Vec<u8> = serde_json::from_str(&value).unwrap();
+        let value = String::from_utf8(bytes).unwrap();
+
+        (handle, explain, value)
     }
 }
