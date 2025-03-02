@@ -8,7 +8,7 @@ use std::collections::HashMap;
 pub trait InjectDagOpsTrait {
     /// # Errors
     /// Promotes errors from the host.
-    fn inject_tool_calls(&mut self, tool_calls: &Vec<ContentItemFunction>) -> Result<(), String>;
+    fn inject_tool_calls(&mut self, tool_calls: &[ContentItemFunction]) -> Result<(), String>;
 }
 
 pub struct InjectDagOps<T: DagOpsTrait> {
@@ -23,15 +23,18 @@ impl<T: DagOpsTrait> InjectDagOps<T> {
 }
 
 impl<T: DagOpsTrait> InjectDagOpsTrait for InjectDagOps<T> {
-    fn inject_tool_calls(&mut self, tool_calls: &Vec<ContentItemFunction>) -> Result<(), String> {
-        inject_tool_calls_to_dagops(&mut self.dagops, tool_calls)
+    fn inject_tool_calls(&mut self, tool_calls: &[ContentItemFunction]) -> Result<(), String> {
+        inject_tool_calls(&mut self.dagops, tool_calls)
     }
 }
 
-/// Inject function calls into a DagOpsTrait implementation
-pub fn inject_tool_calls_to_dagops(
+/// Inject function calls into the workflow DAG
+///
+/// # Errors
+/// Promotes errors from the host.
+pub fn inject_tool_calls(
     dagops: &mut impl DagOpsTrait,
-    tool_calls: &Vec<ContentItemFunction>,
+    tool_calls: &[ContentItemFunction],
 ) -> Result<(), String> {
     // Create chat history value node
     dagops.value_node(b"tool_calls", "Feed \"tool_calls\" from output to input")?;

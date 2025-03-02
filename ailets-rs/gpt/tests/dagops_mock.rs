@@ -1,8 +1,7 @@
 use std::cell::RefCell;
 
 use actor_runtime::DagOpsTrait;
-use gpt::dagops::inject_tool_calls_to_dagops;
-use gpt::dagops::InjectDagOpsTrait;
+use gpt::dagops::{inject_tool_calls, InjectDagOpsTrait};
 use gpt::funcalls::ContentItemFunction;
 
 pub struct TrackedInjectDagOps {
@@ -27,9 +26,9 @@ impl TrackedInjectDagOps {
 }
 
 impl InjectDagOpsTrait for TrackedInjectDagOps {
-    fn inject_tool_calls(&mut self, tool_calls: &Vec<ContentItemFunction>) -> Result<(), String> {
-        self.tool_calls = tool_calls.clone();
-        inject_tool_calls_to_dagops(&mut *self.dagops.borrow_mut(), tool_calls)
+    fn inject_tool_calls(&mut self, tool_calls: &[ContentItemFunction]) -> Result<(), String> {
+        self.tool_calls = tool_calls.to_vec();
+        inject_tool_calls(&mut *self.dagops.borrow_mut(), tool_calls)
     }
 }
 

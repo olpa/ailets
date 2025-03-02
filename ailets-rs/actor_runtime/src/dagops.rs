@@ -24,13 +24,15 @@ pub struct DagOps;
 impl DagOpsTrait for DagOps {
     fn value_node(&mut self, value: &[u8], explain: &str) -> Result<u32, String> {
         println!("dag_value_node: {value:?}, explain: {explain}");
-        unsafe { dag_value_node(value.as_ptr(), explain.as_ptr() as *const i8) };
+        unsafe { dag_value_node(value.as_ptr(), explain.as_ptr().cast::<i8>()) };
         Ok(0)
     }
 
     fn alias(&mut self, alias: &str, node_handle: u32) -> Result<u32, String> {
         println!("dag_alias: {alias}, node_handle: {node_handle}");
-        unsafe { dag_alias(alias.as_ptr() as *const i8, node_handle.try_into().unwrap()) };
+        #[allow(clippy::cast_possible_wrap)]
+        let node_handle = node_handle as i32;
+        unsafe { dag_alias(alias.as_ptr().cast::<i8>(), node_handle) };
         Ok(0)
     }
 
@@ -49,8 +51,8 @@ impl DagOpsTrait for DagOps {
         println!("dag_instantiate_with_deps: {workflow_name}, deps: {deps_str}");
         unsafe {
             dag_instantiate_with_deps(
-                workflow_name.as_ptr() as *const i8,
-                deps_str.as_bytes().as_ptr(),
+                workflow_name.as_ptr().cast::<i8>(),
+                deps_str.as_bytes().as_ptr().cast::<u8>(),
             )
         };
         Ok(0)

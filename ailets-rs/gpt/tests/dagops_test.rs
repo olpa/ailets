@@ -1,5 +1,5 @@
 use crate::dagops_mock::TrackedDagOps;
-use gpt::dagops::inject_tool_calls_to_dagops;
+use gpt::dagops::inject_tool_calls;
 use gpt::funcalls::ContentItemFunction;
 
 pub mod dagops_mock;
@@ -15,7 +15,7 @@ fn inject_tool_calls_to_dag() {
     ];
 
     // Act
-    inject_tool_calls_to_dagops(&mut tracked_dagops, &tool_calls).unwrap();
+    inject_tool_calls(&mut tracked_dagops, &tool_calls).unwrap();
 
     // Assert that the value nodes are created:
     // - 1 for chat history, with 2 tool calls
