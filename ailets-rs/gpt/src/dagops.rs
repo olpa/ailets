@@ -51,10 +51,14 @@ pub fn inject_tool_calls(
             }
         })).collect::<Vec<_>>()
     }]);
-    let explain = format!("tool calls in chat history - {}", tool_calls.iter()
-        .map(|tc| tc.function_name.as_str())
-        .collect::<Vec<_>>()
-        .join(" - "));
+    let explain = format!(
+        "tool calls in chat history - {}",
+        tool_calls
+            .iter()
+            .map(|tc| tc.function_name.as_str())
+            .collect::<Vec<_>>()
+            .join(" - ")
+    );
     let node = dagops.value_node(
         serde_json::to_string(&tcch)
             .map_err(|e| e.to_string())?

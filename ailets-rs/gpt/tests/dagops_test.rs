@@ -28,10 +28,11 @@ fn inject_tool_calls_to_dag() {
     let value_nodes = &tracked_dagops.value_nodes;
     assert_that!(value_nodes.len(), is(equal_to(3)));
 
+    //
     // Assert: tool calls are in the chat history
-    let tool_calls_in_chat_history = &tracked_dagops.value_nodes[0];
+    //
     let (_handle_tcch, explain_tcch, value_tcch) =
-        tracked_dagops.parse_value_node(&tool_calls_in_chat_history);
+        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[0]);
     assert_that!(
         &explain_tcch,
         matches_regex("tool calls in chat history - get_weather - get_forecast")
@@ -64,14 +65,51 @@ fn inject_tool_calls_to_dag() {
         serde_json::from_str(&value_tcch).expect(&format!("Failed to parse JSON: {value_tcch}"));
     assert_that!(value_tcch, is(equal_to(expected_tcch)));
 
-    // Assert: tool input
-    let expected_tool_input1 = json!([
+    //
+    // Assert: `get_weather` tool input
+    //
+    let (_handle_tool_input1, explain_tool_input1, value_tool_input1) =
+        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[1]);
+    assert_that!(
+        &explain_tool_input1,
+        matches_regex("tool call input - get_weather")
+    );
+    let expected_tool_input1 = json!(
         {
-            "role": "user",
-            "content": "{\"city\":\"London\"}"
+            "id": "call_1",
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "arguments": "{\"city\":\"London\"}"
+            }
         }
-    ]);
-    
+    );
+    let value_tool_input1 = serde_json::from_str(&value_tool_input1)
+        .expect(&format!("Failed to parse JSON: {value_tool_input1}"));
+    assert_that!(value_tool_input1, is(equal_to(expected_tool_input1)));
+
+    //
+    // Assert: `get_forecast` tool input
+    //
+    let (_handle_tool_input2, explain_tool_input2, value_tool_input2) =
+        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[2]);
+    assert_that!(
+        &explain_tool_input2,
+        matches_regex("tool call input - get_forecast")
+    );
+    let expected_tool_input2 = json!(
+        {
+            "id": "call_2",
+            "type": "function",
+            "function": {
+                "name": "get_forecast",
+                "arguments": "{\"days\":5}"
+            }
+        }
+    );
+    let value_tool_input2 = serde_json::from_str(&value_tool_input2)
+        .expect(&format!("Failed to parse JSON: {value_tool_input2}"));
+    assert_that!(value_tool_input2, is(equal_to(expected_tool_input2)));
 
     // Assert that the workflows are created:
     // - 4 for tools: 2x tools itself and 2x output to chat history
