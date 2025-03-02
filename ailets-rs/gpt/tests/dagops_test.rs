@@ -72,7 +72,7 @@ fn inject_tool_calls_to_dag() {
         tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[1]);
     assert_that!(
         &explain_tool_input1,
-        matches_regex("tool call input - get_weather")
+        matches_regex("tool call spec - get_weather")
     );
     let expected_tool_input1 = json!(
         {
@@ -95,7 +95,7 @@ fn inject_tool_calls_to_dag() {
         tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[2]);
     assert_that!(
         &explain_tool_input2,
-        matches_regex("tool call input - get_forecast")
+        matches_regex("tool call spec - get_forecast")
     );
     let expected_tool_input2 = json!(
         {

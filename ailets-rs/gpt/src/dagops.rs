@@ -71,14 +71,20 @@ pub fn inject_tool_calls(
     // Process each tool call
     //
     for tool_call in tool_calls {
-        // Create tool spec value node
-        //         tool_calls_message: ChatMessage = {
-        //"role": "assistant",
-        //"content": self.tool_calls,
-        //}
+        let tool_spec = json!({
+            "id": tool_call.id,
+            "type": "function",
+            "function": {
+                "name": tool_call.function_name,
+                "arguments": tool_call.function_arguments
+            }
+        });
+        let explain = format!("tool call spec - {}", tool_call.function_name);
         let tool_spec_handle = dagops.value_node(
-            tool_call.function_arguments.as_bytes(),
-            "Tool call spec from llm",
+            serde_json::to_string(&tool_spec)
+                .map_err(|e| e.to_string())?
+                .as_bytes(),
+            &explain,
         )?;
 
         // Instantiate tool workflow
