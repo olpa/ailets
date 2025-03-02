@@ -2,7 +2,7 @@ use gpt::funcalls::ContentItemFunction;
 use crate::dagops_mock::TrackedDagOps;
 use gpt::dagops::inject_tool_calls_to_dagops;
 
-mod dagops_mock;
+pub mod dagops_mock;
 
 #[test]
 fn inject_tool_calls_to_dag() {

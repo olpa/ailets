@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use actor_runtime::DagOpsTrait;
 use gpt::dagops::InjectDagOpsTrait;
-use gpt::funcalls::{ContentItemFunction, FunCalls};
+use gpt::funcalls::ContentItemFunction;
 use gpt::dagops::inject_tool_calls_to_dagops;
 
 pub struct TrackedInjectDagOps {

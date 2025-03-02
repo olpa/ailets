@@ -1,6 +1,6 @@
 use actor_runtime_mocked::RcWriter;
 use gpt::_process_gpt;
-mod dagops_mock;
+pub mod dagops_mock;
 use dagops_mock::TrackedInjectDagOps;
 use gpt::funcalls::ContentItemFunction;
 use std::io::Cursor;
