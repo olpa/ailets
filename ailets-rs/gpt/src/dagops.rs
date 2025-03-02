@@ -2,6 +2,7 @@
 
 use crate::funcalls::ContentItemFunction;
 use actor_runtime::DagOpsTrait;
+use serde_json::json;
 use std::collections::HashMap;
 
 /// One level of indirection to test that funcalls are collected correctly
@@ -36,14 +37,22 @@ pub fn inject_tool_calls(
     dagops: &mut impl DagOpsTrait,
     tool_calls: &[ContentItemFunction],
 ) -> Result<(), String> {
-    // Create chat history value node
-    //         tool_calls_message: ChatMessage = {
-    //             "role": "assistant",
-    //             "content": self.tool_calls,
-    //         }
+    let tcch = json!([{
+        "role": "assistant",
+        "tool_calls": tool_calls.iter().map(|tc| json!({
+            "id": tc.id,
+            "type": "function",
+            "function": {
+                "name": tc.function_name,
+                "arguments": tc.function_arguments
+            }
+        })).collect::<Vec<_>>()
+    }]);
     let node = dagops.value_node(
-        b"tool_calls",
-        "Feed \"tool_calls\" from llm output to chat history",
+        serde_json::to_string(&tcch)
+            .map_err(|e| e.to_string())?
+            .as_bytes(),
+        "Put llm tool calls to chat history",
     )?;
     dagops.alias(".chat_messages", node)?;
 

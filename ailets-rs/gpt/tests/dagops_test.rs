@@ -34,7 +34,7 @@ fn inject_tool_calls_to_dag() {
         tracked_dagops.parse_value_node(&tool_calls_in_chat_history);
     assert_that!(
         &explain_tcch,
-        matches_regex("Feed \"tool_calls\" from llm output to chat history")
+        matches_regex("Put llm tool calls to chat history")
     );
 
     let expected_tcch = json!([
