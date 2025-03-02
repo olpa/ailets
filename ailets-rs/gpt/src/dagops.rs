@@ -37,6 +37,9 @@ pub fn inject_tool_calls(
     dagops: &mut impl DagOpsTrait,
     tool_calls: &[ContentItemFunction],
 ) -> Result<(), String> {
+    //
+    // Put tool calls in chat history
+    //
     let tcch = json!([{
         "role": "assistant",
         "tool_calls": tool_calls.iter().map(|tc| json!({
@@ -48,15 +51,21 @@ pub fn inject_tool_calls(
             }
         })).collect::<Vec<_>>()
     }]);
+    let explain = format!("tool calls in chat history - {}", tool_calls.iter()
+        .map(|tc| tc.function_name.as_str())
+        .collect::<Vec<_>>()
+        .join(" - "));
     let node = dagops.value_node(
         serde_json::to_string(&tcch)
             .map_err(|e| e.to_string())?
             .as_bytes(),
-        "Put llm tool calls to chat history",
+        &explain,
     )?;
     dagops.alias(".chat_messages", node)?;
 
+    //
     // Process each tool call
+    //
     for tool_call in tool_calls {
         // Create tool spec value node
         //         tool_calls_message: ChatMessage = {

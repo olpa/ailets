@@ -34,7 +34,7 @@ fn inject_tool_calls_to_dag() {
         tracked_dagops.parse_value_node(&tool_calls_in_chat_history);
     assert_that!(
         &explain_tcch,
-        matches_regex("Put llm tool calls to chat history")
+        matches_regex("tool calls in chat history - get_weather - get_forecast")
     );
 
     let expected_tcch = json!([
@@ -63,6 +63,15 @@ fn inject_tool_calls_to_dag() {
     let value_tcch =
         serde_json::from_str(&value_tcch).expect(&format!("Failed to parse JSON: {value_tcch}"));
     assert_that!(value_tcch, is(equal_to(expected_tcch)));
+
+    // Assert: tool input
+    let expected_tool_input1 = json!([
+        {
+            "role": "user",
+            "content": "{\"city\":\"London\"}"
+        }
+    ]);
+    
 
     // Assert that the workflows are created:
     // - 4 for tools: 2x tools itself and 2x output to chat history
