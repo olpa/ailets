@@ -1,7 +1,11 @@
+#[cfg(test)]
+#[macro_use]
+extern crate hamcrest;
+use hamcrest::prelude::*;
+
 use crate::dagops_mock::TrackedDagOps;
 use gpt::dagops::inject_tool_calls;
 use gpt::funcalls::ContentItemFunction;
-
 pub mod dagops_mock;
 
 #[test]
@@ -21,13 +25,13 @@ fn inject_tool_calls_to_dag() {
     // - 1 for chat history, with 2 tool calls
     // - 2 for tool calls input
     let value_nodes = tracked_dagops.value_nodes;
-    assert_eq!(value_nodes.len(), 3);
-    let chat_history = &value_nodes[0];
-    assert!(chat_history.contains("X Feed \"tool_calls\" from output to input"));
-    let tool_call_1 = &value_nodes[1];
-    assert!(tool_call_1.contains("X Tool call spec from llm"));
-    let tool_call_2 = &value_nodes[2];
-    assert!(tool_call_2.contains("X Tool call spec from llm"));
+    assert_that!(value_nodes.len(), is(equal_to(3)));
+    assert_that!(
+        &value_nodes[0],
+        matches_regex("Feed \"tool_calls\" from output to input")
+    );
+    assert_that!(&value_nodes[1], matches_regex("Tool call spec from llm"));
+    assert_that!(&value_nodes[2], matches_regex("Tool call spec from llm"));
 
     // Assert that the workflows are created:
     // - 2 for tools
