@@ -26,6 +26,13 @@ fn inject_tool_calls_to_dag() {
     // - 2 for tool calls input
     let value_nodes = tracked_dagops.value_nodes;
     assert_that!(value_nodes.len(), is(equal_to(3)));
+
+    // FIXME
+    let tc = &value_nodes[0];
+    println!("tc: {:?}", tc);
+
+
+
     assert_that!(
         &value_nodes[0],
         matches_regex("Feed \"tool_calls\" from output to input")

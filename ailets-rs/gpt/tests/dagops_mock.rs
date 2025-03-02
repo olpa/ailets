@@ -41,13 +41,15 @@ pub struct TrackedDagOps {
 
 impl DagOpsTrait for TrackedDagOps {
     fn value_node(&mut self, value: &[u8], explain: &str) -> Result<u32, String> {
-        self.value_nodes.push(format!("{explain}:{value:?}"));
-        Ok((self.value_nodes.len() + self.aliases.len() + self.workflows.len()) as u32)
+        let handle = self.value_nodes.len() + self.aliases.len() + self.workflows.len();
+        self.value_nodes.push(format!("{handle}:{explain}:{value:?}"));
+        Ok(handle as u32)
     }
 
     fn alias(&mut self, alias: &str, node_handle: u32) -> Result<u32, String> {
-        self.aliases.push(format!("{alias}:{node_handle}"));
-        Ok((self.aliases.len() + self.value_nodes.len() + self.workflows.len()) as u32)
+        let handle = self.aliases.len() + self.value_nodes.len() + self.workflows.len();
+        self.aliases.push(format!("{handle}:{alias}:{node_handle}"));
+        Ok(handle as u32)
     }
 
     fn instantiate_with_deps(
@@ -62,7 +64,8 @@ impl DagOpsTrait for TrackedDagOps {
             deps_str.push_str(&value.to_string());
             deps_str.push(',');
         }
-        self.workflows.push(format!("{workflow_name}:{deps_str}"));
-        Ok((self.workflows.len() + self.aliases.len() + self.value_nodes.len()) as u32)
+        let handle = self.workflows.len() + self.aliases.len() + self.value_nodes.len();
+        self.workflows.push(format!("{handle}:{workflow_name}:{deps_str}"));
+        Ok(handle as u32)
     }
 }
