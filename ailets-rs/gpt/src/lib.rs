@@ -186,7 +186,7 @@ pub extern "C" fn process_gpt() {
     let writer = AWriter::new(c"").unwrap_or_else(|e| {
         panic!("Failed to create writer: {e:?}");
     });
-    let mut dagops = InjectDagOps::new(DagOps{});
+    let mut dagops = InjectDagOps::new(DagOps {});
     _process_gpt(reader, writer, &mut dagops).unwrap_or_else(|e| {
         panic!("Failed to process GPT: {e:?}");
     });

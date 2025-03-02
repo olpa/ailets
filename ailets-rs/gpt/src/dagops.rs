@@ -29,7 +29,10 @@ impl<T: DagOpsTrait> InjectDagOpsTrait for InjectDagOps<T> {
 }
 
 /// Inject function calls into a DagOpsTrait implementation
-pub fn inject_tool_calls_to_dagops(dagops: &mut impl DagOpsTrait, tool_calls: &Vec<ContentItemFunction>) -> Result<(), String> {
+pub fn inject_tool_calls_to_dagops(
+    dagops: &mut impl DagOpsTrait,
+    tool_calls: &Vec<ContentItemFunction>,
+) -> Result<(), String> {
     // Create chat history value node
     dagops.value_node(b"tool_calls", "Feed \"tool_calls\" from output to input")?;
     dagops.alias(".chat_messages", 0)?;
@@ -55,7 +58,8 @@ pub fn inject_tool_calls_to_dagops(dagops: &mut impl DagOpsTrait, tool_calls: &V
             HashMap::from([
                 (".llm_tool_spec".to_string(), tool_spec_handle),
                 (".tool_output".to_string(), tool_handle),
-            ]).into_iter(),
+            ])
+            .into_iter(),
         )?;
         dagops.alias(".chat_messages", msg_handle)?;
     }

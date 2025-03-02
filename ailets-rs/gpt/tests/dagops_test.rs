@@ -1,6 +1,6 @@
-use gpt::funcalls::ContentItemFunction;
 use crate::dagops_mock::TrackedDagOps;
 use gpt::dagops::inject_tool_calls_to_dagops;
+use gpt::funcalls::ContentItemFunction;
 
 pub mod dagops_mock;
 
@@ -46,8 +46,20 @@ fn inject_tool_calls_to_dag() {
     // - 2 for tool calls
     // - 1 for model output
     assert_eq!(tracked_dagops.aliases.len(), 4);
-    assert!(tracked_dagops.aliases.iter().any(|a| a.contains("X .chat_messages")));
-    assert!(tracked_dagops.aliases.iter().any(|a| a.contains("X .tool.get_weather")));
-    assert!(tracked_dagops.aliases.iter().any(|a| a.contains("X .tool.get_forecast")));
-    assert!(tracked_dagops.aliases.iter().any(|a| a.contains("X .model_output")));
-} 
+    assert!(tracked_dagops
+        .aliases
+        .iter()
+        .any(|a| a.contains("X .chat_messages")));
+    assert!(tracked_dagops
+        .aliases
+        .iter()
+        .any(|a| a.contains("X .tool.get_weather")));
+    assert!(tracked_dagops
+        .aliases
+        .iter()
+        .any(|a| a.contains("X .tool.get_forecast")));
+    assert!(tracked_dagops
+        .aliases
+        .iter()
+        .any(|a| a.contains("X .model_output")));
+}

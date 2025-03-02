@@ -177,4 +177,3 @@ fn has_cell_for_delta() {
     let result = funcalls.delta_function_arguments("foo");
     assert_eq!(result.unwrap_err(), expected_err);
 }
-
