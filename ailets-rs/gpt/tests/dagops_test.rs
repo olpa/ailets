@@ -34,16 +34,20 @@ fn inject_tool_calls_to_dag() {
     assert_that!(&value_nodes[2], matches_regex("Tool call spec from llm"));
 
     // Assert that the workflows are created:
-    // - 2 for tools
+    // - 4 for tools: 2x tools itself and 2x output to chat history
     // - 1 to re-run the model
     let workflows = tracked_dagops.workflows;
-    assert_eq!(workflows.len(), 3);
+    assert_eq!(workflows.len(), 5);
     let tool_workflow_1 = &workflows[0];
-    assert!(tool_workflow_1.contains("X .tool.get_weather"));
+    assert!(tool_workflow_1.contains(".tool.get_weather"));
     let tool_workflow_2 = &workflows[1];
-    assert!(tool_workflow_2.contains("X .toolcall_to_messages"));
-    let rerun_workflow = &workflows[2];
-    assert!(rerun_workflow.contains("X .gpt4o"));
+    assert!(tool_workflow_2.contains(".toolcall_to_messages"));
+    let tool_workflow_3 = &workflows[2];
+    assert!(tool_workflow_3.contains(".tool.get_forecast"));
+    let tool_workflow_4 = &workflows[3];
+    assert!(tool_workflow_4.contains(".toolcall_to_messages"));
+    let rerun_workflow = &workflows[4];
+    assert!(rerun_workflow.contains(".gpt4o"));
 
     // Verify aliases
     // - 1 for chat history
@@ -53,17 +57,17 @@ fn inject_tool_calls_to_dag() {
     assert!(tracked_dagops
         .aliases
         .iter()
-        .any(|a| a.contains("X .chat_messages")));
+        .any(|a| a.contains(".chat_messages")));
     assert!(tracked_dagops
         .aliases
         .iter()
-        .any(|a| a.contains("X .tool.get_weather")));
+        .any(|a| a.contains(".chat_messages")));
     assert!(tracked_dagops
         .aliases
         .iter()
-        .any(|a| a.contains("X .tool.get_forecast")));
+        .any(|a| a.contains(".chat_messages")));
     assert!(tracked_dagops
         .aliases
         .iter()
-        .any(|a| a.contains("X .model_output")));
+        .any(|a| a.contains(".model_output")));
 }

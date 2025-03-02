@@ -37,12 +37,20 @@ pub fn inject_tool_calls(
     tool_calls: &[ContentItemFunction],
 ) -> Result<(), String> {
     // Create chat history value node
-    dagops.value_node(b"tool_calls", "Feed \"tool_calls\" from output to input")?;
-    dagops.alias(".chat_messages", 0)?;
+    //         tool_calls_message: ChatMessage = {
+    //             "role": "assistant",
+    //             "content": self.tool_calls,
+    //         }
+    let node = dagops.value_node(b"tool_calls", "Feed \"tool_calls\" from output to input")?;
+    dagops.alias(".chat_messages", node)?;
 
     // Process each tool call
     for tool_call in tool_calls {
         // Create tool spec value node
+        //         tool_calls_message: ChatMessage = {
+        //"role": "assistant",
+        //"content": self.tool_calls,
+        //}
         let tool_spec_handle = dagops.value_node(
             tool_call.function_arguments.as_bytes(),
             "Tool call spec from llm",
