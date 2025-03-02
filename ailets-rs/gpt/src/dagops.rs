@@ -41,7 +41,10 @@ pub fn inject_tool_calls(
     //             "role": "assistant",
     //             "content": self.tool_calls,
     //         }
-    let node = dagops.value_node(b"tool_calls", "Feed \"tool_calls\" from output to input")?;
+    let node = dagops.value_node(
+        b"tool_calls",
+        "Feed \"tool_calls\" from llm output to chat history",
+    )?;
     dagops.alias(".chat_messages", node)?;
 
     // Process each tool call

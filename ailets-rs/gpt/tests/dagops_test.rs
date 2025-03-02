@@ -2,6 +2,7 @@
 #[macro_use]
 extern crate hamcrest;
 use hamcrest::prelude::*;
+use serde_json::json;
 
 use crate::dagops_mock::TrackedDagOps;
 use gpt::dagops::inject_tool_calls;
@@ -27,20 +28,41 @@ fn inject_tool_calls_to_dag() {
     let value_nodes = &tracked_dagops.value_nodes;
     assert_that!(value_nodes.len(), is(equal_to(3)));
 
-    // Parse first value node
-    let tc = &tracked_dagops.value_nodes[0];
-    println!("tc: {:?}", tc);
-    let (handle, explain, value) = tracked_dagops.parse_value_node(&tc);
-    println!("handle: {:?}", handle);
-    println!("explain: {:?}", explain);
-    println!("value: {:?}", value);
-
+    // Assert: tool calls are in the chat history
+    let tool_calls_in_chat_history = &tracked_dagops.value_nodes[0];
+    let (_handle_tcch, explain_tcch, value_tcch) =
+        tracked_dagops.parse_value_node(&tool_calls_in_chat_history);
     assert_that!(
-        &value_nodes[0],
-        matches_regex("Feed \"tool_calls\" from output to input")
+        &explain_tcch,
+        matches_regex("Feed \"tool_calls\" from llm output to chat history")
     );
-    assert_that!(&value_nodes[1], matches_regex("Tool call spec from llm"));
-    assert_that!(&value_nodes[2], matches_regex("Tool call spec from llm"));
+
+    let expected_tcch = json!([
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "type": "function",
+                    "function": {
+                        "name": "get_weather",
+                        "arguments": "{\"city\":\"London\"}"
+                    }
+                },
+                {
+                    "id": "call_2",
+                    "type": "function",
+                    "function": {
+                        "name": "get_forecast",
+                        "arguments": "{\"days\":5}"
+                    }
+                }
+            ]
+        }
+    ]);
+    let value_tcch =
+        serde_json::from_str(&value_tcch).expect(&format!("Failed to parse JSON: {value_tcch}"));
+    assert_that!(value_tcch, is(equal_to(expected_tcch)));
 
     // Assert that the workflows are created:
     // - 4 for tools: 2x tools itself and 2x output to chat history
