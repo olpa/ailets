@@ -120,7 +120,7 @@ fn inject_tool_calls_to_dag() {
     //
     // Assert: call tools
     //
-    let (_handle_tool_1, tool_workflow_1, deps_tool_1) =
+    let (handle_tool_1, tool_workflow_1, deps_tool_1) =
         tracked_dagops.parse_workflow(&workflows[0]);
     assert_that!(tool_workflow_1, is(equal_to(format!(".tool.get_weather"))));
     assert_that!(
@@ -131,7 +131,7 @@ fn inject_tool_calls_to_dag() {
         )])))
     );
 
-    let (_handle_tool_2, tool_workflow_2, deps_tool_2) =
+    let (handle_tool_2, tool_workflow_2, deps_tool_2) =
         tracked_dagops.parse_workflow(&workflows[2]);
     assert_that!(tool_workflow_2, is(equal_to(format!(".tool.get_forecast"))));
     assert_that!(
@@ -142,14 +142,41 @@ fn inject_tool_calls_to_dag() {
         )])))
     );
 
-    let tool_workflow_2 = &workflows[1];
-    assert!(tool_workflow_2.contains(".toolcall_to_messages"));
-    let tool_workflow_3 = &workflows[2];
-    assert!(tool_workflow_3.contains(".tool.get_forecast"));
-    let tool_workflow_4 = &workflows[3];
-    assert!(tool_workflow_4.contains(".toolcall_to_messages"));
-    let rerun_workflow = &workflows[4];
-    assert!(rerun_workflow.contains(".gpt4o"));
+    //
+    // Assert: tool output to chat history
+    //
+    let (_handle_aftercall_1, aftercall_workflow_1, deps_aftercall_1) =
+        tracked_dagops.parse_workflow(&workflows[1]);
+    assert_that!(
+        aftercall_workflow_1,
+        is(equal_to(format!(".toolcall_to_messages")))
+    );
+    assert_that!(
+        deps_aftercall_1,
+        is(equal_to(HashMap::from([
+            (".tool_output".to_string(), handle_tool_1),
+            (".llm_tool_spec".to_string(), handle_tool_input1),
+        ])))
+    );
+
+    let (_handle_aftercall_2, aftercall_workflow_2, deps_aftercall_2) =
+        tracked_dagops.parse_workflow(&workflows[3]);
+    assert_that!(
+        aftercall_workflow_2,
+        is(equal_to(format!(".toolcall_to_messages")))
+    );
+    assert_that!(
+        deps_aftercall_2,
+        is(equal_to(HashMap::from([
+            (".tool_output".to_string(), handle_tool_2),
+            (".llm_tool_spec".to_string(), handle_tool_input2),
+        ])))
+    );
+
+    // TODO: Assert: re-run the model
+    let (_handle_rerun, rerun_workflow, deps_rerun) = tracked_dagops.parse_workflow(&workflows[4]);
+    assert_that!(rerun_workflow, is(equal_to(format!(".gpt4o"))));
+    assert_that!(deps_rerun, is(equal_to(HashMap::from([]))));
 
     // Verify aliases
     // - 1 for chat history
