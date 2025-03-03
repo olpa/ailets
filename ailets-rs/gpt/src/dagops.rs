@@ -7,6 +7,9 @@ use std::collections::HashMap;
 
 /// One level of indirection to test that funcalls are collected correctly
 pub trait InjectDagOpsTrait {
+    /// Inject function calls into the workflow DAG.
+    /// Do nothing if there are no tool calls.
+    ///
     /// # Errors
     /// Promotes errors from the host.
     fn inject_tool_calls(&mut self, tool_calls: &[ContentItemFunction]) -> Result<(), String>;
