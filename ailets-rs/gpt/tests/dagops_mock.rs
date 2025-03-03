@@ -1,4 +1,5 @@
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 use actor_runtime::DagOpsTrait;
 use gpt::dagops::{inject_tool_calls, InjectDagOpsTrait};
@@ -84,5 +85,24 @@ impl TrackedDagOps {
         let value = String::from_utf8(bytes).unwrap();
 
         (handle, explain, value)
+    }
+
+    pub fn parse_workflow(&self, workflow: &str) -> (u32, String, HashMap<String, u32>) {
+        let parts = workflow.split(':').collect::<Vec<&str>>();
+        assert_eq!(parts.len(), 3);
+        let handle = parts[0].parse::<u32>().unwrap();
+        let explain = parts[1].to_string();
+
+        let mut deps = HashMap::new();
+        let deps_parts: Vec<&str> = parts[2].split(',').filter(|s| !s.is_empty()).collect();
+        for chunk in deps_parts.chunks(2) {
+            if chunk.len() == 2 {
+                if let Ok(value) = chunk[1].parse::<u32>() {
+                    deps.insert(chunk[0].to_string(), value);
+                }
+            }
+        }
+
+        (handle, explain, deps)
     }
 }

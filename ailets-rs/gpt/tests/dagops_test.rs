@@ -1,12 +1,12 @@
 #[cfg(test)]
 #[macro_use]
 extern crate hamcrest;
-use hamcrest::prelude::*;
-use serde_json::json;
-
 use crate::dagops_mock::TrackedDagOps;
 use gpt::dagops::inject_tool_calls;
 use gpt::funcalls::ContentItemFunction;
+use hamcrest::prelude::*;
+use serde_json::json;
+use std::collections::HashMap;
 pub mod dagops_mock;
 
 #[test]
@@ -68,7 +68,7 @@ fn inject_tool_calls_to_dag() {
     //
     // Assert: `get_weather` tool input
     //
-    let (_handle_tool_input1, explain_tool_input1, value_tool_input1) =
+    let (handle_tool_input1, explain_tool_input1, value_tool_input1) =
         tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[1]);
     assert_that!(
         &explain_tool_input1,
@@ -91,7 +91,7 @@ fn inject_tool_calls_to_dag() {
     //
     // Assert: `get_forecast` tool input
     //
-    let (_handle_tool_input2, explain_tool_input2, value_tool_input2) =
+    let (handle_tool_input2, explain_tool_input2, value_tool_input2) =
         tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[2]);
     assert_that!(
         &explain_tool_input2,
@@ -114,10 +114,34 @@ fn inject_tool_calls_to_dag() {
     // Assert that the workflows are created:
     // - 4 for tools: 2x tools itself and 2x output to chat history
     // - 1 to re-run the model
-    let workflows = tracked_dagops.workflows;
+    let workflows = &tracked_dagops.workflows;
     assert_eq!(workflows.len(), 5);
-    let tool_workflow_1 = &workflows[0];
-    assert!(tool_workflow_1.contains(".tool.get_weather"));
+
+    //
+    // Assert: call tools
+    //
+    let (_handle_tool_1, tool_workflow_1, deps_tool_1) =
+        tracked_dagops.parse_workflow(&workflows[0]);
+    assert_that!(tool_workflow_1, is(equal_to(format!(".tool.get_weather"))));
+    assert_that!(
+        deps_tool_1,
+        is(equal_to(HashMap::from([(
+            ".tool_input".to_string(),
+            handle_tool_input1
+        )])))
+    );
+
+    let (_handle_tool_2, tool_workflow_2, deps_tool_2) =
+        tracked_dagops.parse_workflow(&workflows[2]);
+    assert_that!(tool_workflow_2, is(equal_to(format!(".tool.get_forecast"))));
+    assert_that!(
+        deps_tool_2,
+        is(equal_to(HashMap::from([(
+            ".tool_input".to_string(),
+            handle_tool_input2
+        )])))
+    );
+
     let tool_workflow_2 = &workflows[1];
     assert!(tool_workflow_2.contains(".toolcall_to_messages"));
     let tool_workflow_3 = &workflows[2];
