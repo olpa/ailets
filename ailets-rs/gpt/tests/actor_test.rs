@@ -1,7 +1,7 @@
 use actor_runtime_mocked::RcWriter;
 use gpt::_process_gpt;
-use gpt::dagops::DummyDagOps;
-use gpt::dagops::TrackedDagOps;
+pub mod dagops_mock;
+use dagops_mock::TrackedInjectDagOps;
 use gpt::funcalls::ContentItemFunction;
 use std::io::Cursor;
 
@@ -18,7 +18,7 @@ fn test_basic_processing() {
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
 
-    _process_gpt(reader, writer.clone(), &DummyDagOps::new()).unwrap();
+    _process_gpt(reader, writer.clone(), &mut TrackedInjectDagOps::new()).unwrap();
 
     assert_eq!(writer.get_output(), get_expected_basic_message());
 }
@@ -30,7 +30,7 @@ fn test_streaming() {
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
 
-    _process_gpt(reader, writer.clone(), &DummyDagOps::new()).unwrap();
+    _process_gpt(reader, writer.clone(), &mut TrackedInjectDagOps::new()).unwrap();
 
     assert_eq!(writer.get_output(), get_expected_basic_message());
 }
@@ -41,14 +41,14 @@ fn funcall_response() {
         .expect("Failed to read fixture file 'funcall_response.txt'");
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
-    let dagops = TrackedDagOps::new();
+    let mut dagops = TrackedInjectDagOps::new();
 
-    _process_gpt(reader, writer.clone(), &dagops).unwrap();
+    _process_gpt(reader, writer.clone(), &mut dagops).unwrap();
 
     assert_eq!(writer.get_output(), "");
     assert_eq!(
-        dagops.get_funcalls(),
-        [ContentItemFunction::new(
+        dagops.get_tool_calls(),
+        &[ContentItemFunction::new(
             "call_9br5e3keEQrjl49h7lteRxW4",
             "get_user_name",
             "{}"
@@ -61,14 +61,14 @@ fn funcall_streaming() {
         .expect("Failed to read fixture file 'funcall_streaming.txt'");
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
-    let dagops = TrackedDagOps::new();
+    let mut dagops = TrackedInjectDagOps::new();
 
-    _process_gpt(reader, writer.clone(), &dagops).unwrap();
+    _process_gpt(reader, writer.clone(), &mut dagops).unwrap();
 
     assert_eq!(writer.get_output(), "");
     assert_eq!(
-        dagops.get_funcalls(),
-        [ContentItemFunction::new(
+        dagops.get_tool_calls(),
+        &[ContentItemFunction::new(
             "call_9cFpsOXfVWMUoDz1yyyP1QXD",
             "get_user_name",
             "{}"

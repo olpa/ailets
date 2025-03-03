@@ -4,7 +4,8 @@ pub mod handlers;
 pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
-use dagops::{DagOpsTrait, DummyDagOps};
+use actor_runtime::DagOps;
+use dagops::{InjectDagOps, InjectDagOpsTrait};
 use handlers::{
     on_begin_message, on_choices, on_content, on_end_message, on_function_arguments,
     on_function_begin, on_function_id, on_function_index, on_function_name, on_role,
@@ -142,7 +143,7 @@ fn make_triggers<'a, W: Write + 'a>() -> Vec<Trigger<'a, BA<'a, W>>> {
 pub fn _process_gpt<W: Write>(
     mut reader: impl std::io::Read,
     writer: W,
-    dagops: &impl DagOpsTrait,
+    dagops: &mut impl InjectDagOpsTrait,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let builder = StructureBuilder::new(writer);
     let builder_cell = RefCell::new(builder);
@@ -170,7 +171,7 @@ pub fn _process_gpt<W: Write>(
     builder.end_message()?;
 
     let funcalls = builder.get_funcalls();
-    dagops.inject_funcalls(funcalls)?;
+    dagops.inject_tool_calls(funcalls.get_tool_calls())?;
     Ok(())
 }
 
@@ -185,8 +186,8 @@ pub extern "C" fn process_gpt() {
     let writer = AWriter::new(c"").unwrap_or_else(|e| {
         panic!("Failed to create writer: {e:?}");
     });
-    let dagops = DummyDagOps::new();
-    _process_gpt(reader, writer, &dagops).unwrap_or_else(|e| {
+    let mut dagops = InjectDagOps::new(DagOps {});
+    _process_gpt(reader, writer, &mut dagops).unwrap_or_else(|e| {
         panic!("Failed to process GPT: {e:?}");
     });
 }
