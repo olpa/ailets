@@ -105,4 +105,14 @@ impl TrackedDagOps {
 
         (handle, explain, deps)
     }
+
+    pub fn parse_alias(&self, alias: &str) -> (u32, String, u32) {
+        let parts = alias.split(':').collect::<Vec<&str>>();
+        assert_eq!(parts.len(), 3);
+        let node_handle = parts[0].parse::<u32>().unwrap();
+        let alias_name = parts[1].to_string();
+        let alias_handle = parts[2].parse::<u32>().unwrap();
+
+        (node_handle, alias_name, alias_handle)
+    }
 }

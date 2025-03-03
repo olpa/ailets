@@ -31,7 +31,7 @@ fn inject_tool_calls_to_dag() {
     //
     // Assert: tool calls are in the chat history
     //
-    let (_handle_tcch, explain_tcch, value_tcch) =
+    let (handle_tcch, explain_tcch, value_tcch) =
         tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[0]);
     assert_that!(
         &explain_tcch,
@@ -145,7 +145,7 @@ fn inject_tool_calls_to_dag() {
     //
     // Assert: tool output to chat history
     //
-    let (_handle_aftercall_1, aftercall_workflow_1, deps_aftercall_1) =
+    let (handle_aftercall_1, aftercall_workflow_1, deps_aftercall_1) =
         tracked_dagops.parse_workflow(&workflows[1]);
     assert_that!(
         aftercall_workflow_1,
@@ -159,7 +159,7 @@ fn inject_tool_calls_to_dag() {
         ])))
     );
 
-    let (_handle_aftercall_2, aftercall_workflow_2, deps_aftercall_2) =
+    let (handle_aftercall_2, aftercall_workflow_2, deps_aftercall_2) =
         tracked_dagops.parse_workflow(&workflows[3]);
     assert_that!(
         aftercall_workflow_2,
@@ -176,29 +176,31 @@ fn inject_tool_calls_to_dag() {
     //
     // Assert: re-run the model
     //
-    let (_handle_rerun, rerun_workflow, deps_rerun) = tracked_dagops.parse_workflow(&workflows[4]);
+    let (handle_rerun, rerun_workflow, deps_rerun) = tracked_dagops.parse_workflow(&workflows[4]);
     assert_that!(rerun_workflow, is(equal_to(format!(".gpt4o"))));
     assert_that!(deps_rerun, is(equal_to(HashMap::from([]))));
 
-    // Verify aliases
+    //
+    // Assert: aliases
     // - 1 for chat history
     // - 2 for tool calls
     // - 1 for model output
+    //
     assert_eq!(tracked_dagops.aliases.len(), 4);
-    assert!(tracked_dagops
-        .aliases
-        .iter()
-        .any(|a| a.contains(".chat_messages")));
-    assert!(tracked_dagops
-        .aliases
-        .iter()
-        .any(|a| a.contains(".chat_messages")));
-    assert!(tracked_dagops
-        .aliases
-        .iter()
-        .any(|a| a.contains(".chat_messages")));
-    assert!(tracked_dagops
-        .aliases
-        .iter()
-        .any(|a| a.contains(".model_output")));
+
+    let (_, alias_name, alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases[0]);
+    assert_that!(&alias_name, is(equal_to(".chat_messages")));
+    assert_that!(alias_handle, is(equal_to(handle_tcch)));
+
+    let (_, alias_name, alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases[1]);
+    assert_that!(&alias_name, is(equal_to(".chat_messages")));
+    assert_that!(alias_handle, is(equal_to(handle_aftercall_1)));
+
+    let (_, alias_name, alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases[2]);
+    assert_that!(&alias_name, is(equal_to(".chat_messages")));
+    assert_that!(alias_handle, is(equal_to(handle_aftercall_2)));
+
+    let (_, alias_name, alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases[3]);
+    assert_that!(&alias_name, is(equal_to(".model_output")));
+    assert_that!(alias_handle, is(equal_to(handle_rerun)));
 }
