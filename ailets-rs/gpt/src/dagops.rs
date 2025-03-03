@@ -79,6 +79,21 @@ pub fn inject_tool_calls(
     // Process each tool call
     //
     for tool_call in tool_calls {
+        //
+        // Run the tool
+        //
+        let explain = format!("tool input - {}", tool_call.function_name);
+        let tool_input = dagops.value_node(tool_call.function_arguments.as_bytes(), &explain)?;
+
+        let tool_name = &tool_call.function_name;
+        let tool_handle = dagops.instantiate_with_deps(
+            &format!(".tool.{tool_name}"),
+            HashMap::from([(".tool_input".to_string(), tool_input)]).into_iter(),
+        )?;
+
+        //
+        // Convert tool output to messages
+        //
         let tool_spec = json!({
             "id": tool_call.id,
             "type": "function",
@@ -95,14 +110,6 @@ pub fn inject_tool_calls(
             &explain,
         )?;
 
-        // Instantiate tool workflow
-        let tool_name = &tool_call.function_name;
-        let tool_handle = dagops.instantiate_with_deps(
-            &format!(".tool.{tool_name}"),
-            HashMap::from([(".tool_input".to_string(), tool_spec_handle)]).into_iter(),
-        )?;
-
-        // Convert tool output to messages
         let msg_handle = dagops.instantiate_with_deps(
             ".toolcall_to_messages",
             HashMap::from([

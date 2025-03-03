@@ -25,8 +25,9 @@ fn inject_tool_calls_to_dag() {
     // Assert that the value nodes are created:
     // - 1 for chat history, with 2 tool calls
     // - 2 for tool calls input
+    // - 2 for output to chat history
     let value_nodes = &tracked_dagops.value_nodes;
-    assert_that!(value_nodes.len(), is(equal_to(3)));
+    assert_that!(value_nodes.len(), is(equal_to(5)));
 
     //
     // Assert: tool calls are in the chat history
@@ -66,15 +67,28 @@ fn inject_tool_calls_to_dag() {
     assert_that!(value_tcch, is(equal_to(expected_tcch)));
 
     //
-    // Assert: `get_weather` tool input
+    // Assert: `get_weather` tool input and call spec
     //
     let (handle_tool_input1, explain_tool_input1, value_tool_input1) =
         tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[1]);
     assert_that!(
         &explain_tool_input1,
+        matches_regex("tool input - get_weather")
+    );
+    let expected_tool_input1 = json!({"city": "London"});
+    let value_tool_input1 = serde_json::from_str(&value_tool_input1)
+        .expect(&format!("Failed to parse JSON: {value_tool_input1}"));
+    assert_that!(value_tool_input1, is(equal_to(expected_tool_input1)));
+
+    //
+
+    let (handle_toolspec_input1, explain_toolspec_input1, value_toolspec_input1) =
+        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[2]);
+    assert_that!(
+        &explain_toolspec_input1,
         matches_regex("tool call spec - get_weather")
     );
-    let expected_tool_input1 = json!(
+    let expected_toolspec_input1 = json!(
         {
             "id": "call_1",
             "type": "function",
@@ -84,20 +98,36 @@ fn inject_tool_calls_to_dag() {
             }
         }
     );
-    let value_tool_input1 = serde_json::from_str(&value_tool_input1)
-        .expect(&format!("Failed to parse JSON: {value_tool_input1}"));
-    assert_that!(value_tool_input1, is(equal_to(expected_tool_input1)));
+    let value_toolspec_input1 = serde_json::from_str(&value_toolspec_input1)
+        .expect(&format!("Failed to parse JSON: {value_toolspec_input1}"));
+    assert_that!(
+        value_toolspec_input1,
+        is(equal_to(expected_toolspec_input1))
+    );
 
     //
-    // Assert: `get_forecast` tool input
+    // Assert: `get_forecast` tool input and call spec
     //
     let (handle_tool_input2, explain_tool_input2, value_tool_input2) =
-        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[2]);
+        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[3]);
     assert_that!(
         &explain_tool_input2,
+        matches_regex("tool input - get_forecast")
+    );
+    let expected_tool_input2 = json!({"days": 5});
+    let value_tool_input2 = serde_json::from_str(&value_tool_input2)
+        .expect(&format!("Failed to parse JSON: {value_tool_input2}"));
+    assert_that!(value_tool_input2, is(equal_to(expected_tool_input2)));
+
+    //
+
+    let (handle_toolspec_input2, explain_toolspec_input2, value_toolspec_input2) =
+        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[4]);
+    assert_that!(
+        &explain_toolspec_input2,
         matches_regex("tool call spec - get_forecast")
     );
-    let expected_tool_input2 = json!(
+    let expected_toolspec_input2 = json!(
         {
             "id": "call_2",
             "type": "function",
@@ -107,9 +137,12 @@ fn inject_tool_calls_to_dag() {
             }
         }
     );
-    let value_tool_input2 = serde_json::from_str(&value_tool_input2)
-        .expect(&format!("Failed to parse JSON: {value_tool_input2}"));
-    assert_that!(value_tool_input2, is(equal_to(expected_tool_input2)));
+    let value_toolspec_input2 = serde_json::from_str(&value_toolspec_input2)
+        .expect(&format!("Failed to parse JSON: {value_toolspec_input2}"));
+    assert_that!(
+        value_toolspec_input2,
+        is(equal_to(expected_toolspec_input2))
+    );
 
     // Assert that the workflows are created:
     // - 4 for tools: 2x tools itself and 2x output to chat history
@@ -155,7 +188,7 @@ fn inject_tool_calls_to_dag() {
         deps_aftercall_1,
         is(equal_to(HashMap::from([
             (".tool_output".to_string(), handle_tool_1),
-            (".llm_tool_spec".to_string(), handle_tool_input1),
+            (".llm_tool_spec".to_string(), handle_toolspec_input1),
         ])))
     );
 
@@ -169,7 +202,7 @@ fn inject_tool_calls_to_dag() {
         deps_aftercall_2,
         is(equal_to(HashMap::from([
             (".tool_output".to_string(), handle_tool_2),
-            (".llm_tool_spec".to_string(), handle_tool_input2),
+            (".llm_tool_spec".to_string(), handle_toolspec_input2),
         ])))
     );
 
