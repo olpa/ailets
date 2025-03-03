@@ -29,7 +29,8 @@ impl<T: DagOpsTrait> InjectDagOpsTrait for InjectDagOps<T> {
     }
 }
 
-/// Inject function calls into the workflow DAG
+/// Inject function calls into the workflow DAG.
+/// Do nothing if there are no tool calls.
 ///
 /// # Errors
 /// Promotes errors from the host.
@@ -37,6 +38,10 @@ pub fn inject_tool_calls(
     dagops: &mut impl DagOpsTrait,
     tool_calls: &[ContentItemFunction],
 ) -> Result<(), String> {
+    if tool_calls.is_empty() {
+        return Ok(());
+    }
+
     //
     // Put tool calls in chat history
     //

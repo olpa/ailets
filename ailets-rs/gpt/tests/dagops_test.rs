@@ -204,3 +204,18 @@ fn inject_tool_calls_to_dag() {
     assert_that!(&alias_name, is(equal_to(".model_output")));
     assert_that!(alias_handle, is(equal_to(handle_rerun)));
 }
+
+#[test]
+fn inject_empty_tool_calls_to_dag() {
+    // Arrange
+    let mut tracked_dagops = TrackedDagOps::default();
+    let tool_calls: Vec<ContentItemFunction> = vec![];
+
+    // Act
+    inject_tool_calls(&mut tracked_dagops, &tool_calls).unwrap();
+
+    // Assert no operations were performed
+    assert_that!(tracked_dagops.value_nodes.len(), is(equal_to(0)));
+    assert_that!(tracked_dagops.workflows.len(), is(equal_to(0)));
+    assert_that!(tracked_dagops.aliases.len(), is(equal_to(0)));
+}
