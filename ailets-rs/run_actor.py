@@ -149,8 +149,11 @@ class NodeRuntime:
         return 0
 
     def dag_instantiate_with_deps(self, workflow: str, deps: str) -> int:
-        print(f"python dag_instantiate_with_deps, workflow: {workflow}, deps: {deps}")
-        return 0
+        handle = len(workflow)
+        print(
+            f"dag_instantiate_with_deps: workflow: {workflow}, deps: {deps} -> {handle}"
+        )
+        return handle
 
     def dag_value_node(self, value: str, explain: str) -> int:
         try:
@@ -158,12 +161,14 @@ class NodeRuntime:
         except Exception as e:
             print(f"dag_value_node: Error decoding value: {e}")
             return -1
-        print(f"dag_value_node: value: {value}, explain: {explain}")
-        return 0
+        handle = len(value)
+        print(f"dag_value_node: value: {value}, explain: {explain} -> {handle}")
+        return handle
 
     def dag_alias(self, alias: str, node_handle: int) -> int:
-        print(f"python dag_alias, alias: {alias}, node_handle: {node_handle}")
-        return 0
+        handle = len(alias)
+        print(f"dag_alias: alias: {alias}, node_handle: {node_handle} -> {handle}")
+        return handle
 
 
 class BufToStr:
