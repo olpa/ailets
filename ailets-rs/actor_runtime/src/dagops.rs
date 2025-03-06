@@ -34,17 +34,20 @@ impl DagOpsTrait for DagOps {
         enc.finish().map_err(|e| e.to_string())?;
         drop(enc);
         value_base64.push(b'\0');
+
+        let explain = std::ffi::CString::new(explain).map_err(|e| e.to_string())?;
+
         let handle =
             unsafe { dag_value_node(value_base64.as_ptr(), explain.as_ptr().cast::<i8>()) };
         Ok(handle as u32)
     }
 
     fn alias(&mut self, alias: &str, node_handle: u32) -> Result<u32, String> {
-        println!("dag_alias: {alias}, node_handle: {node_handle}");
+        let alias = std::ffi::CString::new(alias).map_err(|e| e.to_string())?;
         #[allow(clippy::cast_possible_wrap)]
         let node_handle = node_handle as i32;
-        unsafe { dag_alias(alias.as_ptr().cast::<i8>(), node_handle) };
-        Ok(0)
+        let handle = unsafe { dag_alias(alias.as_ptr().cast::<i8>(), node_handle) };
+        Ok(handle as u32)
     }
 
     fn instantiate_with_deps(
