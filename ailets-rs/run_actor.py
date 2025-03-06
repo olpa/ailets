@@ -3,6 +3,7 @@
 import argparse
 from dataclasses import dataclass
 import io
+import base64
 import sys
 from typing import Literal, Optional, Protocol, Sequence, cast
 import wasmer  # type: ignore[import-untyped]
@@ -152,7 +153,12 @@ class NodeRuntime:
         return 0
 
     def dag_value_node(self, value: str, explain: str) -> int:
-        print(f"python dag_value_node, value: {value}, explain: {explain}")
+        try:
+            value = base64.b64decode(value).decode("utf-8")
+        except Exception as e:
+            print(f"dag_value_node: Error decoding value: {e}")
+            return -1
+        print(f"dag_value_node: value: {value}, explain: {explain}")
         return 0
 
     def dag_alias(self, alias: str, node_handle: int) -> int:

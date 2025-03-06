@@ -1,4 +1,6 @@
 use crate::actor_runtime::{dag_alias, dag_instantiate_with_deps, dag_value_node};
+use base64::engine;
+use std::io::Write;
 use std::iter::Iterator;
 
 pub trait DagOpsTrait {
@@ -23,9 +25,18 @@ pub struct DagOps;
 
 impl DagOpsTrait for DagOps {
     fn value_node(&mut self, value: &[u8], explain: &str) -> Result<u32, String> {
-        println!("dag_value_node: {value:?}, explain: {explain}");
-        unsafe { dag_value_node(value.as_ptr(), explain.as_ptr().cast::<i8>()) };
-        Ok(0)
+        let mut value_base64 = Vec::new();
+        let mut enc = base64::write::EncoderWriter::new(
+            &mut value_base64,
+            &engine::general_purpose::STANDARD,
+        );
+        enc.write_all(value).map_err(|e| e.to_string())?;
+        enc.finish().map_err(|e| e.to_string())?;
+        drop(enc);
+        value_base64.push(b'\0');
+        let handle =
+            unsafe { dag_value_node(value_base64.as_ptr(), explain.as_ptr().cast::<i8>()) };
+        Ok(handle as u32)
     }
 
     fn alias(&mut self, alias: &str, node_handle: u32) -> Result<u32, String> {
