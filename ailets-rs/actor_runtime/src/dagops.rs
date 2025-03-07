@@ -39,7 +39,7 @@ impl DagOpsTrait for DagOps {
 
         let handle =
             unsafe { dag_value_node(value_base64.as_ptr(), explain.as_ptr().cast::<i8>()) };
-        Ok(handle as u32)
+        u32::try_from(handle).map_err(|_| "dag_value_node: error".to_string())
     }
 
     fn alias(&mut self, alias: &str, node_handle: u32) -> Result<u32, String> {
@@ -49,7 +49,7 @@ impl DagOpsTrait for DagOps {
         let node_handle = node_handle as i32;
 
         let handle = unsafe { dag_alias(alias.as_ptr().cast::<i8>(), node_handle) };
-        Ok(handle as u32)
+        u32::try_from(handle).map_err(|_| "dag_alias: error".to_string())
     }
 
     fn instantiate_with_deps(
@@ -71,6 +71,6 @@ impl DagOpsTrait for DagOps {
                 deps_str.as_bytes().as_ptr().cast::<i8>(),
             )
         };
-        Ok(handle as u32)
+        u32::try_from(handle).map_err(|_| "dag_instantiate_with_deps: error".to_string())
     }
 }
