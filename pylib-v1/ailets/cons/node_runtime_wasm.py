@@ -1,6 +1,9 @@
 import wasmer  # type: ignore[import-untyped]
 import base64
 import asyncio
+import json
+from pydantic import BaseModel
+from typing import Dict
 
 from .atyping import INodeRuntime
 
@@ -67,12 +70,34 @@ def fill_wasm_import_object(
     async def dag_instantiate_with_deps(workflow_ptr: int, deps_ptr: int) -> int:
         workflow = buf_to_str.get_string(workflow_ptr)
         deps = buf_to_str.get_string(deps_ptr)
-        handle = len(workflow)
 
-        print(
-            f"dag_instantiate_with_deps: workflow: {workflow}, deps: {deps} -> {handle}"
-        )
-        return handle
+        try:
+            deps_dict = json.loads(deps)
+        except Exception as e:
+            print(f"instantiate_with_deps: Error parsing '{workflow}'s input deps: {e}")
+            return -1
+
+        try:
+
+            class DepsModel(BaseModel):
+                deps: Dict[str, int]
+
+            validated_deps = DepsModel(deps=deps_dict).deps
+        except Exception as e:
+            print(
+                f"instantiate_with_deps: Error validating '{workflow}'s input deps: {e}"
+            )
+            return -1
+
+        try:
+            handle = runtime.dagops().v2_instantiate_with_deps(workflow, validated_deps)
+            return handle
+        except Exception as e:
+            print(
+                f"instantiate_with_deps: Error instantiating workflow {workflow} "
+                f"with deps {validated_deps}: {e}"
+            )
+            return -1
 
     async def dag_value_node(value_ptr: int, explain_ptr: int) -> int:
         value = buf_to_str.get_string(value_ptr)
@@ -80,16 +105,17 @@ def fill_wasm_import_object(
         try:
             value = base64.b64decode(value).decode("utf-8")
         except Exception as e:
-            print(f"dag_value_node: Error decoding value: {e}")
+            print(f"value_node: Error decoding value: {e}")
             return -1
+
         handle = len(value)
-        print(f"dag_value_node: value: {value}, explain: {explain} -> {handle}")
+        print(f"value_node: value: {value}, explain: {explain} -> {handle}")
         return handle
 
     async def dag_alias(alias_ptr: int, node_handle: int) -> int:
         alias = buf_to_str.get_string(alias_ptr)
         handle = len(alias)
-        print(f"dag_alias: alias: {alias}, node_handle: {node_handle} -> {handle}")
+        print(f"alias: alias: {alias}, node_handle: {node_handle} -> {handle}")
         return handle
 
     def sync_n_of_streams(name_ptr: int) -> int:
