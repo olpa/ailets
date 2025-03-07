@@ -219,8 +219,7 @@ async def main() -> None:
 
     if args.model == "gpt4o":
         hijack_msg2md(nodereg)
-        if not len(args.tools):
-            hijack_gpt_resp2msg(nodereg)
+        hijack_gpt_resp2msg(nodereg)
 
     prompt = get_prompt(args.prompt)
 

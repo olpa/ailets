@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Dict, Sequence
+from typing import Dict, Optional, Sequence
 
 from ailets.cons.streams import Streams
 
@@ -31,6 +31,7 @@ class NodeRuntime(INodeRuntime):
         self.node_name = node_name
         self.deps = deps
         self.open_fds: Dict[int, OpenFd] = {}
+        self.cached_dagops: Optional[INodeDagops] = None
 
     def _get_streams(self, stream_name: str) -> Sequence[IStream]:
         # Special stream "env"
@@ -86,7 +87,9 @@ class NodeRuntime(INodeRuntime):
         await fd_obj.stream.close()
 
     def dagops(self) -> INodeDagops:
-        return NodeDagops(self.env, self)
+        if self.cached_dagops is None:
+            self.cached_dagops = NodeDagops(self.env, self)
+        return self.cached_dagops
 
     async def read_dir(self, dir_name: str) -> Sequence[str]:
         dep_names = [dep.source for dep in self.deps]

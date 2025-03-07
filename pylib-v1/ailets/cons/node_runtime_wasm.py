@@ -1,5 +1,10 @@
 import wasmer  # type: ignore[import-untyped]
+import base64
 import asyncio
+import json
+import sys
+from pydantic import BaseModel
+from typing import Dict
 
 from .atyping import INodeRuntime
 
@@ -63,6 +68,78 @@ def fill_wasm_import_object(
         await runtime.close(fd)
         return 0
 
+    async def dag_instantiate_with_deps(workflow_ptr: int, deps_ptr: int) -> int:
+        workflow = buf_to_str.get_string(workflow_ptr)
+        deps = buf_to_str.get_string(deps_ptr)
+
+        try:
+            deps_dict = json.loads(deps)
+        except Exception as e:
+            print(
+                f"instantiate_with_deps: Error parsing '{workflow}'s input deps: {e}",
+                file=sys.stderr,
+            )
+            return -1
+
+        try:
+
+            class DepsModel(BaseModel):
+                deps: Dict[str, int]
+
+            validated_deps = DepsModel(deps=deps_dict).deps
+        except Exception as e:
+            print(
+                f"instantiate_with_deps: Error validating '{workflow}'s input deps: "
+                f"{e}",
+                file=sys.stderr,
+            )
+            return -1
+
+        try:
+            handle = runtime.dagops().v2_instantiate_with_deps(workflow, validated_deps)
+            return handle
+        except Exception as e:
+            print(
+                f"instantiate_with_deps: Error instantiating workflow {workflow} "
+                f"with deps {validated_deps}: {e}",
+                file=sys.stderr,
+            )
+            return -1
+
+    async def dag_value_node(value_ptr: int, explain_ptr: int) -> int:
+        value_str = buf_to_str.get_string(value_ptr)
+        explain_str = buf_to_str.get_string(explain_ptr)
+        try:
+            value = base64.b64decode(value_str)
+        except Exception as e:
+            print(
+                f"value_node: Error decoding value for '{explain_str}': {e}",
+                file=sys.stderr,
+            )
+            return -1
+
+        try:
+            handle = runtime.dagops().v2_add_value_node(value, explain_str)
+            return handle
+        except Exception as e:
+            print(
+                f"value_node: Error adding value node for '{explain_str}': {e}",
+                file=sys.stderr,
+            )
+            return -1
+
+    async def dag_alias(alias_ptr: int, node_handle: int) -> int:
+        alias = buf_to_str.get_string(alias_ptr)
+        try:
+            handle = runtime.dagops().v2_alias(alias, node_handle)
+            return handle
+        except Exception as e:
+            print(
+                f"alias: Error adding alias '{alias}' to node {node_handle}: {e}",
+                file=sys.stderr,
+            )
+            return -1
+
     def sync_n_of_streams(name_ptr: int) -> int:
         return asyncio.run(n_of_streams(name_ptr))
 
@@ -81,6 +158,15 @@ def fill_wasm_import_object(
     def sync_aclose(fd: int) -> int:
         return asyncio.run(aclose(fd))
 
+    def sync_dag_instantiate_with_deps(workflow_ptr: int, deps_ptr: int) -> int:
+        return asyncio.run(dag_instantiate_with_deps(workflow_ptr, deps_ptr))
+
+    def sync_dag_value_node(value_ptr: int, explain_ptr: int) -> int:
+        return asyncio.run(dag_value_node(value_ptr, explain_ptr))
+
+    def sync_dag_alias(alias_ptr: int, node_handle: int) -> int:
+        return asyncio.run(dag_alias(alias_ptr, node_handle))
+
     # Register functions with WASM
     import_object.register(
         "",
@@ -91,5 +177,10 @@ def fill_wasm_import_object(
             "aread": wasmer.Function(store, sync_aread),
             "awrite": wasmer.Function(store, sync_awrite),
             "aclose": wasmer.Function(store, sync_aclose),
+            "dag_instantiate_with_deps": wasmer.Function(
+                store, sync_dag_instantiate_with_deps
+            ),
+            "dag_value_node": wasmer.Function(store, sync_dag_value_node),
+            "dag_alias": wasmer.Function(store, sync_dag_alias),
         },
     )
