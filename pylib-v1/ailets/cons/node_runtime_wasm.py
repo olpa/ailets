@@ -1,4 +1,5 @@
 import wasmer  # type: ignore[import-untyped]
+import base64
 import asyncio
 
 from .atyping import INodeRuntime
@@ -63,6 +64,34 @@ def fill_wasm_import_object(
         await runtime.close(fd)
         return 0
 
+    async def dag_instantiate_with_deps(workflow_ptr: int, deps_ptr: int) -> int:
+        workflow = buf_to_str.get_string(workflow_ptr)
+        deps = buf_to_str.get_string(deps_ptr)
+        handle = len(workflow)
+
+        print(
+            f"dag_instantiate_with_deps: workflow: {workflow}, deps: {deps} -> {handle}"
+        )
+        return handle
+
+    async def dag_value_node(value_ptr: int, explain_ptr: int) -> int:
+        value = buf_to_str.get_string(value_ptr)
+        explain = buf_to_str.get_string(explain_ptr)
+        try:
+            value = base64.b64decode(value).decode("utf-8")
+        except Exception as e:
+            print(f"dag_value_node: Error decoding value: {e}")
+            return -1
+        handle = len(value)
+        print(f"dag_value_node: value: {value}, explain: {explain} -> {handle}")
+        return handle
+
+    async def dag_alias(alias_ptr: int, node_handle: int) -> int:
+        alias = buf_to_str.get_string(alias_ptr)
+        handle = len(alias)
+        print(f"dag_alias: alias: {alias}, node_handle: {node_handle} -> {handle}")
+        return handle
+
     def sync_n_of_streams(name_ptr: int) -> int:
         return asyncio.run(n_of_streams(name_ptr))
 
@@ -81,6 +110,15 @@ def fill_wasm_import_object(
     def sync_aclose(fd: int) -> int:
         return asyncio.run(aclose(fd))
 
+    def sync_dag_instantiate_with_deps(workflow_ptr: int, deps_ptr: int) -> int:
+        return asyncio.run(dag_instantiate_with_deps(workflow_ptr, deps_ptr))
+
+    def sync_dag_value_node(value_ptr: int, explain_ptr: int) -> int:
+        return asyncio.run(dag_value_node(value_ptr, explain_ptr))
+
+    def sync_dag_alias(alias_ptr: int, node_handle: int) -> int:
+        return asyncio.run(dag_alias(alias_ptr, node_handle))
+
     # Register functions with WASM
     import_object.register(
         "",
@@ -91,5 +129,10 @@ def fill_wasm_import_object(
             "aread": wasmer.Function(store, sync_aread),
             "awrite": wasmer.Function(store, sync_awrite),
             "aclose": wasmer.Function(store, sync_aclose),
+            "dag_instantiate_with_deps": wasmer.Function(
+                store, sync_dag_instantiate_with_deps
+            ),
+            "dag_value_node": wasmer.Function(store, sync_dag_value_node),
+            "dag_alias": wasmer.Function(store, sync_dag_alias),
         },
     )
