@@ -110,6 +110,15 @@ class INodeDagops(Protocol):
     def detach_from_alias(self, alias: str) -> None:
         raise NotImplementedError
 
+    def v2_alias(self, alias: str, node_handle: int) -> int:
+        raise NotImplementedError
+
+    def v2_add_value(self, value: bytes, explain: Optional[str] = None) -> int:
+        raise NotImplementedError
+
+    def v2_instantiate_with_deps(self, target: str, aliases: dict[str, int]) -> int:
+        raise NotImplementedError
+
 
 class INodeRuntime(Protocol):
     def get_name(self) -> str:
