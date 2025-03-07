@@ -2,6 +2,7 @@ import wasmer  # type: ignore[import-untyped]
 import base64
 import asyncio
 import json
+import sys
 from pydantic import BaseModel
 from typing import Dict
 
@@ -74,7 +75,10 @@ def fill_wasm_import_object(
         try:
             deps_dict = json.loads(deps)
         except Exception as e:
-            print(f"instantiate_with_deps: Error parsing '{workflow}'s input deps: {e}")
+            print(
+                f"instantiate_with_deps: Error parsing '{workflow}'s input deps: {e}",
+                file=sys.stderr,
+            )
             return -1
 
         try:
@@ -85,7 +89,9 @@ def fill_wasm_import_object(
             validated_deps = DepsModel(deps=deps_dict).deps
         except Exception as e:
             print(
-                f"instantiate_with_deps: Error validating '{workflow}'s input deps: {e}"
+                f"instantiate_with_deps: Error validating '{workflow}'s input deps: "
+                f"{e}",
+                file=sys.stderr,
             )
             return -1
 
@@ -95,7 +101,8 @@ def fill_wasm_import_object(
         except Exception as e:
             print(
                 f"instantiate_with_deps: Error instantiating workflow {workflow} "
-                f"with deps {validated_deps}: {e}"
+                f"with deps {validated_deps}: {e}",
+                file=sys.stderr,
             )
             return -1
 
@@ -105,16 +112,33 @@ def fill_wasm_import_object(
         try:
             value = base64.b64decode(value_str)
         except Exception as e:
-            print(f"value_node: Error decoding value: {e}")
+            print(
+                f"value_node: Error decoding value for '{explain_str}': {e}",
+                file=sys.stderr,
+            )
             return -1
 
-        handle = runtime.dagops().v2_add_value_node(value, explain_str)
-        return handle
+        try:
+            handle = runtime.dagops().v2_add_value_node(value, explain_str)
+            return handle
+        except Exception as e:
+            print(
+                f"value_node: Error adding value node for '{explain_str}': {e}",
+                file=sys.stderr,
+            )
+            return -1
 
     async def dag_alias(alias_ptr: int, node_handle: int) -> int:
         alias = buf_to_str.get_string(alias_ptr)
-        handle = runtime.dagops().v2_alias(alias, node_handle)
-        return handle
+        try:
+            handle = runtime.dagops().v2_alias(alias, node_handle)
+            return handle
+        except Exception as e:
+            print(
+                f"alias: Error adding alias '{alias}' to node {node_handle}: {e}",
+                file=sys.stderr,
+            )
+            return -1
 
     def sync_n_of_streams(name_ptr: int) -> int:
         return asyncio.run(n_of_streams(name_ptr))
