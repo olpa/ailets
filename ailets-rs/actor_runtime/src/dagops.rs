@@ -44,8 +44,10 @@ impl DagOpsTrait for DagOps {
 
     fn alias(&mut self, alias: &str, node_handle: u32) -> Result<u32, String> {
         let alias = std::ffi::CString::new(alias).map_err(|e| e.to_string())?;
+
         #[allow(clippy::cast_possible_wrap)]
         let node_handle = node_handle as i32;
+
         let handle = unsafe { dag_alias(alias.as_ptr().cast::<i8>(), node_handle) };
         Ok(handle as u32)
     }
@@ -55,20 +57,20 @@ impl DagOpsTrait for DagOps {
         workflow_name: &str,
         deps: impl Iterator<Item = (String, u32)>,
     ) -> Result<u32, String> {
-        let mut deps_str = String::new();
+        let workflow_name = std::ffi::CString::new(workflow_name).map_err(|e| e.to_string())?;
+
+        let mut deps_json = serde_json::Map::new();
         for (key, value) in deps {
-            deps_str.push_str(key.as_str());
-            deps_str.push(',');
-            deps_str.push_str(&value.to_string());
-            deps_str.push(',');
+            deps_json.insert(key, serde_json::Value::Number(value.into()));
         }
-        println!("dag_instantiate_with_deps: {workflow_name}, deps: {deps_str}");
-        unsafe {
+        let deps_str = serde_json::to_string(&deps_json).map_err(|e| e.to_string())?;
+
+        let handle = unsafe {
             dag_instantiate_with_deps(
                 workflow_name.as_ptr().cast::<i8>(),
-                deps_str.as_bytes().as_ptr().cast::<u8>(),
+                deps_str.as_bytes().as_ptr().cast::<i8>(),
             )
         };
-        Ok(0)
+        Ok(handle as u32)
     }
 }
