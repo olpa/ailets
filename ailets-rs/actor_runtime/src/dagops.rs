@@ -63,12 +63,13 @@ impl DagOpsTrait for DagOps {
         for (key, value) in deps {
             deps_json.insert(key, serde_json::Value::Number(value.into()));
         }
-        let deps_str = serde_json::to_string(&deps_json).map_err(|e| e.to_string())?;
+        let deps_vec = serde_json::to_vec(&deps_json).map_err(|e| e.to_string())?;
+        let deps_str = std::ffi::CString::new(deps_vec).map_err(|e| e.to_string())?;
 
         let handle = unsafe {
             dag_instantiate_with_deps(
                 workflow_name.as_ptr().cast::<i8>(),
-                deps_str.as_bytes().as_ptr().cast::<i8>(),
+                deps_str.as_ptr().cast::<i8>(),
             )
         };
         u32::try_from(handle).map_err(|_| "dag_instantiate_with_deps: error".to_string())
