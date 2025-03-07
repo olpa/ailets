@@ -48,7 +48,7 @@ class NodeDagops(INodeDagops):
         self.handle_to_name.append(alias)
         return len(self.handle_to_name) - 1
 
-    def v2_add_value(self, value: bytes, explain: Optional[str] = None) -> int:
+    def v2_add_value_node(self, value: bytes, explain: Optional[str] = None) -> int:
         node_name = self.add_value_node(value, explain)
 
         self.handle_to_name.append(node_name)

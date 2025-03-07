@@ -100,16 +100,15 @@ def fill_wasm_import_object(
             return -1
 
     async def dag_value_node(value_ptr: int, explain_ptr: int) -> int:
-        value = buf_to_str.get_string(value_ptr)
-        explain = buf_to_str.get_string(explain_ptr)
+        value_str = buf_to_str.get_string(value_ptr)
+        explain_str = buf_to_str.get_string(explain_ptr)
         try:
-            value = base64.b64decode(value).decode("utf-8")
+            value = base64.b64decode(value_str)
         except Exception as e:
             print(f"value_node: Error decoding value: {e}")
             return -1
 
-        handle = len(value)
-        print(f"value_node: value: {value}, explain: {explain} -> {handle}")
+        handle = runtime.dagops().v2_add_value_node(value, explain_str)
         return handle
 
     async def dag_alias(alias_ptr: int, node_handle: int) -> int:

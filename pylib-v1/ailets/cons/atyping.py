@@ -113,7 +113,7 @@ class INodeDagops(Protocol):
     def v2_alias(self, alias: str, node_handle: int) -> int:
         raise NotImplementedError
 
-    def v2_add_value(self, value: bytes, explain: Optional[str] = None) -> int:
+    def v2_add_value_node(self, value: bytes, explain: Optional[str] = None) -> int:
         raise NotImplementedError
 
     def v2_instantiate_with_deps(self, target: str, aliases: dict[str, int]) -> int:
