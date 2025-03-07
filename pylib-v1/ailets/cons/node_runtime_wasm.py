@@ -113,8 +113,7 @@ def fill_wasm_import_object(
 
     async def dag_alias(alias_ptr: int, node_handle: int) -> int:
         alias = buf_to_str.get_string(alias_ptr)
-        handle = len(alias)
-        print(f"alias: alias: {alias}, node_handle: {node_handle} -> {handle}")
+        handle = runtime.dagops().v2_alias(alias, node_handle)
         return handle
 
     def sync_n_of_streams(name_ptr: int) -> int:
