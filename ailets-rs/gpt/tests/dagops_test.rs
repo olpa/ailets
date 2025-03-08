@@ -22,6 +22,10 @@ fn inject_tool_calls_to_dag() {
     // Act
     inject_tool_calls(&mut tracked_dagops, &tool_calls).unwrap();
 
+    // Assert that detached from .chat_messages
+    let expected_detached = vec![".chat_messages".to_string()];
+    assert_that!(&tracked_dagops.detached, is(equal_to(&expected_detached)));
+
     // Assert that the value nodes are created:
     // - 1 for chat history, with 2 tool calls
     // - 2 for tool calls input
@@ -251,4 +255,5 @@ fn inject_empty_tool_calls_to_dag() {
     assert_that!(tracked_dagops.value_nodes.len(), is(equal_to(0)));
     assert_that!(tracked_dagops.workflows.len(), is(equal_to(0)));
     assert_that!(tracked_dagops.aliases.len(), is(equal_to(0)));
+    assert_that!(tracked_dagops.detached.len(), is(equal_to(0)));
 }

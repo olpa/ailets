@@ -37,6 +37,7 @@ impl InjectDagOpsTrait for TrackedInjectDagOps {
 pub struct TrackedDagOps {
     pub value_nodes: Vec<String>,
     pub aliases: Vec<String>,
+    pub detached: Vec<String>,
     pub workflows: Vec<String>,
 }
 
@@ -70,6 +71,11 @@ impl DagOpsTrait for TrackedDagOps {
         self.workflows
             .push(format!("{handle}:{workflow_name}:{deps_str}"));
         Ok(handle as u32)
+    }
+
+    fn detach_from_alias(&mut self, alias: &str) -> Result<(), String> {
+        self.detached.push(alias.to_string());
+        Ok(())
     }
 }
 
