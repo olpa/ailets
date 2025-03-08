@@ -114,11 +114,12 @@ async def messages_to_query(runtime: INodeRuntime) -> None:
 
     messages: list[Gpt4oMessage] = []
     async for message in iter_streams_objects(runtime, ""):
-        new_content, tool_calls = await rewrite_content(runtime, message["content"])
         new_message: Gpt4oMessage = message.copy()  # type: ignore[assignment]
-        new_message["content"] = new_content
-        if tool_calls:
-            new_message["tool_calls"] = tool_calls
+        if "content" in message:
+            new_content, tool_calls = await rewrite_content(runtime, message["content"])
+            new_message["content"] = new_content
+            if tool_calls:
+                new_message["tool_calls"] = tool_calls
 
         messages.append(new_message)
 
