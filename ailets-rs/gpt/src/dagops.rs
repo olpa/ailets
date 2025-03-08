@@ -46,6 +46,11 @@ pub fn inject_tool_calls(
     }
 
     //
+    // Don't interfere with previous model workflow
+    //
+    dagops.detach_from_alias(".chat_messages")?;
+
+    //
     // Put tool calls in chat history
     //
     let tcch = json!([{

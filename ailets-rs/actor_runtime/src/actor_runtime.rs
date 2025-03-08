@@ -25,6 +25,13 @@ extern "C" {
     #[cfg(feature = "dagops")]
     pub fn dag_alias(alias_ptr: *const c_char, node_handle: c_int) -> c_int;
 
+    /// `dag_detach_from_alias` parameters:
+    /// - `alias_ptr`: pointer to the C-string alias
+    ///
+    /// return: 0 if success, -1 if error
+    #[cfg(feature = "dagops")]
+    pub fn dag_detach_from_alias(alias_ptr: *const c_char) -> c_int;
+
     /// `dag_instantiate_with_deps` parameters:
     /// - `workflow`: pointer to the C-string workflow name
     /// - `deps`: pointer to the C-string JSON dependencies map

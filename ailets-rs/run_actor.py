@@ -170,6 +170,10 @@ class NodeRuntime:
         print(f"dag_alias: alias: {alias}, node_handle: {node_handle} -> {handle}")
         return handle
 
+    def dag_detach_from_alias(self, alias: str) -> int:
+        print(f"dag_detach_from_alias: alias: {alias}")
+        return 0
+
 
 class BufToStr:
     def __init__(self) -> None:
@@ -240,6 +244,9 @@ def register_node_runtime(
             node_handle,
         )
 
+    def dag_detach_from_alias(alias: int) -> int:
+        return nr.dag_detach_from_alias(buf_to_str.get_string(alias))
+
     import_object.register(
         "",
         {
@@ -254,6 +261,7 @@ def register_node_runtime(
             ),
             "dag_value_node": wasmer.Function(store, dag_value_node),
             "dag_alias": wasmer.Function(store, dag_alias),
+            "dag_detach_from_alias": wasmer.Function(store, dag_detach_from_alias),
         },
     )
 

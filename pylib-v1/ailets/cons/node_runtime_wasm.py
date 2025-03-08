@@ -140,6 +140,18 @@ def fill_wasm_import_object(
             )
             return -1
 
+    async def dag_detach_from_alias(alias_ptr: int) -> int:
+        alias = buf_to_str.get_string(alias_ptr)
+        try:
+            runtime.dagops().detach_from_alias(alias)
+            return 0
+        except Exception as e:
+            print(
+                f"detach_from_alias: Error detaching from alias '{alias}': {e}",
+                file=sys.stderr,
+            )
+            return -1
+
     def sync_n_of_streams(name_ptr: int) -> int:
         return asyncio.run(n_of_streams(name_ptr))
 
@@ -167,6 +179,9 @@ def fill_wasm_import_object(
     def sync_dag_alias(alias_ptr: int, node_handle: int) -> int:
         return asyncio.run(dag_alias(alias_ptr, node_handle))
 
+    def sync_dag_detach_from_alias(alias_ptr: int) -> int:
+        return asyncio.run(dag_detach_from_alias(alias_ptr))
+
     # Register functions with WASM
     import_object.register(
         "",
@@ -182,5 +197,6 @@ def fill_wasm_import_object(
             ),
             "dag_value_node": wasmer.Function(store, sync_dag_value_node),
             "dag_alias": wasmer.Function(store, sync_dag_alias),
+            "dag_detach_from_alias": wasmer.Function(store, sync_dag_detach_from_alias),
         },
     )
