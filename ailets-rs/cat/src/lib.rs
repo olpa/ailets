@@ -5,14 +5,14 @@ use std::os::raw::c_char;
 fn err_to_c_string(f: &str, e: impl std::error::Error) -> *const c_char {
     let err = format!("Failed to {f}: {e}");
     #[allow(clippy::unwrap_used)]
-    let err = std::ffi::CString::new(err).unwrap();
+    let err = Box::leak(Box::new(std::ffi::CString::new(err).unwrap()));
     err.as_ptr()
 }
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
 pub extern "C" fn execute() -> *const c_char {
-    let mut reader = match AReader::new(c"") {
+    let mut reader = match AReader::new(c"no-such-file") {
         Ok(reader) => reader,
         Err(e) => return err_to_c_string("open to read", e),
     };
