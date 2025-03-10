@@ -39,7 +39,10 @@ async def response_to_messages_wasm(runtime: INodeRuntime) -> None:
             raise ValueError("Memory is not a Memory")
         buf_to_str.set_memory(memory)
 
-        run_fn()
+        err_ptr = run_fn()
+        if err_ptr:
+            err = buf_to_str.get_string(err_ptr)
+            raise RuntimeError(f"Actor error: {err}")
 
     # Run the WASM function
     await asyncio.to_thread(init_and_run)
