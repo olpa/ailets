@@ -296,7 +296,11 @@ def main() -> None:
     assert isinstance(memory, wasmer.Memory), "Memory is not a Memory"
     buf_to_str.set_memory(memory)
 
-    run_fn()
+    err_ptr = run_fn()
+    if err_ptr:
+        err = buf_to_str.get_string(err_ptr)
+        print("!! Actor error:", err)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
