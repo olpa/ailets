@@ -1,27 +1,44 @@
 use actor_io::{AReader, AWriter};
 use std::io;
+use std::os::raw::c_char;
 
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
-#[allow(clippy::panic)]
-pub extern "C" fn execute() -> i32 {
-    let mut reader = AReader::new(c"").unwrap_or_else(|e| {
-        panic!("Failed to open to read: {e}");
-    });
-    let mut writer = AWriter::new(c"").unwrap_or_else(|e| {
-        panic!("Failed to open to write: {e}");
-    });
+#[allow(clippy::unwrap_used)]
+pub extern "C" fn execute() -> *const c_char {
+    let mut reader = match AReader::new(c"") {
+        Ok(reader) => reader,
+        Err(e) => {
+            let err = format!("Failed to open to read: {e}");
+            let err = std::ffi::CString::new(err).unwrap();
+            return err.as_ptr();
+        }
+    };
+    let mut writer = match AWriter::new(c"") {
+        Ok(writer) => writer,
+        Err(e) => {
+            let err = format!("Failed to open to write: {e}");
+            let err = std::ffi::CString::new(err).unwrap();
+            return err.as_ptr();
+        }
+    };
 
-    io::copy(&mut reader, &mut writer).unwrap_or_else(|e| {
-        panic!("Failed to copy: {e}");
-    });
+    if let Err(e) = io::copy(&mut reader, &mut writer) {
+        let err = format!("Failed to copy: {e}");
+        let err = std::ffi::CString::new(err).unwrap();
+        return err.as_ptr();
+    }
 
-    writer.close().unwrap_or_else(|e| {
-        panic!("Failed to close writer: {e}");
-    });
-    reader.close().unwrap_or_else(|e| {
-        panic!("Failed to close reader: {e}");
-    });
+    if let Err(e) = writer.close() {
+        let err = format!("Failed to close writer: {e}");
+        let err = std::ffi::CString::new(err).unwrap();
+        return err.as_ptr();
+    }
+    if let Err(e) = reader.close() {
+        let err = format!("Failed to close reader: {e}");
+        let err = std::ffi::CString::new(err).unwrap();
+        return err.as_ptr();
+    }
 
-    0
+    std::ptr::null()
 }
