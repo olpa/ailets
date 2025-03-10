@@ -4,7 +4,7 @@ pub mod handlers;
 pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
-use actor_runtime::{DagOps, err_to_heap_c_string};
+use actor_runtime::{err_to_heap_c_string, DagOps};
 use dagops::{InjectDagOps, InjectDagOpsTrait};
 use handlers::{
     on_begin_message, on_choices, on_content, on_end_message, on_function_arguments,
@@ -13,6 +13,7 @@ use handlers::{
 use scan_json::RJiter;
 use scan_json::{scan, BoxedAction, BoxedEndAction, ContextFrame, Name, ParentAndName, Trigger};
 use std::cell::RefCell;
+use std::ffi::c_char;
 use std::io::Write;
 use structure_builder::StructureBuilder;
 

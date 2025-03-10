@@ -6,6 +6,7 @@ use scan_json::jiter::Peek;
 use scan_json::RJiter;
 use scan_json::{scan, BoxedAction, ParentParentAndName, StreamOp, Trigger};
 use std::cell::RefCell;
+use std::ffi::c_char;
 use std::io::Write;
 use structure_builder::StructureBuilder;
 

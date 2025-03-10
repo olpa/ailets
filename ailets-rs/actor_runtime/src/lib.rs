@@ -1,4 +1,4 @@
-use std::os::raw::c_char;
+use std::ffi::c_char;
 
 mod actor_runtime;
 #[cfg(feature = "dagops")]

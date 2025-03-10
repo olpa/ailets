@@ -1,7 +1,7 @@
 use actor_io::{AReader, AWriter};
 use actor_runtime::err_to_heap_c_string;
+use std::ffi::c_char;
 use std::io;
-use std::os::raw::c_char;
 
 #[no_mangle]
 pub extern "C" fn execute() -> *const c_char {
