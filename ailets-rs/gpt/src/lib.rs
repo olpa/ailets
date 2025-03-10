@@ -4,7 +4,7 @@ pub mod handlers;
 pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
-use actor_runtime::DagOps;
+use actor_runtime::{err_to_heap_c_string, DagOps};
 use dagops::{InjectDagOps, InjectDagOpsTrait};
 use handlers::{
     on_begin_message, on_choices, on_content, on_end_message, on_function_arguments,
@@ -13,6 +13,7 @@ use handlers::{
 use scan_json::RJiter;
 use scan_json::{scan, BoxedAction, BoxedEndAction, ContextFrame, Name, ParentAndName, Trigger};
 use std::cell::RefCell;
+use std::ffi::c_char;
 use std::io::Write;
 use structure_builder::StructureBuilder;
 
@@ -178,16 +179,18 @@ pub fn _process_gpt<W: Write>(
 /// # Panics
 /// If anything goes wrong.
 #[no_mangle]
-#[allow(clippy::panic)]
-pub extern "C" fn process_gpt() {
-    let reader = AReader::new(c"").unwrap_or_else(|e| {
-        panic!("Failed to create reader: {e:?}");
-    });
-    let writer = AWriter::new(c"").unwrap_or_else(|e| {
-        panic!("Failed to create writer: {e:?}");
-    });
+pub extern "C" fn process_gpt() -> *const c_char {
+    let reader = match AReader::new(c"") {
+        Ok(reader) => reader,
+        Err(e) => return err_to_heap_c_string(&format!("Failed to create reader: {e:?}")),
+    };
+    let writer = match AWriter::new(c"") {
+        Ok(writer) => writer,
+        Err(e) => return err_to_heap_c_string(&format!("Failed to create writer: {e:?}")),
+    };
     let mut dagops = InjectDagOps::new(DagOps {});
-    _process_gpt(reader, writer, &mut dagops).unwrap_or_else(|e| {
-        panic!("Failed to process GPT: {e:?}");
-    });
+    if let Err(e) = _process_gpt(reader, writer, &mut dagops) {
+        return err_to_heap_c_string(&format!("Failed to process GPT: {e}"));
+    }
+    std::ptr::null()
 }

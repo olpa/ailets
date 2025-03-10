@@ -1,27 +1,29 @@
 use actor_io::{AReader, AWriter};
+use actor_runtime::err_to_heap_c_string;
+use std::ffi::c_char;
 use std::io;
 
 #[no_mangle]
-#[allow(clippy::missing_panics_doc)]
-#[allow(clippy::panic)]
-pub extern "C" fn execute() -> i32 {
-    let mut reader = AReader::new(c"").unwrap_or_else(|e| {
-        panic!("Failed to open to read: {e}");
-    });
-    let mut writer = AWriter::new(c"").unwrap_or_else(|e| {
-        panic!("Failed to open to write: {e}");
-    });
+pub extern "C" fn execute() -> *const c_char {
+    let mut reader = match AReader::new(c"") {
+        Ok(reader) => reader,
+        Err(e) => return err_to_heap_c_string(&format!("Failed to open to read: {e}")),
+    };
+    let mut writer = match AWriter::new(c"") {
+        Ok(writer) => writer,
+        Err(e) => return err_to_heap_c_string(&format!("Failed to open to write: {e}")),
+    };
 
-    io::copy(&mut reader, &mut writer).unwrap_or_else(|e| {
-        panic!("Failed to copy: {e}");
-    });
+    if let Err(e) = io::copy(&mut reader, &mut writer) {
+        return err_to_heap_c_string(&format!("Failed to copy: {e}"));
+    }
 
-    writer.close().unwrap_or_else(|e| {
-        panic!("Failed to close writer: {e}");
-    });
-    reader.close().unwrap_or_else(|e| {
-        panic!("Failed to close reader: {e}");
-    });
+    if let Err(e) = writer.close() {
+        return err_to_heap_c_string(&format!("Failed to close writer: {e}"));
+    }
+    if let Err(e) = reader.close() {
+        return err_to_heap_c_string(&format!("Failed to close reader: {e}"));
+    }
 
-    0
+    std::ptr::null()
 }

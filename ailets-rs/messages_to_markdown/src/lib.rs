@@ -1,10 +1,12 @@
 mod structure_builder;
 
 use actor_io::{AReader, AWriter};
+use actor_runtime::err_to_heap_c_string;
 use scan_json::jiter::Peek;
 use scan_json::RJiter;
 use scan_json::{scan, BoxedAction, ParentParentAndName, StreamOp, Trigger};
 use std::cell::RefCell;
+use std::ffi::c_char;
 use std::io::Write;
 use structure_builder::StructureBuilder;
 
@@ -71,15 +73,17 @@ pub fn _messages_to_markdown<W: Write>(
 /// # Panics
 /// If anything goes wrong.
 #[no_mangle]
-#[allow(clippy::panic)]
-pub extern "C" fn messages_to_markdown() {
-    let reader = AReader::new(c"").unwrap_or_else(|e| {
-        panic!("Failed to create reader: {e:?}");
-    });
-    let writer = AWriter::new(c"").unwrap_or_else(|e| {
-        panic!("Failed to create writer: {e:?}");
-    });
-    _messages_to_markdown(reader, writer).unwrap_or_else(|e| {
-        panic!("Failed to process messages to markdown: {e:?}");
-    });
+pub extern "C" fn messages_to_markdown() -> *const c_char {
+    let reader = match AReader::new(c"") {
+        Ok(reader) => reader,
+        Err(e) => return err_to_heap_c_string(&format!("Failed to create reader: {e:?}")),
+    };
+    let writer = match AWriter::new(c"") {
+        Ok(writer) => writer,
+        Err(e) => return err_to_heap_c_string(&format!("Failed to create writer: {e:?}")),
+    };
+    if let Err(e) = _messages_to_markdown(reader, writer) {
+        return err_to_heap_c_string(&format!("Failed to process messages to markdown: {e}"));
+    }
+    std::ptr::null()
 }
