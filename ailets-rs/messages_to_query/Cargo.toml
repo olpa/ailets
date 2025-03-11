@@ -1,0 +1,17 @@
+[package]
+name = "messages_to_query"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+# To run tests, two types are needed
+crate-type = ["cdylib", "lib"]
+# crate-type = ["cdylib"]
+
+[dependencies]
+actor_io = { version = "0.1.0", path = "../actor_io" }
+actor_runtime = { version = "0.1.0", path = "../actor_runtime" }
+actor_runtime_mocked = { version = "0.1.0", path = "../actor_runtime_mocked" }
+scan_json = "1.0.1"
