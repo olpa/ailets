@@ -15,6 +15,7 @@ setup(
         },
     install_requires=[
         'aiohttp',
+        'pydantic',
         'tomli',
         'typing_extensions',
         'wasmer',
