@@ -13,4 +13,44 @@ impl<W: Write> StructureBuilder<W> {
     pub fn get_writer(&mut self) -> &mut W {
         &mut self.writer
     }
+
+    pub fn start_message(&mut self) -> std::io::Result<()> {
+        self.writer.write_all(b"{")?;
+        Ok(())
+    }
+
+    pub fn add_role(&mut self, role: &str) -> std::io::Result<()> {
+        write!(self.writer, r#""role":"{}""#, role)?;
+        Ok(())
+    }
+
+    pub fn start_content(&mut self) -> std::io::Result<()> {
+        self.writer.write_all(br#","content":["#)?;
+        Ok(())
+    }
+
+    pub fn start_text_item(&mut self) -> std::io::Result<()> {
+        self.writer.write_all(br#"{"type":"text""#)?;
+        Ok(())
+    }
+
+    pub fn add_text(&mut self, text: &str) -> std::io::Result<()> {
+        write!(self.writer, r#","text":"{}""#, text)?;
+        Ok(())
+    }
+
+    pub fn end_text_item(&mut self) -> std::io::Result<()> {
+        self.writer.write_all(b"}")?;
+        Ok(())
+    }
+
+    pub fn end_content(&mut self) -> std::io::Result<()> {
+        self.writer.write_all(b"]")?;
+        Ok(())
+    }
+
+    pub fn end_message(&mut self) -> std::io::Result<()> {
+        self.writer.write_all(b"}")?;
+        Ok(())
+    }
 }
