@@ -7,6 +7,9 @@ use std::cell::RefCell;
 use std::ffi::c_char;
 use std::io::Write;
 
+mod handlers;
+pub mod structure_builder;
+
 const BUFFER_SIZE: u32 = 1024;
 
 fn on_message_begin<W: Write>(
