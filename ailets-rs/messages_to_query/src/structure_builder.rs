@@ -14,41 +14,57 @@ impl<W: Write> StructureBuilder<W> {
         &mut self.writer
     }
 
+    /// # Errors
+    /// I/O
     pub fn start_message(&mut self) -> std::io::Result<()> {
         self.writer.write_all(b"{")?;
         Ok(())
     }
 
+    /// # Errors
+    /// I/O
     pub fn add_role(&mut self, role: &str) -> std::io::Result<()> {
-        write!(self.writer, r#""role":"{}""#, role)?;
+        write!(self.writer, r#""role":"{role}""#)?;
         Ok(())
     }
 
+    /// # Errors
+    /// I/O
     pub fn start_content(&mut self) -> std::io::Result<()> {
         self.writer.write_all(br#","content":["#)?;
         Ok(())
     }
 
+    /// # Errors
+    /// I/O
     pub fn start_text_item(&mut self) -> std::io::Result<()> {
         self.writer.write_all(br#"{"type":"text""#)?;
         Ok(())
     }
 
+    /// # Errors
+    /// I/O
     pub fn add_text(&mut self, text: &str) -> std::io::Result<()> {
-        write!(self.writer, r#","text":"{}""#, text)?;
+        write!(self.writer, r#","text":"{text}""#)?;
         Ok(())
     }
 
+    /// # Errors
+    /// I/O
     pub fn end_text_item(&mut self) -> std::io::Result<()> {
         self.writer.write_all(b"}")?;
         Ok(())
     }
 
+    /// # Errors
+    /// I/O
     pub fn end_content(&mut self) -> std::io::Result<()> {
         self.writer.write_all(b"]")?;
         Ok(())
     }
 
+    /// # Errors
+    /// I/O
     pub fn end_message(&mut self) -> std::io::Result<()> {
         self.writer.write_all(b"}")?;
         Ok(())
