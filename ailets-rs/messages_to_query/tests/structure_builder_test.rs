@@ -36,7 +36,7 @@ fn many_messages_and_items() {
     builder.add_role("user").unwrap();
     builder.start_content().unwrap();
     builder.start_text_item().unwrap();
-    builder.add_text("First message").unwrap();
+    builder.add_text("Text item of the first message").unwrap();
     builder.end_text_item().unwrap();
     builder.end_content().unwrap();
     builder.end_message().unwrap();
@@ -45,10 +45,14 @@ fn many_messages_and_items() {
     builder.add_role("assistant").unwrap();
     builder.start_content().unwrap();
     builder.start_text_item().unwrap();
-    builder.add_text("First item").unwrap();
+    builder
+        .add_text("First item of the second message")
+        .unwrap();
     builder.end_text_item().unwrap();
     builder.start_text_item().unwrap();
-    builder.add_text("Second item").unwrap();
+    builder
+        .add_text("Second item of the second message")
+        .unwrap();
     builder.end_text_item().unwrap();
     builder.end_content().unwrap();
     builder.end_message().unwrap();
@@ -63,7 +67,7 @@ fn many_messages_and_items() {
             "{}{}{}{}{}{}{}{}",
             r#"{"role":"user","content":["#,
             text_item1,
-            "]}",
+            "]},",
             r#"{"role":"assistant","content":["#,
             text_item2a,
             ",",
