@@ -1,44 +1,59 @@
-use scan_json::{scan, BoxedAction, BoxedEndAction, ContextFrame, Name, ParentAndName, Trigger};
-use std::io::Write;
-use std::cell::RefCell;
-use scan_json::StreamOp;
+use actor_io::{AReader, AWriter};
+use actor_runtime::err_to_heap_c_string;
 use scan_json::RJiter;
+use scan_json::StreamOp;
+use scan_json::{scan, BoxedAction, BoxedEndAction, ParentAndName, Trigger};
+use std::cell::RefCell;
+use std::ffi::c_char;
+use std::io::Write;
 
-fn on_message_begin(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<dyn Write>) -> StreamOp {
-    let writer = writer_cell.borrow_mut();
+const BUFFER_SIZE: u32 = 1024;
+
+fn on_message_begin<W: Write>(
+    _rjiter_cell: &RefCell<RJiter>,
+    writer_cell: &RefCell<W>,
+) -> StreamOp {
+    let mut writer = writer_cell.borrow_mut();
     writer.write_all(b"{").unwrap();
-    StreamOp::Continue
+    StreamOp::None
 }
 
-fn on_message_end(rjiter_cell: &RefCell<RJiter>, writer_cell: &RefCell<dyn Write>) -> StreamOp {
-    let writer = writer_cell.borrow_mut();
+fn on_message_end<W: Write>(writer_cell: &RefCell<W>) -> Result<(), Box<dyn std::error::Error>> {
+    let mut writer = writer_cell.borrow_mut();
     writer.write_all(b"}").unwrap();
-    StreamOp::Continue
+    Ok(())
 }
 
 pub fn _process_query<W: Write>(
     mut reader: impl std::io::Read,
     writer: W,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut rjiter_cell = RefCell::new(RJiter::new(&mut reader, &mut buffer));
-    let mut builder_cell = RefCell::new(QueryBuilder::new(writer));
+    let mut buffer = vec![0u8; BUFFER_SIZE as usize];
+    let rjiter_cell = RefCell::new(RJiter::new(&mut reader, &mut buffer));
+    let builder_cell = RefCell::new(writer);
 
     let message_begin = Trigger::new(
         Box::new(ParentAndName::new(
             "#top".to_string(),
             "#object".to_string(),
         )),
-        Box::new(on_message_begin) as BA<'_, W>,
+        Box::new(on_message_begin) as BoxedAction<'_, W>,
     );
     let message_end = Trigger::new(
         Box::new(ParentAndName::new(
             "#top".to_string(),
             "#object".to_string(),
         )),
-        Box::new(on_message_end) as BA<'_, W>,
+        Box::new(on_message_end) as BoxedEndAction<'_, W>,
     );
 
-    scan(&[message_begin], &[message_end], &[], &rjiter_cell, &builder_cell)?;
+    scan(
+        &[message_begin],
+        &[message_end],
+        &[],
+        &rjiter_cell,
+        &builder_cell,
+    )?;
     Ok(())
 }
 
@@ -59,4 +74,3 @@ pub extern "C" fn process_query() -> *const c_char {
     }
     std::ptr::null()
 }
-

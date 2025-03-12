@@ -239,7 +239,9 @@ dependencies = [
  "actor_io",
  "actor_runtime",
  "actor_runtime_mocked",
+ "hamcrest",
  "scan_json",
+ "serde_json",
 ]
 
 [[package]]

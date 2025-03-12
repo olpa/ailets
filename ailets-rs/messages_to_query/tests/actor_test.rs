@@ -1,4 +1,7 @@
+#[macro_use]
+extern crate hamcrest;
 use actor_runtime_mocked::RcWriter;
+use hamcrest::prelude::*;
 use messages_to_query::_process_query;
 use serde_json::Value;
 use std::io::Cursor;
@@ -12,10 +15,10 @@ fn test_text_items() {
 
     _process_query(reader, writer.clone()).unwrap();
 
-    let input_json: Value = serde_json::from_str(&fixture_content)
-        .expect("Failed to parse input as JSON");
-    let output_json: Value = serde_json::from_str(&writer.get_output())
-        .expect("Failed to parse output as JSON"); 
+    let input_json: Value =
+        serde_json::from_str(&fixture_content).expect("Failed to parse input as JSON");
+    let output_json: Value =
+        serde_json::from_str(&writer.get_output()).expect("Failed to parse output as JSON");
 
     assert_that!(input_json, equal_to(output_json));
 }
