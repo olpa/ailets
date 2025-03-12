@@ -20,7 +20,7 @@ fn on_message_begin<W: Write>(
 
 fn on_message_end<W: Write>(writer_cell: &RefCell<W>) -> Result<(), Box<dyn std::error::Error>> {
     let mut writer = writer_cell.borrow_mut();
-    writer.write_all(b"}").unwrap();
+    writer.write_all(b"}\n").unwrap();
     Ok(())
 }
 
