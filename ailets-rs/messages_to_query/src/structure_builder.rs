@@ -1,17 +1,31 @@
 use std::io::Write;
 
+#[derive(Debug)]
+pub enum Progress {
+    ChildrenAreUnexpected,
+    WaitingForFirstChild,
+    WriteIsStarted, // to have idempotent "really_start" and to close the element
+    ChildIsWritten, // to write the comma
+}
+
+fn is_write_started(progress: Progress) -> bool {
+    progress == Progress::WriteIsStarted || progress == Progress::ChildIsWritten
+}
+
 pub struct StructureBuilder<W: Write> {
     writer: W,
-    has_message: bool,
-    has_content_item: bool,
+    top: Progress,
+    message: Progress,
+    message_content: Progress,
 }
 
 impl<W: Write> StructureBuilder<W> {
     pub fn new(writer: W) -> Self {
         StructureBuilder {
             writer,
-            has_message: false,
-            has_content_item: false,
+            top: Progress::WaitingForFirstChild,
+            message: Progress::ChildrenAreUnexpected,
+            message_content: Progress::ChildrenAreUnexpected,
         }
     }
 
@@ -23,19 +37,40 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// I/O
     pub fn start_message(&mut self) -> std::io::Result<()> {
-        if self.has_message {
+        self.message = Progress::WaitingForFirstChild;
+        self.message_content = Progress::ChildrenAreUnexpected;
+        Ok(())
+    }
+
+    fn really_start_message(&mut self) -> std::Result<(), String> {
+        if self.message == Progress::ChildrenAreUnexpected {
+            return Err("Message is not started".to_string());
+        }
+        if is_write_started(self.message) {
+            return Ok();
+        }
+        if self.top == Progress::ChildIsWritten {
             self.writer.write_all(b",")?;
         }
         self.writer.write_all(b"{")?;
+        self.message = Progress::WriteIsStarted;
+        Ok(())
+    }
 
-        self.has_message = true;
-        self.has_content_item = false;
+    /// # Errors
+    /// I/O
+    pub fn end_message(&mut self) -> std::io::Result<()> {
+        if is_write_started(self.message) {
+            self.writer.write_all(b"}")?;
+            self.top = Progress::ChildIsWritten;
+        }
         Ok(())
     }
 
     /// # Errors
     /// I/O
     pub fn add_role(&mut self, role: &str) -> std::io::Result<()> {
+        self.really_start_message()?;
         write!(self.writer, r#""role":"{role}""#)?;
         Ok(())
     }
@@ -47,15 +82,23 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
+    pub fn start_content_item(&mut self) -> std::io::Result<()> {
+        if self.should_write_div_content_item {
+            self.writer.write_all(b",")?;
+        }
+        self.should_write_div_content_item = true;
+        Ok(())
+    }
+
     /// # Errors
     /// I/O
     pub fn start_text_item(&mut self) -> std::io::Result<()> {
-        if self.has_content_item {
+        if self.should_write_div_content_item {
             self.writer.write_all(b",")?;
         }
         self.writer.write_all(br#"{"type":"text""#)?;
 
-        self.has_content_item = true;
+        self.should_write_div_content_item = true;
         Ok(())
     }
 
@@ -77,13 +120,6 @@ impl<W: Write> StructureBuilder<W> {
     /// I/O
     pub fn end_content(&mut self) -> std::io::Result<()> {
         self.writer.write_all(b"]")?;
-        Ok(())
-    }
-
-    /// # Errors
-    /// I/O
-    pub fn end_message(&mut self) -> std::io::Result<()> {
-        self.writer.write_all(b"}")?;
         Ok(())
     }
 }
