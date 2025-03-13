@@ -10,12 +10,12 @@ fn happy_path_for_text() {
     let builder = StructureBuilder::new(writer.clone());
     let mut builder = builder;
 
-    builder.start_message().unwrap();
+    builder.begin_message().unwrap();
     builder.add_role("user").unwrap();
-    builder.start_content().unwrap();
-    builder.start_text_item().unwrap();
+    builder.begin_content().unwrap();
+    builder.begin_content_item().unwrap();
     builder.add_text("Hello!").unwrap();
-    builder.end_text_item().unwrap();
+    builder.end_content_item().unwrap();
     builder.end_content().unwrap();
     builder.end_message().unwrap();
 
@@ -32,28 +32,28 @@ fn many_messages_and_items() {
     let builder = StructureBuilder::new(writer.clone());
     let mut builder = builder;
 
-    builder.start_message().unwrap();
+    builder.begin_message().unwrap();
     builder.add_role("user").unwrap();
-    builder.start_content().unwrap();
-    builder.start_text_item().unwrap();
+    builder.begin_content().unwrap();
+    builder.begin_content_item().unwrap();
     builder.add_text("Text item of the first message").unwrap();
-    builder.end_text_item().unwrap();
+    builder.end_content_item().unwrap();
     builder.end_content().unwrap();
     builder.end_message().unwrap();
 
-    builder.start_message().unwrap();
+    builder.begin_message().unwrap();
     builder.add_role("assistant").unwrap();
-    builder.start_content().unwrap();
-    builder.start_text_item().unwrap();
+    builder.begin_content().unwrap();
+    builder.begin_content_item().unwrap();
     builder
         .add_text("First item of the second message")
         .unwrap();
-    builder.end_text_item().unwrap();
-    builder.start_text_item().unwrap();
+    builder.end_content_item().unwrap();
+    builder.begin_content_item().unwrap();
     builder
         .add_text("Second item of the second message")
         .unwrap();
-    builder.end_text_item().unwrap();
+    builder.end_content_item().unwrap();
     builder.end_content().unwrap();
     builder.end_message().unwrap();
 

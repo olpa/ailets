@@ -38,14 +38,14 @@ impl<W: Write> StructureBuilder<W> {
 
     /// # Errors
     /// I/O
-    pub fn start_message(&mut self) -> Result<(), String> {
+    pub fn begin_message(&mut self) -> Result<(), String> {
         self.message = Progress::WaitingForFirstChild;
         self.message_content = Progress::ChildrenAreUnexpected;
         self.content_item = Progress::ChildrenAreUnexpected;
         Ok(())
     }
 
-    fn really_start_message(&mut self) -> Result<(), String> {
+    fn really_begin_message(&mut self) -> Result<(), String> {
         if let Progress::ChildrenAreUnexpected = self.message {
             return Err("Message is not started".to_string());
         }
@@ -75,7 +75,7 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// I/O
     pub fn add_role(&mut self, role: &str) -> Result<(), String> {
-        self.really_start_message()?;
+        self.really_begin_message()?;
         if let Progress::ChildIsWritten = self.message {
             self.writer.write_all(b",").map_err(|e| e.to_string())?;
         }
@@ -86,20 +86,20 @@ impl<W: Write> StructureBuilder<W> {
 
     /// # Errors
     /// I/O
-    pub fn start_content(&mut self) -> Result<(), String> {
+    pub fn begin_content(&mut self) -> Result<(), String> {
         self.message_content = Progress::WaitingForFirstChild;
         self.content_item = Progress::ChildrenAreUnexpected;
         Ok(())
     }
 
-    fn really_start_content(&mut self) -> Result<(), String> {
+    fn really_begin_content(&mut self) -> Result<(), String> {
         if let Progress::ChildrenAreUnexpected = self.message_content {
             return Err("Content is not started".to_string());
         }
         if is_write_started(&self.message_content) {
             return Ok(());
         }
-        self.really_start_message()?;
+        self.really_begin_message()?;
         if let Progress::ChildIsWritten = self.message {
             self.writer.write_all(b",").map_err(|e| e.to_string())?;
         }
@@ -119,23 +119,22 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
-    pub fn start_content_item(&mut self) -> Result<(), String> {
+    pub fn begin_content_item(&mut self) -> Result<(), String> {
         self.content_item = Progress::WaitingForFirstChild;
         Ok(())
     }
 
-    fn really_start_content_item(&mut self) -> Result<(), String> {
+    fn really_begin_content_item(&mut self) -> Result<(), String> {
         if let Progress::ChildrenAreUnexpected = self.content_item {
             return Err("Content item is not started".to_string());
         }
         if is_write_started(&self.content_item) {
             return Ok(());
         }
-        self.really_start_content()?;
+        self.really_begin_content()?;
         if let Progress::ChildIsWritten = self.message_content {
             self.writer.write_all(b",").map_err(|e| e.to_string())?;
         }
-        self.writer.write_all(br#"{"type":"text""#).map_err(|e| e.to_string())?;
         self.content_item = Progress::WriteIsStarted;
         Ok(())
     }
@@ -150,13 +149,24 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
+    fn write_item_prologue(&mut self, item_type: &str) -> Result<(), String> {
+        self.writer.write_all(br#"{"type":""#).map_err(|e| e.to_string())?;
+        self.writer.write_all(item_type.as_bytes()).map_err(|e| e.to_string())?;
+        self.writer.write_all(b"\",\"").map_err(|e| e.to_string())?;
+        self.writer.write_all(item_type.as_bytes()).map_err(|e| e.to_string())?;
+        self.writer.write_all(b"\":").map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
     /// # Errors
     /// I/O
     pub fn add_text(&mut self, text: &str) -> Result<(), String> {
         if let Progress::ChildrenAreUnexpected = self.content_item {
             return Err("Content item is not started".to_string());
         }
-        self.really_start_content_item()?;
+        self.really_begin_content_item()?;
+        self.write_item_prologue("text")?;
+        self.writer.write_all(b"\"").map_err(|e| e.to_string())?;
         self.writer.write_all(text.as_bytes()).map_err(|e| e.to_string())?;
         self.writer.write_all(b"\"").map_err(|e| e.to_string())?;
         self.content_item = Progress::ChildIsWritten;

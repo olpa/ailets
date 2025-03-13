@@ -9,8 +9,8 @@ pub fn on_message_begin<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
     let mut builder = builder_cell.borrow_mut();
-    if let Err(e) = builder.start_message() {
-        return StreamOp::Error(Box::new(e));
+    if let Err(e) = builder.begin_message() {
+        return StreamOp::Error(e.into());
     }
     StreamOp::None
 }
@@ -37,7 +37,7 @@ pub fn on_role<W: Write>(
         }
     };
     if let Err(e) = builder_cell.borrow_mut().add_role(role) {
-        return StreamOp::Error(Box::new(e));
+        return StreamOp::Error(e.into());
     }
     StreamOp::ValueIsConsumed
 }
