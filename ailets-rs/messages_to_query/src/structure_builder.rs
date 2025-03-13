@@ -157,17 +157,8 @@ impl<W: Write> StructureBuilder<W> {
     }
 
     fn write_item_prologue(&mut self, item_type: &str) -> Result<(), String> {
-        self.writer
-            .write_all(br#"{"type":""#)
+        write!(self.writer, r#"{{"type":"{item_type}","{item_type}":"#)
             .map_err(|e| e.to_string())?;
-        self.writer
-            .write_all(item_type.as_bytes())
-            .map_err(|e| e.to_string())?;
-        self.writer.write_all(b"\",\"").map_err(|e| e.to_string())?;
-        self.writer
-            .write_all(item_type.as_bytes())
-            .map_err(|e| e.to_string())?;
-        self.writer.write_all(b"\":").map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -179,11 +170,7 @@ impl<W: Write> StructureBuilder<W> {
         }
         self.really_begin_content_item()?;
         self.write_item_prologue("text")?;
-        self.writer.write_all(b"\"").map_err(|e| e.to_string())?;
-        self.writer
-            .write_all(text.as_bytes())
-            .map_err(|e| e.to_string())?;
-        self.writer.write_all(b"\"").map_err(|e| e.to_string())?;
+        write!(self.writer, r#""{text}""#).map_err(|e| e.to_string())?;
         self.content_item = Progress::ChildIsWritten;
         Ok(())
     }
