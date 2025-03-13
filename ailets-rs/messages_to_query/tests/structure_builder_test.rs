@@ -26,6 +26,7 @@ fn happy_path_for_text() {
         ))
     );
 }
+
 #[test]
 fn many_messages_and_items() {
     let writer = RcWriter::new();
@@ -75,4 +76,29 @@ fn many_messages_and_items() {
             "]}"
         ))
     );
+}
+
+#[test]
+fn skip_contentless_messages() {
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone());
+    let mut builder = builder;
+
+    builder.begin_message().unwrap();
+    builder.begin_content().unwrap();
+    builder.begin_content_item().unwrap();
+    builder.end_content_item().unwrap();
+    builder.end_content().unwrap();
+    builder.end_message().unwrap();
+
+    builder.begin_message().unwrap();
+    builder.begin_content().unwrap();
+    builder.begin_content_item().unwrap();
+    builder.end_content_item().unwrap();
+    builder.begin_content_item().unwrap();
+    builder.end_content_item().unwrap();
+    builder.end_content().unwrap();
+    builder.end_message().unwrap();
+
+    assert_that!(writer.get_output(), equal_to(String::new()));
 }
