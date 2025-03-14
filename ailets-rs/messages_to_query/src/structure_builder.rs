@@ -101,6 +101,8 @@ impl<W: Write> StructureBuilder<W> {
     pub fn begin_content(&mut self) -> Result<(), String> {
         self.message_content = Progress::WaitingForFirstChild;
         self.content_item = Progress::ChildrenAreUnexpected;
+        // Unlike for other containers, allow empty content
+        self.really_begin_content()?;
         Ok(())
     }
 

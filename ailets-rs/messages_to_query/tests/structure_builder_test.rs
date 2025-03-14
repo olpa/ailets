@@ -112,6 +112,7 @@ fn skip_empty_content_items() {
     builder.end_message().unwrap();
     builder.end().unwrap();
 
-    let empty_msg = r#"{"role":"user","content":[]}"#.to_owned() + "\n";
-    assert_that!(writer.get_output(), equal_to(empty_msg.repeat(2)));
+    let empty_msg = "{\"content\":[\n\n]}".to_owned();
+    let two_empty_msgs = format!("{},{}\n", empty_msg, empty_msg);
+    assert_that!(writer.get_output(), equal_to(two_empty_msgs));
 }
