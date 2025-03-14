@@ -116,3 +116,37 @@ fn skip_empty_content_items() {
     let two_empty_msgs = format!("{},{}\n", empty_msg, empty_msg);
     assert_that!(writer.get_output(), equal_to(two_empty_msgs));
 }
+
+#[test]
+fn auto_generate_type_text() {
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone());
+    let mut builder = builder;
+    builder.begin_message().unwrap();
+    builder.begin_content().unwrap();
+
+    builder.begin_content_item().unwrap();
+    builder.add_text("hello").unwrap();
+    builder.end_content_item().unwrap();
+
+    let expected = String::from("{\"content\":[\n{\"type\":\"text\",\"text\":\"hello\"}");
+    assert_that!(writer.get_output(), equal_to(expected));
+}
+
+#[test]
+fn mix_type_text() {
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone());
+    let mut builder = builder;
+    builder.begin_message().unwrap();
+    builder.begin_content().unwrap();
+
+    builder.begin_content_item().unwrap();
+    builder.add_item_type("text").unwrap();
+    builder.add_text("hello").unwrap();
+    builder.add_item_type("text").unwrap();
+    builder.end_content_item().unwrap();
+
+    let expected = String::from("{\"content\":[\n{\"type\":\"text\",\"text\":\"hello\"}");
+    assert_that!(writer.get_output(), equal_to(expected));
+}
