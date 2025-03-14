@@ -41,6 +41,15 @@ impl<W: Write> StructureBuilder<W> {
 
     /// # Errors
     /// I/O
+    pub fn end(&mut self) -> Result<(), String> {
+        if let Progress::ChildIsWritten = self.top {
+            self.writer.write_all(b"\n").map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    /// # Errors
+    /// I/O
     pub fn begin_message(&mut self) -> Result<(), String> {
         self.message = Progress::WaitingForFirstChild;
         self.message_content = Progress::ChildrenAreUnexpected;
@@ -107,7 +116,7 @@ impl<W: Write> StructureBuilder<W> {
             self.writer.write_all(b",").map_err(|e| e.to_string())?;
         }
         self.writer
-            .write_all(br#""content":["#)
+            .write_all(b"\"content\":[\n")
             .map_err(|e| e.to_string())?;
         self.message_content = Progress::WriteIsStarted;
         Ok(())
@@ -117,7 +126,7 @@ impl<W: Write> StructureBuilder<W> {
     /// I/O
     pub fn end_content(&mut self) -> Result<(), String> {
         if is_write_started(&self.message_content) {
-            self.writer.write_all(b"]").map_err(|e| e.to_string())?;
+            self.writer.write_all(b"\n]").map_err(|e| e.to_string())?;
             self.message = Progress::ChildIsWritten;
         }
         self.content_item = Progress::ChildrenAreUnexpected;
@@ -140,7 +149,7 @@ impl<W: Write> StructureBuilder<W> {
         }
         self.really_begin_content()?;
         if let Progress::ChildIsWritten = self.message_content {
-            self.writer.write_all(b",").map_err(|e| e.to_string())?;
+            self.writer.write_all(b",\n").map_err(|e| e.to_string())?;
         }
         self.content_item = Progress::WriteIsStarted;
         Ok(())

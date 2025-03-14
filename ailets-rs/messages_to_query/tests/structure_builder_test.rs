@@ -18,12 +18,16 @@ fn happy_path_for_text() {
     builder.end_content_item().unwrap();
     builder.end_content().unwrap();
     builder.end_message().unwrap();
+    builder.end().unwrap();
 
     assert_that!(
         writer.get_output(),
-        equal_to(String::from(
-            r#"{"role":"user","content":[{"type":"text","text":"Hello!"}]}"#
-        ))
+        equal_to(
+            String::from(
+                r#"{"role":"user","content":[_NL_{"type":"text","text":"Hello!"}_NL_]}_NL_"#
+            )
+            .replace("_NL_", "\n")
+        )
     );
 }
 
@@ -57,25 +61,16 @@ fn many_messages_and_items() {
     builder.end_content_item().unwrap();
     builder.end_content().unwrap();
     builder.end_message().unwrap();
-
+    builder.end().unwrap();
     let text_item1 = r#"{"type":"text","text":"Text item of the first message"}"#;
     let text_item2a = r#"{"type":"text","text":"First item of the second message"}"#;
     let text_item2b = r#"{"type":"text","text":"Second item of the second message"}"#;
 
-    assert_that!(
-        writer.get_output(),
-        equal_to(format!(
-            "{}{}{}{}{}{}{}{}",
-            r#"{"role":"user","content":["#,
-            text_item1,
-            "]},",
-            r#"{"role":"assistant","content":["#,
-            text_item2a,
-            ",",
-            text_item2b,
-            "]}"
-        ))
-    );
+    let expected = String::from(
+            r#"{"role":"user","content":[_NL__TI1__NL_]},{"role":"assistant","content":[_NL__TI2a_,_NL__TI2b__NL_]}_NL_"#
+        ).replace("_NL_", "\n").replace("_TI1_", text_item1).replace("_TI2a_", text_item2a).replace("_TI2b_", text_item2b);
+
+    assert_that!(writer.get_output(), equal_to(expected));
 }
 
 #[test]
@@ -90,7 +85,7 @@ fn skip_contentless_messages() {
     builder.end_message().unwrap();
     builder.begin_message().unwrap();
     builder.end_message().unwrap();
-
+    builder.end().unwrap();
     assert_that!(writer.get_output(), equal_to(String::new()));
 }
 
@@ -115,6 +110,7 @@ fn skip_empty_content_items() {
     builder.end_content_item().unwrap();
     builder.end_content().unwrap();
     builder.end_message().unwrap();
+    builder.end().unwrap();
 
     let empty_msg = r#"{"role":"user","content":[]}"#.to_owned() + "\n";
     assert_that!(writer.get_output(), equal_to(empty_msg.repeat(2)));
