@@ -142,11 +142,34 @@ fn mix_type_text() {
     builder.begin_content().unwrap();
 
     builder.begin_content_item().unwrap();
-    builder.add_item_type("text").unwrap();
+    builder.add_item_type(String::from("text")).unwrap();
     builder.add_text("hello").unwrap();
-    builder.add_item_type("text").unwrap();
+    builder.add_item_type(String::from("text")).unwrap();
     builder.end_content_item().unwrap();
 
     let expected = String::from("{\"content\":[\n{\"type\":\"text\",\"text\":\"hello\"}");
     assert_that!(writer.get_output(), equal_to(expected));
+}
+
+#[test]
+fn reject_conflicting_type() {
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone());
+    let mut builder = builder;
+    builder.begin_message().unwrap();
+    builder.begin_content().unwrap();
+
+    builder.begin_content_item().unwrap();
+    builder.add_item_type(String::from("text")).unwrap();
+    let err = builder.add_item_type(String::from("image")).unwrap_err();
+    assert_that!(
+        err,
+        equal_to(
+            "Wrong content item type: already typed as \"text\", new type is \"image\"".to_string()
+        )
+    );
+
+    // Different content items have different types
+    builder.begin_content_item().unwrap();
+    builder.add_item_type(String::from("image")).unwrap();
 }

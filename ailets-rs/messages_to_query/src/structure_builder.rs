@@ -21,6 +21,7 @@ pub struct StructureBuilder<W: Write> {
     message: Progress,
     message_content: Progress,
     content_item: Progress,
+    content_item_type: Option<String>,
 }
 
 impl<W: Write> StructureBuilder<W> {
@@ -31,6 +32,7 @@ impl<W: Write> StructureBuilder<W> {
             message: Progress::ChildrenAreUnexpected,
             message_content: Progress::ChildrenAreUnexpected,
             content_item: Progress::ChildrenAreUnexpected,
+            content_item_type: None,
         }
     }
 
@@ -148,6 +150,7 @@ impl<W: Write> StructureBuilder<W> {
     /// I/O
     pub fn begin_content_item(&mut self) -> Result<(), String> {
         self.content_item = Progress::WaitingForFirstChild;
+        self.content_item_type = None;
         Ok(())
     }
 
@@ -184,13 +187,18 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// - content item is not started
     /// - I/O
-    pub fn add_item_type(&mut self, item_type: &str) -> Result<(), String> {
+    pub fn add_item_type(&mut self, item_type: String) -> Result<(), String> {
         self.really_begin_content_item()?;
-        if let Progress::ChildIsWritten = self.content_item {
-            return Ok(());
+        if let Some(ref existing_type) = self.content_item_type {
+            if existing_type != &item_type {
+                return Err(format!(
+                    "Wrong content item type: already typed as \"{existing_type}\", new type is \"{item_type}\""
+                ));
+            }
+        } else {
+            write!(self.writer, r#""type":"{item_type}""#).map_err(|e| e.to_string())?;
+            self.content_item_type = Some(item_type);
         }
-        write!(self.writer, r#""type":"{item_type}""#).map_err(|e| e.to_string())?;
-        self.content_item = Progress::ChildIsWritten;
         Ok(())
     }
 
@@ -201,7 +209,7 @@ impl<W: Write> StructureBuilder<W> {
         if let Progress::ChildrenAreUnexpected = self.content_item {
             return Err("Content item is not started".to_string());
         }
-        self.add_item_type("text")?;
+        self.add_item_type(String::from("text"))?;
         write!(self.writer, r#","text":"{text}""#).map_err(|e| e.to_string())?;
         Ok(())
     }
