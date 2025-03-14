@@ -85,6 +85,22 @@ fn skip_contentless_messages() {
     let mut builder = builder;
 
     builder.begin_message().unwrap();
+    builder.end_message().unwrap();
+    builder.begin_message().unwrap();
+    builder.end_message().unwrap();
+    builder.begin_message().unwrap();
+    builder.end_message().unwrap();
+
+    assert_that!(writer.get_output(), equal_to(String::new()));
+}
+
+#[test]
+fn skip_empty_content_items() {
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone());
+    let mut builder = builder;
+
+    builder.begin_message().unwrap();
     builder.begin_content().unwrap();
     builder.begin_content_item().unwrap();
     builder.end_content_item().unwrap();
@@ -100,5 +116,6 @@ fn skip_contentless_messages() {
     builder.end_content().unwrap();
     builder.end_message().unwrap();
 
-    assert_that!(writer.get_output(), equal_to(String::new()));
+    let empty_msg = r#"{"role":"user","content":[]}"#.to_owned() + "\n";
+    assert_that!(writer.get_output(), equal_to(empty_msg.repeat(2)));
 }
