@@ -7,3 +7,6 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Oleg Parashchenko <olpa@uucode.com>"]
 license = "MIT"
+
+[patch.crates-io]
+scan_json = { path = "../../streaming_json/scan_json" }

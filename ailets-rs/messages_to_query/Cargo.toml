@@ -14,7 +14,7 @@ crate-type = ["cdylib", "lib"]
 actor_io = { version = "0.1.0", path = "../actor_io" }
 actor_runtime = { version = "0.1.0", path = "../actor_runtime" }
 actor_runtime_mocked = { version = "0.1.0", path = "../actor_runtime_mocked" }
-scan_json = "1.0.1"
+scan_json = "1.0.2-dev"
 serde_json = "1.0.140"
 
 [dev-dependencies]
