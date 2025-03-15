@@ -27,6 +27,8 @@ fn test_text_items() {
     let input_json: Value = serde_json::from_str(fix_json(&fixture_content).as_str())
         .expect("Failed to parse input as JSON");
     println!("output: {}", writer.get_output()); // FIXME
+    println!("output2: {}", fix_json(&writer.get_output())); // FIXME
+    println!("input: {}", fix_json(&fixture_content)); // FIXME
     let output_json: Value = serde_json::from_str(fix_json(&writer.get_output()).as_str())
         .expect("Failed to parse output as JSON");
 

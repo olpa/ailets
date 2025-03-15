@@ -4,7 +4,7 @@ pub mod structure_builder;
 use actor_io::{AReader, AWriter};
 use actor_runtime::err_to_heap_c_string;
 use scan_json::RJiter;
-use scan_json::{scan, BoxedAction, BoxedEndAction, ParentAndName, Trigger};
+use scan_json::{scan, BoxedAction, BoxedEndAction, ParentAndName, ParentParentAndName, Trigger};
 use std::cell::RefCell;
 use std::ffi::c_char;
 use std::io::Write;
@@ -42,19 +42,33 @@ pub fn _process_query<W: Write>(
         Box::new(handlers::on_role) as BoxedAction<'_, StructureBuilder<W>>,
     );
     let content_begin = Trigger::new(
-        Box::new(ParentAndName::new("#top".to_string(), "content".to_string())),
+        Box::new(ParentAndName::new(
+            "#top".to_string(),
+            "content".to_string(),
+        )),
         Box::new(handlers::on_content_begin) as BoxedAction<'_, StructureBuilder<W>>,
     );
     let content_end = Trigger::new(
-        Box::new(ParentAndName::new("#top".to_string(), "content".to_string())),
+        Box::new(ParentAndName::new(
+            "#top".to_string(),
+            "content".to_string(),
+        )),
         Box::new(handlers::on_content_end) as BoxedEndAction<'_, StructureBuilder<W>>,
     );
     let content_item_begin = Trigger::new(
-        Box::new(ParentAndName::new("content".to_string(), "#array".to_string())),
+        Box::new(ParentParentAndName::new(
+            "content".to_string(),
+            "#array".to_string(),
+            "#object".to_string(),
+        )),
         Box::new(handlers::on_content_item_begin) as BoxedAction<'_, StructureBuilder<W>>,
     );
     let content_item_end = Trigger::new(
-        Box::new(ParentAndName::new("content".to_string(), "#array".to_string())),
+        Box::new(ParentParentAndName::new(
+            "content".to_string(),
+            "#array".to_string(),
+            "#object".to_string(),
+        )),
         Box::new(handlers::on_content_item_end) as BoxedEndAction<'_, StructureBuilder<W>>,
     );
     let content_item_type = Trigger::new(
@@ -68,7 +82,14 @@ pub fn _process_query<W: Write>(
 
     builder_cell.borrow_mut().get_writer().write_all(b"[")?;
     scan(
-        &[message_begin, role, content_begin, content_item_begin, content_item_type, content_text],
+        &[
+            message_begin,
+            role,
+            content_begin,
+            content_item_begin,
+            content_item_type,
+            content_text,
+        ],
         &[message_end, content_end, content_item_end],
         &[],
         &rjiter_cell,
