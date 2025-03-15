@@ -81,6 +81,11 @@ impl<W: Write> StructureBuilder<W> {
     /// I/O
     pub fn end_message(&mut self) -> Result<(), String> {
         if is_write_started(&self.message) {
+            if self.content_item_type.is_none() {
+                // closed enforce "content" key, even if there is no content
+                self.begin_content()?;
+                self.end_content()?;
+            }
             self.writer.write_all(b"}").map_err(|e| e.to_string())?;
             self.top = Progress::ChildIsWritten;
         }
@@ -108,6 +113,7 @@ impl<W: Write> StructureBuilder<W> {
     pub fn begin_content(&mut self) -> Result<(), String> {
         self.message_content = Progress::WaitingForFirstChild;
         self.content_item = Progress::ChildrenAreUnexpected;
+        self.content_item_type = None;
         // Unlike for other containers, allow empty content
         self.really_begin_content()?;
         Ok(())
@@ -143,6 +149,10 @@ impl<W: Write> StructureBuilder<W> {
             self.message = Progress::ChildIsWritten;
         }
         self.content_item = Progress::ChildrenAreUnexpected;
+        if self.content_item_type.is_none() {
+            // Signal that "content" key is present
+            self.content_item_type = Some(String::new());
+        }
         Ok(())
     }
 

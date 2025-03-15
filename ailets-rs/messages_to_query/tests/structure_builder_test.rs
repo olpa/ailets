@@ -173,3 +173,18 @@ fn reject_conflicting_type() {
     builder.begin_content_item().unwrap();
     builder.add_item_type(String::from("image")).unwrap();
 }
+
+#[test]
+fn having_role_enforces_content() {
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone());
+    let mut builder = builder;
+
+    builder.begin_message().unwrap();
+    builder.add_role("user").unwrap();
+    builder.end_message().unwrap();
+    builder.end().unwrap();
+
+    let expected = String::from("{\"role\":\"user\",\"content\":[\n\n]}\n");
+    assert_that!(writer.get_output(), equal_to(expected));
+}
