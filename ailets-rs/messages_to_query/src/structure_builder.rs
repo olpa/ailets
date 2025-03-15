@@ -215,12 +215,19 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// - content item is not started
     /// - I/O
-    pub fn add_text(&mut self, text: &str) -> Result<(), String> {
+    pub fn begin_text(&mut self) -> Result<(), String> {
         if let Progress::ChildrenAreUnexpected = self.content_item {
             return Err("Content item is not started".to_string());
         }
         self.add_item_type(String::from("text"))?;
-        write!(self.writer, r#","text":"{text}""#).map_err(|e| e.to_string())?;
+        write!(self.writer, r#","text":""#).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// # Errors
+    /// - I/O
+    pub fn end_text(&mut self) -> Result<(), String> {
+        write!(self.writer, "\"").map_err(|e| e.to_string())?;
         Ok(())
     }
 }

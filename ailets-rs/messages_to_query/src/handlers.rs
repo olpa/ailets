@@ -1,4 +1,5 @@
 use crate::structure_builder::StructureBuilder;
+use scan_json::rjiter::jiter::Peek;
 use scan_json::RJiter;
 use scan_json::StreamOp;
 use std::cell::RefCell;
@@ -106,16 +107,26 @@ pub fn on_content_text<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
-    let text = match rjiter.next_str() {
-        Ok(t) => t,
-        Err(e) => {
-            return StreamOp::Error(
-                format!("Error getting text value. Expected string, got: {e:?}").into(),
-            )
-        }
+    let peeked = match rjiter.peek() {
+        Ok(p) => p,
+        Err(e) => return StreamOp::Error(Box::new(e)),
     };
-    if let Err(e) = builder_cell.borrow_mut().add_text(text) {
+    if peeked != Peek::String {
+        return StreamOp::Error(format!("Expected string for 'text' value, got {peeked:?}").into());
+    }
+
+    let mut builder = builder_cell.borrow_mut();
+
+    if let Err(e) = builder.begin_text() {
         return StreamOp::Error(e.into());
     }
+    let writer = builder.get_writer();
+    if let Err(e) = rjiter.write_long_bytes(writer) {
+        return StreamOp::Error(e.into());
+    }
+    if let Err(e) = builder.end_text() {
+        return StreamOp::Error(e.into());
+    }
+
     StreamOp::ValueIsConsumed
 }

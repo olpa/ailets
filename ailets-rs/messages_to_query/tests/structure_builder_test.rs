@@ -3,6 +3,7 @@ extern crate hamcrest;
 use actor_runtime_mocked::RcWriter;
 use hamcrest::prelude::*;
 use messages_to_query::structure_builder::StructureBuilder;
+use std::io::Write;
 
 #[test]
 fn happy_path_for_text() {
@@ -14,7 +15,9 @@ fn happy_path_for_text() {
     builder.add_role("user").unwrap();
     builder.begin_content().unwrap();
     builder.begin_content_item().unwrap();
-    builder.add_text("Hello!").unwrap();
+    builder.begin_text().unwrap();
+    write!(builder.get_writer(), "Hello!").unwrap();
+    builder.end_text().unwrap();
     builder.end_content_item().unwrap();
     builder.end_content().unwrap();
     builder.end_message().unwrap();
@@ -41,7 +44,9 @@ fn many_messages_and_items() {
     builder.add_role("user").unwrap();
     builder.begin_content().unwrap();
     builder.begin_content_item().unwrap();
-    builder.add_text("Text item of the first message").unwrap();
+    builder.begin_text().unwrap();
+    write!(builder.get_writer(), "Text item of the first message").unwrap();
+    builder.end_text().unwrap();
     builder.end_content_item().unwrap();
     builder.end_content().unwrap();
     builder.end_message().unwrap();
@@ -50,14 +55,14 @@ fn many_messages_and_items() {
     builder.add_role("assistant").unwrap();
     builder.begin_content().unwrap();
     builder.begin_content_item().unwrap();
-    builder
-        .add_text("First item of the second message")
-        .unwrap();
+    builder.begin_text().unwrap();
+    write!(builder.get_writer(), "First item of the second message").unwrap();
+    builder.end_text().unwrap();
     builder.end_content_item().unwrap();
     builder.begin_content_item().unwrap();
-    builder
-        .add_text("Second item of the second message")
-        .unwrap();
+    builder.begin_text().unwrap();
+    write!(builder.get_writer(), "Second item of the second message").unwrap();
+    builder.end_text().unwrap();
     builder.end_content_item().unwrap();
     builder.end_content().unwrap();
     builder.end_message().unwrap();
@@ -126,7 +131,9 @@ fn auto_generate_type_text() {
     builder.begin_content().unwrap();
 
     builder.begin_content_item().unwrap();
-    builder.add_text("hello").unwrap();
+    builder.begin_text().unwrap();
+    write!(builder.get_writer(), "hello").unwrap();
+    builder.end_text().unwrap();
     builder.end_content_item().unwrap();
 
     let expected = String::from("{\"content\":[\n{\"type\":\"text\",\"text\":\"hello\"}");
@@ -143,7 +150,9 @@ fn mix_type_text() {
 
     builder.begin_content_item().unwrap();
     builder.add_item_type(String::from("text")).unwrap();
-    builder.add_text("hello").unwrap();
+    builder.begin_text().unwrap();
+    write!(builder.get_writer(), "hello").unwrap();
+    builder.end_text().unwrap();
     builder.add_item_type(String::from("text")).unwrap();
     builder.end_content_item().unwrap();
 
