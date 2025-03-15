@@ -38,13 +38,11 @@ pub fn _process_query<W: Write>(
         Box::new(handlers::on_message_end) as BoxedEndAction<'_, StructureBuilder<W>>,
     );
     let role = Trigger::new(
-        Box::new(ParentAndName::new(
-            "#object".to_string(),
-            "role".to_string(),
-        )),
+        Box::new(ParentAndName::new("#top".to_string(), "role".to_string())),
         Box::new(handlers::on_role) as BoxedAction<'_, StructureBuilder<W>>,
     );
 
+    builder_cell.borrow_mut().get_writer().write_all(b"[")?;
     scan(
         &[message_begin, role],
         &[message_end],
@@ -52,6 +50,7 @@ pub fn _process_query<W: Write>(
         &rjiter_cell,
         &builder_cell,
     )?;
+    builder_cell.borrow_mut().get_writer().write_all(b"]")?;
     Ok(())
 }
 

@@ -30,5 +30,5 @@ fn test_text_items() {
     let output_json: Value = serde_json::from_str(fix_json(&writer.get_output()).as_str())
         .expect("Failed to parse output as JSON");
 
-    assert_that!(input_json, equal_to(output_json));
+    assert_that!(output_json, equal_to(input_json));
 }
