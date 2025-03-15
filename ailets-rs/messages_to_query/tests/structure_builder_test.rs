@@ -197,3 +197,33 @@ fn having_role_enforces_content() {
     let expected = String::from("{\"role\":\"user\",\"content\":[\n\n]}\n");
     assert_that!(writer.get_output(), equal_to(expected));
 }
+
+#[test]
+fn support_special_chars_and_unicode() {
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone());
+    let mut builder = builder;
+
+    let special_chars = "Special chars: \"\\/\n\r\t\u{1F600}";
+
+    builder.begin_message().unwrap();
+    builder.begin_content().unwrap();
+
+    builder.begin_content_item().unwrap();
+    builder.add_item_type(String::from("text")).unwrap();
+    builder.begin_text().unwrap();
+    builder
+        .get_writer()
+        .write_all(special_chars.as_bytes())
+        .unwrap();
+    builder.end_text().unwrap();
+    builder.end_content_item().unwrap();
+
+    builder.end_content().unwrap();
+    builder.end_message().unwrap();
+    builder.end().unwrap();
+
+    let expected =
+        format!("{{\"content\":[\n{{\"type\":\"text\",\"text\":\"{special_chars}\"}}\n]}}\n");
+    assert_that!(writer.get_output(), equal_to(expected));
+}
