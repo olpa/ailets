@@ -41,11 +41,35 @@ pub fn _process_query<W: Write>(
         Box::new(ParentAndName::new("#top".to_string(), "role".to_string())),
         Box::new(handlers::on_role) as BoxedAction<'_, StructureBuilder<W>>,
     );
+    let content_begin = Trigger::new(
+        Box::new(ParentAndName::new("#top".to_string(), "content".to_string())),
+        Box::new(handlers::on_content_begin) as BoxedAction<'_, StructureBuilder<W>>,
+    );
+    let content_end = Trigger::new(
+        Box::new(ParentAndName::new("#top".to_string(), "content".to_string())),
+        Box::new(handlers::on_content_end) as BoxedEndAction<'_, StructureBuilder<W>>,
+    );
+    let content_item_begin = Trigger::new(
+        Box::new(ParentAndName::new("content".to_string(), "#array".to_string())),
+        Box::new(handlers::on_content_item_begin) as BoxedAction<'_, StructureBuilder<W>>,
+    );
+    let content_item_end = Trigger::new(
+        Box::new(ParentAndName::new("content".to_string(), "#array".to_string())),
+        Box::new(handlers::on_content_item_end) as BoxedEndAction<'_, StructureBuilder<W>>,
+    );
+    let content_item_type = Trigger::new(
+        Box::new(ParentAndName::new("#array".to_string(), "type".to_string())),
+        Box::new(handlers::on_content_item_type) as BoxedAction<'_, StructureBuilder<W>>,
+    );
+    let content_text = Trigger::new(
+        Box::new(ParentAndName::new("#array".to_string(), "text".to_string())),
+        Box::new(handlers::on_content_text) as BoxedAction<'_, StructureBuilder<W>>,
+    );
 
     builder_cell.borrow_mut().get_writer().write_all(b"[")?;
     scan(
-        &[message_begin, role],
-        &[message_end],
+        &[message_begin, role, content_begin, content_item_begin, content_item_type, content_text],
+        &[message_end, content_end, content_item_end],
         &[],
         &rjiter_cell,
         &builder_cell,
