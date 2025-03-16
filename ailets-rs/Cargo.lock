@@ -233,6 +233,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "messages_to_query"
+version = "0.1.0"
+dependencies = [
+ "actor_io",
+ "actor_runtime",
+ "actor_runtime_mocked",
+ "getrandom",
+ "hamcrest",
+ "scan_json",
+ "serde_json",
+]
+
+[[package]]
 name = "num"
 version = "0.1.43"
 source = "registry+https://github.com/rust-lang/crates.io-index"

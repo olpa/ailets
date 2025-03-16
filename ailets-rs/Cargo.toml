@@ -1,5 +1,5 @@
 [workspace]
-members = [ "actor_io", "actor_runtime", "actor_runtime_mocked", "cat", "gpt", "messages_to_markdown" ]
+members = [ "actor_io", "actor_runtime", "actor_runtime_mocked", "cat", "gpt", "messages_to_query", "messages_to_markdown" ]
 resolver = "2"
 
 [workspace.package]
@@ -7,3 +7,6 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Oleg Parashchenko <olpa@uucode.com>"]
 license = "MIT"
+
+#[patch.crates-io]
+#scan_json = { path = "../../streaming_json/scan_json" }
