@@ -41,3 +41,19 @@ fn test_text_items() {
         serde_json::from_str(&expected_output).expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
+
+#[test]
+fn input_as_array() {
+    let fixture_content = std::fs::read_to_string("tests/fixture/text_items_arr.txt")
+        .expect("Failed to read fixture file 'text_items_arr.txt'");
+    let reader = Cursor::new(fixture_content.clone());
+    let writer = RcWriter::new();
+
+    _process_query(reader, writer.clone()).unwrap();
+    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
+        .expect("Failed to parse output as JSON");
+
+    let expected_json = serde_json::from_str(wrap_boilerplate(&fixture_content).as_str())
+        .expect("Failed to parse expected output as JSON");
+    assert_that!(output_json, equal_to(expected_json));
+}

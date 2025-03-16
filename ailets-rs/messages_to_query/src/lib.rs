@@ -23,32 +23,72 @@ pub fn _process_query<W: Write>(
     let builder = StructureBuilder::new(writer);
     let builder_cell = RefCell::new(builder);
 
-    let message_begin = Trigger::new(
+    let message_begin_arr = Trigger::new(
+        Box::new(ParentParentAndName::new(
+            "#top".to_string(),
+            "#array".to_string(),
+            "#object".to_string(),
+        )),
+        Box::new(handlers::on_message_begin) as BoxedAction<'_, StructureBuilder<W>>,
+    );
+    let message_begin_jsonl = Trigger::new(
         Box::new(ParentAndName::new(
             "#top".to_string(),
             "#object".to_string(),
         )),
         Box::new(handlers::on_message_begin) as BoxedAction<'_, StructureBuilder<W>>,
     );
-    let message_end = Trigger::new(
+    let message_end_arr = Trigger::new(
+        Box::new(ParentParentAndName::new(
+            "#top".to_string(),
+            "#array".to_string(),
+            "#object".to_string(),
+        )),
+        Box::new(handlers::on_message_end) as BoxedEndAction<'_, StructureBuilder<W>>,
+    );
+    let message_end_jsonl = Trigger::new(
         Box::new(ParentAndName::new(
             "#top".to_string(),
             "#object".to_string(),
         )),
         Box::new(handlers::on_message_end) as BoxedEndAction<'_, StructureBuilder<W>>,
     );
-    let role = Trigger::new(
+    let role_arr = Trigger::new(
+        Box::new(ParentParentAndName::new(
+            "#top".to_string(),
+            "#array".to_string(),
+            "role".to_string(),
+        )),
+        Box::new(handlers::on_role) as BoxedAction<'_, StructureBuilder<W>>,
+    );
+    let role_jsonl = Trigger::new(
         Box::new(ParentAndName::new("#top".to_string(), "role".to_string())),
         Box::new(handlers::on_role) as BoxedAction<'_, StructureBuilder<W>>,
     );
-    let content_begin = Trigger::new(
+    let content_begin_arr = Trigger::new(
+        Box::new(ParentParentAndName::new(
+            "#top".to_string(),
+            "#array".to_string(),
+            "content".to_string(),
+        )),
+        Box::new(handlers::on_content_begin) as BoxedAction<'_, StructureBuilder<W>>,
+    );
+    let content_end_arr = Trigger::new(
+        Box::new(ParentParentAndName::new(
+            "#top".to_string(),
+            "#array".to_string(),
+            "content".to_string(),
+        )),
+        Box::new(handlers::on_content_end) as BoxedEndAction<'_, StructureBuilder<W>>,
+    );
+    let content_begin_jsonl = Trigger::new(
         Box::new(ParentAndName::new(
             "#top".to_string(),
             "content".to_string(),
         )),
         Box::new(handlers::on_content_begin) as BoxedAction<'_, StructureBuilder<W>>,
     );
-    let content_end = Trigger::new(
+    let content_end_jsonl = Trigger::new(
         Box::new(ParentAndName::new(
             "#top".to_string(),
             "content".to_string(),
@@ -82,14 +122,23 @@ pub fn _process_query<W: Write>(
 
     scan(
         &[
-            message_begin,
-            role,
-            content_begin,
+            content_text,
             content_item_begin,
             content_item_type,
-            content_text,
+            content_begin_arr,
+            content_begin_jsonl,
+            role_arr,
+            role_jsonl,
+            message_begin_arr,
+            message_begin_jsonl,
         ],
-        &[message_end, content_end, content_item_end],
+        &[
+            content_item_end,
+            content_end_arr,
+            content_end_jsonl,
+            message_end_arr,
+            message_end_jsonl,
+        ],
         &[],
         &rjiter_cell,
         &builder_cell,
