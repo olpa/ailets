@@ -15,6 +15,11 @@ fn is_write_started(progress: &Progress) -> bool {
     )
 }
 
+const PRELUDE: &str = r#"{ "url": "https://api.openai.com/v1/chat/completions",
+"method": "POST",
+"headers": { "Content-type": "application/json", "Authorization": "Bearer {{secret('openai','gpt4o')}}" },
+"body": { "model": "gpt-4o", "messages": ["#;
+
 pub struct StructureBuilder<W: Write> {
     writer: W,
     top: Progress,
@@ -41,11 +46,22 @@ impl<W: Write> StructureBuilder<W> {
         &mut self.writer
     }
 
+    fn really_begin(&mut self) -> Result<(), String> {
+        if is_write_started(&self.top) {
+            return Ok(());
+        }
+        self.writer
+            .write_all(PRELUDE.as_bytes())
+            .map_err(|e| e.to_string())?;
+        self.top = Progress::WriteIsStarted;
+        Ok(())
+    }
+
     /// # Errors
     /// I/O
     pub fn end(&mut self) -> Result<(), String> {
         if let Progress::ChildIsWritten = self.top {
-            self.writer.write_all(b"\n").map_err(|e| e.to_string())?;
+            self.writer.write_all(b"]}}\n").map_err(|e| e.to_string())?;
         }
         Ok(())
     }
@@ -69,6 +85,7 @@ impl<W: Write> StructureBuilder<W> {
         if is_write_started(&self.message) {
             return Ok(());
         }
+        self.really_begin()?;
         if let Progress::ChildIsWritten = self.top {
             self.writer.write_all(b",").map_err(|e| e.to_string())?;
         }

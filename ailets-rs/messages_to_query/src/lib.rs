@@ -80,7 +80,6 @@ pub fn _process_query<W: Write>(
         Box::new(handlers::on_content_text) as BoxedAction<'_, StructureBuilder<W>>,
     );
 
-    builder_cell.borrow_mut().get_writer().write_all(b"[")?;
     scan(
         &[
             message_begin,
@@ -95,7 +94,7 @@ pub fn _process_query<W: Write>(
         &rjiter_cell,
         &builder_cell,
     )?;
-    builder_cell.borrow_mut().get_writer().write_all(b"]")?;
+    builder_cell.borrow_mut().end()?;
     Ok(())
 }
 
