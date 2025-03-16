@@ -18,7 +18,7 @@ fn is_write_started(progress: &Progress) -> bool {
 const PRELUDE: &str = r#"{ "url": "https://api.openai.com/v1/chat/completions",
 "method": "POST",
 "headers": { "Content-type": "application/json", "Authorization": "Bearer {{secret('openai','gpt4o')}}" },
-"body": { "model": "gpt-4o", "messages": ["#;
+"body": { "model": "gpt-4o-mini", "stream": true, "messages": ["#;
 
 pub struct StructureBuilder<W: Write> {
     writer: W,
