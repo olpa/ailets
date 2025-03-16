@@ -15,6 +15,16 @@ fn fix_json(json: &str) -> String {
     json.to_string()
 }
 
+fn wrap_boilerplate(s: &str) -> String {
+    let s1 = r#"{ "url": "https://api.openai.com/v1/chat/completions","#;
+    let s2 = r#""method": "POST","#;
+    let s3 = r#""headers": { "Content-type": "application/json", "Authorization": "Bearer {{secret('openai','gpt4o')}}" },"#;
+    let s4 = r#""body": { "model": "gpt-4o", "messages": "#;
+    let s_end = "}}\n";
+    let s = s.replace("_NL_", "\n");
+    format!("{}\n{}\n{}\n{}{}{}", s1, s2, s3, s4, s, s_end)
+}
+
 #[test]
 fn test_text_items() {
     let fixture_content = std::fs::read_to_string("tests/fixture/text_items.txt")
@@ -23,14 +33,11 @@ fn test_text_items() {
     let writer = RcWriter::new();
 
     _process_query(reader, writer.clone()).unwrap();
-
-    let input_json: Value = serde_json::from_str(fix_json(&fixture_content).as_str())
-        .expect("Failed to parse input as JSON");
-    println!("output: {}", writer.get_output()); // FIXME
-    println!("output2: {}", fix_json(&writer.get_output())); // FIXME
-    println!("input: {}", fix_json(&fixture_content)); // FIXME
-    let output_json: Value = serde_json::from_str(fix_json(&writer.get_output()).as_str())
+    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
 
-    assert_that!(output_json, equal_to(input_json));
+    let expected_output = wrap_boilerplate(fix_json(&fixture_content).as_str());
+    let expected_json =
+        serde_json::from_str(&expected_output).expect("Failed to parse expected output as JSON");
+    assert_that!(output_json, equal_to(expected_json));
 }
