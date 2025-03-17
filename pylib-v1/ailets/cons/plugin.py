@@ -134,3 +134,7 @@ def hijack_gpt_resp2msg(nodereg: NodeRegistry) -> None:
     )
 
     nodereg.add_node_def(new_gpt)
+
+
+def hijack_msg2query(nodereg: NodeRegistry) -> None:
+    print("TODO: hijack_msg2query")  # FIXME
