@@ -1,6 +1,6 @@
 from typing import Dict, Sequence
 
-from .atyping import Dependency, INodeRegistry, NodeDesc, NodeDescFunc
+from .atyping import Dependency, INodeRegistry, IWasmRegistry, NodeDesc, NodeDescFunc
 
 
 class NodeRegistry(INodeRegistry):
@@ -136,20 +136,19 @@ def hijack_gpt_resp2msg(nodereg: NodeRegistry) -> None:
     nodereg.add_node_def(new_gpt)
 
 
-def hijack_msg2query(nodereg: NodeRegistry) -> None:
-    from ailets.models.gpt4o.messages_to_query_wasm import (
-        messages_to_query_wasm,
-        load_wasm_module,
-    )
+def hijack_msg2query(nodereg: NodeRegistry, wasm_registry: IWasmRegistry) -> None:
+    from ailets.cons.node_wasm import mk_wasm_node_func
 
-    load_wasm_module()
+    node_func = mk_wasm_node_func(
+        wasm_registry, "gpt4o.messages_to_query", "process_query"
+    )
 
     orig_msg2query = nodereg.get_node(".gpt4o.messages_to_query")
 
     new_msg2query = NodeDescFunc(
         name=".gpt4o.messages_to_query",
         inputs=orig_msg2query.inputs,
-        func=messages_to_query_wasm,
+        func=node_func,
     )
 
     nodereg.add_node_def(new_msg2query)

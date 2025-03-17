@@ -5,6 +5,7 @@ import argparse
 import asyncio
 import sys
 import logging
+from ailets.cons.node_wasm import WasmRegistry
 import localsetup  # noqa: F401
 from ailets.cons.dump import dump_environment, load_environment, print_dependency_tree
 from typing import Any, Iterator, Literal, Optional, Tuple
@@ -225,13 +226,14 @@ async def main() -> None:
     prompt = get_prompt(args.prompt)
 
     if args.model == "gpt4o":
+        wasm_registry = WasmRegistry()
         hijack_msg2md(nodereg)
         hijack_gpt_resp2msg(nodereg)
         if not args.tools and all(
             item.content_type is None or item.content_type.startswith("text/")
             for item in prompt
         ):
-            hijack_msg2query(nodereg)
+            hijack_msg2query(nodereg, wasm_registry)
 
     if args.load_state:
         with open(args.load_state, "r") as f:
