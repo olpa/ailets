@@ -1,6 +1,7 @@
 from typing import Dict, Sequence
 
 from .atyping import Dependency, INodeRegistry, IWasmRegistry, NodeDesc, NodeDescFunc
+from .node_wasm import mk_wasm_node_func
 
 
 class NodeRegistry(INodeRegistry):
@@ -136,19 +137,28 @@ def hijack_gpt_resp2msg(nodereg: NodeRegistry) -> None:
     nodereg.add_node_def(new_gpt)
 
 
-def hijack_msg2query(nodereg: NodeRegistry, wasm_registry: IWasmRegistry) -> None:
-    from ailets.cons.node_wasm import mk_wasm_node_func
-
-    node_func = mk_wasm_node_func(
-        wasm_registry, "messages_to_query.wasm", "process_query"
-    )
-
-    orig_msg2query = nodereg.get_node(".gpt4o.messages_to_query")
-
-    new_msg2query = NodeDescFunc(
-        name=".gpt4o.messages_to_query",
-        inputs=orig_msg2query.inputs,
+def hijack_node(
+    nodereg: NodeRegistry,
+    wasm_registry: IWasmRegistry,
+    node_name: str,
+    entry_point: str,
+    wasm_file_name: str,
+) -> None:
+    node_func = mk_wasm_node_func(wasm_registry, wasm_file_name, entry_point)
+    orig_node = nodereg.get_node(node_name)
+    new_node = NodeDescFunc(
+        name=node_name,
+        inputs=orig_node.inputs,
         func=node_func,
     )
+    nodereg.add_node_def(new_node)
 
-    nodereg.add_node_def(new_msg2query)
+
+def hijack_msg2query(nodereg: NodeRegistry, wasm_registry: IWasmRegistry) -> None:
+    hijack_node(
+        nodereg,
+        wasm_registry,
+        ".gpt4o.messages_to_query",
+        "process_query",
+        "messages_to_query.wasm",
+    )
