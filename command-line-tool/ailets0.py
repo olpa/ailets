@@ -5,7 +5,6 @@ import argparse
 import asyncio
 import sys
 import logging
-from ailets.cons.node_wasm import WasmRegistry
 import localsetup  # noqa: F401
 from ailets.cons.dump import dump_environment, load_environment, print_dependency_tree
 from typing import Any, Iterator, Literal, Optional, Tuple
@@ -23,6 +22,7 @@ from ailets.cons.pipelines import (
     toml_to_env,
     toolspecs_to_dagops,
 )
+from ailets.cons.node_wasm import WasmRegistry
 import re
 import os
 from urllib.parse import urlparse

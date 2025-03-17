@@ -140,7 +140,7 @@ def hijack_msg2query(nodereg: NodeRegistry, wasm_registry: IWasmRegistry) -> Non
     from ailets.cons.node_wasm import mk_wasm_node_func
 
     node_func = mk_wasm_node_func(
-        wasm_registry, "gpt4o.messages_to_query", "process_query"
+        wasm_registry, "messages_to_query.wasm", "process_query"
     )
 
     orig_msg2query = nodereg.get_node(".gpt4o.messages_to_query")
