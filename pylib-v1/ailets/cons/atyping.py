@@ -230,6 +230,11 @@ class INodeRegistry(Protocol):
         raise NotImplementedError
 
 
+class IWasmRegistry(Protocol):
+    def get_module(self, name: str) -> bytes:
+        raise NotImplementedError
+
+
 class IProcesses(Protocol):
     def next_node_iter(
         self,

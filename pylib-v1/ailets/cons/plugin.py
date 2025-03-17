@@ -1,6 +1,7 @@
 from typing import Dict, Sequence
 
-from .atyping import Dependency, INodeRegistry, NodeDesc, NodeDescFunc
+from .atyping import Dependency, INodeRegistry, IWasmRegistry, NodeDesc, NodeDescFunc
+from .node_wasm import mk_wasm_node_func
 
 
 class NodeRegistry(INodeRegistry):
@@ -99,38 +100,48 @@ class NodeRegistry(INodeRegistry):
             raise ImportError(f"Could not load plugin {regname}: {e}")
 
 
-def hijack_msg2md(nodereg: NodeRegistry) -> None:
-    from ailets.stdlib.messages_to_markdown_wasm import (
-        messages_to_markdown_wasm,
-        load_wasm_module,
+def hijack_node(
+    nodereg: NodeRegistry,
+    wasm_registry: IWasmRegistry,
+    node_name: str,
+    entry_point: str,
+    wasm_file_name: str,
+) -> None:
+    node_func = mk_wasm_node_func(wasm_registry, wasm_file_name, entry_point)
+    orig_node = nodereg.get_node(node_name)
+    new_node = NodeDescFunc(
+        name=node_name,
+        inputs=orig_node.inputs,
+        func=node_func,
+    )
+    nodereg.add_node_def(new_node)
+
+
+def hijack_msg2md(nodereg: NodeRegistry, wasm_registry: IWasmRegistry) -> None:
+    hijack_node(
+        nodereg,
+        wasm_registry,
+        ".messages_to_markdown",
+        "messages_to_markdown",
+        "messages_to_markdown.wasm",
     )
 
-    load_wasm_module()
 
-    orig_msg2md = nodereg.get_node(".messages_to_markdown")
-
-    new_msg2md = NodeDescFunc(
-        name=".messages_to_markdown",
-        inputs=orig_msg2md.inputs,
-        func=messages_to_markdown_wasm,
+def hijack_gpt_resp2msg(nodereg: NodeRegistry, wasm_registry: IWasmRegistry) -> None:
+    hijack_node(
+        nodereg,
+        wasm_registry,
+        ".gpt4o.response_to_messages",
+        "process_gpt",
+        "gpt.wasm",
     )
 
-    nodereg.add_node_def(new_msg2md)
 
-
-def hijack_gpt_resp2msg(nodereg: NodeRegistry) -> None:
-    from ailets.models.gpt4o.response_to_messages_wasm import (
-        response_to_messages_wasm,
-        load_wasm_module,
+def hijack_msg2query(nodereg: NodeRegistry, wasm_registry: IWasmRegistry) -> None:
+    hijack_node(
+        nodereg,
+        wasm_registry,
+        ".gpt4o.messages_to_query",
+        "process_query",
+        "messages_to_query.wasm",
     )
-
-    load_wasm_module()
-
-    orig_gpt = nodereg.get_node(".gpt4o.response_to_messages")
-    new_gpt = NodeDescFunc(
-        name=".gpt4o.response_to_messages",
-        inputs=orig_gpt.inputs,
-        func=response_to_messages_wasm,
-    )
-
-    nodereg.add_node_def(new_gpt)

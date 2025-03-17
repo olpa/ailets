@@ -9,7 +9,12 @@ import localsetup  # noqa: F401
 from ailets.cons.dump import dump_environment, load_environment, print_dependency_tree
 from typing import Any, Iterator, Literal, Optional, Tuple
 from ailets.cons.environment import Environment
-from ailets.cons.plugin import NodeRegistry, hijack_gpt_resp2msg, hijack_msg2md
+from ailets.cons.plugin import (
+    NodeRegistry,
+    hijack_gpt_resp2msg,
+    hijack_msg2md,
+    hijack_msg2query,
+)
 from ailets.cons.pipelines import (
     CmdlinePromptItem,
     instantiate_with_deps,
@@ -17,6 +22,7 @@ from ailets.cons.pipelines import (
     toml_to_env,
     toolspecs_to_dagops,
 )
+from ailets.cons.node_wasm import WasmRegistry
 import re
 import os
 from urllib.parse import urlparse
@@ -217,11 +223,17 @@ async def main() -> None:
     for tool in args.tools:
         nodereg.load_plugin(f"ailets.tools.{tool}", f".tool.{tool}")
 
-    if args.model == "gpt4o":
-        hijack_msg2md(nodereg)
-        hijack_gpt_resp2msg(nodereg)
-
     prompt = get_prompt(args.prompt)
+
+    if args.model == "gpt4o":
+        wasm_registry = WasmRegistry()
+        hijack_msg2md(nodereg, wasm_registry)
+        hijack_gpt_resp2msg(nodereg, wasm_registry)
+        if not args.tools and all(
+            item.content_type is None or item.content_type.startswith("text/")
+            for item in prompt
+        ):
+            hijack_msg2query(nodereg, wasm_registry)
 
     if args.load_state:
         with open(args.load_state, "r") as f:
@@ -286,9 +298,9 @@ async def main() -> None:
             os.makedirs(args.download_to, exist_ok=True)
         for stream in fs_output_streams:
             name = os.path.basename(stream.get_name() or "None")
-            with open(os.path.join(args.download_to, name), "wb") as f:
+            with open(os.path.join(args.download_to, name), "wb") as hb:
                 content = await stream.read(0, -1)
-                f.write(content)
+                hb.write(content)
 
 
 if __name__ == "__main__":
