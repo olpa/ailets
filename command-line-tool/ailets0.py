@@ -9,7 +9,12 @@ import localsetup  # noqa: F401
 from ailets.cons.dump import dump_environment, load_environment, print_dependency_tree
 from typing import Any, Iterator, Literal, Optional, Tuple
 from ailets.cons.environment import Environment
-from ailets.cons.plugin import NodeRegistry, hijack_gpt_resp2msg, hijack_msg2md, hijack_msg2query
+from ailets.cons.plugin import (
+    NodeRegistry,
+    hijack_gpt_resp2msg,
+    hijack_msg2md,
+    hijack_msg2query,
+)
 from ailets.cons.pipelines import (
     CmdlinePromptItem,
     instantiate_with_deps,
@@ -222,7 +227,10 @@ async def main() -> None:
     if args.model == "gpt4o":
         hijack_msg2md(nodereg)
         hijack_gpt_resp2msg(nodereg)
-        if not args.tools and all(item.content_type is None or item.content_type.startswith("text/") for item in prompt):
+        if not args.tools and all(
+            item.content_type is None or item.content_type.startswith("text/")
+            for item in prompt
+        ):
             hijack_msg2query(nodereg)
 
     if args.load_state:
@@ -288,9 +296,9 @@ async def main() -> None:
             os.makedirs(args.download_to, exist_ok=True)
         for stream in fs_output_streams:
             name = os.path.basename(stream.get_name() or "None")
-            with open(os.path.join(args.download_to, name), "wb") as f:
+            with open(os.path.join(args.download_to, name), "wb") as hb:
                 content = await stream.read(0, -1)
-                f.write(content)
+                hb.write(content)
 
 
 if __name__ == "__main__":
