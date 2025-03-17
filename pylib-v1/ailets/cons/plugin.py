@@ -137,4 +137,19 @@ def hijack_gpt_resp2msg(nodereg: NodeRegistry) -> None:
 
 
 def hijack_msg2query(nodereg: NodeRegistry) -> None:
-    print("TODO: hijack_msg2query")  # FIXME
+    from ailets.models.gpt4o.messages_to_query_wasm import (
+        messages_to_query_wasm,
+        load_wasm_module,
+    )
+
+    load_wasm_module()
+
+    orig_msg2query = nodereg.get_node(".gpt4o.messages_to_query")
+
+    new_msg2query = NodeDescFunc(
+        name=".gpt4o.messages_to_query",
+        inputs=orig_msg2query.inputs,
+        func=messages_to_query_wasm,
+    )
+
+    nodereg.add_node_def(new_msg2query)
