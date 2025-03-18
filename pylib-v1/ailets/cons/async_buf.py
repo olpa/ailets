@@ -6,6 +6,26 @@ from typing import Callable, Optional, Set
 logger = logging.getLogger("ailets.io")
 
 
+class BufWriterWithState:
+    def __init__(self, buffer: bytes) -> None:
+        self.buffer = buffer
+        self.error: Optional[Exception] = None
+        self._is_closed = False
+
+    def write(self, data: bytes) -> int:
+        self.buffer += data
+        return len(data)
+
+    def get_error(self) -> Optional[Exception]:
+        return self.error
+
+    def is_closed(self) -> bool:
+        return self._is_closed
+
+    def close(self) -> None:
+        self._is_closed = True
+
+
 @dataclass(frozen=True)
 class ReaderSync:
     loop: asyncio.AbstractEventLoop
