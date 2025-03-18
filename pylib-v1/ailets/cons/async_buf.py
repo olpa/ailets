@@ -26,6 +26,41 @@ class BufWriterWithState:
         self._is_closed = True
 
 
+class BufReaderFromPipe:
+    def __init__(self, buffer: bytes) -> None:
+        self.buffer = buffer
+        self.error: Optional[Exception] = None
+        self.pos = 0
+        self._is_closed = False
+
+    def read(self, size: int = -1) -> Optional[bytes]:
+        while self.error is None and not self.is_closed():
+            if self.pos >= len(self.buffer):
+                self._wait_for_data()
+                continue
+
+            size = len(self.buffer) - self.pos
+            if size == 0:
+                return b""
+            end_pos = self.pos + size
+            data = self.buffer[slice(self.pos, end_pos)]
+            self.pos = end_pos
+            return data
+
+        if self.error is not None:
+            raise self.error
+        return None
+
+    def is_closed(self) -> bool:
+        return self._is_closed
+
+    def close(self) -> None:
+        self._is_closed = True
+
+    def _wait_for_data(self) -> None:
+        pass
+
+
 @dataclass(frozen=True)
 class ReaderSync:
     loop: asyncio.AbstractEventLoop
