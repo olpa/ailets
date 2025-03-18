@@ -2,18 +2,25 @@ import asyncio
 from dataclasses import dataclass
 import logging
 from typing import Callable, Optional, Set
+from .atyping import INotificationQueue
 
 logger = logging.getLogger("ailets.io")
 
 
 class BufWriterWithState:
-    def __init__(self, buffer: bytes) -> None:
+    def __init__(self, handle: int, buffer: bytes, queue: INotificationQueue) -> None:
+        self.handle = handle
         self.buffer = buffer
+        self.queue = queue
         self.error: Optional[Exception] = None
         self._is_closed = False
 
+    def get_handle(self) -> int:
+        return self.handle
+
     def write(self, data: bytes) -> int:
         self.buffer += data
+        self.queue.notify(self.handle)
         return len(data)
 
     def get_error(self) -> Optional[Exception]:
@@ -24,19 +31,31 @@ class BufWriterWithState:
 
     def close(self) -> None:
         self._is_closed = True
+        self.queue.notify(self.handle)
 
 
 class BufReaderFromPipe:
-    def __init__(self, buffer: bytes) -> None:
+    def __init__(
+        self,
+        handle: int,
+        buffer: bytes,
+        writer: Optional[BufWriterWithState],
+        queue: INotificationQueue,
+    ) -> None:
+        self.handle = handle
         self.buffer = buffer
+        self.writer = writer
+        self.queue = queue
         self.error: Optional[Exception] = None
         self.pos = 0
         self._is_closed = False
 
-    def read(self, size: int = -1) -> Optional[bytes]:
+    async def read(self, size: int = -1) -> Optional[bytes]:
         while self.error is None and not self.is_closed():
-            if self.pos >= len(self.buffer):
-                self._wait_for_data()
+            # TODO FIXME: potential race condition:
+            # a write can happen between the check and the wait, we will miss it
+            if self.pos >= len(self.buffer) and self.writer is not None:
+                await self._wait_for_writer()
                 continue
 
             if size < 0:
@@ -57,8 +76,17 @@ class BufReaderFromPipe:
     def close(self) -> None:
         self._is_closed = True
 
-    def _wait_for_data(self) -> None:
-        pass
+    async def _wait_for_writer(self) -> None:
+        if self.writer is None:
+            return
+        error = self.writer.get_error()
+        if error is not None:
+            self.error = error
+            return
+        if self.writer.is_closed():
+            self.close()
+            return
+        await self.queue.wait_for_handle(self.handle)
 
 
 @dataclass(frozen=True)

@@ -19,6 +19,14 @@ from typing_extensions import NotRequired
 from ailets.cons.seqno import Seqno
 
 
+class INotificationQueue(Protocol):
+    def notify(self, handle: int) -> None:
+        raise NotImplementedError
+
+    async def wait_for_handle(self, handle: int) -> None:
+        raise NotImplementedError
+
+
 class IStream(Protocol):
     async def read(self, pos: int, size: int = -1) -> bytes:
         raise NotImplementedError
