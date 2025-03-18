@@ -39,10 +39,10 @@ class BufReaderFromPipe:
                 self._wait_for_data()
                 continue
 
-            size = len(self.buffer) - self.pos
-            if size == 0:
-                return b""
-            end_pos = self.pos + size
+            if size < 0:
+                end_pos = len(self.buffer)
+            else:
+                end_pos = self.pos + size
             data = self.buffer[slice(self.pos, end_pos)]
             self.pos = end_pos
             return data
