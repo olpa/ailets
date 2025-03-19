@@ -2,6 +2,8 @@ import asyncio
 from dataclasses import dataclass
 import logging
 from typing import Callable, Optional, Set
+
+from .notification_queue import NotificationQueue
 from .atyping import INotificationQueue
 
 logger = logging.getLogger("ailets.io")
@@ -72,6 +74,9 @@ class BufReaderFromPipe:
 
     def is_closed(self) -> bool:
         return self._is_closed
+
+    def get_error(self) -> Optional[Exception]:
+        return self.error
 
     def close(self) -> None:
         self._is_closed = True
@@ -173,40 +178,45 @@ class AsyncBuffer:
         return self.buffer[pos:end]
 
 
-if __name__ == "__main__":
-
-    async def writer(buffer: AsyncBuffer) -> None:
+def main() -> None:
+    async def writer(lib_writer: BufWriterWithState) -> None:
         try:
             while True:
                 s = await asyncio.to_thread(input)
                 s = s.strip()
                 if not s:
                     break
-                await buffer.write(s.encode("utf-8"))
+                lib_writer.write(s.encode("utf-8"))
         except EOFError:
             pass
         finally:
-            await buffer.close()
+            lib_writer.close()
 
-    async def reader(name: str, buffer: AsyncBuffer) -> None:
-        pos = 0
+    async def reader(name: str, lib_reader: BufReaderFromPipe) -> None:
         while True:
-            data = await buffer.read(pos, size=4)
-            size = len(data)
-            pos += size
-
-            if size == 0:
+            data = await lib_reader.read(size=4)
+            if data is None:
+                raise lib_reader.get_error() or EOFError()
+            if len(data) == 0:
                 break
             print(f"({name}): {data.decode()}")
 
     async def main() -> None:
-        buffer = AsyncBuffer(b"", False, lambda: None)
-        writer_task = asyncio.create_task(writer(buffer))
-        rt1 = asyncio.create_task(reader("r1", buffer))
-        rt2 = asyncio.create_task(reader("r2", buffer))
-        rt3 = asyncio.create_task(reader("r3", buffer))
+        queue = NotificationQueue()
+        buffer = bytes()
+        lib_writer = BufWriterWithState(0, buffer, queue)
+        lib_reader = BufReaderFromPipe(1, buffer, lib_writer, queue)
+
+        writer_task = asyncio.create_task(writer(lib_writer))
+        rt1 = asyncio.create_task(reader("r1", lib_reader))
+        rt2 = asyncio.create_task(reader("r2", lib_reader))
+        rt3 = asyncio.create_task(reader("r3", lib_reader))
 
         await asyncio.gather(writer_task, rt1, rt2, rt3)
 
     logging.basicConfig(level=logging.DEBUG)
     asyncio.run(main())
+
+
+if __name__ == "__main__":
+    main()
