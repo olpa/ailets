@@ -11,7 +11,9 @@ logger = logging.getLogger("ailets.io")
 
 
 class BufWriterWithState:
-    def __init__(self, handle: int, buffer: io.BytesIO, queue: INotificationQueue) -> None:
+    def __init__(
+        self, handle: int, buffer: io.BytesIO, queue: INotificationQueue
+    ) -> None:
         self.handle = handle
         self.buffer = buffer
         self.queue = queue
@@ -59,7 +61,7 @@ class BufReaderFromPipe:
             # TODO FIXME: potential race condition:
             # a write can happen between the check and the wait, we will miss it
             buffer = self.buffer.getvalue()
-            
+
             if self.pos >= len(buffer) and self.writer is not None:
                 await self._wait_for_writer()
                 continue
@@ -74,7 +76,7 @@ class BufReaderFromPipe:
 
         if self.error is not None:
             raise self.error
-        return b''
+        return b""
 
     def is_closed(self) -> bool:
         return self._is_closed
@@ -191,25 +193,19 @@ def main() -> None:
     async def writer(lib_writer: BufWriterWithState) -> None:
         try:
             while True:
-                print("!!!! writer: before input")  # FIXME
                 s = await asyncio.to_thread(input)
-                print("!!!! writer: after input")  # FIXME
                 s = s.strip()
                 if not s:
                     break
                 lib_writer.write(s.encode("utf-8"))
         except EOFError:
-            print("!!!! writer: EOFError")  # FIXME
             pass
         finally:
-            print("!!!! writer: finally")  # FIXME
             lib_writer.close()
 
     async def reader(name: str, lib_reader: BufReaderFromPipe) -> None:
         while True:
-            print(f"!!!! reader ({name}): before read")  # FIXME
             data = await lib_reader.read(size=4)
-            print(f"!!!! reader ({name}): after read: {data!r}")  # FIXME
             if data is None:
                 raise lib_reader.get_error() or EOFError()
             if len(data) == 0:
@@ -220,16 +216,16 @@ def main() -> None:
         queue = NotificationQueue()
         buffer = io.BytesIO()
         lib_writer = BufWriterWithState(0, buffer, queue)
-        lib_reader = BufReaderFromPipe(1, buffer, lib_writer, queue)
+        lib_reader1 = BufReaderFromPipe(1, buffer, lib_writer, queue)
+        lib_reader2 = BufReaderFromPipe(2, buffer, lib_writer, queue)
+        lib_reader3 = BufReaderFromPipe(3, buffer, lib_writer, queue)
 
         writer_task = asyncio.create_task(writer(lib_writer))
-        rt1 = asyncio.create_task(reader("r1", lib_reader))
-        rt2 = asyncio.create_task(reader("r2", lib_reader))
-        rt3 = asyncio.create_task(reader("r3", lib_reader))
+        rt1 = asyncio.create_task(reader("r1", lib_reader1))
+        rt2 = asyncio.create_task(reader("r2", lib_reader2))
+        rt3 = asyncio.create_task(reader("r3", lib_reader3))
 
-        print("!!!!!!!!!!!!!! before gather")  # FIXME
         await asyncio.gather(writer_task, rt1, rt2, rt3)
-        print("!!!!!!!!!!!!!! after gather")  # FIXME
 
     logging.basicConfig(level=logging.DEBUG)
     asyncio.run(main())
