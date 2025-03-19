@@ -1,9 +1,8 @@
 import asyncio
-from dataclasses import dataclass
 import io
 import logging
 import threading
-from typing import Callable, Optional, Set
+from typing import Optional
 
 from .notification_queue import NotificationQueue
 from .atyping import INotificationQueue
@@ -113,95 +112,6 @@ class BufReaderFromPipe:
                 await self.queue.wait_for_handle(self.writer.get_handle(), lock)
                 # Re-acquire lock to match release in `wait_for_handle`
                 lock.acquire()
-
-
-@dataclass(frozen=True)
-class ReaderSync:
-    loop: asyncio.AbstractEventLoop
-    event: asyncio.Event
-
-    @classmethod
-    def new(cls) -> "ReaderSync":
-        return cls(loop=asyncio.get_event_loop(), event=asyncio.Event())
-
-
-class AsyncBuffer:
-    def __init__(
-        self,
-        initial_content: Optional[bytes],
-        is_closed: bool,
-        on_write_started: Callable[[], None],
-        debug_hint: Optional[str] = None,
-    ) -> None:
-        self.buffer = io.BytesIO()
-        if initial_content:
-            self.buffer.write(initial_content)
-        self._is_closed = is_closed
-        self.on_write_started = on_write_started
-        self.debug_hint = debug_hint
-        self.reader_sync: Set[ReaderSync] = set()
-
-    def notify_readers(self) -> None:
-        # copy to avoid race condition (Set changed size during iteration)
-        readers = self.reader_sync.copy()
-        for reader in readers:
-            if reader in self.reader_sync:
-                reader.loop.call_soon_threadsafe(reader.event.set)
-
-    async def close(self) -> None:
-        self._is_closed = True
-        self.notify_readers()
-        logger.debug(
-            "Buffer closed%s", f" ({self.debug_hint})" if self.debug_hint else ""
-        )
-
-    def is_closed(self) -> bool:
-        return self._is_closed
-
-    async def write(self, data: bytes) -> int:
-        old_pos = self.buffer.tell()
-        self.buffer.seek(0, io.SEEK_END)
-        n = self.buffer.write(data)
-        new_pos = self.buffer.tell()
-        self.buffer.seek(old_pos)
-        logger.debug(
-            "Buffer write%s: pos %d->%d",
-            f" ({self.debug_hint})" if self.debug_hint else "",
-            old_pos,
-            new_pos,
-        )
-        self.notify_readers()
-        if old_pos == 0 and new_pos > 0:
-            self.on_write_started()
-        return n
-
-    async def read(self, pos: int, size: int = -1) -> bytes:
-        reader_sync = ReaderSync.new()
-        try:
-            self.reader_sync.add(reader_sync)
-            self.buffer.seek(0, io.SEEK_END)
-            while self.buffer.tell() <= pos:
-                if self.is_closed():
-                    return b""
-                await reader_sync.event.wait()
-                reader_sync.event.clear()
-        finally:
-            self.reader_sync.remove(reader_sync)
-
-        self.buffer.seek(pos)
-        if size < 0:
-            data = self.buffer.read()
-        else:
-            data = self.buffer.read(size)
-
-        logger.debug(
-            "Buffer read%s: pos %d->%d",
-            f" ({self.debug_hint})" if self.debug_hint else "",
-            pos,
-            pos + len(data),
-        )
-
-        return data
 
 
 def main() -> None:
