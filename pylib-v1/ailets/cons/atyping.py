@@ -29,17 +29,23 @@ class INotificationQueue(Protocol):
         raise NotImplementedError
 
 
-class IStream(Protocol):
+class IPipe(Protocol):
     async def read(self, pos: int, size: int = -1) -> bytes:
         raise NotImplementedError
 
     async def write(self, data: bytes) -> int:
         raise NotImplementedError
 
-    async def close(self) -> None:
+    async def close_writer(self) -> None:
         raise NotImplementedError
 
-    def get_name(self) -> Optional[str]:
+    def is_writer_closed(self) -> bool:
+        raise NotImplementedError
+
+    def get_writer_node_name(self) -> str:
+        raise NotImplementedError
+
+    def get_writer_stream_name(self) -> Optional[str]:
         raise NotImplementedError
 
 

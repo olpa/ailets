@@ -1,31 +1,43 @@
 from dataclasses import dataclass
+import io
 import json
 from typing import Any, Callable, Dict, Optional, Sequence
 
-from ailets.cons.atyping import Dependency, IStream, IStreams
-from ailets.cons.async_buf import AsyncBuffer
+from ailets.cons.atyping import Dependency, IPipe, IStreams
+from ailets.cons.async_buf import BufWriterWithState, BufReaderFromPipe
 
 
-@dataclass
-class Stream:
+class Pipe(IPipe):
     node_name: str
     stream_name: Optional[str]
-    buf: AsyncBuffer
+    reader: BufReaderFromPipe
+    writer: BufWriterWithState
+
+    def __init__(self, node_name: str, stream_name: Optional[str], handle_reader: int, handle_writer: int) -> None:
+        self.node_name = node_name
+        self.stream_name = stream_name
+
+        buf = io.BytesIO()
+        self.reader = BufReaderFromPipe(handle_reader, buf, None, None)
+        self.writer = BufWriterWithState(handle_writer, buf, None)
 
     async def read(self, pos: int, size: int = -1) -> bytes:
-        return await self.buf.read(pos, size)
+        return await self.reader.read(pos, size)
 
     async def write(self, data: bytes) -> int:
-        return await self.buf.write(data)
+        return await self.writer.write(data)
 
-    async def close(self) -> None:
-        await self.buf.close()
+    def get_writer_node_name(self) -> str:
+        return self.node_name
 
-    def get_name(self) -> Optional[str]:
+    def get_writer_stream_name(self) -> Optional[str]:
         return self.stream_name
 
-    def is_closed(self) -> bool:
-        return self.buf.is_closed()
+    async def close_writer(self) -> None:
+        await self.writer.close()
+
+    def is_writer_closed(self) -> bool:
+        return self.writer.is_closed()
 
 
 def create_log_stream() -> Stream:
