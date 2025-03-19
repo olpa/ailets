@@ -2,6 +2,7 @@ import asyncio
 from dataclasses import dataclass
 import io
 import logging
+import threading
 from typing import Callable, Optional, Set
 
 from .notification_queue import NotificationQueue
@@ -15,16 +16,27 @@ class BufWriterWithState:
         self, handle: int, buffer: io.BytesIO, queue: INotificationQueue
     ) -> None:
         self.handle = handle
-        self.buffer = buffer
+        self.buffer = buffer  # shared between threads with readers
         self.queue = queue
+        self.lock = threading.Lock()  # for `.buffer`
         self.error: Optional[Exception] = None
         self._is_closed = False
+        self.pos = 0
 
     def get_handle(self) -> int:
         return self.handle
 
+    def get_lock(self) -> threading.Lock:
+        return self.lock
+
+    def get_pos(self) -> int:
+        return self.pos
+
     def write(self, data: bytes) -> int:
-        n = self.buffer.write(data)
+        # `.buffer` is shared between threads with readers, so we need a lock
+        with self.lock:
+            n = self.buffer.write(data)
+            self.pos += n
         assert n == len(data), f"written bytes ({n}) != expected ({len(data)})"
         self.queue.notify(self.handle)
         return n
@@ -58,13 +70,11 @@ class BufReaderFromPipe:
 
     async def read(self, size: int = -1) -> Optional[bytes]:
         while self.error is None and not self.is_closed():
-            # TODO FIXME: potential race condition:
-            # a write can happen between the check and the wait, we will miss it
-            buffer = self.buffer.getvalue()
-
-            if self.pos >= len(buffer) and self.writer is not None:
+            if self.writer is not None and self.pos >= self.writer.get_pos():
                 await self._wait_for_writer()
                 continue
+
+            buffer = self.buffer.getvalue()
 
             if size < 0:
                 end_pos = len(buffer)
@@ -97,7 +107,12 @@ class BufReaderFromPipe:
         if self.writer.is_closed():
             self.close()
             return
-        await self.queue.wait_for_handle(self.writer.get_handle())
+        lock = self.writer.get_lock()
+        with lock:
+            if self.pos >= self.writer.get_pos():
+                await self.queue.wait_for_handle(self.writer.get_handle(), lock)
+                # Re-acquire lock to match release in `wait_for_handle`
+                lock.acquire()
 
 
 @dataclass(frozen=True)

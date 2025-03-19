@@ -15,7 +15,7 @@ from typing import (
     Union,
 )
 from typing_extensions import NotRequired
-
+import threading
 from ailets.cons.seqno import Seqno
 
 
@@ -23,7 +23,9 @@ class INotificationQueue(Protocol):
     def notify(self, handle: int) -> None:
         raise NotImplementedError
 
-    async def wait_for_handle(self, handle: int) -> None:
+    async def wait_for_handle(
+        self, handle: int, release_before_wait: threading.Lock
+    ) -> None:
         raise NotImplementedError
 
 

@@ -23,13 +23,9 @@ class NotificationQueue:
         self._waiting_clients: Dict[int, Set[WaitingClient]] = {}
         self._lock = threading.Lock()
 
-    async def wait_for_handle(self, handle: int) -> None:
-        """
-        Wait for a notification on the specified handle.
-
-        Args:
-            handle: The handle to wait for
-        """
+    async def wait_for_handle(
+        self, handle: int, release_before_wait: threading.Lock
+    ) -> None:
         client = WaitingClient.new()
 
         with self._lock:
@@ -38,6 +34,7 @@ class NotificationQueue:
             self._waiting_clients[handle].add(client)
 
         try:
+            release_before_wait.release()
             await client.event.wait()
         finally:
             # Clean up the client registration
@@ -48,13 +45,6 @@ class NotificationQueue:
                         del self._waiting_clients[handle]
 
     def notify(self, handle: int) -> None:
-        """
-        Notify all clients waiting for the specified handle.
-        This method is thread-safe and can be called from any thread.
-
-        Args:
-            handle: The handle to notify about
-        """
         with self._lock:
             clients = self._waiting_clients.get(handle, set()).copy()
         for client in clients:
