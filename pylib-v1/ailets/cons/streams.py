@@ -19,6 +19,18 @@ class PrintStream(IPipe):
         raise io.UnsupportedOperation("PrintStream is write-only")
 
 
+class StaticStream(IPipe):
+    def __init__(self, content: bytes) -> None:
+        self.content = content
+    
+    def get_reader(self, _handle: int) -> io.BufferedIOBase:
+        return io.BytesIO(self.content)
+
+    def get_writer(self) -> io.BufferedIOBase:
+        raise io.UnsupportedOperation("StaticStream is read-only")
+        
+
+
 def create_log_stream() -> Stream:
     class LogStream(AsyncBuffer):
         async def write(self, b: bytes) -> int:
@@ -102,14 +114,13 @@ class Streams(IStreams):
     @staticmethod
     def make_env_stream(params: Dict[str, Any]) -> Stream:
         content = json.dumps(params).encode("utf-8")
-        buf = AsyncBuffer(
-            initial_content=content, is_closed=True, on_write_started=lambda: None
-        )
+        pipe = StaticStream(content)
         return Stream(
             node_name=".",
             stream_name="env",
-            buf=buf,
+            pipe=pipe,
         )
+
 
     def get_fs_output_streams(self) -> Sequence[Stream]:
         return [
