@@ -9,106 +9,78 @@ from .atyping import INotificationQueue
 logger = logging.getLogger("ailets.io")
 
 
-class BufWriterWithState:
-    def __init__(
-        self, handle: int, buffer: io.BytesIO, queue: INotificationQueue
-    ) -> None:
+class Writer(io.BufferedIOBase):
+    def __init__(self, handle: int, queue: INotificationQueue) -> None:
+        super().__init__()
+        self.buffer = bytearray()
         self.handle = handle
-        self.buffer = buffer  # shared between threads with readers
         self.queue = queue
-        self.error: Optional[Exception] = None
-        self._is_closed = False
-        self.pos = 0
-
-    def get_handle(self) -> int:
-        return self.handle
-
-    def get_pos(self) -> int:
-        return self.pos
 
     def write(self, data: bytes) -> int:
-        n = self.buffer.write(data)
-        self.pos += n
-        assert n == len(data), f"written bytes ({n}) != expected ({len(data)})"
+        if self.closed:
+            raise ValueError("Writer is closed")
+        self.buffer.extend(data)
         self.queue.notify(self.handle)
-        return n
+        return len(data)
 
-    def get_error(self) -> Optional[Exception]:
-        return self.error
-
-    def is_closed(self) -> bool:
-        return self._is_closed
+    def tell(self) -> int:
+        return len(self.buffer)
 
     def close(self) -> None:
-        self._is_closed = True
+        io.BufferedIOBase.close(self)
         self.queue.notify(self.handle)
 
 
-class BufReaderFromPipe:
-    def __init__(
-        self,
-        handle: int,
-        buffer: io.BytesIO,
-        writer: Optional[BufWriterWithState],
-        queue: INotificationQueue,
-    ) -> None:
+class Reader(io.BufferedIOBase):
+    def __init__(self, handle: int, writer: Writer) -> None:
+        super().__init__()
         self.handle = handle
-        self.buffer = buffer
         self.writer = writer
-        self.queue = queue
-        self.error: Optional[Exception] = None
         self.pos = 0
-        self._is_closed = False
+
+    def _should_wait(self) -> bool:
+        return self.pos >= self.writer.tell()
 
     async def read(self, size: int = -1) -> Optional[bytes]:
-        while self.error is None and not self.is_closed():
-            if self.writer is not None and self.pos >= self.writer.get_pos():
+        while not self.closed:
+            if self._should_wait():
                 await self._wait_for_writer()
                 continue
 
-            buffer = self.buffer.getvalue()
-
             if size < 0:
-                end_pos = len(buffer)
+                end_pos = len(self.writer.buffer)
             else:
                 end_pos = self.pos + size
-            data = buffer[slice(self.pos, end_pos)]
+            data = self.writer.buffer[slice(self.pos, end_pos)]
             self.pos = end_pos
             return data
 
-        if self.error is not None:
-            raise self.error
         return b""
 
-    def is_closed(self) -> bool:
-        return self._is_closed
-
-    def get_error(self) -> Optional[Exception]:
-        return self.error
-
-    def close(self) -> None:
-        self._is_closed = True
-
     async def _wait_for_writer(self) -> None:
-        if self.writer is None:
-            return
-        error = self.writer.get_error()
-        if error is not None:
-            self.error = error
-            return
-        if self.writer.is_closed():
-            self.close()
-            return
         # See the event documentation for the workflow explanation
-        lock = self.queue.get_lock()
+        lock = self.writer.queue.get_lock()
         with lock:
-            if self.pos >= self.writer.get_pos():
-                await self.queue.wait_for_handle(self.writer.get_handle())
+            if self._should_wait():
+                await self.writer.queue.wait_for_handle(self.writer.handle)
                 lock.acquire()
+        if self.writer.closed:
+            self.close()
+
+
+class BytesWR:
+    def __init__(self, writer_handle: int, queue: INotificationQueue) -> None:
+        self.writer = Writer(writer_handle, queue)
+
+    def get_writer(self) -> io.BufferedIOBase:
+        return self.writer
+
+    def get_reader(self, handle: int) -> io.BufferedIOBase:
+        return Reader(handle, self.writer)
 
 
 def main() -> None:
-    async def writer(lib_writer: BufWriterWithState) -> None:
+    async def write_all(lib_writer: io.BufferedIOBase) -> None:
         try:
             while True:
                 s = await asyncio.to_thread(input)
@@ -121,27 +93,25 @@ def main() -> None:
         finally:
             lib_writer.close()
 
-    async def reader(name: str, lib_reader: BufReaderFromPipe) -> None:
+    async def read_all(name: str, lib_reader: io.BufferedIOBase) -> None:
         while True:
             data = await lib_reader.read(size=4)
-            if data is None:
-                raise lib_reader.get_error() or EOFError()
             if len(data) == 0:
                 break
             print(f"({name}): {data.decode()}")
 
     async def main() -> None:
         queue = NotificationQueue()
-        buffer = io.BytesIO()
-        lib_writer = BufWriterWithState(0, buffer, queue)
-        lib_reader1 = BufReaderFromPipe(1, buffer, lib_writer, queue)
-        lib_reader2 = BufReaderFromPipe(2, buffer, lib_writer, queue)
-        lib_reader3 = BufReaderFromPipe(3, buffer, lib_writer, queue)
+        wr = BytesWR(0, queue)
+        lib_writer = wr.get_writer()
+        lib_reader1 = wr.get_reader(1)
+        lib_reader2 = wr.get_reader(2)
+        lib_reader3 = wr.get_reader(3)
 
-        writer_task = asyncio.create_task(writer(lib_writer))
-        rt1 = asyncio.create_task(reader("r1", lib_reader1))
-        rt2 = asyncio.create_task(reader("r2", lib_reader2))
-        rt3 = asyncio.create_task(reader("r3", lib_reader3))
+        writer_task = asyncio.create_task(write_all(lib_writer))
+        rt1 = asyncio.create_task(read_all("r1", lib_reader1))
+        rt2 = asyncio.create_task(read_all("r2", lib_reader2))
+        rt3 = asyncio.create_task(read_all("r3", lib_reader3))
 
         await asyncio.gather(writer_task, rt1, rt2, rt3)
 
