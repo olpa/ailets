@@ -3,41 +3,8 @@ import io
 import json
 from typing import Any, Callable, Dict, Optional, Sequence
 
-from ailets.cons.atyping import Dependency, IPipe, IStreams
-from ailets.cons.async_buf import BufWriterWithState, BufReaderFromPipe
-
-
-class Pipe(IPipe):
-    node_name: str
-    stream_name: Optional[str]
-    reader: BufReaderFromPipe
-    writer: BufWriterWithState
-
-    def __init__(self, node_name: str, stream_name: Optional[str], handle_reader: int, handle_writer: int) -> None:
-        self.node_name = node_name
-        self.stream_name = stream_name
-
-        buf = io.BytesIO()
-        self.reader = BufReaderFromPipe(handle_reader, buf, None, None)
-        self.writer = BufWriterWithState(handle_writer, buf, None)
-
-    async def read(self, pos: int, size: int = -1) -> bytes:
-        return await self.reader.read(pos, size)
-
-    async def write(self, data: bytes) -> int:
-        return await self.writer.write(data)
-
-    def get_writer_node_name(self) -> str:
-        return self.node_name
-
-    def get_writer_stream_name(self) -> Optional[str]:
-        return self.stream_name
-
-    async def close_writer(self) -> None:
-        await self.writer.close()
-
-    def is_writer_closed(self) -> bool:
-        return self.writer.is_closed()
+from ailets.cons.atyping import Dependency, IStreams, INotificationQueue, Stream
+from ailets.cons.bytesrw import BytesWR
 
 
 def create_log_stream() -> Stream:
@@ -57,9 +24,11 @@ def create_log_stream() -> Stream:
 class Streams(IStreams):
     """Manages streams for an environment."""
 
-    def __init__(self) -> None:
+    def __init__(self, notification_queue: INotificationQueue, id_generator: Callable[[], int]) -> None:
         self._streams: list[Stream] = []
         self.on_write_started: Callable[[], None] = lambda: None
+        self.idgen = id_generator
+        self.queue = notification_queue
 
     def set_on_write_started(self, on_write_started: Callable[[], None]) -> None:
         self.on_write_started = on_write_started
@@ -96,17 +65,19 @@ class Streams(IStreams):
         if self._find_stream(node_name, stream_name) is not None:
             raise ValueError(f"Stream already exists: {node_name}.{stream_name}")
 
-        buf_debug_hint = f"{node_name}/{stream_name}"
+        pipe = BytesWR(
+            writer_handle=self.idgen(),
+            queue=self.queue,
+        )
+        if initial_content is not None:
+            pipe.write(initial_content)
+        if is_closed:
+            pipe.close()
 
         stream = Stream(
             node_name=node_name,
             stream_name=stream_name,
-            buf=AsyncBuffer(
-                initial_content=initial_content,
-                is_closed=is_closed,
-                on_write_started=self.on_write_started,
-                debug_hint=buf_debug_hint,
-            ),
+            pipe=pipe,
         )
         self._streams.append(stream)
         return stream
@@ -114,7 +85,7 @@ class Streams(IStreams):
     async def mark_finished(self, node_name: str, stream_name: Optional[str]) -> None:
         """Mark a stream as finished."""
         stream = self.get(node_name, stream_name)
-        await stream.close()
+        await stream.pipe.get_writer().close()
 
     @staticmethod
     def make_env_stream(params: Dict[str, Any]) -> Stream:
@@ -138,8 +109,8 @@ class Streams(IStreams):
     def collect_streams(
         self,
         deps: Sequence[Dependency],
-    ) -> Sequence[IStream]:
-        collected: list[IStream] = []
+    ) -> Sequence[Stream]:
+        collected: list[Stream] = []
         for dep in deps:
             collected.extend(
                 s
@@ -169,4 +140,4 @@ class Streams(IStreams):
             ),
             None,
         )
-        return stream is not None and len(stream.buf.buffer) > 0
+        return stream is not None and stream.pipe.get_writer().tell() > 0
