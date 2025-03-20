@@ -1,7 +1,6 @@
 import asyncio
 import io
 import logging
-import threading
 from typing import Optional
 
 from .notification_queue import NotificationQueue
@@ -17,7 +16,6 @@ class BufWriterWithState:
         self.handle = handle
         self.buffer = buffer  # shared between threads with readers
         self.queue = queue
-        self.lock = threading.Lock()  # for `.buffer`
         self.error: Optional[Exception] = None
         self._is_closed = False
         self.pos = 0
@@ -25,17 +23,12 @@ class BufWriterWithState:
     def get_handle(self) -> int:
         return self.handle
 
-    def get_lock(self) -> threading.Lock:
-        return self.lock
-
     def get_pos(self) -> int:
         return self.pos
 
     def write(self, data: bytes) -> int:
-        # `.buffer` is shared between threads with readers, so we need a lock
-        with self.lock:
-            n = self.buffer.write(data)
-            self.pos += n
+        n = self.buffer.write(data)
+        self.pos += n
         assert n == len(data), f"written bytes ({n}) != expected ({len(data)})"
         self.queue.notify(self.handle)
         return n
@@ -106,11 +99,11 @@ class BufReaderFromPipe:
         if self.writer.is_closed():
             self.close()
             return
-        lock = self.writer.get_lock()
+        # See the event documentation for the workflow explanation
+        lock = self.queue.get_lock()
         with lock:
             if self.pos >= self.writer.get_pos():
-                await self.queue.wait_for_handle(self.writer.get_handle(), lock)
-                # Re-acquire lock to match release in `wait_for_handle`
+                await self.queue.wait_for_handle(self.writer.get_handle())
                 lock.acquire()
 
 
