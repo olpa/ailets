@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+import io
 from typing import (
     Any,
     Awaitable,
@@ -15,7 +16,6 @@ from typing import (
     Union,
 )
 from typing_extensions import NotRequired
-import threading
 from ailets.cons.seqno import Seqno
 
 
@@ -23,30 +23,23 @@ class INotificationQueue(Protocol):
     def notify(self, handle: int) -> None:
         raise NotImplementedError
 
-    async def wait_for_handle(
-        self, handle: int, release_before_wait: threading.Lock
-    ) -> None:
+    async def wait_for_handle(self, handle: int) -> None:
         raise NotImplementedError
 
 
 class IPipe(Protocol):
-    async def read(self, pos: int, size: int = -1) -> bytes:
+    def get_writer(self) -> io.BufferedIOBase:
         raise NotImplementedError
 
-    async def write(self, data: bytes) -> int:
+    def get_reader(self, handle: int) -> io.BufferedIOBase:
         raise NotImplementedError
 
-    async def close_writer(self) -> None:
-        raise NotImplementedError
 
-    def is_writer_closed(self) -> bool:
-        raise NotImplementedError
-
-    def get_writer_node_name(self) -> str:
-        raise NotImplementedError
-
-    def get_writer_stream_name(self) -> Optional[str]:
-        raise NotImplementedError
+@dataclass
+class Stream:
+    node_name: str
+    stream_name: Optional[str]
+    pipe: IPipe
 
 
 class IStreams(Protocol):
@@ -56,13 +49,13 @@ class IStreams(Protocol):
         stream_name: str,
         initial_content: Optional[bytes] = None,
         is_closed: bool = False,
-    ) -> IStream:
+    ) -> Stream:
         raise NotImplementedError
 
     def has_input(self, dep: "Dependency") -> bool:
         raise NotImplementedError
 
-    def collect_streams(self, deps: Sequence["Dependency"]) -> Sequence[IStream]:
+    def collect_streams(self, deps: Sequence["Dependency"]) -> Sequence[Stream]:
         raise NotImplementedError
 
     async def read_dir(self, dir_name: str, node_names: Sequence[str]) -> Sequence[str]:
