@@ -1,10 +1,22 @@
 from dataclasses import dataclass
 import io
 import json
+import sys
 from typing import Any, Callable, Dict, Optional, Sequence
 
-from ailets.cons.atyping import Dependency, IStreams, INotificationQueue, Stream
+from ailets.cons.atyping import Dependency, IStreams, INotificationQueue, IPipe, Stream
 from ailets.cons.bytesrw import BytesWR
+
+
+class PrintStream(IPipe):
+    def __init__(self, output: io.TextIOBase) -> None:
+        self.output = output
+
+    def get_writer(self) -> io.BufferedIOBase:
+        return self.output
+
+    def get_reader(self, _handle: int) -> io.BufferedIOBase:
+        raise io.UnsupportedOperation("PrintStream is write-only")
 
 
 def create_log_stream() -> Stream:
@@ -60,7 +72,7 @@ class Streams(IStreams):
     ) -> Stream:
         """Add a new stream."""
         if stream_name == "log":
-            return create_log_stream()
+            return PrintStream(sys.stdout)
 
         if self._find_stream(node_name, stream_name) is not None:
             raise ValueError(f"Stream already exists: {node_name}.{stream_name}")
