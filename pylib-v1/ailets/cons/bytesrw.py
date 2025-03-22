@@ -1,7 +1,5 @@
 import asyncio
-import io
 import logging
-from typing import Optional
 
 from .notification_queue import NotificationQueue
 from .atyping import IAsyncReader, IAsyncWriter, INotificationQueue
@@ -18,6 +16,9 @@ class Writer(IAsyncWriter):
         self.closed = False
 
     async def write(self, data: bytes) -> int:
+        return self.write_sync(data)
+
+    def write_sync(self, data: bytes) -> int:
         if self.closed:
             raise ValueError("Writer is closed")
         self.buffer.extend(data)

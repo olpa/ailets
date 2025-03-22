@@ -90,3 +90,14 @@ class NotificationQueue:
             clients = self._waiting_clients.get(handle, set()).copy()
         for client in clients:
             client.loop.call_soon_threadsafe(client.event.set)
+
+
+class DummyNotificationQueue:
+    def get_lock(self) -> threading.Lock:
+        return threading.Lock()
+
+    def notify(self, handle: int) -> None:
+        pass
+
+    async def wait_for_handle(self, handle: int) -> None:
+        pass

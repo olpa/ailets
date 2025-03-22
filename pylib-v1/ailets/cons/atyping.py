@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field
-import io
 import threading
 from typing import (
     Any,
@@ -55,10 +54,10 @@ class INotificationQueue(Protocol):
 
 
 class IPipe(Protocol):
-    def get_writer(self) -> io.BufferedIOBase:
+    def get_writer(self) -> IAsyncWriter:
         raise NotImplementedError
 
-    def get_reader(self, handle: int) -> io.BufferedIOBase:
+    def get_reader(self, handle: int) -> IAsyncReader:
         raise NotImplementedError
 
 
