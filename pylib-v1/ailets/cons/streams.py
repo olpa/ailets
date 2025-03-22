@@ -18,6 +18,7 @@ from ailets.cons.bytesrw import (
     Reader as BytesWRReader,
 )
 from ailets.cons.notification_queue import DummyNotificationQueue
+from ailets.cons.seqno import Seqno
 
 
 class PrintStream(IPipe):
@@ -72,12 +73,10 @@ def create_log_stream() -> Stream:
 class Streams(IStreams):
     """Manages streams for an environment."""
 
-    def __init__(
-        self, notification_queue: INotificationQueue, id_generator: Callable[[], int]
-    ) -> None:
+    def __init__(self, notification_queue: INotificationQueue, seqno: Seqno) -> None:
         self._streams: list[Stream] = []
         self.on_write_started: Callable[[], None] = lambda: None
-        self.idgen = id_generator
+        self.seqno = seqno
         self.queue = notification_queue
 
     def set_on_write_started(self, on_write_started: Callable[[], None]) -> None:
@@ -121,7 +120,7 @@ class Streams(IStreams):
             raise ValueError(f"Stream already exists: {node_name}.{stream_name}")
 
         pipe = BytesWR(
-            writer_handle=self.idgen(),
+            writer_handle=self.seqno.next_seqno(),
             queue=self.queue,
         )
         writer = pipe.get_writer()
