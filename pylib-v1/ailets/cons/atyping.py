@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 import io
+import threading
 from typing import (
     Any,
     Awaitable,
@@ -19,11 +20,37 @@ from typing_extensions import NotRequired
 from ailets.cons.seqno import Seqno
 
 
+class IAsyncReader(Protocol):
+    closed: bool
+
+    async def read(self, size: int) -> bytes:
+        raise NotImplementedError
+
+    def close(self) -> None:
+        raise NotImplementedError
+
+
+class IAsyncWriter(Protocol):
+    closed: bool
+
+    async def write(self, data: bytes) -> int:
+        raise NotImplementedError
+
+    def close(self) -> None:
+        raise NotImplementedError
+
+    def tell(self) -> int:
+        raise NotImplementedError
+
+
 class INotificationQueue(Protocol):
     def notify(self, handle: int) -> None:
         raise NotImplementedError
 
     async def wait_for_handle(self, handle: int) -> None:
+        raise NotImplementedError
+
+    def get_lock(self) -> threading.Lock:
         raise NotImplementedError
 
 

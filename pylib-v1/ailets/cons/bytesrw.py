@@ -4,19 +4,20 @@ import logging
 from typing import Optional
 
 from .notification_queue import NotificationQueue
-from .atyping import INotificationQueue
+from .atyping import IAsyncReader, IAsyncWriter, INotificationQueue
 
 logger = logging.getLogger("ailets.io")
 
 
-class Writer(io.BufferedIOBase):
+class Writer(IAsyncWriter):
     def __init__(self, handle: int, queue: INotificationQueue) -> None:
         super().__init__()
         self.buffer = bytearray()
         self.handle = handle
         self.queue = queue
+        self.closed = False
 
-    def write(self, data: bytes) -> int:
+    async def write(self, data: bytes) -> int:
         if self.closed:
             raise ValueError("Writer is closed")
         self.buffer.extend(data)
@@ -27,21 +28,25 @@ class Writer(io.BufferedIOBase):
         return len(self.buffer)
 
     def close(self) -> None:
-        io.BufferedIOBase.close(self)
+        self.closed = True
         self.queue.notify(self.handle)
 
 
-class Reader(io.BufferedIOBase):
+class Reader(IAsyncReader):
     def __init__(self, handle: int, writer: Writer) -> None:
         super().__init__()
         self.handle = handle
         self.writer = writer
         self.pos = 0
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
 
     def _should_wait(self) -> bool:
         return self.pos >= self.writer.tell()
 
-    async def read(self, size: int = -1) -> Optional[bytes]:
+    async def read(self, size: int = -1) -> bytes:
         while not self.closed:
             if self._should_wait():
                 await self._wait_for_writer()
@@ -72,28 +77,28 @@ class BytesWR:
     def __init__(self, writer_handle: int, queue: INotificationQueue) -> None:
         self.writer = Writer(writer_handle, queue)
 
-    def get_writer(self) -> io.BufferedIOBase:
+    def get_writer(self) -> IAsyncWriter:
         return self.writer
 
-    def get_reader(self, handle: int) -> io.BufferedIOBase:
+    def get_reader(self, handle: int) -> IAsyncReader:
         return Reader(handle, self.writer)
 
 
 def main() -> None:
-    async def write_all(lib_writer: io.BufferedIOBase) -> None:
+    async def write_all(lib_writer: IAsyncWriter) -> None:
         try:
             while True:
                 s = await asyncio.to_thread(input)
                 s = s.strip()
                 if not s:
                     break
-                lib_writer.write(s.encode("utf-8"))
+                await lib_writer.write(s.encode("utf-8"))
         except EOFError:
             pass
         finally:
             lib_writer.close()
 
-    async def read_all(name: str, lib_reader: io.BufferedIOBase) -> None:
+    async def read_all(name: str, lib_reader: IAsyncReader) -> None:
         while True:
             data = await lib_reader.read(size=4)
             if len(data) == 0:
