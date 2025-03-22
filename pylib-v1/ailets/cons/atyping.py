@@ -300,6 +300,7 @@ class IEnvironment(Protocol):
     streams: IStreams
     nodereg: INodeRegistry
     processes: IProcesses
+    notification_queue: INotificationQueue
 
 
 #
