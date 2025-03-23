@@ -93,7 +93,10 @@ def load_node(
 
 
 async def dump_stream(stream: Stream, f: TextIO) -> None:
-    b = await stream.read(pos=0, size=-1)
+    writer = stream.pipe.get_writer()
+    dont_care_handle = -1
+    reader = stream.pipe.get_reader(dont_care_handle)
+    b = await reader.read(size=-1)
     try:
         content_field = "content"
         content = b.decode("utf-8")
@@ -104,7 +107,7 @@ async def dump_stream(stream: Stream, f: TextIO) -> None:
         {
             "node": stream.node_name,
             "name": stream.stream_name,
-            "is_closed": stream.is_closed(),
+            "is_closed": writer.closed,
             content_field: content,
         },
         f,
