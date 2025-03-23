@@ -82,6 +82,9 @@ class BytesWR:
         return self.writer
 
     def get_reader(self, handle: int) -> IAsyncReader:
+        logger.debug(
+            "BytesWR.get_reader: %s for the writer %s", handle, self.writer.handle
+        )
         return Reader(handle, self.writer)
 
 

@@ -1,5 +1,6 @@
 import asyncio
 from dataclasses import dataclass
+import logging
 from typing import Dict, Set
 import threading
 
@@ -40,6 +41,8 @@ with lock:
 
 """
 
+logger = logging.getLogger("ailets.queue")
+
 
 @dataclass(frozen=True)
 class WaitingClient:
@@ -68,6 +71,7 @@ class NotificationQueue:
         The caller should aquire the lock before calling this method.
         See the module documentation for more details.
         """
+        logger.debug("queue.wait_for_handle: %s", handle)
         client = WaitingClient.new()
 
         if handle not in self._waiting_clients:
@@ -88,6 +92,7 @@ class NotificationQueue:
     def notify(self, handle: int) -> None:
         with self._lock:
             clients = self._waiting_clients.get(handle, set()).copy()
+        logger.debug("queue.notify: handle %s, len(clients): %s", handle, len(clients))
         for client in clients:
             client.loop.call_soon_threadsafe(client.event.set)
 
