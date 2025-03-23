@@ -118,7 +118,6 @@ class Streams(IStreams):
         is_closed: bool = False,
     ) -> Stream:
         """Add a new stream."""
-        logger.debug("Streams.create: %s.%s", node_name, stream_name)  # FIXME
         if stream_name == "log":
             log_pipe = PrintStream(sys.stdout)
             return Stream(
@@ -157,19 +156,14 @@ class Streams(IStreams):
             ):
 
                 async def notifier() -> None:
-                    with self.queue.get_lock():
-                        await self.queue.wait_for_handle(
-                            writer.handle, "to call on_write_started"
-                        )
+                    lock = self.queue.get_lock()
+                    lock.acquire()
+                    await self.queue.wait_for_handle(
+                        writer.handle, "to call on_write_started"
+                    )
                     if self.on_write_started is not None:
                         self.on_write_started()
 
-                logger.debug(
-                    "create_task for notifier. writer.handle: %s, closed: %s, tell: %s",
-                    writer.handle,
-                    writer.closed,
-                    writer.tell(),
-                )  # FIXME
                 asyncio.get_running_loop().create_task(notifier())
 
         return stream
