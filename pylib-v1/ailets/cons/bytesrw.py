@@ -15,6 +15,14 @@ class Writer(IAsyncWriter):
         self.queue = queue
         self.closed = False
 
+    def __str__(self) -> str:
+        return (
+            f"BytesWR.Writer(handle={self.handle}, "
+            f"closed={self.closed}, "
+            f"tell={self.tell()}, "
+            f"buffer={self.buffer})"
+        )
+
     async def write(self, data: bytes) -> int:
         return self.write_sync(data)
 
@@ -68,7 +76,9 @@ class Reader(IAsyncReader):
         lock = self.writer.queue.get_lock()
         with lock:
             if self._should_wait():
-                await self.writer.queue.wait_for_handle(self.writer.handle)
+                await self.writer.queue.wait_for_handle(
+                    self.writer.handle, f"BytesWR.Reader {self.handle}"
+                )
                 lock.acquire()
         if self.writer.closed:
             self.close()
@@ -86,6 +96,9 @@ class BytesWR:
             "BytesWR.get_reader: %s for the writer %s", handle, self.writer.handle
         )
         return Reader(handle, self.writer)
+
+    def __str__(self) -> str:
+        return f"BytesWR(writer={self.writer})"
 
 
 def main() -> None:

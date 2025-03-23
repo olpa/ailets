@@ -50,10 +50,18 @@ class WaitingClient:
 
     loop: asyncio.AbstractEventLoop
     event: asyncio.Event
+    debug_hint: str
 
     @classmethod
-    def new(cls) -> "WaitingClient":
-        return cls(loop=asyncio.get_running_loop(), event=asyncio.Event())
+    def new(cls, debug_hint: str) -> "WaitingClient":
+        return cls(
+            loop=asyncio.get_running_loop(),
+            event=asyncio.Event(),
+            debug_hint=debug_hint,
+        )
+
+    def __str__(self) -> str:
+        return f"WaitingClient({self.debug_hint})"
 
 
 class NotificationQueue:
@@ -66,13 +74,13 @@ class NotificationQueue:
     def get_lock(self) -> threading.Lock:
         return self._lock
 
-    async def wait_for_handle(self, handle: int) -> None:
+    async def wait_for_handle(self, handle: int, debug_hint: str) -> None:
         """Wait for the handle notification
         The caller should aquire the lock before calling this method.
         See the module documentation for more details.
         """
         logger.debug("queue.wait_for_handle: %s", handle)
-        client = WaitingClient.new()
+        client = WaitingClient.new(debug_hint=debug_hint)
 
         if handle not in self._waiting_clients:
             self._waiting_clients[handle] = set()
@@ -96,6 +104,13 @@ class NotificationQueue:
         for client in clients:
             client.loop.call_soon_threadsafe(client.event.set)
 
+    def get_waits(self) -> list[tuple[int, list[str]]]:
+        with self._lock:
+            return [
+                (handle, [str(client) for client in clients])
+                for handle, clients in self._waiting_clients.items()
+            ]
+
 
 class DummyNotificationQueue:
     def get_lock(self) -> threading.Lock:
@@ -104,5 +119,8 @@ class DummyNotificationQueue:
     def notify(self, handle: int) -> None:
         pass
 
-    async def wait_for_handle(self, handle: int) -> None:
+    async def wait_for_handle(self, handle: int, debug_hint: str) -> None:
         pass
+
+    def get_waits(self) -> list[tuple[int, list[str]]]:
+        return []

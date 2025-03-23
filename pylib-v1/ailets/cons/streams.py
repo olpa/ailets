@@ -21,6 +21,10 @@ from ailets.cons.bytesrw import (
 from ailets.cons.notification_queue import DummyNotificationQueue
 from ailets.cons.seqno import Seqno
 
+import logging
+
+logger = logging.getLogger("ailets.streams")
+
 
 class PrintStream(IPipe):
     class Writer(IAsyncWriter):
@@ -38,6 +42,9 @@ class PrintStream(IPipe):
         def close(self) -> None:
             self.output.close()
             self.closed = True
+
+        def __str__(self) -> str:
+            return f"PrintStream.Writer(output={self.output}, closed={self.closed})"
 
     def __init__(self, output: IO[str]) -> None:
         self.writer = PrintStream.Writer(output)
@@ -111,6 +118,7 @@ class Streams(IStreams):
         is_closed: bool = False,
     ) -> Stream:
         """Add a new stream."""
+        logger.debug("Streams.create: %s.%s", node_name, stream_name)  # FIXME
         if stream_name == "log":
             log_pipe = PrintStream(sys.stdout)
             return Stream(
@@ -142,14 +150,26 @@ class Streams(IStreams):
 
         if self.on_write_started is not None:
             writer = pipe.get_writer()
-            if isinstance(writer, BytesWRWriter) and not writer.closed:
+            if (
+                isinstance(writer, BytesWRWriter)
+                and not writer.closed
+                and writer.tell() == 0
+            ):
 
                 async def notifier() -> None:
                     with self.queue.get_lock():
-                        await self.queue.wait_for_handle(writer.handle)
+                        await self.queue.wait_for_handle(
+                            writer.handle, "to call on_write_started"
+                        )
                     if self.on_write_started is not None:
                         self.on_write_started()
 
+                logger.debug(
+                    "create_task for notifier. writer.handle: %s, closed: %s, tell: %s",
+                    writer.handle,
+                    writer.closed,
+                    writer.tell(),
+                )  # FIXME
                 asyncio.get_running_loop().create_task(notifier())
 
         return stream

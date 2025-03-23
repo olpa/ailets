@@ -46,7 +46,7 @@ class INotificationQueue(Protocol):
     def notify(self, handle: int) -> None:
         raise NotImplementedError
 
-    async def wait_for_handle(self, handle: int) -> None:
+    async def wait_for_handle(self, handle: int, debug_hint: str) -> None:
         raise NotImplementedError
 
     def get_lock(self) -> threading.Lock:
@@ -66,6 +66,13 @@ class Stream:
     node_name: str
     stream_name: Optional[str]
     pipe: IPipe
+
+    def __str__(self) -> str:
+        return (
+            f"Stream(node_name={self.node_name}, "
+            f"stream_name={self.stream_name}, "
+            f"pipe={self.pipe})"
+        )
 
 
 class IStreams(Protocol):
