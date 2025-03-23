@@ -1,3 +1,4 @@
+import asyncio
 import io
 import json
 import sys
@@ -75,11 +76,13 @@ class Streams(IStreams):
 
     def __init__(self, notification_queue: INotificationQueue, seqno: Seqno) -> None:
         self._streams: list[Stream] = []
-        self.on_write_started: Callable[[], None] = lambda: None
+        self.on_write_started: Optional[Callable[[], None]] = None
         self.seqno = seqno
         self.queue = notification_queue
 
-    def set_on_write_started(self, on_write_started: Callable[[], None]) -> None:
+    def set_on_write_started(
+        self, on_write_started: Optional[Callable[[], None]]
+    ) -> None:
         self.on_write_started = on_write_started
 
     def _find_stream(
@@ -136,6 +139,19 @@ class Streams(IStreams):
             pipe=pipe,
         )
         self._streams.append(stream)
+
+        if self.on_write_started is not None:
+            writer = pipe.get_writer()
+            if isinstance(writer, BytesWRWriter) and not writer.closed:
+
+                async def notifier() -> None:
+                    with self.queue.get_lock():
+                        await self.queue.wait_for_handle(writer.handle)
+                    if self.on_write_started is not None:
+                        self.on_write_started()
+
+                asyncio.get_running_loop().create_task(notifier())
+
         return stream
 
     async def mark_finished(self, node_name: str, stream_name: Optional[str]) -> None:
