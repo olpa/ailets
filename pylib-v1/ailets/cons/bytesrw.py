@@ -53,7 +53,11 @@ class Reader(IAsyncReader):
         self.closed = True
 
     def _should_wait(self) -> bool:
-        return self.pos >= self.writer.tell()
+        should_wait = self.pos >= self.writer.tell()
+        if self.writer.closed:
+            self.close()
+            should_wait = False
+        return should_wait
 
     async def read(self, size: int = -1) -> bytes:
         while not self.closed:
