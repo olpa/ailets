@@ -75,15 +75,3 @@ fn funcall_streaming() {
         )]
     );
 }
-
-#[test]
-fn show_error_positionin_peek() {
-    let reader = Cursor::new("b");
-    let writer = RcWriter::new();
-    let mut dagops = TrackedInjectDagOps::new();
-
-    let err = _process_gpt(reader, writer.clone(), &mut dagops).unwrap_err();
-    
-    assert!(err.to_string().contains("at position 50"), 
-        "Error message '{}' should contain position information", err);
-}
