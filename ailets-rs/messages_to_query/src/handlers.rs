@@ -34,7 +34,7 @@ pub fn on_role<W: Write>(
         Err(e) => {
             return StreamOp::Error(
                 format!("Error getting role value. Expected string, got: {e:?}").into(),
-            )
+            );
         }
     };
     if let Err(e) = builder_cell.borrow_mut().add_role(role) {
@@ -112,7 +112,14 @@ pub fn on_content_text<W: Write>(
         Err(e) => return StreamOp::Error(Box::new(e)),
     };
     if peeked != Peek::String {
-        return StreamOp::Error(format!("Expected string for 'text' value, got {peeked:?}").into());
+        let idx = rjiter.current_index();
+        let pos = rjiter.error_position(idx);
+        return StreamOp::Error(
+            format!(
+                "Expected string for 'text' value, got {peeked:?} at index {idx}, position {pos}"
+            )
+            .into(),
+        );
     }
 
     let mut builder = builder_cell.borrow_mut();
