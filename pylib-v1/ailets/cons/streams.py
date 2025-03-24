@@ -145,6 +145,8 @@ class Streams(IStreams):
             stream_name=stream_name,
             pipe=pipe,
         )
+        logger.debug(f"Created stream: {stream}")
+
         self._streams.append(stream)
 
         if self.on_write_started is not None:
