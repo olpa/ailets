@@ -26,8 +26,15 @@ fn on_content_text<W: Write>(
         Ok(p) => p,
         Err(e) => return StreamOp::Error(Box::new(e)),
     };
+    let idx = rjiter.current_index();
+    let pos = rjiter.error_position(idx);
     if peeked != Peek::String {
-        return StreamOp::Error(format!("Expected string for 'text' value, got {peeked:?}").into());
+        return StreamOp::Error(
+            format!(
+                "Expected string for 'text' value, got {peeked:?} at index {idx}, position {pos}"
+            )
+            .into(),
+        );
     }
 
     let mut builder = builder_cell.borrow_mut();
