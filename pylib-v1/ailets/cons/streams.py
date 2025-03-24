@@ -151,18 +151,27 @@ class Streams(IStreams):
 
         if self.on_write_started is not None:
             writer = pipe.get_writer()
-            if (
-                isinstance(writer, BytesWRWriter)
-                and not writer.closed
-                and writer.tell() == 0
-            ):
+
+            def should_notify() -> bool:
+                return (
+                    isinstance(writer, BytesWRWriter)
+                    and not writer.closed
+                    and writer.tell() == 0
+                )
+
+            if should_notify():
+                bwrwriter: BytesWRWriter = writer  # type: ignore[assignment]
+                writer_handle = bwrwriter.handle
 
                 async def notifier() -> None:
+                    # See the `queue` documentation for the workflow explanation
                     lock = self.queue.get_lock()
-                    lock.acquire()
-                    await self.queue.wait_for_handle(
-                        writer.handle, "to call on_write_started"
-                    )
+                    with lock:
+                        if should_notify():
+                            await self.queue.wait_for_handle(
+                                writer_handle, "to call on_write_started"
+                            )
+                            lock.acquire()
                     if self.on_write_started is not None:
                         self.on_write_started()
 
