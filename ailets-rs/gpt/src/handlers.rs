@@ -68,8 +68,12 @@ pub fn on_content<W: Write>(
         return StreamOp::ValueIsConsumed;
     }
     if peeked != Peek::String {
-        let error: Box<dyn std::error::Error> =
-            format!("Expected string for 'content' value, got {peeked:?}").into();
+        let idx = rjiter.current_index();
+        let pos = rjiter.error_position(idx);
+        let error: Box<dyn std::error::Error> = format!(
+            "Expected string for 'content' value, got {peeked:?}, at index {idx}, position {pos}"
+        )
+        .into();
         return StreamOp::Error(error);
     }
     let mut builder = builder_cell.borrow_mut();
@@ -156,10 +160,12 @@ pub fn on_function_index<W: Write>(
             return StreamOp::Error(error);
         }
     };
+    let idx = rjiter.current_index();
+    let pos = rjiter.error_position(idx);
     let idx: usize = match value {
         NumberInt::BigInt(_) => {
             let error: Box<dyn std::error::Error> =
-                format!("Can't convert the function index to usize, got {value:?}").into();
+                format!("Can't convert the function index to usize, got {value:?} at index {idx}, position {pos}").into();
             return StreamOp::Error(error);
         }
         NumberInt::Int(i) => {
@@ -167,7 +173,7 @@ pub fn on_function_index<W: Write>(
                 idx
             } else {
                 let error: Box<dyn std::error::Error> =
-                    format!("Can't convert the function index to usize, got {value:?}").into();
+                    format!("Can't convert the function index to usize, got {value:?} at index {idx}, position {pos}").into();
                 return StreamOp::Error(error);
             }
         }
