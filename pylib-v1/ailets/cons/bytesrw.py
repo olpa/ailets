@@ -52,16 +52,16 @@ class Reader(IAsyncReader):
     def close(self) -> None:
         self.closed = True
 
-    def _should_wait(self) -> bool:
+    def _should_wait_with_autoclose(self) -> bool:
         should_wait = self.pos >= self.writer.tell()
-        if self.writer.closed:
+        if should_wait and self.writer.closed:
             self.close()
             should_wait = False
         return should_wait
 
     async def read(self, size: int = -1) -> bytes:
         while not self.closed:
-            if self._should_wait():
+            if self._should_wait_with_autoclose():
                 await self._wait_for_writer()
                 continue
 
@@ -79,7 +79,7 @@ class Reader(IAsyncReader):
         # See the event documentation for the workflow explanation
         lock = self.writer.queue.get_lock()
         with lock:
-            if self._should_wait():
+            if self._should_wait_with_autoclose():
                 await self.writer.queue.wait_for_handle(
                     self.writer.handle, f"BytesWR.Reader {self.handle}"
                 )
