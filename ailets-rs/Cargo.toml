@@ -8,5 +8,5 @@ edition = "2021"
 authors = ["Oleg Parashchenko <olpa@uucode.com>"]
 license = "MIT"
 
-#[patch.crates-io]
-#scan_json = { path = "../../streaming_json/scan_json" }
+[patch.crates-io]
+scan_json = { path = "../../streaming_json/scan_json" }
