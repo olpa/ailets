@@ -19,8 +19,7 @@ class Writer(IAsyncWriter):
         return (
             f"BytesWR.Writer(handle={self.handle}, "
             f"closed={self.closed}, "
-            f"tell={self.tell()}, "
-            f"buffer={self.buffer})"
+            f"tell={self.tell()}"
         )
 
     async def write(self, data: bytes) -> int:
