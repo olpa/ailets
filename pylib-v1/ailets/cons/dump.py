@@ -13,17 +13,17 @@ from typing import (
     Tuple,
 )
 
-from ailets.cons.async_buf import AsyncBuffer
 from ailets.cons.atyping import (
     Dependency,
     INodeRegistry,
     INodeRuntime,
     IProcesses,
+    IStreams,
     Node,
+    Stream,
 )
 from ailets.cons.dagops import Dagops
 from ailets.cons.seqno import Seqno
-from ailets.cons.streams import Stream
 from ailets.cons.util import to_basename
 from ailets.cons.environment import Environment
 
@@ -93,7 +93,10 @@ def load_node(
 
 
 async def dump_stream(stream: Stream, f: TextIO) -> None:
-    b = await stream.read(pos=0, size=-1)
+    writer = stream.pipe.get_writer()
+    dont_care_handle = -1
+    reader = stream.pipe.get_reader(dont_care_handle)
+    b = await reader.read(size=-1)
     try:
         content_field = "content"
         content = b.decode("utf-8")
@@ -104,7 +107,7 @@ async def dump_stream(stream: Stream, f: TextIO) -> None:
         {
             "node": stream.node_name,
             "name": stream.stream_name,
-            "is_closed": stream.is_closed(),
+            "is_closed": writer.closed,
             content_field: content,
         },
         f,
@@ -112,23 +115,14 @@ async def dump_stream(stream: Stream, f: TextIO) -> None:
     )
 
 
-async def load_stream(data: dict[str, Any]) -> Stream:
+async def load_stream(streams: IStreams, data: dict[str, Any]) -> None:
     if "b64_content" in data:
         content = base64.b64decode(data["b64_content"])
     else:
         content = data["content"].encode("utf-8")
     is_closed = data.get("is_closed", False)
-    buf_debug_hint = f"{data['node']}/{data['name']}"
-    buf = AsyncBuffer(
-        initial_content=content,
-        is_closed=is_closed,
-        on_write_started=lambda: None,
-        debug_hint=buf_debug_hint,
-    )
-    return Stream(
-        node_name=data["node"],
-        stream_name=data["name"],
-        buf=buf,
+    streams.create(
+        data["node"], data["name"], initial_content=content, is_closed=is_closed
     )
 
 
@@ -169,8 +163,7 @@ async def load_environment(f: TextIO, nodereg: INodeRegistry) -> Environment:
                 if obj_data.get("is_finished", False):
                     env.processes.add_value_node(node.name)
             elif "is_closed" in obj_data:
-                stream = await load_stream(obj_data)
-                env.streams._streams.append(stream)
+                await load_stream(env.streams, obj_data)
             elif "alias" in obj_data:
                 env.dagops.aliases[obj_data["alias"]] = obj_data["names"]
             elif "env" in obj_data:

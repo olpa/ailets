@@ -34,5 +34,15 @@ class MiniShell(cmd.Cmd):
         self.env.processes.mark_node_started_writing()
         return True
 
+    def do_streams(self, arg: str) -> None:
+        """List streams."""
+        for stream in self.env.streams._streams:
+            print(stream)
+
+    def do_waits(self, arg: str) -> None:
+        """List waits."""
+        for handle, clients in self.env.notification_queue.get_waits():
+            print(f"{handle}: {clients}")
+
     # Aliases
     do_quit = do_exit

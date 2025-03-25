@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+import threading
 from typing import (
     Any,
     Awaitable,
@@ -15,22 +16,63 @@ from typing import (
     Union,
 )
 from typing_extensions import NotRequired
-
 from ailets.cons.seqno import Seqno
 
 
-class IStream(Protocol):
-    async def read(self, pos: int, size: int = -1) -> bytes:
+class IAsyncReader(Protocol):
+    closed: bool
+
+    async def read(self, size: int) -> bytes:
         raise NotImplementedError
+
+    def close(self) -> None:
+        raise NotImplementedError
+
+
+class IAsyncWriter(Protocol):
+    closed: bool
 
     async def write(self, data: bytes) -> int:
         raise NotImplementedError
 
-    async def close(self) -> None:
+    def close(self) -> None:
         raise NotImplementedError
 
-    def get_name(self) -> Optional[str]:
+    def tell(self) -> int:
         raise NotImplementedError
+
+
+class INotificationQueue(Protocol):
+    def notify(self, handle: int) -> None:
+        raise NotImplementedError
+
+    async def wait_for_handle(self, handle: int, debug_hint: str) -> None:
+        raise NotImplementedError
+
+    def get_lock(self) -> threading.Lock:
+        raise NotImplementedError
+
+
+class IPipe(Protocol):
+    def get_writer(self) -> IAsyncWriter:
+        raise NotImplementedError
+
+    def get_reader(self, handle: int) -> IAsyncReader:
+        raise NotImplementedError
+
+
+@dataclass
+class Stream:
+    node_name: str
+    stream_name: Optional[str]
+    pipe: IPipe
+
+    def __str__(self) -> str:
+        return (
+            f"Stream(node_name={self.node_name}, "
+            f"stream_name={self.stream_name}, "
+            f"pipe={self.pipe})"
+        )
 
 
 class IStreams(Protocol):
@@ -40,13 +82,13 @@ class IStreams(Protocol):
         stream_name: str,
         initial_content: Optional[bytes] = None,
         is_closed: bool = False,
-    ) -> IStream:
+    ) -> Stream:
         raise NotImplementedError
 
     def has_input(self, dep: "Dependency") -> bool:
         raise NotImplementedError
 
-    def collect_streams(self, deps: Sequence["Dependency"]) -> Sequence[IStream]:
+    def collect_streams(self, deps: Sequence["Dependency"]) -> Sequence[Stream]:
         raise NotImplementedError
 
     async def read_dir(self, dir_name: str, node_names: Sequence[str]) -> Sequence[str]:
@@ -265,6 +307,7 @@ class IEnvironment(Protocol):
     streams: IStreams
     nodereg: INodeRegistry
     processes: IProcesses
+    notification_queue: INotificationQueue
 
 
 #

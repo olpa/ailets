@@ -1,55 +1,95 @@
-from dataclasses import dataclass
+import asyncio
+import io
 import json
-from typing import Any, Callable, Dict, Optional, Sequence
+import sys
+from typing import IO, Any, Callable, Dict, Optional, Sequence
 
-from ailets.cons.atyping import Dependency, IStream, IStreams
-from ailets.cons.async_buf import AsyncBuffer
+from ailets.cons.atyping import (
+    Dependency,
+    IAsyncReader,
+    IAsyncWriter,
+    IStreams,
+    INotificationQueue,
+    IPipe,
+    Stream,
+)
+from ailets.cons.bytesrw import (
+    BytesWR,
+    Writer as BytesWRWriter,
+    Reader as BytesWRReader,
+)
+from ailets.cons.notification_queue import DummyNotificationQueue
+from ailets.cons.seqno import Seqno
+
+import logging
+
+logger = logging.getLogger("ailets.streams")
 
 
-@dataclass
-class Stream:
-    node_name: str
-    stream_name: Optional[str]
-    buf: AsyncBuffer
+class PrintStream(IPipe):
+    class Writer(IAsyncWriter):
+        def __init__(self, output: IO[str]) -> None:
+            self.output = output
+            self.closed = False
 
-    async def read(self, pos: int, size: int = -1) -> bytes:
-        return await self.buf.read(pos, size)
+        async def write(self, data: bytes) -> int:
+            self.output.write(data.decode("utf-8"))
+            return len(data)
 
-    async def write(self, data: bytes) -> int:
-        return await self.buf.write(data)
+        def tell(self) -> int:
+            return self.output.tell()
 
-    async def close(self) -> None:
-        await self.buf.close()
+        def close(self) -> None:
+            self.output.close()
+            self.closed = True
 
-    def get_name(self) -> Optional[str]:
-        return self.stream_name
+        def __str__(self) -> str:
+            return f"PrintStream.Writer(output={self.output}, closed={self.closed})"
 
-    def is_closed(self) -> bool:
-        return self.buf.is_closed()
+    def __init__(self, output: IO[str]) -> None:
+        self.writer = PrintStream.Writer(output)
+
+    def get_writer(self) -> IAsyncWriter:
+        return self.writer
+
+    def get_reader(self, _handle: int) -> IAsyncReader:
+        raise io.UnsupportedOperation("PrintStream is write-only")
+
+
+class StaticStream(IPipe):
+    def __init__(self, content: bytes) -> None:
+        writer = BytesWRWriter(handle=-1, queue=DummyNotificationQueue())
+        writer.write_sync(content)
+        self.writer = writer
+
+    def get_reader(self, handle: int) -> IAsyncReader:
+        return BytesWRReader(handle, writer=self.writer)
+
+    def get_writer(self) -> IAsyncWriter:
+        raise io.UnsupportedOperation("StaticStream is read-only")
 
 
 def create_log_stream() -> Stream:
-    class LogStream(AsyncBuffer):
-        async def write(self, b: bytes) -> int:
-            b2 = b.decode("utf-8")
-            print(b2, end="")
-            return len(b2)
-
+    pipe = PrintStream(sys.stdout)
     return Stream(
         node_name=".",
         stream_name="log",
-        buf=LogStream(b"", False, lambda: None),
+        pipe=pipe,
     )
 
 
 class Streams(IStreams):
     """Manages streams for an environment."""
 
-    def __init__(self) -> None:
+    def __init__(self, notification_queue: INotificationQueue, seqno: Seqno) -> None:
         self._streams: list[Stream] = []
-        self.on_write_started: Callable[[], None] = lambda: None
+        self.on_write_started: Optional[Callable[[], None]] = None
+        self.seqno = seqno
+        self.queue = notification_queue
 
-    def set_on_write_started(self, on_write_started: Callable[[], None]) -> None:
+    def set_on_write_started(
+        self, on_write_started: Optional[Callable[[], None]]
+    ) -> None:
         self.on_write_started = on_write_started
 
     def _find_stream(
@@ -79,41 +119,79 @@ class Streams(IStreams):
     ) -> Stream:
         """Add a new stream."""
         if stream_name == "log":
-            return create_log_stream()
+            log_pipe = PrintStream(sys.stdout)
+            return Stream(
+                node_name=node_name,
+                stream_name=stream_name,
+                pipe=log_pipe,
+            )
 
         if self._find_stream(node_name, stream_name) is not None:
             raise ValueError(f"Stream already exists: {node_name}.{stream_name}")
 
-        buf_debug_hint = f"{node_name}/{stream_name}"
+        pipe = BytesWR(
+            writer_handle=self.seqno.next_seqno(),
+            queue=self.queue,
+        )
+        writer = pipe.get_writer()
+        if isinstance(writer, BytesWRWriter):
+            if initial_content is not None:
+                writer.write_sync(initial_content)
+            if is_closed:
+                writer.close()
 
         stream = Stream(
             node_name=node_name,
             stream_name=stream_name,
-            buf=AsyncBuffer(
-                initial_content=initial_content,
-                is_closed=is_closed,
-                on_write_started=self.on_write_started,
-                debug_hint=buf_debug_hint,
-            ),
+            pipe=pipe,
         )
+        logger.debug(f"Created stream: {stream}")
+
         self._streams.append(stream)
+
+        if self.on_write_started is not None:
+            writer = pipe.get_writer()
+
+            def should_notify() -> bool:
+                return (
+                    isinstance(writer, BytesWRWriter)
+                    and not writer.closed
+                    and writer.tell() == 0
+                )
+
+            if should_notify():
+                bwrwriter: BytesWRWriter = writer  # type: ignore[assignment]
+                writer_handle = bwrwriter.handle
+
+                async def notifier() -> None:
+                    # See the `queue` documentation for the workflow explanation
+                    lock = self.queue.get_lock()
+                    with lock:
+                        if should_notify():
+                            await self.queue.wait_for_handle(
+                                writer_handle, "to call on_write_started"
+                            )
+                            lock.acquire()
+                    if self.on_write_started is not None:
+                        self.on_write_started()
+
+                asyncio.get_running_loop().create_task(notifier())
+
         return stream
 
     async def mark_finished(self, node_name: str, stream_name: Optional[str]) -> None:
         """Mark a stream as finished."""
         stream = self.get(node_name, stream_name)
-        await stream.close()
+        stream.pipe.get_writer().close()
 
     @staticmethod
     def make_env_stream(params: Dict[str, Any]) -> Stream:
         content = json.dumps(params).encode("utf-8")
-        buf = AsyncBuffer(
-            initial_content=content, is_closed=True, on_write_started=lambda: None
-        )
+        pipe = StaticStream(content)
         return Stream(
             node_name=".",
             stream_name="env",
-            buf=buf,
+            pipe=pipe,
         )
 
     def get_fs_output_streams(self) -> Sequence[Stream]:
@@ -126,8 +204,8 @@ class Streams(IStreams):
     def collect_streams(
         self,
         deps: Sequence[Dependency],
-    ) -> Sequence[IStream]:
-        collected: list[IStream] = []
+    ) -> Sequence[Stream]:
+        collected: list[Stream] = []
         for dep in deps:
             collected.extend(
                 s
@@ -157,4 +235,4 @@ class Streams(IStreams):
             ),
             None,
         )
-        return stream is not None and len(stream.buf.buffer) > 0
+        return stream is not None and stream.pipe.get_writer().tell() > 0

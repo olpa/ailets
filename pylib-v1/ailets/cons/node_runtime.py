@@ -6,17 +6,20 @@ from ailets.cons.streams import Streams
 from .node_dagops import NodeDagops
 from .atyping import (
     Dependency,
+    IAsyncReader,
+    IAsyncWriter,
     IEnvironment,
     INodeDagops,
     INodeRuntime,
-    IStream,
+    Stream,
 )
 
 
 @dataclass
 class OpenFd:
-    stream: IStream
-    pos: int
+    debug_hint: str
+    reader: Optional[IAsyncReader]
+    writer: Optional[IAsyncWriter]
 
 
 class NodeRuntime(INodeRuntime):
@@ -33,7 +36,7 @@ class NodeRuntime(INodeRuntime):
         self.open_fds: Dict[int, OpenFd] = {}
         self.cached_dagops: Optional[INodeDagops] = None
 
-    def _get_streams(self, stream_name: str) -> Sequence[IStream]:
+    def _get_streams(self, stream_name: str) -> Sequence[Stream]:
         # Special stream "env"
         if stream_name == "env":
             return [Streams.make_env_stream(self.env.for_env_stream)]
@@ -61,30 +64,51 @@ class NodeRuntime(INodeRuntime):
         if index >= len(streams) or index < 0:
             raise ValueError(f"Stream index out of bounds: {index} for {stream_name}")
         fd = self.env.seqno.next_seqno()
-        self.open_fds[fd] = OpenFd(stream=streams[index], pos=0)
+        reader = streams[index].pipe.get_reader(fd)
+        self.open_fds[fd] = OpenFd(
+            debug_hint=f"{self.node_name}.{stream_name}[{index}]",
+            reader=reader,
+            writer=None,
+        )
         return fd
 
     async def read(self, fd: int, buffer: bytearray, count: int) -> int:
+        assert fd in self.open_fds, f"File descriptor {fd} is not open"
         fd_obj = self.open_fds[fd]
-        read_bytes = await fd_obj.stream.read(fd_obj.pos, count)
+        assert (
+            fd_obj.reader is not None
+        ), f"Stream {fd_obj.debug_hint} is not open for reading"
+        read_bytes = await fd_obj.reader.read(count)
         n_bytes = len(read_bytes)
         buffer[:n_bytes] = read_bytes
-        fd_obj.pos += n_bytes
         return n_bytes
 
     async def open_write(self, stream_name: str) -> int:
         stream = self.streams.create(self.node_name, stream_name)
         fd = self.env.seqno.next_seqno()
-        self.open_fds[fd] = OpenFd(stream=stream, pos=0)
+        writer = stream.pipe.get_writer()
+        self.open_fds[fd] = OpenFd(
+            debug_hint=f"{self.node_name}.{stream_name}",
+            reader=None,
+            writer=writer,
+        )
         return fd
 
     async def write(self, fd: int, buffer: bytes, count: int) -> int:
+        assert fd in self.open_fds, f"File descriptor {fd} is not open"
         fd_obj = self.open_fds[fd]
-        return await fd_obj.stream.write(buffer)
+        assert (
+            fd_obj.writer is not None
+        ), f"Stream {fd_obj.debug_hint} is not open for writing"
+        return await fd_obj.writer.write(buffer)
 
     async def close(self, fd: int) -> None:
+        assert fd in self.open_fds, f"File descriptor {fd} is not open"
         fd_obj = self.open_fds.pop(fd)
-        await fd_obj.stream.close()
+        if fd_obj.reader is not None:
+            fd_obj.reader.close()
+        if fd_obj.writer is not None:
+            fd_obj.writer.close()
 
     def dagops(self) -> INodeDagops:
         if self.cached_dagops is None:
@@ -100,15 +124,21 @@ class NodeRuntime(INodeRuntime):
     ) -> None:
         in_streams = self._get_streams(in_stream_name)
         for in_stream in in_streams:
+            reader = in_stream.pipe.get_reader(self.env.seqno.next_seqno())
             out_stream = self.streams.create(self.node_name, out_stream_name)
-            await out_stream.write(await in_stream.read(pos=0, size=-1))
-            await out_stream.close()
+            writer = out_stream.pipe.get_writer()
+            await writer.write(await reader.read(size=-1))
+            writer.close()
 
     async def pass_through_name_fd(self, in_stream_name: str, out_fd: int) -> None:
         in_streams = self._get_streams(in_stream_name)
         out_fd_obj = self.open_fds[out_fd]
+        assert (
+            out_fd_obj.writer is not None
+        ), f"File descriptor {out_fd} is not open for writing"
         for in_stream in in_streams:
-            await out_fd_obj.stream.write(await in_stream.read(pos=0, size=-1))
+            reader = in_stream.pipe.get_reader(self.env.seqno.next_seqno())
+            await out_fd_obj.writer.write(await reader.read(size=-1))
 
     def get_next_name(self, base_name: str) -> str:
         return self.env.dagops.get_next_name(base_name)

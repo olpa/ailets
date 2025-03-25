@@ -156,9 +156,11 @@ class Processes(IProcesses):
                 for name in node_names
             )
 
+        awaiker_task: asyncio.Task[None] | None = None
         extend_pool()
         while len(self.pool):
-            awaiker_task = asyncio.create_task(awaker())
+            if awaiker_task is None:
+                awaiker_task = asyncio.create_task(awaker())
             self.pool.add(awaiker_task)
             self.node_started_writing_event.clear()
 
@@ -172,6 +174,7 @@ class Processes(IProcesses):
             if not awaiker_task.done():
                 awaiker_task.cancel()
                 self.pool.remove(awaiker_task)
+                awaiker_task = None
 
             extend_pool()
 
