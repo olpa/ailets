@@ -107,7 +107,7 @@ class NotificationQueue:
     def get_waits(self) -> list[tuple[int, list[str]]]:
         with self._lock:
             return [
-                (handle, [str(client) for client in clients])
+                (handle, [f"{str(client)}@{id(client)}" for client in clients])
                 for handle, clients in self._waiting_clients.items()
             ]
 
