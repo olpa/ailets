@@ -94,9 +94,6 @@ class IStreams(Protocol):
     async def read_dir(self, dir_name: str, node_names: Sequence[str]) -> Sequence[str]:
         raise NotImplementedError
 
-    def set_on_write_started(self, func: Callable[[], None]) -> None:
-        raise NotImplementedError
-
 
 #
 #

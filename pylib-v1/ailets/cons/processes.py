@@ -15,8 +15,7 @@ class Processes(IProcesses):
         self.env = env
         self.streams = env.streams
         self.dagops = env.dagops
-
-        self.node_started_writing_event: asyncio.Event = asyncio.Event()
+        self.queue = env.notification_queue
 
         self.finished_nodes: set[str] = set()
         self.active_nodes: set[str] = set()
@@ -25,9 +24,9 @@ class Processes(IProcesses):
         self.deps: Mapping[str, Sequence[Dependency]] = {}
         self.rev_deps: Mapping[str, Sequence[Dependency]] = {}
 
-        self.streams.set_on_write_started(self.mark_node_started_writing)
-        self.pool: set[asyncio.Task[None]] = set()
+        self.progress_handle: int = env.seqno.next_seqno()
 
+        self.pool: set[asyncio.Task[None]] = set()
         self.loop = asyncio.get_event_loop()
 
     def is_node_finished(self, name: str) -> bool:
@@ -53,10 +52,6 @@ class Processes(IProcesses):
                     Dependency(source=node_name, name=dep.name, stream=dep.stream)
                 )
         self.rev_deps = rev_deps
-
-    def mark_node_started_writing(self) -> None:
-        logger.debug("mark_node_started_writing")
-        self.loop.call_soon_threadsafe(self.node_started_writing_event.set)
 
     def get_nodes_to_build(self, target_node_name: str) -> list[str]:
         nodes_to_build = []
@@ -142,7 +137,9 @@ class Processes(IProcesses):
         self.pool = set()
 
         async def awaker() -> None:
-            await self.node_started_writing_event.wait()
+            lock = self.queue.get_lock()
+            lock.acquire()
+            await self.queue.wait_for_handle(self.progress_handle, "process.awaker")
             logger.debug("awaker woke up")
 
         def extend_pool() -> None:
@@ -162,7 +159,6 @@ class Processes(IProcesses):
             if awaiker_task is None:
                 awaiker_task = asyncio.create_task(awaker())
             self.pool.add(awaiker_task)
-            self.node_started_writing_event.clear()
 
             done, self.pool = await asyncio.wait(
                 self.pool, return_when=asyncio.FIRST_COMPLETED

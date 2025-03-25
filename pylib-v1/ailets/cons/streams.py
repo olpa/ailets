@@ -1,8 +1,7 @@
-import asyncio
 import io
 import json
 import sys
-from typing import IO, Any, Callable, Dict, Optional, Sequence
+from typing import IO, Any, Dict, Optional, Sequence
 
 from ailets.cons.atyping import (
     Dependency,
@@ -83,14 +82,8 @@ class Streams(IStreams):
 
     def __init__(self, notification_queue: INotificationQueue, seqno: Seqno) -> None:
         self._streams: list[Stream] = []
-        self.on_write_started: Optional[Callable[[], None]] = None
         self.seqno = seqno
         self.queue = notification_queue
-
-    def set_on_write_started(
-        self, on_write_started: Optional[Callable[[], None]]
-    ) -> None:
-        self.on_write_started = on_write_started
 
     def _find_stream(
         self, node_name: str, stream_name: Optional[str]
@@ -148,35 +141,6 @@ class Streams(IStreams):
         logger.debug(f"Created stream: {stream}")
 
         self._streams.append(stream)
-
-        if self.on_write_started is not None:
-            writer = pipe.get_writer()
-
-            def should_notify() -> bool:
-                return (
-                    isinstance(writer, BytesWRWriter)
-                    and not writer.closed
-                    and writer.tell() == 0
-                )
-
-            if should_notify():
-                bwrwriter: BytesWRWriter = writer  # type: ignore[assignment]
-                writer_handle = bwrwriter.handle
-
-                async def notifier() -> None:
-                    # See the `queue` documentation for the workflow explanation
-                    lock = self.queue.get_lock()
-                    with lock:
-                        if should_notify():
-                            await self.queue.wait_for_handle(
-                                writer_handle, "to call on_write_started"
-                            )
-                            lock.acquire()
-                    if self.on_write_started is not None:
-                        self.on_write_started()
-
-                asyncio.get_running_loop().create_task(notifier())
-
         return stream
 
     async def mark_finished(self, node_name: str, stream_name: Optional[str]) -> None:
