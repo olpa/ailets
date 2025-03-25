@@ -196,6 +196,11 @@ class Processes(IProcesses):
                 print(f"  {dep.source} ({dep.stream}) -> {dep.name}")
             print(f"Exception: {exc}")
             raise
+        finally:
+            self.queue.notify(self.progress_handle)
 
     def get_processes(self) -> set[asyncio.Task[None]]:
         return self.pool
+
+    def get_progress_handle(self) -> int:
+        return self.progress_handle
