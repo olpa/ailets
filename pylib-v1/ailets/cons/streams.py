@@ -59,6 +59,7 @@ class StaticStream(IPipe):
     def __init__(self, content: bytes) -> None:
         writer = BytesWRWriter(handle=-1, queue=DummyNotificationQueue())
         writer.write_sync(content)
+        writer.close()
         self.writer = writer
 
     def get_reader(self, handle: int) -> IAsyncReader:
