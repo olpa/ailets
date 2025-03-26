@@ -140,7 +140,6 @@ class Processes(IProcesses):
             lock = self.queue.get_lock()
             lock.acquire()
             await self.queue.wait_for_handle(self.progress_handle, "process.awaker")
-            logger.debug("awaker woke up")
 
         def extend_pool() -> None:
             node_names: Sequence[str] = list(
@@ -154,13 +153,15 @@ class Processes(IProcesses):
             )
 
         extend_pool()
-        awaker_task: asyncio.Task[None] = asyncio.create_task(awaker())
+        awaker_task: asyncio.Task[None] = asyncio.create_task(
+            awaker(), name="process.awaker"
+        )
         self.pool.add(awaker_task)
 
         while len(self.pool) > 1:  # The awaker is always in the pool
             if awaker_task.done():
                 self.pool.remove(awaker_task)
-                awaker_task = asyncio.create_task(awaker())
+                awaker_task = asyncio.create_task(awaker(), name="process.awaker")
                 self.pool.add(awaker_task)
 
             done, self.pool = await asyncio.wait(

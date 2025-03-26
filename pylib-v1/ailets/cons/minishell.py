@@ -1,4 +1,5 @@
 import cmd
+import asyncio
 from ailets.cons.environment import Environment
 
 
@@ -43,6 +44,16 @@ class MiniShell(cmd.Cmd):
         """List waits."""
         for handle, clients in self.env.notification_queue.get_waits():
             print(f"{handle}: {clients}")
+
+    def do_tasks(self, arg: str) -> None:
+        """List tasks."""
+        tasks = asyncio.all_tasks()
+        for task in tasks:
+            print(
+                f"Task {task.get_name()} - "
+                f"Cancelled: {task.cancelled()}, "
+                f"Done: {task.done()}"
+            )
 
     # Aliases
     do_quit = do_exit
