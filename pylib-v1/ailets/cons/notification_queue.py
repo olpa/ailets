@@ -48,6 +48,12 @@ class INotificationQueue(Protocol):
     def notify(self, handle: int) -> None:
         raise NotImplementedError
 
+    def whitelist(self, handle: int, debug_hint: str) -> None:
+        raise NotImplementedError
+
+    def unlist(self, handle: int) -> None:
+        raise NotImplementedError
+
     async def wait_for_handle_unsafe(self, handle: int, debug_hint: str) -> None:
         raise NotImplementedError
 
@@ -161,3 +167,9 @@ class DummyNotificationQueue(INotificationQueue):
 
     def get_waits(self) -> list[tuple[int, list[str]]]:
         return []
+
+    def whitelist(self, handle: int, debug_hint: str) -> None:
+        pass
+
+    def unlist(self, handle: int) -> None:
+        pass
