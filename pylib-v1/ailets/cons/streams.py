@@ -8,7 +8,6 @@ from ailets.cons.atyping import (
     IAsyncReader,
     IAsyncWriter,
     IStreams,
-    INotificationQueue,
     IPipe,
     Stream,
 )
@@ -17,7 +16,7 @@ from ailets.cons.bytesrw import (
     Writer as BytesWRWriter,
     Reader as BytesWRReader,
 )
-from ailets.cons.notification_queue import DummyNotificationQueue
+from ailets.cons.notification_queue import DummyNotificationQueue, INotificationQueue
 from ailets.cons.seqno import Seqno
 
 import logging

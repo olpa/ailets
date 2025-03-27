@@ -1,7 +1,7 @@
 import asyncio
 from dataclasses import dataclass
 import logging
-from typing import Dict, Set
+from typing import Dict, Protocol, Set
 import threading
 
 """
@@ -44,6 +44,17 @@ with lock:
 logger = logging.getLogger("ailets.queue")
 
 
+class INotificationQueue(Protocol):
+    def notify(self, handle: int) -> None:
+        raise NotImplementedError
+
+    async def wait_for_handle(self, handle: int, debug_hint: str) -> None:
+        raise NotImplementedError
+
+    def get_lock(self) -> threading.Lock:
+        raise NotImplementedError
+
+
 @dataclass(frozen=True)
 class WaitingClient:
     """Represents a client waiting for a handle notification"""
@@ -64,7 +75,7 @@ class WaitingClient:
         return f"WaitingClient({self.debug_hint})"
 
 
-class NotificationQueue:
+class NotificationQueue(INotificationQueue):
     """Thread-safe queue for handle (as integers) notifications"""
 
     def __init__(self) -> None:
@@ -112,7 +123,7 @@ class NotificationQueue:
             ]
 
 
-class DummyNotificationQueue:
+class DummyNotificationQueue(INotificationQueue):
     def get_lock(self) -> threading.Lock:
         return threading.Lock()
 

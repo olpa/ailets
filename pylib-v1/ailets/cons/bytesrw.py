@@ -1,8 +1,8 @@
 import asyncio
 import logging
 
-from .notification_queue import NotificationQueue
-from .atyping import IAsyncReader, IAsyncWriter, INotificationQueue
+from .atyping import IAsyncReader, IAsyncWriter
+from .notification_queue import INotificationQueue, NotificationQueue
 
 logger = logging.getLogger("ailets.io")
 
