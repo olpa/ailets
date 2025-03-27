@@ -25,9 +25,12 @@ class Processes(IProcesses):
         self.rev_deps: Mapping[str, Sequence[Dependency]] = {}
 
         self.progress_handle: int = env.seqno.next_seqno()
-
+        self.queue.whitelist(self.progress_handle, "ailets.processes")
         self.pool: set[asyncio.Task[None]] = set()
         self.loop = asyncio.get_event_loop()
+
+    def destroy(self) -> None:
+        self.queue.unlist(self.progress_handle)
 
     def is_node_finished(self, name: str) -> bool:
         return name in self.finished_nodes
@@ -139,7 +142,9 @@ class Processes(IProcesses):
         async def awaker() -> None:
             lock = self.queue.get_lock()
             lock.acquire()
-            await self.queue.wait_for_handle(self.progress_handle, "process.awaker")
+            await self.queue.wait_for_handle_unsafe(
+                self.progress_handle, "process.awaker"
+            )
 
         def extend_pool() -> None:
             node_names: Sequence[str] = list(

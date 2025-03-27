@@ -55,8 +55,12 @@ class PrintStream(IPipe):
 
 
 class StaticStream(IPipe):
-    def __init__(self, content: bytes) -> None:
-        writer = BytesWRWriter(handle=-1, queue=DummyNotificationQueue())
+    def __init__(self, content: bytes, debug_hint: str) -> None:
+        writer = BytesWRWriter(
+            handle=-1,
+            queue=DummyNotificationQueue(),
+            debug_hint=debug_hint,
+        )
         writer.write_sync(content)
         writer.close()
         self.writer = writer
@@ -125,6 +129,7 @@ class Streams(IStreams):
         pipe = BytesWR(
             writer_handle=self.seqno.next_seqno(),
             queue=self.queue,
+            debug_hint=f"{node_name}.{stream_name}",
         )
         writer = pipe.get_writer()
         if isinstance(writer, BytesWRWriter):
@@ -151,7 +156,7 @@ class Streams(IStreams):
     @staticmethod
     def make_env_stream(params: Dict[str, Any]) -> Stream:
         content = json.dumps(params).encode("utf-8")
-        pipe = StaticStream(content)
+        pipe = StaticStream(content, "env")
         return Stream(
             node_name=".",
             stream_name="env",
