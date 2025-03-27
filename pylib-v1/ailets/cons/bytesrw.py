@@ -83,7 +83,7 @@ class Reader(IAsyncReader):
         lock = self.writer.queue.get_lock()
         with lock:
             if self._should_wait_with_autoclose():
-                await self.writer.queue.wait_for_handle_unsafe(
+                await self.writer.queue.wait_unsafe(
                     self.writer.handle, f"BytesWR.Reader {self.handle}"
                 )
                 lock.acquire()

@@ -1,10 +1,12 @@
 import asyncio
 from dataclasses import dataclass
 import logging
-from typing import Dict, Protocol, Set
+from typing import Any, Awaitable, Callable, Dict, Optional, Protocol, Set
 import threading
 
 """
+
+1) Waiting for a handle
 
 In the first approximation, the workflow is as follows:
 
@@ -35,9 +37,13 @@ if should_wait():
 lock = queue.get_lock()
 with lock:
     if should_wait():
-        queue.wait_for_handle_unsafe(handle)
+        queue.wait_unsafe(handle, debug_hint)
         lock.acquire()  # re-aquire the lock to match the release in `wait_for_handle`
 ```
+
+2) Subscribing to a handle
+
+Nothing special here.
 
 """
 
@@ -54,7 +60,7 @@ class INotificationQueue(Protocol):
     def unlist(self, handle: int) -> None:
         raise NotImplementedError
 
-    async def wait_for_handle_unsafe(self, handle: int, debug_hint: str) -> None:
+    async def wait_unsafe(self, handle: int, debug_hint: str) -> None:
         raise NotImplementedError
 
     def get_lock(self) -> threading.Lock:
@@ -81,11 +87,36 @@ class WaitingClient:
         return f"WaitingClient({self.debug_hint})"
 
 
+@dataclass(frozen=True)
+class SubscribedClient:
+    """Represents a client subscribed to handle notifications"""
+
+    loop: asyncio.AbstractEventLoop
+    coro: Callable[[], Awaitable[Any]]
+    debug_hint: str
+
+    @classmethod
+    def new(
+        cls,
+        coro: Callable[[], Awaitable[Any]],
+        debug_hint: str,
+    ) -> "SubscribedClient":
+        return cls(
+            loop=asyncio.get_running_loop(),
+            debug_hint=debug_hint,
+            coro=coro,
+        )
+
+    def __str__(self) -> str:
+        return f"SubscribedClient({self.debug_hint})"
+
+
 class NotificationQueue(INotificationQueue):
     """Thread-safe queue for handle (as integers) notifications"""
 
     def __init__(self) -> None:
         self._waiting_clients: Dict[int, Set[WaitingClient]] = {}
+        self._subscribed_clients: Dict[int, Set[SubscribedClient]] = {}
         self._lock = threading.Lock()
         self._whitelist: Dict[int, str] = {}
 
@@ -106,7 +137,46 @@ class NotificationQueue(INotificationQueue):
                 logger.warning("queue.unlist: handle %s not in whitelist", handle)
             del self._whitelist[handle]
 
-    async def wait_for_handle_unsafe(self, handle: int, debug_hint: str) -> None:
+    def subscribe(
+        self, handle: int, coro: Callable[[], Awaitable[Any]], debug_hint: str
+    ) -> Optional[int]:
+        """Subscribe to the handle notification
+
+        Returns:
+            The handle id of the subscription, to unsubscribe later.
+        """
+        with self._lock:
+            if handle not in self._whitelist:
+                logger.warning(f"queue.subscribe: handle {handle} not in whitelist")
+                return None
+            client = SubscribedClient.new(coro, debug_hint)
+            if handle not in self._subscribed_clients:
+                self._subscribed_clients[handle] = set()
+            self._subscribed_clients[handle].add(client)
+            return id(client)
+
+    def unsubscribe(self, handle: int, subscription_id: int) -> None:
+        with self._lock:
+            if handle not in self._subscribed_clients:
+                logger.warning(
+                    f"queue.unsubscribe: handle {handle} not in subscribed clients"
+                )
+                return
+            subscriptions = self._subscribed_clients[handle]
+            subscription = next(
+                (s for s in subscriptions if id(s) == subscription_id), None
+            )
+            if subscription is None:
+                logger.warning(
+                    f"queue.unsubscribe: subscription {subscription_id} "
+                    f"for handle {handle} not found"
+                )
+                return
+            subscriptions.discard(subscription)
+            if not subscriptions:
+                del self._subscribed_clients[handle]
+
+    async def wait_unsafe(self, handle: int, debug_hint: str) -> None:
         """Wait for the handle notification
 
         Precondition: The caller should aquire the lock before calling this method.
@@ -116,7 +186,7 @@ class NotificationQueue(INotificationQueue):
         The word "unsafe" in the method name hints that the caller should
         read the documentation.
         """
-        logger.debug("queue.wait_for_handle_unsafe: %s", handle)
+        logger.debug("queue.wait_unsafe: %s", handle)
         if handle not in self._whitelist:
             # Don't warn: the whole idea of whitelist is to
             # avoid waiting in case of race conditions
@@ -142,10 +212,18 @@ class NotificationQueue(INotificationQueue):
 
     def notify(self, handle: int) -> None:
         with self._lock:
-            clients = self._waiting_clients.get(handle, set()).copy()
-        logger.debug("queue.notify: handle %s, len(clients): %s", handle, len(clients))
-        for client in clients:
-            client.loop.call_soon_threadsafe(client.event.set)
+            clients1 = self._waiting_clients.get(handle, set()).copy()
+            clients2 = self._subscribed_clients.get(handle, set()).copy()
+        logger.debug(
+            "queue.notify: handle %s, len(clients1): %s, len(clients2): %s",
+            handle,
+            len(clients1),
+            len(clients2),
+        )
+        for client1 in clients1:
+            client1.loop.call_soon_threadsafe(client1.event.set)
+        for client2 in clients2:
+            client2.loop.call_soon_threadsafe(client2.coro)
 
     def get_waits(self) -> list[tuple[int, list[str]]]:
         with self._lock:
@@ -162,7 +240,7 @@ class DummyNotificationQueue(INotificationQueue):
     def notify(self, handle: int) -> None:
         pass
 
-    async def wait_for_handle_unsafe(self, handle: int, debug_hint: str) -> None:
+    async def wait_unsafe(self, handle: int, debug_hint: str) -> None:
         pass
 
     def get_waits(self) -> list[tuple[int, list[str]]]:

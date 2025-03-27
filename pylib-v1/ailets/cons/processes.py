@@ -142,9 +142,7 @@ class Processes(IProcesses):
         async def awaker() -> None:
             lock = self.queue.get_lock()
             lock.acquire()
-            await self.queue.wait_for_handle_unsafe(
-                self.progress_handle, "process.awaker"
-            )
+            await self.queue.wait_unsafe(self.progress_handle, "process.awaker")
 
         def extend_pool() -> None:
             node_names: Sequence[str] = list(
