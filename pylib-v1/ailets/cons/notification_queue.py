@@ -35,7 +35,7 @@ if should_wait():
 lock = queue.get_lock()
 with lock:
     if should_wait():
-        queue.wait_for_handle(handle)
+        queue.wait_for_handle_unsafe(handle)
         lock.acquire()  # re-aquire the lock to match the release in `wait_for_handle`
 ```
 
@@ -48,7 +48,7 @@ class INotificationQueue(Protocol):
     def notify(self, handle: int) -> None:
         raise NotImplementedError
 
-    async def wait_for_handle(self, handle: int, debug_hint: str) -> None:
+    async def wait_for_handle_unsafe(self, handle: int, debug_hint: str) -> None:
         raise NotImplementedError
 
     def get_lock(self) -> threading.Lock:
@@ -81,16 +81,42 @@ class NotificationQueue(INotificationQueue):
     def __init__(self) -> None:
         self._waiting_clients: Dict[int, Set[WaitingClient]] = {}
         self._lock = threading.Lock()
+        self._whitelist: Dict[int, str] = {}
 
     def get_lock(self) -> threading.Lock:
         return self._lock
 
-    async def wait_for_handle(self, handle: int, debug_hint: str) -> None:
+    def whitelist(self, handle: int, debug_hint: str) -> None:
+        with self._lock:
+            if handle in self._whitelist:
+                logger.warning(
+                    "queue.whitelist: handle %s already in whitelist", handle
+                )
+            self._whitelist[handle] = debug_hint
+
+    def unlist(self, handle: int) -> None:
+        with self._lock:
+            if handle not in self._whitelist:
+                logger.warning("queue.unlist: handle %s not in whitelist", handle)
+            del self._whitelist[handle]
+
+    async def wait_for_handle_unsafe(self, handle: int, debug_hint: str) -> None:
         """Wait for the handle notification
-        The caller should aquire the lock before calling this method.
+
+        Precondition: The caller should aquire the lock before calling this method.
+        Post-condition: The lock is released after the method returns.
+
         See the module documentation for more details.
+        The word "unsafe" in the method name hints that the caller should
+        read the documentation.
         """
-        logger.debug("queue.wait_for_handle: %s", handle)
+        logger.debug("queue.wait_for_handle_unsafe: %s", handle)
+        if handle not in self._whitelist:
+            # Don't warn: the whole idea of whitelist is to
+            # avoid waiting in case of race conditions
+            self._lock.release()
+            return
+
         client = WaitingClient.new(debug_hint=debug_hint)
 
         if handle not in self._waiting_clients:
@@ -130,7 +156,7 @@ class DummyNotificationQueue(INotificationQueue):
     def notify(self, handle: int) -> None:
         pass
 
-    async def wait_for_handle(self, handle: int, debug_hint: str) -> None:
+    async def wait_for_handle_unsafe(self, handle: int, debug_hint: str) -> None:
         pass
 
     def get_waits(self) -> list[tuple[int, list[str]]]:
