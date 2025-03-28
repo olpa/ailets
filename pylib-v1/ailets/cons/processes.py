@@ -38,7 +38,16 @@ class Processes(IProcesses):
 
     def subscribe_fsops(self) -> None:
         def on_fsops(writer_handle: int) -> None:
-            print("!!!!!!!!!!!! FS ops", writer_handle)
+            async def awake_on_write() -> None:
+                lock = self.queue.get_lock()
+                lock.acquire()
+                await self.queue.wait_unsafe(writer_handle, "process.awaker_on_write")
+                self.queue.notify(self.progress_handle, writer_handle)
+
+            self.pool.add(
+                asyncio.create_task(awake_on_write(), name="process.awaker_on_write")
+            )
+            self.queue.notify(self.progress_handle, writer_handle)
 
         self.fsops_subscription_id = self.queue.subscribe(
             self.streams.get_fsops_handle(), on_fsops, "Processes: observe fsops"
