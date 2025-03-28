@@ -31,6 +31,8 @@ class Writer(IAsyncWriter):
     def write_sync(self, data: bytes) -> int:
         if self.closed:
             raise ValueError("Writer is closed")
+        if len(data) == 0:
+            return 0
         self.buffer.extend(data)
         self.queue.notify(self.handle, len(data))
         return len(data)
