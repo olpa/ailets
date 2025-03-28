@@ -225,10 +225,14 @@ class NotificationQueue(INotificationQueue):
     def _notify_and_delete(self, handle: int, delete_subscribed: bool) -> None:
         with self._lock:
             clients1 = self._waiting_clients.get(handle, set())
-            del self._waiting_clients[handle]
+            if handle in self._waiting_clients:
+                del self._waiting_clients[handle]
             if delete_subscribed:
-                clients2 = self._subscribed_clients.get(handle, set())
-                del self._subscribed_clients[handle]
+                if handle in self._subscribed_clients:
+                    clients2 = self._subscribed_clients[handle]
+                    del self._subscribed_clients[handle]
+                else:
+                    clients2 = set()
             else:
                 clients2 = self._subscribed_clients.get(handle, set()).copy()
         logger.debug(

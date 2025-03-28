@@ -29,8 +29,27 @@ class Processes(IProcesses):
         self.pool: set[asyncio.Task[None]] = set()
         self.loop = asyncio.get_event_loop()
 
+        self.fsops_subscription_id: int | None = None
+        self.subscribe_fsops()
+
     def destroy(self) -> None:
+        self.unsubscribe_fsops()
         self.queue.unlist(self.progress_handle)
+
+    def subscribe_fsops(self) -> None:
+        async def on_fsops() -> None:
+            print("!!!!!!!!!!!! FS ops")
+
+        self.fsops_subscription_id = self.queue.subscribe(
+            self.streams.get_fsops_handle(), on_fsops, "Processes: observe fsops"
+        )
+
+    def unsubscribe_fsops(self) -> None:
+        if self.fsops_subscription_id is not None:
+            self.queue.unsubscribe(
+                self.streams.get_fsops_handle(), self.fsops_subscription_id
+            )
+            self.fsops_subscription_id = None
 
     def is_node_finished(self, name: str) -> bool:
         return name in self.finished_nodes

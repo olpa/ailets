@@ -74,6 +74,12 @@ class IStreams(Protocol):
     ) -> Stream:
         raise NotImplementedError
 
+    def destroy(self) -> None:
+        raise NotImplementedError
+
+    def get_fsops_handle(self) -> int:
+        raise NotImplementedError
+
     def has_input(self, dep: "Dependency") -> bool:
         raise NotImplementedError
 
