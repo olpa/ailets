@@ -1,7 +1,7 @@
 import asyncio
 from dataclasses import dataclass
 import logging
-from typing import Any, Awaitable, Callable, Dict, Optional, Protocol, Set
+from typing import Any, Callable, Dict, Optional, Protocol, Set
 import threading
 
 """
@@ -54,7 +54,7 @@ class INotificationQueue(Protocol):
     def get_lock(self) -> threading.Lock:
         raise NotImplementedError
 
-    def notify(self, handle: int) -> None:
+    def notify(self, handle: int, arg: int) -> None:
         raise NotImplementedError
 
     def whitelist(self, handle: int, debug_hint: str) -> None:
@@ -67,7 +67,7 @@ class INotificationQueue(Protocol):
         raise NotImplementedError
 
     def subscribe(
-        self, handle: int, coro: Callable[[], Any], debug_hint: str
+        self, handle: int, func: Callable[[int], Any], debug_hint: str
     ) -> Optional[int]:
         raise NotImplementedError
 
@@ -99,13 +99,13 @@ class WaitingClient:
 class SubscribedClient:
     """Represents a client subscribed to handle notifications"""
 
-    func: Callable[[], Any]
+    func: Callable[[int], Any]
     debug_hint: str
 
     @classmethod
     def new(
         cls,
-        func: Callable[[], Any],
+        func: Callable[[int], Any],
         debug_hint: str,
     ) -> "SubscribedClient":
         return cls(
@@ -142,10 +142,10 @@ class NotificationQueue(INotificationQueue):
             if handle not in self._whitelist:
                 logger.warning("queue.unlist: handle %s not in whitelist", handle)
             del self._whitelist[handle]
-        self._notify_and_delete(handle, delete_subscribed=True)
+        self._notify_and_delete(handle, arg=-1, delete_subscribed=True)
 
     def subscribe(
-        self, handle: int, func: Callable[[], Any], debug_hint: str
+        self, handle: int, func: Callable[[int], Any], debug_hint: str
     ) -> Optional[int]:
         """Subscribe to the handle notification
 
@@ -217,10 +217,12 @@ class NotificationQueue(INotificationQueue):
                     if not self._waiting_clients[handle]:
                         del self._waiting_clients[handle]
 
-    def notify(self, handle: int) -> None:
-        self._notify_and_delete(handle, delete_subscribed=False)
+    def notify(self, handle: int, arg: int) -> None:
+        self._notify_and_delete(handle, arg=arg, delete_subscribed=False)
 
-    def _notify_and_delete(self, handle: int, delete_subscribed: bool) -> None:
+    def _notify_and_delete(
+        self, handle: int, arg: int, delete_subscribed: bool
+    ) -> None:
         with self._lock:
             clients1 = self._waiting_clients.get(handle, set())
             if handle in self._waiting_clients:
@@ -243,7 +245,7 @@ class NotificationQueue(INotificationQueue):
             client1.loop.call_soon_threadsafe(client1.event.set)
         for client2 in clients2:
             try:
-                client2.func()
+                client2.func(arg)
             except Exception as e:
                 logger.exception("queue.notify: error in client %s: %s", client2, e)
 
@@ -259,7 +261,7 @@ class DummyNotificationQueue(INotificationQueue):
     def get_lock(self) -> threading.Lock:
         return threading.Lock()
 
-    def notify(self, handle: int) -> None:
+    def notify(self, handle: int, arg: int) -> None:
         pass
 
     async def wait_unsafe(self, handle: int, debug_hint: str) -> None:
@@ -275,7 +277,7 @@ class DummyNotificationQueue(INotificationQueue):
         pass
 
     def subscribe(
-        self, handle: int, coro: Callable[[], Awaitable[Any]], debug_hint: str
+        self, handle: int, func: Callable[[int], Any], debug_hint: str
     ) -> Optional[int]:
         return None
 

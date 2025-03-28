@@ -32,7 +32,7 @@ class Writer(IAsyncWriter):
         if self.closed:
             raise ValueError("Writer is closed")
         self.buffer.extend(data)
-        self.queue.notify(self.handle)
+        self.queue.notify(self.handle, len(data))
         return len(data)
 
     def tell(self) -> int:
@@ -41,7 +41,7 @@ class Writer(IAsyncWriter):
     def close(self) -> None:
         self.closed = True
         self.queue.unlist(self.handle)
-        self.queue.notify(self.handle)
+        self.queue.notify(self.handle, -1)
 
 
 class Reader(IAsyncReader):

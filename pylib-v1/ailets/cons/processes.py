@@ -37,8 +37,8 @@ class Processes(IProcesses):
         self.queue.unlist(self.progress_handle)
 
     def subscribe_fsops(self) -> None:
-        def on_fsops() -> None:
-            print("!!!!!!!!!!!! FS ops")
+        def on_fsops(writer_handle: int) -> None:
+            print("!!!!!!!!!!!! FS ops", writer_handle)
 
         self.fsops_subscription_id = self.queue.subscribe(
             self.streams.get_fsops_handle(), on_fsops, "Processes: observe fsops"
@@ -220,7 +220,7 @@ class Processes(IProcesses):
             print(f"Exception: {exc}")
             raise
         finally:
-            self.queue.notify(self.progress_handle)
+            self.queue.notify(self.progress_handle, -1)
 
     def get_processes(self) -> set[asyncio.Task[None]]:
         return self.pool

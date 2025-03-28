@@ -32,7 +32,7 @@ class MiniShell(cmd.Cmd):
 
     def do_awake(self, arg: str) -> bool:
         """Awake a process."""
-        self.env.notification_queue.notify(self.env.processes.get_progress_handle())
+        self.env.notification_queue.notify(self.env.processes.get_progress_handle(), -1)
         return True
 
     def do_streams(self, arg: str) -> None:

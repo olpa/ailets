@@ -138,14 +138,14 @@ class Streams(IStreams):
                 stream_name=stream_name,
                 pipe=log_pipe,
             )
-            self.queue.notify(self.fsops_handle)
             return stream
 
         if self._find_stream(node_name, stream_name) is not None:
             raise ValueError(f"Stream already exists: {node_name}.{stream_name}")
 
+        writer_handle = self.seqno.next_seqno()
         pipe = BytesWR(
-            writer_handle=self.seqno.next_seqno(),
+            writer_handle=writer_handle,
             queue=self.queue,
             debug_hint=f"{node_name}.{stream_name}",
         )
@@ -164,7 +164,7 @@ class Streams(IStreams):
         logger.debug(f"Created stream: {stream}")
 
         self._streams.append(stream)
-        self.queue.notify(self.fsops_handle)
+        self.queue.notify(self.fsops_handle, writer_handle)
         return stream
 
     async def mark_finished(self, node_name: str, stream_name: Optional[str]) -> None:
