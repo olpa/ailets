@@ -88,6 +88,22 @@ class Streams(IStreams):
         self._streams: list[Stream] = []
         self.seqno = seqno
         self.queue = notification_queue
+        self.fsops_handle = -1
+        self.init_fsops_handle()
+
+    def destroy(self) -> None:
+        self.destroy_fsops_handle()
+
+    def init_fsops_handle(self) -> None:
+        self.fsops_handle = self.seqno.next_seqno()
+        self.queue.whitelist(self.fsops_handle, "Streams: file system operations")
+
+    def get_fsops_handle(self) -> int:
+        return self.fsops_handle
+
+    def destroy_fsops_handle(self) -> None:
+        self.queue.unlist(self.fsops_handle)
+        self.fsops_handle = -1
 
     def _find_stream(
         self, node_name: str, stream_name: Optional[str]
@@ -117,11 +133,13 @@ class Streams(IStreams):
         """Add a new stream."""
         if stream_name == "log":
             log_pipe = PrintStream(sys.stdout)
-            return Stream(
+            stream = Stream(
                 node_name=node_name,
                 stream_name=stream_name,
                 pipe=log_pipe,
             )
+            self.queue.notify(self.fsops_handle)
+            return stream
 
         if self._find_stream(node_name, stream_name) is not None:
             raise ValueError(f"Stream already exists: {node_name}.{stream_name}")
@@ -146,6 +164,7 @@ class Streams(IStreams):
         logger.debug(f"Created stream: {stream}")
 
         self._streams.append(stream)
+        self.queue.notify(self.fsops_handle)
         return stream
 
     async def mark_finished(self, node_name: str, stream_name: Optional[str]) -> None:

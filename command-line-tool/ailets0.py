@@ -301,7 +301,7 @@ async def main() -> None:
             with open(os.path.join(args.download_to, name), "wb") as hb:
                 content = await stream.read(0, -1)
                 hb.write(content)
-        env.processes.destroy()
+        env.destroy()
 
 
 if __name__ == "__main__":
