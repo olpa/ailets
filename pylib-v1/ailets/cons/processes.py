@@ -37,7 +37,7 @@ class Processes(IProcesses):
         self.queue.unlist(self.progress_handle)
 
     def subscribe_fsops(self) -> None:
-        async def on_fsops() -> None:
+        def on_fsops() -> None:
             print("!!!!!!!!!!!! FS ops")
 
         self.fsops_subscription_id = self.queue.subscribe(

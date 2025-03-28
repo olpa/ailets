@@ -67,7 +67,7 @@ class INotificationQueue(Protocol):
         raise NotImplementedError
 
     def subscribe(
-        self, handle: int, coro: Callable[[], Awaitable[Any]], debug_hint: str
+        self, handle: int, coro: Callable[[], Any], debug_hint: str
     ) -> Optional[int]:
         raise NotImplementedError
 
@@ -99,20 +99,18 @@ class WaitingClient:
 class SubscribedClient:
     """Represents a client subscribed to handle notifications"""
 
-    loop: asyncio.AbstractEventLoop
-    coro: Callable[[], Awaitable[Any]]
+    func: Callable[[], Any]
     debug_hint: str
 
     @classmethod
     def new(
         cls,
-        coro: Callable[[], Awaitable[Any]],
+        func: Callable[[], Any],
         debug_hint: str,
     ) -> "SubscribedClient":
         return cls(
-            loop=asyncio.get_running_loop(),
+            func=func,
             debug_hint=debug_hint,
-            coro=coro,
         )
 
     def __str__(self) -> str:
@@ -147,7 +145,7 @@ class NotificationQueue(INotificationQueue):
         self._notify_and_delete(handle, delete_subscribed=True)
 
     def subscribe(
-        self, handle: int, coro: Callable[[], Awaitable[Any]], debug_hint: str
+        self, handle: int, func: Callable[[], Any], debug_hint: str
     ) -> Optional[int]:
         """Subscribe to the handle notification
 
@@ -158,7 +156,7 @@ class NotificationQueue(INotificationQueue):
             if handle not in self._whitelist:
                 logger.warning(f"queue.subscribe: handle {handle} not in whitelist")
                 return None
-            client = SubscribedClient.new(coro, debug_hint)
+            client = SubscribedClient.new(func, debug_hint)
             if handle not in self._subscribed_clients:
                 self._subscribed_clients[handle] = set()
             self._subscribed_clients[handle].add(client)
@@ -244,7 +242,10 @@ class NotificationQueue(INotificationQueue):
         for client1 in clients1:
             client1.loop.call_soon_threadsafe(client1.event.set)
         for client2 in clients2:
-            client2.loop.call_soon_threadsafe(client2.coro)
+            try:
+                client2.func()
+            except Exception as e:
+                logger.exception("queue.notify: error in client %s: %s", client2, e)
 
     def get_waits(self) -> list[tuple[int, list[str]]]:
         with self._lock:
