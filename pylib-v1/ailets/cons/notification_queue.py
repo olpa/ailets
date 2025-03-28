@@ -51,6 +51,9 @@ logger = logging.getLogger("ailets.queue")
 
 
 class INotificationQueue(Protocol):
+    def get_lock(self) -> threading.Lock:
+        raise NotImplementedError
+
     def notify(self, handle: int) -> None:
         raise NotImplementedError
 
@@ -63,7 +66,12 @@ class INotificationQueue(Protocol):
     async def wait_unsafe(self, handle: int, debug_hint: str) -> None:
         raise NotImplementedError
 
-    def get_lock(self) -> threading.Lock:
+    def subscribe(
+        self, handle: int, coro: Callable[[], Awaitable[Any]], debug_hint: str
+    ) -> Optional[int]:
+        raise NotImplementedError
+
+    def unsubscribe(self, handle: int, subscription_id: int) -> None:
         raise NotImplementedError
 
 
@@ -136,6 +144,7 @@ class NotificationQueue(INotificationQueue):
             if handle not in self._whitelist:
                 logger.warning("queue.unlist: handle %s not in whitelist", handle)
             del self._whitelist[handle]
+        self._notify_and_delete(handle, delete_subscribed=True)
 
     def subscribe(
         self, handle: int, coro: Callable[[], Awaitable[Any]], debug_hint: str
@@ -211,9 +220,17 @@ class NotificationQueue(INotificationQueue):
                         del self._waiting_clients[handle]
 
     def notify(self, handle: int) -> None:
+        self._notify_and_delete(handle, delete_subscribed=False)
+
+    def _notify_and_delete(self, handle: int, delete_subscribed: bool) -> None:
         with self._lock:
-            clients1 = self._waiting_clients.get(handle, set()).copy()
-            clients2 = self._subscribed_clients.get(handle, set()).copy()
+            clients1 = self._waiting_clients.get(handle, set())
+            del self._waiting_clients[handle]
+            if delete_subscribed:
+                clients2 = self._subscribed_clients.get(handle, set())
+                del self._subscribed_clients[handle]
+            else:
+                clients2 = self._subscribed_clients.get(handle, set()).copy()
         logger.debug(
             "queue.notify: handle %s, len(clients1): %s, len(clients2): %s",
             handle,
@@ -250,4 +267,12 @@ class DummyNotificationQueue(INotificationQueue):
         pass
 
     def unlist(self, handle: int) -> None:
+        pass
+
+    def subscribe(
+        self, handle: int, coro: Callable[[], Awaitable[Any]], debug_hint: str
+    ) -> Optional[int]:
+        return None
+
+    def unsubscribe(self, handle: int, subscription_id: int) -> None:
         pass
