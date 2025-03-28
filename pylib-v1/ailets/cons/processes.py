@@ -189,9 +189,10 @@ class Processes(IProcesses):
         )
         self.pool.add(awaker_task)
 
-        while len(self.pool) > 1:  # The awaker is always in the pool
+        while len(self.pool) > 0:  # The awaker is always in the pool
             if awaker_task.done():
-                self.pool.remove(awaker_task)
+                if awaker_task in self.pool:
+                    self.pool.remove(awaker_task)
                 awaker_task = asyncio.create_task(awaker(), name="process.awaker")
                 self.pool.add(awaker_task)
 
@@ -205,7 +206,8 @@ class Processes(IProcesses):
             extend_pool()
 
         awaker_task.cancel()
-        self.pool.remove(awaker_task)
+        if awaker_task in self.pool:
+            self.pool.remove(awaker_task)
 
     async def build_node_alone(self, name: str) -> None:
         """Build a node. Does not build its dependencies."""
