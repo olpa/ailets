@@ -18,5 +18,5 @@ class Environment(IEnvironment):
         self.processes = Processes(self)
 
     def destroy(self) -> None:
-        self.streams.destroy()
         self.processes.destroy()
+        self.streams.destroy()

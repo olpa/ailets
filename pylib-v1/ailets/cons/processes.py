@@ -30,6 +30,7 @@ class Processes(IProcesses):
         self.loop = asyncio.get_event_loop()
 
         self.fsops_subscription_id: int | None = None
+        self.fsops_handle: int | None = None
         self.subscribe_fsops()
 
     def destroy(self) -> None:
@@ -37,6 +38,8 @@ class Processes(IProcesses):
         self.queue.unlist(self.progress_handle)
 
     def subscribe_fsops(self) -> None:
+        self.fsops_handle = self.streams.get_fsops_handle()
+
         def on_fsops(writer_handle: int) -> None:
             async def awake_on_write() -> None:
                 lock = self.queue.get_lock()
@@ -50,14 +53,14 @@ class Processes(IProcesses):
             self.queue.notify(self.progress_handle, writer_handle)
 
         self.fsops_subscription_id = self.queue.subscribe(
-            self.streams.get_fsops_handle(), on_fsops, "Processes: observe fsops"
+            self.fsops_handle, on_fsops, "Processes: observe fsops"
         )
 
     def unsubscribe_fsops(self) -> None:
         if self.fsops_subscription_id is not None:
-            self.queue.unsubscribe(
-                self.streams.get_fsops_handle(), self.fsops_subscription_id
-            )
+            if self.fsops_handle is not None:
+                self.queue.unsubscribe(self.fsops_handle, self.fsops_subscription_id)
+            self.fsops_handle = None
             self.fsops_subscription_id = None
 
     def is_node_finished(self, name: str) -> bool:
