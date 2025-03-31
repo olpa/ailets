@@ -284,7 +284,13 @@ async def main() -> None:
         node_iter = env.processes.next_node_iter(
             target_node_name, args.one_step, stop_before_node, stop_after_node
         )
-        await env.processes.run_nodes(node_iter)
+        try:
+            await env.processes.run_nodes(node_iter)
+        except Exception as e:
+            with open("ailets-core-dump.json", "w") as f:
+                await dump_environment(env, f)
+            raise e
+
         # Reset SIGTSTP handler back to default
         signal.signal(signal.SIGTSTP, signal.SIG_DFL)
 
@@ -301,6 +307,7 @@ async def main() -> None:
             with open(os.path.join(args.download_to, name), "wb") as hb:
                 content = await stream.read(0, -1)
                 hb.write(content)
+        env.destroy()
 
 
 if __name__ == "__main__":

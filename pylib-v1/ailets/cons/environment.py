@@ -16,3 +16,7 @@ class Environment(IEnvironment):
         self.streams = Streams(self.notification_queue, self.seqno)
         self.nodereg = nodereg
         self.processes = Processes(self)
+
+    def destroy(self) -> None:
+        self.processes.destroy()
+        self.streams.destroy()

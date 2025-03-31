@@ -1,25 +1,28 @@
 import asyncio
 import logging
 
-from .notification_queue import NotificationQueue
-from .atyping import IAsyncReader, IAsyncWriter, INotificationQueue
+from .atyping import IAsyncReader, IAsyncWriter
+from .notification_queue import INotificationQueue, NotificationQueue
 
 logger = logging.getLogger("ailets.io")
 
 
 class Writer(IAsyncWriter):
-    def __init__(self, handle: int, queue: INotificationQueue) -> None:
+    def __init__(self, handle: int, queue: INotificationQueue, debug_hint: str) -> None:
         super().__init__()
         self.buffer = bytearray()
         self.handle = handle
         self.queue = queue
+        self.debug_hint = debug_hint
         self.closed = False
+        self.queue.whitelist(handle, f"BytesWR.Writer {debug_hint}")
 
     def __str__(self) -> str:
         return (
             f"BytesWR.Writer(handle={self.handle}, "
             f"closed={self.closed}, "
-            f"tell={self.tell()}"
+            f"tell={self.tell()}, "
+            f"hint={self.debug_hint})"
         )
 
     async def write(self, data: bytes) -> int:
@@ -28,8 +31,10 @@ class Writer(IAsyncWriter):
     def write_sync(self, data: bytes) -> int:
         if self.closed:
             raise ValueError("Writer is closed")
+        if len(data) == 0:
+            return 0
         self.buffer.extend(data)
-        self.queue.notify(self.handle)
+        self.queue.notify(self.handle, len(data))
         return len(data)
 
     def tell(self) -> int:
@@ -37,7 +42,8 @@ class Writer(IAsyncWriter):
 
     def close(self) -> None:
         self.closed = True
-        self.queue.notify(self.handle)
+        self.queue.unlist(self.handle)
+        self.queue.notify(self.handle, -1)
 
 
 class Reader(IAsyncReader):
@@ -79,7 +85,7 @@ class Reader(IAsyncReader):
         lock = self.writer.queue.get_lock()
         with lock:
             if self._should_wait_with_autoclose():
-                await self.writer.queue.wait_for_handle(
+                await self.writer.queue.wait_unsafe(
                     self.writer.handle, f"BytesWR.Reader {self.handle}"
                 )
                 lock.acquire()
@@ -88,8 +94,10 @@ class Reader(IAsyncReader):
 
 
 class BytesWR:
-    def __init__(self, writer_handle: int, queue: INotificationQueue) -> None:
-        self.writer = Writer(writer_handle, queue)
+    def __init__(
+        self, writer_handle: int, queue: INotificationQueue, debug_hint: str
+    ) -> None:
+        self.writer = Writer(writer_handle, queue, debug_hint)
 
     def get_writer(self) -> IAsyncWriter:
         return self.writer
@@ -127,7 +135,7 @@ def main() -> None:
 
     async def main() -> None:
         queue = NotificationQueue()
-        wr = BytesWR(0, queue)
+        wr = BytesWR(0, queue, "main")
         lib_writer = wr.get_writer()
         lib_reader1 = wr.get_reader(1)
         lib_reader2 = wr.get_reader(2)

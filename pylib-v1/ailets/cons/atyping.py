@@ -1,5 +1,4 @@
 from dataclasses import dataclass, field
-import threading
 from typing import (
     Any,
     Awaitable,
@@ -16,6 +15,7 @@ from typing import (
     Union,
 )
 from typing_extensions import NotRequired
+from ailets.cons.notification_queue import INotificationQueue
 from ailets.cons.seqno import Seqno
 
 
@@ -39,17 +39,6 @@ class IAsyncWriter(Protocol):
         raise NotImplementedError
 
     def tell(self) -> int:
-        raise NotImplementedError
-
-
-class INotificationQueue(Protocol):
-    def notify(self, handle: int) -> None:
-        raise NotImplementedError
-
-    async def wait_for_handle(self, handle: int, debug_hint: str) -> None:
-        raise NotImplementedError
-
-    def get_lock(self) -> threading.Lock:
         raise NotImplementedError
 
 
@@ -85,6 +74,12 @@ class IStreams(Protocol):
     ) -> Stream:
         raise NotImplementedError
 
+    def destroy(self) -> None:
+        raise NotImplementedError
+
+    def get_fsops_handle(self) -> int:
+        raise NotImplementedError
+
     def has_input(self, dep: "Dependency") -> bool:
         raise NotImplementedError
 
@@ -92,9 +87,6 @@ class IStreams(Protocol):
         raise NotImplementedError
 
     async def read_dir(self, dir_name: str, node_names: Sequence[str]) -> Sequence[str]:
-        raise NotImplementedError
-
-    def set_on_write_started(self, func: Callable[[], None]) -> None:
         raise NotImplementedError
 
 

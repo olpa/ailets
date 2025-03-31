@@ -1,15 +1,13 @@
-import asyncio
 import io
 import json
 import sys
-from typing import IO, Any, Callable, Dict, Optional, Sequence
+from typing import IO, Any, Dict, Optional, Sequence
 
 from ailets.cons.atyping import (
     Dependency,
     IAsyncReader,
     IAsyncWriter,
     IStreams,
-    INotificationQueue,
     IPipe,
     Stream,
 )
@@ -18,7 +16,7 @@ from ailets.cons.bytesrw import (
     Writer as BytesWRWriter,
     Reader as BytesWRReader,
 )
-from ailets.cons.notification_queue import DummyNotificationQueue
+from ailets.cons.notification_queue import DummyNotificationQueue, INotificationQueue
 from ailets.cons.seqno import Seqno
 
 import logging
@@ -57,9 +55,14 @@ class PrintStream(IPipe):
 
 
 class StaticStream(IPipe):
-    def __init__(self, content: bytes) -> None:
-        writer = BytesWRWriter(handle=-1, queue=DummyNotificationQueue())
+    def __init__(self, content: bytes, debug_hint: str) -> None:
+        writer = BytesWRWriter(
+            handle=-1,
+            queue=DummyNotificationQueue(),
+            debug_hint=debug_hint,
+        )
         writer.write_sync(content)
+        writer.close()
         self.writer = writer
 
     def get_reader(self, handle: int) -> IAsyncReader:
@@ -83,14 +86,24 @@ class Streams(IStreams):
 
     def __init__(self, notification_queue: INotificationQueue, seqno: Seqno) -> None:
         self._streams: list[Stream] = []
-        self.on_write_started: Optional[Callable[[], None]] = None
         self.seqno = seqno
         self.queue = notification_queue
+        self.fsops_handle = -1
+        self.init_fsops_handle()
 
-    def set_on_write_started(
-        self, on_write_started: Optional[Callable[[], None]]
-    ) -> None:
-        self.on_write_started = on_write_started
+    def destroy(self) -> None:
+        self.destroy_fsops_handle()
+
+    def init_fsops_handle(self) -> None:
+        self.fsops_handle = self.seqno.next_seqno()
+        self.queue.whitelist(self.fsops_handle, "Streams: file system operations")
+
+    def get_fsops_handle(self) -> int:
+        return self.fsops_handle
+
+    def destroy_fsops_handle(self) -> None:
+        self.queue.unlist(self.fsops_handle)
+        self.fsops_handle = -1
 
     def _find_stream(
         self, node_name: str, stream_name: Optional[str]
@@ -120,18 +133,21 @@ class Streams(IStreams):
         """Add a new stream."""
         if stream_name == "log":
             log_pipe = PrintStream(sys.stdout)
-            return Stream(
+            stream = Stream(
                 node_name=node_name,
                 stream_name=stream_name,
                 pipe=log_pipe,
             )
+            return stream
 
         if self._find_stream(node_name, stream_name) is not None:
             raise ValueError(f"Stream already exists: {node_name}.{stream_name}")
 
+        writer_handle = self.seqno.next_seqno()
         pipe = BytesWR(
-            writer_handle=self.seqno.next_seqno(),
+            writer_handle=writer_handle,
             queue=self.queue,
+            debug_hint=f"{node_name}.{stream_name}",
         )
         writer = pipe.get_writer()
         if isinstance(writer, BytesWRWriter):
@@ -148,35 +164,7 @@ class Streams(IStreams):
         logger.debug(f"Created stream: {stream}")
 
         self._streams.append(stream)
-
-        if self.on_write_started is not None:
-            writer = pipe.get_writer()
-
-            def should_notify() -> bool:
-                return (
-                    isinstance(writer, BytesWRWriter)
-                    and not writer.closed
-                    and writer.tell() == 0
-                )
-
-            if should_notify():
-                bwrwriter: BytesWRWriter = writer  # type: ignore[assignment]
-                writer_handle = bwrwriter.handle
-
-                async def notifier() -> None:
-                    # See the `queue` documentation for the workflow explanation
-                    lock = self.queue.get_lock()
-                    with lock:
-                        if should_notify():
-                            await self.queue.wait_for_handle(
-                                writer_handle, "to call on_write_started"
-                            )
-                            lock.acquire()
-                    if self.on_write_started is not None:
-                        self.on_write_started()
-
-                asyncio.get_running_loop().create_task(notifier())
-
+        self.queue.notify(self.fsops_handle, writer_handle)
         return stream
 
     async def mark_finished(self, node_name: str, stream_name: Optional[str]) -> None:
@@ -187,7 +175,7 @@ class Streams(IStreams):
     @staticmethod
     def make_env_stream(params: Dict[str, Any]) -> Stream:
         content = json.dumps(params).encode("utf-8")
-        pipe = StaticStream(content)
+        pipe = StaticStream(content, "env")
         return Stream(
             node_name=".",
             stream_name="env",

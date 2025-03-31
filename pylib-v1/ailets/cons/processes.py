@@ -15,8 +15,7 @@ class Processes(IProcesses):
         self.env = env
         self.streams = env.streams
         self.dagops = env.dagops
-
-        self.node_started_writing_event: asyncio.Event = asyncio.Event()
+        self.queue = env.notification_queue
 
         self.finished_nodes: set[str] = set()
         self.active_nodes: set[str] = set()
@@ -25,10 +24,44 @@ class Processes(IProcesses):
         self.deps: Mapping[str, Sequence[Dependency]] = {}
         self.rev_deps: Mapping[str, Sequence[Dependency]] = {}
 
-        self.streams.set_on_write_started(self.mark_node_started_writing)
+        self.progress_handle: int = env.seqno.next_seqno()
+        self.queue.whitelist(self.progress_handle, "ailets.processes")
         self.pool: set[asyncio.Task[None]] = set()
-
         self.loop = asyncio.get_event_loop()
+
+        self.fsops_subscription_id: int | None = None
+        self.fsops_handle: int | None = None
+        self.subscribe_fsops()
+
+    def destroy(self) -> None:
+        self.unsubscribe_fsops()
+        self.queue.unlist(self.progress_handle)
+
+    def subscribe_fsops(self) -> None:
+        self.fsops_handle = self.streams.get_fsops_handle()
+
+        def on_fsops(writer_handle: int) -> None:
+            async def awake_on_write() -> None:
+                lock = self.queue.get_lock()
+                lock.acquire()
+                await self.queue.wait_unsafe(writer_handle, "process.awaker_on_write")
+                self.queue.notify(self.progress_handle, writer_handle)
+
+            self.pool.add(
+                asyncio.create_task(awake_on_write(), name="process.awaker_on_write")
+            )
+            self.queue.notify(self.progress_handle, writer_handle)
+
+        self.fsops_subscription_id = self.queue.subscribe(
+            self.fsops_handle, on_fsops, "Processes: observe fsops"
+        )
+
+    def unsubscribe_fsops(self) -> None:
+        if self.fsops_subscription_id is not None:
+            if self.fsops_handle is not None:
+                self.queue.unsubscribe(self.fsops_handle, self.fsops_subscription_id)
+            self.fsops_handle = None
+            self.fsops_subscription_id = None
 
     def is_node_finished(self, name: str) -> bool:
         return name in self.finished_nodes
@@ -53,10 +86,6 @@ class Processes(IProcesses):
                     Dependency(source=node_name, name=dep.name, stream=dep.stream)
                 )
         self.rev_deps = rev_deps
-
-    def mark_node_started_writing(self) -> None:
-        logger.debug("mark_node_started_writing")
-        self.loop.call_soon_threadsafe(self.node_started_writing_event.set)
 
     def get_nodes_to_build(self, target_node_name: str) -> list[str]:
         nodes_to_build = []
@@ -142,8 +171,9 @@ class Processes(IProcesses):
         self.pool = set()
 
         async def awaker() -> None:
-            await self.node_started_writing_event.wait()
-            logger.debug("awaker woke up")
+            lock = self.queue.get_lock()
+            lock.acquire()
+            await self.queue.wait_unsafe(self.progress_handle, "process.awaker")
 
         def extend_pool() -> None:
             node_names: Sequence[str] = list(
@@ -156,13 +186,18 @@ class Processes(IProcesses):
                 for name in node_names
             )
 
-        awaiker_task: asyncio.Task[None] | None = None
         extend_pool()
-        while len(self.pool):
-            if awaiker_task is None:
-                awaiker_task = asyncio.create_task(awaker())
-            self.pool.add(awaiker_task)
-            self.node_started_writing_event.clear()
+        awaker_task: asyncio.Task[None] = asyncio.create_task(
+            awaker(), name="process.awaker"
+        )
+        self.pool.add(awaker_task)
+
+        while len(self.pool) > 0:  # The awaker is always in the pool
+            if awaker_task.done():
+                if awaker_task in self.pool:
+                    self.pool.remove(awaker_task)
+                awaker_task = asyncio.create_task(awaker(), name="process.awaker")
+                self.pool.add(awaker_task)
 
             done, self.pool = await asyncio.wait(
                 self.pool, return_when=asyncio.FIRST_COMPLETED
@@ -171,12 +206,11 @@ class Processes(IProcesses):
                 if exc := task.exception():
                     raise exc
 
-            if not awaiker_task.done():
-                awaiker_task.cancel()
-                self.pool.remove(awaiker_task)
-                awaiker_task = None
-
             extend_pool()
+
+        awaker_task.cancel()
+        if awaker_task in self.pool:
+            self.pool.remove(awaker_task)
 
     async def build_node_alone(self, name: str) -> None:
         """Build a node. Does not build its dependencies."""
@@ -199,6 +233,11 @@ class Processes(IProcesses):
                 print(f"  {dep.source} ({dep.stream}) -> {dep.name}")
             print(f"Exception: {exc}")
             raise
+        finally:
+            self.queue.notify(self.progress_handle, -1)
 
     def get_processes(self) -> set[asyncio.Task[None]]:
         return self.pool
+
+    def get_progress_handle(self) -> int:
+        return self.progress_handle
