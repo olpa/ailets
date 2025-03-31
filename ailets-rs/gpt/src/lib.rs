@@ -161,13 +161,25 @@ pub fn _process_gpt<W: Write>(
     let triggers_end = vec![end_message];
     let sse_tokens = vec!["data:", "DONE"];
 
-    scan(
+    let scan_result = scan(
         &triggers,
         &triggers_end,
         &sse_tokens,
         &rjiter_cell,
         &builder_cell,
-    )?;
+    );
+    // FIXME revert vebose handling
+    //scan_result?;
+    if let Err(e) = scan_result {
+        let mut wr2 = AWriter::new(c"log").unwrap();
+        wr2.write_all(b"Handling scan error\n").unwrap();
+        let rjiter = rjiter_cell.borrow();
+        wr2.write_all(format!("RJiter is: {rjiter:?}\n").as_bytes()).unwrap();
+        wr2.close().unwrap();
+
+        return Err(e.into());
+    }
+
     let mut builder = builder_cell.borrow_mut();
     builder.end_message()?;
 
