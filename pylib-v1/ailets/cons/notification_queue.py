@@ -236,8 +236,9 @@ class NotificationQueue(INotificationQueue):
             else:
                 clients2 = self._subscribed_clients.get(handle, set()).copy()
         logger.debug(
-            "queue.notify: handle %s, len(clients1): %s, len(clients2): %s",
+            "queue.notify: handle %s, arg=%s, len(clients1): %s, len(clients2): %s",
             handle,
+            arg,
             len(clients1),
             len(clients2),
         )

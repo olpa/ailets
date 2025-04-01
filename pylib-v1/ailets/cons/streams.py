@@ -32,14 +32,16 @@ class PrintStream(IPipe):
 
         async def write(self, data: bytes) -> int:
             self.output.write(data.decode("utf-8"))
+            self.output.flush()
             return len(data)
 
         def tell(self) -> int:
             return self.output.tell()
 
         def close(self) -> None:
-            self.output.close()
-            self.closed = True
+            if not self.output == sys.stdout:
+                self.output.close()
+                self.closed = True
 
         def __str__(self) -> str:
             return f"PrintStream.Writer(output={self.output}, closed={self.closed})"
@@ -132,13 +134,7 @@ class Streams(IStreams):
     ) -> Stream:
         """Add a new stream."""
         if stream_name == "log":
-            log_pipe = PrintStream(sys.stdout)
-            stream = Stream(
-                node_name=node_name,
-                stream_name=stream_name,
-                pipe=log_pipe,
-            )
-            return stream
+            return create_log_stream()
 
         if self._find_stream(node_name, stream_name) is not None:
             raise ValueError(f"Stream already exists: {node_name}.{stream_name}")
