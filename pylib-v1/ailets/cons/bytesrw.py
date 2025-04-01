@@ -75,6 +75,13 @@ class Reader(IAsyncReader):
             else:
                 end_pos = self.pos + size
             data = self.writer.buffer[slice(self.pos, end_pos)]
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "BytesWR.Reader.read: handle=%s, old pos=%s, new pos=%s",
+                    self.handle,
+                    self.pos,
+                    end_pos,
+                )
             self.pos = end_pos
             return data
 
