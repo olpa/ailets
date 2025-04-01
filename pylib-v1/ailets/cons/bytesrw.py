@@ -74,6 +74,7 @@ class Reader(IAsyncReader):
                 end_pos = len(self.writer.buffer)
             else:
                 end_pos = self.pos + size
+                end_pos = min(end_pos, len(self.writer.buffer))
             data = self.writer.buffer[slice(self.pos, end_pos)]
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
