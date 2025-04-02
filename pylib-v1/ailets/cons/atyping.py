@@ -50,6 +50,18 @@ class IPipe(Protocol):
         raise NotImplementedError
 
 
+class IKVBuffer(Protocol):
+    buffer: bytes
+
+
+class IKVBuffers(Protocol):
+    def open(self, path: str, mode: Literal["read", "write", "append"]) -> IKVBuffer:
+        raise NotImplementedError
+
+    def flush(self, kvbuffer: IKVBuffer) -> None:
+        raise NotImplementedError
+
+
 @dataclass
 class Stream:
     node_name: str
