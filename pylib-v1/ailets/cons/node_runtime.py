@@ -11,7 +11,7 @@ from .atyping import (
     IEnvironment,
     INodeDagops,
     INodeRuntime,
-    Stream,
+    IPipe,
 )
 
 
@@ -36,7 +36,7 @@ class NodeRuntime(INodeRuntime):
         self.open_fds: Dict[int, OpenFd] = {}
         self.cached_dagops: Optional[INodeDagops] = None
 
-    def _get_streams(self, stream_name: str) -> Sequence[Stream]:
+    def _get_streams(self, stream_name: str) -> Sequence[IPipe]:
         # Special stream "env"
         if stream_name == "env":
             return [Streams.make_env_stream(self.env.for_env_stream)]
@@ -64,7 +64,7 @@ class NodeRuntime(INodeRuntime):
         if index >= len(streams) or index < 0:
             raise ValueError(f"Stream index out of bounds: {index} for {stream_name}")
         fd = self.env.seqno.next_seqno()
-        reader = streams[index].pipe.get_reader(fd)
+        reader = streams[index].get_reader(fd)
         self.open_fds[fd] = OpenFd(
             debug_hint=f"{self.node_name}.{stream_name}[{index}]",
             reader=reader,
@@ -86,7 +86,7 @@ class NodeRuntime(INodeRuntime):
     async def open_write(self, stream_name: str) -> int:
         stream = self.streams.create(self.node_name, stream_name)
         fd = self.env.seqno.next_seqno()
-        writer = stream.pipe.get_writer()
+        writer = stream.get_writer()
         self.open_fds[fd] = OpenFd(
             debug_hint=f"{self.node_name}.{stream_name}",
             reader=None,
@@ -124,9 +124,9 @@ class NodeRuntime(INodeRuntime):
     ) -> None:
         in_streams = self._get_streams(in_stream_name)
         for in_stream in in_streams:
-            reader = in_stream.pipe.get_reader(self.env.seqno.next_seqno())
+            reader = in_stream.get_reader(self.env.seqno.next_seqno())
             out_stream = self.streams.create(self.node_name, out_stream_name)
-            writer = out_stream.pipe.get_writer()
+            writer = out_stream.get_writer()
             await writer.write(await reader.read(size=-1))
             writer.close()
 
@@ -137,7 +137,7 @@ class NodeRuntime(INodeRuntime):
             out_fd_obj.writer is not None
         ), f"File descriptor {out_fd} is not open for writing"
         for in_stream in in_streams:
-            reader = in_stream.pipe.get_reader(self.env.seqno.next_seqno())
+            reader = in_stream.get_reader(self.env.seqno.next_seqno())
             await out_fd_obj.writer.write(await reader.read(size=-1))
 
     def get_next_name(self, base_name: str) -> str:
