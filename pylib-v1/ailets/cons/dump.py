@@ -17,10 +17,10 @@ from ailets.cons.atyping import (
     Dependency,
     INodeRegistry,
     INodeRuntime,
+    IPipe,
     IProcesses,
     IStreams,
     Node,
-    Stream,
 )
 from ailets.cons.dagops import Dagops
 from ailets.cons.seqno import Seqno
@@ -92,10 +92,10 @@ def load_node(
     return node
 
 
-async def dump_stream(stream: Stream, f: TextIO) -> None:
-    writer = stream.pipe.get_writer()
+async def dump_pipe(path: str, pipe: IPipe, f: TextIO) -> None:
+    writer = pipe.get_writer()
     dont_care_handle = -1
-    reader = stream.pipe.get_reader(dont_care_handle)
+    reader = pipe.get_reader(dont_care_handle)
     b = await reader.read(size=-1)
     try:
         content_field = "content"
@@ -105,8 +105,7 @@ async def dump_stream(stream: Stream, f: TextIO) -> None:
         content = base64.b64encode(b).decode("utf-8")
     json.dump(
         {
-            "node": stream.node_name,
-            "name": stream.stream_name,
+            "path": path,
             "is_closed": writer.closed,
             content_field: content,
         },
@@ -133,8 +132,8 @@ async def dump_environment(env: Environment, f: TextIO) -> None:
     for alias, names in env.dagops.aliases.items():
         json.dump({"alias": alias, "names": list(names)}, f, indent=2)
         f.write("\n")
-    for stream in env.streams._streams:
-        await dump_stream(stream, f)
+    for path, pipe in env.streams.pipes.items():
+        await dump_pipe(path, pipe, f)
         f.write("\n")
     json.dump({"env": env.for_env_stream}, f, indent=2)
     f.write("\n")
