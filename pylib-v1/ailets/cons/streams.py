@@ -110,7 +110,7 @@ class Streams(IStreams):
         self.fsops_handle = -1
 
     def get_path(self, node_name: str, stream_name: Optional[str]) -> str:
-        if stream_name is None:
+        if not stream_name:
             return node_name
         return f"{node_name}-{stream_name}"
 
