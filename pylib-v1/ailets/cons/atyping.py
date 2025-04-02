@@ -51,7 +51,8 @@ class IPipe(Protocol):
 
 
 class IKVBuffer(Protocol):
-    buffer: bytes
+    def borrow_mut_buffer(self) -> bytearray:
+        raise NotImplementedError
 
 
 class IKVBuffers(Protocol):
@@ -83,7 +84,7 @@ class IStreams(Protocol):
         stream_name: str,
         initial_content: Optional[bytes] = None,
         is_closed: bool = False,
-    ) -> Stream:
+    ) -> IPipe:
         raise NotImplementedError
 
     def destroy(self) -> None:
@@ -95,7 +96,7 @@ class IStreams(Protocol):
     def has_input(self, dep: "Dependency") -> bool:
         raise NotImplementedError
 
-    def collect_streams(self, deps: Sequence["Dependency"]) -> Sequence[Stream]:
+    def collect_streams(self, deps: Sequence["Dependency"]) -> Sequence[IPipe]:
         raise NotImplementedError
 
     async def read_dir(self, dir_name: str, node_names: Sequence[str]) -> Sequence[str]:

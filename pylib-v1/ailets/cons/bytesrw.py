@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from typing import Optional
 
 from .atyping import IAsyncReader, IAsyncWriter
 from .notification_queue import INotificationQueue, NotificationQueue
@@ -8,9 +9,15 @@ logger = logging.getLogger("ailets.io")
 
 
 class Writer(IAsyncWriter):
-    def __init__(self, handle: int, queue: INotificationQueue, debug_hint: str) -> None:
+    def __init__(
+        self,
+        handle: int,
+        queue: INotificationQueue,
+        debug_hint: str,
+        external_buffer: Optional[bytearray] = None,
+    ) -> None:
         super().__init__()
-        self.buffer = bytearray()
+        self.buffer = external_buffer if external_buffer is not None else bytearray()
         self.handle = handle
         self.queue = queue
         self.debug_hint = debug_hint
@@ -103,9 +110,13 @@ class Reader(IAsyncReader):
 
 class BytesWR:
     def __init__(
-        self, writer_handle: int, queue: INotificationQueue, debug_hint: str
+        self,
+        writer_handle: int,
+        queue: INotificationQueue,
+        debug_hint: str,
+        external_buffer: Optional[bytearray] = None,
     ) -> None:
-        self.writer = Writer(writer_handle, queue, debug_hint)
+        self.writer = Writer(writer_handle, queue, debug_hint, external_buffer)
 
     def get_writer(self) -> IAsyncWriter:
         return self.writer

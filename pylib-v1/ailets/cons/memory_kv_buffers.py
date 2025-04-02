@@ -3,9 +3,12 @@ from .atyping import IKVBuffer, IKVBuffers
 
 
 class MemoryKVBuffer(IKVBuffer):
-    def __init__(self, path: str, initial_buffer: bytes = b""):
-        self.buffer = initial_buffer
+    def __init__(self, path: str, initial_content: bytes = b""):
+        self.buffer = bytearray(initial_content)
         self._path = path
+
+    def borrow_mut_buffer(self) -> bytearray:
+        return self.buffer
 
 
 class MemoryKVBuffers(IKVBuffers):

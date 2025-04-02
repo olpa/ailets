@@ -7,9 +7,9 @@ from ailets.cons.atyping import (
     Dependency,
     IAsyncReader,
     IAsyncWriter,
+    IKVBuffers,
     IStreams,
     IPipe,
-    Stream,
 )
 from ailets.cons.bytesrw import (
     BytesWR,
@@ -74,24 +74,26 @@ class StaticStream(IPipe):
         raise io.UnsupportedOperation("StaticStream is read-only")
 
 
-def create_log_stream() -> Stream:
+def create_log_stream() -> IPipe:
     pipe = PrintStream(sys.stdout)
-    return Stream(
-        node_name=".",
-        stream_name="log",
-        pipe=pipe,
-    )
+    return pipe
 
 
 class Streams(IStreams):
     """Manages streams for an environment."""
 
-    def __init__(self, notification_queue: INotificationQueue, seqno: Seqno) -> None:
-        self._streams: list[Stream] = []
+    def __init__(
+        self,
+        kv: IKVBuffers,
+        notification_queue: INotificationQueue,
+        seqno: Seqno,
+    ) -> None:
+        self.kv = kv
         self.seqno = seqno
         self.queue = notification_queue
         self.fsops_handle = -1
         self.init_fsops_handle()
+        self.pipes: Dict[str, IPipe] = {}
 
     def destroy(self) -> None:
         self.destroy_fsops_handle()
@@ -107,23 +109,10 @@ class Streams(IStreams):
         self.queue.unlist(self.fsops_handle)
         self.fsops_handle = -1
 
-    def _find_stream(
-        self, node_name: str, stream_name: Optional[str]
-    ) -> Optional[Stream]:
-        return next(
-            (
-                s
-                for s in self._streams
-                if s.node_name == node_name and s.stream_name == stream_name
-            ),
-            None,
-        )
-
-    def get(self, node_name: str, stream_name: Optional[str]) -> Stream:
-        stream = self._find_stream(node_name, stream_name)
-        if stream is None:
-            raise ValueError(f"Stream not found: {node_name}.{stream_name}")
-        return stream
+    def get_path(self, node_name: str, stream_name: Optional[str]) -> str:
+        if stream_name is None:
+            return node_name
+        return f"{node_name}-{stream_name}"
 
     def create(
         self,
@@ -131,20 +120,22 @@ class Streams(IStreams):
         stream_name: Optional[str],
         initial_content: Optional[bytes] = None,
         is_closed: bool = False,
-    ) -> Stream:
+    ) -> IPipe:
         """Add a new stream."""
         if stream_name == "log":
             return create_log_stream()
 
-        if self._find_stream(node_name, stream_name) is not None:
-            raise ValueError(f"Stream already exists: {node_name}.{stream_name}")
+        path = self.get_path(node_name, stream_name)
+        kvbuf = self.kv.open(path, "write")
 
         writer_handle = self.seqno.next_seqno()
         pipe = BytesWR(
             writer_handle=writer_handle,
             queue=self.queue,
-            debug_hint=f"{node_name}.{stream_name}",
+            debug_hint=path,
+            external_buffer=kvbuf.borrow_mut_buffer(),
         )
+
         writer = pipe.get_writer()
         if isinstance(writer, BytesWRWriter):
             if initial_content is not None:
@@ -152,71 +143,37 @@ class Streams(IStreams):
             if is_closed:
                 writer.close()
 
-        stream = Stream(
-            node_name=node_name,
-            stream_name=stream_name,
-            pipe=pipe,
-        )
-        logger.debug(f"Created stream: {stream}")
+        self.pipes[path] = pipe
+        logger.debug(f"Created pipe: {pipe}")
 
-        self._streams.append(stream)
         self.queue.notify(self.fsops_handle, writer_handle)
-        return stream
+        return pipe
 
     async def mark_finished(self, node_name: str, stream_name: Optional[str]) -> None:
-        """Mark a stream as finished."""
-        stream = self.get(node_name, stream_name)
-        stream.pipe.get_writer().close()
+        path = self.get_path(node_name, stream_name)
+        pipe = self.pipes[path]
+        pipe.get_writer().close()
 
     @staticmethod
-    def make_env_stream(params: Dict[str, Any]) -> Stream:
+    def make_env_stream(params: Dict[str, Any]) -> IPipe:
         content = json.dumps(params).encode("utf-8")
         pipe = StaticStream(content, "env")
-        return Stream(
-            node_name=".",
-            stream_name="env",
-            pipe=pipe,
-        )
-
-    def get_fs_output_streams(self) -> Sequence[Stream]:
-        return [
-            s
-            for s in self._streams
-            if s.stream_name is not None and s.stream_name.startswith("out/")
-        ]
+        return pipe
 
     def collect_streams(
         self,
         deps: Sequence[Dependency],
-    ) -> Sequence[Stream]:
-        collected: list[Stream] = []
+    ) -> Sequence[IPipe]:
+        collected: list[IPipe] = []
         for dep in deps:
-            collected.extend(
-                s
-                for s in self._streams
-                if s.node_name == dep.source and s.stream_name == dep.stream
-            )
+            dep_path = self.get_path(dep.source, dep.stream)
+            if dep_path in self.pipes:
+                collected.append(self.pipes[dep_path])
         return collected
 
-    async def read_dir(self, dir_name: str, node_names: Sequence[str]) -> Sequence[str]:
-        if not dir_name.endswith("/"):
-            dir_name = f"{dir_name}/"
-        pos = len(dir_name)
-        return [
-            s.stream_name[pos:]
-            for s in self._streams
-            if s.node_name in node_names
-            and s.stream_name is not None
-            and s.stream_name.startswith(dir_name)
-        ]
-
     def has_input(self, dep: Dependency) -> bool:
-        stream = next(
-            (
-                s
-                for s in self._streams
-                if s.node_name == dep.source and s.stream_name == dep.stream
-            ),
-            None,
-        )
-        return stream is not None and stream.pipe.get_writer().tell() > 0
+        path = self.get_path(dep.source, dep.stream)
+        if path not in self.pipes:
+            return False
+        pipe = self.pipes[path]
+        return pipe.get_writer().tell() > 0
