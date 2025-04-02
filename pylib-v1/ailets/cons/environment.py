@@ -5,15 +5,17 @@ from ailets.cons.notification_queue import NotificationQueue
 from ailets.cons.processes import Processes
 from ailets.cons.seqno import Seqno
 from ailets.cons.streams import Streams
+from ailets.cons.memory_kv_buffers import MemoryKVBuffers
 
 
 class Environment(IEnvironment):
     def __init__(self, nodereg: INodeRegistry) -> None:
         self.for_env_stream: Dict[str, Any] = {}
         self.seqno = Seqno()
+        self.kv = MemoryKVBuffers()
         self.dagops = Dagops(self.seqno)
         self.notification_queue = NotificationQueue()
-        self.streams = Streams(self.notification_queue, self.seqno)
+        self.streams = Streams(self.kv, self.notification_queue, self.seqno)
         self.nodereg = nodereg
         self.processes = Processes(self)
 

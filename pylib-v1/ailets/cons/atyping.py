@@ -62,6 +62,9 @@ class IKVBuffers(Protocol):
     def flush(self, kvbuffer: IKVBuffer) -> None:
         raise NotImplementedError
 
+    def read_dir(self, dir_name: str) -> Sequence[str]:
+        raise NotImplementedError
+
 
 @dataclass
 class Stream:
@@ -97,9 +100,6 @@ class IStreams(Protocol):
         raise NotImplementedError
 
     def collect_streams(self, deps: Sequence["Dependency"]) -> Sequence[IPipe]:
-        raise NotImplementedError
-
-    async def read_dir(self, dir_name: str, node_names: Sequence[str]) -> Sequence[str]:
         raise NotImplementedError
 
 
@@ -310,6 +310,7 @@ class IEnvironment(Protocol):
     seqno: Seqno
     dagops: IDagops
     streams: IStreams
+    kv: IKVBuffers
     nodereg: INodeRegistry
     processes: IProcesses
     notification_queue: INotificationQueue

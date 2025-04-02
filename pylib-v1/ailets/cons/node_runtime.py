@@ -116,8 +116,7 @@ class NodeRuntime(INodeRuntime):
         return self.cached_dagops
 
     async def read_dir(self, dir_name: str) -> Sequence[str]:
-        dep_names = [dep.source for dep in self.deps]
-        return await self.env.streams.read_dir(dir_name, [self.node_name, *dep_names])
+        return self.env.kv.read_dir(dir_name)
 
     async def pass_through_name_name(
         self, in_stream_name: str, out_stream_name: str
