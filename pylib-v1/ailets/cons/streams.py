@@ -139,11 +139,6 @@ class Streams(IStreams):
         self.queue.notify(self.fsops_handle, writer_handle)
         return pipe
 
-    async def mark_finished(self, node_name: str, stream_name: Optional[str]) -> None:
-        path = self.get_path(node_name, stream_name)
-        pipe = self.pipes[path]
-        pipe.get_writer().close()
-
     @staticmethod
     def make_env_stream(params: Dict[str, Any]) -> IPipe:
         content = json.dumps(params).encode("utf-8")
