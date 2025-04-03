@@ -66,8 +66,12 @@ class IKVBuffers(Protocol):
         raise NotImplementedError
 
 
-class IStreams(Protocol):
-    def create(
+class IPiper(Protocol):
+    def destroy(self) -> None:
+        """Release fsops handle"""
+        raise NotImplementedError
+
+    def create_pipe(
         self,
         node_name: str,
         stream_name: str,
@@ -76,9 +80,6 @@ class IStreams(Protocol):
 
     def get_existing_pipe(self, node_name: str, stream_name: str) -> IPipe:
         """If not found, raise KeyError"""
-        raise NotImplementedError
-
-    def destroy(self) -> None:
         raise NotImplementedError
 
     def get_fsops_handle(self) -> int:
@@ -221,7 +222,7 @@ class IDagops(Protocol):
     def add_value_node(
         self,
         value: bytes,
-        streams: IStreams,
+        piper: IPiper,
         processes: "IProcesses",
         explain: Optional[str] = None,
     ) -> Node:
@@ -291,7 +292,7 @@ class IEnvironment(Protocol):
     for_env_stream: Dict[str, Any]
     seqno: Seqno
     dagops: IDagops
-    streams: IStreams
+    piper: IPiper
     kv: IKVBuffers
     nodereg: INodeRegistry
     processes: IProcesses

@@ -7,8 +7,8 @@ from ailets.cons.atyping import (
     IAsyncReader,
     IAsyncWriter,
     IKVBuffers,
-    IStreams,
     IPipe,
+    IPiper,
 )
 from ailets.cons.bytesrw import (
     BytesWR,
@@ -23,7 +23,7 @@ import logging
 logger = logging.getLogger("ailets.streams")
 
 
-class PrintStream(IPipe):
+class PrintOutput(IPipe):
     class Writer(IAsyncWriter):
         def __init__(self, output: IO[str]) -> None:
             self.output = output
@@ -43,19 +43,19 @@ class PrintStream(IPipe):
                 self.closed = True
 
         def __str__(self) -> str:
-            return f"PrintStream.Writer(output={self.output}, closed={self.closed})"
+            return f"PrintOutput.Writer(output={self.output}, closed={self.closed})"
 
     def __init__(self, output: IO[str]) -> None:
-        self.writer = PrintStream.Writer(output)
+        self.writer = PrintOutput.Writer(output)
 
     def get_writer(self) -> IAsyncWriter:
         return self.writer
 
     def get_reader(self, _handle: int) -> IAsyncReader:
-        raise io.UnsupportedOperation("PrintStream is write-only")
+        raise io.UnsupportedOperation("PrintOutput is write-only")
 
 
-class StaticStream(IPipe):
+class StaticInput(IPipe):
     def __init__(self, content: bytes, debug_hint: str) -> None:
         writer = BytesWRWriter(
             handle=-1,
@@ -70,11 +70,11 @@ class StaticStream(IPipe):
         return BytesWRReader(handle, writer=self.writer)
 
     def get_writer(self) -> IAsyncWriter:
-        raise io.UnsupportedOperation("StaticStream is read-only")
+        raise io.UnsupportedOperation("StaticInput is read-only")
 
 
-class Streams(IStreams):
-    """Manages streams for an environment."""
+class Piper(IPiper):
+    """Manages pipes for an environment."""
 
     def __init__(
         self,
@@ -108,7 +108,7 @@ class Streams(IStreams):
             return node_name
         return f"{node_name}-{stream_name}"
 
-    def create(
+    def create_pipe(
         self,
         node_name: str,
         stream_name: Optional[str],
@@ -137,12 +137,12 @@ class Streams(IStreams):
     @staticmethod
     def make_env_stream(params: Dict[str, Any]) -> IPipe:
         content = json.dumps(params).encode("utf-8")
-        pipe = StaticStream(content, "env")
+        pipe = StaticInput(content, "env")
         return pipe
 
     @staticmethod
     def make_log_stream() -> IPipe:
-        pipe = PrintStream(sys.stdout)
+        pipe = PrintOutput(sys.stdout)
         return pipe
 
     def get_existing_pipe(self, node_name: str, stream_name: str) -> IPipe:

@@ -37,7 +37,7 @@ class MiniShell(cmd.Cmd):
 
     def do_pipes(self, arg: str) -> None:
         """List pipes."""
-        for pipe in self.env.streams.pipes.values():
+        for pipe in self.env.piper.pipes.values():
             print(pipe)
 
     def do_waits(self, arg: str) -> None:

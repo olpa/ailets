@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Dict, Optional, Sequence
 
-from ailets.cons.streams import Streams
+from .piper import Piper
 
 from .node_dagops import NodeDagops
 from .atyping import (
@@ -30,7 +30,7 @@ class NodeRuntime(INodeRuntime):
         deps: Sequence[Dependency],
     ):
         self.env = env
-        self.streams = env.streams
+        self.piper = env.piper
         self.node_name = node_name
         self.deps = deps
         self.open_fds: Dict[int, OpenFd] = {}
@@ -39,9 +39,9 @@ class NodeRuntime(INodeRuntime):
     def _get_streams(self, stream_name: str) -> Sequence[IPipe]:
         # Special streams "env" and "log"
         if stream_name == "env":
-            return [Streams.make_env_stream(self.env.for_env_stream)]
+            return [Piper.make_env_stream(self.env.for_env_stream)]
         if stream_name == "log":
-            return [Streams.make_log_stream()]
+            return [Piper.make_log_stream()]
         # Normal explicit streams
         deps = [dep for dep in self.deps if dep.name == stream_name]
         # Implicit dynamic streams like media attachments
@@ -55,7 +55,7 @@ class NodeRuntime(INodeRuntime):
         pipes = []
         for dep in deps:
             try:
-                pipe = self.streams.get_existing_pipe(dep.source, dep.stream)
+                pipe = self.piper.get_existing_pipe(dep.source, dep.stream)
             except KeyError:
                 continue
             pipes.append(pipe)
@@ -94,7 +94,7 @@ class NodeRuntime(INodeRuntime):
         return n_bytes
 
     async def open_write(self, stream_name: str) -> int:
-        stream = self.streams.create(self.node_name, stream_name)
+        stream = self.piper.create_pipe(self.node_name, stream_name)
         fd = self.env.seqno.next_seqno()
         writer = stream.get_writer()
         self.open_fds[fd] = OpenFd(
@@ -134,7 +134,7 @@ class NodeRuntime(INodeRuntime):
         in_streams = self._get_streams(in_stream_name)
         for in_stream in in_streams:
             reader = in_stream.get_reader(self.env.seqno.next_seqno())
-            out_stream = self.streams.create(self.node_name, out_stream_name)
+            out_stream = self.piper.create_pipe(self.node_name, out_stream_name)
             writer = out_stream.get_writer()
             await writer.write(await reader.read(size=-1))
             writer.close()

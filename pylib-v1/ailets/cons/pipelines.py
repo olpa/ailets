@@ -38,7 +38,7 @@ async def prompt_to_dagops(
         def mk_node(prompt_content: str) -> Node:
             node = env.dagops.add_value_node(
                 prompt_content.encode("utf-8"),
-                env.streams,
+                env.piper,
                 env.processes,
                 explain="Prompt",
             )
@@ -92,8 +92,8 @@ async def prompt_to_dagops(
 
         with open(prompt_item.value, "rb") as f:
             bytes = f.read()
-            env.streams.create(node.name, stream_name)
-            writer = env.streams.create(node.name, stream_name).get_writer()
+            pipe = env.piper.create_pipe(node.name, stream_name)
+            writer = pipe.get_writer()
             assert isinstance(
                 writer, BytesWRWriter
             ), "Internal error: BytesWRWriter is expected"
@@ -123,7 +123,7 @@ def toolspecs_to_dagops(env: IEnvironment, tools: Sequence[str]) -> None:
 
         tool_spec = env.dagops.add_value_node(
             json.dumps(schema).encode("utf-8"),
-            env.streams,
+            env.piper,
             env.processes,
             explain=f"Tool spec {tool}",
         )

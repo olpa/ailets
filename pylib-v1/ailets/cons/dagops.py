@@ -15,7 +15,7 @@ from .atyping import (
     IDagops,
     INodeRuntime,
     IProcesses,
-    IStreams,
+    IPiper,
     Node,
 )
 from .util import to_basename
@@ -101,7 +101,7 @@ class Dagops(IDagops):
     def add_value_node(
         self,
         value: bytes,
-        streams: IStreams,
+        piper: IPiper,
         processes: IProcesses,
         explain: Optional[str] = None,
     ) -> Node:
@@ -126,7 +126,7 @@ class Dagops(IDagops):
         self.nodes[full_name] = node
 
         # Add streams for value and type
-        pipe = streams.create(full_name, "")
+        pipe = piper.create_pipe(full_name, "")
         writer = pipe.get_writer()
         assert isinstance(
             writer, BytesWRWriter

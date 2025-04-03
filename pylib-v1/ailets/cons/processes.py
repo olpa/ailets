@@ -3,16 +3,16 @@ import itertools
 import logging
 import sys
 from typing import Iterator, Mapping, Optional, Sequence
-from ailets.cons.atyping import Dependency, IEnvironment, IProcesses, IStreams
+from ailets.cons.atyping import Dependency, IEnvironment, IProcesses, IPiper
 from ailets.cons.node_runtime import NodeRuntime
 
 
 logger = logging.getLogger("ailets.processes")
 
 
-def has_data_from_dependency(streams: IStreams, dep: Dependency) -> bool:
+def has_data_from_dependency(piper: IPiper, dep: Dependency) -> bool:
     try:
-        pipe = streams.get_existing_pipe(dep.source, dep.stream)
+        pipe = piper.get_existing_pipe(dep.source, dep.stream)
     except KeyError:
         return False
     return pipe.get_writer().tell() > 0
@@ -21,7 +21,7 @@ def has_data_from_dependency(streams: IStreams, dep: Dependency) -> bool:
 class Processes(IProcesses):
     def __init__(self, env: IEnvironment):
         self.env = env
-        self.streams = env.streams
+        self.piper = env.piper
         self.dagops = env.dagops
         self.queue = env.notification_queue
 
@@ -46,7 +46,7 @@ class Processes(IProcesses):
         self.queue.unlist(self.progress_handle)
 
     def subscribe_fsops(self) -> None:
-        self.fsops_handle = self.streams.get_fsops_handle()
+        self.fsops_handle = self.piper.get_fsops_handle()
 
         def on_fsops(writer_handle: int) -> None:
             async def awake_on_write() -> None:
@@ -172,7 +172,7 @@ class Processes(IProcesses):
     def _can_start_node(self, node_name: str) -> bool:
         return all(
             dep.source in self.finished_nodes
-            or has_data_from_dependency(self.streams, dep)
+            or has_data_from_dependency(self.piper, dep)
             for dep in self.deps[node_name]
         )
 

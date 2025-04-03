@@ -18,8 +18,8 @@ from ailets.cons.atyping import (
     INodeRegistry,
     INodeRuntime,
     IPipe,
+    IPiper,
     IProcesses,
-    IStreams,
     Node,
 )
 from ailets.cons.dagops import Dagops
@@ -115,14 +115,14 @@ async def dump_pipe(path: str, pipe: IPipe, f: TextIO) -> None:
     )
 
 
-async def load_stream(streams: IStreams, data: dict[str, Any]) -> None:
+async def load_pipe(piper: IPiper, data: dict[str, Any]) -> None:
     if "b64_content" in data:
         content = base64.b64decode(data["b64_content"])
     else:
         content = data["content"].encode("utf-8")
     is_closed = data.get("is_closed", False)
     path = data["path"]
-    pipe = streams.create(path, "")
+    pipe = piper.create_pipe(path, "")
     writer = pipe.get_writer()
     assert isinstance(
         writer, BytesWRWriter
@@ -140,7 +140,7 @@ async def dump_environment(env: Environment, f: TextIO) -> None:
     for alias, names in env.dagops.aliases.items():
         json.dump({"alias": alias, "names": list(names)}, f, indent=2)
         f.write("\n")
-    for path, pipe in env.streams.pipes.items():
+    for path, pipe in env.piper.pipes.items():
         await dump_pipe(path, pipe, f)
         f.write("\n")
     json.dump({"env": env.for_env_stream}, f, indent=2)
@@ -170,7 +170,7 @@ async def load_environment(f: TextIO, nodereg: INodeRegistry) -> Environment:
                 if obj_data.get("is_finished", False):
                     env.processes.add_value_node(node.name)
             elif "is_closed" in obj_data:
-                await load_stream(env.streams, obj_data)
+                await load_pipe(env.piper, obj_data)
             elif "alias" in obj_data:
                 env.dagops.aliases[obj_data["alias"]] = obj_data["names"]
             elif "env" in obj_data:
