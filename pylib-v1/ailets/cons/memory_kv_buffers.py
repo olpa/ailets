@@ -3,8 +3,8 @@ from .atyping import IKVBuffer, IKVBuffers
 
 
 class MemoryKVBuffer(IKVBuffer):
-    def __init__(self, path: str, initial_content: bytes = b""):
-        self.buffer = bytearray(initial_content)
+    def __init__(self, path: str, shared_buffer: bytearray):
+        self.buffer = shared_buffer
         self._path = path
 
     def borrow_mut_buffer(self) -> bytearray:
@@ -13,7 +13,7 @@ class MemoryKVBuffer(IKVBuffer):
 
 class MemoryKVBuffers(IKVBuffers):
     def __init__(self) -> None:
-        self._buffers: Dict[str, bytes] = {}
+        self._buffers: Dict[str, bytearray] = {}
 
     def open(self, path: str, mode: Literal["read", "write", "append"]) -> IKVBuffer:
         if mode == "read":
@@ -21,9 +21,13 @@ class MemoryKVBuffers(IKVBuffers):
                 raise KeyError(f"Path not found: {path}")
             return MemoryKVBuffer(path, self._buffers[path])
         if mode == "write":
-            return MemoryKVBuffer(path, b"")
+            buffer = bytearray()
+            self._buffers[path] = buffer
+            return MemoryKVBuffer(path, buffer)
         if mode == "append":
-            return MemoryKVBuffer(path, self._buffers.get(path, b""))
+            buffer = self._buffers.get(path, bytearray())
+            self._buffers[path] = buffer
+            return MemoryKVBuffer(path, buffer)
         raise ValueError(f"Invalid mode: {mode}")
 
     def flush(self, kvbuffer: IKVBuffer) -> None:
