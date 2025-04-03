@@ -73,11 +73,6 @@ class StaticStream(IPipe):
         raise io.UnsupportedOperation("StaticStream is read-only")
 
 
-def create_log_stream() -> IPipe:
-    pipe = PrintStream(sys.stdout)
-    return pipe
-
-
 class Streams(IStreams):
     """Manages streams for an environment."""
 
@@ -118,11 +113,11 @@ class Streams(IStreams):
         node_name: str,
         stream_name: Optional[str],
     ) -> IPipe:
-        """Add a new stream."""
-        if stream_name == "log":
-            return create_log_stream()
-
+        """Add a new stream. Raise KeyError if the stream already exists."""
         path = self.get_path(node_name, stream_name)
+        if path in self.pipes:
+            raise KeyError(f"Stream already exists: {path}")
+
         kvbuf = self.kv.open(path, "write")
 
         writer_handle = self.seqno.next_seqno()
@@ -143,6 +138,11 @@ class Streams(IStreams):
     def make_env_stream(params: Dict[str, Any]) -> IPipe:
         content = json.dumps(params).encode("utf-8")
         pipe = StaticStream(content, "env")
+        return pipe
+
+    @staticmethod
+    def make_log_stream() -> IPipe:
+        pipe = PrintStream(sys.stdout)
         return pipe
 
     def get_existing_pipe(self, node_name: str, stream_name: str) -> IPipe:

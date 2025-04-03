@@ -37,9 +37,11 @@ class NodeRuntime(INodeRuntime):
         self.cached_dagops: Optional[INodeDagops] = None
 
     def _get_streams(self, stream_name: str) -> Sequence[IPipe]:
-        # Special stream "env"
+        # Special streams "env" and "log"
         if stream_name == "env":
             return [Streams.make_env_stream(self.env.for_env_stream)]
+        if stream_name == "log":
+            return [Streams.make_log_stream()]
         # Normal explicit streams
         deps = [dep for dep in self.deps if dep.name == stream_name]
         # Implicit dynamic streams like media attachments
