@@ -120,9 +120,8 @@ async def load_stream(streams: IStreams, data: dict[str, Any]) -> None:
     else:
         content = data["content"].encode("utf-8")
     is_closed = data.get("is_closed", False)
-    streams.create(
-        data["node"], data["name"], initial_content=content, is_closed=is_closed
-    )
+    path = data["path"]
+    streams.create(path, "", initial_content=content, is_closed=is_closed)
 
 
 async def dump_environment(env: Environment, f: TextIO) -> None:
