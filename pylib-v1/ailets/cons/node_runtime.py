@@ -49,7 +49,15 @@ class NodeRuntime(INodeRuntime):
                 Dependency(name=stream_name, source=name, stream=stream_name)
                 for name in dep_names
             ]
-        return self.streams.collect_streams(deps)
+        # Collect
+        pipes = []
+        for dep in deps:
+            try:
+                pipe = self.streams.get_existing_pipe(dep.source, dep.stream)
+            except KeyError:
+                continue
+            pipes.append(pipe)
+        return pipes
 
     def get_name(self) -> str:
         return self.node_name

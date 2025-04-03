@@ -84,9 +84,6 @@ class IStreams(Protocol):
     def get_fsops_handle(self) -> int:
         raise NotImplementedError
 
-    def collect_streams(self, deps: Sequence["Dependency"]) -> Sequence[IPipe]:
-        raise NotImplementedError
-
 
 #
 #

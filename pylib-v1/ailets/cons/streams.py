@@ -1,10 +1,9 @@
 import io
 import json
 import sys
-from typing import IO, Any, Dict, Optional, Sequence
+from typing import IO, Any, Dict, Optional
 
 from ailets.cons.atyping import (
-    Dependency,
     IAsyncReader,
     IAsyncWriter,
     IKVBuffers,
@@ -150,17 +149,6 @@ class Streams(IStreams):
         content = json.dumps(params).encode("utf-8")
         pipe = StaticStream(content, "env")
         return pipe
-
-    def collect_streams(
-        self,
-        deps: Sequence[Dependency],
-    ) -> Sequence[IPipe]:
-        collected: list[IPipe] = []
-        for dep in deps:
-            dep_path = self.get_path(dep.source, dep.stream)
-            if dep_path in self.pipes:
-                collected.append(self.pipes[dep_path])
-        return collected
 
     def get_existing_pipe(self, node_name: str, stream_name: str) -> IPipe:
         path = self.get_path(node_name, stream_name)
