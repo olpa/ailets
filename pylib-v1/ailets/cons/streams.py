@@ -118,8 +118,6 @@ class Streams(IStreams):
         self,
         node_name: str,
         stream_name: Optional[str],
-        initial_content: Optional[bytes] = None,
-        is_closed: bool = False,
     ) -> IPipe:
         """Add a new stream."""
         if stream_name == "log":
@@ -135,13 +133,6 @@ class Streams(IStreams):
             debug_hint=path,
             external_buffer=kvbuf.borrow_mut_buffer(),
         )
-
-        writer = pipe.get_writer()
-        if isinstance(writer, BytesWRWriter):
-            if initial_content is not None:
-                writer.write_sync(initial_content)
-            if is_closed:
-                writer.close()
 
         self.pipes[path] = pipe
         logger.debug(f"Created pipe: {pipe}")

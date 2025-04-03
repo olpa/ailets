@@ -3,6 +3,7 @@ from typing import Literal, Optional
 import json
 from typing import Sequence
 import sys
+from ailets.cons.bytesrw import Writer as BytesWRWriter
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -91,9 +92,13 @@ async def prompt_to_dagops(
 
         with open(prompt_item.value, "rb") as f:
             bytes = f.read()
-            env.streams.create(
-                node.name, stream_name, initial_content=bytes, is_closed=True
-            )
+            env.streams.create(node.name, stream_name)
+            writer = env.streams.create(node.name, stream_name).get_writer()
+            assert isinstance(
+                writer, BytesWRWriter
+            ), "Internal error: BytesWRWriter is expected"
+            writer.write_sync(bytes)
+            writer.close()
 
     for prompt_item in prompt:
         await prompt_to_node(prompt_item)

@@ -20,6 +20,7 @@ from .atyping import (
 )
 from .util import to_basename
 from .seqno import Seqno
+from .bytesrw import Writer as BytesWRWriter
 
 
 class Dagops(IDagops):
@@ -125,7 +126,13 @@ class Dagops(IDagops):
         self.nodes[full_name] = node
 
         # Add streams for value and type
-        streams.create(full_name, "", value, is_closed=True)
+        pipe = streams.create(full_name, "")
+        writer = pipe.get_writer()
+        assert isinstance(
+            writer, BytesWRWriter
+        ), "Internal error: BytesWRWriter is expected"
+        writer.write_sync(value)
+        writer.close()
         processes.add_value_node(full_name)
 
         return node

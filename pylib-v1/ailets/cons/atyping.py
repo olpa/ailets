@@ -71,8 +71,6 @@ class IStreams(Protocol):
         self,
         node_name: str,
         stream_name: str,
-        initial_content: Optional[bytes] = None,
-        is_closed: bool = False,
     ) -> IPipe:
         raise NotImplementedError
 

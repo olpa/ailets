@@ -26,6 +26,7 @@ from ailets.cons.dagops import Dagops
 from ailets.cons.seqno import Seqno
 from ailets.cons.util import to_basename
 from ailets.cons.environment import Environment
+from ailets.cons.bytesrw import Writer as BytesWRWriter
 
 
 def dependency_to_json(
@@ -121,7 +122,15 @@ async def load_stream(streams: IStreams, data: dict[str, Any]) -> None:
         content = data["content"].encode("utf-8")
     is_closed = data.get("is_closed", False)
     path = data["path"]
-    streams.create(path, "", initial_content=content, is_closed=is_closed)
+    pipe = streams.create(path, "")
+    writer = pipe.get_writer()
+    assert isinstance(
+        writer, BytesWRWriter
+    ), "Internal error: BytesWRWriter is expected"
+    if content is not None:
+        writer.write_sync(content)
+    if is_closed:
+        writer.close()
 
 
 async def dump_environment(env: Environment, f: TextIO) -> None:
