@@ -74,13 +74,14 @@ class IStreams(Protocol):
     ) -> IPipe:
         raise NotImplementedError
 
+    def get_existing_pipe(self, node_name: str, stream_name: str) -> IPipe:
+        """If not found, raise KeyError"""
+        raise NotImplementedError
+
     def destroy(self) -> None:
         raise NotImplementedError
 
     def get_fsops_handle(self) -> int:
-        raise NotImplementedError
-
-    def has_input(self, dep: "Dependency") -> bool:
         raise NotImplementedError
 
     def collect_streams(self, deps: Sequence["Dependency"]) -> Sequence[IPipe]:

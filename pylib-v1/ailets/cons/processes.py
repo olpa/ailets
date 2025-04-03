@@ -3,11 +3,19 @@ import itertools
 import logging
 import sys
 from typing import Iterator, Mapping, Optional, Sequence
-from ailets.cons.atyping import Dependency, IEnvironment, IProcesses
+from ailets.cons.atyping import Dependency, IEnvironment, IProcesses, IStreams
 from ailets.cons.node_runtime import NodeRuntime
 
 
 logger = logging.getLogger("ailets.processes")
+
+
+def has_data_from_dependency(streams: IStreams, dep: Dependency) -> bool:
+    try:
+        pipe = streams.get_existing_pipe(dep.source, dep.stream)
+    except KeyError:
+        return False
+    return pipe.get_writer().tell() > 0
 
 
 class Processes(IProcesses):
@@ -163,7 +171,8 @@ class Processes(IProcesses):
 
     def _can_start_node(self, node_name: str) -> bool:
         return all(
-            dep.source in self.finished_nodes or self.streams.has_input(dep)
+            dep.source in self.finished_nodes
+            or has_data_from_dependency(self.streams, dep)
             for dep in self.deps[node_name]
         )
 

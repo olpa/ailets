@@ -162,9 +162,8 @@ class Streams(IStreams):
                 collected.append(self.pipes[dep_path])
         return collected
 
-    def has_input(self, dep: Dependency) -> bool:
-        path = self.get_path(dep.source, dep.stream)
+    def get_existing_pipe(self, node_name: str, stream_name: str) -> IPipe:
+        path = self.get_path(node_name, stream_name)
         if path not in self.pipes:
-            return False
-        pipe = self.pipes[path]
-        return pipe.get_writer().tell() > 0
+            raise KeyError(f"Stream not found: {path}")
+        return self.pipes[path]
