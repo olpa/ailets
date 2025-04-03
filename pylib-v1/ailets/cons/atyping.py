@@ -66,20 +66,6 @@ class IKVBuffers(Protocol):
         raise NotImplementedError
 
 
-@dataclass
-class Stream:
-    node_name: str
-    stream_name: Optional[str]
-    pipe: IPipe
-
-    def __str__(self) -> str:
-        return (
-            f"Stream(node_name={self.node_name}, "
-            f"stream_name={self.stream_name}, "
-            f"pipe={self.pipe})"
-        )
-
-
 class IStreams(Protocol):
     def create(
         self,
