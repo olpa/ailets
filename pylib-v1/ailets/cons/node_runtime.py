@@ -36,26 +36,26 @@ class NodeRuntime(INodeRuntime):
         self.open_fds: Dict[int, OpenFd] = {}
         self.cached_dagops: Optional[INodeDagops] = None
 
-    def _get_streams(self, stream_name: str) -> Sequence[IPipe]:
-        # Special streams "env" and "log"
-        if stream_name == "env":
-            return [Piper.make_env_stream(self.env.for_env_stream)]
-        if stream_name == "log":
-            return [Piper.make_log_stream()]
-        # Normal explicit streams
-        deps = [dep for dep in self.deps if dep.name == stream_name]
-        # Implicit dynamic streams like media attachments
-        if not deps and stream_name is not None:
+    def _get_pipes(self, slot_name: str) -> Sequence[IPipe]:
+        # Special slots "env" and "log"
+        if slot_name == "env":
+            return [Piper.make_env_pipe(self.env.for_env_pipe)]
+        if slot_name == "log":
+            return [Piper.make_log_pipe()]
+        # Normal explicit slots
+        deps = [dep for dep in self.deps if dep.name == slot_name]
+        # Implicit dynamic slots like media attachments
+        if not deps and slot_name is not None:
             dep_names = set([dep.source for dep in self.deps])
             deps = [
-                Dependency(name=stream_name, source=name, stream=stream_name)
+                Dependency(name=slot_name, source=name, slot=slot_name)
                 for name in dep_names
             ]
         # Collect
         pipes = []
         for dep in deps:
             try:
-                pipe = self.piper.get_existing_pipe(dep.source, dep.stream)
+                pipe = self.piper.get_existing_pipe(dep.source, dep.slot)
             except KeyError:
                 continue
             pipes.append(pipe)
@@ -64,19 +64,21 @@ class NodeRuntime(INodeRuntime):
     def get_name(self) -> str:
         return self.node_name
 
-    def n_of_streams(self, stream_name: str) -> int:
-        if stream_name == "env":
+    def n_of_slots(self, slot_name: str) -> int:
+        if slot_name == "env":
             return 1
-        return len(self._get_streams(stream_name))
+        if slot_name == "log":
+            return 1
+        return len(self._get_slots(slot_name))
 
-    async def open_read(self, stream_name: str, index: int) -> int:
-        streams = self._get_streams(stream_name)
-        if index >= len(streams) or index < 0:
-            raise ValueError(f"Stream index out of bounds: {index} for {stream_name}")
+    async def open_read(self, slot_name: str, index: int) -> int:
+        slots = self._get_slots(slot_name)
+        if index >= len(slots) or index < 0:
+            raise ValueError(f"Slot index out of bounds: {index} for {slot_name}")
         fd = self.env.seqno.next_seqno()
-        reader = streams[index].get_reader(fd)
+        reader = slots[index].get_reader(fd)
         self.open_fds[fd] = OpenFd(
-            debug_hint=f"{self.node_name}.{stream_name}[{index}]",
+            debug_hint=f"{self.node_name}.{slot_name}[{index}]",
             reader=reader,
             writer=None,
         )
@@ -87,18 +89,18 @@ class NodeRuntime(INodeRuntime):
         fd_obj = self.open_fds[fd]
         assert (
             fd_obj.reader is not None
-        ), f"Stream {fd_obj.debug_hint} is not open for reading"
+        ), f"Slot {fd_obj.debug_hint} is not open for reading"
         read_bytes = await fd_obj.reader.read(count)
         n_bytes = len(read_bytes)
         buffer[:n_bytes] = read_bytes
         return n_bytes
 
-    async def open_write(self, stream_name: str) -> int:
-        stream = self.piper.create_pipe(self.node_name, stream_name)
+    async def open_write(self, slot_name: str) -> int:
+        slot = self.piper.create_pipe(self.node_name, slot_name)
         fd = self.env.seqno.next_seqno()
-        writer = stream.get_writer()
+        writer = slot.get_writer()
         self.open_fds[fd] = OpenFd(
-            debug_hint=f"{self.node_name}.{stream_name}",
+            debug_hint=f"{self.node_name}.{slot_name}",
             reader=None,
             writer=writer,
         )
@@ -109,7 +111,7 @@ class NodeRuntime(INodeRuntime):
         fd_obj = self.open_fds[fd]
         assert (
             fd_obj.writer is not None
-        ), f"Stream {fd_obj.debug_hint} is not open for writing"
+        ), f"Slot {fd_obj.debug_hint} is not open for writing"
         return await fd_obj.writer.write(buffer)
 
     async def close(self, fd: int) -> None:
@@ -129,24 +131,24 @@ class NodeRuntime(INodeRuntime):
         return self.env.kv.read_dir(dir_name)
 
     async def pass_through_name_name(
-        self, in_stream_name: str, out_stream_name: str
+        self, in_slot_name: str, out_slot_name: str
     ) -> None:
-        in_streams = self._get_streams(in_stream_name)
-        for in_stream in in_streams:
-            reader = in_stream.get_reader(self.env.seqno.next_seqno())
-            out_stream = self.piper.create_pipe(self.node_name, out_stream_name)
-            writer = out_stream.get_writer()
+        in_slots = self._get_slots(in_slot_name)
+        for in_slot in in_slots:
+            reader = in_slot.get_reader(self.env.seqno.next_seqno())
+            out_slot = self.piper.create_pipe(self.node_name, out_slot_name)
+            writer = out_slot.get_writer()
             await writer.write(await reader.read(size=-1))
             writer.close()
 
-    async def pass_through_name_fd(self, in_stream_name: str, out_fd: int) -> None:
-        in_streams = self._get_streams(in_stream_name)
+    async def pass_through_name_fd(self, in_slot_name: str, out_fd: int) -> None:
+        in_slots = self._get_slots(in_slot_name)
         out_fd_obj = self.open_fds[out_fd]
         assert (
             out_fd_obj.writer is not None
         ), f"File descriptor {out_fd} is not open for writing"
-        for in_stream in in_streams:
-            reader = in_stream.get_reader(self.env.seqno.next_seqno())
+        for in_slot in in_slots:
+            reader = in_slot.get_reader(self.env.seqno.next_seqno())
             await out_fd_obj.writer.write(await reader.read(size=-1))
 
     def get_next_name(self, base_name: str) -> str:

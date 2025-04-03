@@ -10,7 +10,7 @@ from ailets.cons.memory_kv_buffers import MemoryKVBuffers
 
 class Environment(IEnvironment):
     def __init__(self, nodereg: INodeRegistry) -> None:
-        self.for_env_stream: Dict[str, Any] = {}
+        self.for_env_pipe: Dict[str, Any] = {}
         self.seqno = Seqno()
         self.kv = MemoryKVBuffers()
         self.dagops = Dagops(self.seqno)

@@ -143,7 +143,7 @@ async def dump_environment(env: Environment, f: TextIO) -> None:
     for path, pipe in env.piper.pipes.items():
         await dump_pipe(path, pipe, f)
         f.write("\n")
-    json.dump({"env": env.for_env_stream}, f, indent=2)
+    json.dump({"env": env.for_env_pipe}, f, indent=2)
     f.write("\n")
 
 
@@ -174,7 +174,7 @@ async def load_environment(f: TextIO, nodereg: INodeRegistry) -> Environment:
             elif "alias" in obj_data:
                 env.dagops.aliases[obj_data["alias"]] = obj_data["names"]
             elif "env" in obj_data:
-                env.for_env_stream.update(obj_data["env"])
+                env.for_env_pipe.update(obj_data["env"])
             else:
                 raise ValueError(f"Unknown object data: {obj_data}")
         except json.JSONDecodeError as e:
@@ -190,7 +190,7 @@ def print_dependency_tree(
     node_name: str,
     indent: str = "",
     visited: Optional[Set[str]] = None,
-    stream_name: str = "",
+    slot_name: str = "",
 ) -> None:
     """Print a tree showing node dependencies and build status.
 
@@ -198,7 +198,7 @@ def print_dependency_tree(
         node_name: Name of the node to print
         indent: Current indentation string (used for recursion)
         visited: Set of visited nodes to prevent cycles
-        stream_name: Optional stream name to display
+        slot_name: Optional slot name to display
     """
     if visited is None:
         visited = set()
@@ -219,8 +219,8 @@ def print_dependency_tree(
 
     # Print current node with explanation if it exists
     display_name = node.name
-    if stream_name:
-        display_name = f"{display_name}.{stream_name}"
+    if slot_name:
+        display_name = f"{display_name}.{slot_name}"
 
     node_text = f"{indent}├── {display_name} [{status}]"
     if node.explain:
@@ -238,14 +238,14 @@ def print_dependency_tree(
     for dep in dagops.iter_deps(node_name):
         if dep.name not in deps_by_param:
             deps_by_param[dep.name] = []
-        deps_by_param[dep.name].append((dep.source, dep.stream))
+        deps_by_param[dep.name].append((dep.source, dep.slot))
 
     next_indent = f"{indent}│   "
 
     # Print default dependencies (param_name is None)
-    for dep_name, stream_name in deps_by_param.get("", []):
+    for dep_name, slot_name in deps_by_param.get("", []):
         print_dependency_tree(
-            dagops, processes, dep_name, next_indent, visited.copy(), stream_name
+            dagops, processes, dep_name, next_indent, visited.copy(), slot_name
         )
 
     # Print named dependencies grouped by parameter
@@ -253,14 +253,14 @@ def print_dependency_tree(
         if param_name:  # Skip "" group as it's already printed
             print(f"{next_indent}├── (param: {param_name})")
             param_indent = f"{next_indent}│   "
-            for dep_name, stream_name in dep_names:
+            for dep_name, slot_name in dep_names:
                 print_dependency_tree(
                     dagops,
                     processes,
                     dep_name,
                     param_indent,
                     visited.copy(),
-                    stream_name,
+                    slot_name,
                 )
 
     visited.remove(node_name)

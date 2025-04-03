@@ -20,7 +20,7 @@ from ailets.cons.seqno import Seqno
 
 import logging
 
-logger = logging.getLogger("ailets.streams")
+logger = logging.getLogger("ailets.piper")
 
 
 class PrintOutput(IPipe):
@@ -94,7 +94,7 @@ class Piper(IPiper):
 
     def init_fsops_handle(self) -> None:
         self.fsops_handle = self.seqno.next_seqno()
-        self.queue.whitelist(self.fsops_handle, "Streams: file system operations")
+        self.queue.whitelist(self.fsops_handle, "Piper: file system operations")
 
     def get_fsops_handle(self) -> int:
         return self.fsops_handle
@@ -103,20 +103,20 @@ class Piper(IPiper):
         self.queue.unlist(self.fsops_handle)
         self.fsops_handle = -1
 
-    def get_path(self, node_name: str, stream_name: Optional[str]) -> str:
-        if not stream_name:
+    def get_path(self, node_name: str, slot_name: Optional[str]) -> str:
+        if not slot_name:
             return node_name
-        return f"{node_name}-{stream_name}"
+        return f"{node_name}-{slot_name}"
 
     def create_pipe(
         self,
         node_name: str,
-        stream_name: Optional[str],
+        slot_name: Optional[str],
     ) -> IPipe:
-        """Add a new stream. Raise KeyError if the stream already exists."""
-        path = self.get_path(node_name, stream_name)
+        """Add a new slot. Raise KeyError if the slot already exists."""
+        path = self.get_path(node_name, slot_name)
         if path in self.pipes:
-            raise KeyError(f"Stream already exists: {path}")
+            raise KeyError(f"Path already exists: {path}")
 
         kvbuf = self.kv.open(path, "write")
 
@@ -135,18 +135,18 @@ class Piper(IPiper):
         return pipe
 
     @staticmethod
-    def make_env_stream(params: Dict[str, Any]) -> IPipe:
+    def make_env_pipe(params: Dict[str, Any]) -> IPipe:
         content = json.dumps(params).encode("utf-8")
         pipe = StaticInput(content, "env")
         return pipe
 
     @staticmethod
-    def make_log_stream() -> IPipe:
+    def make_log_pipe() -> IPipe:
         pipe = PrintOutput(sys.stdout)
         return pipe
 
-    def get_existing_pipe(self, node_name: str, stream_name: str) -> IPipe:
-        path = self.get_path(node_name, stream_name)
+    def get_existing_pipe(self, node_name: str, slot_name: str) -> IPipe:
+        path = self.get_path(node_name, slot_name)
         if path not in self.pipes:
-            raise KeyError(f"Stream not found: {path}")
+            raise KeyError(f"Path not found: {path}")
         return self.pipes[path]

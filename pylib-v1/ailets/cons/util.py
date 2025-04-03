@@ -35,19 +35,19 @@ async def write_all(runtime: INodeRuntime, fd: int, data: bytes) -> None:
         pos += count
 
 
-async def iter_streams_objects(
+async def iter_slots_objects(
     runtime: INodeRuntime,
-    stream_name: str,
+    slot_name: str,
     sse_tokens: Sequence[str] = (),
 ) -> AsyncGenerator[dict[str, Any], None]:
-    """Iterate over all streams. Each stream contains JSON objects,
+    """Iterate over all slots. Each slot contains JSON objects,
     either as a JSON array or as individual objects without separation."""
-    # `n_of_streams` can change with time, therefore don't use `range`
+    # `n_of_slots` can change with time, therefore don't use `range`
     i = 0
-    while i < runtime.n_of_streams(stream_name):
+    while i < runtime.n_of_slots(slot_name):
         i += 1
 
-        fd = await runtime.open_read(stream_name, i - 1)
+        fd = await runtime.open_read(slot_name, i - 1)
         buffer = await read_all(runtime, fd)
         await runtime.close(fd)
 
@@ -100,9 +100,9 @@ async def iter_streams_objects(
                 )
 
 
-async def read_env_stream(runtime: INodeRuntime) -> Dict[str, Any]:
+async def read_env_pipe(runtime: INodeRuntime) -> Dict[str, Any]:
     env: dict[str, Any] = {}
-    async for params in iter_streams_objects(runtime, "env"):
+    async for params in iter_slots_objects(runtime, "env"):
         env.update(params)
     return env
 

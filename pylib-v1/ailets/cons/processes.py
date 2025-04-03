@@ -12,7 +12,7 @@ logger = logging.getLogger("ailets.processes")
 
 def has_data_from_dependency(piper: IPiper, dep: Dependency) -> bool:
     try:
-        pipe = piper.get_existing_pipe(dep.source, dep.stream)
+        pipe = piper.get_existing_pipe(dep.source, dep.slot)
     except KeyError:
         return False
     return pipe.get_writer().tell() > 0
@@ -91,7 +91,7 @@ class Processes(IProcesses):
                 if dep.source not in rev_deps:
                     rev_deps[dep.source] = []
                 rev_deps[dep.source].append(
-                    Dependency(source=node_name, name=dep.name, stream=dep.stream)
+                    Dependency(source=node_name, name=dep.name, slot=dep.slot)
                 )
         self.rev_deps = rev_deps
 
@@ -239,7 +239,7 @@ class Processes(IProcesses):
             print(f"Function: {node.func.__name__}")
             print("Dependencies:")
             for dep in self.deps[name]:
-                print(f"  {dep.source} ({dep.stream}) -> {dep.name}")
+                print(f"  {dep.source} ({dep.slot}) -> {dep.name}")
             print(f"Exception: {exc}")
             raise
         finally:

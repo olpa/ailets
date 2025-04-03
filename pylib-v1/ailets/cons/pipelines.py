@@ -79,12 +79,12 @@ async def prompt_to_dagops(
             )
             return
 
-        stream_name = env.dagops.get_next_name(f"media/{base_content_type}")
+        file_key = env.dagops.get_next_name(f"media/{base_content_type}")
         node = mk_node(
             json.dumps(
                 {
                     "type": base_content_type,
-                    "stream": stream_name,
+                    "key": file_key,
                     "content_type": prompt_item.content_type,
                 }
             )
@@ -92,7 +92,7 @@ async def prompt_to_dagops(
 
         with open(prompt_item.value, "rb") as f:
             bytes = f.read()
-            pipe = env.piper.create_pipe(node.name, stream_name)
+            pipe = env.piper.create_pipe(node.name, file_key)
             writer = pipe.get_writer()
             assert isinstance(
                 writer, BytesWRWriter
@@ -112,7 +112,7 @@ def toml_to_env(
         if prompt_item.type != "toml":
             continue
         items = tomllib.loads(prompt_item.value)
-        env.for_env_stream.update(items)
+        env.for_env_pipe.update(items)
 
 
 def toolspecs_to_dagops(env: IEnvironment, tools: Sequence[str]) -> None:
@@ -212,7 +212,7 @@ def instantiate_with_deps(
                 source = resolve.get(source, source)
             deps.append(
                 Dependency(
-                    name=dep.name, source=source, stream=dep.stream, schema=dep.schema
+                    name=dep.name, source=source, slot=dep.slot, schema=dep.schema
                 )
             )
         dagops.depend(resolve[node_name], deps)

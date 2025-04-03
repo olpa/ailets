@@ -74,11 +74,11 @@ class IPiper(Protocol):
     def create_pipe(
         self,
         node_name: str,
-        stream_name: str,
+        slot_name: str,
     ) -> IPipe:
         raise NotImplementedError
 
-    def get_existing_pipe(self, node_name: str, stream_name: str) -> IPipe:
+    def get_existing_pipe(self, node_name: str, slot_name: str) -> IPipe:
         """If not found, raise KeyError"""
         raise NotImplementedError
 
@@ -93,18 +93,18 @@ class IPiper(Protocol):
 
 @dataclass(frozen=True)
 class Dependency:
-    """A dependency of a node on another node's stream.
+    """A dependency of a node on another node's.
 
     Attributes:
         name: Optional name to reference this dependency in the node's inputs
         source: Name of the node this dependency comes from
-        stream: Optional name of the specific stream from the source node
-        schema: Optional schema for the stream
+        slot: Optional name of the specific slot from the source node
+        schema: Optional schema for the slot
     """
 
     source: str
     name: str = ""
-    stream: str = ""
+    slot: str = ""
     schema: Optional[dict[str, Any]] = None
 
 
@@ -154,13 +154,13 @@ class INodeRuntime(Protocol):
     def get_name(self) -> str:
         raise NotImplementedError
 
-    def n_of_streams(self, stream_name: str) -> int:
+    def n_of_slots(self, slot_name: str) -> int:
         raise NotImplementedError
 
-    async def open_read(self, stream_name: str, index: int) -> int:
+    async def open_read(self, slot_name: str, index: int) -> int:
         raise NotImplementedError
 
-    async def open_write(self, stream_name: str) -> int:
+    async def open_write(self, slot_name: str) -> int:
         raise NotImplementedError
 
     async def read(self, fd: int, buffer: bytearray, count: int) -> int:
@@ -182,11 +182,11 @@ class INodeRuntime(Protocol):
         raise NotImplementedError
 
     async def pass_through_name_name(
-        self, in_stream_name: str, out_stream_name: str
+        self, in_slot_name: str, out_slot_name: str
     ) -> None:
         raise NotImplementedError
 
-    async def pass_through_name_fd(self, in_stream_name: str, out_fd: int) -> None:
+    async def pass_through_name_fd(self, in_slot_name: str, out_fd: int) -> None:
         raise NotImplementedError
 
 
@@ -289,7 +289,7 @@ class IProcesses(Protocol):
 
 
 class IEnvironment(Protocol):
-    for_env_stream: Dict[str, Any]
+    for_env_pipe: Dict[str, Any]
     seqno: Seqno
     dagops: IDagops
     piper: IPiper
@@ -323,9 +323,9 @@ class ContentItemText(TypedDict):
 class ContentItemImage(TypedDict):
     type: Literal["image"]
     content_type: str
-    # `url` or `stream`, exactly one of them
+    # `url` or `key`, exactly one of them
     url: NotRequired[str]
-    stream: NotRequired[str]
+    key: NotRequired[str]
 
 
 class ContentItemRefusal(TypedDict):

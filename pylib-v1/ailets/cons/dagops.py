@@ -125,7 +125,7 @@ class Dagops(IDagops):
 
         self.nodes[full_name] = node
 
-        # Add streams for value and type
+        # Set the value in the pipe
         pipe = piper.create_pipe(full_name, "")
         writer = pipe.get_writer()
         assert isinstance(
@@ -207,14 +207,14 @@ class Dagops(IDagops):
                             yield aliased_name
 
                 for aliased_node_name in expand_alias_deps(dep.source, set()):
-                    dep_key = (aliased_node_name, dep.name, dep.stream)
+                    dep_key = (aliased_node_name, dep.name, dep.slot)
                     if dep_key not in seen_deps:
                         seen_deps.add(dep_key)
                         yield Dependency(
-                            source=aliased_node_name, name=dep.name, stream=dep.stream
+                            source=aliased_node_name, name=dep.name, slot=dep.slot
                         )
             else:
-                dep_key = (dep.source, dep.name, dep.stream)
+                dep_key = (dep.source, dep.name, dep.slot)
                 if dep_key not in seen_deps:
                     seen_deps.add(dep_key)
                     yield dep
