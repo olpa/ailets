@@ -7,7 +7,7 @@ from ailets.cons.atyping import (
     ContentItemImage,
     INodeRuntime,
 )
-from ailets.cons.util import iter_slot_objects, write_all
+from ailets.cons.util import iter_input_objects, write_all
 
 need_separator = False
 
@@ -102,7 +102,7 @@ async def messages_to_markdown(runtime: INodeRuntime) -> None:
     fd = await runtime.open_write("")
 
     try:
-        async for message in iter_slot_objects(runtime, ""):
+        async for message in iter_input_objects(runtime, ""):
             content = message["content"]
             if isinstance(content, str):
                 await separator(runtime, fd)

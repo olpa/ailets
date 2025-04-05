@@ -7,7 +7,7 @@ from ailets.cons.atyping import (
     ContentItemFunction,
     INodeRuntime,
 )
-from ailets.cons.util import iter_slot_objects, read_all, write_all
+from ailets.cons.util import iter_input_objects, read_all, write_all
 from ailets.models.gpt4o.lib.typing import Gpt4oContentItem, Gpt4oMessage
 
 url = "https://api.openai.com/v1/chat/completions"
@@ -99,7 +99,7 @@ async def get_overrides(runtime: INodeRuntime) -> dict[str, Any]:
         "functions",
     ]
     overrides: dict[str, Any] = {}
-    async for cfg in iter_slot_objects(runtime, "env"):
+    async for cfg in iter_input_objects(runtime, "env"):
         gpt4o_cfg = cfg.get("gpt4o")
         if not gpt4o_cfg:
             continue
@@ -113,7 +113,7 @@ async def messages_to_query(runtime: INodeRuntime) -> None:
     """Convert chat messages into a query."""
 
     messages: list[Gpt4oMessage] = []
-    async for message in iter_slot_objects(runtime, ""):
+    async for message in iter_input_objects(runtime, ""):
         new_message: Gpt4oMessage = message.copy()  # type: ignore[assignment]
         if "content" in message:
             new_content, tool_calls = await rewrite_content(runtime, message["content"])
@@ -124,7 +124,7 @@ async def messages_to_query(runtime: INodeRuntime) -> None:
         messages.append(new_message)
 
     tools = []
-    async for toolspec in iter_slot_objects(runtime, "toolspecs"):
+    async for toolspec in iter_input_objects(runtime, "toolspecs"):
         tools.append(
             {
                 "type": "function",

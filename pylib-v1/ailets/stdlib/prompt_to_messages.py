@@ -1,12 +1,12 @@
 import json
 from typing import Any, Dict
 from ailets.cons.atyping import INodeRuntime
-from ailets.cons.util import iter_slot_objects, write_all
+from ailets.cons.util import iter_input_objects, write_all
 
 
 async def prompt_to_messages(runtime: INodeRuntime) -> None:
     role_to_content: Dict[str, Any] = {}
-    async for content_item in iter_slot_objects(runtime, ""):
+    async for content_item in iter_input_objects(runtime, ""):
         role = content_item.get("role", "user")
         role_to_content.setdefault(role, []).append(content_item)
 

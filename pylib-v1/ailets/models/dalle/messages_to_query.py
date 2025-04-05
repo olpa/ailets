@@ -10,7 +10,7 @@ from ailets.cons.atyping import (
     INodeRuntime,
 )
 from ailets.cons.util import (
-    iter_slot_objects,
+    iter_input_objects,
     log,
     read_all,
     read_env_pipe,
@@ -120,7 +120,7 @@ async def messages_to_query(runtime: INodeRuntime) -> None:
     ), "Invalid DALL-E task, expected one of: generations, variations, edits"
 
     prompt = ExtractedPrompt(prompt_parts=[], image=None, mask=None)
-    async for message in iter_slot_objects(runtime, ""):
+    async for message in iter_input_objects(runtime, ""):
         role = message.get("role")
         if role != "user":
             await log(runtime, "info", f"Skipping message with role {role}")
