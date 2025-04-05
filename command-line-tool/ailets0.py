@@ -299,7 +299,7 @@ async def main() -> None:
             await dump_environment(env, f)
 
     if not args.dry_run:
-        output_files = env.kv.read_dir("out")
+        output_files = env.kv.listdir("out")
         if len(output_files):
             os.makedirs(args.download_to, exist_ok=True)
         for fname in output_files:

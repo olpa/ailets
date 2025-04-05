@@ -25,5 +25,4 @@ async def prompt_to_messages(runtime: INodeRuntime) -> None:
     await runtime.close(fd_out)
 
     for media in await runtime.read_dir("media"):
-        media = f"media/{media}"
         await runtime.pass_through_name_name(media, media)

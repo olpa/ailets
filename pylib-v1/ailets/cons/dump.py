@@ -15,6 +15,7 @@ from typing import (
 
 from ailets.cons.atyping import (
     Dependency,
+    IKVBuffers,
     INodeRegistry,
     INodeRuntime,
     IPipe,
@@ -95,20 +96,10 @@ def load_node(
 
 async def dump_pipe(path: str, pipe: IPipe, f: TextIO) -> None:
     writer = pipe.get_writer()
-    dont_care_handle = -1
-    reader = pipe.get_reader(dont_care_handle)
-    b = await reader.read(size=-1)
-    try:
-        content_field = "content"
-        content = b.decode("utf-8")
-    except UnicodeDecodeError:
-        content_field = "b64_content"
-        content = base64.b64encode(b).decode("utf-8")
     json.dump(
         {
-            "path": path,
+            "pipe": path,
             "is_closed": writer.closed,
-            content_field: content,
         },
         f,
         indent=2,
@@ -133,12 +124,33 @@ async def load_pipe(piper: IPiper, data: dict[str, Any]) -> None:
         writer.close()
 
 
+async def dump_kv_item(kv: IKVBuffers, path: str, f: TextIO) -> None:
+    b = kv.open(path, "read").borrow_mut_buffer()
+    try:
+        content_field = "content"
+        content = b.decode("utf-8")
+    except UnicodeDecodeError:
+        content_field = "b64_content"
+        content = base64.b64encode(b).decode("utf-8")
+    json.dump(
+        {
+            "path": path,
+            content_field: content,
+        },
+        f,
+        indent=2,
+    )
+
+
 async def dump_environment(env: Environment, f: TextIO) -> None:
     for node in env.dagops.nodes.values():
         dump_node(node, is_finished=env.processes.is_node_finished(node.name), f=f)
         f.write("\n")
     for alias, names in env.dagops.aliases.items():
         json.dump({"alias": alias, "names": list(names)}, f, indent=2)
+        f.write("\n")
+    for path in env.kv.listdir(""):
+        await dump_kv_item(env.kv, path, f)
         f.write("\n")
     for path, pipe in env.piper.pipes.items():
         await dump_pipe(path, pipe, f)

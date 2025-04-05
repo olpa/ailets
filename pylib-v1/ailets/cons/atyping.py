@@ -62,7 +62,7 @@ class IKVBuffers(Protocol):
     def flush(self, kvbuffer: IKVBuffer) -> None:
         raise NotImplementedError
 
-    def read_dir(self, dir_name: str) -> Sequence[str]:
+    def listdir(self, dir_name: str) -> Sequence[str]:
         raise NotImplementedError
 
 

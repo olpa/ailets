@@ -33,7 +33,7 @@ class MemKV(IKVBuffers):
     def flush(self, kvbuffer: IKVBuffer) -> None:
         pass
 
-    def read_dir(self, dir_name: str) -> Sequence[str]:
-        if not dir_name.endswith("/"):
+    def listdir(self, dir_name: str) -> Sequence[str]:
+        if dir_name and not dir_name.endswith("/"):
             dir_name = dir_name + "/"
         return [path for path in self._buffers.keys() if path.startswith(dir_name)]

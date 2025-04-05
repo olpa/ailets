@@ -128,7 +128,7 @@ class NodeRuntime(INodeRuntime):
         return self.cached_dagops
 
     async def read_dir(self, dir_name: str) -> Sequence[str]:
-        return self.env.kv.read_dir(dir_name)
+        return self.env.kv.listdir(dir_name)
 
     async def pass_through_name_name(
         self, in_slot_name: str, out_slot_name: str
