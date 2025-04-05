@@ -1,7 +1,7 @@
 import io
 import json
 import sys
-from typing import IO, Any, Dict, Optional
+from typing import IO, Any, Dict, Literal, Optional
 
 from ailets.cons.atyping import (
     IAsyncReader,
@@ -112,13 +112,16 @@ class Piper(IPiper):
         self,
         node_name: str,
         slot_name: Optional[str],
+        open_mode: Literal["write", "append"] = "write",
     ) -> IPipe:
         """Add a new slot. Raise KeyError if the slot already exists."""
         path = self.get_path(node_name, slot_name)
         if path in self.pipes:
             raise KeyError(f"Path already exists: {path}")
 
-        kvbuf = self.kv.open(path, "write")
+        # In case of loading data from a state dump file,
+        # use "append" mode to avoid overwriting the existing data.
+        kvbuf = self.kv.open(path, open_mode)
 
         writer_handle = self.seqno.next_seqno()
         pipe = MemPipe(

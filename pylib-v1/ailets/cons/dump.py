@@ -27,7 +27,6 @@ from ailets.cons.dagops import Dagops
 from ailets.cons.seqno import Seqno
 from ailets.cons.util import to_basename
 from ailets.cons.environment import Environment
-from ailets.cons.mempipe import Writer as MemPipeWriter
 
 
 def dependency_to_json(
@@ -107,20 +106,11 @@ async def dump_pipe(path: str, pipe: IPipe, f: TextIO) -> None:
 
 
 async def load_pipe(piper: IPiper, data: dict[str, Any]) -> None:
-    if "b64_content" in data:
-        content = base64.b64decode(data["b64_content"])
-    else:
-        content = data["content"].encode("utf-8")
+    path = data["pipe"]
     is_closed = data.get("is_closed", False)
-    path = data["path"]
-    pipe = piper.create_pipe(path, "")
-    writer = pipe.get_writer()
-    assert isinstance(
-        writer, MemPipeWriter
-    ), "Internal error: MemPipeWriter is expected"
-    if content is not None:
-        writer.write_sync(content)
+    pipe = piper.create_pipe(path, "", open_mode="append")
     if is_closed:
+        writer = pipe.get_writer()
         writer.close()
 
 
@@ -140,6 +130,16 @@ async def dump_kv_item(kv: IKVBuffers, path: str, f: TextIO) -> None:
         f,
         indent=2,
     )
+
+
+async def load_kv_item(kv: IKVBuffers, data: dict[str, Any]) -> None:
+    if "b64_content" in data:
+        content = base64.b64decode(data["b64_content"])
+    else:
+        content = data["content"].encode("utf-8")
+    path = data["path"]
+    item = kv.open(path, "write")
+    item.borrow_mut_buffer()[:] = content
 
 
 async def dump_environment(env: Environment, f: TextIO) -> None:
@@ -181,7 +181,9 @@ async def load_environment(f: TextIO, nodereg: INodeRegistry) -> Environment:
                 env.dagops.nodes[node.name] = node
                 if obj_data.get("is_finished", False):
                     env.processes.add_value_node(node.name)
-            elif "is_closed" in obj_data:
+            elif "path" in obj_data:
+                await load_kv_item(env.kv, obj_data)
+            elif "pipe" in obj_data:
                 await load_pipe(env.piper, obj_data)
             elif "alias" in obj_data:
                 env.dagops.aliases[obj_data["alias"]] = obj_data["names"]

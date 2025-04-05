@@ -82,7 +82,6 @@ async def prompt_to_dagops(
         n = env.seqno.next_seqno()
         b = os.path.basename(prompt_item.value)
         file_key = env.dagops.get_next_name(f"media/{b}.{n}")
-        print("!!!!! prompt_to_node", file_key)  # FIXME
         mk_node(
             json.dumps(
                 {
@@ -95,12 +94,10 @@ async def prompt_to_dagops(
 
         with open(prompt_item.value, "rb") as f:
             bytes = f.read()
-            print("!!!!! prompt_to_node", file_key, "write", bytes[:100])  # FIXME
             h = env.kv.open(file_key, "write")
             ba = h.borrow_mut_buffer()
             ba[:] = bytes
             env.kv.flush(h)
-            print("!!!!! prompt_to_node, env.kv is:", env.kv)  # FIXME
 
     for prompt_item in prompt:
         await prompt_to_node(prompt_item)
