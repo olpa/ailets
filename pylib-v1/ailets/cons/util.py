@@ -42,9 +42,9 @@ async def iter_slot_objects(
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Iterate over all slots. Each slot contains JSON objects,
     either as a JSON array or as individual objects without separation."""
-    # `n_of_slots` can change with time, therefore don't use `range`
+    # `n_of_inputs` can change with time, therefore don't use `range`
     i = 0
-    while i < runtime.n_of_slots(slot_name):
+    while i < runtime.n_of_inputs(slot_name):
         i += 1
 
         fd = await runtime.open_read(slot_name, i - 1)

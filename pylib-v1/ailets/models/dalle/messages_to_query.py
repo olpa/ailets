@@ -80,8 +80,8 @@ class ExtractedPrompt(TypedDict):
 
 
 async def read_from_slot(runtime: INodeRuntime, slot_name: str) -> bytes:
-    n = runtime.n_of_slots(slot_name)
-    assert n == 1, f"Expected exactly one slot for {slot_name}, got {n}"
+    n = runtime.n_of_inputs(slot_name)
+    assert n == 1, f"Expected exactly one input for {slot_name}, got {n}"
 
     fd = await runtime.open_read(slot_name, 0)
     content = await read_all(runtime, fd)

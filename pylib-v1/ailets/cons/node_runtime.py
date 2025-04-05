@@ -64,7 +64,7 @@ class NodeRuntime(INodeRuntime):
     def get_name(self) -> str:
         return self.node_name
 
-    def n_of_slots(self, slot_name: str) -> int:
+    def n_of_inputs(self, slot_name: str) -> int:
         if slot_name == "env":
             return 1
         if slot_name == "log":
