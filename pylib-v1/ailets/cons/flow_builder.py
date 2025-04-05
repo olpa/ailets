@@ -3,7 +3,7 @@ from typing import Literal, Optional
 import json
 from typing import Sequence
 import sys
-from ailets.cons.mempipe import Writer as MemPipeWriter
+import os.path
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -77,10 +77,12 @@ async def prompt_to_dagops(
                     }
                 )
             )
-            return
+            return  # return if "url"
 
-        file_key = env.dagops.get_next_name(f"media/{base_content_type}")
-        node = mk_node(
+        n = env.seqno.next_seqno()
+        b = os.path.basename(prompt_item.value)
+        file_key = env.dagops.get_next_name(f"media/{b}.{n}")
+        mk_node(
             json.dumps(
                 {
                     "type": base_content_type,
@@ -92,13 +94,10 @@ async def prompt_to_dagops(
 
         with open(prompt_item.value, "rb") as f:
             bytes = f.read()
-            pipe = env.piper.create_pipe(node.name, file_key)
-            writer = pipe.get_writer()
-            assert isinstance(
-                writer, MemPipeWriter
-            ), "Internal error: MemPipeWriter is expected"
-            writer.write_sync(bytes)
-            writer.close()
+            h = env.kv.open(file_key, "write")
+            ba = h.borrow_mut_buffer()
+            ba[:] = bytes
+            env.kv.flush(h)
 
     for prompt_item in prompt:
         await prompt_to_node(prompt_item)
