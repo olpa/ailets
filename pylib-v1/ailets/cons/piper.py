@@ -10,10 +10,10 @@ from ailets.cons.atyping import (
     IPipe,
     IPiper,
 )
-from ailets.cons.bytesrw import (
-    BytesWR,
-    Writer as BytesWRWriter,
-    Reader as BytesWRReader,
+from ailets.cons.mempipe import (
+    MemPipe,
+    Writer as MemPipeWriter,
+    Reader as MemPipeReader,
 )
 from ailets.cons.notification_queue import DummyNotificationQueue, INotificationQueue
 from ailets.cons.seqno import Seqno
@@ -57,7 +57,7 @@ class PrintOutput(IPipe):
 
 class StaticInput(IPipe):
     def __init__(self, content: bytes, debug_hint: str) -> None:
-        writer = BytesWRWriter(
+        writer = MemPipeWriter(
             handle=-1,
             queue=DummyNotificationQueue(),
             debug_hint=debug_hint,
@@ -67,7 +67,7 @@ class StaticInput(IPipe):
         self.writer = writer
 
     def get_reader(self, handle: int) -> IAsyncReader:
-        return BytesWRReader(handle, writer=self.writer)
+        return MemPipeReader(handle, writer=self.writer)
 
     def get_writer(self) -> IAsyncWriter:
         raise io.UnsupportedOperation("StaticInput is read-only")
@@ -121,7 +121,7 @@ class Piper(IPiper):
         kvbuf = self.kv.open(path, "write")
 
         writer_handle = self.seqno.next_seqno()
-        pipe = BytesWR(
+        pipe = MemPipe(
             writer_handle=writer_handle,
             queue=self.queue,
             debug_hint=path,

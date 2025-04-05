@@ -26,7 +26,7 @@ from ailets.cons.dagops import Dagops
 from ailets.cons.seqno import Seqno
 from ailets.cons.util import to_basename
 from ailets.cons.environment import Environment
-from ailets.cons.bytesrw import Writer as BytesWRWriter
+from ailets.cons.mempipe import Writer as MemPipeWriter
 
 
 def dependency_to_json(
@@ -125,8 +125,8 @@ async def load_pipe(piper: IPiper, data: dict[str, Any]) -> None:
     pipe = piper.create_pipe(path, "")
     writer = pipe.get_writer()
     assert isinstance(
-        writer, BytesWRWriter
-    ), "Internal error: BytesWRWriter is expected"
+        writer, MemPipeWriter
+    ), "Internal error: MemPipeWriter is expected"
     if content is not None:
         writer.write_sync(content)
     if is_closed:

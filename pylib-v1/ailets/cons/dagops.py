@@ -20,7 +20,7 @@ from .atyping import (
 )
 from .util import to_basename
 from .seqno import Seqno
-from .bytesrw import Writer as BytesWRWriter
+from .mempipe import Writer as MemPipeWriter
 
 
 class Dagops(IDagops):
@@ -129,8 +129,8 @@ class Dagops(IDagops):
         pipe = piper.create_pipe(full_name, "")
         writer = pipe.get_writer()
         assert isinstance(
-            writer, BytesWRWriter
-        ), "Internal error: BytesWRWriter is expected"
+            writer, MemPipeWriter
+        ), "Internal error: MemPipeWriter is expected"
         writer.write_sync(value)
         writer.close()
         processes.add_value_node(full_name)

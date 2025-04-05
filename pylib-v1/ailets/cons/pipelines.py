@@ -3,7 +3,7 @@ from typing import Literal, Optional
 import json
 from typing import Sequence
 import sys
-from ailets.cons.bytesrw import Writer as BytesWRWriter
+from ailets.cons.mempipe import Writer as MemPipeWriter
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -95,8 +95,8 @@ async def prompt_to_dagops(
             pipe = env.piper.create_pipe(node.name, file_key)
             writer = pipe.get_writer()
             assert isinstance(
-                writer, BytesWRWriter
-            ), "Internal error: BytesWRWriter is expected"
+                writer, MemPipeWriter
+            ), "Internal error: MemPipeWriter is expected"
             writer.write_sync(bytes)
             writer.close()
 
