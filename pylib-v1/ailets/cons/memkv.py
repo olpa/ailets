@@ -2,7 +2,7 @@ from typing import Literal, Dict, Sequence
 from .atyping import IKVBuffer, IKVBuffers
 
 
-class MemoryKVBuffer(IKVBuffer):
+class MemKVBuffer(IKVBuffer):
     def __init__(self, path: str, shared_buffer: bytearray):
         self.buffer = shared_buffer
         self._path = path
@@ -11,7 +11,7 @@ class MemoryKVBuffer(IKVBuffer):
         return self.buffer
 
 
-class MemoryKVBuffers(IKVBuffers):
+class MemKV(IKVBuffers):
     def __init__(self) -> None:
         self._buffers: Dict[str, bytearray] = {}
 
@@ -19,15 +19,15 @@ class MemoryKVBuffers(IKVBuffers):
         if mode == "read":
             if path not in self._buffers:
                 raise KeyError(f"Path not found: {path}")
-            return MemoryKVBuffer(path, self._buffers[path])
+            return MemKVBuffer(path, self._buffers[path])
         if mode == "write":
             buffer = bytearray()
             self._buffers[path] = buffer
-            return MemoryKVBuffer(path, buffer)
+            return MemKVBuffer(path, buffer)
         if mode == "append":
             buffer = self._buffers.get(path, bytearray())
             self._buffers[path] = buffer
-            return MemoryKVBuffer(path, buffer)
+            return MemKVBuffer(path, buffer)
         raise ValueError(f"Invalid mode: {mode}")
 
     def flush(self, kvbuffer: IKVBuffer) -> None:
