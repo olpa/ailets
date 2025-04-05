@@ -15,7 +15,7 @@ from ailets.cons.plugin import (
     hijack_msg2md,
     hijack_msg2query,
 )
-from ailets.cons.pipelines import (
+from ailets.cons.flow_builder import (
     CmdlinePromptItem,
     instantiate_with_deps,
     prompt_to_dagops,

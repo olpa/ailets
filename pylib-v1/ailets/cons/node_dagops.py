@@ -1,7 +1,7 @@
 import dataclasses
 from typing import List, Optional
 
-from ailets.cons.pipelines import instantiate_with_deps
+from ailets.cons.flow_builder import instantiate_with_deps
 
 from .atyping import (
     IEnvironment,

@@ -182,7 +182,7 @@ def instantiate_with_deps(
             parent_context = f" (required by '{parent_node_name}')"
             raise RuntimeError(
                 f"Node '{node_name}' not found in registry while building "
-                f"pipeline{parent_context}.\n"
+                f"flow{parent_context}.\n"
             )
         for dep in node_desc.inputs:
             create_node_recursive(dep.source, node_name)
@@ -202,7 +202,7 @@ def instantiate_with_deps(
             node_desc = nodereg.get_node(node_name)
         except KeyError:
             raise RuntimeError(
-                f"Node '{node_name}' not found in registry while building pipeline."
+                f"Node '{node_name}' not found in registry while building a flow"
             )
         deps = []
         for dep in node_desc.inputs:
