@@ -35,7 +35,7 @@ async def write_all(runtime: INodeRuntime, fd: int, data: bytes) -> None:
         pos += count
 
 
-async def iter_slots_objects(
+async def iter_slot_objects(
     runtime: INodeRuntime,
     slot_name: str,
     sse_tokens: Sequence[str] = (),
@@ -102,7 +102,7 @@ async def iter_slots_objects(
 
 async def read_env_pipe(runtime: INodeRuntime) -> Dict[str, Any]:
     env: dict[str, Any] = {}
-    async for params in iter_slots_objects(runtime, "env"):
+    async for params in iter_slot_objects(runtime, "env"):
         env.update(params)
     return env
 

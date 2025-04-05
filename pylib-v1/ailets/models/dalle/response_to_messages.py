@@ -7,7 +7,7 @@ from ailets.cons.atyping import (
     Content,
     INodeRuntime,
 )
-from ailets.cons.util import iter_streams_objects, write_all
+from ailets.cons.util import iter_slot_objects, write_all
 
 
 async def response_to_messages(runtime: INodeRuntime) -> None:
@@ -15,7 +15,7 @@ async def response_to_messages(runtime: INodeRuntime) -> None:
 
     output_fd = await runtime.open_write("")
 
-    async for response in iter_streams_objects(runtime, ""):
+    async for response in iter_slot_objects(runtime, ""):
         # `response` format:
         # {
         #   "created": 1726961295,

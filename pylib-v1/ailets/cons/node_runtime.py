@@ -69,14 +69,14 @@ class NodeRuntime(INodeRuntime):
             return 1
         if slot_name == "log":
             return 1
-        return len(self._get_slots(slot_name))
+        return len(self._get_pipes(slot_name))
 
     async def open_read(self, slot_name: str, index: int) -> int:
-        slots = self._get_slots(slot_name)
-        if index >= len(slots) or index < 0:
+        pipes = self._get_pipes(slot_name)
+        if index >= len(pipes) or index < 0:
             raise ValueError(f"Slot index out of bounds: {index} for {slot_name}")
         fd = self.env.seqno.next_seqno()
-        reader = slots[index].get_reader(fd)
+        reader = pipes[index].get_reader(fd)
         self.open_fds[fd] = OpenFd(
             debug_hint=f"{self.node_name}.{slot_name}[{index}]",
             reader=reader,
@@ -133,22 +133,22 @@ class NodeRuntime(INodeRuntime):
     async def pass_through_name_name(
         self, in_slot_name: str, out_slot_name: str
     ) -> None:
-        in_slots = self._get_slots(in_slot_name)
-        for in_slot in in_slots:
-            reader = in_slot.get_reader(self.env.seqno.next_seqno())
-            out_slot = self.piper.create_pipe(self.node_name, out_slot_name)
-            writer = out_slot.get_writer()
+        in_pipes = self._get_pipes(in_slot_name)
+        for in_pipe in in_pipes:
+            reader = in_pipe.get_reader(self.env.seqno.next_seqno())
+            out_pipe = self.piper.create_pipe(self.node_name, out_slot_name)
+            writer = out_pipe.get_writer()
             await writer.write(await reader.read(size=-1))
             writer.close()
 
     async def pass_through_name_fd(self, in_slot_name: str, out_fd: int) -> None:
-        in_slots = self._get_slots(in_slot_name)
+        in_pipes = self._get_pipes(in_slot_name)
         out_fd_obj = self.open_fds[out_fd]
         assert (
             out_fd_obj.writer is not None
         ), f"File descriptor {out_fd} is not open for writing"
-        for in_slot in in_slots:
-            reader = in_slot.get_reader(self.env.seqno.next_seqno())
+        for in_pipe in in_pipes:
+            reader = in_pipe.get_reader(self.env.seqno.next_seqno())
             await out_fd_obj.writer.write(await reader.read(size=-1))
 
     def get_next_name(self, base_name: str) -> str:

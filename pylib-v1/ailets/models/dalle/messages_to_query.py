@@ -10,10 +10,10 @@ from ailets.cons.atyping import (
     INodeRuntime,
 )
 from ailets.cons.util import (
-    iter_streams_objects,
+    iter_slot_objects,
     log,
     read_all,
-    read_env_stream,
+    read_env_pipe,
     write_all,
 )
 
@@ -41,15 +41,15 @@ def task_to_headers(task: str) -> dict[str, str]:
         }
 
 
-async def to_binary_body_stream(
+async def to_binary_body_in_kv(
     runtime: INodeRuntime, task: str, body: dict[str, Any]
 ) -> str:
     if task == "variations":
         body = body.copy()
         del body["prompt"]
 
-    stream_name = runtime.get_next_name("query_body")
-    fd = await runtime.open_write(stream_name)
+    key = runtime.get_next_name("query_body")
+    fd = await runtime.open_write(key)
 
     for key, value in body.items():
         await write_all(runtime, fd, f"--{boundary}\r\n".encode("utf-8"))
@@ -61,7 +61,7 @@ async def to_binary_body_stream(
         if is_content_item_image(value):
             await write_all(runtime, fd, b'; filename="image.png"\r\n')
             await write_all(runtime, fd, b"Content-Type: image/png\r\n\r\n")
-            await runtime.pass_through_name_fd(value["stream"], fd)
+            await runtime.pass_through_name_fd(value["key"], fd)
             await write_all(runtime, fd, b"\r\n")
         else:
             value = str(value)
@@ -70,7 +70,7 @@ async def to_binary_body_stream(
     await write_all(runtime, fd, f"--{boundary}--\r\n".encode("utf-8"))
     await runtime.close(fd)
 
-    return stream_name
+    return key
 
 
 class ExtractedPrompt(TypedDict):
@@ -79,11 +79,11 @@ class ExtractedPrompt(TypedDict):
     mask: Optional[ContentItemImage]
 
 
-async def read_stream(runtime: INodeRuntime, stream_name: str) -> bytes:
-    n = runtime.n_of_streams(stream_name)
-    assert n == 1, f"Expected exactly one stream for {stream_name}, got {n}"
+async def read_from_slot(runtime: INodeRuntime, slot_name: str) -> bytes:
+    n = runtime.n_of_slots(slot_name)
+    assert n == 1, f"Expected exactly one slot for {slot_name}, got {n}"
 
-    fd = await runtime.open_read(stream_name, 0)
+    fd = await runtime.open_read(slot_name, 0)
     content = await read_all(runtime, fd)
     await runtime.close(fd)
     return content
@@ -94,8 +94,8 @@ def update_prompt(prompt: ExtractedPrompt, content: Content) -> None:
         if is_content_item_text(part):
             prompt["prompt_parts"].append(part["text"])
         elif is_content_item_image(part):
-            stream = part["stream"]
-            assert stream is not None, "Image has no stream"
+            key = part["key"]
+            assert key is not None, "Image has no key"
             assert part["content_type"] == "image/png", "Image must be PNG"
             if prompt["image"] is None:
                 prompt["image"] = part
@@ -111,7 +111,7 @@ def update_prompt(prompt: ExtractedPrompt, content: Content) -> None:
 
 async def messages_to_query(runtime: INodeRuntime) -> None:
     """Convert prompt message into a DALL-E query."""
-    params = await read_env_stream(runtime)
+    params = await read_env_pipe(runtime)
     task = params.get("dalle_task", "generations")
     assert task in (
         "generations",
@@ -120,7 +120,7 @@ async def messages_to_query(runtime: INodeRuntime) -> None:
     ), "Invalid DALL-E task, expected one of: generations, variations, edits"
 
     prompt = ExtractedPrompt(prompt_parts=[], image=None, mask=None)
-    async for message in iter_streams_objects(runtime, ""):
+    async for message in iter_slot_objects(runtime, ""):
         role = message.get("role")
         if role != "user":
             await log(runtime, "info", f"Skipping message with role {role}")
@@ -143,8 +143,8 @@ async def messages_to_query(runtime: INodeRuntime) -> None:
         body_field = "body"
         body = shared_params
     else:
-        body_field = "body_stream"
-        body = await to_binary_body_stream(
+        body_field = "body_key"
+        body = await to_binary_body_in_kv(
             runtime,
             task,
             {
