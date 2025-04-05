@@ -75,7 +75,7 @@ class IPiper(Protocol):
         self,
         node_name: str,
         slot_name: str,
-        open_mode: Literal["write", "append"] = "write",
+        open_mode: Literal["read", "write", "append"] = "write",
     ) -> IPipe:
         raise NotImplementedError
 

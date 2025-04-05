@@ -37,9 +37,6 @@ async def rewrite_content_item(
     key = item.get("key")
     assert key, "Image URL or key is required"
 
-    n_inputs = runtime.n_of_inputs(key)
-    assert n_inputs == 1, f"Key '{key}' must be exactly one, got {n_inputs}"
-
     fd = await runtime.open_read(key, 0)
     data = await read_all(runtime, fd)
     await runtime.close(fd)

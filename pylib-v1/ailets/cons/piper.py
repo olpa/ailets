@@ -112,7 +112,7 @@ class Piper(IPiper):
         self,
         node_name: str,
         slot_name: Optional[str],
-        open_mode: Literal["write", "append"] = "write",
+        open_mode: Literal["read", "write", "append"] = "write",
     ) -> IPipe:
         """Add a new slot. Raise KeyError if the slot already exists."""
         path = self.get_path(node_name, slot_name)
@@ -121,6 +121,7 @@ class Piper(IPiper):
 
         # In case of loading data from a state dump file,
         # use "append" mode to avoid overwriting the existing data.
+        # In case node_runtime wants to read data, use "read" mode.
         kvbuf = self.kv.open(path, open_mode)
 
         writer_handle = self.seqno.next_seqno()

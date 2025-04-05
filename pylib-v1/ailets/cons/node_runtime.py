@@ -73,6 +73,12 @@ class NodeRuntime(INodeRuntime):
 
     async def open_read(self, slot_name: str, index: int) -> int:
         pipes = self._get_pipes(slot_name)
+
+        if len(pipes) == 0 and "/" in slot_name:
+            pipe = self.piper.create_pipe(slot_name, "", open_mode="read")
+            pipe.get_writer().close()
+            pipes = [pipe]
+
         if index >= len(pipes) or index < 0:
             raise ValueError(f"Slot index out of bounds: {index} for {slot_name}")
         fd = self.env.seqno.next_seqno()
