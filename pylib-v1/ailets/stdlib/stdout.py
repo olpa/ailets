@@ -8,7 +8,7 @@ async def stdout(runtime: INodeRuntime) -> None:
     buffer = bytearray(1024)
     div = ""
 
-    for i in range(runtime.n_of_streams("")):
+    for i in range(runtime.n_of_inputs("")):
         fd = await runtime.open_read("", i)
         while True:
             count = await runtime.read(fd, buffer, len(buffer))
