@@ -55,8 +55,8 @@ async def to_binary_body_in_kv(
         body = body.copy()
         del body["prompt"]
 
-    key = runtime.get_next_name("query_body")
-    fd = await runtime.open_write(key)
+    body_key = runtime.get_next_name("query_body")
+    fd = await runtime.open_write(body_key)
 
     for key, value in body.items():
         await write_all(runtime, fd, f"--{boundary}\r\n".encode("utf-8"))
@@ -69,7 +69,6 @@ async def to_binary_body_in_kv(
             await write_all(runtime, fd, b'; filename="image.png"\r\n')
             await write_all(runtime, fd, b"Content-Type: image/png\r\n\r\n")
             await copy_image_to_fd(runtime, value["key"], fd)
-            await write_all(runtime, fd, b"(after)FIXMEFIXMEFIXME")  # FIXME
             await write_all(runtime, fd, b"\r\n")
         else:
             value = str(value)
@@ -78,7 +77,7 @@ async def to_binary_body_in_kv(
     await write_all(runtime, fd, f"--{boundary}--\r\n".encode("utf-8"))
     await runtime.close(fd)
 
-    return key
+    return body_key
 
 
 class ExtractedPrompt(TypedDict):
