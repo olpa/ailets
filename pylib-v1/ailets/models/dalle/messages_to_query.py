@@ -41,6 +41,13 @@ def task_to_headers(task: str) -> dict[str, str]:
         }
 
 
+async def copy_image_to_fd(runtime: INodeRuntime, key: str, fd: int) -> None:
+    fd_in = await runtime.open_read(key, 0)
+    buffer = await read_all(runtime, fd_in)
+    await runtime.close(fd_in)
+    await write_all(runtime, fd, buffer)
+
+
 async def to_binary_body_in_kv(
     runtime: INodeRuntime, task: str, body: dict[str, Any]
 ) -> str:
@@ -61,8 +68,7 @@ async def to_binary_body_in_kv(
         if is_content_item_image(value):
             await write_all(runtime, fd, b'; filename="image.png"\r\n')
             await write_all(runtime, fd, b"Content-Type: image/png\r\n\r\n")
-            await write_all(runtime, fd, b"(before)FIXMEFIXMEFIXME")  # FIXME
-            await runtime.pass_through_name_fd(value["key"], fd)
+            await copy_image_to_fd(runtime, value["key"], fd)
             await write_all(runtime, fd, b"(after)FIXMEFIXMEFIXME")  # FIXME
             await write_all(runtime, fd, b"\r\n")
         else:
