@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import threading
 from typing import Optional
 
 from .atyping import IAsyncReader, IAsyncWriter
@@ -23,6 +24,7 @@ class Writer(IAsyncWriter):
         self.debug_hint = debug_hint
         self.closed = False
         self.queue.whitelist(handle, f"MemPipe.Writer {debug_hint}")
+        self.close_lock = threading.Lock()
 
     def __str__(self) -> str:
         return (
@@ -48,9 +50,10 @@ class Writer(IAsyncWriter):
         return len(self.buffer)
 
     def close(self) -> None:
-        self.closed = True
-        self.queue.unlist(self.handle)
+        with self.close_lock:
+            self.closed = True
         self.queue.notify(self.handle, -1)
+        self.queue.unlist(self.handle)
 
 
 class Reader(IAsyncReader):
@@ -65,8 +68,21 @@ class Reader(IAsyncReader):
         self.closed = True
 
     def _should_wait_with_autoclose(self) -> bool:
-        should_wait = self.pos >= self.writer.tell()
-        if should_wait and self.writer.closed:
+        with self.writer.close_lock:
+            # Without the lock, the following race condition is possible:
+            #
+            # - this thread, `should_wait=True`:
+            #   reader notices there is no new data to read
+            # - another thread, the writer writes new data
+            # - another thread, the writer closes the pipe
+            # - this thread, `is_writer_closed=True`:
+            #   reader notices the writer is closed
+            #
+            # The reader missed the new data
+            writer_pos = self.writer.tell()
+            should_wait = self.pos >= writer_pos
+            is_writer_closed = self.writer.closed
+        if should_wait and is_writer_closed:
             self.close()
             should_wait = False
         return should_wait
@@ -104,8 +120,6 @@ class Reader(IAsyncReader):
                     self.writer.handle, f"MemPipe.Reader {self.handle}"
                 )
                 lock.acquire()
-        if self.writer.closed:
-            self.close()
 
 
 class MemPipe:
