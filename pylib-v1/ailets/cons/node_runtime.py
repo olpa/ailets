@@ -136,26 +136,5 @@ class NodeRuntime(INodeRuntime):
     async def read_dir(self, dir_name: str) -> Sequence[str]:
         return self.env.kv.listdir(dir_name)
 
-    async def pass_through_name_name(
-        self, in_slot_name: str, out_slot_name: str
-    ) -> None:
-        in_pipes = self._get_pipes(in_slot_name)
-        for in_pipe in in_pipes:
-            reader = in_pipe.get_reader(self.env.seqno.next_seqno())
-            out_pipe = self.piper.create_pipe(self.node_name, out_slot_name)
-            writer = out_pipe.get_writer()
-            await writer.write(await reader.read(size=-1))
-            writer.close()
-
-    async def pass_through_name_fd(self, in_slot_name: str, out_fd: int) -> None:
-        in_pipes = self._get_pipes(in_slot_name)
-        out_fd_obj = self.open_fds[out_fd]
-        assert (
-            out_fd_obj.writer is not None
-        ), f"File descriptor {out_fd} is not open for writing"
-        for in_pipe in in_pipes:
-            reader = in_pipe.get_reader(self.env.seqno.next_seqno())
-            await out_fd_obj.writer.write(await reader.read(size=-1))
-
     def get_next_name(self, base_name: str) -> str:
         return self.env.dagops.get_next_name(base_name)

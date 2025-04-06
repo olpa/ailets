@@ -23,6 +23,3 @@ async def prompt_to_messages(runtime: INodeRuntime) -> None:
     fd_out = await runtime.open_write("")
     await write_all(runtime, fd_out, json.dumps(list(messages)).encode("utf-8"))
     await runtime.close(fd_out)
-
-    for media in await runtime.read_dir("media"):
-        await runtime.pass_through_name_name(media, media)

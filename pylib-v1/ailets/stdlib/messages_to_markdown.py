@@ -27,10 +27,7 @@ def get_extension(media_type: str) -> str:
 
 async def rewrite_image_url(runtime: INodeRuntime, image: ContentItemImage) -> str:
     if key := image.get("key"):
-        out_name = runtime.get_next_name("out/image")
-        out_name += get_extension(image["content_type"])
-        await runtime.pass_through_name_name(key, out_name)
-        return out_name
+        return key
 
     url = image.get("url")
     if not url:

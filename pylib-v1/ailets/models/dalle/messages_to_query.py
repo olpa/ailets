@@ -61,7 +61,9 @@ async def to_binary_body_in_kv(
         if is_content_item_image(value):
             await write_all(runtime, fd, b'; filename="image.png"\r\n')
             await write_all(runtime, fd, b"Content-Type: image/png\r\n\r\n")
+            await write_all(runtime, fd, b"(before)FIXMEFIXMEFIXME")  # FIXME
             await runtime.pass_through_name_fd(value["key"], fd)
+            await write_all(runtime, fd, b"(after)FIXMEFIXMEFIXME")  # FIXME
             await write_all(runtime, fd, b"\r\n")
         else:
             value = str(value)
