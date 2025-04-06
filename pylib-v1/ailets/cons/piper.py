@@ -106,6 +106,8 @@ class Piper(IPiper):
     def get_path(self, node_name: str, slot_name: Optional[str]) -> str:
         if not slot_name:
             return node_name
+        if "/" in slot_name:
+            return slot_name
         return f"{node_name}-{slot_name}"
 
     def create_pipe(

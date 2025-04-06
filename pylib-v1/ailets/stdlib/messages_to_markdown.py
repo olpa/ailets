@@ -27,6 +27,7 @@ def get_extension(media_type: str) -> str:
 
 async def rewrite_image_url(runtime: INodeRuntime, image: ContentItemImage) -> str:
     if key := image.get("key"):
+        raise ValueError("Not implemented: Output image reference by key")
         return key
 
     url = image.get("url")
