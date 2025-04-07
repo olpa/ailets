@@ -65,11 +65,7 @@ class NodeRuntime(INodeRuntime):
         return self.node_name
 
     def n_of_inputs(self, slot_name: str) -> int:
-        if slot_name == "env":
-            return 1
-        if slot_name == "log":
-            return 1
-        return len(self._get_pipes(slot_name))
+        return 1
 
     async def open_read(self, slot_name: str, index: int) -> int:
         pipes = self._get_pipes(slot_name)
