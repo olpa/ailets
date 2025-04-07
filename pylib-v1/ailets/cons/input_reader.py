@@ -52,10 +52,10 @@ class MergeInputReader(IAsyncReader):
             self.current_reader = None
 
         pipes = _get_pipes(self.piper, self.deps, self.slot_name)
-        if self.index > len(pipes):
+        self.index += 1
+        if self.index >= len(pipes):
             self.closed = True
             return b""
 
-        self.index += 1
         self.current_reader = pipes[self.index].get_reader(self.read_handle)
         return await self.read(size)
