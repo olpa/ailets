@@ -58,12 +58,6 @@ async def iter_input_objects(
 
         decoder = json.JSONDecoder()
 
-        if buffer[0] == ord("["):
-            array = json.loads(buffer)
-            for item in array:
-                yield item
-            continue
-
         pos = 0
         while pos < len(sbuf):
             #
@@ -75,7 +69,7 @@ async def iter_input_objects(
                 break
 
             skipped_sse_tokens = False
-            if sbuf[pos] != "{":
+            if sbuf[pos] != "{" and sbuf[pos] != "[":
                 for token in sse_tokens:
                     if sbuf[pos:].startswith(token):
                         skipped_sse_tokens = True
@@ -91,7 +85,12 @@ async def iter_input_objects(
             try:
                 obj, obj_len = decoder.raw_decode(sbuf[pos:])
                 pos += obj_len
-                yield obj
+
+                if isinstance(obj, list):
+                    for item in obj:
+                        yield item
+                else:
+                    yield obj
 
             except json.JSONDecodeError:
                 raise ValueError(
