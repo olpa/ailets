@@ -3,7 +3,9 @@ import aiohttp
 import os
 import re
 from ailets.cons.atyping import INodeRuntime
-from ailets.cons.util import read_all, write_all
+from ailets.cons.util import write_all
+from ailets.cons.input_reader import read_all
+
 
 MAX_RUNS = 3  # Maximum number of runs allowed
 _run_count = 0  # Track number of runs

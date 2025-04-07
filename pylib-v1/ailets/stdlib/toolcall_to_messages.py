@@ -1,6 +1,7 @@
 import json
 from ..cons.atyping import ChatMessageTool, ContentItemFunction, INodeRuntime
-from ..cons.util import read_all, write_all
+from ..cons.util import write_all
+from ..cons.input_reader import read_all
 
 
 async def toolcall_to_messages(runtime: INodeRuntime) -> None:
