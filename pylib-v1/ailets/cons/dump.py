@@ -15,12 +15,13 @@ from typing import (
 
 from ailets.cons.atyping import (
     Dependency,
+    IKVBuffers,
     INodeRegistry,
     INodeRuntime,
+    IPipe,
+    IPiper,
     IProcesses,
-    IStreams,
     Node,
-    Stream,
 )
 from ailets.cons.dagops import Dagops
 from ailets.cons.seqno import Seqno
@@ -92,11 +93,29 @@ def load_node(
     return node
 
 
-async def dump_stream(stream: Stream, f: TextIO) -> None:
-    writer = stream.pipe.get_writer()
-    dont_care_handle = -1
-    reader = stream.pipe.get_reader(dont_care_handle)
-    b = await reader.read(size=-1)
+async def dump_pipe(path: str, pipe: IPipe, f: TextIO) -> None:
+    writer = pipe.get_writer()
+    json.dump(
+        {
+            "pipe": path,
+            "is_closed": writer.closed,
+        },
+        f,
+        indent=2,
+    )
+
+
+async def load_pipe(piper: IPiper, data: dict[str, Any]) -> None:
+    path = data["pipe"]
+    is_closed = data.get("is_closed", False)
+    pipe = piper.create_pipe(path, "", open_mode="append")
+    if is_closed:
+        writer = pipe.get_writer()
+        writer.close()
+
+
+async def dump_kv_item(kv: IKVBuffers, path: str, f: TextIO) -> None:
+    b = kv.open(path, "read").borrow_mut_buffer()
     try:
         content_field = "content"
         content = b.decode("utf-8")
@@ -105,9 +124,7 @@ async def dump_stream(stream: Stream, f: TextIO) -> None:
         content = base64.b64encode(b).decode("utf-8")
     json.dump(
         {
-            "node": stream.node_name,
-            "name": stream.stream_name,
-            "is_closed": writer.closed,
+            "path": path,
             content_field: content,
         },
         f,
@@ -115,15 +132,14 @@ async def dump_stream(stream: Stream, f: TextIO) -> None:
     )
 
 
-async def load_stream(streams: IStreams, data: dict[str, Any]) -> None:
+async def load_kv_item(kv: IKVBuffers, data: dict[str, Any]) -> None:
     if "b64_content" in data:
         content = base64.b64decode(data["b64_content"])
     else:
         content = data["content"].encode("utf-8")
-    is_closed = data.get("is_closed", False)
-    streams.create(
-        data["node"], data["name"], initial_content=content, is_closed=is_closed
-    )
+    path = data["path"]
+    item = kv.open(path, "write")
+    item.borrow_mut_buffer()[:] = content
 
 
 async def dump_environment(env: Environment, f: TextIO) -> None:
@@ -133,10 +149,13 @@ async def dump_environment(env: Environment, f: TextIO) -> None:
     for alias, names in env.dagops.aliases.items():
         json.dump({"alias": alias, "names": list(names)}, f, indent=2)
         f.write("\n")
-    for stream in env.streams._streams:
-        await dump_stream(stream, f)
+    for path in env.kv.listdir(""):
+        await dump_kv_item(env.kv, path, f)
         f.write("\n")
-    json.dump({"env": env.for_env_stream}, f, indent=2)
+    for path, pipe in env.piper.pipes.items():
+        await dump_pipe(path, pipe, f)
+        f.write("\n")
+    json.dump({"env": env.for_env_pipe}, f, indent=2)
     f.write("\n")
 
 
@@ -162,12 +181,14 @@ async def load_environment(f: TextIO, nodereg: INodeRegistry) -> Environment:
                 env.dagops.nodes[node.name] = node
                 if obj_data.get("is_finished", False):
                     env.processes.add_value_node(node.name)
-            elif "is_closed" in obj_data:
-                await load_stream(env.streams, obj_data)
+            elif "path" in obj_data:
+                await load_kv_item(env.kv, obj_data)
+            elif "pipe" in obj_data:
+                await load_pipe(env.piper, obj_data)
             elif "alias" in obj_data:
                 env.dagops.aliases[obj_data["alias"]] = obj_data["names"]
             elif "env" in obj_data:
-                env.for_env_stream.update(obj_data["env"])
+                env.for_env_pipe.update(obj_data["env"])
             else:
                 raise ValueError(f"Unknown object data: {obj_data}")
         except json.JSONDecodeError as e:
@@ -183,7 +204,7 @@ def print_dependency_tree(
     node_name: str,
     indent: str = "",
     visited: Optional[Set[str]] = None,
-    stream_name: str = "",
+    slot_name: str = "",
 ) -> None:
     """Print a tree showing node dependencies and build status.
 
@@ -191,7 +212,7 @@ def print_dependency_tree(
         node_name: Name of the node to print
         indent: Current indentation string (used for recursion)
         visited: Set of visited nodes to prevent cycles
-        stream_name: Optional stream name to display
+        slot_name: Optional slot name to display
     """
     if visited is None:
         visited = set()
@@ -212,8 +233,8 @@ def print_dependency_tree(
 
     # Print current node with explanation if it exists
     display_name = node.name
-    if stream_name:
-        display_name = f"{display_name}.{stream_name}"
+    if slot_name:
+        display_name = f"{display_name}.{slot_name}"
 
     node_text = f"{indent}├── {display_name} [{status}]"
     if node.explain:
@@ -231,14 +252,14 @@ def print_dependency_tree(
     for dep in dagops.iter_deps(node_name):
         if dep.name not in deps_by_param:
             deps_by_param[dep.name] = []
-        deps_by_param[dep.name].append((dep.source, dep.stream))
+        deps_by_param[dep.name].append((dep.source, dep.slot))
 
     next_indent = f"{indent}│   "
 
     # Print default dependencies (param_name is None)
-    for dep_name, stream_name in deps_by_param.get("", []):
+    for dep_name, slot_name in deps_by_param.get("", []):
         print_dependency_tree(
-            dagops, processes, dep_name, next_indent, visited.copy(), stream_name
+            dagops, processes, dep_name, next_indent, visited.copy(), slot_name
         )
 
     # Print named dependencies grouped by parameter
@@ -246,14 +267,14 @@ def print_dependency_tree(
         if param_name:  # Skip "" group as it's already printed
             print(f"{next_indent}├── (param: {param_name})")
             param_indent = f"{next_indent}│   "
-            for dep_name, stream_name in dep_names:
+            for dep_name, slot_name in dep_names:
                 print_dependency_tree(
                     dagops,
                     processes,
                     dep_name,
                     param_indent,
                     visited.copy(),
-                    stream_name,
+                    slot_name,
                 )
 
     visited.remove(node_name)

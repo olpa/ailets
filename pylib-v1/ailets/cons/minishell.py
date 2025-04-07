@@ -35,10 +35,10 @@ class MiniShell(cmd.Cmd):
         self.env.notification_queue.notify(self.env.processes.get_progress_handle(), -1)
         return True
 
-    def do_streams(self, arg: str) -> None:
-        """List streams."""
-        for stream in self.env.streams._streams:
-            print(stream)
+    def do_pipes(self, arg: str) -> None:
+        """List pipes."""
+        for pipe in self.env.piper.pipes.values():
+            print(pipe)
 
     def do_waits(self, arg: str) -> None:
         """List waits."""

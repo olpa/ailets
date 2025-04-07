@@ -82,7 +82,7 @@ class NodeRegistry(INodeRegistry):
                         Dependency(
                             name=dep.name,
                             source=resolve.get(dep.source, dep.source),
-                            stream=dep.stream,
+                            slot=dep.slot,
                             schema=dep.schema,
                         )
                         for dep in node.inputs

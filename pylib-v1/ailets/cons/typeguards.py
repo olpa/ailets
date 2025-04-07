@@ -23,7 +23,7 @@ def is_content_item_image(obj: Any) -> TypeGuard[ContentItemImage]:
         isinstance(obj, dict)
         and obj.get("type") == "image"
         and isinstance(obj.get("content_type"), str)
-        and ("url" in obj or "stream" in obj)
+        and ("url" in obj or "key" in obj)
     )
 
 

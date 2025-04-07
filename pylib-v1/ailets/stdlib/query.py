@@ -35,7 +35,7 @@ async def query(runtime: INodeRuntime) -> None:
     if _run_count > MAX_RUNS:
         raise RuntimeError(f"Exceeded maximum number of runs ({MAX_RUNS})")
 
-    assert runtime.n_of_streams("") == 1, "Expected exactly one query params dict"
+    assert runtime.n_of_inputs("") == 1, "Expected exactly one query params dict"
     fd = await runtime.open_read("", 0)
     params = json.loads((await read_all(runtime, fd)).decode("utf-8"))
     await runtime.close(fd)
@@ -47,13 +47,11 @@ async def query(runtime: INodeRuntime) -> None:
 
         if "body" in params:
             body_kwargs = {"json": params["body"]}
-        elif "body_stream" in params:
-            stream_name = params["body_stream"]
-            n_streams = runtime.n_of_streams(stream_name)
-            assert (
-                n_streams == 1
-            ), f"Expected exactly one stream '{stream_name}', got {n_streams}"
-            fd = await runtime.open_read(stream_name, 0)
+        elif "body_key" in params:
+            key = params["body_key"]
+            n_inputs = runtime.n_of_inputs(key)
+            assert n_inputs == 1, f"Expected exactly one input '{key}', got {n_inputs}"
+            fd = await runtime.open_read(key, 0)
             data = await read_all(runtime, fd)
             await runtime.close(fd)
             body_kwargs = {"data": data}

@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Dict, Optional, Sequence
 
-from ailets.cons.streams import Streams
+from .piper import Piper
 
 from .node_dagops import NodeDagops
 from .atyping import (
@@ -11,7 +11,7 @@ from .atyping import (
     IEnvironment,
     INodeDagops,
     INodeRuntime,
-    Stream,
+    IPipe,
 )
 
 
@@ -30,43 +30,61 @@ class NodeRuntime(INodeRuntime):
         deps: Sequence[Dependency],
     ):
         self.env = env
-        self.streams = env.streams
+        self.piper = env.piper
         self.node_name = node_name
         self.deps = deps
         self.open_fds: Dict[int, OpenFd] = {}
         self.cached_dagops: Optional[INodeDagops] = None
 
-    def _get_streams(self, stream_name: str) -> Sequence[Stream]:
-        # Special stream "env"
-        if stream_name == "env":
-            return [Streams.make_env_stream(self.env.for_env_stream)]
-        # Normal explicit streams
-        deps = [dep for dep in self.deps if dep.name == stream_name]
-        # Implicit dynamic streams like media attachments
-        if not deps and stream_name is not None:
+    def _get_pipes(self, slot_name: str) -> Sequence[IPipe]:
+        # Special slots "env" and "log"
+        if slot_name == "env":
+            return [Piper.make_env_pipe(self.env.for_env_pipe)]
+        if slot_name == "log":
+            return [Piper.make_log_pipe()]
+        # Normal explicit slots
+        deps = [dep for dep in self.deps if dep.name == slot_name]
+        # Implicit dynamic slots like media attachments
+        if not deps and slot_name is not None:
             dep_names = set([dep.source for dep in self.deps])
             deps = [
-                Dependency(name=stream_name, source=name, stream=stream_name)
+                Dependency(name=slot_name, source=name, slot=slot_name)
                 for name in dep_names
             ]
-        return self.streams.collect_streams(deps)
+        # Collect
+        pipes = []
+        for dep in deps:
+            try:
+                pipe = self.piper.get_existing_pipe(dep.source, dep.slot)
+            except KeyError:
+                continue
+            pipes.append(pipe)
+        return pipes
 
     def get_name(self) -> str:
         return self.node_name
 
-    def n_of_streams(self, stream_name: str) -> int:
-        if stream_name == "env":
+    def n_of_inputs(self, slot_name: str) -> int:
+        if slot_name == "env":
             return 1
-        return len(self._get_streams(stream_name))
+        if slot_name == "log":
+            return 1
+        return len(self._get_pipes(slot_name))
 
-    async def open_read(self, stream_name: str, index: int) -> int:
-        streams = self._get_streams(stream_name)
-        if index >= len(streams) or index < 0:
-            raise ValueError(f"Stream index out of bounds: {index} for {stream_name}")
+    async def open_read(self, slot_name: str, index: int) -> int:
+        pipes = self._get_pipes(slot_name)
+
+        if len(pipes) == 0 and "/" in slot_name:
+            pipe = self.piper.create_pipe(slot_name, "", open_mode="read")
+            pipe.get_writer().close()
+            pipes = [pipe]
+
+        if index >= len(pipes) or index < 0:
+            raise ValueError(f"Slot index out of bounds: {index} for {slot_name}")
         fd = self.env.seqno.next_seqno()
-        reader = streams[index].pipe.get_reader(fd)
+        reader = pipes[index].get_reader(fd)
         self.open_fds[fd] = OpenFd(
-            debug_hint=f"{self.node_name}.{stream_name}[{index}]",
+            debug_hint=f"{self.node_name}.{slot_name}[{index}]",
             reader=reader,
             writer=None,
         )
@@ -77,18 +95,18 @@ class NodeRuntime(INodeRuntime):
         fd_obj = self.open_fds[fd]
         assert (
             fd_obj.reader is not None
-        ), f"Stream {fd_obj.debug_hint} is not open for reading"
+        ), f"Slot {fd_obj.debug_hint} is not open for reading"
         read_bytes = await fd_obj.reader.read(count)
         n_bytes = len(read_bytes)
         buffer[:n_bytes] = read_bytes
         return n_bytes
 
-    async def open_write(self, stream_name: str) -> int:
-        stream = self.streams.create(self.node_name, stream_name)
+    async def open_write(self, slot_name: str) -> int:
+        slot = self.piper.create_pipe(self.node_name, slot_name)
         fd = self.env.seqno.next_seqno()
-        writer = stream.pipe.get_writer()
+        writer = slot.get_writer()
         self.open_fds[fd] = OpenFd(
-            debug_hint=f"{self.node_name}.{stream_name}",
+            debug_hint=f"{self.node_name}.{slot_name}",
             reader=None,
             writer=writer,
         )
@@ -99,7 +117,7 @@ class NodeRuntime(INodeRuntime):
         fd_obj = self.open_fds[fd]
         assert (
             fd_obj.writer is not None
-        ), f"Stream {fd_obj.debug_hint} is not open for writing"
+        ), f"Slot {fd_obj.debug_hint} is not open for writing"
         return await fd_obj.writer.write(buffer)
 
     async def close(self, fd: int) -> None:
@@ -116,29 +134,7 @@ class NodeRuntime(INodeRuntime):
         return self.cached_dagops
 
     async def read_dir(self, dir_name: str) -> Sequence[str]:
-        dep_names = [dep.source for dep in self.deps]
-        return await self.env.streams.read_dir(dir_name, [self.node_name, *dep_names])
-
-    async def pass_through_name_name(
-        self, in_stream_name: str, out_stream_name: str
-    ) -> None:
-        in_streams = self._get_streams(in_stream_name)
-        for in_stream in in_streams:
-            reader = in_stream.pipe.get_reader(self.env.seqno.next_seqno())
-            out_stream = self.streams.create(self.node_name, out_stream_name)
-            writer = out_stream.pipe.get_writer()
-            await writer.write(await reader.read(size=-1))
-            writer.close()
-
-    async def pass_through_name_fd(self, in_stream_name: str, out_fd: int) -> None:
-        in_streams = self._get_streams(in_stream_name)
-        out_fd_obj = self.open_fds[out_fd]
-        assert (
-            out_fd_obj.writer is not None
-        ), f"File descriptor {out_fd} is not open for writing"
-        for in_stream in in_streams:
-            reader = in_stream.pipe.get_reader(self.env.seqno.next_seqno())
-            await out_fd_obj.writer.write(await reader.read(size=-1))
+        return self.env.kv.listdir(dir_name)
 
     def get_next_name(self, base_name: str) -> str:
         return self.env.dagops.get_next_name(base_name)

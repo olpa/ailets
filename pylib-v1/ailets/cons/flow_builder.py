@@ -3,6 +3,7 @@ from typing import Literal, Optional
 import json
 from typing import Sequence
 import sys
+import os.path
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -37,7 +38,7 @@ async def prompt_to_dagops(
         def mk_node(prompt_content: str) -> Node:
             node = env.dagops.add_value_node(
                 prompt_content.encode("utf-8"),
-                env.streams,
+                env.piper,
                 env.processes,
                 explain="Prompt",
             )
@@ -76,14 +77,16 @@ async def prompt_to_dagops(
                     }
                 )
             )
-            return
+            return  # return if "url"
 
-        stream_name = env.dagops.get_next_name(f"media/{base_content_type}")
-        node = mk_node(
+        n = env.seqno.next_seqno()
+        b = os.path.basename(prompt_item.value)
+        file_key = env.dagops.get_next_name(f"media/{b}.{n}")
+        mk_node(
             json.dumps(
                 {
                     "type": base_content_type,
-                    "stream": stream_name,
+                    "key": file_key,
                     "content_type": prompt_item.content_type,
                 }
             )
@@ -91,9 +94,10 @@ async def prompt_to_dagops(
 
         with open(prompt_item.value, "rb") as f:
             bytes = f.read()
-            env.streams.create(
-                node.name, stream_name, initial_content=bytes, is_closed=True
-            )
+            h = env.kv.open(file_key, "write")
+            ba = h.borrow_mut_buffer()
+            ba[:] = bytes
+            env.kv.flush(h)
 
     for prompt_item in prompt:
         await prompt_to_node(prompt_item)
@@ -107,7 +111,7 @@ def toml_to_env(
         if prompt_item.type != "toml":
             continue
         items = tomllib.loads(prompt_item.value)
-        env.for_env_stream.update(items)
+        env.for_env_pipe.update(items)
 
 
 def toolspecs_to_dagops(env: IEnvironment, tools: Sequence[str]) -> None:
@@ -118,7 +122,7 @@ def toolspecs_to_dagops(env: IEnvironment, tools: Sequence[str]) -> None:
 
         tool_spec = env.dagops.add_value_node(
             json.dumps(schema).encode("utf-8"),
-            env.streams,
+            env.piper,
             env.processes,
             explain=f"Tool spec {tool}",
         )
@@ -177,7 +181,7 @@ def instantiate_with_deps(
             parent_context = f" (required by '{parent_node_name}')"
             raise RuntimeError(
                 f"Node '{node_name}' not found in registry while building "
-                f"pipeline{parent_context}.\n"
+                f"flow{parent_context}.\n"
             )
         for dep in node_desc.inputs:
             create_node_recursive(dep.source, node_name)
@@ -197,7 +201,7 @@ def instantiate_with_deps(
             node_desc = nodereg.get_node(node_name)
         except KeyError:
             raise RuntimeError(
-                f"Node '{node_name}' not found in registry while building pipeline."
+                f"Node '{node_name}' not found in registry while building a flow"
             )
         deps = []
         for dep in node_desc.inputs:
@@ -207,7 +211,7 @@ def instantiate_with_deps(
                 source = resolve.get(source, source)
             deps.append(
                 Dependency(
-                    name=dep.name, source=source, stream=dep.stream, schema=dep.schema
+                    name=dep.name, source=source, slot=dep.slot, schema=dep.schema
                 )
             )
         dagops.depend(resolve[node_name], deps)

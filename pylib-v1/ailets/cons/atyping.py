@@ -50,43 +50,40 @@ class IPipe(Protocol):
         raise NotImplementedError
 
 
-@dataclass
-class Stream:
-    node_name: str
-    stream_name: Optional[str]
-    pipe: IPipe
-
-    def __str__(self) -> str:
-        return (
-            f"Stream(node_name={self.node_name}, "
-            f"stream_name={self.stream_name}, "
-            f"pipe={self.pipe})"
-        )
-
-
-class IStreams(Protocol):
-    def create(
-        self,
-        node_name: str,
-        stream_name: str,
-        initial_content: Optional[bytes] = None,
-        is_closed: bool = False,
-    ) -> Stream:
+class IKVBuffer(Protocol):
+    def borrow_mut_buffer(self) -> bytearray:
         raise NotImplementedError
 
+
+class IKVBuffers(Protocol):
+    def open(self, path: str, mode: Literal["read", "write", "append"]) -> IKVBuffer:
+        raise NotImplementedError
+
+    def flush(self, kvbuffer: IKVBuffer) -> None:
+        raise NotImplementedError
+
+    def listdir(self, dir_name: str) -> Sequence[str]:
+        raise NotImplementedError
+
+
+class IPiper(Protocol):
     def destroy(self) -> None:
+        """Release fsops handle"""
+        raise NotImplementedError
+
+    def create_pipe(
+        self,
+        node_name: str,
+        slot_name: str,
+        open_mode: Literal["read", "write", "append"] = "write",
+    ) -> IPipe:
+        raise NotImplementedError
+
+    def get_existing_pipe(self, node_name: str, slot_name: str) -> IPipe:
+        """If not found, raise KeyError"""
         raise NotImplementedError
 
     def get_fsops_handle(self) -> int:
-        raise NotImplementedError
-
-    def has_input(self, dep: "Dependency") -> bool:
-        raise NotImplementedError
-
-    def collect_streams(self, deps: Sequence["Dependency"]) -> Sequence[Stream]:
-        raise NotImplementedError
-
-    async def read_dir(self, dir_name: str, node_names: Sequence[str]) -> Sequence[str]:
         raise NotImplementedError
 
 
@@ -97,18 +94,18 @@ class IStreams(Protocol):
 
 @dataclass(frozen=True)
 class Dependency:
-    """A dependency of a node on another node's stream.
+    """A dependency of a node on another node's.
 
     Attributes:
         name: Optional name to reference this dependency in the node's inputs
         source: Name of the node this dependency comes from
-        stream: Optional name of the specific stream from the source node
-        schema: Optional schema for the stream
+        slot: Optional name of the specific slot from the source node
+        schema: Optional schema for the slot
     """
 
     source: str
     name: str = ""
-    stream: str = ""
+    slot: str = ""
     schema: Optional[dict[str, Any]] = None
 
 
@@ -158,13 +155,13 @@ class INodeRuntime(Protocol):
     def get_name(self) -> str:
         raise NotImplementedError
 
-    def n_of_streams(self, stream_name: str) -> int:
+    def n_of_inputs(self, slot_name: str) -> int:
         raise NotImplementedError
 
-    async def open_read(self, stream_name: str, index: int) -> int:
+    async def open_read(self, slot_name: str, index: int) -> int:
         raise NotImplementedError
 
-    async def open_write(self, stream_name: str) -> int:
+    async def open_write(self, slot_name: str) -> int:
         raise NotImplementedError
 
     async def read(self, fd: int, buffer: bytearray, count: int) -> int:
@@ -183,14 +180,6 @@ class INodeRuntime(Protocol):
         raise NotImplementedError
 
     async def read_dir(self, dir_name: str) -> Sequence[str]:
-        raise NotImplementedError
-
-    async def pass_through_name_name(
-        self, in_stream_name: str, out_stream_name: str
-    ) -> None:
-        raise NotImplementedError
-
-    async def pass_through_name_fd(self, in_stream_name: str, out_fd: int) -> None:
         raise NotImplementedError
 
 
@@ -226,7 +215,7 @@ class IDagops(Protocol):
     def add_value_node(
         self,
         value: bytes,
-        streams: IStreams,
+        piper: IPiper,
         processes: "IProcesses",
         explain: Optional[str] = None,
     ) -> Node:
@@ -293,10 +282,11 @@ class IProcesses(Protocol):
 
 
 class IEnvironment(Protocol):
-    for_env_stream: Dict[str, Any]
+    for_env_pipe: Dict[str, Any]
     seqno: Seqno
     dagops: IDagops
-    streams: IStreams
+    piper: IPiper
+    kv: IKVBuffers
     nodereg: INodeRegistry
     processes: IProcesses
     notification_queue: INotificationQueue
@@ -326,9 +316,9 @@ class ContentItemText(TypedDict):
 class ContentItemImage(TypedDict):
     type: Literal["image"]
     content_type: str
-    # `url` or `stream`, exactly one of them
+    # `url` or `key`, exactly one of them
     url: NotRequired[str]
-    stream: NotRequired[str]
+    key: NotRequired[str]
 
 
 class ContentItemRefusal(TypedDict):

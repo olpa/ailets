@@ -15,7 +15,7 @@ from ailets.cons.plugin import (
     hijack_msg2md,
     hijack_msg2query,
 )
-from ailets.cons.pipelines import (
+from ailets.cons.flow_builder import (
     CmdlinePromptItem,
     instantiate_with_deps,
     prompt_to_dagops,
@@ -299,13 +299,13 @@ async def main() -> None:
             await dump_environment(env, f)
 
     if not args.dry_run:
-        fs_output_streams = env.streams.get_fs_output_streams()
-        if len(fs_output_streams):
+        output_files = env.kv.listdir("out")
+        if len(output_files):
             os.makedirs(args.download_to, exist_ok=True)
-        for stream in fs_output_streams:
-            name = os.path.basename(stream.get_name() or "None")
-            with open(os.path.join(args.download_to, name), "wb") as hb:
-                content = await stream.read(0, -1)
+        for fname in output_files:
+            out_fname = os.path.join(args.download_to, os.path.basename(fname))
+            with open(out_fname, "wb") as hb:
+                content = env.kv.open(fname, "read").borrow_mut_buffer()
                 hb.write(content)
         env.destroy()
 

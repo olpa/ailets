@@ -7,7 +7,7 @@ from ailets.cons.atyping import (
     ContentItemImage,
     INodeRuntime,
 )
-from ailets.cons.util import iter_streams_objects, write_all
+from ailets.cons.util import iter_input_objects, write_all
 
 need_separator = False
 
@@ -26,15 +26,13 @@ def get_extension(media_type: str) -> str:
 
 
 async def rewrite_image_url(runtime: INodeRuntime, image: ContentItemImage) -> str:
-    if stream := image.get("stream"):
-        out_name = runtime.get_next_name("out/image")
-        out_name += get_extension(image["content_type"])
-        await runtime.pass_through_name_name(stream, out_name)
-        return out_name
+    if key := image.get("key"):
+        raise ValueError("Not implemented: Output image reference by key")
+        return key
 
     url = image.get("url")
     if not url:
-        raise ValueError("Image has no URL or stream")
+        raise ValueError("Image has no URL or kv key")
 
     if not url.startswith("data:"):
         return url
@@ -67,7 +65,7 @@ async def rewrite_image_url(runtime: INodeRuntime, image: ContentItemImage) -> s
     md5_hash = hashlib.md5(data_bytes).hexdigest()
     filename = f"out/{md5_hash}{get_extension(media_type)}"
 
-    # Write to stream
+    # Write to kv
     fd_out = await runtime.open_write(filename)
     await write_all(runtime, fd_out, data_bytes)
     await runtime.close(fd_out)
@@ -102,7 +100,7 @@ async def messages_to_markdown(runtime: INodeRuntime) -> None:
     fd = await runtime.open_write("")
 
     try:
-        async for message in iter_streams_objects(runtime, ""):
+        async for message in iter_input_objects(runtime, ""):
             content = message["content"]
             if isinstance(content, str):
                 await separator(runtime, fd)

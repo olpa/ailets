@@ -1,25 +1,34 @@
 import asyncio
 import logging
+import threading
+from typing import Optional
 
 from .atyping import IAsyncReader, IAsyncWriter
 from .notification_queue import INotificationQueue, NotificationQueue
 
-logger = logging.getLogger("ailets.io")
+logger = logging.getLogger("ailets.mempipe")
 
 
 class Writer(IAsyncWriter):
-    def __init__(self, handle: int, queue: INotificationQueue, debug_hint: str) -> None:
+    def __init__(
+        self,
+        handle: int,
+        queue: INotificationQueue,
+        debug_hint: str,
+        external_buffer: Optional[bytearray] = None,
+    ) -> None:
         super().__init__()
-        self.buffer = bytearray()
+        self.buffer = external_buffer if external_buffer is not None else bytearray()
         self.handle = handle
         self.queue = queue
         self.debug_hint = debug_hint
         self.closed = False
-        self.queue.whitelist(handle, f"BytesWR.Writer {debug_hint}")
+        self.queue.whitelist(handle, f"MemPipe.Writer {debug_hint}")
+        self.close_lock = threading.Lock()
 
     def __str__(self) -> str:
         return (
-            f"BytesWR.Writer(handle={self.handle}, "
+            f"MemPipe.Writer(handle={self.handle}, "
             f"closed={self.closed}, "
             f"tell={self.tell()}, "
             f"hint={self.debug_hint})"
@@ -41,9 +50,10 @@ class Writer(IAsyncWriter):
         return len(self.buffer)
 
     def close(self) -> None:
-        self.closed = True
-        self.queue.unlist(self.handle)
+        with self.close_lock:
+            self.closed = True
         self.queue.notify(self.handle, -1)
+        self.queue.unlist(self.handle)
 
 
 class Reader(IAsyncReader):
@@ -58,8 +68,21 @@ class Reader(IAsyncReader):
         self.closed = True
 
     def _should_wait_with_autoclose(self) -> bool:
-        should_wait = self.pos >= self.writer.tell()
-        if should_wait and self.writer.closed:
+        with self.writer.close_lock:
+            # Without the lock, the following race condition is possible:
+            #
+            # - this thread, `should_wait=True`:
+            #   reader notices there is no new data to read
+            # - another thread, the writer writes new data
+            # - another thread, the writer closes the pipe
+            # - this thread, `is_writer_closed=True`:
+            #   reader notices the writer is closed
+            #
+            # The reader missed the new data
+            writer_pos = self.writer.tell()
+            should_wait = self.pos >= writer_pos
+            is_writer_closed = self.writer.closed
+        if should_wait and is_writer_closed:
             self.close()
             should_wait = False
         return should_wait
@@ -78,7 +101,7 @@ class Reader(IAsyncReader):
             data = self.writer.buffer[slice(self.pos, end_pos)]
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(
-                    "BytesWR.Reader.read: handle=%s, old pos=%s, new pos=%s",
+                    "MemPipe.Reader.read: handle=%s, old pos=%s, new pos=%s",
                     self.handle,
                     self.pos,
                     end_pos,
@@ -94,30 +117,32 @@ class Reader(IAsyncReader):
         with lock:
             if self._should_wait_with_autoclose():
                 await self.writer.queue.wait_unsafe(
-                    self.writer.handle, f"BytesWR.Reader {self.handle}"
+                    self.writer.handle, f"MemPipe.Reader {self.handle}"
                 )
                 lock.acquire()
-        if self.writer.closed:
-            self.close()
 
 
-class BytesWR:
+class MemPipe:
     def __init__(
-        self, writer_handle: int, queue: INotificationQueue, debug_hint: str
+        self,
+        writer_handle: int,
+        queue: INotificationQueue,
+        debug_hint: str,
+        external_buffer: Optional[bytearray] = None,
     ) -> None:
-        self.writer = Writer(writer_handle, queue, debug_hint)
+        self.writer = Writer(writer_handle, queue, debug_hint, external_buffer)
 
     def get_writer(self) -> IAsyncWriter:
         return self.writer
 
     def get_reader(self, handle: int) -> IAsyncReader:
         logger.debug(
-            "BytesWR.get_reader: %s for the writer %s", handle, self.writer.handle
+            "MemPipe.get_reader: %s for the writer %s", handle, self.writer.handle
         )
         return Reader(handle, self.writer)
 
     def __str__(self) -> str:
-        return f"BytesWR(writer={self.writer})"
+        return f"MemPipe(writer={self.writer})"
 
 
 def main() -> None:
@@ -143,7 +168,7 @@ def main() -> None:
 
     async def main() -> None:
         queue = NotificationQueue()
-        wr = BytesWR(0, queue, "main")
+        wr = MemPipe(0, queue, "main")
         lib_writer = wr.get_writer()
         lib_reader1 = wr.get_reader(1)
         lib_reader2 = wr.get_reader(2)

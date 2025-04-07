@@ -3,17 +3,25 @@ import itertools
 import logging
 import sys
 from typing import Iterator, Mapping, Optional, Sequence
-from ailets.cons.atyping import Dependency, IEnvironment, IProcesses
+from ailets.cons.atyping import Dependency, IEnvironment, IProcesses, IPiper
 from ailets.cons.node_runtime import NodeRuntime
 
 
 logger = logging.getLogger("ailets.processes")
 
 
+def has_data_from_dependency(piper: IPiper, dep: Dependency) -> bool:
+    try:
+        pipe = piper.get_existing_pipe(dep.source, dep.slot)
+    except KeyError:
+        return False
+    return pipe.get_writer().tell() > 0
+
+
 class Processes(IProcesses):
     def __init__(self, env: IEnvironment):
         self.env = env
-        self.streams = env.streams
+        self.piper = env.piper
         self.dagops = env.dagops
         self.queue = env.notification_queue
 
@@ -38,7 +46,7 @@ class Processes(IProcesses):
         self.queue.unlist(self.progress_handle)
 
     def subscribe_fsops(self) -> None:
-        self.fsops_handle = self.streams.get_fsops_handle()
+        self.fsops_handle = self.piper.get_fsops_handle()
 
         def on_fsops(writer_handle: int) -> None:
             async def awake_on_write() -> None:
@@ -83,7 +91,7 @@ class Processes(IProcesses):
                 if dep.source not in rev_deps:
                     rev_deps[dep.source] = []
                 rev_deps[dep.source].append(
-                    Dependency(source=node_name, name=dep.name, stream=dep.stream)
+                    Dependency(source=node_name, name=dep.name, slot=dep.slot)
                 )
         self.rev_deps = rev_deps
 
@@ -163,7 +171,8 @@ class Processes(IProcesses):
 
     def _can_start_node(self, node_name: str) -> bool:
         return all(
-            dep.source in self.finished_nodes or self.streams.has_input(dep)
+            dep.source in self.finished_nodes
+            or has_data_from_dependency(self.piper, dep)
             for dep in self.deps[node_name]
         )
 
@@ -230,7 +239,7 @@ class Processes(IProcesses):
             print(f"Function: {node.func.__name__}")
             print("Dependencies:")
             for dep in self.deps[name]:
-                print(f"  {dep.source} ({dep.stream}) -> {dep.name}")
+                print(f"  {dep.source} ({dep.slot}) -> {dep.name}")
             print(f"Exception: {exc}")
             raise
         finally:
