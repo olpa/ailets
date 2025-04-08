@@ -105,8 +105,5 @@ class NodeRuntime(INodeRuntime):
             self.cached_dagops = NodeDagops(self.env, self)
         return self.cached_dagops
 
-    async def read_dir(self, dir_name: str) -> Sequence[str]:
-        return self.env.kv.listdir(dir_name)
-
     def get_next_name(self, base_name: str) -> str:
         return self.env.dagops.get_next_name(base_name)

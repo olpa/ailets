@@ -176,9 +176,6 @@ class INodeRuntime(Protocol):
     def get_next_name(self, base_name: str) -> str:
         raise NotImplementedError
 
-    async def read_dir(self, dir_name: str) -> Sequence[str]:
-        raise NotImplementedError
-
 
 @dataclass(frozen=True)
 class NodeDescFunc:
