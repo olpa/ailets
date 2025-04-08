@@ -182,7 +182,7 @@ def fill_wasm_import_object(
     import_object.register(
         "",
         {
-            "n_of_inputs": wasmer.Function(store, sync_n_of_inputs),
+            "n_of_streams": wasmer.Function(store, sync_n_of_inputs),
             "open_read": wasmer.Function(store, sync_open_read),
             "open_write": wasmer.Function(store, sync_open_write),
             "aread": wasmer.Function(store, sync_aread),
