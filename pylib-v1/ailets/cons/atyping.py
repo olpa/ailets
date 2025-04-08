@@ -155,10 +155,7 @@ class INodeRuntime(Protocol):
     def get_name(self) -> str:
         raise NotImplementedError
 
-    def n_of_inputs(self, slot_name: str) -> int:
-        raise NotImplementedError
-
-    async def open_read(self, slot_name: str, index: int) -> int:
+    async def open_read(self, slot_name: str) -> int:
         raise NotImplementedError
 
     async def open_write(self, slot_name: str) -> int:

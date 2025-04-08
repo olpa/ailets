@@ -80,58 +80,52 @@ async def iter_input_objects(
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Iterate over all slots. Each slot contains JSON objects,
     either as a JSON array or as individual objects without separation."""
-    # `n_of_inputs` can change with time, therefore don't use `range`
-    i = 0
-    while i < runtime.n_of_inputs(slot_name):
-        i += 1
+    fd = await runtime.open_read(slot_name, 0)
+    buffer = await read_all(runtime, fd)
+    await runtime.close(fd)
 
-        fd = await runtime.open_read(slot_name, i - 1)
-        buffer = await read_all(runtime, fd)
-        await runtime.close(fd)
+    if len(buffer) == 0:
+        return
 
-        if len(buffer) == 0:
+    sbuf = buffer.decode("utf-8")
+
+    decoder = json.JSONDecoder()
+
+    pos = 0
+    while pos < len(sbuf):
+        #
+        # Skip whitespace and SSE tokens
+        #
+        while pos < len(sbuf) and sbuf[pos].isspace():
+            pos += 1
+        if pos >= len(sbuf):
+            break
+
+        skipped_sse_tokens = False
+        if sbuf[pos] != "{" and sbuf[pos] != "[":
+            for token in sse_tokens:
+                if sbuf[pos:].startswith(token):
+                    skipped_sse_tokens = True
+                    pos += len(token)
+                    break
+
+        if skipped_sse_tokens:
             continue
 
-        sbuf = buffer.decode("utf-8")
+        #
+        # Parse JSON object
+        #
+        try:
+            obj, obj_len = decoder.raw_decode(sbuf[pos:])
+            pos += obj_len
 
-        decoder = json.JSONDecoder()
+            if isinstance(obj, list):
+                for item in obj:
+                    yield item
+            else:
+                yield obj
 
-        pos = 0
-        while pos < len(sbuf):
-            #
-            # Skip whitespace and SSE tokens
-            #
-            while pos < len(sbuf) and sbuf[pos].isspace():
-                pos += 1
-            if pos >= len(sbuf):
-                break
-
-            skipped_sse_tokens = False
-            if sbuf[pos] != "{" and sbuf[pos] != "[":
-                for token in sse_tokens:
-                    if sbuf[pos:].startswith(token):
-                        skipped_sse_tokens = True
-                        pos += len(token)
-                        break
-
-            if skipped_sse_tokens:
-                continue
-
-            #
-            # Parse JSON object
-            #
-            try:
-                obj, obj_len = decoder.raw_decode(sbuf[pos:])
-                pos += obj_len
-
-                if isinstance(obj, list):
-                    for item in obj:
-                        yield item
-                else:
-                    yield obj
-
-            except json.JSONDecodeError:
-                raise ValueError(
-                    f"Failed to decode JSON at position {pos}: "
-                    f"{sbuf[pos:pos+20]!r}..."
-                )
+        except json.JSONDecodeError:
+            raise ValueError(
+                f"Failed to decode JSON at position {pos}: " f"{sbuf[pos:pos+20]!r}..."
+            )

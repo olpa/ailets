@@ -14,13 +14,6 @@ async def toolcall_to_messages(runtime: INodeRuntime) -> None:
     Writes:
         A single message in OpenAI chat format
     """
-    n_tool_results = runtime.n_of_inputs("")
-    assert (
-        n_tool_results == 1
-    ), f"Expected exactly one tool result, got {n_tool_results}"
-    n_specs = runtime.n_of_inputs("llm_tool_spec")
-    assert n_specs == 1, f"Expected exactly one tool spec, got {n_specs}"
-
     fd = await runtime.open_read("", 0)
     tool_result = (await read_all(runtime, fd)).decode("utf-8")
     await runtime.close(fd)

@@ -41,9 +41,6 @@ class NodeRuntime(INodeRuntime):
     def get_name(self) -> str:
         return self.node_name
 
-    def n_of_inputs(self, slot_name: str) -> int:
-        return 1
-
     async def open_read(self, slot_name: str, index: int) -> int:
         fd = self.env.seqno.next_seqno()
 
