@@ -87,9 +87,6 @@ class NodeRuntime:
             return found
         return [Spec(direction=direction, name="", value_or_file="-")]
 
-    def n_of_streams(self, stream_name: str) -> int:
-        return len(self._collect_streams("in", stream_name))
-
     def open_read(self, stream_name: str) -> int:
         specs = self._collect_streams("in", stream_name)
         if not specs:
@@ -205,10 +202,6 @@ def register_node_runtime(
     nr: NodeRuntime,
 ) -> None:
 
-    def n_of_streams(name_ptr: int) -> int:
-        name = buf_to_str.get_string(name_ptr)
-        return nr.n_of_streams(name)
-
     def open_read(name_ptr: int) -> int:
         name = buf_to_str.get_string(name_ptr)
         return nr.open_read(name)
@@ -250,7 +243,6 @@ def register_node_runtime(
     import_object.register(
         "",
         {
-            "n_of_streams": wasmer.Function(store, n_of_streams),
             "open_read": wasmer.Function(store, open_read),
             "open_write": wasmer.Function(store, open_write),
             "aread": wasmer.Function(store, aread),
