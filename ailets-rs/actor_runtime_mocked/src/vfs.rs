@@ -73,30 +73,11 @@ fn cstr_to_string(ptr: *const c_char) -> String {
 #[no_mangle]
 #[allow(clippy::missing_panics_doc)]
 #[allow(clippy::unwrap_used)]
-pub extern "C" fn n_of_streams(name_ptr: *const c_char) -> c_int {
-    let files = FILES.lock().unwrap();
-
-    let name = cstr_to_string(name_ptr);
-    if name.contains(WANT_ERROR) {
-        return -1;
-    }
-
-    let mut count = 0;
-    while files.iter().any(|f| f.name == format!("{name}.{count}")) {
-        count += 1;
-    }
-    count
-}
-
-#[no_mangle]
-#[allow(clippy::missing_panics_doc)]
-#[allow(clippy::unwrap_used)]
-pub extern "C" fn open_read(name_ptr: *const c_char, index: c_uint) -> c_int {
+pub extern "C" fn open_read(name_ptr: *const c_char) -> c_int {
     let files = FILES.lock().unwrap();
     let mut handles = HANDLES.lock().unwrap();
 
     let name = cstr_to_string(name_ptr);
-    let name = format!("{name}.{index}");
 
     if let Some(vfs_index) = files.iter().position(|f| f.name == name) {
         let handle = FileHandle { vfs_index, pos: 0 };
