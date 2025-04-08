@@ -38,9 +38,6 @@ def fill_wasm_import_object(
     buf_to_str: BufToStr,
     runtime: INodeRuntime,
 ) -> None:
-    def sync_n_of_inputs(name_ptr: int) -> int:
-        return 1
-
     async def open_read(name_ptr: int) -> int:
         name = buf_to_str.get_string(name_ptr)
         return await runtime.open_read(name)
@@ -151,7 +148,7 @@ def fill_wasm_import_object(
             )
             return -1
 
-    def sync_open_read(name_ptr: int, index: int) -> int:
+    def sync_open_read(name_ptr: int) -> int:
         return asyncio.run(open_read(name_ptr))
 
     def sync_open_write(name_ptr: int) -> int:
@@ -182,7 +179,6 @@ def fill_wasm_import_object(
     import_object.register(
         "",
         {
-            "n_of_streams": wasmer.Function(store, sync_n_of_inputs),
             "open_read": wasmer.Function(store, sync_open_read),
             "open_write": wasmer.Function(store, sync_open_write),
             "aread": wasmer.Function(store, sync_aread),
