@@ -41,9 +41,9 @@ def fill_wasm_import_object(
     def sync_n_of_inputs(name_ptr: int) -> int:
         return 1
 
-    async def open_read(name_ptr: int, index: int) -> int:
+    async def open_read(name_ptr: int) -> int:
         name = buf_to_str.get_string(name_ptr)
-        return await runtime.open_read(name, index)
+        return await runtime.open_read(name)
 
     async def open_write(name_ptr: int) -> int:
         name = buf_to_str.get_string(name_ptr)
@@ -152,7 +152,7 @@ def fill_wasm_import_object(
             return -1
 
     def sync_open_read(name_ptr: int, index: int) -> int:
-        return asyncio.run(open_read(name_ptr, index))
+        return asyncio.run(open_read(name_ptr))
 
     def sync_open_write(name_ptr: int) -> int:
         return asyncio.run(open_write(name_ptr))

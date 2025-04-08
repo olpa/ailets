@@ -41,7 +41,7 @@ class NodeRuntime(INodeRuntime):
     def get_name(self) -> str:
         return self.node_name
 
-    async def open_read(self, slot_name: str, index: int) -> int:
+    async def open_read(self, slot_name: str) -> int:
         fd = self.env.seqno.next_seqno()
 
         reader: IAsyncReader
@@ -52,7 +52,7 @@ class NodeRuntime(INodeRuntime):
             reader = MergeInputReader(self.piper, self.deps, slot_name, fd)
 
         self.open_fds[fd] = OpenFd(
-            debug_hint=f"{self.node_name}.{slot_name}[{index}]",
+            debug_hint=f"{self.node_name}.{slot_name}",
             reader=reader,
             writer=None,
         )

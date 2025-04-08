@@ -43,7 +43,7 @@ def task_to_headers(task: str) -> dict[str, str]:
 
 
 async def copy_image_to_fd(runtime: INodeRuntime, key: str, fd: int) -> None:
-    fd_in = await runtime.open_read(key, 0)
+    fd_in = await runtime.open_read(key)
     buffer = await read_all(runtime, fd_in)
     await runtime.close(fd_in)
     await write_all(runtime, fd, buffer)
@@ -88,7 +88,7 @@ class ExtractedPrompt(TypedDict):
 
 
 async def read_from_slot(runtime: INodeRuntime, slot_name: str) -> bytes:
-    fd = await runtime.open_read(slot_name, 0)
+    fd = await runtime.open_read(slot_name)
     content = await read_all(runtime, fd)
     await runtime.close(fd)
     return content

@@ -37,7 +37,7 @@ async def query(runtime: INodeRuntime) -> None:
     if _run_count > MAX_RUNS:
         raise RuntimeError(f"Exceeded maximum number of runs ({MAX_RUNS})")
 
-    fd = await runtime.open_read("", 0)
+    fd = await runtime.open_read("")
     params = json.loads((await read_all(runtime, fd)).decode("utf-8"))
     await runtime.close(fd)
 
@@ -50,7 +50,7 @@ async def query(runtime: INodeRuntime) -> None:
             body_kwargs = {"json": params["body"]}
         elif "body_key" in params:
             key = params["body_key"]
-            fd = await runtime.open_read(key, 0)
+            fd = await runtime.open_read(key)
             data = await read_all(runtime, fd)
             await runtime.close(fd)
             body_kwargs = {"data": data}
