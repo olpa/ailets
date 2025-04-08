@@ -32,7 +32,7 @@ impl AWriter {
     ///
     /// # Errors
     /// Returns an error if the file could not be created.
-    pub fn new(filename: &CStr) -> Result<Self, std::io::Error> {
+    pub fn new(filename: &CStr) -> std::io::Result<Self> {
         let fd = unsafe { open_write(filename.as_ptr()) };
         if fd < 0 {
             Err(std::io::Error::new(
@@ -56,7 +56,7 @@ impl AWriter {
             if result < 0 {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::Other,
-                    "Failed to close output stream {fd}",
+                    format!("Failed to close output stream {fd}"),
                 ));
             }
             self.fd = None;
@@ -73,21 +73,22 @@ impl Drop for AWriter {
 
 impl std::io::Write for AWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        if let Some(fd) = self.fd {
-            #[allow(clippy::cast_possible_truncation)]
-            let buf_len = buf.len() as c_uint;
-            let n = unsafe { awrite(fd, buf.as_ptr(), buf_len) };
-            if n < 0 {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    "Failed to write to output stream {fd}",
-                ));
-            }
-            #[allow(clippy::cast_sign_loss)]
-            Ok(n as usize)
-        } else {
-            Ok(0)
+        let Some(fd) = self.fd else {
+            return Ok(0);
+        };
+
+        #[allow(clippy::cast_possible_truncation)]
+        let buf_len = buf.len() as c_uint;
+        let n = unsafe { awrite(fd, buf.as_ptr(), buf_len) };
+
+        if n < 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to write to stream {fd}"),
+            ));
         }
+        #[allow(clippy::cast_sign_loss)]
+        Ok(n as usize)
     }
 
     fn flush(&mut self) -> std::io::Result<()> {

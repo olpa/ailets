@@ -1,8 +1,4 @@
-//! A module providing functionality for reading from actor streams.
-//!
-//! The `AReader` type implements a reader that can sequentially read from multiple
-//! actor streams sharing the same name. It automatically handles stream transitions
-//! and provides a standard `Read` trait implementation.
+//! Read from actor streams.
 //!
 //! # Example
 //!
@@ -16,68 +12,29 @@
 //! reader.read_to_end(&mut buffer).unwrap();
 //! ```
 
-use actor_runtime::{aclose, aread, n_of_streams, open_read};
+use actor_runtime::{aclose, aread, open_read};
 use std::ffi::CStr;
-use std::io::{Error, ErrorKind, Read, Result};
 use std::os::raw::{c_int, c_uint};
 
-pub struct AReader<'a> {
+pub struct AReader {
     fd: Option<c_int>,
-    stream_index: c_uint,
-    stream_name: &'a CStr,
 }
 
-impl<'a> AReader<'a> {
+impl AReader {
     /// Create a new `AReader` for the given stream name.
     ///
     /// # Errors
     /// Returns an error if opening fails.
-    pub fn new(stream_name: &'a CStr) -> Result<Self> {
-        let fd = Self::open(stream_name, 0)?;
-        Ok(AReader {
-            fd: Some(fd),
-            stream_index: 0,
-            stream_name,
-        })
-    }
-
-    fn open(stream_name: &CStr, index: c_uint) -> Result<c_int> {
-        let fd = unsafe { open_read(stream_name.as_ptr(), index) };
+    pub fn new(filename: &CStr) -> std::io::Result<Self> {
+        let fd = unsafe { open_read(filename.as_ptr()) };
         if fd < 0 {
-            return Err(Error::new(
-                ErrorKind::Other,
-                format!(
-                    "Failed to open read stream '{}'",
-                    stream_name.to_string_lossy()
-                ),
-            ));
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to open file '{}'", filename.to_string_lossy()),
+            ))
+        } else {
+            Ok(AReader { fd: Some(fd) })
         }
-        Ok(fd)
-    }
-
-    /// Closes the current stream "foo.N" and opens the next one "foo.N+1".
-    /// Checks the number of streams for "foo" and doesn't open more streams than that.
-    fn close_current_open_next(&mut self) -> Result<()> {
-        self.close()?;
-        let n = unsafe { n_of_streams(self.stream_name.as_ptr()) };
-        let n: c_uint = match n {
-            n if n < 0 => {
-                return Err(Error::new(
-                    ErrorKind::Other,
-                    "Failed to get number of streams",
-                ));
-            }
-            #[allow(clippy::cast_sign_loss)]
-            n => n as c_uint,
-        };
-
-        self.stream_index += 1;
-        if self.stream_index >= n {
-            return Ok(());
-        }
-        let fd = Self::open(self.stream_name, self.stream_index)?;
-        self.fd = Some(fd);
-        Ok(())
     }
 
     /// Close the stream.
@@ -86,16 +43,13 @@ impl<'a> AReader<'a> {
     ///
     /// # Errors
     /// Returns an error if closing fails.
-    pub fn close(&mut self) -> Result<()> {
+    pub fn close(&mut self) -> std::io::Result<()> {
         if let Some(fd) = self.fd {
             let result = unsafe { aclose(fd) };
             if result < 0 {
-                return Err(Error::new(
-                    ErrorKind::Other,
-                    format!(
-                        "Failed to close stream '{}'",
-                        self.stream_name.to_string_lossy()
-                    ),
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Other,
+                    format!("Failed to close input stream {fd}"),
                 ));
             }
             self.fd = None;
@@ -104,18 +58,14 @@ impl<'a> AReader<'a> {
     }
 }
 
-impl<'a> std::fmt::Debug for AReader<'a> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AReader")
-            .field("fd", &self.fd)
-            .field("stream_index", &self.stream_index)
-            .field("stream_name", &self.stream_name)
-            .finish()
+impl Drop for AReader {
+    fn drop(&mut self) {
+        let _ = self.close();
     }
 }
 
-impl<'a> Read for AReader<'a> {
-    fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
+impl std::io::Read for AReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         let Some(fd) = self.fd else {
             return Ok(0);
         };
@@ -124,26 +74,20 @@ impl<'a> Read for AReader<'a> {
         let buf_len = buf.len() as c_uint;
         let bytes_read = unsafe { aread(fd, buf.as_mut_ptr(), buf_len) };
 
-        match bytes_read {
-            n if n < 0 => Err(Error::new(
-                ErrorKind::Other,
-                format!(
-                    "Failed to read stream '{}'",
-                    self.stream_name.to_string_lossy()
-                ),
-            )),
-            0 => {
-                self.close_current_open_next()?;
-                self.read(buf)
-            }
-            #[allow(clippy::cast_sign_loss)]
-            n => Ok(n as usize),
+        if bytes_read < 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                format!("Failed to read from stream '{fd}'"),
+            ));
         }
+
+        #[allow(clippy::cast_sign_loss)]
+        Ok(bytes_read as usize)
     }
 }
 
-impl<'a> Drop for AReader<'a> {
-    fn drop(&mut self) {
-        let _ = self.close();
+impl std::fmt::Debug for AReader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AReader").field("fd", &self.fd).finish()
     }
 }
