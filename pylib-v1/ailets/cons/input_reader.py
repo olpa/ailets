@@ -84,14 +84,18 @@ async def read_all(runtime: INodeRuntime, fd: int) -> bytes:
 
 async def iter_input_objects(
     runtime: INodeRuntime,
-    slot_name: str,
+    slot_name: str | int,
     sse_tokens: Sequence[str] = (),
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Iterate over all slots. Each slot contains JSON objects,
     either as a JSON array or as individual objects without separation."""
-    fd = await runtime.open_read(slot_name)
+    if isinstance(slot_name, int):
+        fd = slot_name
+    else:
+        fd = await runtime.open_read(slot_name)
     buffer = await read_all(runtime, fd)
-    await runtime.close(fd)
+    if not isinstance(slot_name, int):
+        await runtime.close(fd)
 
     if len(buffer) == 0:
         return
