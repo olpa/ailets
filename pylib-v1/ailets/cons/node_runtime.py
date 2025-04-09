@@ -55,6 +55,12 @@ class NodeRuntime(INodeRuntime):
             StdHandles.trace: Opener.print,
         }
 
+    async def destroy(self) -> None:
+        fds = list(self.open_fds.keys())
+        for fd in fds:
+            await self.close(fd)
+            del self.open_fds[fd]
+
     def get_name(self) -> str:
         return self.node_name
 
@@ -131,12 +137,14 @@ class NodeRuntime(INodeRuntime):
         return await fd_obj.writer.write(buffer)
 
     async def close(self, fd: int) -> None:
-        assert fd in self.open_fds, f"File descriptor {fd} is not open"
-        fd_obj = self.open_fds.pop(fd)
+        fd_obj = self.open_fds.get(fd, None)
+        assert fd_obj is not None, f"File descriptor {fd} is not open"
         if fd_obj.reader is not None:
-            fd_obj.reader.close()
+            if not fd_obj.reader.closed:
+                fd_obj.reader.close()
         if fd_obj.writer is not None:
-            fd_obj.writer.close()
+            if not fd_obj.writer.closed:
+                fd_obj.writer.close()
 
     def dagops(self) -> INodeDagops:
         if self.cached_dagops is None:
