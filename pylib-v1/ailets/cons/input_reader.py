@@ -54,6 +54,15 @@ class MergeInputReader(IAsyncReader):
 
         pipes = _get_pipes(self.piper, self.deps, self.slot_name)
         self.index += 1
+
+        # Open an attachment from the kv
+        if not len(pipes) and self.index == 0 and "/" in self.slot_name:
+            try:
+                pipe = self.piper.get_existing_pipe("/", self.slot_name)
+                pipes = [pipe]
+            except KeyError:
+                pass
+
         if self.index >= len(pipes):
             self.closed = True
             return b""
