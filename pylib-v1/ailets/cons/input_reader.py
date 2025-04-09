@@ -94,8 +94,7 @@ async def iter_input_objects(
     else:
         fd = await runtime.open_read(slot_name)
     buffer = await read_all(runtime, fd)
-    if not isinstance(slot_name, int):
-        await runtime.close(fd)
+    await runtime.close(fd)
 
     if len(buffer) == 0:
         return

@@ -91,9 +91,10 @@ class IPiper(Protocol):
 class StdHandles(IntEnum):
     stdin = 0
     stdout = 1
-    stdlog = 2
-    stdmetrics = 3
-    stdtrace = 4
+    log = 2
+    env = 3
+    metrics = 4
+    trace = 5
 
 
 #

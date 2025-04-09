@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from enum import Enum
 from typing import Dict, Optional, Sequence
 
 from ailets.cons.input_reader import MergeInputReader
@@ -14,6 +15,7 @@ from .atyping import (
     INodeDagops,
     INodeRuntime,
     IPipe,
+    StdHandles,
 )
 
 
@@ -22,6 +24,13 @@ class OpenFd:
     debug_hint: str
     reader: Optional[IAsyncReader]
     writer: Optional[IAsyncWriter]
+
+
+class Opener(Enum):
+    input = "input"
+    output = "output"
+    print = "print"
+    env = "env"
 
 
 class NodeRuntime(INodeRuntime):
@@ -37,6 +46,14 @@ class NodeRuntime(INodeRuntime):
         self.deps = deps
         self.open_fds: Dict[int, OpenFd] = {}
         self.cached_dagops: Optional[INodeDagops] = None
+        self.fd_openers: Dict[StdHandles, Opener] = {
+            StdHandles.stdin: Opener.input,
+            StdHandles.stdout: Opener.output,
+            StdHandles.log: Opener.print,
+            StdHandles.env: Opener.env,
+            StdHandles.metrics: Opener.print,
+            StdHandles.trace: Opener.print,
+        }
 
     def get_name(self) -> str:
         return self.node_name
