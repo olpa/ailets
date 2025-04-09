@@ -75,8 +75,20 @@ class NodeRuntime(INodeRuntime):
         )
         return fd
 
+    async def auto_open(self, fd: int, opener: Opener) -> None:
+        if opener == Opener.input:
+            real_fd = await self.open_read("")
+            self.open_fds[fd] = self.open_fds[real_fd]
+            return
+
+        assert False, f"Unknown opener: {opener}"
+
     async def read(self, fd: int, buffer: bytearray, count: int) -> int:
+        if fd not in self.open_fds and fd in self.fd_openers:
+            std_fd: StdHandles = StdHandles(fd)
+            await self.auto_open(std_fd, self.fd_openers[std_fd])
         assert fd in self.open_fds, f"File descriptor {fd} is not open"
+
         fd_obj = self.open_fds[fd]
         assert (
             fd_obj.reader is not None
