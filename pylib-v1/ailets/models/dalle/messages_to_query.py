@@ -56,7 +56,7 @@ async def to_binary_body_in_kv(
         body = body.copy()
         del body["prompt"]
 
-    body_key = runtime.get_next_name("query_body")
+    body_key = runtime.get_next_name("spool/query_body")
     fd = await runtime.open_write(body_key)
 
     for key, value in body.items():
