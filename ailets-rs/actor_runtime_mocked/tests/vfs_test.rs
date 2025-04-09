@@ -1,42 +1,12 @@
 use actor_runtime_mocked::vfs::{
-    aclose, add_file, aread, awrite, clear_mocks, get_file, n_of_streams, open_read, open_write,
-    WANT_ERROR,
+    aclose, add_file, aread, awrite, clear_mocks, get_file, open_read, open_write, WANT_ERROR,
 };
 use std::os::raw::c_uint;
 
 #[test]
-fn n_of_streams_returns_zero() {
-    clear_mocks();
-    let n = n_of_streams(c"test".as_ptr());
-    assert_eq!(n, 0);
-}
-
-#[test]
-fn n_of_streams_returns_number_of_sequential_files() {
-    clear_mocks();
-    let name = c"foo";
-    let name_str = name.to_str().unwrap();
-    for i in [0, 1, 2, 10] {
-        add_file(format!("{name_str}.{i}"), Vec::new());
-    }
-
-    let n = n_of_streams(name.as_ptr());
-
-    // Should only count sequential files (0,1,2) and not 10
-    assert_eq!(n, 3);
-}
-
-#[test]
-fn n_of_streams_returns_minus_one_on_error() {
-    clear_mocks();
-    let n = n_of_streams(c"test\u{1}".as_ptr());
-    assert_eq!(n, -1);
-}
-
-#[test]
 fn open_read_returns_minus_one_if_file_not_found() {
     clear_mocks();
-    let fd = open_read(c"test".as_ptr(), 0);
+    let fd = open_read(c"test".as_ptr());
     assert_eq!(fd, -1);
 }
 
@@ -44,8 +14,8 @@ fn open_read_returns_minus_one_if_file_not_found() {
 fn open_read_returns_non_negative_if_file_exists() {
     clear_mocks();
 
-    add_file("test.0".to_string(), Vec::new());
-    let fd = open_read(c"test".as_ptr(), 0);
+    add_file("test".to_string(), Vec::new());
+    let fd = open_read(c"test".as_ptr());
 
     assert!(fd >= 0);
 }
@@ -88,10 +58,10 @@ fn close_returns_minus_one_for_invalid_handle() {
 #[test]
 fn close_returns_zero_if_ok_for_read_and_write_handles() {
     clear_mocks();
-    add_file("foo.0".to_string(), Vec::new());
+    add_file("foo".to_string(), Vec::new());
 
     // Open handles
-    let read_fd = open_read(c"foo".as_ptr(), 0);
+    let read_fd = open_read(c"foo".as_ptr());
     assert!(read_fd >= 0);
     let write_fd = open_write(c"bar".as_ptr());
     assert!(write_fd >= 0);
@@ -119,10 +89,10 @@ fn read_returns_all_content() {
 
     // Create test file
     let content = b"Hello World!";
-    add_file("test.0".to_string(), content.to_vec());
+    add_file("test".to_string(), content.to_vec());
 
     // Open file for reading
-    let fd = open_read(c"test".as_ptr(), 0);
+    let fd = open_read(c"test".as_ptr());
     assert!(fd >= 0);
 
     // Read entire content
@@ -143,10 +113,10 @@ fn read_in_chunks_with_io_interrupt() {
 
     // Create test file with IO_INTERRUPT character
     let file_content = format!("one\ntwo\nthree\nx{WANT_ERROR}x");
-    add_file("test.0".to_string(), file_content.as_bytes().to_vec());
+    add_file("test".to_string(), file_content.as_bytes().to_vec());
 
     // Open file for reading
-    let fd = open_read(c"test".as_ptr(), 0);
+    let fd = open_read(c"test".as_ptr());
     assert!(fd >= 0);
 
     // Read first chunk

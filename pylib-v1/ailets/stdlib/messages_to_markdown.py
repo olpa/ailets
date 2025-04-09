@@ -7,7 +7,8 @@ from ailets.cons.atyping import (
     ContentItemImage,
     INodeRuntime,
 )
-from ailets.cons.util import iter_input_objects, write_all
+from ailets.cons.util import write_all
+from ailets.cons.input_reader import iter_input_objects
 
 need_separator = False
 

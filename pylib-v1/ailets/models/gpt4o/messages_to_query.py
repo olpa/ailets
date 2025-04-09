@@ -7,7 +7,8 @@ from ailets.cons.atyping import (
     ContentItemFunction,
     INodeRuntime,
 )
-from ailets.cons.util import iter_input_objects, read_all, write_all
+from ailets.cons.input_reader import iter_input_objects, read_all
+from ailets.cons.util import write_all
 from ailets.models.gpt4o.lib.typing import Gpt4oContentItem, Gpt4oMessage
 
 url = "https://api.openai.com/v1/chat/completions"
@@ -37,7 +38,7 @@ async def rewrite_content_item(
     key = item.get("key")
     assert key, "Image URL or key is required"
 
-    fd = await runtime.open_read(key, 0)
+    fd = await runtime.open_read(key)
     data = await read_all(runtime, fd)
     await runtime.close(fd)
 

@@ -116,9 +116,16 @@ class Piper(IPiper):
         slot_name: Optional[str],
         open_mode: Literal["read", "write", "append"] = "write",
     ) -> IPipe:
-        """Add a new slot. Raise KeyError if the slot already exists."""
+        """Add a new slot.
+        For "write" and "append", raise KeyError if the slot already exists.
+        For "read", return the existing pipe if it exists.
+        If not, it tries to open from the kv.
+        """
         path = self.get_path(node_name, slot_name)
-        if path in self.pipes:
+        pipe = self.pipes.get(path, None)
+        if pipe is not None:
+            if open_mode == "read":
+                return pipe
             raise KeyError(f"Path already exists: {path}")
 
         # In case of loading data from a state dump file,
@@ -133,6 +140,12 @@ class Piper(IPiper):
             debug_hint=path,
             external_buffer=kvbuf.borrow_mut_buffer(),
         )
+
+        if open_mode == "read":
+            # There was no pipe, therefore there is no writer.
+            # Close the newly created unused writer to mark
+            # the created pipe as complete.
+            pipe.get_writer().close()
 
         self.pipes[path] = pipe
         logger.debug(f"Created pipe: {pipe}")
@@ -152,7 +165,6 @@ class Piper(IPiper):
         return pipe
 
     def get_existing_pipe(self, node_name: str, slot_name: str) -> IPipe:
-        path = self.get_path(node_name, slot_name)
-        if path not in self.pipes:
-            raise KeyError(f"Path not found: {path}")
-        return self.pipes[path]
+        """If the pipe does not exist, and there is no kv entry, raise KeyError.
+        Otherwise, create it as a read-only pipe."""
+        return self.create_pipe(node_name, slot_name, "read")

@@ -3,7 +3,9 @@ import aiohttp
 import os
 import re
 from ailets.cons.atyping import INodeRuntime
-from ailets.cons.util import read_all, write_all
+from ailets.cons.util import write_all
+from ailets.cons.input_reader import read_all
+
 
 MAX_RUNS = 3  # Maximum number of runs allowed
 _run_count = 0  # Track number of runs
@@ -35,8 +37,7 @@ async def query(runtime: INodeRuntime) -> None:
     if _run_count > MAX_RUNS:
         raise RuntimeError(f"Exceeded maximum number of runs ({MAX_RUNS})")
 
-    assert runtime.n_of_inputs("") == 1, "Expected exactly one query params dict"
-    fd = await runtime.open_read("", 0)
+    fd = await runtime.open_read("")
     params = json.loads((await read_all(runtime, fd)).decode("utf-8"))
     await runtime.close(fd)
 
@@ -49,9 +50,7 @@ async def query(runtime: INodeRuntime) -> None:
             body_kwargs = {"json": params["body"]}
         elif "body_key" in params:
             key = params["body_key"]
-            n_inputs = runtime.n_of_inputs(key)
-            assert n_inputs == 1, f"Expected exactly one input '{key}', got {n_inputs}"
-            fd = await runtime.open_read(key, 0)
+            fd = await runtime.open_read(key)
             data = await read_all(runtime, fd)
             await runtime.close(fd)
             body_kwargs = {"data": data}

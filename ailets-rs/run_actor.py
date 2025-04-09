@@ -87,15 +87,12 @@ class NodeRuntime:
             return found
         return [Spec(direction=direction, name="", value_or_file="-")]
 
-    def n_of_streams(self, stream_name: str) -> int:
-        return len(self._collect_streams("in", stream_name))
-
-    def open_read(self, stream_name: str, index: int) -> int:
+    def open_read(self, stream_name: str) -> int:
         specs = self._collect_streams("in", stream_name)
-        if index < 0 or index >= len(specs):
-            raise ValueError(f"No stream '{stream_name}' with index {index}")
+        if not specs:
+            raise ValueError(f"No input stream '{stream_name}'")
 
-        vof = specs[index].value_or_file
+        vof = specs[0].value_or_file
         if vof == "-":
             self.streams.append(sys.stdin.buffer)
         elif vof.startswith("@"):
@@ -205,13 +202,9 @@ def register_node_runtime(
     nr: NodeRuntime,
 ) -> None:
 
-    def n_of_streams(name_ptr: int) -> int:
+    def open_read(name_ptr: int) -> int:
         name = buf_to_str.get_string(name_ptr)
-        return nr.n_of_streams(name)
-
-    def open_read(name_ptr: int, index: int) -> int:
-        name = buf_to_str.get_string(name_ptr)
-        return nr.open_read(name, index)
+        return nr.open_read(name)
 
     def open_write(name_ptr: int) -> int:
         name = buf_to_str.get_string(name_ptr)
@@ -250,7 +243,6 @@ def register_node_runtime(
     import_object.register(
         "",
         {
-            "n_of_streams": wasmer.Function(store, n_of_streams),
             "open_read": wasmer.Function(store, open_read),
             "open_write": wasmer.Function(store, open_write),
             "aread": wasmer.Function(store, aread),

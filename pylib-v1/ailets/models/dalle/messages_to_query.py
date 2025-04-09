@@ -1,5 +1,6 @@
 import json
 from typing import Any, Optional, Sequence, TypedDict, Union
+from ailets.cons.input_reader import iter_input_objects
 from ailets.cons.typeguards import (
     is_content_item_image,
     is_content_item_text,
@@ -10,12 +11,12 @@ from ailets.cons.atyping import (
     INodeRuntime,
 )
 from ailets.cons.util import (
-    iter_input_objects,
     log,
-    read_all,
     read_env_pipe,
     write_all,
 )
+from ailets.cons.input_reader import read_all
+
 
 # https://platform.openai.com/docs/api-reference/images/create
 
@@ -42,7 +43,7 @@ def task_to_headers(task: str) -> dict[str, str]:
 
 
 async def copy_image_to_fd(runtime: INodeRuntime, key: str, fd: int) -> None:
-    fd_in = await runtime.open_read(key, 0)
+    fd_in = await runtime.open_read(key)
     buffer = await read_all(runtime, fd_in)
     await runtime.close(fd_in)
     await write_all(runtime, fd, buffer)
@@ -55,7 +56,7 @@ async def to_binary_body_in_kv(
         body = body.copy()
         del body["prompt"]
 
-    body_key = runtime.get_next_name("query_body")
+    body_key = runtime.get_next_name("spool/query_body")
     fd = await runtime.open_write(body_key)
 
     for key, value in body.items():
@@ -87,10 +88,7 @@ class ExtractedPrompt(TypedDict):
 
 
 async def read_from_slot(runtime: INodeRuntime, slot_name: str) -> bytes:
-    n = runtime.n_of_inputs(slot_name)
-    assert n == 1, f"Expected exactly one input for {slot_name}, got {n}"
-
-    fd = await runtime.open_read(slot_name, 0)
+    fd = await runtime.open_read(slot_name)
     content = await read_all(runtime, fd)
     await runtime.close(fd)
     return content

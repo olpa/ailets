@@ -1,6 +1,7 @@
 import json
 from ..cons.atyping import ChatMessageTool, ContentItemFunction, INodeRuntime
-from ..cons.util import read_all, write_all
+from ..cons.util import write_all
+from ..cons.input_reader import read_all
 
 
 async def toolcall_to_messages(runtime: INodeRuntime) -> None:
@@ -13,18 +14,11 @@ async def toolcall_to_messages(runtime: INodeRuntime) -> None:
     Writes:
         A single message in OpenAI chat format
     """
-    n_tool_results = runtime.n_of_inputs("")
-    assert (
-        n_tool_results == 1
-    ), f"Expected exactly one tool result, got {n_tool_results}"
-    n_specs = runtime.n_of_inputs("llm_tool_spec")
-    assert n_specs == 1, f"Expected exactly one tool spec, got {n_specs}"
-
-    fd = await runtime.open_read("", 0)
+    fd = await runtime.open_read("")
     tool_result = (await read_all(runtime, fd)).decode("utf-8")
     await runtime.close(fd)
 
-    fd = await runtime.open_read("llm_tool_spec", 0)
+    fd = await runtime.open_read("llm_tool_spec")
     spec: ContentItemFunction = json.loads(
         (await read_all(runtime, fd)).decode("utf-8")
     )

@@ -81,7 +81,7 @@ async def prompt_to_dagops(
 
         n = env.seqno.next_seqno()
         b = os.path.basename(prompt_item.value)
-        file_key = env.dagops.get_next_name(f"media/{b}.{n}")
+        file_key = env.dagops.get_next_name(f"spool/{b}.{n}")
         mk_node(
             json.dumps(
                 {

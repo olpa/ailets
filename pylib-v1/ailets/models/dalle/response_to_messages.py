@@ -7,7 +7,8 @@ from ailets.cons.atyping import (
     Content,
     INodeRuntime,
 )
-from ailets.cons.util import iter_input_objects, write_all
+from ailets.cons.input_reader import iter_input_objects
+from ailets.cons.util import write_all
 
 
 async def response_to_messages(runtime: INodeRuntime) -> None:

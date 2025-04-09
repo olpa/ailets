@@ -1,6 +1,8 @@
 from dataclasses import dataclass
 from typing import Dict, Optional, Sequence
 
+from ailets.cons.input_reader import MergeInputReader
+
 from .piper import Piper
 
 from .node_dagops import NodeDagops
@@ -36,55 +38,21 @@ class NodeRuntime(INodeRuntime):
         self.open_fds: Dict[int, OpenFd] = {}
         self.cached_dagops: Optional[INodeDagops] = None
 
-    def _get_pipes(self, slot_name: str) -> Sequence[IPipe]:
-        # Special slots "env" and "log"
-        if slot_name == "env":
-            return [Piper.make_env_pipe(self.env.for_env_pipe)]
-        if slot_name == "log":
-            return [Piper.make_log_pipe()]
-        # Normal explicit slots
-        deps = [dep for dep in self.deps if dep.name == slot_name]
-        # Implicit dynamic slots like media attachments
-        if not deps and slot_name is not None:
-            dep_names = set([dep.source for dep in self.deps])
-            deps = [
-                Dependency(name=slot_name, source=name, slot=slot_name)
-                for name in dep_names
-            ]
-        # Collect
-        pipes = []
-        for dep in deps:
-            try:
-                pipe = self.piper.get_existing_pipe(dep.source, dep.slot)
-            except KeyError:
-                continue
-            pipes.append(pipe)
-        return pipes
-
     def get_name(self) -> str:
         return self.node_name
 
-    def n_of_inputs(self, slot_name: str) -> int:
-        if slot_name == "env":
-            return 1
-        if slot_name == "log":
-            return 1
-        return len(self._get_pipes(slot_name))
-
-    async def open_read(self, slot_name: str, index: int) -> int:
-        pipes = self._get_pipes(slot_name)
-
-        if len(pipes) == 0 and "/" in slot_name:
-            pipe = self.piper.create_pipe(slot_name, "", open_mode="read")
-            pipe.get_writer().close()
-            pipes = [pipe]
-
-        if index >= len(pipes) or index < 0:
-            raise ValueError(f"Slot index out of bounds: {index} for {slot_name}")
+    async def open_read(self, slot_name: str) -> int:
         fd = self.env.seqno.next_seqno()
-        reader = pipes[index].get_reader(fd)
+
+        reader: IAsyncReader
+        if slot_name == "env":
+            pipe = Piper.make_env_pipe(self.env.for_env_pipe)
+            reader = pipe.get_reader(fd)
+        else:
+            reader = MergeInputReader(self.piper, self.deps, slot_name, fd)
+
         self.open_fds[fd] = OpenFd(
-            debug_hint=f"{self.node_name}.{slot_name}[{index}]",
+            debug_hint=f"{self.node_name}.{slot_name}",
             reader=reader,
             writer=None,
         )
@@ -102,9 +70,13 @@ class NodeRuntime(INodeRuntime):
         return n_bytes
 
     async def open_write(self, slot_name: str) -> int:
-        slot = self.piper.create_pipe(self.node_name, slot_name)
+        pipe: IPipe
+        if slot_name in ("log", "metrics", "trace"):
+            pipe = Piper.make_log_pipe()
+        else:
+            pipe = self.piper.create_pipe(self.node_name, slot_name)
         fd = self.env.seqno.next_seqno()
-        writer = slot.get_writer()
+        writer = pipe.get_writer()
         self.open_fds[fd] = OpenFd(
             debug_hint=f"{self.node_name}.{slot_name}",
             reader=None,
@@ -132,9 +104,6 @@ class NodeRuntime(INodeRuntime):
         if self.cached_dagops is None:
             self.cached_dagops = NodeDagops(self.env, self)
         return self.cached_dagops
-
-    async def read_dir(self, dir_name: str) -> Sequence[str]:
-        return self.env.kv.listdir(dir_name)
 
     def get_next_name(self, base_name: str) -> str:
         return self.env.dagops.get_next_name(base_name)
