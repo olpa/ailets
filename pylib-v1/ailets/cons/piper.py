@@ -23,36 +23,51 @@ import logging
 logger = logging.getLogger("ailets.piper")
 
 
-class PrintOutput(IPipe):
+class PrintWrapper(IPipe):
     class Writer(IAsyncWriter):
-        def __init__(self, output: IO[str]) -> None:
+        def __init__(self, output: IO[str], writer: Optional[IAsyncWriter]) -> None:
             self.output = output
+            self.writer = writer
             self.closed = False
 
         async def write(self, data: bytes) -> int:
             self.output.write(data.decode("utf-8"))
             self.output.flush()
-            return len(data)
+            if self.writer is None:
+                return len(data)
+
+            n = await self.writer.write(data)
+            self.closed = self.writer.closed
+            return n
 
         def tell(self) -> int:
+            if self.writer is not None:
+                return self.writer.tell()
             return self.output.tell()
 
         def close(self) -> None:
-            if not self.output == sys.stdout:
-                self.output.close()
-                self.closed = True
+            # Don't close the wrapped writer, it's likely an instrumentation
+            # stream for which the app has own ownership.
+            self.closed = True
 
         def __str__(self) -> str:
-            return f"PrintOutput.Writer(output={self.output}, closed={self.closed})"
+            return (
+                f"PrintOutput.Writer(output={self.output}, "
+                f"closed={self.closed}, writer={self.writer})"
+            )
 
-    def __init__(self, output: IO[str]) -> None:
-        self.writer = PrintOutput.Writer(output)
+    def __init__(self, output: IO[str], pipe: Optional[IPipe]) -> None:
+        self.pipe = pipe
+        wrapped_writer = pipe.get_writer() if pipe else None
+        self.writer = PrintWrapper.Writer(output, wrapped_writer)
 
     def get_writer(self) -> IAsyncWriter:
         return self.writer
 
-    def get_reader(self, _handle: int) -> IAsyncReader:
-        raise io.UnsupportedOperation("PrintOutput is write-only")
+    def get_reader(self, handle: int) -> IAsyncReader:
+        if self.pipe is None:
+            raise io.UnsupportedOperation("PrintWrapper is write-only")
+        return self.pipe.get_reader(handle)
 
 
 class StaticInput(IPipe):
@@ -161,7 +176,7 @@ class Piper(IPiper):
 
     @staticmethod
     def make_log_pipe() -> IPipe:
-        pipe = PrintOutput(sys.stdout)
+        pipe = PrintWrapper(sys.stdout, None)
         return pipe
 
     def get_existing_pipe(self, node_name: str, slot_name: str) -> IPipe:
