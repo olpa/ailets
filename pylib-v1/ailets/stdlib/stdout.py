@@ -1,4 +1,4 @@
-from ailets.cons.atyping import INodeRuntime
+from ailets.cons.atyping import INodeRuntime, StdHandles
 from ailets.cons.util import write_all
 
 
@@ -13,6 +13,4 @@ async def stdout(runtime: INodeRuntime) -> None:
             break
         print(buffer[:count].decode("utf-8"), end="", flush=True)
 
-    fd = await runtime.open_write("")
-    await write_all(runtime, fd, "ok".encode("utf-8"))
-    await runtime.close(fd)
+    await write_all(runtime, StdHandles.stdout, "ok".encode("utf-8"))

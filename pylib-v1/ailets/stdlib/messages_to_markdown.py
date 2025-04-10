@@ -6,6 +6,7 @@ from ailets.cons.atyping import (
     Content,
     ContentItemImage,
     INodeRuntime,
+    StdHandles,
 )
 from ailets.cons.util import write_all
 from ailets.cons.input_reader import iter_input_objects
@@ -98,16 +99,11 @@ async def messages_to_markdown(runtime: INodeRuntime) -> None:
     global need_separator
     need_separator = False
 
-    fd = await runtime.open_write("")
-
-    try:
-        async for message in iter_input_objects(runtime, ""):
-            content = message["content"]
-            if isinstance(content, str):
-                await separator(runtime, fd)
-                await write_all(runtime, fd, content.encode("utf-8"))
-                continue
-            for item in content:
-                await content_to_markdown(runtime, fd, item)
-    finally:
-        await runtime.close(fd)
+    async for message in iter_input_objects(runtime, ""):
+        content = message["content"]
+        if isinstance(content, str):
+            await separator(runtime, StdHandles.stdout)
+            await write_all(runtime, StdHandles.stdout, content.encode("utf-8"))
+            continue
+        for item in content:
+            await content_to_markdown(runtime, StdHandles.stdout, item)

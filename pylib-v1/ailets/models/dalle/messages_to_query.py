@@ -9,6 +9,7 @@ from ailets.cons.atyping import (
     Content,
     ContentItemImage,
     INodeRuntime,
+    StdHandles,
 )
 from ailets.cons.util import (
     log,
@@ -166,6 +167,4 @@ async def messages_to_query(runtime: INodeRuntime) -> None:
         body_field: body,
     }
 
-    output = await runtime.open_write("")
-    await write_all(runtime, output, json.dumps(value).encode("utf-8"))
-    await runtime.close(output)
+    await write_all(runtime, StdHandles.stdout, json.dumps(value).encode("utf-8"))

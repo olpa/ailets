@@ -1,5 +1,10 @@
 import json
-from ..cons.atyping import ChatMessageTool, ContentItemFunction, INodeRuntime
+from ..cons.atyping import (
+    ChatMessageTool,
+    ContentItemFunction,
+    INodeRuntime,
+    StdHandles,
+)
 from ..cons.util import write_all
 from ..cons.input_reader import read_all
 
@@ -76,7 +81,5 @@ async def toolcall_to_messages(runtime: INodeRuntime) -> None:
         "tool_call_id": tool_call_id,
     }
 
-    fd = await runtime.open_write("")
     value = json.dumps([chat_message]).encode("utf-8")
-    await write_all(runtime, fd, value)
-    await runtime.close(fd)
+    await write_all(runtime, StdHandles.stdout, value)
