@@ -99,7 +99,7 @@ async def messages_to_markdown(runtime: INodeRuntime) -> None:
     global need_separator
     need_separator = False
 
-    async for message in iter_input_objects(runtime, ""):
+    async for message in iter_input_objects(runtime, StdHandles.stdin):
         content = message["content"]
         if isinstance(content, str):
             await separator(runtime, StdHandles.stdout)

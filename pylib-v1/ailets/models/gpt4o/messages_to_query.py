@@ -98,7 +98,7 @@ async def get_overrides(runtime: INodeRuntime) -> dict[str, Any]:
         "functions",
     ]
     overrides: dict[str, Any] = {}
-    async for cfg in iter_input_objects(runtime, "env"):
+    async for cfg in iter_input_objects(runtime, StdHandles.env):
         gpt4o_cfg = cfg.get("gpt4o")
         if not gpt4o_cfg:
             continue
@@ -112,7 +112,7 @@ async def messages_to_query(runtime: INodeRuntime) -> None:
     """Convert chat messages into a query."""
 
     messages: list[Gpt4oMessage] = []
-    async for message in iter_input_objects(runtime, ""):
+    async for message in iter_input_objects(runtime, StdHandles.stdin):
         new_message: Gpt4oMessage = message.copy()  # type: ignore[assignment]
         if "content" in message:
             new_content, tool_calls = await rewrite_content(runtime, message["content"])

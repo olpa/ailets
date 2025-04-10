@@ -27,7 +27,7 @@ async def write_all(runtime: INodeRuntime, fd: int, data: bytes) -> None:
 
 async def read_env_pipe(runtime: INodeRuntime) -> Dict[str, Any]:
     env: dict[str, Any] = {}
-    async for params in iter_input_objects(runtime, "env"):
+    async for params in iter_input_objects(runtime, StdHandles.env):
         env.update(params)
     return env
 

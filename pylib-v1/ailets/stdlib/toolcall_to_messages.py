@@ -19,9 +19,7 @@ async def toolcall_to_messages(runtime: INodeRuntime) -> None:
     Writes:
         A single message in OpenAI chat format
     """
-    fd = await runtime.open_read("")
-    tool_result = (await read_all(runtime, fd)).decode("utf-8")
-    await runtime.close(fd)
+    tool_result = (await read_all(runtime, StdHandles.stdin)).decode("utf-8")
 
     fd = await runtime.open_read("llm_tool_spec")
     spec: ContentItemFunction = json.loads(
