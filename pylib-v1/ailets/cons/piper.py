@@ -1,6 +1,5 @@
 import io
 import json
-import sys
 from typing import IO, Any, Dict, Literal, Optional
 
 from ailets.cons.atyping import (
@@ -52,7 +51,7 @@ class PrintWrapper(IPipe):
 
         def __str__(self) -> str:
             return (
-                f"PrintOutput.Writer(output={self.output}, "
+                f"PrintWrapper.Writer(output={self.output}, "
                 f"closed={self.closed}, writer={self.writer})"
             )
 
@@ -172,11 +171,6 @@ class Piper(IPiper):
     def make_env_pipe(params: Dict[str, Any]) -> IPipe:
         content = json.dumps(params).encode("utf-8")
         pipe = StaticInput(content, "env")
-        return pipe
-
-    @staticmethod
-    def make_log_pipe() -> IPipe:
-        pipe = PrintWrapper(sys.stdout, None)
         return pipe
 
     def get_existing_pipe(self, node_name: str, slot_name: str) -> IPipe:

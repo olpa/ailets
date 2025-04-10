@@ -111,11 +111,9 @@ class NodeRuntime(INodeRuntime):
 
         pipe = self.piper.create_pipe(self.node_name, slot_name)
         pipe = PrintWrapper(sys.stdout, pipe)
-        self.open_fds[fd] = OpenFd(
-            debug_hint=f"{self.node_name}.{slot_name}",
-            reader=None,
-            writer=pipe.get_writer(),
-        )
+        real_fd = self._store_writer(slot_name, pipe)
+        self.open_fds[fd] = self.open_fds[real_fd]
+        return
 
     async def read(self, fd: int, buffer: bytearray, count: int) -> int:
         if fd not in self.open_fds and fd in self.fd_openers:
@@ -133,11 +131,10 @@ class NodeRuntime(INodeRuntime):
         return n_bytes
 
     async def open_write(self, slot_name: str) -> int:
-        pipe: IPipe
-        if slot_name in ("log", "metrics", "trace"):
-            pipe = Piper.make_log_pipe()
-        else:
-            pipe = self.piper.create_pipe(self.node_name, slot_name)
+        pipe = self.piper.create_pipe(self.node_name, slot_name)
+        return self._store_writer(slot_name, pipe)
+
+    def _store_writer(self, slot_name: str, pipe: IPipe) -> int:
         fd = self.env.seqno.next_seqno()
         writer = pipe.get_writer()
         self.open_fds[fd] = OpenFd(
