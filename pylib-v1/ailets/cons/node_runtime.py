@@ -65,23 +65,6 @@ class NodeRuntime(INodeRuntime):
     def get_name(self) -> str:
         return self.node_name
 
-    async def open_read(self, slot_name: str) -> int:
-        fd = self.env.seqno.next_seqno()
-
-        reader: IAsyncReader
-        if slot_name == "env":
-            pipe = Piper.make_env_pipe(self.env.for_env_pipe)
-            reader = pipe.get_reader(fd)
-        else:
-            reader = MergeInputReader(self.piper, self.deps, slot_name, fd)
-
-        self.open_fds[fd] = OpenFd(
-            debug_hint=f"{self.node_name}.{slot_name}",
-            reader=reader,
-            writer=None,
-        )
-        return fd
-
     async def auto_open(self, fd: int, opener: Opener) -> None:
         if opener == Opener.input:
             real_fd = await self.open_read("")
@@ -94,8 +77,8 @@ class NodeRuntime(INodeRuntime):
             return
 
         if opener == Opener.env:
-            real_fd = await self.open_read("env")
-            self.open_fds[fd] = self.open_fds[real_fd]
+            pipe = Piper.make_env_pipe(self.env.for_env_pipe)
+            self._store_reader("env", pipe.get_reader(fd), fd)
             return
 
         if opener != Opener.print:
@@ -114,6 +97,19 @@ class NodeRuntime(INodeRuntime):
         real_fd = self._store_writer(slot_name, pipe)
         self.open_fds[fd] = self.open_fds[real_fd]
         return
+
+    async def open_read(self, slot_name: str) -> int:
+        fd = self.env.seqno.next_seqno()
+        reader = MergeInputReader(self.piper, self.deps, slot_name, fd)
+        self._store_reader(slot_name, reader, fd)
+        return fd
+
+    def _store_reader(self, slot_name: str, reader: IAsyncReader, fd: int) -> None:
+        self.open_fds[fd] = OpenFd(
+            debug_hint=f"{self.node_name}.{slot_name}",
+            reader=reader,
+            writer=None,
+        )
 
     async def read(self, fd: int, buffer: bytearray, count: int) -> int:
         if fd not in self.open_fds and fd in self.fd_openers:
