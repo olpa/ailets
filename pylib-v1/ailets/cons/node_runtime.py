@@ -92,6 +92,11 @@ class NodeRuntime(INodeRuntime):
             self.open_fds[fd] = self.open_fds[real_fd]
             return
 
+        if opener == Opener.env:
+            real_fd = await self.open_read("env")
+            self.open_fds[fd] = self.open_fds[real_fd]
+            return
+
         assert False, f"Unknown opener: {opener}"
 
     async def read(self, fd: int, buffer: bytearray, count: int) -> int:
