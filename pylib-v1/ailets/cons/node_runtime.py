@@ -1,10 +1,11 @@
 from dataclasses import dataclass
 from enum import Enum
+import sys
 from typing import Dict, Optional, Sequence
 
 from ailets.cons.input_reader import MergeInputReader
 
-from .piper import Piper
+from .piper import Piper, PrintWrapper
 
 from .node_dagops import NodeDagops
 from .atyping import (
@@ -97,7 +98,24 @@ class NodeRuntime(INodeRuntime):
             self.open_fds[fd] = self.open_fds[real_fd]
             return
 
-        assert False, f"Unknown opener: {opener}"
+        if opener != Opener.print:
+            assert False, f"Unknown opener: {opener}"
+        if fd == StdHandles.log:
+            slot_name = "log"
+        elif fd == StdHandles.metrics:
+            slot_name = "metrics"
+        elif fd == StdHandles.trace:
+            slot_name = "trace"
+        else:
+            assert False, f"Unknown file descriptor for Opener.print: {fd}"
+
+        pipe = self.piper.create_pipe(self.node_name, slot_name)
+        pipe = PrintWrapper(sys.stdout, pipe)
+        self.open_fds[fd] = OpenFd(
+            debug_hint=f"{self.node_name}.{slot_name}",
+            reader=None,
+            writer=pipe.get_writer(),
+        )
 
     async def read(self, fd: int, buffer: bytearray, count: int) -> int:
         if fd not in self.open_fds and fd in self.fd_openers:
