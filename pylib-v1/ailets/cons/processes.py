@@ -238,15 +238,15 @@ class Processes(IProcesses):
             self.active_nodes.add(name)
             await node.func(node_runtime)
             self.finished_nodes.add(name)
-        except Exception:
-            exc = sys.exc_info()[1]
-            print(f"Error building node '{name}'")
-            print(f"Function: {node.func.__name__}")
-            print("Dependencies:")
-            for dep in self.deps[name]:
-                print(f"  {dep.source} ({dep.slot}) -> {dep.name}")
-            print(f"Exception: {exc}")
-            raise
+        except Exception as exc:
+            print(f"*** ailet error: {name}: {str(exc)}", file=sys.stderr)
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Error building node '{name}'")
+                logger.debug(f"Function: {node.func.__name__}")
+                logger.debug("Dependencies:")
+                for dep in self.deps[name]:
+                    logger.debug(f"  {dep.source} ({dep.slot}) -> {dep.name}")
+                logger.debug(f"Exception: {exc}")
         finally:
             await node_runtime.destroy()
             self.queue.notify(self.progress_handle, -1)
