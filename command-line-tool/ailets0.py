@@ -242,7 +242,7 @@ async def main() -> None:
         target_node_name = next(
             node_name
             for node_name in env.dagops.get_node_names()
-            if node_name.startswith(".stdout")
+            if node_name.startswith(".messages_to_markdown")
         )
 
     else:
@@ -265,7 +265,7 @@ async def main() -> None:
             ".prompt_to_messages": chat_node_name,
         }
         target_node_name = instantiate_with_deps(
-            env.dagops, nodereg, ".stdout", resolve
+            env.dagops, nodereg, ".messages_to_markdown", resolve
         )
 
     stop_after_node = args.stop_after or target_node_name
