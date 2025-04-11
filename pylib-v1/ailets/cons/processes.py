@@ -5,6 +5,7 @@ import sys
 from typing import Iterator, Mapping, Optional, Sequence
 from ailets.cons.atyping import (
     Dependency,
+    Errors,
     IEnvironment,
     IProcesses,
     IPiper,
@@ -237,8 +238,9 @@ class Processes(IProcesses):
         try:
             self.active_nodes.add(name)
             await node.func(node_runtime)
-            self.finished_nodes.add(name)
         except Exception as exc:
+            node_runtime.set_errno(Errors.Unknown)
+            self.env.set_errno(Errors.Unknown)
             print(f"*** ailet error: {name}: {str(exc)}", file=sys.stderr)
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"Error building node '{name}'")
@@ -247,7 +249,9 @@ class Processes(IProcesses):
                 for dep in self.deps[name]:
                     logger.debug(f"  {dep.source} ({dep.slot}) -> {dep.name}")
                 logger.debug(f"Exception: {exc}")
+                logger.debug("Stack trace:", exc_info=True)
         finally:
+            self.finished_nodes.add(name)
             await node_runtime.destroy()
             self.queue.notify(self.progress_handle, -1)
 

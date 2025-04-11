@@ -20,6 +20,11 @@ from ailets.cons.notification_queue import INotificationQueue
 from ailets.cons.seqno import Seqno
 
 
+class Errors(IntEnum):
+    Unknown = -1
+    NoError = 0
+
+
 class IAsyncReader(Protocol):
     closed: bool
 
@@ -294,6 +299,12 @@ class IEnvironment(Protocol):
     nodereg: INodeRegistry
     processes: IProcesses
     notification_queue: INotificationQueue
+
+    def get_errno(self) -> Errors:
+        raise NotImplementedError
+
+    def set_errno(self, errno: Errors) -> None:
+        raise NotImplementedError
 
 
 #

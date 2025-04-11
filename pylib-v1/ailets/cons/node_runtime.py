@@ -17,6 +17,7 @@ from .atyping import (
     INodeRuntime,
     IPipe,
     StdHandles,
+    Errors,
 )
 
 
@@ -55,6 +56,7 @@ class NodeRuntime(INodeRuntime):
             StdHandles.metrics: Opener.print,
             StdHandles.trace: Opener.print,
         }
+        self.errno: Errors = Errors.NoError
 
     async def destroy(self) -> None:
         fds = list(self.open_fds.keys())
@@ -64,6 +66,12 @@ class NodeRuntime(INodeRuntime):
 
     def get_name(self) -> str:
         return self.node_name
+
+    def get_errno(self) -> Errors:
+        return self.errno
+
+    def set_errno(self, errno: Errors) -> None:
+        self.errno = errno
 
     async def auto_open(self, fd: StdHandles) -> None:
         opener = self.fd_openers[fd]

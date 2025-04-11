@@ -21,12 +21,12 @@ async def prompt_to_messages(runtime: INodeRuntime) -> None:
         keys,
     )
 
-    # FIXME
-    if "FIXME" in json.dumps(list(messages)):
-        raise RuntimeError("FIXME to see error handling in action")
-
     await write_all(
         runtime,
         StdHandles.stdout,
         json.dumps(list(messages)).encode("utf-8"),
     )
+
+    # FIXME
+    if "FIXME" in json.dumps(list(messages)):
+        raise RuntimeError("FIXME to see error handling in action")
