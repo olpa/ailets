@@ -1,9 +1,10 @@
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Literal, Optional, Set
 import json
 from typing import Sequence
 import sys
 import os.path
+import logging
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -17,6 +18,9 @@ from .atyping import (
     INodeRegistry,
     Node,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -217,3 +221,16 @@ def instantiate_with_deps(
         dagops.depend(resolve[node_name], deps)
 
     return resolve[target]
+
+
+def dup_output_to_stdout(env: IEnvironment, node_names: Set[str]) -> None:
+    for node_name in node_names:
+        node_env = env.for_env_pipe.setdefault(node_name, {})
+        if not isinstance(node_env, dict):
+            logger.warning(f"Env setup for node {node_name} is not a dict")
+            continue
+        node_handles = node_env.setdefault("handles", {})
+        if not isinstance(node_handles, dict):
+            logger.warning(f"Handles for env setup of node {node_name} is not a dict")
+            continue
+        node_handles["1"] = "print"
