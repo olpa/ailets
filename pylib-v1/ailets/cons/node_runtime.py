@@ -65,7 +65,15 @@ class NodeRuntime(INodeRuntime):
     def get_name(self) -> str:
         return self.node_name
 
-    async def auto_open(self, fd: int, opener: Opener) -> None:
+    async def auto_open(self, fd: StdHandles) -> None:
+        opener = self.fd_openers[fd]
+        node_env = self.env.for_env_pipe.get(self.node_name, {})
+        if isinstance(node_env, dict):
+            node_handles = node_env.get("handles", {})
+            fd_str = str(int(fd))
+            if isinstance(node_handles, dict) and fd_str in node_handles:
+                opener = Opener(node_handles[fd_str])
+
         if opener == Opener.input:
             real_fd = await self.open_read("")
             self.open_fds[fd] = self.open_fds[real_fd]
@@ -83,7 +91,9 @@ class NodeRuntime(INodeRuntime):
 
         if opener != Opener.print:
             assert False, f"Unknown opener: {opener}"
-        if fd == StdHandles.log:
+        if fd == StdHandles.stdout:
+            slot_name = ""
+        elif fd == StdHandles.log:
             slot_name = "log"
         elif fd == StdHandles.metrics:
             slot_name = "metrics"
@@ -113,8 +123,7 @@ class NodeRuntime(INodeRuntime):
 
     async def read(self, fd: int, buffer: bytearray, count: int) -> int:
         if fd not in self.open_fds and fd in self.fd_openers:
-            std_fd: StdHandles = StdHandles(fd)
-            await self.auto_open(std_fd, self.fd_openers[std_fd])
+            await self.auto_open(StdHandles(fd))
         assert fd in self.open_fds, f"File descriptor {fd} is not open"
 
         fd_obj = self.open_fds[fd]
@@ -142,8 +151,7 @@ class NodeRuntime(INodeRuntime):
 
     async def write(self, fd: int, buffer: bytes, count: int) -> int:
         if fd not in self.open_fds and fd in self.fd_openers:
-            std_fd: StdHandles = StdHandles(fd)
-            await self.auto_open(std_fd, self.fd_openers[std_fd])
+            await self.auto_open(StdHandles(fd))
         assert fd in self.open_fds, f"File descriptor {fd} is not open"
 
         fd_obj = self.open_fds[fd]
