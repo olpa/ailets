@@ -154,6 +154,8 @@ class NodeRuntime(INodeRuntime):
 
     async def close(self, fd: int) -> None:
         fd_obj = self.open_fds.get(fd, None)
+        if fd in self.fd_openers:
+            return
         assert fd_obj is not None, f"File descriptor {fd} is not open"
         if fd_obj.reader is not None:
             if not fd_obj.reader.closed:
