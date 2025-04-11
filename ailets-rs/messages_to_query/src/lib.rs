@@ -2,7 +2,7 @@ mod handlers;
 pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
-use actor_runtime::err_to_heap_c_string;
+use actor_runtime::{err_to_heap_c_string, StdHandle};
 use scan_json::RJiter;
 use scan_json::{scan, BoxedAction, BoxedEndAction, ParentAndName, ParentParentAndName, Trigger};
 use std::cell::RefCell;
@@ -165,14 +165,9 @@ pub fn _process_query<W: Write>(
 /// If anything goes wrong.
 #[no_mangle]
 pub extern "C" fn process_query() -> *const c_char {
-    let reader = match AReader::new(c"") {
-        Ok(reader) => reader,
-        Err(e) => return err_to_heap_c_string(&format!("Failed to create reader: {e:?}")),
-    };
-    let writer = match AWriter::new(c"") {
-        Ok(writer) => writer,
-        Err(e) => return err_to_heap_c_string(&format!("Failed to create writer: {e:?}")),
-    };
+    let reader = AReader::new_from_std(StdHandle::Stdin);
+    let writer = AWriter::new_from_std(StdHandle::Stdout);
+
     if let Err(e) = _process_query(reader, writer) {
         return err_to_heap_c_string(&format!("Failed to process query: {e}"));
     }

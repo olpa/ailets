@@ -1,7 +1,7 @@
 from typing import Any, Dict, Literal
 
 from ailets.cons.input_reader import iter_input_objects
-from .atyping import INodeRuntime
+from .atyping import INodeRuntime, StdHandles
 
 
 def to_basename(name: str) -> str:
@@ -27,7 +27,7 @@ async def write_all(runtime: INodeRuntime, fd: int, data: bytes) -> None:
 
 async def read_env_pipe(runtime: INodeRuntime) -> Dict[str, Any]:
     env: dict[str, Any] = {}
-    async for params in iter_input_objects(runtime, "env"):
+    async for params in iter_input_objects(runtime, StdHandles.env):
         env.update(params)
     return env
 
@@ -38,6 +38,4 @@ async def log(
     message_str = " ".join(map(str, message))
     log_str = f"{runtime.get_name()}: {level} {message_str}\n"
 
-    fd = await runtime.open_write("log")
-    await write_all(runtime, fd, log_str.encode("utf-8"))
-    await runtime.close(fd)
+    await write_all(runtime, StdHandles.log, log_str.encode("utf-8"))

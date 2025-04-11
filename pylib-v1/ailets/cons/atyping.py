@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from enum import IntEnum
 from typing import (
     Any,
     Awaitable,
@@ -85,6 +86,15 @@ class IPiper(Protocol):
 
     def get_fsops_handle(self) -> int:
         raise NotImplementedError
+
+
+class StdHandles(IntEnum):
+    stdin = 0
+    stdout = 1
+    log = 2
+    env = 3
+    metrics = 4
+    trace = 5
 
 
 #

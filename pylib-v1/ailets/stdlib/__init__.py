@@ -29,17 +29,9 @@ messages_to_markdown = NodeDesc(
     ],
 )
 
-stdout = NodeDesc(
-    name="stdout",
-    inputs=[
-        Dependency(source=".messages_to_markdown"),
-    ],
-)
-
 nodes = [
     prompt_to_messages,
     toolcall_to_messages,
     query,
     messages_to_markdown,
-    stdout,
 ]

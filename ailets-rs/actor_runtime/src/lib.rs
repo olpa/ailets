@@ -8,6 +8,17 @@ pub use actor_runtime::{aclose, aread, awrite, open_read, open_write};
 #[cfg(feature = "dagops")]
 pub use dagops::{DagOps, DagOpsTrait};
 
+/// Standard handles for I/O streams.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StdHandle {
+    Stdin = 0,
+    Stdout = 1,
+    Log = 2,
+    Env = 3,
+    Metrics = 4,
+    Trace = 5,
+}
+
 /// Convert an error to a heap-allocated C-string.
 ///
 /// This function is useful for returning errors to the host runtime.

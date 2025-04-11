@@ -6,6 +6,7 @@ from ailets.cons.atyping import (
     ContentItemText,
     Content,
     INodeRuntime,
+    StdHandles,
 )
 from ailets.cons.input_reader import iter_input_objects
 from ailets.cons.util import write_all
@@ -14,9 +15,7 @@ from ailets.cons.util import write_all
 async def response_to_messages(runtime: INodeRuntime) -> None:
     """Convert DALL-E response to messages."""
 
-    output_fd = await runtime.open_write("")
-
-    async for response in iter_input_objects(runtime, ""):
+    async for response in iter_input_objects(runtime, StdHandles.stdin):
         # `response` format:
         # {
         #   "created": 1726961295,
@@ -58,6 +57,8 @@ async def response_to_messages(runtime: INodeRuntime) -> None:
                 "role": "assistant",
                 "content": content,
             }
-            await write_all(runtime, output_fd, json.dumps(message).encode("utf-8"))
-
-    await runtime.close(output_fd)
+            await write_all(
+                runtime,
+                StdHandles.stdout,
+                json.dumps(message).encode("utf-8"),
+            )

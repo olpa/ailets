@@ -9,6 +9,7 @@ from ailets.cons.atyping import (
     Content,
     ContentItemImage,
     INodeRuntime,
+    StdHandles,
 )
 from ailets.cons.util import (
     log,
@@ -87,13 +88,6 @@ class ExtractedPrompt(TypedDict):
     mask: Optional[ContentItemImage]
 
 
-async def read_from_slot(runtime: INodeRuntime, slot_name: str) -> bytes:
-    fd = await runtime.open_read(slot_name)
-    content = await read_all(runtime, fd)
-    await runtime.close(fd)
-    return content
-
-
 def update_prompt(prompt: ExtractedPrompt, content: Content) -> None:
     for part in content:
         if is_content_item_text(part):
@@ -125,7 +119,7 @@ async def messages_to_query(runtime: INodeRuntime) -> None:
     ), "Invalid DALL-E task, expected one of: generations, variations, edits"
 
     prompt = ExtractedPrompt(prompt_parts=[], image=None, mask=None)
-    async for message in iter_input_objects(runtime, ""):
+    async for message in iter_input_objects(runtime, StdHandles.stdin):
         role = message.get("role")
         if role != "user":
             await log(runtime, "info", f"Skipping message with role {role}")
@@ -166,6 +160,4 @@ async def messages_to_query(runtime: INodeRuntime) -> None:
         body_field: body,
     }
 
-    output = await runtime.open_write("")
-    await write_all(runtime, output, json.dumps(value).encode("utf-8"))
-    await runtime.close(output)
+    await write_all(runtime, StdHandles.stdout, json.dumps(value).encode("utf-8"))

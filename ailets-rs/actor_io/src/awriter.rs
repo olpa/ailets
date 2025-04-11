@@ -21,7 +21,7 @@
 use std::ffi::CStr;
 use std::os::raw::{c_int, c_uint};
 
-use actor_runtime::{aclose, awrite, open_write};
+use actor_runtime::{aclose, awrite, open_write, StdHandle};
 
 pub struct AWriter {
     fd: Option<c_int>,
@@ -41,6 +41,14 @@ impl AWriter {
             ))
         } else {
             Ok(AWriter { fd: Some(fd) })
+        }
+    }
+
+    /// Create a new `AWriter` instance for the given standard handle.
+    #[must_use]
+    pub fn new_from_std(handle: StdHandle) -> Self {
+        Self {
+            fd: Some(handle as c_int),
         }
     }
 

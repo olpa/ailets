@@ -21,6 +21,7 @@ from ailets.cons.flow_builder import (
     prompt_to_dagops,
     toml_to_env,
     toolspecs_to_dagops,
+    dup_output_to_stdout,
 )
 from ailets.cons.node_wasm import WasmRegistry
 import re
@@ -242,7 +243,7 @@ async def main() -> None:
         target_node_name = next(
             node_name
             for node_name in env.dagops.get_node_names()
-            if node_name.startswith(".stdout")
+            if node_name.startswith(".messages_to_markdown")
         )
 
     else:
@@ -265,12 +266,17 @@ async def main() -> None:
             ".prompt_to_messages": chat_node_name,
         }
         target_node_name = instantiate_with_deps(
-            env.dagops, nodereg, ".stdout", resolve
+            env.dagops, nodereg, ".messages_to_markdown", resolve
         )
 
     stop_after_node = args.stop_after or target_node_name
     stop_before_node = args.stop_before
     env.processes.resolve_deps()
+
+    print_nodes = {target_node_name, stop_after_node}
+    if stop_before_node:
+        print_nodes.update(dep.source for dep in env.dagops.iter_deps(stop_before_node))
+    dup_output_to_stdout(env, print_nodes)
 
     if args.dry_run:
         print_dependency_tree(env.dagops, env.processes, target_node_name)

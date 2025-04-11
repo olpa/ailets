@@ -2,7 +2,7 @@ import json
 import aiohttp
 import os
 import re
-from ailets.cons.atyping import INodeRuntime
+from ailets.cons.atyping import INodeRuntime, StdHandles
 from ailets.cons.util import write_all
 from ailets.cons.input_reader import read_all
 
@@ -37,9 +37,7 @@ async def query(runtime: INodeRuntime) -> None:
     if _run_count > MAX_RUNS:
         raise RuntimeError(f"Exceeded maximum number of runs ({MAX_RUNS})")
 
-    fd = await runtime.open_read("")
-    params = json.loads((await read_all(runtime, fd)).decode("utf-8"))
-    await runtime.close(fd)
+    params = json.loads((await read_all(runtime, StdHandles.stdin)).decode("utf-8"))
 
     try:
         # Resolve secrets in headers and url
@@ -66,10 +64,8 @@ async def query(runtime: INodeRuntime) -> None:
                 **body_kwargs,
             ) as response:
                 response.raise_for_status()
-                fd = await runtime.open_write("")
                 async for chunk in response.content.iter_any():
-                    await write_all(runtime, fd, chunk)
-                await runtime.close(fd)
+                    await write_all(runtime, StdHandles.stdout, chunk)
 
     except aiohttp.ClientError as e:
         print(f"HTTP Request failed: {str(e)}")

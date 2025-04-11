@@ -12,7 +12,7 @@
 //! reader.read_to_end(&mut buffer).unwrap();
 //! ```
 
-use actor_runtime::{aclose, aread, open_read};
+use actor_runtime::{aclose, aread, open_read, StdHandle};
 use std::ffi::CStr;
 use std::os::raw::{c_int, c_uint};
 
@@ -34,6 +34,14 @@ impl AReader {
             ))
         } else {
             Ok(AReader { fd: Some(fd) })
+        }
+    }
+
+    /// Create a new `AReader` for the given standard handle.
+    #[must_use]
+    pub fn new_from_std(handle: StdHandle) -> Self {
+        Self {
+            fd: Some(handle as c_int),
         }
     }
 

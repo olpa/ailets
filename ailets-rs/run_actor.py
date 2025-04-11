@@ -16,6 +16,9 @@ class Spec:
     value_or_file: str
 
 
+auto_open_fds = ["", "", "log", "metrics", "trace"]
+
+
 # ----
 
 
@@ -73,7 +76,7 @@ class IStream(Protocol):
 class NodeRuntime:
     def __init__(self, specs: Sequence[Spec]) -> None:
         self.specs = specs
-        self.streams: list[Optional[IStream]] = []
+        self.streams: list[Optional[IStream]] = [None] * len(auto_open_fds)
 
     def _collect_streams(
         self, direction: Literal["in", "out"], name: str
@@ -119,6 +122,10 @@ class NodeRuntime:
 
     def aread(self, fd: int, buffer: memoryview, ptr: int, count: int) -> int:
         stream = self.streams[fd]
+        if stream is None and fd < len(auto_open_fds):
+            self.open_read(auto_open_fds[fd])
+            stream = self.streams.pop()
+            self.streams[fd] = stream
         if stream is None:
             raise ValueError(f"Stream {fd} is not open")
 
@@ -131,8 +138,13 @@ class NodeRuntime:
 
     def awrite(self, fd: int, buffer: memoryview, ptr: int, count: int) -> int:
         stream = self.streams[fd]
+        if stream is None and fd < len(auto_open_fds):
+            self.open_write(auto_open_fds[fd])
+            stream = self.streams.pop()
+            self.streams[fd] = stream
         if stream is None:
             raise ValueError(f"Stream {fd} is not open")
+
         end = ptr + count
         return stream.write(buffer[ptr:end])
 

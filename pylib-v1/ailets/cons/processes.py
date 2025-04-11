@@ -3,7 +3,12 @@ import itertools
 import logging
 import sys
 from typing import Iterator, Mapping, Optional, Sequence
-from ailets.cons.atyping import Dependency, IEnvironment, IProcesses, IPiper
+from ailets.cons.atyping import (
+    Dependency,
+    IEnvironment,
+    IProcesses,
+    IPiper,
+)
 from ailets.cons.node_runtime import NodeRuntime
 
 
@@ -226,12 +231,12 @@ class Processes(IProcesses):
         logger.debug(f"Starting to build node '{name}'")
         node = self.dagops.get_node(name)
 
-        runtime = NodeRuntime(self.env, name, self.deps[name])
+        node_runtime = NodeRuntime(self.env, name, self.deps[name])
 
         # Execute the node's function with all dependencies
         try:
             self.active_nodes.add(name)
-            await node.func(runtime)
+            await node.func(node_runtime)
             self.finished_nodes.add(name)
         except Exception:
             exc = sys.exc_info()[1]
@@ -243,6 +248,7 @@ class Processes(IProcesses):
             print(f"Exception: {exc}")
             raise
         finally:
+            await node_runtime.destroy()
             self.queue.notify(self.progress_handle, -1)
 
     def get_processes(self) -> set[asyncio.Task[None]]:

@@ -141,7 +141,8 @@ class NotificationQueue(INotificationQueue):
         with self._lock:
             if handle not in self._whitelist:
                 logger.warning("queue.unlist: handle %s not in whitelist", handle)
-            del self._whitelist[handle]
+            else:
+                del self._whitelist[handle]
         self._notify_and_delete(handle, arg=-1, delete_subscribed=True)
 
     def subscribe(
