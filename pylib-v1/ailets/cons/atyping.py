@@ -289,6 +289,12 @@ class IProcesses(Protocol):
     def add_finished_node(self, name: str) -> None:
         raise NotImplementedError
 
+    def set_completion_code(self, name: str, ccode: Errors) -> None:
+        raise NotImplementedError
+
+    def get_optional_completion_code(self, name: str) -> Optional[Errors]:
+        raise NotImplementedError
+
 
 class IEnvironment(Protocol):
     for_env_pipe: Dict[str, Any]

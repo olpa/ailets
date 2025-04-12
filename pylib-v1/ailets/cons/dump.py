@@ -249,7 +249,10 @@ def print_dependency_tree(
         visited = set()
 
     node = dagops.get_node(node_name)
-    if node_name.startswith("defunc."):
+    errno = processes.get_optional_completion_code(node_name)
+    if errno is not None:
+        status = f"\033[31merrno: {errno}/{errno.name}\033[0m"
+    elif node_name.startswith("defunc."):
         status = "\033[90mdefunc\033[0m"
     else:
         status = (
