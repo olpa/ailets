@@ -14,6 +14,9 @@ class Environment(IEnvironment):
         self.errno: Errors = Errors.NoError
 
         self.seqno = Seqno()
+        for _ in range(10):  # To avoid collision with StdHandles
+            self.seqno.next_seqno()
+
         self.kv = MemKV()
         self.dagops = Dagops(self.seqno)
         self.notification_queue = NotificationQueue()
