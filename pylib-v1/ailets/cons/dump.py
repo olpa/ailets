@@ -15,6 +15,7 @@ from typing import (
 
 from ailets.cons.atyping import (
     Dependency,
+    Errors,
     IKVBuffers,
     INodeRegistry,
     INodeRuntime,
@@ -142,6 +143,22 @@ async def load_kv_item(kv: IKVBuffers, data: dict[str, Any]) -> None:
     item.borrow_mut_buffer()[:] = content
 
 
+def save_env_values(env: Environment, f: TextIO) -> None:
+    json.dump(
+        {
+            "env": env.for_env_pipe,
+            "errno": env.errno.value,
+        },
+        f,
+        indent=2,
+    )
+
+
+def load_env_values(env: Environment, data: dict[str, Any]) -> None:
+    env.for_env_pipe.update(data["env"])
+    env.errno = Errors(data["errno"])
+
+
 async def dump_environment(env: Environment, f: TextIO) -> None:
     for node in env.dagops.nodes.values():
         dump_node(node, is_finished=env.processes.is_node_finished(node.name), f=f)
@@ -155,7 +172,7 @@ async def dump_environment(env: Environment, f: TextIO) -> None:
     for path, pipe in env.piper.pipes.items():
         await dump_pipe(path, pipe, f)
         f.write("\n")
-    json.dump({"env": env.for_env_pipe}, f, indent=2)
+    save_env_values(env, f)
     f.write("\n")
 
 
@@ -188,7 +205,7 @@ async def load_environment(f: TextIO, nodereg: INodeRegistry) -> Environment:
             elif "alias" in obj_data:
                 env.dagops.aliases[obj_data["alias"]] = obj_data["names"]
             elif "env" in obj_data:
-                env.for_env_pipe.update(obj_data["env"])
+                load_env_values(env, obj_data)
             else:
                 raise ValueError(f"Unknown object data: {obj_data}")
         except json.JSONDecodeError as e:
