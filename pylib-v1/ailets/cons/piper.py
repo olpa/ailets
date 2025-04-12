@@ -28,6 +28,7 @@ class PrintWrapper(IPipe):
             self.output = output
             self.writer = writer
             self.closed = False
+            self.errno = 0
 
         async def write(self, data: bytes) -> int:
             self.output.write(data.decode("utf-8"))
@@ -50,13 +51,15 @@ class PrintWrapper(IPipe):
             self.closed = True
 
         def set_error(self, errno: int) -> None:
+            self.errno = errno
             if self.writer is not None:
                 self.writer.set_error(errno)
 
         def __str__(self) -> str:
             return (
                 f"PrintWrapper.Writer(output={self.output}, "
-                f"closed={self.closed}, writer={self.writer})"
+                f"closed={self.closed}, writer={self.writer}, "
+                f"errno={self.errno})"
             )
 
     def __init__(self, output: IO[str], pipe: Optional[IPipe]) -> None:

@@ -106,6 +106,7 @@ async def dump_pipe(path: str, pipe: IPipe, f: TextIO) -> None:
         {
             "pipe": path,
             "is_closed": writer.closed,
+            **({"errno": writer.errno} if writer.errno != 0 else {}),
         },
         f,
         indent=2,
@@ -115,7 +116,11 @@ async def dump_pipe(path: str, pipe: IPipe, f: TextIO) -> None:
 async def load_pipe(piper: IPiper, data: dict[str, Any]) -> None:
     path = data["pipe"]
     is_closed = data.get("is_closed", False)
+    errno = data.get("errno", 0)
     pipe = piper.create_pipe(path, "", open_mode="append")
+    if errno != 0:
+        writer = pipe.get_writer()
+        writer.set_error(errno)
     if is_closed:
         writer = pipe.get_writer()
         writer.close()

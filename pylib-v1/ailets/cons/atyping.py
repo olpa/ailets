@@ -38,6 +38,7 @@ class IAsyncReader(Protocol):
 
 class IAsyncWriter(Protocol):
     closed: bool
+    errno: int
 
     async def write(self, data: bytes) -> int:
         raise NotImplementedError
