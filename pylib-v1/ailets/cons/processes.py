@@ -40,6 +40,8 @@ class Processes(IProcesses):
 
         self.progress_handle: int = env.seqno.next_seqno()
         self.queue.whitelist(self.progress_handle, "ailets.processes")
+        logger.debug("Processes: progress_handle is: %s", self.progress_handle)
+
         self.pool: set[asyncio.Task[None]] = set()
         self.loop = asyncio.get_event_loop()
 

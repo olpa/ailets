@@ -109,6 +109,7 @@ class Piper(IPiper):
     def init_fsops_handle(self) -> None:
         self.fsops_handle = self.seqno.next_seqno()
         self.queue.whitelist(self.fsops_handle, "Piper: file system operations")
+        logger.debug("Piper: fsops_handle is: %s", self.fsops_handle)
 
     def get_fsops_handle(self) -> int:
         return self.fsops_handle
