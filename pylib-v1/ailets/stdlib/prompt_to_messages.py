@@ -1,3 +1,4 @@
+import asyncio
 import json
 from typing import Any, Dict
 from ailets.cons.atyping import INodeRuntime, StdHandles
@@ -20,6 +21,26 @@ async def prompt_to_messages(runtime: INodeRuntime) -> None:
         },
         keys,
     )
+    # FIXME
+    if "FIXME" in json.dumps(list(messages)):
+        await write_all(
+            runtime,
+            StdHandles.stdout,
+            "(AAAAAAAAAAAAA)\n".encode("utf-8"),
+        )
+        await asyncio.sleep(0.1)
+        await write_all(
+            runtime,
+            StdHandles.stdout,
+            "(BBBBBBBBBBBBB)\n".encode("utf-8"),
+        )
+        await asyncio.sleep(0.1)
+        await write_all(
+            runtime,
+            StdHandles.stdout,
+            "(CCCCCCCCCCCCC)\n".encode("utf-8"),
+        )
+        raise RuntimeError("FIXME to see error handling in action")
 
     await write_all(
         runtime,
