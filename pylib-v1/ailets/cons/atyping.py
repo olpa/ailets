@@ -23,6 +23,7 @@ from ailets.cons.seqno import Seqno
 class Errors(IntEnum):
     Unknown = -1
     NoError = 0
+    BrokenPipe = 1
 
 
 class IAsyncReader(Protocol):
@@ -45,6 +46,9 @@ class IAsyncWriter(Protocol):
         raise NotImplementedError
 
     def tell(self) -> int:
+        raise NotImplementedError
+
+    def set_error(self, errno: int) -> None:
         raise NotImplementedError
 
 

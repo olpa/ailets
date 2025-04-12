@@ -18,6 +18,7 @@ class Writer(IAsyncWriter):
         external_buffer: Optional[bytearray] = None,
     ) -> None:
         super().__init__()
+        self.errno = 0
         self.buffer = external_buffer if external_buffer is not None else bytearray()
         self.handle = handle
         self.queue = queue
@@ -33,6 +34,12 @@ class Writer(IAsyncWriter):
             f"tell={self.tell()}, "
             f"hint={self.debug_hint})"
         )
+
+    def set_error(self, errno: int) -> None:
+        if self.closed:
+            return
+        self.errno = errno
+        self.queue.notify(self.handle, errno)
 
     async def write(self, data: bytes) -> int:
         return self.write_sync(data)
@@ -81,7 +88,7 @@ class Reader(IAsyncReader):
             # The reader missed the new data
             writer_pos = self.writer.tell()
             should_wait = self.pos >= writer_pos
-            is_writer_closed = self.writer.closed
+            is_writer_closed = self.writer.closed or self.writer.errno != 0
         if should_wait and is_writer_closed:
             self.close()
             should_wait = False
@@ -92,6 +99,9 @@ class Reader(IAsyncReader):
             if self._should_wait_with_autoclose():
                 await self._wait_for_writer()
                 continue
+
+            if self.writer.errno != 0:
+                raise OSError(self.writer.errno, "Broken pipe")
 
             if size < 0:
                 end_pos = len(self.writer.buffer)

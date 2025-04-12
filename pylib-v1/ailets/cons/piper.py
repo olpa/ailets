@@ -49,6 +49,10 @@ class PrintWrapper(IPipe):
             # stream for which the app has own ownership.
             self.closed = True
 
+        def set_error(self, errno: int) -> None:
+            if self.writer is not None:
+                self.writer.set_error(errno)
+
         def __str__(self) -> str:
             return (
                 f"PrintWrapper.Writer(output={self.output}, "

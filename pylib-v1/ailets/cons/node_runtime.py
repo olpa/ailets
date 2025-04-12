@@ -61,6 +61,10 @@ class NodeRuntime(INodeRuntime):
     async def destroy(self) -> None:
         fds = list(self.open_fds.keys())
         for fd in fds:
+            if self.errno != Errors.NoError:
+                writer = self.open_fds[fd].writer
+                if writer is not None and not writer.closed:
+                    writer.set_error(int(Errors.BrokenPipe))
             await self.close(fd)
             del self.open_fds[fd]
 
