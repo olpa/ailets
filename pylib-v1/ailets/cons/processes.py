@@ -207,7 +207,7 @@ class Processes(IProcesses):
         )
         self.pool.add(awaker_task)
 
-        while len(self.pool) > 0:  # The awaker is always in the pool
+        while len(self.pool) > 1:  # The awaker is always in the pool
             if awaker_task.done():
                 if awaker_task in self.pool:
                     self.pool.remove(awaker_task)
@@ -217,11 +217,18 @@ class Processes(IProcesses):
             done, self.pool = await asyncio.wait(
                 self.pool, return_when=asyncio.FIRST_COMPLETED
             )
+
+            # Should never happen: the actor wrapper should catch all exceptions
             for task in done:
                 if exc := task.exception():
                     raise exc
 
-            extend_pool()
+            # In case of an error:
+            # Don't start new actors.
+            # For currently running nodes, expect that they will get
+            # "pipe broken" error and will finish on their own.
+            if self.env.get_errno() == Errors.NoError:
+                extend_pool()
 
         awaker_task.cancel()
         if awaker_task in self.pool:
