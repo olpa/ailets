@@ -197,7 +197,7 @@ async def load_environment(f: TextIO, nodereg: INodeRegistry) -> Environment:
                 node = load_node(obj_data, nodereg, env.seqno)
                 env.dagops.nodes[node.name] = node
                 if obj_data.get("is_finished", False):
-                    env.processes.add_value_node(node.name)
+                    env.processes.add_finished_node(node.name)
             elif "path" in obj_data:
                 await load_kv_item(env.kv, obj_data)
             elif "pipe" in obj_data:

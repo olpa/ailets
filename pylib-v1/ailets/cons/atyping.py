@@ -286,7 +286,7 @@ class IProcesses(Protocol):
     def is_node_active(self, name: str) -> bool:
         raise NotImplementedError
 
-    def add_value_node(self, name: str) -> None:
+    def add_finished_node(self, name: str) -> None:
         raise NotImplementedError
 
 
