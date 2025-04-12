@@ -42,13 +42,19 @@ def load_dependency(
     return Dependency(**obj)
 
 
-def dump_node(node: Node, is_finished: bool, f: TextIO) -> None:
+def dump_node(
+    node: Node,
+    is_finished: bool,
+    errno: Optional[Errors],
+    f: TextIO,
+) -> None:
     json.dump(
         {
             "name": node.name,
             "deps": [dependency_to_json(dep) for dep in node.deps],
             "explain": node.explain,
             "is_finished": is_finished,
+            "errno": errno,
             # Skip func as it's not serializable
         },
         f,
@@ -161,7 +167,12 @@ def load_env_values(env: Environment, data: dict[str, Any]) -> None:
 
 async def dump_environment(env: Environment, f: TextIO) -> None:
     for node in env.dagops.nodes.values():
-        dump_node(node, is_finished=env.processes.is_node_finished(node.name), f=f)
+        dump_node(
+            node,
+            is_finished=env.processes.is_node_finished(node.name),
+            errno=env.processes.get_optional_completion_code(node.name),
+            f=f,
+        )
         f.write("\n")
     for alias, names in env.dagops.aliases.items():
         json.dump({"alias": alias, "names": list(names)}, f, indent=2)
@@ -198,6 +209,9 @@ async def load_environment(f: TextIO, nodereg: INodeRegistry) -> Environment:
                 env.dagops.nodes[node.name] = node
                 if obj_data.get("is_finished", False):
                     env.processes.add_finished_node(node.name)
+                ccode = obj_data.get("errno")
+                if ccode is not None:
+                    env.processes.set_completion_code(node.name, Errors(ccode))
             elif "path" in obj_data:
                 await load_kv_item(env.kv, obj_data)
             elif "pipe" in obj_data:

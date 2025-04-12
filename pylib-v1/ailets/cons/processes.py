@@ -33,7 +33,7 @@ class Processes(IProcesses):
 
         self.finished_nodes: set[str] = set()
         self.active_nodes: set[str] = set()
-
+        self.completion_codes: dict[str, Errors] = {}
         # With resolved aliases
         self.deps: Mapping[str, Sequence[Dependency]] = {}
         self.rev_deps: Mapping[str, Sequence[Dependency]] = {}
@@ -261,6 +261,8 @@ class Processes(IProcesses):
                 logger.debug("Stack trace:", exc_info=True)
         finally:
             self.finished_nodes.add(name)
+            ccode = node_runtime.get_errno()
+            self.set_completion_code(name, ccode)
             await node_runtime.destroy()
             self.queue.notify(self.progress_handle, -1)
 
@@ -269,3 +271,11 @@ class Processes(IProcesses):
 
     def get_progress_handle(self) -> int:
         return self.progress_handle
+
+    def set_completion_code(self, name: str, ccode: Errors) -> None:
+        self.completion_codes[name] = ccode
+        if ccode != Errors.NoError and self.env.get_errno() == Errors.NoError:
+            self.env.set_errno(ccode)
+
+    def get_optional_completion_code(self, name: str) -> Optional[Errors]:
+        return self.completion_codes.get(name)
