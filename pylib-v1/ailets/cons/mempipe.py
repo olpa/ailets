@@ -126,10 +126,12 @@ class Reader(IAsyncReader):
         lock = self.writer.queue.get_lock()
         with lock:
             if self._should_wait_with_autoclose():
-                await self.writer.queue.wait_unsafe(
-                    self.writer.handle, f"MemPipe.Reader {self.handle}"
-                )
-                lock.acquire()
+                try:
+                    await self.writer.queue.wait_unsafe(
+                        self.writer.handle, f"MemPipe.Reader {self.handle}"
+                    )
+                finally:
+                    lock.acquire()
 
 
 class MemPipe:
