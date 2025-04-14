@@ -193,6 +193,8 @@ class Processes(IProcesses):
             await self.queue.wait_unsafe(self.progress_handle, "process.awaker")
 
         def extend_pool() -> None:
+            if self.env.get_errno() != Errors.NoError:
+                return
             node_names: Sequence[str] = list(
                 name
                 for name in itertools.takewhile(lambda x: x is not None, node_iter)
@@ -203,19 +205,22 @@ class Processes(IProcesses):
                 for name in node_names
             )
 
-        extend_pool()
-        awaker_task: asyncio.Task[None] = asyncio.create_task(
-            awaker(), name="process.awaker"
-        )
-        self.pool.add(awaker_task)
+        awaker_task: Optional[asyncio.Task[None]] = None
 
-        while len(self.pool) > 1:  # The awaker is always in the pool
-            if awaker_task.done():
+        def refresh_awaker_in_pool() -> None:
+            nonlocal awaker_task
+            if awaker_task is not None and awaker_task.done():
                 if awaker_task in self.pool:
                     self.pool.remove(awaker_task)
+                awaker_task = None
+            if len(self.pool) > 0:
                 awaker_task = asyncio.create_task(awaker(), name="process.awaker")
                 self.pool.add(awaker_task)
 
+        extend_pool()
+
+        while len(self.pool) > 0:
+            refresh_awaker_in_pool()
             done, self.pool = await asyncio.wait(
                 self.pool, return_when=asyncio.FIRST_COMPLETED
             )
@@ -226,15 +231,16 @@ class Processes(IProcesses):
                     raise exc
 
             # In case of an error:
-            # Don't start new actors.
-            # For currently running nodes, expect that they will get
+            # Don't start new actors (the condition is inside `extend_pool`)
+            # For currently running nodes, expect that they eventually will get
             # "pipe broken" error and will finish on their own.
-            if self.env.get_errno() == Errors.NoError:
-                extend_pool()
+            extend_pool()
 
-        awaker_task.cancel()
-        if awaker_task in self.pool:
-            self.pool.remove(awaker_task)
+        # Awake awaker
+        if awaker_task is not None:
+            if not awaker_task.done():
+                self.queue.notify(self.progress_handle, -1)
+                await awaker_task
 
     async def build_node_alone(self, name: str) -> None:
         """Build a node. Does not build its dependencies."""
@@ -248,9 +254,9 @@ class Processes(IProcesses):
             self.active_nodes.add(name)
             await node.func(node_runtime)
         except Exception as exc:
-            node_runtime.set_errno(Errors.Unknown)
-            self.env.set_errno(Errors.Unknown)
             print(f"*** ailet error: {name}: {str(exc)}", file=sys.stderr)
+            if node_runtime.get_errno() == Errors.NoError:
+                node_runtime.set_errno(Errors.Unknown)  # the rest in `finally`
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"Error building node '{name}'")
                 logger.debug(f"Function: {node.func.__name__}")
@@ -260,9 +266,12 @@ class Processes(IProcesses):
                 logger.debug(f"Exception: {exc}")
                 logger.debug("Stack trace:", exc_info=True)
         finally:
-            self.finished_nodes.add(name)
             ccode = node_runtime.get_errno()
+            logger.debug(
+                f"Finished building node '{name}' with code {ccode}, making accounting"
+            )
             self.set_completion_code(name, ccode)
+            self.finished_nodes.add(name)
             await node_runtime.destroy()
             self.queue.notify(self.progress_handle, -1)
 
