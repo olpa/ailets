@@ -142,8 +142,6 @@ def hijack_msg2query(nodereg: NodeRegistry, wasm_registry: IWasmRegistry) -> Non
         nodereg,
         wasm_registry,
         ".gpt4o.messages_to_query",
-        # "process_query",
-        # "messages_to_query.wasm",
-        "execute",
-        "cat.wasm",
+        "process_query",
+        "messages_to_query.wasm",
     )
