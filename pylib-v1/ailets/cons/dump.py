@@ -106,7 +106,7 @@ async def dump_pipe(path: str, pipe: IPipe, f: TextIO) -> None:
         {
             "pipe": path,
             "is_closed": writer.closed,
-            **({"errno": writer.errno} if writer.errno != 0 else {}),
+            **({"errno": writer.get_error()} if writer.get_error() != 0 else {}),
         },
         f,
         indent=2,

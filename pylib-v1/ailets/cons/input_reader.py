@@ -33,13 +33,21 @@ class MergeInputReader(IAsyncReader):
         self.index = -1
         self.current_reader: Optional[IAsyncReader] = None
         self.closed = False
+        self.errno = 0
 
     def close(self) -> None:
         self.closed = True
 
+    def set_error(self, errno: int) -> None:
+        self.errno = errno
+        if self.current_reader is not None:
+            self.current_reader.set_error(errno)
+
     async def read(self, size: int) -> bytes:
         if self.closed:
             return b""
+        if self.errno != 0:
+            raise OSError(self.errno, "Reader is in an error state")
 
         if self.current_reader is not None:
             if self.current_reader.closed:

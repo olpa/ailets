@@ -35,10 +35,12 @@ class IAsyncReader(Protocol):
     def close(self) -> None:
         raise NotImplementedError
 
+    def set_error(self, errno: int) -> None:
+        raise NotImplementedError
+
 
 class IAsyncWriter(Protocol):
     closed: bool
-    errno: int
 
     async def write(self, data: bytes) -> int:
         raise NotImplementedError
@@ -47,6 +49,9 @@ class IAsyncWriter(Protocol):
         raise NotImplementedError
 
     def tell(self) -> int:
+        raise NotImplementedError
+
+    def get_error(self) -> int:
         raise NotImplementedError
 
     def set_error(self, errno: int) -> None:

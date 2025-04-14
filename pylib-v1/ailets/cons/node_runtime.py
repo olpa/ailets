@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from enum import Enum
+import errno
 import sys
 from typing import Dict, Optional, Sequence
 
@@ -64,7 +65,7 @@ class NodeRuntime(INodeRuntime):
             if self.errno != Errors.NoError:
                 writer = self.open_fds[fd].writer
                 if writer is not None and not writer.closed:
-                    writer.set_error(int(Errors.BrokenPipe))
+                    writer.set_error(errno.EPIPE)
             await self.close(fd)
             del self.open_fds[fd]
 
