@@ -1,4 +1,5 @@
 import base64
+import errno
 import dataclasses
 import json
 from typing import (
@@ -15,7 +16,6 @@ from typing import (
 
 from ailets.cons.atyping import (
     Dependency,
-    Errors,
     IKVBuffers,
     INodeRegistry,
     INodeRuntime,
@@ -45,7 +45,7 @@ def load_dependency(
 def dump_node(
     node: Node,
     is_finished: bool,
-    errno: Optional[Errors],
+    errno: Optional[int],
     f: TextIO,
 ) -> None:
     json.dump(
@@ -158,7 +158,7 @@ def save_env_values(env: Environment, f: TextIO) -> None:
     json.dump(
         {
             "env": env.for_env_pipe,
-            "errno": env.errno.value,
+            "errno": env.errno,
         },
         f,
         indent=2,
@@ -167,7 +167,8 @@ def save_env_values(env: Environment, f: TextIO) -> None:
 
 def load_env_values(env: Environment, data: dict[str, Any]) -> None:
     env.for_env_pipe.update(data["env"])
-    env.errno = Errors(data["errno"])
+    if errno := data.get("errno"):
+        env.errno = errno
 
 
 async def dump_environment(env: Environment, f: TextIO) -> None:
@@ -216,7 +217,7 @@ async def load_environment(f: TextIO, nodereg: INodeRegistry) -> Environment:
                     env.processes.add_finished_node(node.name)
                 ccode = obj_data.get("errno")
                 if ccode is not None:
-                    env.processes.set_completion_code(node.name, Errors(ccode))
+                    env.processes.set_completion_code(node.name, ccode)
             elif "path" in obj_data:
                 await load_kv_item(env.kv, obj_data)
             elif "pipe" in obj_data:
@@ -254,9 +255,10 @@ def print_dependency_tree(
         visited = set()
 
     node = dagops.get_node(node_name)
-    errno = processes.get_optional_completion_code(node_name)
-    if errno is not None and errno != Errors.NoError:
-        status = f"\033[31merrno: {errno}/{errno.name}\033[0m"
+    ecode = processes.get_optional_completion_code(node_name)
+    if ecode is not None and ecode != 0:
+        ename = errno.errorcode.get(ecode, "Unknown")
+        status = f"\033[31merrno: {ecode}/{ename}\033[0m"
     elif node_name.startswith("defunc."):
         status = "\033[90mdefunc\033[0m"
     else:

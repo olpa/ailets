@@ -5,7 +5,6 @@ import sys
 from typing import Iterator, Mapping, Optional, Sequence
 from ailets.cons.atyping import (
     Dependency,
-    Errors,
     IEnvironment,
     IProcesses,
     IPiper,
@@ -33,7 +32,7 @@ class Processes(IProcesses):
 
         self.finished_nodes: set[str] = set()
         self.active_nodes: set[str] = set()
-        self.completion_codes: dict[str, Errors] = {}
+        self.completion_codes: dict[str, int] = {}
         # With resolved aliases
         self.deps: Mapping[str, Sequence[Dependency]] = {}
         self.rev_deps: Mapping[str, Sequence[Dependency]] = {}
@@ -193,7 +192,7 @@ class Processes(IProcesses):
             await self.queue.wait_unsafe(self.progress_handle, "process.awaker")
 
         def extend_pool() -> None:
-            if self.env.get_errno() != Errors.NoError:
+            if self.env.get_errno() != 0:
                 return
             node_names: Sequence[str] = list(
                 name
@@ -255,8 +254,8 @@ class Processes(IProcesses):
             await node.func(node_runtime)
         except Exception as exc:
             print(f"*** ailet error: {name}: {str(exc)}", file=sys.stderr)
-            if node_runtime.get_errno() == Errors.NoError:
-                node_runtime.set_errno(Errors.Unknown)  # the rest in `finally`
+            if node_runtime.get_errno() == 0:
+                node_runtime.set_errno(-1)  # the rest in `finally`
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(f"Error building node '{name}'")
                 logger.debug(f"Function: {node.func.__name__}")
@@ -281,10 +280,10 @@ class Processes(IProcesses):
     def get_progress_handle(self) -> int:
         return self.progress_handle
 
-    def set_completion_code(self, name: str, ccode: Errors) -> None:
+    def set_completion_code(self, name: str, ccode: int) -> None:
         self.completion_codes[name] = ccode
-        if ccode != Errors.NoError and self.env.get_errno() == Errors.NoError:
+        if ccode != 0 and self.env.get_errno() == 0:
             self.env.set_errno(ccode)
 
-    def get_optional_completion_code(self, name: str) -> Optional[Errors]:
+    def get_optional_completion_code(self, name: str) -> Optional[int]:
         return self.completion_codes.get(name)

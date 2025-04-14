@@ -20,12 +20,6 @@ from ailets.cons.notification_queue import INotificationQueue
 from ailets.cons.seqno import Seqno
 
 
-class Errors(IntEnum):
-    Unknown = -1
-    NoError = 0
-    BrokenPipe = 1
-
-
 class IAsyncReader(Protocol):
     closed: bool
 
@@ -299,10 +293,10 @@ class IProcesses(Protocol):
     def add_finished_node(self, name: str) -> None:
         raise NotImplementedError
 
-    def set_completion_code(self, name: str, ccode: Errors) -> None:
+    def set_completion_code(self, name: str, ccode: int) -> None:
         raise NotImplementedError
 
-    def get_optional_completion_code(self, name: str) -> Optional[Errors]:
+    def get_optional_completion_code(self, name: str) -> Optional[int]:
         raise NotImplementedError
 
 
@@ -316,10 +310,10 @@ class IEnvironment(Protocol):
     processes: IProcesses
     notification_queue: INotificationQueue
 
-    def get_errno(self) -> Errors:
+    def get_errno(self) -> int:
         raise NotImplementedError
 
-    def set_errno(self, errno: Errors) -> None:
+    def set_errno(self, errno: int) -> None:
         raise NotImplementedError
 
 
