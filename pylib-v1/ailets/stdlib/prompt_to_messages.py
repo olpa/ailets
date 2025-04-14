@@ -14,40 +14,38 @@ async def prompt_to_messages(runtime: INodeRuntime) -> None:
 
     keys = list(role_to_content.keys())
     keys.sort()
-    messages = map(
-        lambda key: {
-            "role": key,
-            "content": role_to_content[key],
-        },
-        keys,
+    messages = list(
+        map(
+            lambda key: {
+                "role": key,
+                "content": role_to_content[key],
+            },
+            keys,
+        )
     )
     # FIXME
     if "FIXME" in json.dumps(list(messages)):
+        for i in range(3):
+            await write_all(
+                runtime,
+                StdHandles.stdout,
+                json.dumps(messages).encode("utf-8"),
+            )
+            await asyncio.sleep(0.1)
         await write_all(
             runtime,
             StdHandles.stdout,
-            "(AAAAAAAAAAAAA)\n".encode("utf-8"),
+            "FIXME_SHOULD_FAIL\n".encode("utf-8"),
         )
         await asyncio.sleep(0.1)
         await write_all(
             runtime,
             StdHandles.stdout,
-            "(BBBBBBBBBBBBB)\n".encode("utf-8"),
+            "just some text to see writing to a broken pipe\n".encode("utf-8"),
         )
-        await asyncio.sleep(0.1)
-        await write_all(
-            runtime,
-            StdHandles.stdout,
-            "(CCCCCCCCCCCCC)\n".encode("utf-8"),
-        )
-        raise RuntimeError("FIXME to see error handling in action")
 
     await write_all(
         runtime,
         StdHandles.stdout,
-        json.dumps(list(messages)).encode("utf-8"),
+        json.dumps(messages).encode("utf-8"),
     )
-
-    # FIXME
-    if "FIXME" in json.dumps(list(messages)):
-        raise RuntimeError("FIXME to see error handling in action")
