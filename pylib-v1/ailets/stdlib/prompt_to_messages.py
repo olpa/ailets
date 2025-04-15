@@ -32,18 +32,7 @@ async def prompt_to_messages(runtime: INodeRuntime) -> None:
                 json.dumps(messages).encode("utf-8"),
             )
             await asyncio.sleep(0.1)
-        for i in range(3):
-            await write_all(
-                runtime,
-                StdHandles.stdout,
-                "FIXME_SHOULD_FAIL\n".encode("utf-8"),
-            )
-            await asyncio.sleep(0.1)
-        await write_all(
-            runtime,
-            StdHandles.stdout,
-            "just some text to see writing to a broken pipe\n".encode("utf-8"),
-        )
+        raise Exception("FIXME testing: should break pipe")
 
     await write_all(
         runtime,
