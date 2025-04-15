@@ -61,6 +61,9 @@ class NodeRuntime(INodeRuntime):
         fds = list(self.open_fds.keys())
         for fd in fds:
             if self.errno != 0:
+                reader = self.open_fds[fd].reader
+                if reader is not None and not reader.closed:
+                    reader.set_error(self.errno)
                 writer = self.open_fds[fd].writer
                 if writer is not None and not writer.closed:
                     writer.set_error(self.errno)
