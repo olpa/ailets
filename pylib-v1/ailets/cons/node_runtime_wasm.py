@@ -164,6 +164,9 @@ def fill_wasm_import_object(
     def sync_aclose(fd: int) -> int:
         return asyncio.run(aclose(fd))
 
+    def sync_get_errno() -> int:
+        return runtime.get_errno()
+
     def sync_dag_instantiate_with_deps(workflow_ptr: int, deps_ptr: int) -> int:
         return asyncio.run(dag_instantiate_with_deps(workflow_ptr, deps_ptr))
 
@@ -185,6 +188,7 @@ def fill_wasm_import_object(
             "aread": wasmer.Function(store, sync_aread),
             "awrite": wasmer.Function(store, sync_awrite),
             "aclose": wasmer.Function(store, sync_aclose),
+            "get_errno": wasmer.Function(store, sync_get_errno),
             "dag_instantiate_with_deps": wasmer.Function(
                 store, sync_dag_instantiate_with_deps
             ),

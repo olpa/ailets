@@ -231,6 +231,9 @@ def register_node_runtime(
     def aclose(fd: int) -> int:
         return nr.aclose(fd)
 
+    def get_errno() -> int:
+        return -1
+
     def dag_instantiate_with_deps(workflow: int, deps: int) -> int:
         return nr.dag_instantiate_with_deps(
             buf_to_str.get_string(workflow),
@@ -260,6 +263,7 @@ def register_node_runtime(
             "aread": wasmer.Function(store, aread),
             "awrite": wasmer.Function(store, awrite),
             "aclose": wasmer.Function(store, aclose),
+            "get_errno": wasmer.Function(store, get_errno),
             "dag_instantiate_with_deps": wasmer.Function(
                 store, dag_instantiate_with_deps
             ),
