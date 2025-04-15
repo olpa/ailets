@@ -143,20 +143,20 @@ class NodeRuntime(INodeRuntime):
             await self.auto_open(StdHandles(fd))
         if fd not in self.open_fds:
             self.set_errno(errno.EBADF)
-            self.logger.error(f"File descriptor {fd} is not open")
+            self.logger.debug(f"File descriptor {fd} is not open")
             return -1
 
         fd_obj = self.open_fds[fd]
         if fd_obj.reader is None:
             self.set_errno(errno.EBADF)
-            self.logger.error(f"Slot {fd_obj.debug_hint} is not open for reading")
+            self.logger.debug(f"Slot {fd_obj.debug_hint} is not open for reading")
             return -1
 
         try:
             read_bytes = await fd_obj.reader.read(count)
         except OSError as e:
             self.set_errno(e.errno)
-            self.logger.error(f"Error reading from {fd_obj.debug_hint}: {e}")
+            self.logger.debug(f"Error reading from {fd_obj.debug_hint}: {e}")
             return -1
 
         n_bytes = len(read_bytes)
@@ -182,20 +182,20 @@ class NodeRuntime(INodeRuntime):
             await self.auto_open(StdHandles(fd))
         if fd not in self.open_fds:
             self.set_errno(errno.EBADF)
-            self.logger.error(f"File descriptor {fd} is not open")
+            self.logger.debug(f"File descriptor {fd} is not open")
             return -1
 
         fd_obj = self.open_fds[fd]
         if fd_obj.writer is None:
             self.set_errno(errno.EBADF)
-            self.logger.error(f"Slot {fd_obj.debug_hint} is not open for writing")
+            self.logger.debug(f"Slot {fd_obj.debug_hint} is not open for writing")
             return -1
 
         try:
             return await fd_obj.writer.write(buffer)
         except OSError as e:
             self.set_errno(e.errno)
-            self.logger.error(f"Error writing to {fd_obj.debug_hint}: {e}")
+            self.logger.debug(f"Error writing to {fd_obj.debug_hint}: {e}")
             return -1
 
     async def close(self, fd: int) -> None:
@@ -204,7 +204,7 @@ class NodeRuntime(INodeRuntime):
             return
         if fd_obj is None:
             self.set_errno(errno.EBADF)
-            self.logger.error(f"File descriptor {fd} is not open")
+            self.logger.debug(f"File descriptor {fd} is not open")
             return
 
         if fd_obj.reader is not None:

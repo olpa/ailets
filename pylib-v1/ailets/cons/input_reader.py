@@ -1,7 +1,8 @@
 import json
-from typing import Any, AsyncGenerator, Optional, Sequence
+from typing import Any, AsyncGenerator, Dict, Optional, Sequence
 
-from .atyping import Dependency, IAsyncReader, INodeRuntime, IPiper, IPipe
+from .atyping import Dependency, IAsyncReader, INodeRuntime, IPiper, IPipe, StdHandles
+from .util import io_errno_to_oserror
 
 
 def _get_pipes(
@@ -86,6 +87,8 @@ async def read_all(runtime: INodeRuntime, fd: int) -> bytes:
         count = await runtime.read(fd, buffer, len(buffer))
         if count == 0:
             break
+        if count == -1:
+            raise io_errno_to_oserror(runtime.get_errno())
         result.extend(buffer[:count])
     return bytes(result)
 
@@ -149,3 +152,10 @@ async def iter_input_objects(
             raise ValueError(
                 f"Failed to decode JSON at position {pos}: " f"{sbuf[pos:pos+20]!r}..."
             )
+
+
+async def read_env_pipe(runtime: INodeRuntime) -> Dict[str, Any]:
+    env: dict[str, Any] = {}
+    async for params in iter_input_objects(runtime, StdHandles.env):
+        env.update(params)
+    return env
