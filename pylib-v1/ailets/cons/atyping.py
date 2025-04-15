@@ -29,6 +29,9 @@ class IAsyncReader(Protocol):
     def close(self) -> None:
         raise NotImplementedError
 
+    def set_error(self, errno: int) -> None:
+        raise NotImplementedError
+
 
 class IAsyncWriter(Protocol):
     closed: bool
@@ -40,6 +43,12 @@ class IAsyncWriter(Protocol):
         raise NotImplementedError
 
     def tell(self) -> int:
+        raise NotImplementedError
+
+    def get_error(self) -> int:
+        raise NotImplementedError
+
+    def set_error(self, errno: int) -> None:
         raise NotImplementedError
 
 
@@ -281,7 +290,13 @@ class IProcesses(Protocol):
     def is_node_active(self, name: str) -> bool:
         raise NotImplementedError
 
-    def add_value_node(self, name: str) -> None:
+    def add_finished_node(self, name: str) -> None:
+        raise NotImplementedError
+
+    def set_completion_code(self, name: str, ccode: int) -> None:
+        raise NotImplementedError
+
+    def get_optional_completion_code(self, name: str) -> Optional[int]:
         raise NotImplementedError
 
 
@@ -294,6 +309,12 @@ class IEnvironment(Protocol):
     nodereg: INodeRegistry
     processes: IProcesses
     notification_queue: INotificationQueue
+
+    def get_errno(self) -> int:
+        raise NotImplementedError
+
+    def set_errno(self, errno: int) -> None:
+        raise NotImplementedError
 
 
 #

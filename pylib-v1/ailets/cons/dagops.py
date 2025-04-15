@@ -133,7 +133,7 @@ class Dagops(IDagops):
         ), "Internal error: MemPipeWriter is expected"
         writer.write_sync(value)
         writer.close()
-        processes.add_value_node(full_name)
+        processes.add_finished_node(full_name)
 
         return node
 

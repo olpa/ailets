@@ -37,8 +37,11 @@ if should_wait():
 lock = queue.get_lock()
 with lock:
     if should_wait():
-        queue.wait_unsafe(handle, debug_hint)
-        lock.acquire()  # re-aquire the lock to match the release in `wait_for_handle`
+        try:
+            queue.wait_unsafe(handle, debug_hint)
+        finally:  # expect `CancelledError` eventually
+            # re-aquire the lock to match the release in `wait_for_handle`
+            lock.acquire()
 ```
 
 2) Subscribing to a handle

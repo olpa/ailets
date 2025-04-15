@@ -28,6 +28,7 @@ class PrintWrapper(IPipe):
             self.output = output
             self.writer = writer
             self.closed = False
+            self.errno = 0
 
         async def write(self, data: bytes) -> int:
             self.output.write(data.decode("utf-8"))
@@ -49,10 +50,21 @@ class PrintWrapper(IPipe):
             # stream for which the app has own ownership.
             self.closed = True
 
+        def get_error(self) -> int:
+            if self.writer is not None:
+                return self.writer.get_error()
+            return self.errno
+
+        def set_error(self, errno: int) -> None:
+            self.errno = errno
+            if self.writer is not None:
+                self.writer.set_error(errno)
+
         def __str__(self) -> str:
             return (
                 f"PrintWrapper.Writer(output={self.output}, "
-                f"closed={self.closed}, writer={self.writer})"
+                f"closed={self.closed}, writer={self.writer}, "
+                f"errno={self.errno})"
             )
 
     def __init__(self, output: IO[str], pipe: Optional[IPipe]) -> None:
@@ -109,6 +121,7 @@ class Piper(IPiper):
     def init_fsops_handle(self) -> None:
         self.fsops_handle = self.seqno.next_seqno()
         self.queue.whitelist(self.fsops_handle, "Piper: file system operations")
+        logger.debug("Piper: fsops_handle is: %s", self.fsops_handle)
 
     def get_fsops_handle(self) -> int:
         return self.fsops_handle

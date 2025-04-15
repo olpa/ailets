@@ -32,13 +32,15 @@ class Processes(IProcesses):
 
         self.finished_nodes: set[str] = set()
         self.active_nodes: set[str] = set()
-
+        self.completion_codes: dict[str, int] = {}
         # With resolved aliases
         self.deps: Mapping[str, Sequence[Dependency]] = {}
         self.rev_deps: Mapping[str, Sequence[Dependency]] = {}
 
         self.progress_handle: int = env.seqno.next_seqno()
         self.queue.whitelist(self.progress_handle, "ailets.processes")
+        logger.debug("Processes: progress_handle is: %s", self.progress_handle)
+
         self.pool: set[asyncio.Task[None]] = set()
         self.loop = asyncio.get_event_loop()
 
@@ -82,7 +84,7 @@ class Processes(IProcesses):
     def is_node_active(self, name: str) -> bool:
         return name in self.active_nodes
 
-    def add_value_node(self, name: str) -> None:
+    def add_finished_node(self, name: str) -> None:
         self.finished_nodes.add(name)
 
     def resolve_deps(self) -> None:
@@ -190,6 +192,8 @@ class Processes(IProcesses):
             await self.queue.wait_unsafe(self.progress_handle, "process.awaker")
 
         def extend_pool() -> None:
+            if self.env.get_errno() != 0:
+                return
             node_names: Sequence[str] = list(
                 name
                 for name in itertools.takewhile(lambda x: x is not None, node_iter)
@@ -200,31 +204,42 @@ class Processes(IProcesses):
                 for name in node_names
             )
 
-        extend_pool()
-        awaker_task: asyncio.Task[None] = asyncio.create_task(
-            awaker(), name="process.awaker"
-        )
-        self.pool.add(awaker_task)
+        awaker_task: Optional[asyncio.Task[None]] = None
 
-        while len(self.pool) > 0:  # The awaker is always in the pool
-            if awaker_task.done():
+        def refresh_awaker_in_pool() -> None:
+            nonlocal awaker_task
+            if awaker_task is not None and awaker_task.done():
                 if awaker_task in self.pool:
                     self.pool.remove(awaker_task)
+                awaker_task = None
+            if len(self.pool) > 0:
                 awaker_task = asyncio.create_task(awaker(), name="process.awaker")
                 self.pool.add(awaker_task)
 
+        extend_pool()
+
+        while len(self.pool) > 0:
+            refresh_awaker_in_pool()
             done, self.pool = await asyncio.wait(
                 self.pool, return_when=asyncio.FIRST_COMPLETED
             )
+
+            # Should never happen: the actor wrapper should catch all exceptions
             for task in done:
                 if exc := task.exception():
                     raise exc
 
+            # In case of an error:
+            # Don't start new actors (the condition is inside `extend_pool`)
+            # For currently running nodes, expect that they eventually will get
+            # "pipe broken" error and will finish on their own.
             extend_pool()
 
-        awaker_task.cancel()
-        if awaker_task in self.pool:
-            self.pool.remove(awaker_task)
+        # Awake awaker
+        if awaker_task is not None:
+            if not awaker_task.done():
+                self.queue.notify(self.progress_handle, -1)
+                await awaker_task
 
     async def build_node_alone(self, name: str) -> None:
         """Build a node. Does not build its dependencies."""
@@ -237,17 +252,25 @@ class Processes(IProcesses):
         try:
             self.active_nodes.add(name)
             await node.func(node_runtime)
-            self.finished_nodes.add(name)
-        except Exception:
-            exc = sys.exc_info()[1]
-            print(f"Error building node '{name}'")
-            print(f"Function: {node.func.__name__}")
-            print("Dependencies:")
-            for dep in self.deps[name]:
-                print(f"  {dep.source} ({dep.slot}) -> {dep.name}")
-            print(f"Exception: {exc}")
-            raise
+        except Exception as exc:
+            print(f"*** ailet error: {name}: {str(exc)}", file=sys.stderr)
+            if node_runtime.get_errno() == 0:
+                node_runtime.set_errno(-1)  # the rest in `finally`
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(f"Error building node '{name}'")
+                logger.debug(f"Function: {node.func.__name__}")
+                logger.debug("Dependencies:")
+                for dep in self.deps[name]:
+                    logger.debug(f"  {dep.source} ({dep.slot}) -> {dep.name}")
+                logger.debug(f"Exception: {exc}")
+                logger.debug("Stack trace:", exc_info=True)
         finally:
+            ccode = node_runtime.get_errno()
+            logger.debug(
+                f"Finished building node '{name}' with code {ccode}, making accounting"
+            )
+            self.set_completion_code(name, ccode)
+            self.finished_nodes.add(name)
             await node_runtime.destroy()
             self.queue.notify(self.progress_handle, -1)
 
@@ -256,3 +279,11 @@ class Processes(IProcesses):
 
     def get_progress_handle(self) -> int:
         return self.progress_handle
+
+    def set_completion_code(self, name: str, ccode: int) -> None:
+        self.completion_codes[name] = ccode
+        if ccode != 0 and self.env.get_errno() == 0:
+            self.env.set_errno(ccode)
+
+    def get_optional_completion_code(self, name: str) -> Optional[int]:
+        return self.completion_codes.get(name)

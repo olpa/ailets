@@ -55,15 +55,29 @@ class NodeRuntime(INodeRuntime):
             StdHandles.metrics: Opener.print,
             StdHandles.trace: Opener.print,
         }
+        self.errno: int = 0
 
     async def destroy(self) -> None:
         fds = list(self.open_fds.keys())
         for fd in fds:
+            if self.errno != 0:
+                reader = self.open_fds[fd].reader
+                if reader is not None and not reader.closed:
+                    reader.set_error(self.errno)
+                writer = self.open_fds[fd].writer
+                if writer is not None and not writer.closed:
+                    writer.set_error(self.errno)
             await self.close(fd)
             del self.open_fds[fd]
 
     def get_name(self) -> str:
         return self.node_name
+
+    def get_errno(self) -> int:
+        return self.errno
+
+    def set_errno(self, errno: int) -> None:
+        self.errno = errno
 
     async def auto_open(self, fd: StdHandles) -> None:
         opener = self.fd_openers[fd]

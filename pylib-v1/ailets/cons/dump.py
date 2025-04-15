@@ -1,4 +1,5 @@
 import base64
+import errno
 import dataclasses
 import json
 from typing import (
@@ -41,13 +42,19 @@ def load_dependency(
     return Dependency(**obj)
 
 
-def dump_node(node: Node, is_finished: bool, f: TextIO) -> None:
+def dump_node(
+    node: Node,
+    is_finished: bool,
+    errno: Optional[int],
+    f: TextIO,
+) -> None:
     json.dump(
         {
             "name": node.name,
             "deps": [dependency_to_json(dep) for dep in node.deps],
             "explain": node.explain,
             "is_finished": is_finished,
+            "errno": errno,
             # Skip func as it's not serializable
         },
         f,
@@ -99,6 +106,7 @@ async def dump_pipe(path: str, pipe: IPipe, f: TextIO) -> None:
         {
             "pipe": path,
             "is_closed": writer.closed,
+            **({"errno": writer.get_error()} if writer.get_error() != 0 else {}),
         },
         f,
         indent=2,
@@ -108,7 +116,11 @@ async def dump_pipe(path: str, pipe: IPipe, f: TextIO) -> None:
 async def load_pipe(piper: IPiper, data: dict[str, Any]) -> None:
     path = data["pipe"]
     is_closed = data.get("is_closed", False)
+    errno = data.get("errno", 0)
     pipe = piper.create_pipe(path, "", open_mode="append")
+    if errno != 0:
+        writer = pipe.get_writer()
+        writer.set_error(errno)
     if is_closed:
         writer = pipe.get_writer()
         writer.close()
@@ -142,9 +154,31 @@ async def load_kv_item(kv: IKVBuffers, data: dict[str, Any]) -> None:
     item.borrow_mut_buffer()[:] = content
 
 
+def save_env_values(env: Environment, f: TextIO) -> None:
+    json.dump(
+        {
+            "env": env.for_env_pipe,
+            "errno": env.errno,
+        },
+        f,
+        indent=2,
+    )
+
+
+def load_env_values(env: Environment, data: dict[str, Any]) -> None:
+    env.for_env_pipe.update(data["env"])
+    if errno := data.get("errno"):
+        env.errno = errno
+
+
 async def dump_environment(env: Environment, f: TextIO) -> None:
     for node in env.dagops.nodes.values():
-        dump_node(node, is_finished=env.processes.is_node_finished(node.name), f=f)
+        dump_node(
+            node,
+            is_finished=env.processes.is_node_finished(node.name),
+            errno=env.processes.get_optional_completion_code(node.name),
+            f=f,
+        )
         f.write("\n")
     for alias, names in env.dagops.aliases.items():
         json.dump({"alias": alias, "names": list(names)}, f, indent=2)
@@ -155,7 +189,7 @@ async def dump_environment(env: Environment, f: TextIO) -> None:
     for path, pipe in env.piper.pipes.items():
         await dump_pipe(path, pipe, f)
         f.write("\n")
-    json.dump({"env": env.for_env_pipe}, f, indent=2)
+    save_env_values(env, f)
     f.write("\n")
 
 
@@ -180,7 +214,10 @@ async def load_environment(f: TextIO, nodereg: INodeRegistry) -> Environment:
                 node = load_node(obj_data, nodereg, env.seqno)
                 env.dagops.nodes[node.name] = node
                 if obj_data.get("is_finished", False):
-                    env.processes.add_value_node(node.name)
+                    env.processes.add_finished_node(node.name)
+                ccode = obj_data.get("errno")
+                if ccode is not None:
+                    env.processes.set_completion_code(node.name, ccode)
             elif "path" in obj_data:
                 await load_kv_item(env.kv, obj_data)
             elif "pipe" in obj_data:
@@ -188,7 +225,7 @@ async def load_environment(f: TextIO, nodereg: INodeRegistry) -> Environment:
             elif "alias" in obj_data:
                 env.dagops.aliases[obj_data["alias"]] = obj_data["names"]
             elif "env" in obj_data:
-                env.for_env_pipe.update(obj_data["env"])
+                load_env_values(env, obj_data)
             else:
                 raise ValueError(f"Unknown object data: {obj_data}")
         except json.JSONDecodeError as e:
@@ -218,7 +255,11 @@ def print_dependency_tree(
         visited = set()
 
     node = dagops.get_node(node_name)
-    if node_name.startswith("defunc."):
+    ecode = processes.get_optional_completion_code(node_name)
+    if ecode is not None and ecode != 0:
+        ename = errno.errorcode.get(ecode, "Unknown")
+        status = f"\033[31merrno: {ecode}/{ename}\033[0m"
+    elif node_name.startswith("defunc."):
         status = "\033[90mdefunc\033[0m"
     else:
         status = (

@@ -13,16 +13,18 @@ async def prompt_to_messages(runtime: INodeRuntime) -> None:
 
     keys = list(role_to_content.keys())
     keys.sort()
-    messages = map(
-        lambda key: {
-            "role": key,
-            "content": role_to_content[key],
-        },
-        keys,
+    messages = list(
+        map(
+            lambda key: {
+                "role": key,
+                "content": role_to_content[key],
+            },
+            keys,
+        )
     )
 
     await write_all(
         runtime,
         StdHandles.stdout,
-        json.dumps(list(messages)).encode("utf-8"),
+        json.dumps(messages).encode("utf-8"),
     )

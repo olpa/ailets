@@ -1,4 +1,5 @@
 import asyncio
+import errno
 import logging
 import threading
 from typing import Optional
@@ -18,6 +19,7 @@ class Writer(IAsyncWriter):
         external_buffer: Optional[bytearray] = None,
     ) -> None:
         super().__init__()
+        self.errno = [0]
         self.buffer = external_buffer if external_buffer is not None else bytearray()
         self.handle = handle
         self.queue = queue
@@ -34,12 +36,24 @@ class Writer(IAsyncWriter):
             f"hint={self.debug_hint})"
         )
 
+    def get_error(self) -> int:
+        return self.errno[0]
+
+    def set_error(self, errno: int) -> None:
+        if self.closed:
+            return
+        self.errno[0] = errno
+        self.queue.notify(self.handle, errno)
+
     async def write(self, data: bytes) -> int:
         return self.write_sync(data)
 
     def write_sync(self, data: bytes) -> int:
         if self.closed:
-            raise ValueError("Writer is closed")
+            raise OSError(errno.EBADF, "Writer is closed")
+        if ecode := self.get_error():
+            raise OSError(ecode, "Writer is in an error state")
+
         if len(data) == 0:
             return 0
         self.buffer.extend(data)
@@ -67,6 +81,12 @@ class Reader(IAsyncReader):
     def close(self) -> None:
         self.closed = True
 
+    def get_error(self) -> int:
+        return self.writer.get_error()
+
+    def set_error(self, errno: int) -> None:
+        self.writer.set_error(errno)
+
     def _should_wait_with_autoclose(self) -> bool:
         with self.writer.close_lock:
             # Without the lock, the following race condition is possible:
@@ -81,7 +101,7 @@ class Reader(IAsyncReader):
             # The reader missed the new data
             writer_pos = self.writer.tell()
             should_wait = self.pos >= writer_pos
-            is_writer_closed = self.writer.closed
+            is_writer_closed = self.writer.closed or self.writer.get_error() != 0
         if should_wait and is_writer_closed:
             self.close()
             should_wait = False
@@ -92,6 +112,9 @@ class Reader(IAsyncReader):
             if self._should_wait_with_autoclose():
                 await self._wait_for_writer()
                 continue
+
+            if ecode := self.writer.get_error():
+                raise OSError(ecode, "Reader is in an error state")
 
             if size < 0:
                 end_pos = len(self.writer.buffer)
@@ -116,10 +139,12 @@ class Reader(IAsyncReader):
         lock = self.writer.queue.get_lock()
         with lock:
             if self._should_wait_with_autoclose():
-                await self.writer.queue.wait_unsafe(
-                    self.writer.handle, f"MemPipe.Reader {self.handle}"
-                )
-                lock.acquire()
+                try:
+                    await self.writer.queue.wait_unsafe(
+                        self.writer.handle, f"MemPipe.Reader {self.handle}"
+                    )
+                finally:
+                    lock.acquire()
 
 
 class MemPipe:
