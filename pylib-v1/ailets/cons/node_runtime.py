@@ -198,14 +198,14 @@ class NodeRuntime(INodeRuntime):
             self.logger.debug(f"Error writing to {fd_obj.debug_hint}: {e}")
             return -1
 
-    async def close(self, fd: int) -> None:
+    async def close(self, fd: int) -> int:
         fd_obj = self.open_fds.get(fd, None)
         if fd in self.fd_openers:
-            return
+            return 0
         if fd_obj is None:
             self.set_errno(errno.EBADF)
             self.logger.debug(f"File descriptor {fd} is not open")
-            return
+            return -1
 
         if fd_obj.reader is not None:
             if not fd_obj.reader.closed:
@@ -213,6 +213,7 @@ class NodeRuntime(INodeRuntime):
         if fd_obj.writer is not None:
             if not fd_obj.writer.closed:
                 fd_obj.writer.close()
+        return 0
 
     def dagops(self) -> INodeDagops:
         if self.cached_dagops is None:

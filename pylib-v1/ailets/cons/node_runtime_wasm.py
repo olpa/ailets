@@ -49,6 +49,8 @@ def fill_wasm_import_object(
     async def aread(fd: int, buffer_ptr: int, count: int) -> int:
         buffer = bytearray(count)
         bytes_read = await runtime.read(fd, buffer, count)
+        if bytes_read == -1:
+            return -1
         buf_view = buf_to_str.get_view()
         end = buffer_ptr + bytes_read
         buf_view[buffer_ptr:end] = buffer[:bytes_read]
@@ -61,8 +63,7 @@ def fill_wasm_import_object(
         return await runtime.write(fd, buffer, count)
 
     async def aclose(fd: int) -> int:
-        await runtime.close(fd)
-        return 0
+        return await runtime.close(fd)
 
     async def dag_instantiate_with_deps(workflow_ptr: int, deps_ptr: int) -> int:
         workflow = buf_to_str.get_string(workflow_ptr)
