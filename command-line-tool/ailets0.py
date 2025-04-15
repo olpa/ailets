@@ -95,6 +95,11 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+async def coredump(env: Environment) -> None:
+    with open("ailets-core-dump.json", "w") as f:
+        await dump_environment(env, f)
+
+
 def is_url(s: str) -> bool:
     """Check if string is a valid URL."""
     try:
@@ -293,8 +298,7 @@ async def main() -> None:
         try:
             await env.processes.run_nodes(node_iter)
         except Exception as e:
-            with open("ailets-core-dump.json", "w") as f:
-                await dump_environment(env, f)
+            await coredump(env)
             raise e
 
         # Reset SIGTSTP handler back to default
@@ -313,6 +317,11 @@ async def main() -> None:
             with open(out_fname, "wb") as hb:
                 content = env.kv.open(fname, "read").borrow_mut_buffer()
                 hb.write(content)
+
+        if errno := env.get_errno():
+            await coredump(env)
+            sys.exit(errno)
+
         env.destroy()
 
 
