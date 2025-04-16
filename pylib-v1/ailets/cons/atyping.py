@@ -177,6 +177,9 @@ class INodeRuntime(Protocol):
     def get_errno(self) -> int:
         raise NotImplementedError
 
+    def set_errno(self, errno: int) -> None:
+        raise NotImplementedError
+
     async def open_read(self, slot_name: str) -> int:
         raise NotImplementedError
 
