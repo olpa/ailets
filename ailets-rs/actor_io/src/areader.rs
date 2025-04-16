@@ -12,7 +12,7 @@
 //! reader.read_to_end(&mut buffer).unwrap();
 //! ```
 
-use actor_runtime::{aclose, aread, open_read, StdHandle};
+use actor_runtime::{aclose, aread, get_errno, open_read, StdHandle};
 use std::ffi::CStr;
 use std::os::raw::{c_int, c_uint};
 
@@ -28,10 +28,7 @@ impl AReader {
     pub fn new(filename: &CStr) -> std::io::Result<Self> {
         let fd = unsafe { open_read(filename.as_ptr()) };
         if fd < 0 {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to open file '{}'", filename.to_string_lossy()),
-            ))
+            Err(std::io::Error::from_raw_os_error(unsafe { get_errno() }))
         } else {
             Ok(AReader { fd: Some(fd) })
         }
@@ -55,10 +52,7 @@ impl AReader {
         if let Some(fd) = self.fd {
             let result = unsafe { aclose(fd) };
             if result < 0 {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Failed to close input stream {fd}"),
-                ));
+                return Err(std::io::Error::from_raw_os_error(unsafe { get_errno() }));
             }
             self.fd = None;
         }
@@ -83,10 +77,7 @@ impl std::io::Read for AReader {
         let bytes_read = unsafe { aread(fd, buf.as_mut_ptr(), buf_len) };
 
         if bytes_read < 0 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to read from stream '{fd}'"),
-            ));
+            return Err(std::io::Error::from_raw_os_error(unsafe { get_errno() }));
         }
 
         #[allow(clippy::cast_sign_loss)]

@@ -21,7 +21,7 @@
 use std::ffi::CStr;
 use std::os::raw::{c_int, c_uint};
 
-use actor_runtime::{aclose, awrite, open_write, StdHandle};
+use actor_runtime::{aclose, awrite, get_errno, open_write, StdHandle};
 
 pub struct AWriter {
     fd: Option<c_int>,
@@ -35,10 +35,7 @@ impl AWriter {
     pub fn new(filename: &CStr) -> std::io::Result<Self> {
         let fd = unsafe { open_write(filename.as_ptr()) };
         if fd < 0 {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to open file '{}'", filename.to_string_lossy()),
-            ))
+            Err(std::io::Error::from_raw_os_error(unsafe { get_errno() }))
         } else {
             Ok(AWriter { fd: Some(fd) })
         }
@@ -62,10 +59,7 @@ impl AWriter {
         if let Some(fd) = self.fd {
             let result = unsafe { aclose(fd) };
             if result < 0 {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::Other,
-                    format!("Failed to close output stream {fd}"),
-                ));
+                return Err(std::io::Error::from_raw_os_error(unsafe { get_errno() }));
             }
             self.fd = None;
         }
@@ -90,10 +84,7 @@ impl std::io::Write for AWriter {
         let n = unsafe { awrite(fd, buf.as_ptr(), buf_len) };
 
         if n < 0 {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("Failed to write to stream {fd}"),
-            ));
+            return Err(std::io::Error::from_raw_os_error(unsafe { get_errno() }));
         }
         #[allow(clippy::cast_sign_loss)]
         Ok(n as usize)
