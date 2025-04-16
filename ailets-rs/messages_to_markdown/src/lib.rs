@@ -85,7 +85,15 @@ pub extern "C" fn messages_to_markdown() -> *const c_char {
     let writer = AWriter::new_from_std(StdHandle::Stdout);
 
     if let Err(e) = _messages_to_markdown(reader, writer) {
-        return err_to_heap_c_string(&format!("Failed to process messages to markdown: {e}"));
+        let errno = if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
+            io_err.raw_os_error().unwrap_or(-1)
+        } else {
+            -1
+        };
+        return err_to_heap_c_string(
+            errno,
+            &format!("Failed to process messages to markdown: {e}"),
+        );
     }
     std::ptr::null()
 }

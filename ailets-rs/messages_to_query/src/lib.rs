@@ -169,7 +169,12 @@ pub extern "C" fn process_query() -> *const c_char {
     let writer = AWriter::new_from_std(StdHandle::Stdout);
 
     if let Err(e) = _process_query(reader, writer) {
-        return err_to_heap_c_string(&format!("Failed to process query: {e}"));
+        let errno = if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
+            io_err.raw_os_error().unwrap_or(-1)
+        } else {
+            -1
+        };
+        return err_to_heap_c_string(errno, &format!("Failed to process query: {e}"));
     }
     std::ptr::null()
 }

@@ -24,8 +24,13 @@ pub enum StdHandle {
 /// This function is useful for returning errors to the host runtime.
 #[must_use]
 #[allow(clippy::missing_panics_doc)]
-pub fn err_to_heap_c_string(err: &str) -> *const c_char {
+pub fn err_to_heap_c_string(code: i32, message: &str) -> *const c_char {
+    let error_json = serde_json::json!({
+        "code": code,
+        "message": message
+    });
+    let error_str = error_json.to_string();
     #[allow(clippy::unwrap_used)]
-    let err = Box::leak(Box::new(std::ffi::CString::new(err).unwrap()));
+    let err = Box::leak(Box::new(std::ffi::CString::new(error_str).unwrap()));
     err.as_ptr()
 }
