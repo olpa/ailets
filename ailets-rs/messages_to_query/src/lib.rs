@@ -2,9 +2,10 @@ mod handlers;
 pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
-use actor_runtime::{err_to_heap_c_string, StdHandle};
-use scan_json::RJiter;
-use scan_json::{scan, BoxedAction, BoxedEndAction, ParentAndName, ParentParentAndName, Trigger};
+use actor_runtime::{err_to_heap_c_string, extract_errno, StdHandle};
+use scan_json::{
+    scan, BoxedAction, BoxedEndAction, ParentAndName, ParentParentAndName, RJiter, Trigger,
+};
 use std::cell::RefCell;
 use std::ffi::c_char;
 use std::io::Write;
@@ -169,12 +170,7 @@ pub extern "C" fn process_query() -> *const c_char {
     let writer = AWriter::new_from_std(StdHandle::Stdout);
 
     if let Err(e) = _process_query(reader, writer) {
-        let errno = if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
-            io_err.raw_os_error().unwrap_or(-1)
-        } else {
-            -1
-        };
-        return err_to_heap_c_string(errno, &format!("Failed to process query: {e}"));
+        return err_to_heap_c_string(extract_errno(&e), &format!("Messages to query: {e}"));
     }
     std::ptr::null()
 }

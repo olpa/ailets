@@ -1,7 +1,7 @@
 mod structure_builder;
 
 use actor_io::{AReader, AWriter};
-use actor_runtime::{err_to_heap_c_string, StdHandle};
+use actor_runtime::{err_to_heap_c_string, extract_errno, StdHandle};
 use scan_json::jiter::Peek;
 use scan_json::RJiter;
 use scan_json::{scan, BoxedAction, ParentParentAndName, StreamOp, Trigger};
@@ -85,13 +85,8 @@ pub extern "C" fn messages_to_markdown() -> *const c_char {
     let writer = AWriter::new_from_std(StdHandle::Stdout);
 
     if let Err(e) = _messages_to_markdown(reader, writer) {
-        let errno = if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
-            io_err.raw_os_error().unwrap_or(-1)
-        } else {
-            -1
-        };
         return err_to_heap_c_string(
-            errno,
+            extract_errno(&e),
             &format!("Failed to process messages to markdown: {e}"),
         );
     }

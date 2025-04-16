@@ -15,6 +15,7 @@ name = "actor_runtime"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "scan_json",
  "serde_json",
 ]
 
@@ -77,6 +78,7 @@ version = "0.1.0"
 dependencies = [
  "actor_io",
  "actor_runtime",
+ "getrandom",
 ]
 
 [[package]]

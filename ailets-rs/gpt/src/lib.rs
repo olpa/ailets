@@ -4,7 +4,7 @@ pub mod handlers;
 pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
-use actor_runtime::{err_to_heap_c_string, DagOps, StdHandle};
+use actor_runtime::{err_to_heap_c_string, extract_errno, DagOps, StdHandle};
 use dagops::{InjectDagOps, InjectDagOpsTrait};
 use handlers::{
     on_begin_message, on_choices, on_content, on_end_message, on_function_arguments,
@@ -185,12 +185,7 @@ pub extern "C" fn process_gpt() -> *const c_char {
 
     let mut dagops = InjectDagOps::new(DagOps {});
     if let Err(e) = _process_gpt(reader, writer, &mut dagops) {
-        let errno = if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
-            io_err.raw_os_error().unwrap_or(-1)
-        } else {
-            -1
-        };
-        return err_to_heap_c_string(errno, &format!("Failed to process GPT: {e}"));
+        return err_to_heap_c_string(extract_errno(&e), &format!("Failed to process GPT: {e}"));
     }
     std::ptr::null()
 }
