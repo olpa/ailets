@@ -1,3 +1,5 @@
+import errno
+import logging
 from dataclasses import dataclass
 from enum import Enum
 import sys
@@ -56,6 +58,7 @@ class NodeRuntime(INodeRuntime):
             StdHandles.trace: Opener.print,
         }
         self.errno: int = 0
+        self.logger = logging.getLogger(f"ailets.actor.{node_name}")
 
     async def destroy(self) -> None:
         fds = list(self.open_fds.keys())
@@ -63,10 +66,10 @@ class NodeRuntime(INodeRuntime):
             if self.errno != 0:
                 reader = self.open_fds[fd].reader
                 if reader is not None and not reader.closed:
-                    reader.set_error(self.errno)
+                    reader.set_error(errno.EPIPE)
                 writer = self.open_fds[fd].writer
                 if writer is not None and not writer.closed:
-                    writer.set_error(self.errno)
+                    writer.set_error(errno.EPIPE)
             await self.close(fd)
             del self.open_fds[fd]
 
@@ -138,13 +141,24 @@ class NodeRuntime(INodeRuntime):
     async def read(self, fd: int, buffer: bytearray, count: int) -> int:
         if fd not in self.open_fds and fd in self.fd_openers:
             await self.auto_open(StdHandles(fd))
-        assert fd in self.open_fds, f"File descriptor {fd} is not open"
+        if fd not in self.open_fds:
+            self.set_errno(errno.EBADF)
+            self.logger.debug(f"File descriptor {fd} is not open")
+            return -1
 
         fd_obj = self.open_fds[fd]
-        assert (
-            fd_obj.reader is not None
-        ), f"Slot {fd_obj.debug_hint} is not open for reading"
-        read_bytes = await fd_obj.reader.read(count)
+        if fd_obj.reader is None:
+            self.set_errno(errno.EBADF)
+            self.logger.debug(f"Slot {fd_obj.debug_hint} is not open for reading")
+            return -1
+
+        try:
+            read_bytes = await fd_obj.reader.read(count)
+        except OSError as e:
+            self.set_errno(e.errno)
+            self.logger.debug(f"Error reading from {fd_obj.debug_hint}: {e}")
+            return -1
+
         n_bytes = len(read_bytes)
         buffer[:n_bytes] = read_bytes
         return n_bytes
@@ -166,25 +180,40 @@ class NodeRuntime(INodeRuntime):
     async def write(self, fd: int, buffer: bytes, count: int) -> int:
         if fd not in self.open_fds and fd in self.fd_openers:
             await self.auto_open(StdHandles(fd))
-        assert fd in self.open_fds, f"File descriptor {fd} is not open"
+        if fd not in self.open_fds:
+            self.set_errno(errno.EBADF)
+            self.logger.debug(f"File descriptor {fd} is not open")
+            return -1
 
         fd_obj = self.open_fds[fd]
-        assert (
-            fd_obj.writer is not None
-        ), f"Slot {fd_obj.debug_hint} is not open for writing"
-        return await fd_obj.writer.write(buffer)
+        if fd_obj.writer is None:
+            self.set_errno(errno.EBADF)
+            self.logger.debug(f"Slot {fd_obj.debug_hint} is not open for writing")
+            return -1
 
-    async def close(self, fd: int) -> None:
+        try:
+            return await fd_obj.writer.write(buffer)
+        except OSError as e:
+            self.set_errno(e.errno)
+            self.logger.debug(f"Error writing to {fd_obj.debug_hint}: {e}")
+            return -1
+
+    async def close(self, fd: int) -> int:
         fd_obj = self.open_fds.get(fd, None)
         if fd in self.fd_openers:
-            return
-        assert fd_obj is not None, f"File descriptor {fd} is not open"
+            return 0
+        if fd_obj is None:
+            self.set_errno(errno.EBADF)
+            self.logger.debug(f"File descriptor {fd} is not open")
+            return -1
+
         if fd_obj.reader is not None:
             if not fd_obj.reader.closed:
                 fd_obj.reader.close()
         if fd_obj.writer is not None:
             if not fd_obj.writer.closed:
                 fd_obj.writer.close()
+        return 0
 
     def dagops(self) -> INodeDagops:
         if self.cached_dagops is None:

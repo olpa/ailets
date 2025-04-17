@@ -13,10 +13,9 @@ from ailets.cons.atyping import (
 )
 from ailets.cons.util import (
     log,
-    read_env_pipe,
     write_all,
 )
-from ailets.cons.input_reader import read_all
+from ailets.cons.input_reader import read_all, read_env_pipe
 
 
 # https://platform.openai.com/docs/api-reference/images/create

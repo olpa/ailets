@@ -49,6 +49,8 @@ def fill_wasm_import_object(
     async def aread(fd: int, buffer_ptr: int, count: int) -> int:
         buffer = bytearray(count)
         bytes_read = await runtime.read(fd, buffer, count)
+        if bytes_read == -1:
+            return -1
         buf_view = buf_to_str.get_view()
         end = buffer_ptr + bytes_read
         buf_view[buffer_ptr:end] = buffer[:bytes_read]
@@ -61,8 +63,7 @@ def fill_wasm_import_object(
         return await runtime.write(fd, buffer, count)
 
     async def aclose(fd: int) -> int:
-        await runtime.close(fd)
-        return 0
+        return await runtime.close(fd)
 
     async def dag_instantiate_with_deps(workflow_ptr: int, deps_ptr: int) -> int:
         workflow = buf_to_str.get_string(workflow_ptr)
@@ -163,6 +164,9 @@ def fill_wasm_import_object(
     def sync_aclose(fd: int) -> int:
         return asyncio.run(aclose(fd))
 
+    def sync_get_errno() -> int:
+        return runtime.get_errno()
+
     def sync_dag_instantiate_with_deps(workflow_ptr: int, deps_ptr: int) -> int:
         return asyncio.run(dag_instantiate_with_deps(workflow_ptr, deps_ptr))
 
@@ -184,6 +188,7 @@ def fill_wasm_import_object(
             "aread": wasmer.Function(store, sync_aread),
             "awrite": wasmer.Function(store, sync_awrite),
             "aclose": wasmer.Function(store, sync_aclose),
+            "get_errno": wasmer.Function(store, sync_get_errno),
             "dag_instantiate_with_deps": wasmer.Function(
                 store, sync_dag_instantiate_with_deps
             ),

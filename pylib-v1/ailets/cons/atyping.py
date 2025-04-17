@@ -174,6 +174,12 @@ class INodeRuntime(Protocol):
     def get_name(self) -> str:
         raise NotImplementedError
 
+    def get_errno(self) -> int:
+        raise NotImplementedError
+
+    def set_errno(self, errno: int) -> None:
+        raise NotImplementedError
+
     async def open_read(self, slot_name: str) -> int:
         raise NotImplementedError
 
@@ -186,7 +192,7 @@ class INodeRuntime(Protocol):
     async def write(self, fd: int, buffer: bytes, count: int) -> int:
         raise NotImplementedError
 
-    async def close(self, fd: int) -> None:
+    async def close(self, fd: int) -> int:
         raise NotImplementedError
 
     def dagops(self) -> INodeDagops:

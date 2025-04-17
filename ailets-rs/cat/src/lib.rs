@@ -9,14 +9,23 @@ pub extern "C" fn execute() -> *const c_char {
     let mut writer = AWriter::new_from_std(StdHandle::Stdout);
 
     if let Err(e) = io::copy(&mut reader, &mut writer) {
-        return err_to_heap_c_string(&format!("Failed to copy: {e}"));
+        return err_to_heap_c_string(
+            e.raw_os_error().unwrap_or(-1),
+            &format!("Failed to copy: {e}"),
+        );
     }
 
     if let Err(e) = writer.close() {
-        return err_to_heap_c_string(&format!("Failed to close writer: {e}"));
+        return err_to_heap_c_string(
+            e.raw_os_error().unwrap_or(-1),
+            &format!("Failed to close writer: {e}"),
+        );
     }
     if let Err(e) = reader.close() {
-        return err_to_heap_c_string(&format!("Failed to close reader: {e}"));
+        return err_to_heap_c_string(
+            e.raw_os_error().unwrap_or(-1),
+            &format!("Failed to close reader: {e}"),
+        );
     }
 
     std::ptr::null()

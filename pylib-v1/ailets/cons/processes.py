@@ -213,7 +213,8 @@ class Processes(IProcesses):
                     self.pool.remove(awaker_task)
                 awaker_task = None
             if len(self.pool) > 0:
-                awaker_task = asyncio.create_task(awaker(), name="process.awaker")
+                if awaker_task is None:
+                    awaker_task = asyncio.create_task(awaker(), name="process.awaker")
                 self.pool.add(awaker_task)
 
         extend_pool()

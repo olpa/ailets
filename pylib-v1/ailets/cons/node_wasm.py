@@ -1,9 +1,16 @@
 import asyncio
 import importlib.resources
+import json
 from typing import Callable, Awaitable, Dict
 import wasmer  # type: ignore[import-untyped]
 from ailets.cons.atyping import INodeRuntime, IWasmRegistry
 from ailets.cons.node_runtime_wasm import BufToStr, fill_wasm_import_object
+import pydantic
+
+
+class WasmError(pydantic.BaseModel):
+    code: int
+    message: str
 
 
 class WasmRegistry:
@@ -50,8 +57,17 @@ def mk_wasm_node_func(
 
             err_ptr = run_fn()
             if err_ptr:
-                err = buf_to_str.get_string(err_ptr)
-                raise RuntimeError(f"Actor error: {err}")
+                err_str = buf_to_str.get_string(err_ptr)
+
+                wasm_err = WasmError(code=-1, message=err_str)
+                try:
+                    err_obj = json.loads(err_str)
+                    wasm_err = WasmError(**err_obj)
+                except (json.JSONDecodeError, pydantic.ValidationError):
+                    pass
+
+                runtime.set_errno(wasm_err.code)
+                raise RuntimeError(wasm_err.message)
 
         # Run the WASM function
         await asyncio.to_thread(init_and_run)

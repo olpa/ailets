@@ -46,8 +46,8 @@ class PrintWrapper(IPipe):
             return self.output.tell()
 
         def close(self) -> None:
-            # Don't close the wrapped writer, it's likely an instrumentation
-            # stream for which the app has own ownership.
+            if self.writer is not None:
+                self.writer.close()
             self.closed = True
 
         def get_error(self) -> int:
@@ -79,6 +79,9 @@ class PrintWrapper(IPipe):
         if self.pipe is None:
             raise io.UnsupportedOperation("PrintWrapper is write-only")
         return self.pipe.get_reader(handle)
+
+    def __str__(self) -> str:
+        return f"PrintWrapper(pipe={self.pipe}, " f"writer={self.writer})"
 
 
 class StaticInput(IPipe):

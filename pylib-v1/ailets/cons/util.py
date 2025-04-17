@@ -1,6 +1,7 @@
-from typing import Any, Dict, Literal
+import errno
+import os
+from typing import Any, Literal
 
-from ailets.cons.input_reader import iter_input_objects
 from .atyping import INodeRuntime, StdHandles
 
 
@@ -18,18 +19,24 @@ def to_basename(name: str) -> str:
     return name
 
 
+def io_errno_to_oserror(ecode: int) -> OSError:
+    if ecode == -1:
+        ecode = errno.EPIPE
+    msg = "unknown error"
+    try:
+        msg = os.strerror(ecode)
+    except ValueError:
+        pass
+    return OSError(ecode, msg)
+
+
 async def write_all(runtime: INodeRuntime, fd: int, data: bytes) -> None:
     pos = 0
     while pos < len(data):
         count = await runtime.write(fd, data[pos:], len(data) - pos)
+        if count == -1:
+            raise io_errno_to_oserror(runtime.get_errno())
         pos += count
-
-
-async def read_env_pipe(runtime: INodeRuntime) -> Dict[str, Any]:
-    env: dict[str, Any] = {}
-    async for params in iter_input_objects(runtime, StdHandles.env):
-        env.update(params)
-    return env
 
 
 async def log(
