@@ -1,26 +1,7 @@
 import dbm.gnu
 import base64
-import re
 from typing import Literal, Dict, Sequence
 from .atyping import IKVBuffer, IKVBuffers
-
-
-encode_prefix = b"base64:"
-re_has_bin_data = re.compile(br"[\x00-\x1f]")
-
-
-def decode_bytes(value: bytes) -> bytearray:
-    if value.startswith(encode_prefix):
-        pos = len(encode_prefix)
-        value = base64.b64decode(value[pos:])
-    return bytearray(value)
-
-
-def encode_bytes(bavalue: bytearray) -> bytes:
-    value = bytes(bavalue)
-    if value.startswith(encode_prefix) or re_has_bin_data.search(value):
-        value = encode_prefix + base64.b64encode(value)
-    return value
 
 
 class GdbmKVBuffer(IKVBuffer):
@@ -47,7 +28,7 @@ class GdbmKV(IKVBuffers):
         if path not in self._buffers:
             value = self._db.get(path)
             if value is not None:
-                self._buffers[path] = decode_bytes(value)
+                self._buffers[path] = bytearray(base64.b64decode(value))
         if mode == "read":
             if path not in self._buffers:
                 raise KeyError(f"Path not found: {path}")
@@ -64,7 +45,7 @@ class GdbmKV(IKVBuffers):
 
     def flush(self, kvbuffer: IKVBuffer) -> None:
         if isinstance(kvbuffer, GdbmKVBuffer):
-            self._db[kvbuffer.path] = encode_bytes(kvbuffer.buffer)
+            self._db[kvbuffer.path] = base64.b64encode(kvbuffer.buffer)
 
     def listdir(self, dir_name: str) -> Sequence[str]:
         if dir_name and not dir_name.endswith("/"):
