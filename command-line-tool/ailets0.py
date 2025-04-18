@@ -259,8 +259,15 @@ async def main() -> None:
             hijack_msg2query(nodereg, wasm_registry)
 
     if args.load_state:
-        with open(args.load_state, "r") as f:
-            env = await load_environment(f, nodereg)
+        if not vfs:
+            with open(args.load_state, "r") as f:
+                env = await load_environment(f, nodereg)
+        else:
+            bufref = vfs.open(args.load_state, "read")
+            buf = bufref.borrow_mut_buffer()
+            bio = BytesIO(buf)
+            tio = TextIOWrapper(bio, encoding="utf-8")
+            env = await load_environment(tio, nodereg)
         toml_to_env(env, toml=prompt)
         target_node_name = next(
             node_name
