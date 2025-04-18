@@ -3,11 +3,13 @@
 
 import argparse
 import asyncio
+from io import BytesIO, TextIOWrapper
 import sys
 import logging
+from typing import Any, Iterator, Literal, Optional, Tuple
 import localsetup  # noqa: F401
 from ailets.cons.dump import dump_environment, load_environment, print_dependency_tree
-from typing import Any, Iterator, Literal, Optional, Tuple
+from ailets.cons.gdbmkv import GdbmKV
 from ailets.cons.environment import Environment
 from ailets.cons.plugin import (
     NodeRegistry,
@@ -86,6 +88,11 @@ def parse_args() -> argparse.Namespace:
             "Directory to download generated files to. "
             "Is a placeholder for future use."
         ),
+    )
+    parser.add_argument(
+        "--file-system",
+        metavar="PATH",
+        help="Path to the virtual file system database in the gdbm format",
     )
     parser.add_argument(
         "--debug",
@@ -223,6 +230,16 @@ async def main() -> None:
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
+    vfs = None
+    if args.file_system:
+        vfs = GdbmKV(args.file_system)
+
+    def cleanup() -> None:
+        nonlocal vfs
+        if vfs:
+            vfs.destroy()
+            vfs = None
+
     nodereg = NodeRegistry()
     nodereg.load_plugin("ailets.stdlib", "")
     nodereg.load_plugin(f"ailets.models.{args.model}", f".{args.model}")
@@ -299,14 +316,27 @@ async def main() -> None:
             await env.processes.run_nodes(node_iter)
         except Exception as e:
             await coredump(env)
+            cleanup()
             raise e
 
         # Reset SIGTSTP handler back to default
         signal.signal(signal.SIGTSTP, signal.SIG_DFL)
 
     if args.save_state:
-        with open(args.save_state, "w") as f:
-            await dump_environment(env, f)
+        if vfs:
+            bio = BytesIO()
+            tio = TextIOWrapper(bio, encoding="utf-8")
+            await dump_environment(env, tio)
+            tio.flush()
+            b = bio.getvalue()
+
+            bufref = vfs.open(args.save_state, "write")
+            buf = bufref.borrow_mut_buffer()
+            buf[:] = b
+            vfs.flush(bufref)
+        else:
+            with open(args.save_state, "w") as f:
+                await dump_environment(env, f)
 
     if not args.dry_run:
         output_files = env.kv.listdir("out")
@@ -320,9 +350,12 @@ async def main() -> None:
 
         if errno := env.get_errno():
             await coredump(env)
+            cleanup()
             sys.exit(errno)
 
         env.destroy()
+
+    cleanup()
 
 
 if __name__ == "__main__":
