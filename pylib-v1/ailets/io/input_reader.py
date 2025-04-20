@@ -1,8 +1,8 @@
 import json
 from typing import Any, AsyncGenerator, Dict, Optional, Sequence
 
-from .atyping import Dependency, IAsyncReader, INodeRuntime, IPiper, IPipe, StdHandles
-from .util import io_errno_to_oserror
+from ailets.atyping import Dependency, IAsyncReader, INodeRuntime, IPiper, IPipe, StdHandles
+from ailets.cons.util import io_errno_to_oserror
 
 
 def _get_pipes(

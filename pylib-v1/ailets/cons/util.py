@@ -2,7 +2,7 @@ import errno
 import os
 from typing import Any, Literal
 
-from .atyping import INodeRuntime, StdHandles
+from ailets.atyping import INodeRuntime, StdHandles
 
 
 def to_basename(name: str) -> str:

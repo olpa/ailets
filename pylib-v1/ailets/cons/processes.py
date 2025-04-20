@@ -3,13 +3,13 @@ import itertools
 import logging
 import sys
 from typing import Iterator, Mapping, Optional, Sequence
-from ailets.cons.atyping import (
+from ailets.atyping import (
     Dependency,
     IEnvironment,
     IProcesses,
     IPiper,
 )
-from ailets.cons.node_runtime import NodeRuntime
+from ailets.actor_runtime.node_runtime import NodeRuntime
 
 
 logger = logging.getLogger("ailets.processes")

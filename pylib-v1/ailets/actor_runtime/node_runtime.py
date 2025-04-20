@@ -5,12 +5,12 @@ from enum import Enum
 import sys
 from typing import Dict, Optional, Sequence
 
-from ailets.cons.input_reader import MergeInputReader
+from ailets.io.input_reader import MergeInputReader
 
-from .piper import Piper, PrintWrapper
+from ailets.io.piper import Piper, PrintWrapper
 
-from .node_dagops import NodeDagops
-from .atyping import (
+from ailets.actor_runtime.node_dagops import NodeDagops
+from ailets.atyping import (
     Dependency,
     IAsyncReader,
     IAsyncWriter,

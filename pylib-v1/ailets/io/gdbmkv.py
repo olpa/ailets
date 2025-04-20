@@ -1,7 +1,7 @@
 import dbm.gnu
 import base64
 from typing import Literal, Dict, Sequence
-from .atyping import IKVBuffer, IKVBuffers
+from ..atyping import IKVBuffer, IKVBuffers
 
 
 class GdbmKVBuffer(IKVBuffer):

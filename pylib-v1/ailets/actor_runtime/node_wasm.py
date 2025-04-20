@@ -3,8 +3,8 @@ import importlib.resources
 import json
 from typing import Callable, Awaitable, Dict
 import wasmer  # type: ignore[import-untyped]
-from ailets.cons.atyping import INodeRuntime, IWasmRegistry
-from ailets.cons.node_runtime_wasm import BufToStr, fill_wasm_import_object
+from ailets.atyping import INodeRuntime, IWasmRegistry
+from ailets.actor_runtime.node_runtime_wasm import BufToStr, fill_wasm_import_object
 import pydantic
 
 

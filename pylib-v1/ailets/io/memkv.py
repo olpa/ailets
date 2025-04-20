@@ -1,5 +1,5 @@
 from typing import Literal, Dict, Sequence
-from .atyping import IKVBuffer, IKVBuffers
+from ailets.atyping import IKVBuffer, IKVBuffers
 
 
 class MemKVBuffer(IKVBuffer):

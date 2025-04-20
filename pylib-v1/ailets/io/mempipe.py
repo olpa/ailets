@@ -4,8 +4,8 @@ import logging
 import threading
 from typing import Optional
 
-from .atyping import IAsyncReader, IAsyncWriter
-from .notification_queue import INotificationQueue, NotificationQueue
+from ailets.atyping import IAsyncReader, IAsyncWriter
+from ailets.cons.notification_queue import INotificationQueue, NotificationQueue
 
 logger = logging.getLogger("ailets.mempipe")
 

@@ -1,11 +1,11 @@
 import json
 from typing import Any, Optional, Sequence, TypedDict, Union
-from ailets.cons.input_reader import iter_input_objects
+from ailets.io.input_reader import iter_input_objects
 from ailets.cons.typeguards import (
     is_content_item_image,
     is_content_item_text,
 )
-from ailets.cons.atyping import (
+from ailets.atyping import (
     Content,
     ContentItemImage,
     INodeRuntime,
@@ -15,7 +15,7 @@ from ailets.cons.util import (
     log,
     write_all,
 )
-from ailets.cons.input_reader import read_all, read_env_pipe
+from ailets.io.input_reader import read_all, read_env_pipe
 
 
 # https://platform.openai.com/docs/api-reference/images/create

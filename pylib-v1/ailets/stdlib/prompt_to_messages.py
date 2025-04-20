@@ -1,8 +1,8 @@
 import json
 from typing import Any, Dict
-from ailets.cons.atyping import INodeRuntime, StdHandles
+from ailets.atyping import INodeRuntime, StdHandles
 from ailets.cons.util import write_all
-from ailets.cons.input_reader import iter_input_objects
+from ailets.io.input_reader import iter_input_objects
 
 
 async def prompt_to_messages(runtime: INodeRuntime) -> None:

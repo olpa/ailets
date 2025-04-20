@@ -1,4 +1,4 @@
-from ailets.cons.atyping import NodeDesc, Dependency
+from ailets.atyping import NodeDesc, Dependency
 
 schema = {
     "name": "get_user_name",

@@ -2,14 +2,14 @@ import io
 import json
 from typing import IO, Any, Dict, Literal, Optional
 
-from ailets.cons.atyping import (
+from ailets.atyping import (
     IAsyncReader,
     IAsyncWriter,
     IKVBuffers,
     IPipe,
     IPiper,
 )
-from ailets.cons.mempipe import (
+from ailets.io.mempipe import (
     MemPipe,
     Writer as MemPipeWriter,
     Reader as MemPipeReader,

@@ -1,4 +1,4 @@
-from ailets.cons.atyping import INodeRuntime
+from ailets.atyping import INodeRuntime
 
 
 async def response_to_messages(runtime: INodeRuntime) -> None:

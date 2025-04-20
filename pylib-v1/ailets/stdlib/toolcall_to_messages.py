@@ -1,12 +1,12 @@
 import json
-from ..cons.atyping import (
+from ailets.atyping import (
     ChatMessageTool,
     ContentItemFunction,
     INodeRuntime,
     StdHandles,
 )
-from ..cons.util import write_all
-from ..cons.input_reader import read_all
+from ailets.cons.util import write_all
+from ailets.io.input_reader import read_all
 
 
 async def toolcall_to_messages(runtime: INodeRuntime) -> None:

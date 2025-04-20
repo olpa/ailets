@@ -1,6 +1,6 @@
 import json
 from typing import Optional
-from ailets.cons.atyping import (
+from ailets.atyping import (
     ChatMessage,
     ContentItemImage,
     ContentItemText,
@@ -8,7 +8,7 @@ from ailets.cons.atyping import (
     INodeRuntime,
     StdHandles,
 )
-from ailets.cons.input_reader import iter_input_objects
+from ailets.io.input_reader import iter_input_objects
 from ailets.cons.util import write_all
 
 

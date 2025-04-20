@@ -11,7 +11,7 @@ if sys.version_info >= (3, 11):
 else:
     import tomli as tomllib
 
-from .atyping import (
+from ailets.atyping import (
     Dependency,
     IDagops,
     IEnvironment,

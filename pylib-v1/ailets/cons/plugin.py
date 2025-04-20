@@ -1,7 +1,13 @@
 from typing import Dict, Sequence
 
-from .atyping import Dependency, INodeRegistry, IWasmRegistry, NodeDesc, NodeDescFunc
-from .node_wasm import mk_wasm_node_func
+from ailets.atyping import (
+    Dependency,
+    INodeRegistry,
+    IWasmRegistry,
+    NodeDesc,
+    NodeDescFunc,
+)
+from ailets.actor_runtime.node_wasm import mk_wasm_node_func
 
 
 class NodeRegistry(INodeRegistry):

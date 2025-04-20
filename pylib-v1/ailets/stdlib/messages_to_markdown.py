@@ -2,14 +2,14 @@ import json
 import base64
 import hashlib
 from ailets.cons.typeguards import is_content_item_image, is_content_item_text
-from ailets.cons.atyping import (
+from ailets.atyping import (
     Content,
     ContentItemImage,
     INodeRuntime,
     StdHandles,
 )
 from ailets.cons.util import write_all
-from ailets.cons.input_reader import iter_input_objects
+from ailets.io.input_reader import iter_input_objects
 
 need_separator = False
 

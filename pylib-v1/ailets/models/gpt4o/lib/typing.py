@@ -1,7 +1,7 @@
 from typing import Any, Literal, Sequence, TypedDict, Union
 from typing_extensions import NotRequired
 
-from ailets.cons.atyping import ContentItemFunction, ContentItemRefusal, ContentItemText
+from ailets.atyping import ContentItemFunction, ContentItemRefusal, ContentItemText
 
 
 class Gpt4oImageUrl(TypedDict):

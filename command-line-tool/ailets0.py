@@ -9,7 +9,7 @@ import logging
 from typing import Any, Iterator, Literal, Optional, Tuple
 import localsetup  # noqa: F401
 from ailets.cons.dump import dump_environment, load_environment, print_dependency_tree
-from ailets.cons.gdbmkv import GdbmKV
+from ailets.io.gdbmkv import GdbmKV
 from ailets.cons.environment import Environment
 from ailets.cons.plugin import (
     NodeRegistry,
@@ -25,7 +25,7 @@ from ailets.cons.flow_builder import (
     toolspecs_to_dagops,
     dup_output_to_stdout,
 )
-from ailets.cons.node_wasm import WasmRegistry
+from ailets.actor_runtime.node_wasm import WasmRegistry
 import re
 import os
 from urllib.parse import urlparse
