@@ -9,7 +9,7 @@ import logging
 from typing import Any, Awaitable, Callable, Iterator, Literal, Optional, Tuple
 import localsetup  # noqa: F401
 from ailets.atyping import IKVBuffers
-from ailets.cons.util import save_file
+from ailets.cons.util import open_file, save_file
 from ailets.cons.dump import dump_environment, load_environment, print_dependency_tree
 from ailets.io.gdbmkv import GdbmKV
 from ailets.cons.environment import Environment
@@ -270,14 +270,8 @@ async def main() -> None:
             hijack_msg2query(nodereg, wasm_registry)
 
     if args.load_state:
-        if not vfs:
-            with open(args.load_state, "r") as f:
-                env = await load_environment(f, nodereg)
-        else:
-            bufref = vfs.open(args.load_state, "read")
-            buf = bufref.borrow_mut_buffer()
-            bio = BytesIO(buf)
-            tio = TextIOWrapper(bio, encoding="utf-8")
+        with open_file(vfs, args.load_state) as h:
+            tio = TextIOWrapper(h, encoding="utf-8")
             env = await load_environment(tio, nodereg)
         toml_to_env(env, toml=prompt)
         target_node_name = next(

@@ -1,7 +1,8 @@
 import errno
 from io import BytesIO
 import os
-from typing import Any, Awaitable, Callable, Literal, Optional
+from typing import Any, Awaitable, Callable, Literal, Optional, Generator, BinaryIO
+from contextlib import contextmanager
 
 from ailets.atyping import IKVBuffers, INodeRuntime, StdHandles
 
@@ -69,3 +70,19 @@ async def save_file(
     buf = bufref.borrow_mut_buffer()
     buf[:] = b
     vfs.flush(bufref)
+
+
+@contextmanager
+def open_file(vfs: Optional[IKVBuffers], path: str) -> Generator[BinaryIO, None, None]:
+    if vfs is None:
+        with open(path, "rb") as h:
+            yield h
+        return
+
+    bufref = vfs.open(path, "read")
+    buf = bufref.borrow_mut_buffer()
+    bio = BytesIO(buf)
+    try:
+        yield bio
+    finally:
+        bio.close()
