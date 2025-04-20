@@ -1,8 +1,9 @@
 import errno
+from io import BytesIO
 import os
-from typing import Any, Literal
+from typing import Any, Awaitable, Callable, Literal, Optional
 
-from ailets.atyping import INodeRuntime, StdHandles
+from ailets.atyping import IKVBuffers, INodeRuntime, StdHandles
 
 
 def to_basename(name: str) -> str:
@@ -46,3 +47,25 @@ async def log(
     log_str = f"{runtime.get_name()}: {level} {message_str}\n"
 
     await write_all(runtime, StdHandles.log, log_str.encode("utf-8"))
+
+
+async def save_file(
+    vfs: Optional[IKVBuffers],
+    path: str,
+    with_open_stream: Callable[[BytesIO], Awaitable[None]],
+) -> None:
+    if vfs is None:
+        with open(path, "wb") as h:
+            h2: BytesIO = h  # type: ignore[assignment]
+            await with_open_stream(h2)
+        return
+
+    bio = BytesIO()
+    await with_open_stream(bio)
+    bio.flush()
+    b = bio.getvalue()
+
+    bufref = vfs.open(path, "write")
+    buf = bufref.borrow_mut_buffer()
+    buf[:] = b
+    vfs.flush(bufref)

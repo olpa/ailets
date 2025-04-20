@@ -6,8 +6,10 @@ import asyncio
 from io import BytesIO, TextIOWrapper
 import sys
 import logging
-from typing import Any, Iterator, Literal, Optional, Tuple
+from typing import Any, Awaitable, Callable, Iterator, Literal, Optional, Tuple
 import localsetup  # noqa: F401
+from ailets.atyping import IKVBuffers
+from ailets.cons.util import save_file
 from ailets.cons.dump import dump_environment, load_environment, print_dependency_tree
 from ailets.io.gdbmkv import GdbmKV
 from ailets.cons.environment import Environment
@@ -83,7 +85,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--download-to",
         metavar="DIRECTORY",
-        default="./out",
+        default="out",
         help=(
             "Directory to download generated files to. "
             "Is a placeholder for future use."
@@ -102,9 +104,18 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-async def coredump(env: Environment) -> None:
-    with open("ailets-core-dump.json", "w") as f:
-        await dump_environment(env, f)
+def mk_save_env(env: Environment) -> Callable[[BytesIO], Awaitable[None]]:
+    async def save_env(stream: BytesIO) -> None:
+        tio = TextIOWrapper(stream, encoding="utf-8")
+        await dump_environment(env, tio)
+        tio.flush()
+        tio.detach()
+
+    return save_env
+
+
+async def coredump(vfs: Optional[IKVBuffers], env: Environment) -> None:
+    await save_file(vfs, "ailets-core-dump.json", mk_save_env(env))
 
 
 def is_url(s: str) -> bool:
@@ -322,7 +333,7 @@ async def main() -> None:
         try:
             await env.processes.run_nodes(node_iter)
         except Exception as e:
-            await coredump(env)
+            await coredump(vfs, env)
             cleanup()
             raise e
 
@@ -330,33 +341,23 @@ async def main() -> None:
         signal.signal(signal.SIGTSTP, signal.SIG_DFL)
 
     if args.save_state:
-        if vfs:
-            bio = BytesIO()
-            tio = TextIOWrapper(bio, encoding="utf-8")
-            await dump_environment(env, tio)
-            tio.flush()
-            b = bio.getvalue()
-
-            bufref = vfs.open(args.save_state, "write")
-            buf = bufref.borrow_mut_buffer()
-            buf[:] = b
-            vfs.flush(bufref)
-        else:
-            with open(args.save_state, "w") as f:
-                await dump_environment(env, f)
+        await save_file(vfs, args.save_state, mk_save_env(env))
 
     if not args.dry_run:
         output_files = env.kv.listdir("out")
         if len(output_files):
             os.makedirs(args.download_to, exist_ok=True)
         for fname in output_files:
-            out_fname = os.path.join(args.download_to, os.path.basename(fname))
-            with open(out_fname, "wb") as hb:
+
+            async def write_out_file(stream: BytesIO) -> None:
                 content = env.kv.open(fname, "read").borrow_mut_buffer()
-                hb.write(content)
+                stream.write(content)
+
+            out_fname = os.path.join(args.download_to, os.path.basename(fname))
+            await save_file(vfs, out_fname, write_out_file)
 
         if errno := env.get_errno():
-            await coredump(env)
+            await coredump(vfs, env)
             cleanup()
             sys.exit(errno)
 
