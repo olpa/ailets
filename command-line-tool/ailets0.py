@@ -11,7 +11,7 @@ import localsetup  # noqa: F401
 from ailets.atyping import IKVBuffers
 from ailets.cons.util import open_file, save_file
 from ailets.cons.dump import dump_environment, load_environment, print_dependency_tree
-from ailets.io.gdbmkv import GdbmKV
+from ailets.io.sqlitekv import SqliteKV
 from ailets.cons.environment import Environment
 from ailets.cons.plugin import (
     NodeRegistry,
@@ -243,7 +243,7 @@ async def main() -> None:
 
     vfs = None
     if args.file_system:
-        vfs = GdbmKV(args.file_system)
+        vfs = SqliteKV(args.file_system)
 
     def cleanup() -> None:
         nonlocal vfs
