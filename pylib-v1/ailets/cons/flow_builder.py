@@ -6,6 +6,8 @@ import sys
 import os.path
 import logging
 
+from ailets.cons.util import open_file
+
 if sys.version_info >= (3, 11):
     import tomllib
 else:
@@ -96,7 +98,7 @@ async def prompt_to_dagops(
             )
         )
 
-        with open(prompt_item.value, "rb") as f:
+        with open_file(env.kv, prompt_item.value) as f:
             bytes = f.read()
             h = env.kv.open(file_key, "write")
             ba = h.borrow_mut_buffer()
