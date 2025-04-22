@@ -69,7 +69,7 @@ class IKVBuffers(Protocol):
     def open(self, path: str, mode: Literal["read", "write", "append"]) -> IKVBuffer:
         raise NotImplementedError
 
-    def flush(self, kvbuffer: IKVBuffer) -> None:
+    def flush(self, path: str) -> None:
         raise NotImplementedError
 
     def listdir(self, dir_name: str) -> Sequence[str]:

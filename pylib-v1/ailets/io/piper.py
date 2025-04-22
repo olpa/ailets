@@ -9,6 +9,7 @@ from ailets.atyping import (
     IPipe,
     IPiper,
 )
+from ailets.cons.util import get_path
 from ailets.io.mempipe import (
     MemPipe,
     Writer as MemPipeWriter,
@@ -133,13 +134,6 @@ class Piper(IPiper):
         self.queue.unlist(self.fsops_handle)
         self.fsops_handle = -1
 
-    def get_path(self, node_name: str, slot_name: Optional[str]) -> str:
-        if not slot_name:
-            return node_name
-        if "/" in slot_name:
-            return slot_name
-        return f"{node_name}-{slot_name}"
-
     def create_pipe(
         self,
         node_name: str,
@@ -151,7 +145,7 @@ class Piper(IPiper):
         For "read", return the existing pipe if it exists.
         If not, it tries to open from the kv.
         """
-        path = self.get_path(node_name, slot_name)
+        path = get_path(node_name, slot_name)
         pipe = self.pipes.get(path, None)
         if pipe is not None:
             if open_mode == "read":

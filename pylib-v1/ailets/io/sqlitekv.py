@@ -46,7 +46,9 @@ class SqliteKV(KVBuffers):
                 self._buffers[path] = bytearray(value)
         return super().open(path, mode)
 
-    def flush(self, kvbuffer: IKVBuffer) -> None:
-        if isinstance(kvbuffer, KVBuffer):
-            db = self._db.get_db()
-            db[kvbuffer.path] = kvbuffer.buffer
+    def flush(self, path: str) -> None:
+        buf = self._buffers.get(path)
+        if buf is None:
+            return
+        db = self._db.get_db()
+        db[path] = buf

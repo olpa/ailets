@@ -7,6 +7,14 @@ from contextlib import contextmanager
 from ailets.atyping import IKVBuffers, INodeRuntime, StdHandles
 
 
+def get_path(node_name: str, slot_name: Optional[str]) -> str:
+    if not slot_name:
+        return node_name
+    if "/" in slot_name:
+        return slot_name
+    return f"{node_name}-{slot_name}"
+
+
 def to_basename(name: str) -> str:
     """Return the base name of a node, stripping off any numeric suffix.
 
@@ -69,7 +77,7 @@ async def save_file(
     bufref = vfs.open(path, "write")
     buf = bufref.borrow_mut_buffer()
     buf[:] = b
-    vfs.flush(bufref)
+    vfs.flush(path)
 
 
 @contextmanager

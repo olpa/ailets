@@ -103,7 +103,7 @@ async def prompt_to_dagops(
             h = env.kv.open(file_key, "write")
             ba = h.borrow_mut_buffer()
             ba[:] = bytes
-            env.kv.flush(h)
+            env.kv.flush(file_key)
 
     for prompt_item in prompt:
         await prompt_to_node(prompt_item)

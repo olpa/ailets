@@ -5,6 +5,7 @@ from enum import Enum
 import sys
 from typing import Dict, Optional, Sequence
 
+from ailets.cons.util import get_path
 from ailets.io.input_reader import MergeInputReader
 
 from ailets.io.piper import Piper, PrintWrapper
@@ -213,6 +214,8 @@ class NodeRuntime(INodeRuntime):
         if fd_obj.writer is not None:
             if not fd_obj.writer.closed:
                 fd_obj.writer.close()
+                path = get_path(self.node_name, "")
+                self.env.kv.flush(path)
         return 0
 
     def dagops(self) -> INodeDagops:

@@ -30,7 +30,7 @@ class KVBuffers(IKVBuffers):
             return KVBuffer(path, buffer)
         raise ValueError(f"Invalid mode: {mode}")
 
-    def flush(self, kvbuffer: IKVBuffer) -> None:
+    def flush(self, path: str) -> None:
         pass
 
     def listdir(self, dir_name: str) -> Sequence[str]:
