@@ -221,6 +221,9 @@ class Processes(IProcesses):
 
         while len(self.pool) > 0:
             refresh_awaker_in_pool()
+            if len(self.pool) == 1:  # only awaker, no real tasks
+                break
+
             done, self.pool = await asyncio.wait(
                 self.pool, return_when=asyncio.FIRST_COMPLETED
             )
