@@ -14,6 +14,9 @@ class KVBuffer(IKVBuffer):
 class KVBuffers(IKVBuffers):
     def __init__(self) -> None:
         self._buffers: Dict[str, bytearray] = {}
+    
+    def destroy(self) -> None:
+        self._buffers.clear()
 
     def open(self, path: str, mode: Literal["read", "write", "append"]) -> IKVBuffer:
         if mode == "read":

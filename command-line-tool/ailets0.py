@@ -114,7 +114,9 @@ def mk_save_env(env: Environment) -> Callable[[BytesIO], Awaitable[None]]:
     return save_env
 
 
-async def coredump(vfs: Optional[IKVBuffers], env: Environment) -> None:
+async def coredump(vfs: Optional[IKVBuffers], env: Optional[Environment]) -> None:
+    if not env:
+        return
     await save_file(vfs, "ailets-core-dump.json", mk_save_env(env))
 
 
@@ -227,7 +229,25 @@ def get_prompt(prompt_args: list[str]) -> list[CmdlinePromptItem]:
     return items
 
 
+env: Optional[Environment] = None
+vfs: Optional[IKVBuffers] = None
+
+
+def cleanup() -> None:
+    global vfs
+    global env
+    if vfs:
+        vfs.destroy()
+        vfs = None
+    if env:
+        env.destroy()
+        env = None
+
+
 async def main() -> None:
+    global vfs
+    global env
+
     args = parse_args()
     assert args.model in [
         "gpt4o",
@@ -241,15 +261,8 @@ async def main() -> None:
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
-    vfs = None
     if args.file_system:
         vfs = SqliteKV(args.file_system)
-
-    def cleanup() -> None:
-        nonlocal vfs
-        if vfs:
-            vfs.destroy()
-            vfs = None
 
     nodereg = NodeRegistry()
     nodereg.load_plugin("ailets.stdlib", "")
@@ -355,8 +368,6 @@ async def main() -> None:
             cleanup()
             sys.exit(errno)
 
-        env.destroy()
-
     cleanup()
 
 
@@ -365,4 +376,6 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("\nCancelled by user")
+        asyncio.run(coredump(vfs, env))
+        cleanup()
         sys.exit(1)

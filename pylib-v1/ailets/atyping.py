@@ -75,6 +75,9 @@ class IKVBuffers(Protocol):
     def listdir(self, dir_name: str) -> Sequence[str]:
         raise NotImplementedError
 
+    def destroy(self) -> None:
+        raise NotImplementedError
+
 
 class IPiper(Protocol):
     def destroy(self) -> None:

@@ -37,6 +37,7 @@ class SqliteKV(KVBuffers):
 
     def destroy(self) -> None:
         self._db.close()
+        super().destroy()
 
     def open(self, path: str, mode: Literal["read", "write", "append"]) -> IKVBuffer:
         if path not in self._buffers:
