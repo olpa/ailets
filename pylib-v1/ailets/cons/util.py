@@ -87,7 +87,13 @@ def open_file(vfs: Optional[IKVBuffers], path: str) -> Generator[BinaryIO, None,
             yield h
         return
 
-    bufref = vfs.open(path, "read")
+    try:
+        bufref = vfs.open(path, "read")
+    except KeyError:
+        with open(path, "rb") as h:
+            yield h
+        return
+
     buf = bufref.borrow_mut_buffer()
     bio = BytesIO(buf)
     try:
