@@ -143,7 +143,7 @@ class Piper(IPiper):
         """Add a new slot.
         For "write" and "append", raise KeyError if the slot already exists.
         For "read", return the existing pipe if it exists.
-        If not, it tries to open from the kv.
+        If not, it tries to open from the kv, and don't remember the pipe.
         """
         path = get_path(node_name, slot_name)
         pipe = self.pipes.get(path, None)
@@ -171,8 +171,9 @@ class Piper(IPiper):
             # the created pipe as complete.
             pipe.get_writer().close()
 
-        self.pipes[path] = pipe
-        logger.debug(f"Created pipe: {pipe}")
+        if open_mode != "read":
+            self.pipes[path] = pipe
+        logger.debug(f"Created pipe: {pipe} for '{open_mode}'")
 
         self.queue.notify(self.fsops_handle, writer_handle)
         return pipe

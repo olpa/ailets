@@ -90,7 +90,8 @@ class IPiper(Protocol):
         raise NotImplementedError
 
     def get_existing_pipe(self, node_name: str, slot_name: str) -> IPipe:
-        """If not found, raise KeyError"""
+        """If not found, raise KeyError
+        If called before the pipe is created: unusable for reading"""
         raise NotImplementedError
 
     def get_fsops_handle(self) -> int:
