@@ -125,12 +125,27 @@ class NodeRuntime(INodeRuntime):
         real_fd = self._store_writer(slot_name, pipe)
         self.open_fds[fd] = self.open_fds[real_fd]
         return
+    
+    def handle_error(self, prefix: str, e: Exception) -> None:
+        if self.logger.isEnabledFor(logging.DEBUG):
+            self.logger.error(f"{prefix} error", exc_info=e)
+        elif isinstance(e, OSError):
+            # Silent: OSError is expected and to be handled by the caller
+            self.set_errno(e.errno)
+        else:
+            self.logger.error(f"{prefix} error: {e}")
+        if not self.errno:
+            self.set_errno(-1)
 
     async def open_read(self, slot_name: str) -> int:
-        fd = self.env.seqno.next_seqno()
-        reader = MergeInputReader(self.piper, self.deps, slot_name, fd)
-        self._store_reader(slot_name, reader, fd)
-        return fd
+        try:
+            fd = self.env.seqno.next_seqno()
+            reader = MergeInputReader(self.piper, self.deps, slot_name, fd)
+            self._store_reader(slot_name, reader, fd)
+            return fd
+        except Exception as e:
+            self.handle_error("open_read", e)
+            return -1
 
     def _store_reader(self, slot_name: str, reader: IAsyncReader, fd: int) -> None:
         self.open_fds[fd] = OpenFd(
@@ -140,33 +155,36 @@ class NodeRuntime(INodeRuntime):
         )
 
     async def read(self, fd: int, buffer: bytearray, count: int) -> int:
-        if fd not in self.open_fds and fd in self.fd_openers:
-            await self.auto_open(StdHandles(fd))
-        if fd not in self.open_fds:
-            self.set_errno(errno.EBADF)
-            self.logger.debug(f"File descriptor {fd} is not open")
-            return -1
-
-        fd_obj = self.open_fds[fd]
-        if fd_obj.reader is None:
-            self.set_errno(errno.EBADF)
-            self.logger.debug(f"Slot {fd_obj.debug_hint} is not open for reading")
-            return -1
-
         try:
-            read_bytes = await fd_obj.reader.read(count)
-        except OSError as e:
-            self.set_errno(e.errno)
-            self.logger.debug(f"Error reading from {fd_obj.debug_hint}: {e}")
-            return -1
+            if fd not in self.open_fds and fd in self.fd_openers:
+                await self.auto_open(StdHandles(fd))
+            if fd not in self.open_fds:
+                self.set_errno(errno.EBADF)
+                self.logger.debug(f"File descriptor {fd} is not open")
+                return -1
 
-        n_bytes = len(read_bytes)
-        buffer[:n_bytes] = read_bytes
-        return n_bytes
+            fd_obj = self.open_fds[fd]
+            if fd_obj.reader is None:
+                self.set_errno(errno.EBADF)
+                self.logger.debug(f"Slot {fd_obj.debug_hint} is not open for reading")
+                return -1
+
+            read_bytes = await fd_obj.reader.read(count)
+            n_bytes = len(read_bytes)
+            buffer[:n_bytes] = read_bytes
+            return n_bytes
+
+        except Exception as e:
+            self.handle_error("read", e)
+            return -1
 
     async def open_write(self, slot_name: str) -> int:
-        pipe = self.piper.create_pipe(self.node_name, slot_name)
-        return self._store_writer(slot_name, pipe)
+        try:
+            pipe = self.piper.create_pipe(self.node_name, slot_name)
+            return self._store_writer(slot_name, pipe)
+        except Exception as e:
+            self.handle_error("open_write", e)
+            return -1
 
     def _store_writer(self, slot_name: str, pipe: IPipe) -> int:
         fd = self.env.seqno.next_seqno()
@@ -179,44 +197,48 @@ class NodeRuntime(INodeRuntime):
         return fd
 
     async def write(self, fd: int, buffer: bytes, count: int) -> int:
-        if fd not in self.open_fds and fd in self.fd_openers:
-            await self.auto_open(StdHandles(fd))
-        if fd not in self.open_fds:
-            self.set_errno(errno.EBADF)
-            self.logger.debug(f"File descriptor {fd} is not open")
-            return -1
-
-        fd_obj = self.open_fds[fd]
-        if fd_obj.writer is None:
-            self.set_errno(errno.EBADF)
-            self.logger.debug(f"Slot {fd_obj.debug_hint} is not open for writing")
-            return -1
-
         try:
+            if fd not in self.open_fds and fd in self.fd_openers:
+                await self.auto_open(StdHandles(fd))
+            if fd not in self.open_fds:
+                self.set_errno(errno.EBADF)
+                self.logger.debug(f"File descriptor {fd} is not open")
+                return -1
+
+            fd_obj = self.open_fds[fd]
+            if fd_obj.writer is None:
+                self.set_errno(errno.EBADF)
+                self.logger.debug(f"Slot {fd_obj.debug_hint} is not open for writing")
+                return -1
+
             return await fd_obj.writer.write(buffer)
-        except OSError as e:
-            self.set_errno(e.errno)
-            self.logger.debug(f"Error writing to {fd_obj.debug_hint}: {e}")
+
+        except Exception as e:
+            self.handle_error("write", e)
             return -1
 
     async def close(self, fd: int) -> int:
-        fd_obj = self.open_fds.get(fd, None)
-        if fd in self.fd_openers:
-            return 0
-        if fd_obj is None:
-            self.set_errno(errno.EBADF)
-            self.logger.debug(f"File descriptor {fd} is not open")
-            return -1
+        try:
+            fd_obj = self.open_fds.get(fd, None)
+            if fd in self.fd_openers:
+                return 0
+            if fd_obj is None:
+                self.set_errno(errno.EBADF)
+                self.logger.debug(f"File descriptor {fd} is not open")
+                return -1
 
-        if fd_obj.reader is not None:
-            if not fd_obj.reader.closed:
-                fd_obj.reader.close()
-        if fd_obj.writer is not None:
-            if not fd_obj.writer.closed:
-                fd_obj.writer.close()
-                path = get_path(self.node_name, "")
-                self.env.kv.flush(path)
-        return 0
+            if fd_obj.reader is not None:
+                if not fd_obj.reader.closed:
+                    fd_obj.reader.close()
+            if fd_obj.writer is not None:
+                if not fd_obj.writer.closed:
+                    fd_obj.writer.close()
+                    path = get_path(self.node_name, "")
+                    self.env.kv.flush(path)
+            return 0
+        except Exception as e:
+            self.handle_error("close", e)
+            return -1
 
     def dagops(self) -> INodeDagops:
         if self.cached_dagops is None:
