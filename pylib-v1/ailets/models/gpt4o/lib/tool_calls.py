@@ -1,6 +1,6 @@
 from typing import Any, Mapping, Optional, Sequence
 import json
-from ailets.cons.atyping import ContentItemFunction, INodeRuntime, ChatMessage
+from ailets.atyping import ContentItemFunction, INodeRuntime, ChatMessage
 from ailets.cons.typeguards import is_content_item_function
 
 

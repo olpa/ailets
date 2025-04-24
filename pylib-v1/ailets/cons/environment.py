@@ -1,15 +1,15 @@
-from typing import Any, Dict
-from ailets.cons.atyping import IEnvironment, INodeRegistry
+from typing import Any, Dict, Optional
+from ailets.atyping import IEnvironment, IKVBuffers, INodeRegistry
 from ailets.cons.dagops import Dagops
 from ailets.cons.notification_queue import NotificationQueue
 from ailets.cons.processes import Processes
 from ailets.cons.seqno import Seqno
-from ailets.cons.piper import Piper
-from ailets.cons.memkv import MemKV
+from ailets.io.piper import Piper
+from ailets.io.memkv import MemKV
 
 
 class Environment(IEnvironment):
-    def __init__(self, nodereg: INodeRegistry) -> None:
+    def __init__(self, nodereg: INodeRegistry, kv: Optional[IKVBuffers] = None) -> None:
         self.for_env_pipe: Dict[str, Any] = {}
         self.errno: int = 0
 
@@ -17,7 +17,12 @@ class Environment(IEnvironment):
         for _ in range(10):  # To avoid collision with StdHandles
             self.seqno.next_seqno()
 
-        self.kv = MemKV()
+        if kv is None:
+            memkv: IKVBuffers = MemKV()
+            self.kv = memkv
+        else:
+            self.kv = kv
+
         self.dagops = Dagops(self.seqno)
         self.notification_queue = NotificationQueue()
         self.piper = Piper(self.kv, self.notification_queue, self.seqno)

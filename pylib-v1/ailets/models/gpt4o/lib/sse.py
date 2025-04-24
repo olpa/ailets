@@ -1,6 +1,6 @@
 from typing import Any, Mapping, Optional, Sequence, cast
 
-from ailets.cons.atyping import ContentItemFunction, INodeRuntime
+from ailets.atyping import ContentItemFunction, INodeRuntime
 from ailets.cons.typeguards import is_content_item_function
 from ailets.cons.util import write_all
 

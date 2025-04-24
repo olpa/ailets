@@ -3,24 +3,15 @@ import itertools
 import logging
 import sys
 from typing import Iterator, Mapping, Optional, Sequence
-from ailets.cons.atyping import (
+from ailets.atyping import (
     Dependency,
     IEnvironment,
     IProcesses,
-    IPiper,
 )
-from ailets.cons.node_runtime import NodeRuntime
+from ailets.actor_runtime.node_runtime import NodeRuntime
 
 
 logger = logging.getLogger("ailets.processes")
-
-
-def has_data_from_dependency(piper: IPiper, dep: Dependency) -> bool:
-    try:
-        pipe = piper.get_existing_pipe(dep.source, dep.slot)
-    except KeyError:
-        return False
-    return pipe.get_writer().tell() > 0
 
 
 class Processes(IProcesses):
@@ -177,11 +168,21 @@ class Processes(IProcesses):
             yield None
 
     def _can_start_node(self, node_name: str) -> bool:
-        return all(
-            dep.source in self.finished_nodes
-            or has_data_from_dependency(self.piper, dep)
-            for dep in self.deps[node_name]
-        )
+        def dep_is_progressed(dep: Dependency) -> bool:
+            if dep.source in self.finished_nodes:
+                return True
+            if dep.source not in self.active_nodes:
+                return False
+            # Look at the pipes only after checking that the dependency is stated
+            # Otherwise, a pipe is opened in the read mode before the pipe is created,
+            # and the code will raise an error on pipe creation later.
+            try:
+                pipe = self.piper.get_existing_pipe(dep.source, dep.slot)
+            except KeyError:
+                return False
+            return pipe.get_writer().tell() > 0
+
+        return all(dep_is_progressed(dep) for dep in self.deps[node_name])
 
     async def run_nodes(self, node_iter: Iterator[str | None]) -> None:
         self.pool = set()
@@ -221,6 +222,9 @@ class Processes(IProcesses):
 
         while len(self.pool) > 0:
             refresh_awaker_in_pool()
+            if len(self.pool) == 1:  # only awaker, no real tasks
+                break
+
             done, self.pool = await asyncio.wait(
                 self.pool, return_when=asyncio.FIRST_COMPLETED
             )

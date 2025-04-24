@@ -2,14 +2,15 @@ import io
 import json
 from typing import IO, Any, Dict, Literal, Optional
 
-from ailets.cons.atyping import (
+from ailets.atyping import (
     IAsyncReader,
     IAsyncWriter,
     IKVBuffers,
     IPipe,
     IPiper,
 )
-from ailets.cons.mempipe import (
+from ailets.cons.util import get_path
+from ailets.io.mempipe import (
     MemPipe,
     Writer as MemPipeWriter,
     Reader as MemPipeReader,
@@ -133,13 +134,6 @@ class Piper(IPiper):
         self.queue.unlist(self.fsops_handle)
         self.fsops_handle = -1
 
-    def get_path(self, node_name: str, slot_name: Optional[str]) -> str:
-        if not slot_name:
-            return node_name
-        if "/" in slot_name:
-            return slot_name
-        return f"{node_name}-{slot_name}"
-
     def create_pipe(
         self,
         node_name: str,
@@ -149,9 +143,9 @@ class Piper(IPiper):
         """Add a new slot.
         For "write" and "append", raise KeyError if the slot already exists.
         For "read", return the existing pipe if it exists.
-        If not, it tries to open from the kv.
+        If not, it tries to open from the kv, and don't remember the pipe.
         """
-        path = self.get_path(node_name, slot_name)
+        path = get_path(node_name, slot_name)
         pipe = self.pipes.get(path, None)
         if pipe is not None:
             if open_mode == "read":
@@ -177,8 +171,9 @@ class Piper(IPiper):
             # the created pipe as complete.
             pipe.get_writer().close()
 
-        self.pipes[path] = pipe
-        logger.debug(f"Created pipe: {pipe}")
+        if open_mode != "read":
+            self.pipes[path] = pipe
+        logger.debug(f"Created pipe: {pipe} for '{open_mode}'")
 
         self.queue.notify(self.fsops_handle, writer_handle)
         return pipe

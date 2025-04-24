@@ -1,6 +1,6 @@
 from typing import Any, Sequence, TypeGuard
 
-from .atyping import (
+from ailets.atyping import (
     Content,
     ContentItem,
     ContentItemFunction,

@@ -6,12 +6,14 @@ import sys
 import os.path
 import logging
 
+from ailets.cons.util import open_file
+
 if sys.version_info >= (3, 11):
     import tomllib
 else:
     import tomli as tomllib
 
-from .atyping import (
+from ailets.atyping import (
     Dependency,
     IDagops,
     IEnvironment,
@@ -96,12 +98,12 @@ async def prompt_to_dagops(
             )
         )
 
-        with open(prompt_item.value, "rb") as f:
+        with open_file(env.kv, prompt_item.value) as f:
             bytes = f.read()
             h = env.kv.open(file_key, "write")
             ba = h.borrow_mut_buffer()
             ba[:] = bytes
-            env.kv.flush(h)
+            env.kv.flush(file_key)
 
     for prompt_item in prompt:
         await prompt_to_node(prompt_item)

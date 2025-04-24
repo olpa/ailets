@@ -1,5 +1,5 @@
 import os
-from ailets.cons.atyping import INodeRuntime, StdHandles
+from ailets.atyping import INodeRuntime, StdHandles
 from ailets.cons.util import write_all
 
 

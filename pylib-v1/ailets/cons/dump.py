@@ -14,7 +14,7 @@ from typing import (
     Tuple,
 )
 
-from ailets.cons.atyping import (
+from ailets.atyping import (
     Dependency,
     IKVBuffers,
     INodeRegistry,

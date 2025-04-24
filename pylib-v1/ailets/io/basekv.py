@@ -1,36 +1,39 @@
 from typing import Literal, Dict, Sequence
-from .atyping import IKVBuffer, IKVBuffers
+from ailets.atyping import IKVBuffer, IKVBuffers
 
 
-class MemKVBuffer(IKVBuffer):
+class KVBuffer(IKVBuffer):
     def __init__(self, path: str, shared_buffer: bytearray):
         self.buffer = shared_buffer
-        self._path = path
+        self.path = path
 
     def borrow_mut_buffer(self) -> bytearray:
         return self.buffer
 
 
-class MemKV(IKVBuffers):
+class KVBuffers(IKVBuffers):
     def __init__(self) -> None:
         self._buffers: Dict[str, bytearray] = {}
+    
+    def destroy(self) -> None:
+        self._buffers.clear()
 
     def open(self, path: str, mode: Literal["read", "write", "append"]) -> IKVBuffer:
         if mode == "read":
             if path not in self._buffers:
                 raise KeyError(f"Path not found: {path}")
-            return MemKVBuffer(path, self._buffers[path])
+            return KVBuffer(path, self._buffers[path])
         if mode == "write":
             buffer = bytearray()
             self._buffers[path] = buffer
-            return MemKVBuffer(path, buffer)
+            return KVBuffer(path, buffer)
         if mode == "append":
             buffer = self._buffers.get(path, bytearray())
             self._buffers[path] = buffer
-            return MemKVBuffer(path, buffer)
+            return KVBuffer(path, buffer)
         raise ValueError(f"Invalid mode: {mode}")
 
-    def flush(self, kvbuffer: IKVBuffer) -> None:
+    def flush(self, path: str) -> None:
         pass
 
     def listdir(self, dir_name: str) -> Sequence[str]:

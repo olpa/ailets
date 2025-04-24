@@ -10,7 +10,7 @@ from typing import (
     Tuple,
 )
 
-from .atyping import (
+from ailets.atyping import (
     Dependency,
     IDagops,
     INodeRuntime,
@@ -18,9 +18,9 @@ from .atyping import (
     IPiper,
     Node,
 )
-from .util import to_basename
-from .seqno import Seqno
-from .mempipe import Writer as MemPipeWriter
+from ailets.cons.util import to_basename
+from ailets.cons.seqno import Seqno
+from ailets.io.mempipe import Writer as MemPipeWriter
 
 
 class Dagops(IDagops):

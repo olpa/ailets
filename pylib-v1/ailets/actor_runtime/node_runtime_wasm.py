@@ -6,7 +6,7 @@ import sys
 from pydantic import BaseModel
 from typing import Dict
 
-from .atyping import INodeRuntime
+from ailets.atyping import INodeRuntime
 
 
 class BufToStr:

@@ -1,14 +1,14 @@
 import base64
 import json
 from typing import Any, List, Sequence, Tuple
-from ailets.cons.atyping import (
+from ailets.atyping import (
     Content,
     ContentItem,
     ContentItemFunction,
     INodeRuntime,
     StdHandles,
 )
-from ailets.cons.input_reader import iter_input_objects, read_all
+from ailets.io.input_reader import iter_input_objects, read_all
 from ailets.cons.util import write_all
 from ailets.models.gpt4o.lib.typing import Gpt4oContentItem, Gpt4oMessage
 

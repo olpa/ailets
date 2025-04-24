@@ -69,10 +69,13 @@ class IKVBuffers(Protocol):
     def open(self, path: str, mode: Literal["read", "write", "append"]) -> IKVBuffer:
         raise NotImplementedError
 
-    def flush(self, kvbuffer: IKVBuffer) -> None:
+    def flush(self, path: str) -> None:
         raise NotImplementedError
 
     def listdir(self, dir_name: str) -> Sequence[str]:
+        raise NotImplementedError
+
+    def destroy(self) -> None:
         raise NotImplementedError
 
 
@@ -90,7 +93,8 @@ class IPiper(Protocol):
         raise NotImplementedError
 
     def get_existing_pipe(self, node_name: str, slot_name: str) -> IPipe:
-        """If not found, raise KeyError"""
+        """If not found, raise KeyError
+        If called before the pipe is created: unusable for reading"""
         raise NotImplementedError
 
     def get_fsops_handle(self) -> int:

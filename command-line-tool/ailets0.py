@@ -3,11 +3,15 @@
 
 import argparse
 import asyncio
+from io import BytesIO, TextIOWrapper
 import sys
 import logging
+from typing import Any, Awaitable, Callable, Iterator, Literal, Optional, Tuple
 import localsetup  # noqa: F401
+from ailets.atyping import IKVBuffers
+from ailets.cons.util import open_file, save_file
 from ailets.cons.dump import dump_environment, load_environment, print_dependency_tree
-from typing import Any, Iterator, Literal, Optional, Tuple
+from ailets.io.sqlitekv import SqliteKV
 from ailets.cons.environment import Environment
 from ailets.cons.plugin import (
     NodeRegistry,
@@ -23,7 +27,7 @@ from ailets.cons.flow_builder import (
     toolspecs_to_dagops,
     dup_output_to_stdout,
 )
-from ailets.cons.node_wasm import WasmRegistry
+from ailets.actor_runtime.node_wasm import WasmRegistry
 import re
 import os
 from urllib.parse import urlparse
@@ -81,10 +85,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--download-to",
         metavar="DIRECTORY",
-        default="./out",
+        default="out",
         help=(
             "Directory to download generated files to. "
             "Is a placeholder for future use."
+        ),
+    )
+    parser.add_argument(
+        "--file-system",
+        metavar="PATH",
+        help=(
+            "Path to the virtual file system database in the Python dbm.sqlite3 format"
         ),
     )
     parser.add_argument(
@@ -95,9 +106,20 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-async def coredump(env: Environment) -> None:
-    with open("ailets-core-dump.json", "w") as f:
-        await dump_environment(env, f)
+def mk_save_env(env: Environment) -> Callable[[BytesIO], Awaitable[None]]:
+    async def save_env(stream: BytesIO) -> None:
+        tio = TextIOWrapper(stream, encoding="utf-8")
+        await dump_environment(env, tio)
+        tio.flush()
+        tio.detach()
+
+    return save_env
+
+
+async def coredump(vfs: Optional[IKVBuffers], env: Optional[Environment]) -> None:
+    if not env:
+        return
+    await save_file(vfs, "ailets-core-dump.json", mk_save_env(env))
 
 
 def is_url(s: str) -> bool:
@@ -209,7 +231,25 @@ def get_prompt(prompt_args: list[str]) -> list[CmdlinePromptItem]:
     return items
 
 
+env: Optional[Environment] = None
+vfs: Optional[IKVBuffers] = None
+
+
+def cleanup() -> None:
+    global vfs
+    global env
+    if vfs:
+        vfs.destroy()
+        vfs = None
+    if env:
+        env.destroy()
+        env = None
+
+
 async def main() -> None:
+    global vfs
+    global env
+
     args = parse_args()
     assert args.model in [
         "gpt4o",
@@ -222,6 +262,9 @@ async def main() -> None:
         level=logging_level,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
+
+    if args.file_system:
+        vfs = SqliteKV(args.file_system)
 
     nodereg = NodeRegistry()
     nodereg.load_plugin("ailets.stdlib", "")
@@ -242,8 +285,9 @@ async def main() -> None:
             hijack_msg2query(nodereg, wasm_registry)
 
     if args.load_state:
-        with open(args.load_state, "r") as f:
-            env = await load_environment(f, nodereg)
+        with open_file(vfs, args.load_state) as h:
+            tio = TextIOWrapper(h, encoding="utf-8")
+            env = await load_environment(tio, nodereg)
         toml_to_env(env, toml=prompt)
         target_node_name = next(
             node_name
@@ -252,7 +296,7 @@ async def main() -> None:
         )
 
     else:
-        env = Environment(nodereg)
+        env = Environment(nodereg, kv=vfs)
         toml_to_env(env, toml=prompt)
         toolspecs_to_dagops(env, args.tools)
         await prompt_to_dagops(env, prompt=prompt)
@@ -298,31 +342,35 @@ async def main() -> None:
         try:
             await env.processes.run_nodes(node_iter)
         except Exception as e:
-            await coredump(env)
+            await coredump(vfs, env)
+            cleanup()
             raise e
 
         # Reset SIGTSTP handler back to default
         signal.signal(signal.SIGTSTP, signal.SIG_DFL)
 
     if args.save_state:
-        with open(args.save_state, "w") as f:
-            await dump_environment(env, f)
+        await save_file(vfs, args.save_state, mk_save_env(env))
 
     if not args.dry_run:
         output_files = env.kv.listdir("out")
         if len(output_files):
             os.makedirs(args.download_to, exist_ok=True)
         for fname in output_files:
-            out_fname = os.path.join(args.download_to, os.path.basename(fname))
-            with open(out_fname, "wb") as hb:
+
+            async def write_out_file(stream: BytesIO) -> None:
                 content = env.kv.open(fname, "read").borrow_mut_buffer()
-                hb.write(content)
+                stream.write(content)
+
+            out_fname = os.path.join(args.download_to, os.path.basename(fname))
+            await save_file(vfs, out_fname, write_out_file)
 
         if errno := env.get_errno():
-            await coredump(env)
+            await coredump(vfs, env)
+            cleanup()
             sys.exit(errno)
 
-        env.destroy()
+    cleanup()
 
 
 if __name__ == "__main__":
@@ -330,4 +378,6 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("\nCancelled by user")
+        asyncio.run(coredump(vfs, env))
+        cleanup()
         sys.exit(1)
