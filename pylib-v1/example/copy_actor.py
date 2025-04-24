@@ -1,3 +1,4 @@
+import logging
 import os
 from ailets.atyping import INodeRuntime, StdHandles
 
@@ -11,7 +12,9 @@ async def copy_actor(runtime: INodeRuntime) -> None:
             break
         if count == -1:
             raise io_errno_to_oserror(runtime.get_errno())
-        await write_all(runtime, StdHandles.stdout, buffer[:count])
+        data = buffer[:count]
+        logging.debug(f"{runtime.get_name()}: read {count} bytes: '{data}'")
+        await write_all(runtime, StdHandles.stdout, data)
 
 
 def io_errno_to_oserror(ecode: int) -> OSError:

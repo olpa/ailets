@@ -11,6 +11,7 @@ from ailets.cons.dump import print_dependency_tree  # noqa: E402
 from ailets.cons.flow_builder import dup_output_to_stdout  # noqa: E402
 
 from copy_actor import copy_actor  # noqa: E402
+from stdin_actor import stdin_actor  # noqa: E402
 
 
 def build_flow(env: Environment) -> None:
@@ -20,10 +21,16 @@ def build_flow(env: Environment) -> None:
         env.processes,
         explain="Static text",
     )
+    stdin = env.dagops.add_node(
+        "stdin",
+        stdin_actor,
+        [],
+        explain="Read from stdin",
+    )
     foo = env.dagops.add_node(
         "foo",
         copy_actor,
-        [Dependency(hw.name)],
+        [Dependency(hw.name), Dependency(stdin.name)],
         explain="Copy actor",
     )
     bar = env.dagops.add_node(
