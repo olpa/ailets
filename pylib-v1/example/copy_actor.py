@@ -13,7 +13,7 @@ async def copy_actor(runtime: INodeRuntime) -> None:
         if count == -1:
             raise io_errno_to_oserror(runtime.get_errno())
         data = buffer[:count]
-        logging.debug(f"{runtime.get_name()}: read {count} bytes: '{data}'")
+        logging.debug(f"{runtime.get_name()}: read {count} bytes: '{data.decode()}'")
         await write_all(runtime, StdHandles.stdout, data)
 
 
