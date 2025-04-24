@@ -94,7 +94,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--file-system",
         metavar="PATH",
-        help="Path to the virtual file system database in the gdbm format",
+        help=(
+            "Path to the virtual file system database in the Python dbm.sqlite3 format"
+        ),
     )
     parser.add_argument(
         "--debug",

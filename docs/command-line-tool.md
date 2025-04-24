@@ -23,6 +23,7 @@ ailets MODEL [options]
 - `--stop-after POINT`: Stop execution after specified point
 - `--tool TOOL [TOOL ...]`: List of tools to use (e.g., get_user_name)
 - `--download-to DIRECTORY`: Directory to download generated files to (default: "./out")
+- `--file-system PATH` : Path to the virtual file system database in the Python `dbm.sqlite3` format
 - `--debug`: Enable debug logging
 
 ## API key
@@ -182,4 +183,59 @@ To get the image instead of the link, set the `response_format` parameter to `b6
 
 ```bash
 ailets0 dalle --prompt $'response_format="b64_json"\n---\nlinux logo'
+```
+
+
+## Virtual File System
+
+A Virtual File System (VFS) can be useful for:
+
+- Passing multiple files to and from a dockerized tool
+- Debugging communication between actors
+
+The VFS is implemented as an SQLite3 database using Python's `dbm.sqlite3` format with:
+
+- A single table named `Dict`
+- Two columns: `key` and `value`, both of type `BLOB`
+
+Common VFS operations:
+
+```bash
+# List all keys in the VFS
+sqlite3 x.db "SELECT key FROM Dict;"
+
+# Extract a file from the VFS
+f=x.json
+sqlite3 x.db "SELECT writefile('$f',value) FROM Dict WHERE key=CAST('$f' AS BLOB);"
+
+# Insert a file into the VFS
+f=tux.png
+sqlite3 x.db "INSERT INTO Dict (key, value) VALUES (CAST('$f' AS BLOB), readfile('$f'));"
+```
+
+Example usage:
+
+```bash
+$ ./ailets0.py gpt4o --prompt Hello --file-system x.db
+Hello! How can I assist you today?
+
+$ sqlite3 x.db "SELECT key FROM Dict;"
+.gpt4o.messages_to_query.16
+.gpt4o.response_to_messages.18
+.messages_to_markdown.19
+.prompt_to_messages.15
+.query.17
+
+$ sqlite3 x.db "SELECT value FROM Dict WHERE key=CAST('.prompt_to_messages.15' AS BLOB);" | jq .
+[
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "text",
+        "text": "Hello"
+      }
+    ]
+  }
+]
 ```
