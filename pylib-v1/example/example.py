@@ -15,8 +15,8 @@ from stdin_actor import stdin_actor  # noqa: E402
 
 
 def build_flow(env: Environment) -> None:
-    hw = env.dagops.add_value_node(
-        "Hello world!\n".encode("utf-8"),
+    val = env.dagops.add_value_node(
+        "(mee too)".encode("utf-8"),
         env.piper,
         env.processes,
         explain="Static text",
@@ -30,20 +30,20 @@ def build_flow(env: Environment) -> None:
     foo = env.dagops.add_node(
         "foo",
         copy_actor,
-        [Dependency(hw.name), Dependency(stdin.name)],
-        explain="Copy actor",
+        [Dependency(stdin.name)],
+        explain="Copy",
     )
     bar = env.dagops.add_node(
         "bar",
         copy_actor,
-        [Dependency(foo.name)],
-        explain="Copy actor",
+        [Dependency(val.name), Dependency(foo.name)],
+        explain="Copy",
     )
     baz = env.dagops.add_node(
         "baz",
         copy_actor,
         [Dependency(bar.name)],
-        explain="Copy actor",
+        explain="Copy",
     )
 
     env.dagops.alias(".end", baz.name)
