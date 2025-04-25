@@ -53,9 +53,7 @@ class Processes(IProcesses):
                 await self.queue.wait_unsafe(writer_handle, "process.awaker_on_write")
                 self.queue.notify(self.progress_handle, writer_handle)
 
-            self.pool.add(
-                asyncio.create_task(awake_on_write(), name="process.awaker_on_write")
-            )
+            asyncio.create_task(awake_on_write(), name="process.awaker_on_write")
             self.queue.notify(self.progress_handle, writer_handle)
 
         self.fsops_subscription_id = self.queue.subscribe(
