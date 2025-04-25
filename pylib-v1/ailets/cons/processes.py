@@ -2,6 +2,7 @@ import asyncio
 import itertools
 import logging
 import sys
+import threading
 from typing import Iterator, Mapping, Optional, Sequence
 from ailets.atyping import (
     Dependency,
@@ -30,6 +31,8 @@ class Processes(IProcesses):
 
         self.progress_handle: int = env.seqno.next_seqno()
         self.queue.whitelist(self.progress_handle, "ailets.processes")
+        self.progress_seq = 0
+        self.progress_lock = threading.Lock()
         logger.debug("Processes: progress_handle is: %s", self.progress_handle)
 
         self.pool: set[asyncio.Task[None]] = set()
@@ -51,10 +54,10 @@ class Processes(IProcesses):
                 lock = self.queue.get_lock()
                 lock.acquire()
                 await self.queue.wait_unsafe(writer_handle, "process.awaker_on_write")
-                self.queue.notify(self.progress_handle, writer_handle)
+                self.notify_progress(writer_handle)
 
             asyncio.create_task(awake_on_write(), name="process.awaker_on_write")
-            self.queue.notify(self.progress_handle, writer_handle)
+            self.notify_progress(writer_handle)
 
         self.fsops_subscription_id = self.queue.subscribe(
             self.fsops_handle, on_fsops, "Processes: observe fsops"
@@ -66,6 +69,11 @@ class Processes(IProcesses):
                 self.queue.unsubscribe(self.fsops_handle, self.fsops_subscription_id)
             self.fsops_handle = None
             self.fsops_subscription_id = None
+
+    def notify_progress(self, hint_handle: int) -> None:
+        with self.progress_lock:
+            self.progress_seq += 1
+        self.queue.notify(self.progress_handle, hint_handle)
 
     def is_node_finished(self, name: str) -> bool:
         return name in self.finished_nodes
@@ -241,7 +249,7 @@ class Processes(IProcesses):
         # Awake awaker
         if awaker_task is not None:
             if not awaker_task.done():
-                self.queue.notify(self.progress_handle, -1)
+                self.notify_progress(-1)
                 await awaker_task
 
     async def build_node_alone(self, name: str) -> None:
@@ -275,7 +283,7 @@ class Processes(IProcesses):
             self.set_completion_code(name, ccode)
             self.finished_nodes.add(name)
             await node_runtime.destroy()
-            self.queue.notify(self.progress_handle, -1)
+            self.notify_progress(-1)
 
     def get_processes(self) -> set[asyncio.Task[None]]:
         return self.pool
