@@ -3,7 +3,7 @@ import itertools
 import logging
 import sys
 import threading
-from typing import Iterator, Mapping, Optional, Sequence
+from typing import Coroutine, Iterator, Mapping, Optional, Sequence
 from ailets.atyping import (
     Dependency,
     IEnvironment,
@@ -193,10 +193,20 @@ class Processes(IProcesses):
     async def run_nodes(self, node_iter: Iterator[str | None]) -> None:
         self.pool = set()
 
-        async def awaker() -> None:
-            lock = self.queue.get_lock()
-            lock.acquire()
-            await self.queue.wait_unsafe(self.progress_handle, "process.awaker")
+        def create_awaker() -> Coroutine[None, None, None]:
+            with self.progress_lock:
+                creation_seqno = self.progress_seq
+
+            async def awaker() -> None:
+                queue_lock = self.queue.get_lock()
+                queue_lock.acquire()
+                with self.progress_lock:
+                    if self.progress_seq != creation_seqno:
+                        queue_lock.release()
+                        return
+                await self.queue.wait_unsafe(self.progress_handle, "process.awaker")
+
+            return awaker()
 
         def extend_pool() -> None:
             if self.env.get_errno() != 0:
@@ -213,22 +223,30 @@ class Processes(IProcesses):
 
         awaker_task: Optional[asyncio.Task[None]] = None
 
-        def refresh_awaker_in_pool() -> None:
-            nonlocal awaker_task
+        while True:
+            # Awaker should be created before individual tasks
             if awaker_task is not None and awaker_task.done():
                 if awaker_task in self.pool:
                     self.pool.remove(awaker_task)
                 awaker_task = None
-            if len(self.pool) > 0:
-                if awaker_task is None:
-                    awaker_task = asyncio.create_task(awaker(), name="process.awaker")
+            if awaker_task is None:
+                awaker_task = asyncio.create_task(
+                    create_awaker(), name="process.awaker"
+                )
                 self.pool.add(awaker_task)
 
-        extend_pool()
+            # In case of an error:
+            # Don't start new actors (the condition is inside `extend_pool`)
+            # For currently running nodes, expect that they eventually will get
+            # "pipe broken" error and will finish on their own.
+            extend_pool()
 
-        while len(self.pool) > 0:
-            refresh_awaker_in_pool()
             if len(self.pool) == 1:  # only awaker, no real tasks
+                if awaker_task is not None:  # `is None` should never happen
+                    self.notify_progress(-1)
+                    await awaker_task
+                    self.pool.remove(awaker_task)
+                    awaker_task = None
                 break
 
             done, self.pool = await asyncio.wait(
@@ -239,12 +257,6 @@ class Processes(IProcesses):
             for task in done:
                 if exc := task.exception():
                     raise exc
-
-            # In case of an error:
-            # Don't start new actors (the condition is inside `extend_pool`)
-            # For currently running nodes, expect that they eventually will get
-            # "pipe broken" error and will finish on their own.
-            extend_pool()
 
         # Awake awaker
         if awaker_task is not None:
