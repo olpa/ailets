@@ -9,6 +9,7 @@ from ailets.cons.environment import Environment  # noqa: E402
 from ailets.cons.plugin import NodeRegistry  # noqa: E402
 from ailets.cons.dump import print_dependency_tree  # noqa: E402
 from ailets.cons.flow_builder import dup_output_to_stdout  # noqa: E402
+from ailets.io.sqlitekv import SqliteKV  # noqa: E402
 
 from copy_actor import copy_actor  # noqa: E402
 from stdin_actor import stdin_actor  # noqa: E402
@@ -51,7 +52,8 @@ def build_flow(env: Environment) -> None:
 
 async def main() -> None:
     node_registry = NodeRegistry()
-    env = Environment(node_registry)
+    kv = SqliteKV("example.db")
+    env = Environment(node_registry, kv=kv)
 
     build_flow(env)
     end_node = env.dagops.get_node(".end")
@@ -68,6 +70,8 @@ async def main() -> None:
         stop_after=None,
     )
     await env.processes.run_nodes(node_iter)
+
+    env.destroy()
 
 
 if __name__ == "__main__":
