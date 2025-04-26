@@ -174,3 +174,24 @@ foo.16|111122223333
 bar.17|(mee too)111122223333
 baz.18|(mee too)111122223333
 ```
+
+
+# Very technical details
+
+## Running actors
+
+The orchestrator starts actors only when needed: Only when all dependecies are progressed. An actor is progressed if it wrote anything to the output.
+
+The code is in `processes.py`. The logic of the main loop is:
+
+- If not yet, create an `awaker` coroutine
+- Try to extend the pool of actors
+- Wait until any of them (the awaker and the actors) finishes
+
+The reason to have `awaker` is to repeat the loop iteration to potentially start a new actor:
+
+- At the actor startup, the orchestrator code set ups observers that trigger an event when the actor progresses
+- `awaker` waits on the event and exits after receiving it
+- The `awaker` exit unblocks the main loop
+
+The communication between actors happens through pipes outside the main orchestrator loop.
