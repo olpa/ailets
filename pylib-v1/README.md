@@ -212,3 +212,20 @@ All this is interconnected.
 This concept of a pipe is an important discovery of the project, The introduction of pipes helped to cleanup the code that was initially based solely on abstract files.
 
 The code is in `ailets.io`.
+
+
+## Notification queue
+
+The queue allows synchronization on handles, where a handle is mostly a handle of an open file, but also can be a handle of an operations, such as "actor is progressed" or "kv entry is created". The code is in `notification_queue.py`.
+
+The queue supports two approaches: observers and await.
+
+In the first approach, with observers or listeners, a callback subscribes to a handle. When an event happens, a notifiers calls all the listeners. A callback should be ready that it is called in a different thread (the notifier one) than where it was created.
+
+The second approach, with await, needs a tricky client workflow (check-lock-check-wait) described inside the source code, and it allows to write:
+
+```
+await queue.wait_unsafe(handle, "debug hint")
+```
+
+This is in harmony with the async code, and it awakes in the same thread it was before the wait.
