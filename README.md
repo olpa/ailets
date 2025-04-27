@@ -74,6 +74,7 @@ ailets dalle --prompt "linux logo"
 - Command-line tool to use gpt4o and dall-e. <https://hub.docker.com/r/olpa/ailets>, <https://github.com/olpa/ailets/blob/master/docs/command-line-tool.md>
 - Rust crate [RJiter](https://crates.io/crates/rjiter): A streaming JSON parser
 - Rust crate [scan_json](https://crates.io/crates/scan_json): React to elements in a JSON stream before the entire document is available
+- [pylib-v1 `ailets`](./pylib-v1/README.md): actor workflows in Python
 
 
 ## Closing and call to action
