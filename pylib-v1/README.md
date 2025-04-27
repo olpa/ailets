@@ -1,6 +1,5 @@
 # pylib-v1 `ailets`: actor workflows in Python
 
-
 ## Summary
 
 Ailets are a combination of the actor model and the "everything is a file" paradigm.
@@ -23,11 +22,11 @@ The Python package `ailets` contains:
 
 The plan was to write a Python proof-of-concept, then rewrite it in Rust and throw away the Python version. The plan is still the same, but considering that the orchestrator is a non-trivial piece of code, now I prefer to retain it.
 
-If you need "actors" plus "everything is a file", I highly recommend to use `ailets`. Despite the code is not published on pypy, despite you need to cleanup unneeded LLM specifics, the time for integration in your code is much less than developing an alternative solution from scratch.
+If you need "actors" plus "everything is a file", I highly recommend using `ailets`. Despite the code not being published on pypy, and despite needing to cleanup unneeded LLM specifics, the time for integration into your code is much less than developing an alternative solution from scratch.
 
-I have an advanced intuition about what can go wrong in concurrent code, but anyway I got race conditions and deadlocks in early versions. Fixing concurrency issues is a pain, and I've pained for you.
+I have an advanced intuition about what can go wrong in concurrent code, but anyway, I encountered race conditions and deadlocks in early versions. Fixing concurrency issues is a pain, and I've experienced this for you.
 
-The rest (dependecies, plugins, sample actors) is easy. There is no need to make a library out of them because the implementation details are project-specific and I can't guess a good generalization.
+The rest (dependencies, plugins, sample actors) are easy. There is no need to make a library out of them because the implementation details are project-specific, and I can't guess a good generalization.
 
 
 # Complete example
@@ -176,68 +175,69 @@ baz.18|(mee too)111122223333
 ```
 
 
-# Very technical details
+# Very Technical Details
 
-## Running actors
+## Running Actors
 
-The orchestrator starts actors only when needed: Only when all dependecies are progressed. An actor is progressed if it wrote anything to the output.
+The orchestrator will only start actors when all dependencies are progressed. An actor is progressed by writing anything to the output.
 
-The code is in `processes.py`. The logic of the main loop is:
+The code for this can be found in `processes.py`. The main loop logic follows these steps:
 
-- If not yet, create an `awaker` coroutine
-- Try to extend the pool of actors
-- Wait until any of them (the awaker and the actors) finishes
+- Create an `awaker` coroutine if one does not already exist.
+- Attempt to add more actors to the pool.
+- Wait for any actor or the `awaker` to finish.
+- Repeat.
 
-The reason to have `awaker` is to repeat the loop iteration to potentially start a new actor:
+The purpose of the `awaker` is to restart the loop iteration to potentially start a new actor:
 
-- At the actor startup, the orchestrator code set ups observers that trigger an event when the actor progresses
-- `awaker` waits on the event and exits after receiving it
-- The `awaker` exit unblocks the main loop
+- When an actor starts up, the orchestrator code sets up observers to trigger an event when the actor makes progress.
+- The `awaker` waits for this event and exits once it receives it.
+- Exiting the `awaker` unblocks the main loop.
 
-The communication between actors happens through pipes outside the main orchestrator loop.
+Communication between actors occurs through pipes outside of the main orchestrator loop.
 
 
 ## Pipes
 
-A pipe is an umbrella for several concepts:
+A pipe includes several important elements:
 
-- An output stream of an actor
+- An output stream for an actor
 - A buffer for the stream data
 - An associated writer to the buffer
 - A reader-factory to read from the buffer
 - An entry in a key-value storage
 
-All this is interconnected.
+All these elements work together harmoniously.
 
-This concept of a pipe is an important discovery of the project, The introduction of pipes helped to cleanup the code that was initially based solely on abstract files.
+The concept of pipes has been a significant advancement in the project. By introducing pipes, the code was able to be organized more effectively, moving away from its reliance on abstract files.
 
-The code is in `ailets.io`.
+The code can be found in `ailets.io`.
 
 
-## Notification queue
+## Notification Queue
 
-The queue allows synchronization on handles, where a handle is mostly a handle of an open file, but also can be a handle of an operations, such as "actor is progressed" or "kv entry is created". The code is in `notification_queue.py`.
+The queue enables synchronization on handles, which are primarily handles of open files, but can also be handles of operations, such as "actor is progressed" or "kv entry is created". The code can be found in `notification_queue.py`.
 
-The queue supports two approaches: observers and await.
+The queue supports two methods: observers and await.
 
-In the first approach, with observers or listeners, a callback subscribes to a handle. When an event happens, a notifiers calls all the listeners. A callback should be ready that it is called in a different thread (the notifier one) than where it was created.
+In the first method, using observers or listeners, a callback subscribes to a handle. When an event occurs, notifiers notify all the listeners. A callback must be prepared to be called in a different thread (the notifier's thread) than where it was created.
 
-The second approach, with await, needs a tricky client workflow (check-lock-check-wait) described inside the source code, and it allows to write:
+The second method, using await, requires a complex client workflow (check-lock-check-wait) outlined within the source code. It allows writing:
 
 ```
 await queue.wait_unsafe(handle, "debug hint")
 ```
 
-This is in harmony with the async code, and it awakes in the same thread it was before the wait.
+This is compatible with asynchronous code, and it resumes in the same thread as before the wait.
 
 
 ## Loops in RAG
 
-Cycles in actor dependencies are forbidden, but loops are needed for LLM function-calling workflows.
+Cycles in actor dependencies are not allowed, but loops are necessary for LLM function-calling workflows.
 
-The solution is a dynamic loop unrolling. If an extra iteration is needed, the dag interface allows to add new actors to the dependencies. The dispatcher notices new actors and continues with building them.
+The solution is to dynamically unroll the loop. If there is a need for an additional iteration, the dag interface enables the addition of new actors to the dependencies. The dispatcher will detect the new actors and proceed with their construction.
 
-Here is an example of the environment just after calling an LLM:
+Below is an example of the environment immediately after executing an LLM:
 
 ```
 ├── .messages_to_markdown.21 [⋯ not built]
@@ -250,7 +250,7 @@ Here is an example of the environment just after calling an LLM:
 │   │   │   │   │   ├── value.13 [✓ built] (Tool spec get_user_name)
 ```
 
-When processing the result of `query`, the `response_to_messages` step will detect that the language model hasn't generated content but instead intends to use a tool. At this point, the step stops to act as an actor and communicates with the orchestrator to construct a new dependency tree:
+When processing the result of the `query`, the `response_to_messages` step will detect that the language model hasn't generated content but instead intends to use a tool. At this point, the step stops acting as an actor and communicates with the orchestrator to construct a new dependency tree.
 
 ```
 ├── .messages_to_markdown.21 [⋯ not built]
@@ -276,4 +276,4 @@ When processing the result of `query`, the `response_to_messages` step will dete
 │   │   │   │   │   ├── value.13 [✓ built] (Tool spec get_user_name)
 ```
 
-The previous loop iteration `.gpt4o.response_to_messages.20` is finished, and the new iteration `.gpt4o.response_to_messages.39` is in the build plan.
+The previous loop iteration `.gpt4o.response_to_messages.20` has been completed, and the new iteration `.gpt4o.response_to_messages.39` is now in the build plan.
