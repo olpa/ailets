@@ -52,6 +52,10 @@ def build_flow(env: Environment) -> None:
 
 async def main() -> None:
     node_registry = NodeRegistry()
+    try:
+        os.remove("example.db")
+    except FileNotFoundError:
+        pass
     kv = SqliteKV("example.db")
     env = Environment(node_registry, kv=kv)
 

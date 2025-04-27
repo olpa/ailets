@@ -1,27 +1,11 @@
 # Actor interface
 
-Preliminary version.
-
 The actor interface defines how ailets interact with their environment. Each ailet is an actor that receives input through streams and produces output through streams.
 
 
 *get_name*
 
 Name of the actor.
-
-
-*n_of_streams*
-
-```
-int n_of_streams(const char *param_name);
-```
-
-Return the number of input streams associated with a given parameter.
-
--  If `param_name` is `NULL`, the function assumes the default input parameter.
--  If the parameter name is unknown, the function returns -1 and sets `errno` to indicate the error.
-
-The number of input streams associated with a parameter may change dynamically during program execution.
 
 
 *open_read*
@@ -84,24 +68,6 @@ int close(int fd);
 Close the file descriptor `fd`.
 
 
-*read_dir*
-
-```
-char **read_dir(const char *path);
-```
-
-Read the contents of the directory `path` into an array of strings.
-
-
-*pass_through*
-
-```
-void pass_through(const char *in_stream_name, const char *out_stream_name);
-```
-
-Connect the input stream `in_stream_name` to the output stream `out_stream_name`.
-
-
 *get_next_name*
 
 ```
@@ -111,12 +77,10 @@ char *get_next_name(const char *base_name);
 Return an unique name with the prefix `base_name`.
 
 
-*errno, strerror*
+*get_errno*
 
 ```
-int errno;
-char *strerror(int errnum);
-void perror(const char *s);
+int get_errno(void);
 ```
 
 As seen in POSIX.
