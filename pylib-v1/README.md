@@ -229,3 +229,51 @@ await queue.wait_unsafe(handle, "debug hint")
 ```
 
 This is in harmony with the async code, and it awakes in the same thread it was before the wait.
+
+
+## Loops in RAG
+
+Cycles in actor dependencies are forbidden, but loops are needed for LLM function-calling workflows.
+
+The solution is a dynamic loop unrolling. If an extra iteration is needed, the dag interface allows to add new actors to the dependencies. The dispatcher notices new actors and continues with building them.
+
+Here is an example of the environment just after calling an LLM:
+
+```
+├── .messages_to_markdown.21 [⋯ not built]
+│   ├── .gpt4o.response_to_messages.20 [⋯ not built]
+│   │   ├── .query.19 [✓ built]
+│   │   │   ├── .gpt4o.messages_to_query.18 [✓ built]
+│   │   │   │   ├── .prompt_to_messages.17 [✓ built]
+│   │   │   │   │   ├── value.15 [✓ built] (Prompt)
+│   │   │   │   ├── (param: toolspecs)
+│   │   │   │   │   ├── value.13 [✓ built] (Tool spec get_user_name)
+```
+
+When processing the result of `query`, the `response_to_messages` step will detect that the language model hasn't generated content but instead intends to use a tool. At this point, the step stops to act as an actor and communicates with the orchestrator to construct a new dependency tree:
+
+```
+├── .messages_to_markdown.21 [⋯ not built]
+│   ├── .gpt4o.response_to_messages.20 [✓ built]
+│   │   ├── .query.19 [✓ built]
+│   │   │   ├── .gpt4o.messages_to_query.18 [✓ built]
+│   │   │   │   ├── .prompt_to_messages.17 [✓ built]
+│   │   │   │   │   ├── value.15 [✓ built] (Prompt)
+│   │   │   │   ├── (param: toolspecs)
+│   │   │   │   │   ├── value.13 [✓ built] (Tool spec get_user_name)
+│   ├── .gpt4o.response_to_messages.39 [⋯ not built]
+│   │   ├── .query.38 [⋯ not built]
+│   │   │   ├── .gpt4o.messages_to_query.37 [⋯ not built]
+│   │   │   │   ├── .prompt_to_messages.17 [✓ built]
+│   │   │   │   │   ├── value.15 [✓ built] (Prompt)
+│   │   │   │   ├── value.29 [✓ built] (tool calls in chat history - get_user_name)
+│   │   │   │   ├── .toolcall_to_messages.36 [⋯ not built]
+│   │   │   │   │   ├── .tool.get_user_name.call.33 [⋯ not built]
+│   │   │   │   │   │   ├── value.31 [✓ built] (tool input - get_user_name)
+│   │   │   │   │   ├── (param: llm_tool_spec)
+│   │   │   │   │   │   ├── value.34 [✓ built] (tool call spec - get_user_name)
+│   │   │   │   ├── (param: toolspecs)
+│   │   │   │   │   ├── value.13 [✓ built] (Tool spec get_user_name)
+```
+
+The previous loop iteration `.gpt4o.response_to_messages.20` is finished, and the new iteration `.gpt4o.response_to_messages.39` is in the build plan.
