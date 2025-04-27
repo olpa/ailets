@@ -195,3 +195,20 @@ The reason to have `awaker` is to repeat the loop iteration to potentially start
 - The `awaker` exit unblocks the main loop
 
 The communication between actors happens through pipes outside the main orchestrator loop.
+
+
+## Pipes
+
+A pipe is an umbrella for several concepts:
+
+- An output stream of an actor
+- A buffer for the stream data
+- An associated writer to the buffer
+- A reader-factory to read from the buffer
+- An entry in a key-value storage
+
+All this is interconnected.
+
+This concept of a pipe is an important discovery of the project, The introduction of pipes helped to cleanup the code that was initially based solely on abstract files.
+
+The code is in `ailets.io`.
