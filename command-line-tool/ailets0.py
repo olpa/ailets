@@ -210,7 +210,9 @@ def get_prompt(prompt_args: list[str]) -> list[CmdlinePromptItem]:
         ], f"Unknown content type: {base_content_type}"
 
         if base_content_type == "text":
-            yield from iter_get_prompt(content)
+            with open(content, "r") as f:
+                file_content = f.read()
+            yield from iter_get_prompt(file_content)
             return
 
         supported_content_types = ["text", "image"]
