@@ -85,6 +85,36 @@ class IStream(Protocol):
     def close(self) -> None: ...
 
 
+class ReadToPositions(IStream):
+    def __init__(self, stream: IStream, read_positions: list[int]) -> None:
+        self.stream = stream
+        self.read_positions = read_positions
+        self.cur_pos = 0
+
+    def read(self, count: int) -> bytes | None:
+        future_pos = self.cur_pos + count
+        barrier_pos = max(
+            (pos for pos in self.read_positions if pos < future_pos),
+            default=self.cur_pos,
+        )
+        if barrier_pos <= self.cur_pos:
+            adjusted_count = count
+        else:
+            adjusted_count = barrier_pos - self.cur_pos
+        bs = self.stream.read(adjusted_count)
+        n = len(bs) if bs is not None else 0
+        if n != adjusted_count and n != 0:
+            raise ValueError(f"Wanted to read {adjusted_count} bytes, but got {n}")
+        self.cur_pos += n
+        return bs
+
+    def write(self, buffer: bytes) -> int:
+        return self.stream.write(buffer)
+
+    def close(self) -> None:
+        return self.stream.close()
+
+
 class NodeRuntime:
     def __init__(
         self, specs: Sequence[Spec], read_positions: Optional[list[int]]
@@ -124,6 +154,10 @@ class NodeRuntime:
             stream = open(vof[1:], "rb")
         else:
             stream = io.BytesIO(vof.encode())
+
+        if specs[0].read_positions:
+            stream = ReadToPositions(stream, specs[0].read_positions)
+
         self.streams.append(stream)
 
         return len(self.streams) - 1
