@@ -14,6 +14,7 @@ class Spec:
     direction: Literal["in", "out"]
     name: str
     value_or_file: str
+    read_positions: Optional[list[int]]
 
 
 auto_open_fds = ["", "", "log", "metrics", "trace"]
@@ -22,7 +23,7 @@ auto_open_fds = ["", "", "log", "metrics", "trace"]
 # ----
 
 
-def parse_name_value(arg: str) -> Spec:
+def parse_name_value(arg: str, read_positions: Optional[list[int]]) -> Spec:
     if ":" not in arg:
         raise ValueError(f"Argument '{arg}' must contain ':' to specify direction")
     direction_part, rest = arg.split(":", 1)
@@ -37,10 +38,15 @@ def parse_name_value(arg: str) -> Spec:
         )
     name, value = rest.split("=", 1)
 
-    return Spec(direction=direction_part, name=name, value_or_file=value)
+    return Spec(
+        direction=direction_part,
+        name=name,
+        value_or_file=value,
+        read_positions=read_positions,
+    )
 
 
-def parse_arguments() -> tuple[str, Sequence[Spec]]:
+def parse_arguments() -> tuple[str, Sequence[Spec], Optional[list[int]]]:
     parser = argparse.ArgumentParser(description="Run a WASM actor")
     parser.add_argument("wasm_path", help="Path to the WASM file")
     parser.add_argument(
@@ -51,15 +57,21 @@ def parse_arguments() -> tuple[str, Sequence[Spec]]:
         - If value is "-", read from stdin or write to stdout
         - If value starts with "@", read from or write to the specified file""",
     )
+    parser.add_argument(
+        "--read-positions",
+        type=lambda x: [int(pos) for pos in x.split()],
+        help="""Stop reading at given positions. Format: "pos1 pos2 pos3 ...""",
+        default=None,
+    )
 
     args = parser.parse_args()
 
     # Parse name-value pairs
     specs = []
     for arg in args.name_values:
-        specs.append(parse_name_value(arg))
+        specs.append(parse_name_value(arg, args.read_positions))
 
-    return args.wasm_path, specs
+    return args.wasm_path, specs, args.read_positions
 
 
 # ----
@@ -74,9 +86,12 @@ class IStream(Protocol):
 
 
 class NodeRuntime:
-    def __init__(self, specs: Sequence[Spec]) -> None:
+    def __init__(
+        self, specs: Sequence[Spec], read_positions: Optional[list[int]]
+    ) -> None:
         self.specs = specs
         self.streams: list[Optional[IStream]] = [None] * len(auto_open_fds)
+        self.read_positions = read_positions
 
     def _collect_streams(
         self, direction: Literal["in", "out"], name: str
@@ -88,7 +103,14 @@ class NodeRuntime:
         ]
         if len(found) or name != "":
             return found
-        return [Spec(direction=direction, name="", value_or_file="-")]
+        return [
+            Spec(
+                direction=direction,
+                name="",
+                value_or_file="-",
+                read_positions=self.read_positions,
+            )
+        ]
 
     def open_read(self, stream_name: str) -> int:
         specs = self._collect_streams("in", stream_name)
@@ -97,11 +119,12 @@ class NodeRuntime:
 
         vof = specs[0].value_or_file
         if vof == "-":
-            self.streams.append(sys.stdin.buffer)
+            stream = sys.stdin.buffer
         elif vof.startswith("@"):
-            self.streams.append(open(vof[1:], "rb"))
+            stream = open(vof[1:], "rb")
         else:
-            self.streams.append(io.BytesIO(vof.encode()))
+            stream = io.BytesIO(vof.encode())
+        self.streams.append(stream)
 
         return len(self.streams) - 1
 
@@ -278,8 +301,8 @@ def register_node_runtime(
 
 
 def main() -> None:
-    wasm_path, specs = parse_arguments()
-    nr = NodeRuntime(specs)
+    wasm_path, specs, read_positions = parse_arguments()
+    nr = NodeRuntime(specs, read_positions)
 
     with open(wasm_path, "rb") as f:
         wasm_bytes = f.read()
