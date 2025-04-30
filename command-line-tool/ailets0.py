@@ -241,6 +241,8 @@ def cleanup() -> None:
     global vfs
     global env
     if vfs:
+        if env:
+            env.piper.flush_pipes()
         vfs.destroy()
         vfs = None
     if env:
