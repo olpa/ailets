@@ -103,8 +103,6 @@ class ReadToPositions(IStream):
             adjusted_count = barrier_pos - self.cur_pos
         bs = self.stream.read(adjusted_count)
         n = len(bs) if bs is not None else 0
-        if n != adjusted_count and n != 0:
-            raise ValueError(f"Wanted to read {adjusted_count} bytes, but got {n}")
         self.cur_pos += n
         return bs
 
