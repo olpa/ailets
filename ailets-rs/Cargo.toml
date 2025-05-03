@@ -10,3 +10,4 @@ license = "MIT"
 
 [patch.crates-io]
 scan_json = { path = "../../streaming_json/scan_json" }
+rjiter = { path = "../../streaming_json/rjiter" }

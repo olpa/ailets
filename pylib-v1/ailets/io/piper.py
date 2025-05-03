@@ -188,3 +188,7 @@ class Piper(IPiper):
         """If the pipe does not exist, and there is no kv entry, raise KeyError.
         Otherwise, create it as a read-only pipe."""
         return self.create_pipe(node_name, slot_name, "read")
+
+    def flush_pipes(self) -> None:
+        for path in self.pipes.keys():
+            self.kv.flush(path)

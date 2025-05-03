@@ -100,6 +100,9 @@ class IPiper(Protocol):
     def get_fsops_handle(self) -> int:
         raise NotImplementedError
 
+    def flush_pipes(self) -> None:
+        raise NotImplementedError
+
 
 class StdHandles(IntEnum):
     stdin = 0
