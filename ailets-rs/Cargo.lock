@@ -499,6 +499,8 @@ dependencies = [
 [[package]]
 name = "rjiter"
 version = "1.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f48d70eac74c52a78e2196fbf2fdf7194e3e9ccb5437e06f9ecb95886f9ab02"
 dependencies = [
  "jiter",
 ]
@@ -517,7 +519,9 @@ checksum = "6ea1a2d0a644769cc99faa24c3ad26b379b786fe7c36fd3c546254801650e6dd"
 
 [[package]]
 name = "scan_json"
-version = "1.0.3"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7d3cd27a3cb591249884932704555c5ba91092b61813b32fe7ec528026127ee1"
 dependencies = [
  "rjiter",
 ]

@@ -9,5 +9,5 @@ authors = ["Oleg Parashchenko <olpa@uucode.com>"]
 license = "MIT"
 
 [patch.crates-io]
-scan_json = { path = "../../streaming_json/scan_json" }
-rjiter = { path = "../../streaming_json/rjiter" }
+# scan_json = { path = "../../streaming_json/scan_json" }
+# rjiter = { path = "../../streaming_json/rjiter" }
