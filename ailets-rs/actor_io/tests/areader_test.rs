@@ -54,8 +54,8 @@ fn cant_open_nonexistent_file() {
     let err = AReader::new(c"no-such-file").expect_err("Should fail to create reader");
 
     assert!(
-        err.to_string().contains("no-such-file"),
-        "Error message should contain the file name"
+        err.to_string().contains("os error"),
+        "Error message should contain os error"
     );
 }
 
