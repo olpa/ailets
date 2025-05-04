@@ -8,5 +8,5 @@ crate-type = ["cdylib"]
 
 [dependencies] 
 actor_io = { version = "0.1.0", path = "../actor_io" }
-actor_runtime = { version = "0.1.0", path = "../actor_runtime" }
+actor_runtime = { version = "0.2.0", path = "../actor_runtime" }
 getrandom = { version = "0.2", features = ["custom"] }

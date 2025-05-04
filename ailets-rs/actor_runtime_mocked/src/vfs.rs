@@ -206,3 +206,9 @@ pub extern "C" fn aclose(fd: c_int) -> c_int {
     handle.vfs_index = usize::MAX;
     0
 }
+
+#[no_mangle]
+#[must_use]
+pub extern "C" fn get_errno() -> c_int {
+    0
+}
