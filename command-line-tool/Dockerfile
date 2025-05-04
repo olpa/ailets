@@ -2,7 +2,7 @@ FROM ailets-pymodule
 
 USER root
 
-RUN useradd -m -r ailets \
+RUN useradd -m -r ailets --uid 1000 \
     && chown -R ailets:ailets /app
 
 COPY ailets0.py /app/
