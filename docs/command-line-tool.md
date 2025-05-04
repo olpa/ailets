@@ -239,3 +239,27 @@ $ sqlite3 x.db "SELECT value FROM Dict WHERE key=CAST('.prompt_to_messages.15' A
   }
 ]
 ```
+
+Together: Docker and VFS.
+
+```
+# Setup: Pass the database to the dockerized Ailets
+OPENAI_API_KEY=sk-.....
+ailets() {
+  docker run --rm -e OPENAI_API_KEY=$OPENAI_API_KEY \
+  --mount type=bind,src=$(pwd)/x.db,dst=/tmp/x.db --user `id -u` \
+    olpa/ailets --file-system /tmp/x.db "$@"
+}
+
+# Re-create the database
+rm -f x.db
+touch x.db
+ailets gpt4o --dry-run
+
+# Put a file to the database and run Ailets
+f=tux.png
+sqlite3 x.db "INSERT INTO Dict (key, value) VALUES (CAST('$f' AS BLOB), readfile('$f'));"
+
+ailets gpt4o --prompt "Describe the image." --prompt "@tux.png"
+# The image features a cartoon penguin. It has ...
+```

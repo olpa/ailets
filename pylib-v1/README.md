@@ -1,13 +1,13 @@
-# pylib-v1 `ailets`: actor workflows in Python
+# pylib-v1 `ailets`: Actor Workflows in Python
 
 ## Summary
 
 Ailets are a combination of the actor model and the "everything is a file" paradigm.
 
-- [actor model](https://en.wikipedia.org/wiki/Actor_model)
-- [everything is a file](https://en.wikipedia.org/wiki/Everything_is_a_file)
+- [Actor model](https://en.wikipedia.org/wiki/Actor_model)
+- [Everything is a file](https://en.wikipedia.org/wiki/Everything_is_a_file)
 
-> In response to a message it receives, an actor can: make local decisions, create more actors, send more messages, and determine how to respond to the next message received. Actors may modify their own private state, but can only affect each other indirectly through messaging
+> In response to a message it receives, an actor can: make local decisions, create more actors, send more messages, and determine how to respond to the next message received. Actors may modify their own private state, but can only affect each other indirectly through messaging.
 
 For most steps in ailets pipelines, communication can be simplified by using standard input (stdin) for incoming messages and standard output (stdout) for outgoing messages. Instead of multiple discrete messages, a single message with a streaming body is sufficient.
 
@@ -17,23 +17,21 @@ The Python package `ailets` contains:
 - An orchestrator to run actors
 - Sample actors to run `gpt4o` and `dall-e` LLM workflows
 
+## Orchestration is Hard, Use the Library
 
-## Orchestration is hard, use the library
+The plan was to write a Python proof-of-concept, then rewrite it in Rust and throw away the Python version. The plan is still the same, but considering that the orchestrator is a non-trivial piece of code, I now prefer to retain it.
 
-The plan was to write a Python proof-of-concept, then rewrite it in Rust and throw away the Python version. The plan is still the same, but considering that the orchestrator is a non-trivial piece of code, now I prefer to retain it.
+If you need "actors" plus "everything is a file," I highly recommend using `ailets`. Despite the code not being published on PyPI, and despite needing to clean up unneeded LLM specifics, the time for integration into your code is much less than developing an alternative solution from scratch.
 
-If you need "actors" plus "everything is a file", I highly recommend using `ailets`. Despite the code not being published on pypy, and despite needing to cleanup unneeded LLM specifics, the time for integration into your code is much less than developing an alternative solution from scratch.
+I have an advanced intuition about what can go wrong in concurrent code, but I still encountered race conditions and deadlocks in early versions. Fixing concurrency issues is a pain, and I've experienced this for you.
 
-I have an advanced intuition about what can go wrong in concurrent code, but anyway, I encountered race conditions and deadlocks in early versions. Fixing concurrency issues is a pain, and I've experienced this for you.
+The rest (dependencies, plugins, and sample actors) are easy. There is no need to make a library out of them because the implementation details are project-specific, and I can't guess a good generalization.
 
-The rest (dependencies, plugins, sample actors) are easy. There is no need to make a library out of them because the implementation details are project-specific, and I can't guess a good generalization.
-
-
-# Complete example
+# Complete Example
 
 The ready-to-run code is in the folder [./example/](./example/).
 
-## "Copy" actor
+## "Copy" Actor
 
 A regular actor does:
 
@@ -41,9 +39,9 @@ A regular actor does:
 - Process it
 - Write output
 
-The interface with functions like `open`, `read`, `write`, `errno` resembles POSIX:
+The interface with functions like `open`, `read`, `write`, and `errno` resembles POSIX.
 
-```
+```python
 #
 # Actor itself
 #
@@ -82,14 +80,13 @@ async def write_all(runtime: INodeRuntime, fd: int, data: bytes) -> None:
         if count == -1:
             raise io_errno_to_oserror(runtime.get_errno())
         pos += count
-
 ```
 
-## "Stdin" actors
+## "Stdin" Actors
 
 This actor doesn't get input from other actors. Instead, it asks the operating system for the input.
 
-```
+```python
 async def stdin_actor(runtime: INodeRuntime) -> None:
     try:
         while True:
@@ -100,9 +97,9 @@ async def stdin_actor(runtime: INodeRuntime) -> None:
         pass
 ```
 
-## Build a workflow
+## Build a Workflow
 
-```
+```python
 def build_flow(env: Environment) -> None:
     val = env.dagops.add_value_node(
         "(mee too)".encode("utf-8"),
@@ -138,7 +135,7 @@ def build_flow(env: Environment) -> None:
     env.dagops.alias(".end", baz.name)
 ```
 
-The logic is obvious, here is the visualization of the DAG:
+The logic is obvious; here is the visualization of the DAG:
 
 ```
 ├── baz.18 [⋯ not built] (Copy)
@@ -148,15 +145,15 @@ The logic is obvious, here is the visualization of the DAG:
 │   │   │   ├── stdin.15 [⋯ not built] (Read from stdin)
 ```
 
-The flow starts with `stdin.15` node and ends with `baz.18` node. In the middle of the flow, the static value is prepended to the stream.
+The flow starts with the `stdin.15` node and ends with the `baz.18` node. In the middle of the flow, the static value is prepended to the stream.
 
-## All together
+## All Together
 
-The `main` function creates a build environment, defines a dependency tree by calling `build_flow` and finally starts the orchestrator. An optional tweak is the use of Sqlite to track the communication between actors.
+The `main` function creates a build environment, defines a dependency tree by calling `build_flow`, and finally starts the orchestrator. An optional tweak is the use of SQLite to track the communication between actors.
 
 Run, type: "1111", "&lt;Enter>", "2222", "&lt;Enter>", "3333", "&lt;Ctrl+D>".
 
-```
+```bash
 $ python example/example.py
 1111
 (mee too)11112222
@@ -164,16 +161,15 @@ $ python example/example.py
 3333
 ```
 
-Check the actors output:
+Check the actors' output:
 
-```
+```bash
 $ sqlite3 example.db 'SELECT * FROM Dict'
 stdin.15|111122223333
 foo.16|111122223333
 bar.17|(mee too)111122223333
 baz.18|(mee too)111122223333
 ```
-
 
 # Very Technical Details
 
@@ -196,7 +192,6 @@ The purpose of the `awaker` is to restart the loop iteration to potentially star
 
 Communication between actors occurs through pipes outside of the main orchestrator loop.
 
-
 ## Pipes
 
 A pipe includes several important elements:
@@ -213,7 +208,6 @@ The concept of pipes has been a significant advancement in the project. By intro
 
 The code can be found in `ailets.io`.
 
-
 ## Notification Queue
 
 The queue enables synchronization on handles, which are primarily handles of open files, but can also be handles of operations, such as "actor is progressed" or "kv entry is created". The code can be found in `notification_queue.py`.
@@ -224,12 +218,11 @@ In the first method, using observers or listeners, a callback subscribes to a ha
 
 The second method, using await, requires a complex client workflow (check-lock-check-wait) outlined within the source code. It allows writing:
 
-```
+```python
 await queue.wait_unsafe(handle, "debug hint")
 ```
 
 This is compatible with asynchronous code, and it resumes in the same thread as before the wait.
-
 
 ## Loops in RAG
 

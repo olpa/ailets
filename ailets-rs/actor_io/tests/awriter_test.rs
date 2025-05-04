@@ -38,8 +38,8 @@ fn cant_open_nonexistent_file() {
     let err = AWriter::new(c"file-name-to-fail\u{1}").expect_err("Should fail to create writer");
 
     assert!(
-        err.to_string().contains("file-name-to-fail\u{1}"),
-        "Error message should contain the file name"
+        err.to_string().contains("os error"),
+        "Error message should contain os error"
     );
 }
 
@@ -63,7 +63,7 @@ fn write_error() {
         .expect_err("Should fail to write");
 
     assert!(
-        err.to_string().contains("Failed to write"),
+        err.to_string().contains("os error"),
         "Error message should indicate write failure"
     );
 }

@@ -5,6 +5,9 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[lib]
+crate-type = ["cdylib", "lib"]
+
 [dependencies]
-actor_runtime = { version = "0.1.0", path = "../actor_runtime" }
+actor_runtime = { version = "0.2.0", path = "../actor_runtime" }
 actor_runtime_mocked = { version = "0.1.0", path = "../actor_runtime_mocked" }

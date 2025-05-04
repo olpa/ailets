@@ -1,5 +1,6 @@
 use actor_runtime_mocked::vfs::{
-    aclose, add_file, aread, awrite, clear_mocks, get_file, open_read, open_write, WANT_ERROR,
+    aclose, add_file, aread, awrite, clear_mocks, get_errno, get_file, open_read, open_write,
+    WANT_ERROR,
 };
 use std::os::raw::c_uint;
 
@@ -8,6 +9,7 @@ fn open_read_returns_minus_one_if_file_not_found() {
     clear_mocks();
     let fd = open_read(c"test".as_ptr());
     assert_eq!(fd, -1);
+    assert_eq!(get_errno(), -1);
 }
 
 #[test]
@@ -18,6 +20,7 @@ fn open_read_returns_non_negative_if_file_exists() {
     let fd = open_read(c"test".as_ptr());
 
     assert!(fd >= 0);
+    assert_eq!(get_errno(), 0);
 }
 
 #[test]
@@ -27,6 +30,7 @@ fn open_write_returns_minus_one_on_error() {
     let fd = open_write(c"test\u{1}".as_ptr());
 
     assert_eq!(fd, -1);
+    assert_eq!(get_errno(), -1);
 }
 
 #[test]
@@ -53,6 +57,7 @@ fn close_returns_minus_one_for_invalid_handle() {
     let result = aclose(999);
 
     assert_eq!(result, -1);
+    assert_eq!(get_errno(), -1);
 }
 
 #[test]
@@ -71,6 +76,7 @@ fn close_returns_zero_if_ok_for_read_and_write_handles() {
     assert_eq!(result, 0);
     let result = aclose(write_fd);
     assert_eq!(result, 0);
+    assert_eq!(get_errno(), 0);
 }
 
 #[test]
@@ -81,6 +87,7 @@ fn read_returns_minus_one_for_invalid_handle() {
     let result = aread(999, buffer.as_mut_ptr(), buffer.len() as c_uint);
 
     assert_eq!(result, -1);
+    assert_eq!(get_errno(), -1);
 }
 
 #[test]
@@ -105,6 +112,7 @@ fn read_returns_all_content() {
     // Verify EOF (should return 0 bytes)
     let bytes_read = aread(fd, buffer.as_mut_ptr(), buffer.len() as c_uint);
     assert_eq!(bytes_read, 0);
+    assert_eq!(get_errno(), 0);
 }
 
 #[test]
@@ -138,6 +146,7 @@ fn read_in_chunks_with_io_interrupt() {
     // Get an error
     let bytes_read = aread(fd, buffer.as_mut_ptr(), buffer.len() as c_uint);
     assert_eq!(bytes_read, -1);
+    assert_eq!(get_errno(), -1);
 }
 
 #[test]
@@ -147,6 +156,7 @@ fn write_returns_minus_one_for_invalid_handle() {
     let buffer = [1u8, 2, 3];
     let bytes_written = awrite(999, buffer.as_ptr() as *mut u8, buffer.len() as c_uint);
     assert_eq!(bytes_written, -1);
+    assert_eq!(get_errno(), -1);
 }
 
 #[test]
@@ -166,6 +176,7 @@ fn write_returns_bytes_written() {
     // Verify written content
     let written = get_file("test").unwrap();
     assert_eq!(written, content);
+    assert_eq!(get_errno(), 0);
 }
 
 #[test]
@@ -183,6 +194,7 @@ fn write_all_content() {
     // Verify written content
     let written = get_file("test").unwrap();
     assert_eq!(written, content);
+    assert_eq!(get_errno(), 0);
 }
 
 #[test]
@@ -198,6 +210,7 @@ fn write_in_chunks_with_io_interrupt() {
     // Write first chunk
     let bytes_written = awrite(fd, content_buffer.as_ptr() as *mut u8, 100);
     assert_eq!(bytes_written, 4);
+    assert_eq!(get_errno(), 0);
 
     // Write second chunk
     let bytes_written = awrite(
@@ -206,6 +219,7 @@ fn write_in_chunks_with_io_interrupt() {
         100,
     );
     assert_eq!(bytes_written, 4);
+    assert_eq!(get_errno(), 0);
 
     // Write third chunk
     let bytes_written = awrite(
@@ -214,7 +228,7 @@ fn write_in_chunks_with_io_interrupt() {
         100,
     );
     assert_eq!(bytes_written, 6);
-
+    assert_eq!(get_errno(), 0);
     // Write fourth chunk and get an error
     let bytes_written = awrite(
         fd,
@@ -222,6 +236,7 @@ fn write_in_chunks_with_io_interrupt() {
         100,
     );
     assert_eq!(bytes_written, -1);
+    assert_eq!(get_errno(), -1);
 
     // Verify complete (until error) content
     let written = get_file("test").unwrap();
