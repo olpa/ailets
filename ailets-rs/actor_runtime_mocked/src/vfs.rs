@@ -19,6 +19,7 @@
 use lazy_static::lazy_static;
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_int, c_uint};
+use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Mutex;
 
 struct VfsFile {
@@ -36,12 +37,15 @@ lazy_static! {
     static ref HANDLES: Mutex<Vec<FileHandle>> = Mutex::new(Vec::new());
 }
 
+static IO_ERRNO: AtomicI32 = AtomicI32::new(0);
+
 pub const WANT_ERROR: char = '\u{0001}';
 pub const IO_INTERRUPT: char = '\n';
 
 #[allow(clippy::missing_panics_doc)]
 #[allow(clippy::unwrap_used)]
 pub fn clear_mocks() {
+    IO_ERRNO.store(0, Ordering::Relaxed);
     let mut files = FILES.lock().unwrap();
     files.clear();
     let mut handles = HANDLES.lock().unwrap();
@@ -58,12 +62,16 @@ pub fn add_file(name: String, buffer: Vec<u8>) {
 #[allow(clippy::missing_errors_doc)]
 #[allow(clippy::unwrap_used)]
 pub fn get_file(name: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    IO_ERRNO.store(0, Ordering::Relaxed);
     let files = FILES.lock()?;
     files
         .iter()
         .find(|f| f.name == name)
         .map(|f| f.buffer.clone())
-        .ok_or(format!("File not found: {name}").into())
+        .ok_or_else(|| {
+            IO_ERRNO.store(-1, Ordering::Relaxed);
+            format!("File not found: {name}").into()
+        })
 }
 
 fn cstr_to_string(ptr: *const c_char) -> String {
@@ -74,6 +82,7 @@ fn cstr_to_string(ptr: *const c_char) -> String {
 #[allow(clippy::missing_panics_doc)]
 #[allow(clippy::unwrap_used)]
 pub extern "C" fn open_read(name_ptr: *const c_char) -> c_int {
+    IO_ERRNO.store(0, Ordering::Relaxed);
     let files = FILES.lock().unwrap();
     let mut handles = HANDLES.lock().unwrap();
 
@@ -85,6 +94,7 @@ pub extern "C" fn open_read(name_ptr: *const c_char) -> c_int {
         return c_int::try_from(handles.len()).unwrap_or(-1) - 1;
     }
 
+    IO_ERRNO.store(-1, Ordering::Relaxed);
     -1
 }
 
@@ -92,11 +102,13 @@ pub extern "C" fn open_read(name_ptr: *const c_char) -> c_int {
 #[allow(clippy::missing_panics_doc)]
 #[allow(clippy::unwrap_used)]
 pub extern "C" fn open_write(name_ptr: *const c_char) -> c_int {
+    IO_ERRNO.store(0, Ordering::Relaxed);
     let mut files = FILES.lock().unwrap();
     let mut handles = HANDLES.lock().unwrap();
 
     let name = cstr_to_string(name_ptr);
     if name.contains(WANT_ERROR) {
+        IO_ERRNO.store(-1, Ordering::Relaxed);
         return -1;
     }
 
@@ -110,7 +122,10 @@ pub extern "C" fn open_write(name_ptr: *const c_char) -> c_int {
     handles.push(handle);
     let handle_index = handles.len() - 1;
 
-    c_int::try_from(handle_index).unwrap_or(-1)
+    c_int::try_from(handle_index).unwrap_or_else(|_| {
+        IO_ERRNO.store(-1, Ordering::Relaxed);
+        -1
+    })
 }
 
 fn cbuf_to_slice<'a>(ptr: *mut u8, count: usize) -> &'a mut [u8] {
@@ -121,16 +136,20 @@ fn cbuf_to_slice<'a>(ptr: *mut u8, count: usize) -> &'a mut [u8] {
 #[allow(clippy::missing_panics_doc)]
 #[allow(clippy::unwrap_used)]
 pub extern "C" fn aread(fd: c_int, buffer_ptr: *mut u8, count: c_uint) -> c_int {
+    IO_ERRNO.store(0, Ordering::Relaxed);
     let files = FILES.lock().unwrap();
     let mut handles = HANDLES.lock().unwrap();
 
     let Ok(fd) = usize::try_from(fd) else {
+        IO_ERRNO.store(-1, Ordering::Relaxed);
         return -1;
     };
     let Some(handle) = handles.get_mut(fd) else {
+        IO_ERRNO.store(-1, Ordering::Relaxed);
         return -1;
     };
     let Some(file) = files.get(handle.vfs_index) else {
+        IO_ERRNO.store(-1, Ordering::Relaxed);
         return -1;
     };
 
@@ -143,6 +162,7 @@ pub extern "C" fn aread(fd: c_int, buffer_ptr: *mut u8, count: c_uint) -> c_int 
         #[allow(clippy::indexing_slicing)]
         let ch = file.buffer[handle.pos];
         if ch == WANT_ERROR as u8 {
+            IO_ERRNO.store(-1, Ordering::Relaxed);
             return -1;
         }
         *b = ch;
@@ -159,16 +179,20 @@ pub extern "C" fn aread(fd: c_int, buffer_ptr: *mut u8, count: c_uint) -> c_int 
 #[allow(clippy::missing_panics_doc)]
 #[allow(clippy::unwrap_used)]
 pub extern "C" fn awrite(fd: c_int, buffer_ptr: *mut u8, count: c_uint) -> c_int {
+    IO_ERRNO.store(0, Ordering::Relaxed);
     let mut files = FILES.lock().unwrap();
     let handles = HANDLES.lock().unwrap();
 
     let Ok(fd) = usize::try_from(fd) else {
+        IO_ERRNO.store(-1, Ordering::Relaxed);
         return -1;
     };
     let Some(handle) = handles.get(fd) else {
+        IO_ERRNO.store(-1, Ordering::Relaxed);
         return -1;
     };
     let Some(file) = files.get_mut(handle.vfs_index) else {
+        IO_ERRNO.store(-1, Ordering::Relaxed);
         return -1;
     };
 
@@ -177,6 +201,7 @@ pub extern "C" fn awrite(fd: c_int, buffer_ptr: *mut u8, count: c_uint) -> c_int
 
     for &ch in buffer.iter().take(count as usize) {
         if ch == WANT_ERROR as u8 {
+            IO_ERRNO.store(-1, Ordering::Relaxed);
             return -1;
         }
         file.buffer.push(ch);
@@ -195,12 +220,15 @@ pub extern "C" fn awrite(fd: c_int, buffer_ptr: *mut u8, count: c_uint) -> c_int
 #[allow(clippy::missing_panics_doc)]
 #[allow(clippy::unwrap_used)]
 pub extern "C" fn aclose(fd: c_int) -> c_int {
+    IO_ERRNO.store(0, Ordering::Relaxed);
     let mut handles = HANDLES.lock().unwrap();
 
     let Ok(fd) = usize::try_from(fd) else {
+        IO_ERRNO.store(-1, Ordering::Relaxed);
         return -1;
     };
     let Some(handle) = handles.get_mut(fd) else {
+        IO_ERRNO.store(-1, Ordering::Relaxed);
         return -1;
     };
     handle.vfs_index = usize::MAX;
@@ -210,5 +238,5 @@ pub extern "C" fn aclose(fd: c_int) -> c_int {
 #[no_mangle]
 #[must_use]
 pub extern "C" fn get_errno() -> c_int {
-    0
+    IO_ERRNO.load(Ordering::Relaxed)
 }
