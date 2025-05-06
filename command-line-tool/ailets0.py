@@ -3,6 +3,7 @@
 
 import argparse
 import asyncio
+import json
 from io import BytesIO, TextIOWrapper
 import sys
 import logging
@@ -81,6 +82,28 @@ def parse_args() -> argparse.Namespace:
         dest="tools",
         default=[],
         help="List of tools to use (e.g. get_user_name)",
+    )
+
+    def parse_opt(s: str) -> tuple[str, Any]:
+        key, value = s.split("=", 1)
+        key = key.lower()
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError:
+            pass
+        return key, value
+
+    parser.add_argument(
+        "--opt",
+        action="append",
+        default=[],
+        help=(
+            "Options in key=value format. The key is converted to lowercase. "
+            "The value is parsed as JSON if possible, otherwise used as string. "
+            "Most important keys are 'http.url' and 'llm.model'."
+        ),
+        metavar="KEY=VALUE",
+        type=parse_opt,
     )
     parser.add_argument(
         "--download-to",
