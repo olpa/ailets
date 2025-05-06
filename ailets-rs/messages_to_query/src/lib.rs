@@ -1,8 +1,10 @@
+mod env_opts;
 mod handlers;
 pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
 use actor_runtime::{err_to_heap_c_string, extract_errno, StdHandle};
+use env_opts::EnvOpts;
 use scan_json::{
     scan, BoxedAction, BoxedEndAction, ParentAndName, ParentParentAndName, RJiter, Trigger,
 };
@@ -170,11 +172,23 @@ pub extern "C" fn process_query() -> *const c_char {
     let writer = AWriter::new_from_std(StdHandle::Stdout);
 
     let env_reader = AReader::new_from_std(StdHandle::Env);
-    let env_opts = envopts_from_reader(env_reader)?;
+    let env_opts = match EnvOpts::envopts_from_reader(env_reader) {
+        Ok(opts) => opts,
+        Err(e) => {
+            return err_to_heap_c_string(
+                extract_errno(&e),
+                &format!("Failed to read env opts: {e}"),
+            )
+        }
+    };
 
-    // FIXME
-    let debug_print = AWriter::new_from_std(StdHandle::Log);
-    debug_print.write_all(format!("Env opts: {env_opts:?}").as_bytes())?;
+    let mut debug_print = AWriter::new_from_std(StdHandle::Log);
+    if let Err(e) = debug_print.write_all(format!("Env opts: {env_opts:?}").as_bytes()) {
+        let msg = format!("Failed to write debug info: {e}");
+        let boxed_error: Box<dyn std::error::Error> = Box::new(e);
+        return err_to_heap_c_string(extract_errno(&boxed_error), &msg);
+    }
+    let _ = debug_print.write_all(format!("Env opts: {env_opts:?}").as_bytes());
 
     if let Err(e) = _process_query(reader, writer) {
         return err_to_heap_c_string(extract_errno(&e), &format!("Messages to query: {e}"));
