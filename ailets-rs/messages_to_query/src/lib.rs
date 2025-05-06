@@ -169,6 +169,13 @@ pub extern "C" fn process_query() -> *const c_char {
     let reader = AReader::new_from_std(StdHandle::Stdin);
     let writer = AWriter::new_from_std(StdHandle::Stdout);
 
+    let env_reader = AReader::new_from_std(StdHandle::Env);
+    let env_opts = envopts_from_reader(env_reader)?;
+
+    // FIXME
+    let debug_print = AWriter::new_from_std(StdHandle::Log);
+    debug_print.write_all(format!("Env opts: {env_opts:?}").as_bytes())?;
+
     if let Err(e) = _process_query(reader, writer) {
         return err_to_heap_c_string(extract_errno(&e), &format!("Messages to query: {e}"));
     }
