@@ -86,7 +86,6 @@ def parse_args() -> argparse.Namespace:
 
     def parse_opt(s: str) -> tuple[str, Any]:
         key, value = s.split("=", 1)
-        key = key.lower()
         try:
             value = json.loads(value)
         except json.JSONDecodeError:
@@ -98,7 +97,7 @@ def parse_args() -> argparse.Namespace:
         action="append",
         default=[],
         help=(
-            "Options in key=value format. The key is converted to lowercase. "
+            "Options in key=value format. "
             "The value is parsed as JSON if possible, otherwise used as string. "
             "Most important keys are 'http.url' and 'llm.model'."
         ),
@@ -315,7 +314,7 @@ async def main() -> None:
         with open_file(vfs, args.load_state) as h:
             tio = TextIOWrapper(h, encoding="utf-8")
             env = await load_environment(tio, nodereg)
-        toml_to_env(env, toml=prompt)
+        toml_to_env(env, args.opt, toml=prompt)
         target_node_name = next(
             node_name
             for node_name in env.dagops.get_node_names()
@@ -324,7 +323,7 @@ async def main() -> None:
 
     else:
         env = Environment(nodereg, kv=vfs)
-        toml_to_env(env, toml=prompt)
+        toml_to_env(env, args.opt, toml=prompt)
         toolspecs_to_dagops(env, args.tools)
         await prompt_to_dagops(env, prompt=prompt)
 

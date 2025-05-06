@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Literal, Optional, Set
+from typing import Any, Literal, Optional, Set
 import json
 from typing import Sequence
 import sys
@@ -111,8 +111,12 @@ async def prompt_to_dagops(
 
 def toml_to_env(
     env: IEnvironment,
+    opts: Sequence[tuple[str, Any]],
     toml: Sequence[CmdlinePromptItem],
 ) -> None:
+    for opt in opts:
+        key, value = opt
+        env.for_env_pipe[key] = value
     for prompt_item in toml:
         if prompt_item.type != "toml":
             continue
