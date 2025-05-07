@@ -51,14 +51,15 @@ impl<W: Write> StructureBuilder<W> {
         if is_write_started(&self.top) {
             return Ok(());
         }
-        self.writer.write_all(b"{\"url\":\"")?;
+        self.writer.write_all(b"{ \"url\": \"")?;
         self.writer.write_all(DEFAULT_URL.as_bytes())?;
-        self.writer.write_all(b"\",\"method\":\"POST\",\"headers\":{")?;
-        self.writer.write_all(b"\"Content-type\":\"application/json\",\"Authorization\":\"Bearer {{secret('openai','gpt4o')}}\",")?;
-        self.writer.write_all(b"\"body\":{")?;
-        self.writer.write_all(b"\"model\":\"")?;
+        self.writer
+            .write_all(b"\",\n\"method\": \"POST\",\n\"headers\": { ")?;
+        self.writer.write_all(b"\"Content-type\": \"application/json\", \"Authorization\": \"Bearer {{secret('openai','gpt4o')}}\" },")?;
+        self.writer.write_all(b"\n\"body\": { \"model\": \"")?;
         self.writer.write_all(DEFAULT_MODEL.as_bytes())?;
-        self.writer.write_all(b"\",\"stream\":true,\"messages\":[")?;
+        self.writer
+            .write_all(b"\", \"stream\": true, \"messages\": [")?;
         self.top = Progress::WriteIsStarted;
         Ok(())
     }
