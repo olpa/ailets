@@ -1,4 +1,4 @@
-mod env_opts;
+pub mod env_opts;
 mod handlers;
 pub mod structure_builder;
 
