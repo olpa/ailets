@@ -267,7 +267,7 @@ fn _build_with_env_opts(env_opts: EnvOpts) -> String {
 }
 
 #[test]
-fn override_endpoint_and_model() {
+fn override_endpoint_model_stream() {
     let mut opts = HashMap::new();
     opts.insert(
         "http.url".to_string(),
@@ -279,6 +279,7 @@ fn override_endpoint_and_model() {
         "llm.model".to_string(),
         serde_json::Value::String("my-custom-fairy-model".to_string()),
     );
+    opts.insert("llm.stream".to_string(), serde_json::Value::Bool(false));
     let env_opts = EnvOpts::from_map(opts);
 
     let output = _build_with_env_opts(env_opts);
@@ -288,4 +289,5 @@ fn override_endpoint_and_model() {
         matches_regex("my-custom-fairy-api.example.com")
     );
     assert_that!(output.as_str(), matches_regex("my-custom-fairy-model"));
+    assert_that!(output.as_str(), matches_regex("\"stream\": false"));
 }

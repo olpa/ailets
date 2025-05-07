@@ -52,14 +52,30 @@ impl<W: Write> StructureBuilder<W> {
             return Ok(());
         }
         self.writer.write_all(b"{ \"url\": \"")?;
-        self.writer.write_all(DEFAULT_URL.as_bytes())?;
+        let url = self
+            .env_opts
+            .get("http.url")
+            .and_then(|v| v.as_str())
+            .unwrap_or(DEFAULT_URL);
+        self.writer.write_all(url.as_bytes())?;
         self.writer
             .write_all(b"\",\n\"method\": \"POST\",\n\"headers\": { ")?;
         self.writer.write_all(b"\"Content-type\": \"application/json\", \"Authorization\": \"Bearer {{secret('openai','gpt4o')}}\" },")?;
         self.writer.write_all(b"\n\"body\": { \"model\": \"")?;
-        self.writer.write_all(DEFAULT_MODEL.as_bytes())?;
-        self.writer
-            .write_all(b"\", \"stream\": true, \"messages\": [")?;
+        let model = self
+            .env_opts
+            .get("llm.model")
+            .and_then(|v| v.as_str())
+            .unwrap_or(DEFAULT_MODEL);
+        self.writer.write_all(model.as_bytes())?;
+        self.writer.write_all(b"\", \"stream\": ")?;
+        let stream = self
+            .env_opts
+            .get("llm.stream")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        self.writer.write_all(stream.to_string().as_bytes())?;
+        self.writer.write_all(b", \"messages\": [")?;
         self.top = Progress::WriteIsStarted;
         Ok(())
     }
