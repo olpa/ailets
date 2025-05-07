@@ -1,3 +1,4 @@
+use crate::env_opts::EnvOpts;
 use std::io::Write;
 
 #[derive(Debug)]
@@ -15,10 +16,8 @@ fn is_write_started(progress: &Progress) -> bool {
     )
 }
 
-const PRELUDE: &str = r#"{ "url": "https://api.openai.com/v1/chat/completions",
-"method": "POST",
-"headers": { "Content-type": "application/json", "Authorization": "Bearer {{secret('openai','gpt4o')}}" },
-"body": { "model": "gpt-4o-mini", "stream": true, "messages": ["#;
+const DEFAULT_URL: &str = "https://api.openai.com/v1/chat/completions";
+const DEFAULT_MODEL: &str = "gpt-4o-mini";
 
 pub struct StructureBuilder<W: Write> {
     writer: W,
@@ -27,10 +26,11 @@ pub struct StructureBuilder<W: Write> {
     message_content: Progress,
     content_item: Progress,
     content_item_type: Option<String>,
+    env_opts: EnvOpts,
 }
 
 impl<W: Write> StructureBuilder<W> {
-    pub fn new(writer: W) -> Self {
+    pub fn new(writer: W, env_opts: EnvOpts) -> Self {
         StructureBuilder {
             writer,
             top: Progress::WaitingForFirstChild,
@@ -38,6 +38,7 @@ impl<W: Write> StructureBuilder<W> {
             message_content: Progress::ChildrenAreUnexpected,
             content_item: Progress::ChildrenAreUnexpected,
             content_item_type: None,
+            env_opts,
         }
     }
 
@@ -46,13 +47,18 @@ impl<W: Write> StructureBuilder<W> {
         &mut self.writer
     }
 
-    fn really_begin(&mut self) -> Result<(), String> {
+    fn really_begin(&mut self) -> Result<(), std::io::Error> {
         if is_write_started(&self.top) {
             return Ok(());
         }
-        self.writer
-            .write_all(PRELUDE.as_bytes())
-            .map_err(|e| e.to_string())?;
+        self.writer.write_all(b"{\"url\":\"")?;
+        self.writer.write_all(DEFAULT_URL.as_bytes())?;
+        self.writer.write_all(b"\",\"method\":\"POST\",\"headers\":{")?;
+        self.writer.write_all(b"\"Content-type\":\"application/json\",\"Authorization\":\"Bearer {{secret('openai','gpt4o')}}\",")?;
+        self.writer.write_all(b"\"body\":{")?;
+        self.writer.write_all(b"\"model\":\"")?;
+        self.writer.write_all(DEFAULT_MODEL.as_bytes())?;
+        self.writer.write_all(b"\",\"stream\":true,\"messages\":[")?;
         self.top = Progress::WriteIsStarted;
         Ok(())
     }
@@ -85,7 +91,7 @@ impl<W: Write> StructureBuilder<W> {
         if is_write_started(&self.message) {
             return Ok(());
         }
-        self.really_begin()?;
+        self.really_begin().map_err(|e| e.to_string())?;
         if let Progress::ChildIsWritten = self.top {
             self.writer.write_all(b",").map_err(|e| e.to_string())?;
         }

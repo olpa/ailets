@@ -2,7 +2,10 @@
 extern crate hamcrest;
 use actor_runtime_mocked::RcWriter;
 use hamcrest::prelude::*;
+use messages_to_query::env_opts::EnvOpts;
 use messages_to_query::structure_builder::StructureBuilder;
+use serde_json;
+use std::collections::HashMap;
 use std::io::Write;
 
 fn wrap_boilerplate(s: &str) -> String {
@@ -15,10 +18,14 @@ fn wrap_boilerplate(s: &str) -> String {
     format!("{}\n{}\n{}\n{}{}{}", s1, s2, s3, s4, s, s_end)
 }
 
+fn create_empty_env_opts() -> EnvOpts {
+    EnvOpts::from_map(HashMap::new())
+}
+
 #[test]
 fn happy_path_for_text() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone());
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
 
     builder.begin_message().unwrap();
@@ -44,7 +51,7 @@ fn happy_path_for_text() {
 #[test]
 fn many_messages_and_items() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone());
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
 
     builder.begin_message().unwrap();
@@ -88,7 +95,7 @@ fn many_messages_and_items() {
 #[test]
 fn skip_contentless_messages() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone());
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
 
     builder.begin_message().unwrap();
@@ -104,7 +111,7 @@ fn skip_contentless_messages() {
 #[test]
 fn skip_empty_content_items() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone());
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
 
     builder.begin_message().unwrap();
@@ -132,7 +139,7 @@ fn skip_empty_content_items() {
 #[test]
 fn auto_generate_type_text() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone());
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
     builder.begin_message().unwrap();
     builder.begin_content().unwrap();
@@ -151,7 +158,7 @@ fn auto_generate_type_text() {
 #[test]
 fn mix_type_text() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone());
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
     builder.begin_message().unwrap();
     builder.begin_content().unwrap();
@@ -172,7 +179,7 @@ fn mix_type_text() {
 #[test]
 fn reject_conflicting_type() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone());
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
     builder.begin_message().unwrap();
     builder.begin_content().unwrap();
@@ -195,7 +202,7 @@ fn reject_conflicting_type() {
 #[test]
 fn having_role_enforces_content() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone());
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
 
     builder.begin_message().unwrap();
@@ -210,7 +217,7 @@ fn having_role_enforces_content() {
 #[test]
 fn support_special_chars_and_unicode() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone());
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
 
     let special_chars = "Special chars: \"\\/\n\r\t\u{1F600}";
@@ -240,4 +247,45 @@ fn support_special_chars_and_unicode() {
         .as_str(),
     );
     assert_that!(writer.get_output(), equal_to(expected));
+}
+
+fn _build_with_env_opts(env_opts: EnvOpts) -> String {
+    let writer = RcWriter::new();
+    let mut builder = StructureBuilder::new(writer.clone(), env_opts);
+    builder.begin_message().unwrap();
+    builder.add_role("user").unwrap();
+    builder.begin_content().unwrap();
+    builder.begin_content_item().unwrap();
+    builder.begin_text().unwrap();
+    write!(builder.get_writer(), "Hello!").unwrap();
+    builder.end_text().unwrap();
+    builder.end_content_item().unwrap();
+    builder.end_content().unwrap();
+    builder.end_message().unwrap();
+    builder.end().unwrap();
+    writer.get_output()
+}
+
+#[test]
+fn override_endpoint_and_model() {
+    let mut opts = HashMap::new();
+    opts.insert(
+        "http.url".to_string(),
+        serde_json::Value::String(
+            "https://my-custom-fairy-api.example.com/v1/chat/completions".to_string(),
+        ),
+    );
+    opts.insert(
+        "llm.model".to_string(),
+        serde_json::Value::String("my-custom-fairy-model".to_string()),
+    );
+    let env_opts = EnvOpts::from_map(opts);
+
+    let output = _build_with_env_opts(env_opts);
+
+    assert_that!(
+        output.as_str(),
+        matches_regex("my-custom-fairy-api.example.com")
+    );
+    assert_that!(output.as_str(), matches_regex("my-custom-fairy-model"));
 }

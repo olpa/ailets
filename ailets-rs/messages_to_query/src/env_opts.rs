@@ -22,6 +22,11 @@ impl EnvOpts {
     }
 
     #[must_use]
+    pub fn from_map(opts: HashMap<String, serde_json::Value>) -> EnvOpts {
+        EnvOpts { opts }
+    }
+
+    #[must_use]
     pub fn get(&self, key: &str) -> Option<&serde_json::Value> {
         self.opts.get(key)
     }

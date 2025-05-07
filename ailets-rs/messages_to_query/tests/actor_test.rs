@@ -3,7 +3,9 @@ extern crate hamcrest;
 use actor_runtime_mocked::RcWriter;
 use hamcrest::prelude::*;
 use messages_to_query::_process_query;
+use messages_to_query::env_opts::EnvOpts;
 use serde_json::Value;
+use std::collections::HashMap;
 use std::io::Cursor;
 
 fn fix_json(json: &str) -> String {
@@ -13,6 +15,10 @@ fn fix_json(json: &str) -> String {
         return json;
     }
     json.to_string()
+}
+
+fn create_empty_env_opts() -> EnvOpts {
+    EnvOpts::from_map(HashMap::new())
 }
 
 fn wrap_boilerplate(s: &str) -> String {
@@ -32,7 +38,7 @@ fn test_text_items() {
     let reader = Cursor::new(fixture_content.clone());
     let writer = RcWriter::new();
 
-    _process_query(reader, writer.clone()).unwrap();
+    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
 
@@ -49,7 +55,7 @@ fn input_as_array() {
     let reader = Cursor::new(fixture_content.clone());
     let writer = RcWriter::new();
 
-    _process_query(reader, writer.clone()).unwrap();
+    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
 
