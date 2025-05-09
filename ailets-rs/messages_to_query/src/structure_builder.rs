@@ -75,6 +75,19 @@ impl<W: Write> StructureBuilder<W> {
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(true);
         self.writer.write_all(stream.to_string().as_bytes())?;
+
+        // Add remaining llm.* parameters
+        for (key, value) in &self.env_opts {
+            if key.starts_with("llm.") && key != "llm.model" && key != "llm.stream" {
+                self.writer.write_all(b", ")?;
+                if let Some(param_name) = key.strip_prefix("llm.") {
+                    write!(self.writer, r#""{param_name}": "#)?;
+                    serde_json::to_writer(&mut self.writer, value)?;
+                }
+            }
+        }
+
+        // Add messages array
         self.writer.write_all(b", \"messages\": [")?;
         self.top = Progress::WriteIsStarted;
         Ok(())

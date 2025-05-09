@@ -380,6 +380,6 @@ fn add_llm_options_of_different_types() {
     let output = _build_with_env_opts(env_opts);
     assert_that!(
         output.as_str(),
-        matches_regex(r#""sampling_params":\s*\{"top_p":0.9,"top_k":50\}"#)
+        matches_regex(r#""sampling_params":\s*\{"top_k":50,"top_p":0.9\}"#)
     );
 }
