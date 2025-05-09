@@ -321,3 +321,65 @@ fn override_stream_option() {
     let output = _build_with_env_opts(env_opts);
     assert_that!(output.as_str(), matches_regex("\"stream\": true"));
 }
+
+#[test]
+fn add_llm_options_of_different_types() {
+    // Test a string value
+    let mut opts = HashMap::new();
+    opts.insert(
+        "llm.foo".to_string(),
+        serde_json::Value::String("bar".to_string()),
+    );
+    let env_opts = EnvOpts::from_map(opts);
+    let output = _build_with_env_opts(env_opts);
+    assert_that!(output.as_str(), matches_regex("\"foo\": \"bar\""));
+
+    // Test a number value
+    let mut opts = HashMap::new();
+    opts.insert(
+        "llm.max_tokens".to_string(),
+        serde_json::Value::Number(serde_json::Number::from(100)),
+    );
+    let env_opts = EnvOpts::from_map(opts);
+    let output = _build_with_env_opts(env_opts);
+    assert_that!(output.as_str(), matches_regex("\"max_tokens\": 100"));
+
+    // Test an array value
+    let mut opts = HashMap::new();
+    let arr = vec![
+        serde_json::Value::String("system".to_string()),
+        serde_json::Value::String("user".to_string()),
+    ];
+    opts.insert(
+        "llm.allowed_roles".to_string(),
+        serde_json::Value::Array(arr),
+    );
+    let env_opts = EnvOpts::from_map(opts);
+    let output = _build_with_env_opts(env_opts);
+    assert_that!(
+        output.as_str(),
+        matches_regex(r#""allowed_roles":\s*\["system","user"\]"#)
+    );
+
+    // Test an object value
+    let mut opts = HashMap::new();
+    let mut obj = serde_json::Map::new();
+    obj.insert(
+        "top_p".to_string(),
+        serde_json::Value::Number(serde_json::Number::from_f64(0.9).unwrap()),
+    );
+    obj.insert(
+        "top_k".to_string(),
+        serde_json::Value::Number(serde_json::Number::from(50)),
+    );
+    opts.insert(
+        "llm.sampling_params".to_string(),
+        serde_json::Value::Object(obj),
+    );
+    let env_opts = EnvOpts::from_map(opts);
+    let output = _build_with_env_opts(env_opts);
+    assert_that!(
+        output.as_str(),
+        matches_regex(r#""sampling_params":\s*\{"top_p":0.9,"top_k":50\}"#)
+    );
+}
