@@ -4,7 +4,6 @@ use actor_runtime_mocked::RcWriter;
 use hamcrest::prelude::*;
 use messages_to_query::env_opts::EnvOpts;
 use messages_to_query::structure_builder::StructureBuilder;
-use serde_json;
 use std::collections::HashMap;
 use std::io::Write;
 

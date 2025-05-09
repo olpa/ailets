@@ -171,3 +171,25 @@ fn add_llm_options_of_different_types() {
         matches_regex(r#""sampling_params":\s*\{"top_k":50,"top_p":0.9\}"#)
     );
 }
+
+#[test]
+fn no_duplicate_model_and_stream() {
+    let mut opts = HashMap::new();
+    opts.insert(
+        "llm.model".to_string(),
+        serde_json::Value::String("my-model".to_string()),
+    );
+    opts.insert("llm.stream".to_string(), serde_json::Value::Bool(false));
+    let env_opts = EnvOpts::from_map(opts);
+    let output = _build_with_env_opts(env_opts);
+
+    // Model and stream should appear exactly once
+    let model_count = output.matches("\"model\"").count();
+    let stream_count = output.matches("\"stream\"").count();
+    assert_that!(model_count, equal_to(1));
+    assert_that!(stream_count, equal_to(1));
+
+    // Verify the values are correct
+    assert_that!(output.as_str(), matches_regex("\"model\":\\s*\"my-model\""));
+    assert_that!(output.as_str(), matches_regex("\"stream\":\\s*false"));
+}
