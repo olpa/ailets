@@ -72,7 +72,7 @@ impl<W: Write> StructureBuilder<W> {
         let stream = self
             .env_opts
             .get("llm.stream")
-            .and_then(|v| v.as_bool())
+            .and_then(serde_json::Value::as_bool)
             .unwrap_or(true);
         self.writer.write_all(stream.to_string().as_bytes())?;
         self.writer.write_all(b", \"messages\": [")?;

@@ -291,3 +291,33 @@ fn override_endpoint_model_stream() {
     assert_that!(output.as_str(), matches_regex("my-custom-fairy-model"));
     assert_that!(output.as_str(), matches_regex("\"stream\": false"));
 }
+
+#[test]
+fn override_stream_option() {
+    // set to "false"
+    let mut opts = HashMap::new();
+    opts.insert("llm.stream".to_string(), serde_json::Value::Bool(false));
+    let env_opts = EnvOpts::from_map(opts);
+    // act and assert
+    let output = _build_with_env_opts(env_opts);
+    assert_that!(output.as_str(), matches_regex("\"stream\": false"));
+
+    // set to "true"
+    let mut opts = HashMap::new();
+    opts.insert("llm.stream".to_string(), serde_json::Value::Bool(true));
+    let env_opts = EnvOpts::from_map(opts);
+    // act and assert
+    let output = _build_with_env_opts(env_opts);
+    assert_that!(output.as_str(), matches_regex("\"stream\": true"));
+
+    // set to an invalid value
+    let mut opts = HashMap::new();
+    opts.insert(
+        "llm.stream".to_string(),
+        serde_json::Value::String("invalid".to_string()),
+    );
+    let env_opts = EnvOpts::from_map(opts);
+    // act and assert
+    let output = _build_with_env_opts(env_opts);
+    assert_that!(output.as_str(), matches_regex("\"stream\": true"));
+}
