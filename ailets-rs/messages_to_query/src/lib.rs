@@ -183,14 +183,6 @@ pub extern "C" fn process_query() -> *const c_char {
         }
     };
 
-    let mut debug_print = AWriter::new_from_std(StdHandle::Log);
-    if let Err(e) = debug_print.write_all(format!("Env opts: {env_opts:?}").as_bytes()) {
-        let msg = format!("Failed to write debug info: {e}");
-        let boxed_error: Box<dyn std::error::Error> = Box::new(e);
-        return err_to_heap_c_string(extract_errno(&boxed_error), &msg);
-    }
-    let _ = debug_print.write_all(format!("Env opts: {env_opts:?}").as_bytes());
-
     if let Err(e) = _process_query(reader, writer, env_opts) {
         return err_to_heap_c_string(extract_errno(&e), &format!("Messages to query: {e}"));
     }
