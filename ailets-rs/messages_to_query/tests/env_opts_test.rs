@@ -193,3 +193,27 @@ fn no_duplicate_model_and_stream() {
     assert_that!(output.as_str(), matches_regex("\"model\":\\s*\"my-model\""));
     assert_that!(output.as_str(), matches_regex("\"stream\":\\s*false"));
 }
+
+#[test]
+fn override_content_type_and_authorization_headers() {
+    let mut opts = HashMap::new();
+    opts.insert(
+        "http.header.Content-type".to_string(),
+        serde_json::Value::String("custom/type".to_string()),
+    );
+    opts.insert(
+        "http.header.Authorization".to_string(),
+        serde_json::Value::String("Bearer custom-token".to_string()),
+    );
+    let env_opts = EnvOpts::from_map(opts);
+    let output = _build_with_env_opts(env_opts);
+
+    assert_that!(
+        output.as_str(),
+        matches_regex(r#""Content-type":\s*"custom/type""#)
+    );
+    assert_that!(
+        output.as_str(),
+        matches_regex(r#""Authorization":\s*"Bearer custom-token""#)
+    );
+}

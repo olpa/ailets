@@ -18,6 +18,8 @@ fn is_write_started(progress: &Progress) -> bool {
 
 const DEFAULT_URL: &str = "https://api.openai.com/v1/chat/completions";
 const DEFAULT_MODEL: &str = "gpt-4o-mini";
+const DEFAULT_CONTENT_TYPE: &str = "application/json";
+const DEFAULT_AUTHORIZATION: &str = "Bearer {{secret('openai','gpt4o')}}";
 
 pub struct StructureBuilder<W: Write> {
     writer: W,
@@ -60,8 +62,21 @@ impl<W: Write> StructureBuilder<W> {
         self.writer.write_all(url.as_bytes())?;
         self.writer
             .write_all(b"\",\n\"method\": \"POST\",\n\"headers\": { ")?;
-        self.writer.write_all(b"\"Content-type\": \"application/json\", \"Authorization\": \"Bearer {{secret('openai','gpt4o')}}\" },")?;
-        self.writer.write_all(b"\n\"body\": { \"model\": \"")?;
+        let content_type = self
+            .env_opts
+            .get("http.header.Content-type")
+            .and_then(|v| v.as_str())
+            .unwrap_or(DEFAULT_CONTENT_TYPE);
+        self.writer.write_all(b"\"Content-type\": \"")?;
+        self.writer.write_all(content_type.as_bytes())?;
+        let authorization = self
+            .env_opts
+            .get("http.header.Authorization")
+            .and_then(|v| v.as_str())
+            .unwrap_or(DEFAULT_AUTHORIZATION);
+        self.writer.write_all(b"\", \"Authorization\": \"")?;
+        self.writer.write_all(authorization.as_bytes())?;
+        self.writer.write_all(b"\" },\n\"body\": { \"model\": \"")?;
         let model = self
             .env_opts
             .get("llm.model")
