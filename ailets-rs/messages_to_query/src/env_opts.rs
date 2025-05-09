@@ -30,4 +30,18 @@ impl EnvOpts {
     pub fn get(&self, key: &str) -> Option<&serde_json::Value> {
         self.opts.get(key)
     }
+
+    #[must_use]
+    pub fn iter(&self) -> std::collections::hash_map::Iter<'_, String, serde_json::Value> {
+        self.opts.iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a EnvOpts {
+    type Item = (&'a String, &'a serde_json::Value);
+    type IntoIter = std::collections::hash_map::Iter<'a, String, serde_json::Value>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.opts.iter()
+    }
 }
