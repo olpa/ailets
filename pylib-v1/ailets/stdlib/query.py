@@ -2,6 +2,7 @@ import json
 import aiohttp
 import os
 import re
+from urllib.parse import urlparse
 from ailets.atyping import INodeRuntime, StdHandles
 from ailets.cons.util import write_all
 from ailets.io.input_reader import read_all
@@ -10,20 +11,26 @@ from ailets.io.input_reader import read_all
 MAX_RUNS = 3  # Maximum number of runs allowed
 _run_count = 0  # Track number of runs
 
-secret_pattern = re.compile(
-    r"""{{\s*secret\(\s*['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]\s*\)\s*}}"""
-)
+secret_pattern = re.compile(r"""{{\s*secret\s*}}""")
 
 
-def resolve_secrets(value: str) -> str:
-    """Replace {{secret('service','key')}} with actual secret value."""
+def resolve_secrets(value: str, url: str) -> str:
+    """Replace {{secret}} with actual secret value."""
+
+    provider = ""
+    parsed = urlparse(url)
+    domain_parts = parsed.netloc.split(".")
+    if len(domain_parts) >= 2:
+        provider = domain_parts[-2]
 
     def get_secret(match: re.Match[str]) -> str:
-        service = match.group(1)
-        envvar = f"{service.upper()}_API_KEY"
-        secret = os.environ.get(envvar)
+        envvar1 = f"{provider.upper()}_API_KEY"
+        envvar2 = "LLM_API_KEY"
+        secret = os.environ.get(envvar1)
         if secret is None:
-            raise ValueError(f"Secret not found: {envvar}")
+            secret = os.environ.get(envvar2)
+        if secret is None:
+            raise ValueError(f"Secret not found: {envvar1} or {envvar2}")
         return secret
 
     return secret_pattern.sub(get_secret, value)
@@ -41,8 +48,9 @@ async def query(runtime: INodeRuntime) -> None:
 
     try:
         # Resolve secrets in headers and url
-        headers = {k: resolve_secrets(v) for k, v in params["headers"].items()}
-        url = resolve_secrets(params["url"])
+        url = params["url"]
+        headers = {k: resolve_secrets(v, url) for k, v in params["headers"].items()}
+        url = resolve_secrets(url, url)
 
         if "body" in params:
             body_kwargs = {"json": params["body"]}

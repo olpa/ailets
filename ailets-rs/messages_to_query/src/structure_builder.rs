@@ -19,7 +19,7 @@ fn is_write_started(progress: &Progress) -> bool {
 const DEFAULT_URL: &str = "https://api.openai.com/v1/chat/completions";
 const DEFAULT_MODEL: &str = "gpt-4o-mini";
 const DEFAULT_CONTENT_TYPE: &str = "application/json";
-const DEFAULT_AUTHORIZATION: &str = "Bearer {{secret('openai','gpt4o')}}";
+const DEFAULT_AUTHORIZATION: &str = "Bearer {{secret}}";
 
 pub struct StructureBuilder<W: Write> {
     writer: W,
