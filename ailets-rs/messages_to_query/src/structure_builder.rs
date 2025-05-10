@@ -1,3 +1,4 @@
+use crate::env_opts::EnvOpts;
 use std::io::Write;
 
 #[derive(Debug)]
@@ -15,10 +16,10 @@ fn is_write_started(progress: &Progress) -> bool {
     )
 }
 
-const PRELUDE: &str = r#"{ "url": "https://api.openai.com/v1/chat/completions",
-"method": "POST",
-"headers": { "Content-type": "application/json", "Authorization": "Bearer {{secret('openai','gpt4o')}}" },
-"body": { "model": "gpt-4o-mini", "stream": true, "messages": ["#;
+const DEFAULT_URL: &str = "https://api.openai.com/v1/chat/completions";
+const DEFAULT_MODEL: &str = "gpt-4o-mini";
+const DEFAULT_CONTENT_TYPE: &str = "application/json";
+const DEFAULT_AUTHORIZATION: &str = "Bearer {{secret('openai','gpt4o')}}";
 
 pub struct StructureBuilder<W: Write> {
     writer: W,
@@ -27,10 +28,11 @@ pub struct StructureBuilder<W: Write> {
     message_content: Progress,
     content_item: Progress,
     content_item_type: Option<String>,
+    env_opts: EnvOpts,
 }
 
 impl<W: Write> StructureBuilder<W> {
-    pub fn new(writer: W) -> Self {
+    pub fn new(writer: W, env_opts: EnvOpts) -> Self {
         StructureBuilder {
             writer,
             top: Progress::WaitingForFirstChild,
@@ -38,6 +40,7 @@ impl<W: Write> StructureBuilder<W> {
             message_content: Progress::ChildrenAreUnexpected,
             content_item: Progress::ChildrenAreUnexpected,
             content_item_type: None,
+            env_opts,
         }
     }
 
@@ -46,13 +49,79 @@ impl<W: Write> StructureBuilder<W> {
         &mut self.writer
     }
 
-    fn really_begin(&mut self) -> Result<(), String> {
+    fn really_begin(&mut self) -> Result<(), std::io::Error> {
         if is_write_started(&self.top) {
             return Ok(());
         }
+        self.writer.write_all(b"{ \"url\": \"")?;
+        let url = self
+            .env_opts
+            .get("http.url")
+            .and_then(|v| v.as_str())
+            .unwrap_or(DEFAULT_URL);
+        self.writer.write_all(url.as_bytes())?;
         self.writer
-            .write_all(PRELUDE.as_bytes())
-            .map_err(|e| e.to_string())?;
+            .write_all(b"\",\n\"method\": \"POST\",\n\"headers\": { ")?;
+
+        // Write Content-type header
+        let content_type = self
+            .env_opts
+            .get("http.header.Content-type")
+            .and_then(|v| v.as_str())
+            .unwrap_or(DEFAULT_CONTENT_TYPE);
+        self.writer.write_all(b"\"Content-type\": \"")?;
+        self.writer.write_all(content_type.as_bytes())?;
+        let authorization = self
+            .env_opts
+            .get("http.header.Authorization")
+            .and_then(|v| v.as_str())
+            .unwrap_or(DEFAULT_AUTHORIZATION);
+        self.writer.write_all(b"\", \"Authorization\": \"")?;
+        self.writer.write_all(authorization.as_bytes())?;
+
+        // Add remaining http.header.* parameters
+        for (key, value) in &self.env_opts {
+            if key.starts_with("http.header.")
+                && key != "http.header.Content-type"
+                && key != "http.header.Authorization"
+            {
+                self.writer.write_all(b", ")?;
+                if let Some(header_name) = key.strip_prefix("http.header.") {
+                    write!(self.writer, r#""{header_name}": "#)?;
+                    serde_json::to_writer(&mut self.writer, value)?;
+                }
+            }
+        }
+
+        // Write the body
+        self.writer.write_all(b"\" },\n\"body\": { \"model\": \"")?;
+        let model = self
+            .env_opts
+            .get("llm.model")
+            .and_then(|v| v.as_str())
+            .unwrap_or(DEFAULT_MODEL);
+        self.writer.write_all(model.as_bytes())?;
+        self.writer.write_all(b"\", \"stream\": ")?;
+        let stream = self
+            .env_opts
+            .get("llm.stream")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true);
+        self.writer.write_all(stream.to_string().as_bytes())?;
+
+        // Add remaining llm.* parameters
+        for (key, value) in &self.env_opts {
+            if key.starts_with("llm.") && key != "llm.model" && key != "llm.stream" {
+                self.writer.write_all(b", ")?;
+                if let Some(param_name) = key.strip_prefix("llm.") {
+                    write!(self.writer, r#""{param_name}": "#)?;
+                    serde_json::to_writer(&mut self.writer, value)?;
+                }
+            }
+        }
+
+        // Add messages array
+        self.writer.write_all(b", \"messages\": [")?;
         self.top = Progress::WriteIsStarted;
         Ok(())
     }
@@ -85,7 +154,7 @@ impl<W: Write> StructureBuilder<W> {
         if is_write_started(&self.message) {
             return Ok(());
         }
-        self.really_begin()?;
+        self.really_begin().map_err(|e| e.to_string())?;
         if let Progress::ChildIsWritten = self.top {
             self.writer.write_all(b",").map_err(|e| e.to_string())?;
         }

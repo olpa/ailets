@@ -22,6 +22,7 @@ ailets MODEL [options]
 - `--stop-before POINT`: Stop execution before specified point
 - `--stop-after POINT`: Stop execution after specified point
 - `--tool TOOL [TOOL ...]`: List of tools to use (e.g., get_user_name)
+- `--opt KEY=VALUE`: Configuration options in `key=value` format. The value is parsed as JSON if possible, otherwise used as string. Most important keys are 'http.url' and 'llm.model'.
 - `--download-to DIRECTORY`: Directory to download generated files to (default: "./out")
 - `--file-system PATH` : Path to the virtual file system database in the Python `dbm.sqlite3` format
 - `--debug`: Enable debug logging
@@ -136,6 +137,9 @@ ailets gpt4o --prompt "Hello" --stop-at messages_to_query.5
 # Multiple prompts
 ailets gpt4o --prompt "What’s in this image?" --prompt @./image.jpeg
 ailets gpt4o  --prompt "What’s in this image?" --prompt "@https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
+
+# Using a local LLM
+ailets0.py gpt4o --opt http.url=http://localhost:8000/v1/chat/completions --opt llm.model=local-model
 ```
 
 ## Model-specific notes: gpt4o

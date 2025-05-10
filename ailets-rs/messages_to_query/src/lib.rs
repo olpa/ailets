@@ -1,8 +1,10 @@
+pub mod env_opts;
 mod handlers;
 pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
 use actor_runtime::{err_to_heap_c_string, extract_errno, StdHandle};
+use env_opts::EnvOpts;
 use scan_json::{
     scan, BoxedAction, BoxedEndAction, ParentAndName, ParentParentAndName, RJiter, Trigger,
 };
@@ -142,10 +144,11 @@ fn create_end_triggers<'a, W: Write + 'a>(
 pub fn _process_query<W: Write>(
     mut reader: impl std::io::Read,
     writer: W,
+    env_opts: EnvOpts,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut buffer = vec![0u8; BUFFER_SIZE as usize];
     let rjiter_cell = RefCell::new(RJiter::new(&mut reader, &mut buffer));
-    let builder = StructureBuilder::new(writer);
+    let builder = StructureBuilder::new(writer, env_opts);
     let builder_cell = RefCell::new(builder);
 
     let begin_triggers = create_begin_triggers();
@@ -169,7 +172,18 @@ pub extern "C" fn process_query() -> *const c_char {
     let reader = AReader::new_from_std(StdHandle::Stdin);
     let writer = AWriter::new_from_std(StdHandle::Stdout);
 
-    if let Err(e) = _process_query(reader, writer) {
+    let env_reader = AReader::new_from_std(StdHandle::Env);
+    let env_opts = match EnvOpts::envopts_from_reader(env_reader) {
+        Ok(opts) => opts,
+        Err(e) => {
+            return err_to_heap_c_string(
+                extract_errno(&e),
+                &format!("Failed to read env opts: {e}"),
+            )
+        }
+    };
+
+    if let Err(e) = _process_query(reader, writer, env_opts) {
         return err_to_heap_c_string(extract_errno(&e), &format!("Messages to query: {e}"));
     }
     std::ptr::null()

@@ -17,7 +17,7 @@ class Spec:
     read_positions: Optional[list[int]]
 
 
-auto_open_fds = ["", "", "log", "metrics", "trace"]
+auto_open_fds = ["", "", "log", "env", "metrics", "trace"]
 
 
 # ----
@@ -129,7 +129,7 @@ class NodeRuntime:
             for spec in self.specs
             if spec.direction == direction and spec.name == name
         ]
-        if len(found) or name != "":
+        if len(found) or name not in auto_open_fds:
             return found
         return [
             Spec(
@@ -206,6 +206,8 @@ class NodeRuntime:
     def aclose(self, fd: int) -> int:
         stream = self.streams[fd]
         if stream is None:
+            if fd < len(auto_open_fds):
+                return 0
             raise ValueError(f"Stream {fd} is not open")
         if stream is not sys.stdin.buffer and stream is not sys.stdout.buffer:
             stream.close()
