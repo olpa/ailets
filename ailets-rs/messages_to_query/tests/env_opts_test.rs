@@ -228,7 +228,10 @@ fn add_headers_of_different_types() {
     );
     let env_opts = EnvOpts::from_map(opts);
     let output = _build_with_env_opts(env_opts);
-    assert_that!(output.as_str(), matches_regex("\"X-Custom-String\": \"string-value\""));
+    assert_that!(
+        output.as_str(),
+        matches_regex("\"X-Custom-String\": \"string-value\"")
+    );
 
     // Test a number value
     let mut opts = HashMap::new();
@@ -301,6 +304,12 @@ fn no_duplicate_content_type_and_authorization_headers() {
     assert_that!(authorization_count, equal_to(1));
 
     // Verify the values are correct
-    assert_that!(output.as_str(), matches_regex("\"Content-type\":\\s*\"application/json\""));
-    assert_that!(output.as_str(), matches_regex("\"Authorization\":\\s*\"Bearer token123\""));
+    assert_that!(
+        output.as_str(),
+        matches_regex("\"Content-type\":\\s*\"application/json\"")
+    );
+    assert_that!(
+        output.as_str(),
+        matches_regex("\"Authorization\":\\s*\"Bearer token123\"")
+    );
 }
