@@ -217,3 +217,90 @@ fn override_content_type_and_authorization_headers() {
         matches_regex(r#""Authorization":\s*"Bearer custom-token""#)
     );
 }
+
+#[test]
+fn add_headers_of_different_types() {
+    // Test a string value
+    let mut opts = HashMap::new();
+    opts.insert(
+        "http.header.X-Custom-String".to_string(),
+        serde_json::Value::String("string-value".to_string()),
+    );
+    let env_opts = EnvOpts::from_map(opts);
+    let output = _build_with_env_opts(env_opts);
+    assert_that!(output.as_str(), matches_regex("\"X-Custom-String\": \"string-value\""));
+
+    // Test a number value
+    let mut opts = HashMap::new();
+    opts.insert(
+        "http.header.X-Custom-Number".to_string(),
+        serde_json::Value::Number(serde_json::Number::from(42)),
+    );
+    let env_opts = EnvOpts::from_map(opts);
+    let output = _build_with_env_opts(env_opts);
+    assert_that!(output.as_str(), matches_regex("\"X-Custom-Number\": 42"));
+
+    // Test an array value
+    let mut opts = HashMap::new();
+    let arr = vec![
+        serde_json::Value::String("value1".to_string()),
+        serde_json::Value::String("value2".to_string()),
+    ];
+    opts.insert(
+        "http.header.X-Custom-Array".to_string(),
+        serde_json::Value::Array(arr),
+    );
+    let env_opts = EnvOpts::from_map(opts);
+    let output = _build_with_env_opts(env_opts);
+    assert_that!(
+        output.as_str(),
+        matches_regex(r#""X-Custom-Array":\s*\["value1","value2"\]"#)
+    );
+
+    // Test an object value
+    let mut opts = HashMap::new();
+    let mut obj = serde_json::Map::new();
+    obj.insert(
+        "key1".to_string(),
+        serde_json::Value::String("value1".to_string()),
+    );
+    obj.insert(
+        "key2".to_string(),
+        serde_json::Value::Number(serde_json::Number::from(2)),
+    );
+    opts.insert(
+        "http.header.X-Custom-Object".to_string(),
+        serde_json::Value::Object(obj),
+    );
+    let env_opts = EnvOpts::from_map(opts);
+    let output = _build_with_env_opts(env_opts);
+    assert_that!(
+        output.as_str(),
+        matches_regex(r#""X-Custom-Object":\s*\{"key1":"value1","key2":2\}"#)
+    );
+}
+
+#[test]
+fn no_duplicate_content_type_and_authorization_headers() {
+    let mut opts = HashMap::new();
+    opts.insert(
+        "http.header.Content-type".to_string(),
+        serde_json::Value::String("application/json".to_string()),
+    );
+    opts.insert(
+        "http.header.Authorization".to_string(),
+        serde_json::Value::String("Bearer token123".to_string()),
+    );
+    let env_opts = EnvOpts::from_map(opts);
+    let output = _build_with_env_opts(env_opts);
+
+    // Content-type and Authorization should appear exactly once
+    let content_type_count = output.matches("\"Content-type\"").count();
+    let authorization_count = output.matches("\"Authorization\"").count();
+    assert_that!(content_type_count, equal_to(1));
+    assert_that!(authorization_count, equal_to(1));
+
+    // Verify the values are correct
+    assert_that!(output.as_str(), matches_regex("\"Content-type\":\\s*\"application/json\""));
+    assert_that!(output.as_str(), matches_regex("\"Authorization\":\\s*\"Bearer token123\""));
+}

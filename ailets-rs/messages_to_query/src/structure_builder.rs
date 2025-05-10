@@ -62,6 +62,9 @@ impl<W: Write> StructureBuilder<W> {
         self.writer.write_all(url.as_bytes())?;
         self.writer
             .write_all(b"\",\n\"method\": \"POST\",\n\"headers\": { ")?;
+        //
+        // Write the header
+        //
         let content_type = self
             .env_opts
             .get("http.header.Content-type")
@@ -76,6 +79,10 @@ impl<W: Write> StructureBuilder<W> {
             .unwrap_or(DEFAULT_AUTHORIZATION);
         self.writer.write_all(b"\", \"Authorization\": \"")?;
         self.writer.write_all(authorization.as_bytes())?;
+
+        //
+        // Write the body
+        //
         self.writer.write_all(b"\" },\n\"body\": { \"model\": \"")?;
         let model = self
             .env_opts
