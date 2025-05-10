@@ -24,7 +24,7 @@ fn create_empty_env_opts() -> EnvOpts {
 fn wrap_boilerplate(s: &str) -> String {
     let s1 = r#"{ "url": "https://api.openai.com/v1/chat/completions","#;
     let s2 = r#""method": "POST","#;
-    let s3 = r#""headers": { "Content-type": "application/json", "Authorization": "Bearer {{secret('openai','gpt4o')}}" },"#;
+    let s3 = r#""headers": { "Content-type": "application/json", "Authorization": "Bearer {{secret}}" },"#;
     let s4 = r#""body": { "model": "gpt-4o-mini", "stream": true, "messages": "#;
     let s_end = "}}\n";
     let s = s.replace("_NL_", "\n");
