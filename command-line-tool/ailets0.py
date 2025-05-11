@@ -9,7 +9,11 @@ import sys
 import logging
 from typing import Any, Awaitable, Callable, Iterator, Literal, Optional, Tuple
 import localsetup  # noqa: F401
-from ailets.models.well_known import get_model_opts
+from ailets.models.well_known import (
+    get_model_opts,
+    get_wellknown_aliases,
+    get_wellknown_models,
+)
 from ailets.atyping import IKVBuffers
 from ailets.cons.util import open_file, save_file
 from ailets.cons.dump import dump_environment, load_environment, print_dependency_tree
@@ -41,7 +45,13 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="AI Command Line Tool")
 
     # Required action argument
-    parser.add_argument("model", help="The model to run")
+    parser.add_argument(
+        "model",
+        help=(
+            "The model to run. To get the list, run the tool with a non-existing model "
+            "name 'list'."
+        ),
+    )
 
     # Optional arguments
     parser.add_argument(
@@ -279,7 +289,16 @@ async def main() -> None:
 
     args = parse_args()
 
-    model_opts = get_model_opts(args.model)
+    try:
+        model_opts = get_model_opts(args.model)
+    except KeyError:
+        print("Available models:")
+        print(", ".join(sorted(get_wellknown_models())))
+        print("Aliases:")
+        aliases = get_wellknown_aliases()
+        for alias in sorted(aliases):
+            print(f"{alias} -> {aliases[alias]}")
+        return
     model = model_opts["ailets.model"]
 
     # Setup logging

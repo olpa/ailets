@@ -37,7 +37,13 @@ def get_model_opts(model: str) -> Mapping[str, Any]:
         try_name = try_name[:-1]
 
     if opts is None:
-        raise ValueError(f"No defaults found for model: {model}")
+        raise KeyError(f"No defaults found for model: {model}")
     
     opts["llm.model"] = model
     return opts
+
+def get_wellknown_models() -> list[str]:
+    return list(MODEL_TO_KEY.keys())
+
+def get_wellknown_aliases() -> dict[str, str]:
+    return ALIASES.copy()
