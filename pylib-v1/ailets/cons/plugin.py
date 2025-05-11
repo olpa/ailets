@@ -137,7 +137,7 @@ def hijack_gpt_resp2msg(nodereg: NodeRegistry, wasm_registry: IWasmRegistry) -> 
     hijack_node(
         nodereg,
         wasm_registry,
-        ".gpt4o.response_to_messages",
+        ".gpt.response_to_messages",
         "process_gpt",
         "gpt.wasm",
     )
@@ -147,7 +147,7 @@ def hijack_msg2query(nodereg: NodeRegistry, wasm_registry: IWasmRegistry) -> Non
     hijack_node(
         nodereg,
         wasm_registry,
-        ".gpt4o.messages_to_query",
+        ".gpt.messages_to_query",
         "process_query",
         "messages_to_query.wasm",
     )

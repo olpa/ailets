@@ -10,7 +10,7 @@ ALIASES = {
 OPENAI_GPT_DEFAULTS = {
     "http.url": "https://api.openai.com/v1/chat/completions",
     "http.header.Authorization": "Bearer {{secret}}",
-    "ailets.model": "gpt4o",
+    "ailets.model": "gpt",
 }
 
 OPENAI_GPT_MODELS = ["gpt-4o-mini", "gpt-4.1-nano", "o3", "o3-mini", "o4-mini", "chatgpt-4o-latest"]

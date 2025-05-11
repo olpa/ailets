@@ -10,20 +10,20 @@ from ailets.atyping import (
 )
 from ailets.io.input_reader import iter_input_objects, read_all
 from ailets.cons.util import write_all
-from ailets.models.gpt4o.lib.typing import Gpt4oContentItem, Gpt4oMessage
+from ailets.models.gpt.lib.typing import GptContentItem, GptMessage
 
 url = "https://api.openai.com/v1/chat/completions"
 method = "POST"
 headers = {
     "Content-type": "application/json",
-    "Authorization": "Bearer {{secret('openai','gpt4o')}}",
+    "Authorization": "Bearer {{secret}}",
 }
 
 
 async def rewrite_content_item(
     runtime: INodeRuntime,
     item: ContentItem,
-) -> Gpt4oContentItem:
+) -> GptContentItem:
     if item["type"] == "text":
         return item
     assert item["type"] == "image", "Only text and image are supported"
@@ -54,8 +54,8 @@ async def rewrite_content_item(
 async def rewrite_content(
     runtime: INodeRuntime,
     content: Content,
-) -> Tuple[Sequence[Gpt4oContentItem], Sequence[ContentItemFunction]]:
-    new_content: List[Gpt4oContentItem] = []
+) -> Tuple[Sequence[GptContentItem], Sequence[ContentItemFunction]]:
+    new_content: List[GptContentItem] = []
     tool_calls: List[ContentItemFunction] = []
     for item in content:
         if item["type"] == "function":
@@ -99,21 +99,21 @@ async def get_overrides(runtime: INodeRuntime) -> dict[str, Any]:
     ]
     overrides: dict[str, Any] = {}
     async for cfg in iter_input_objects(runtime, StdHandles.env):
-        gpt4o_cfg = cfg.get("gpt4o")
-        if not gpt4o_cfg:
+        gpt_cfg = cfg.get("gpt")
+        if not gpt_cfg:
             continue
         for param in known_model_params:
-            if param in gpt4o_cfg:
-                overrides[param] = gpt4o_cfg[param]
+            if param in gpt_cfg:
+                overrides[param] = gpt_cfg[param]
     return overrides
 
 
 async def messages_to_query(runtime: INodeRuntime) -> None:
     """Convert chat messages into a query."""
 
-    messages: list[Gpt4oMessage] = []
+    messages: list[GptMessage] = []
     async for message in iter_input_objects(runtime, StdHandles.stdin):
-        new_message: Gpt4oMessage = message.copy()  # type: ignore[assignment]
+        new_message: GptMessage = message.copy()  # type: ignore[assignment]
         if "content" in message:
             new_content, tool_calls = await rewrite_content(runtime, message["content"])
             new_message["content"] = new_content
