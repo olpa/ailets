@@ -4,6 +4,7 @@ from typing import Any, Mapping
 OPENAI_GPT_DEFAULTS = {
     "http.url": "https://api.openai.com/v1/chat/completions",
     "http.header.Authorization": "Bearer {{secret}}",
+    "ailets.model": "gpt4o",
 }
 
 OPENAI_GPT_MODELS = ["gpt-4.1-nano"]
