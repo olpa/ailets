@@ -1,13 +1,18 @@
 import re
 from typing import Any, Mapping
 
+ALIASES = {
+    "gpt4o": "gpt-4o-mini",
+    "gpt": "gpt-4.1-nano",
+}
+
 OPENAI_GPT_DEFAULTS = {
     "http.url": "https://api.openai.com/v1/chat/completions",
     "http.header.Authorization": "Bearer {{secret}}",
     "ailets.model": "gpt4o",
 }
 
-OPENAI_GPT_MODELS = ["gpt-4.1-nano"]
+OPENAI_GPT_MODELS = ["gpt-4o-mini", "gpt-4.1-nano"]
 
 KEY_TO_DEFAULTS = {
     "gpt": OPENAI_GPT_DEFAULTS,
@@ -19,6 +24,7 @@ MODEL_TO_KEY = {
 
 def get_model_opts(model: str) -> Mapping[str, Any]:
     opts = None
+    model = ALIASES.get(model, model)
 
     # Try progressively shorter versions of the model name
     try_name = model
