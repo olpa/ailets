@@ -4,7 +4,7 @@ from typing import Any, Mapping
 ALIASES = {
     "gpt4o": "gpt-4o-mini",
     "gpt": "gpt-4.1-nano",
-    "chatgpt-4o": "chatgpt-4o-latest",
+    "chatgpt": "chatgpt-4o-latest",
 }
 
 OPENAI_GPT_DEFAULTS = {
@@ -15,12 +15,21 @@ OPENAI_GPT_DEFAULTS = {
 
 OPENAI_GPT_MODELS = ["gpt-4o-mini", "gpt-4.1-nano", "o3", "o3-mini", "o4-mini", "chatgpt-4o-latest"]
 
+LOCAL_DEFAULTS = {
+    "http.url": "http://localhost:8000/v1/chat/completions",
+    "ailets.model": "gpt",
+}
+
+LOCAL_MODELS = ["local"]
+
 KEY_TO_DEFAULTS = {
     "gpt": OPENAI_GPT_DEFAULTS,
+    "local": LOCAL_DEFAULTS,
 }
 
 MODEL_TO_KEY = {
     **{model: "gpt" for model in OPENAI_GPT_MODELS},
+    **{model: "local" for model in LOCAL_MODELS},
 }
 
 def get_model_opts(model: str) -> Mapping[str, Any]:
