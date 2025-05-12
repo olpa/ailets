@@ -29,10 +29,17 @@ ailets MODEL [options]
 
 ## API key
 
-Before using the tool, make sure to set your OpenAI API key:
+Before using the tool, set an API key:
 
 ```bash
-export OPENAI_API_KEY=sk-your-api-key-here
+# For `gpt` models
+export OPENAI_API_KEY=...
+
+# For `gemini` models
+export GOOGLEAPIS_API_KEY=...
+
+# For `claude` models
+export ANTHROPIC_API_KEY=...
 ```
 
 ## Available Tools
