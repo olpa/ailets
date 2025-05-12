@@ -56,6 +56,9 @@ MODEL_TO_KEY = {
     **{model: "google" for model in GOOGLE_MODELS},
     **{model: "anthropic" for model in ANTHROPIC_MODELS},
 }
+for k, v in list(MODEL_TO_KEY.items()):
+    base_name = k.split("-")[0]
+    MODEL_TO_KEY[base_name] = v
 
 def get_model_opts(model: str) -> Mapping[str, Any]:
     opts = None
