@@ -41,6 +41,8 @@ ANTHROPIC_DEFAULTS = {
 
 ANTHROPIC_MODELS = ["claude-3-7-sonnet-latest", "claude-3-5-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-opus-latest"]
 
+# More vendors is a paid service for the vendors
+
 KEY_TO_DEFAULTS = {
     "gpt": OPENAI_GPT_DEFAULTS,
     "local": LOCAL_DEFAULTS,
