@@ -27,6 +27,45 @@ ailets MODEL [options]
 - `--file-system PATH` : Path to the virtual file system database in the Python `dbm.sqlite3` format
 - `--debug`: Enable debug logging
 
+## Examples
+
+```base
+# Run with stdin prompt
+echo "Hello!" | ailets gpt
+# Output: Hello! How can I assist you today?
+ 
+# Run with direct prompt
+ailets gpt --prompt "hello"
+# Output: Hello! How can I assist you today?
+
+# Use a tool
+ailets gpt --tool get_user_name --prompt "Hello!"
+# Output: Hello, olpa! How can I assist you today?
+# Note that my name is included in the output
+
+# Dry run to see dependency tree
+ailets gpt --prompt "Hello!" --dry-run
+
+# Save state to file
+ailets gpt --prompt "Hello!" --save-state state.json
+
+# Load state from file
+ailets gpt --load-state state.json --dry-run
+
+# Execute one step at a time
+ailets gpt --prompt "Hello" --one-step
+
+# Stop at specific point
+ailets gpt --prompt "Hello" --stop-before .query.17
+
+# Multiple prompts
+ailets gpt --prompt "What’s in this image?" --prompt @./image.jpeg
+ailets gpt  --prompt "What’s in this image?" --prompt "@https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
+
+# Using a local LLM
+ailets0.py gpt --opt http.url=http://localhost:8000/v1/chat/completions --opt llm.model=local-model
+```
+
 ## API key
 
 Before using the tool, set an API key:
@@ -108,45 +147,6 @@ To provide a system prompt, add a TOML block with a `role="system"` item:
 ```bash
 ailets0 gpt4o --prompt 'role="system"\n---\nYou are a helpful assistant who answers in Spanish' --prompt "Hello!"
 
-```
-
-## Examples
-
-```base
-# Run with stdin prompt
-echo "Hello!" | ailets gpt4o
-# Output: Hello! How can I assist you today?
- 
-# Run with direct prompt
-ailets gpt4o --prompt "hello"
-# Output: Hello! How can I assist you today?
-
-# Use a tool
-ailets gpt4o --tool get_user_name --prompt "Hello!"
-# Output: Hello, olpa! How can I assist you today?
-# Note that my name is included in the output
-
-# Dry run to see dependency tree
-ailets gpt4o --prompt "Hello!" --dry-run
-
-# Save state to file
-ailets gpt4o --prompt "Hello!" --save-state state.json
-
-# Load state from file
-ailets gpt4o --load-state state.json --dry-run
-
-# Execute one step at a time
-ailets gpt4o --prompt "Hello" --one-step
-
-# Stop at specific point
-ailets gpt4o --prompt "Hello" --stop-at messages_to_query.5
-
-# Multiple prompts
-ailets gpt4o --prompt "What’s in this image?" --prompt @./image.jpeg
-ailets gpt4o  --prompt "What’s in this image?" --prompt "@https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
-
-# Using a local LLM
-ailets0.py gpt4o --opt http.url=http://localhost:8000/v1/chat/completions --opt llm.model=local-model
 ```
 
 ## Model-specific notes: gpt4o
