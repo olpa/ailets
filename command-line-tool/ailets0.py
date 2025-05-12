@@ -48,7 +48,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "model",
         help=(
-            "The model to run. To get the list, run the tool with a non-existing model "
+            "The model to run. The best choices are `gpt`, `gemini` or `claude`. "
+            "To get the list of models, run the tool with a non-existing model "
             "name 'list'."
         ),
     )
