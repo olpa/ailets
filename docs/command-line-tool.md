@@ -10,7 +10,7 @@ ailets MODEL [options]
 
 ## Required Arguments
 
-- `MODEL`: The model to run (currently only supports 'gpt')
+- `MODEL`: The model to run. The best choices are `gpt`, `gemini`, or `claude`.
 
 ## Optional Arguments
 
@@ -21,7 +21,7 @@ ailets MODEL [options]
 - `--one-step`: Execute only one step
 - `--stop-before POINT`: Stop execution before specified point
 - `--stop-after POINT`: Stop execution after specified point
-- `--tool TOOL [TOOL ...]`: List of tools to use (e.g., get_user_name)
+- `--tool TOOL`: List of tools to use (e.g., get_user_name)
 - `--opt KEY=VALUE`: Configuration options in `key=value` format. The value is parsed as JSON if possible, otherwise used as string. Most important keys are 'http.url' and 'llm.model'.
 - `--download-to DIRECTORY`: Directory to download generated files to (default: "./out")
 - `--file-system PATH` : Path to the virtual file system database in the Python `dbm.sqlite3` format
@@ -30,36 +30,37 @@ ailets MODEL [options]
 ## Examples
 
 ```base
-# Run with stdin prompt
+# Run with a stdin prompt
 echo "Hello!" | ailets gpt
 # Output: Hello! How can I assist you today?
  
-# Run with direct prompt
+# Run with a direct prompt
 ailets gpt --prompt "hello"
 # Output: Hello! How can I assist you today?
 
+# Use a local LLM on the port `8000`
+ailets local --prompt "hello"
+
+# Use an OpenAI-compatible endpoint
+ailets gpt --prompt "hello" \
+    --opt http.url=http://localhost:8000/v1/chat/completions --opt llm.model=custom-model
+
 # Multiple prompts
 ailets gpt --prompt "What’s in this image?" --prompt @./image.jpeg
-ailets gpt  --prompt "What’s in this image?" --prompt "@https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
-
-# Using a local LLM
-ailets local
-
-# Using an OpenAI-compatible endpoint
-ailets gpt --opt http.url=http://localhost:8000/v1/chat/completions --opt llm.model=custom-model
+ailets gpt --prompt "What’s in this image?" --prompt "@https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
 
 # Use a tool
 ailets gpt --tool get_user_name --prompt "Hello!"
 # Output: Hello, olpa! How can I assist you today?
 # Note that my name is included in the output
 
-# Dry run to see dependency tree
+# Dry run to see the dependency tree
 ailets gpt --prompt "Hello!" --dry-run
 
-# Stop at specific point, save state to file
+# Stop at the specific point, save the state to a file
 ailets gpt --prompt "Hello" --stop-before .query.17 --save-state state.json
 
-# Load state from file
+# Load the state from a file
 ailets gpt --load-state state.json --dry-run
 
 # Execute one step at a time
