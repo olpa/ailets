@@ -10,7 +10,7 @@ ailets MODEL [options]
 
 ## Required Arguments
 
-- `MODEL`: The model to run (currently only supports 'gpt4o')
+- `MODEL`: The model to run (currently only supports 'gpt')
 
 ## Optional Arguments
 
@@ -92,32 +92,32 @@ The `--prompt` argument can be specified multiple times and accepts several form
 
 - `text`: Regular text prompt
   ```bash
-  ailets gpt4o --prompt "Hello, how are you?"
+  ailets gpt --prompt "Hello, how are you?"
   ```
 
 - `@file`: Local file with auto-detected type
   ```bash
-  ailets gpt4o --prompt "@image.jpg"
+  ailets gpt --prompt "@image.jpg"
   ```
 
 - `@{type}file`: Local file with explicit type
   ```bash
-  ailets gpt4o --prompt "@{text/plain}input.txt"
+  ailets gpt --prompt "@{text/plain}input.txt"
   ```
 
 - `@url`: URL with auto-detected type
   ```bash
-  ailets gpt4o --prompt "@https://example.com/image.jpg"
+  ailets gpt --prompt "@https://example.com/image.jpg"
   ```
 
 - `@{type}url`: URL with explicit type
   ```bash
-  ailets gpt4o --prompt "@{image/png}https://example.com/image.png"
+  ailets gpt --prompt "@{image/png}https://example.com/image.png"
   ```
 
 - `-`: Read from stdin
   ```bash
-  echo "Hello" | ailets gpt4o --prompt "-"
+  echo "Hello" | ailets gpt --prompt "-"
   ```
 
 Supported content types:
@@ -145,18 +145,18 @@ Second way is to separate the TOML block from the prompt text with a line consis
 To provide a system prompt, add a TOML block with a `role="system"` item:
 
 ```bash
-ailets0 gpt4o --prompt 'role="system"\n---\nYou are a helpful assistant who answers in Spanish' --prompt "Hello!"
+ailets0 gpt --prompt 'role="system"\n---\nYou are a helpful assistant who answers in Spanish' --prompt "Hello!"
 
 ```
 
-## Model-specific notes: gpt4o
+## Model-specific notes: gpt
 
 With help of a TOML block, you can override model-specific options. For the list of them, see the section "Create chat completion" at <https://platform.openai.com/docs/api-reference/chat>.
 
 Below is an example of overriding `n` and `temperature`, and using a system prompt:
 
 ```bash
-ailets0 gpt4o --prompt '''n=3
+ailets0 gpt --prompt '''n=3
 temperature=2
 role="system"
 ---
@@ -227,12 +227,12 @@ sqlite3 x.db "INSERT INTO Dict (key, value) VALUES (CAST('$f' AS BLOB), readfile
 Example usage:
 
 ```bash
-$ ./ailets0.py gpt4o --prompt Hello --file-system x.db
+$ ./ailets0.py gpt --prompt Hello --file-system x.db
 Hello! How can I assist you today?
 
 $ sqlite3 x.db "SELECT key FROM Dict;"
-.gpt4o.messages_to_query.16
-.gpt4o.response_to_messages.18
+.gpt.messages_to_query.16
+.gpt.response_to_messages.18
 .messages_to_markdown.19
 .prompt_to_messages.15
 .query.17
@@ -265,12 +265,12 @@ ailets() {
 # Re-create the database
 rm -f x.db
 touch x.db
-ailets gpt4o --dry-run
+ailets gpt --dry-run
 
 # Put a file to the database and run Ailets
 f=tux.png
 sqlite3 x.db "INSERT INTO Dict (key, value) VALUES (CAST('$f' AS BLOB), readfile('$f'));"
 
-ailets gpt4o --prompt "Describe the image." --prompt "@tux.png"
+ailets gpt --prompt "Describe the image." --prompt "@tux.png"
 # The image features a cartoon penguin. It has ...
 ```
