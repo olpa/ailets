@@ -293,7 +293,7 @@ async def main() -> None:
     try:
         model_opts = get_model_opts(args.model)
     except KeyError:
-        print("Available models:")
+        print(f"Model `{args.model}` not found. Available models:")
         print(", ".join(sorted(get_wellknown_models())))
         print("Aliases:")
         aliases = get_wellknown_aliases()
