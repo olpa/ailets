@@ -82,11 +82,6 @@ export GOOGLEAPIS_API_KEY=...
 export ANTHROPIC_API_KEY=...
 ```
 
-## Available Tools
-
-Currently supported tools:
-- `get_user_name`: Retrieves user name information
-
 ## Input Formats
 
 The `--prompt` argument can be specified multiple times and accepts several formats:
@@ -196,6 +191,13 @@ To get the image instead of the link, set the `response_format` parameter to `b6
 ```bash
 ailets0 dalle --prompt $'response_format="b64_json"\n---\nlinux logo'
 ```
+
+
+## Available Tools
+
+Currently supported tools:
+
+- `get_user_name`: Retrieves user name information
 
 
 ## Virtual File System
