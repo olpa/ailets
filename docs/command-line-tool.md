@@ -45,9 +45,12 @@ ailets local --prompt "hello"
 ailets gpt --prompt "hello" \
     --opt http.url=http://localhost:8000/v1/chat/completions --opt llm.model=custom-model
 
-# Multiple prompts
+# Combined prompts
 ailets gpt --prompt "What’s in this image?" --prompt @./image.jpeg
 ailets gpt --prompt "What’s in this image?" --prompt "@https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
+
+# Combined prompt, with input from stdin
+ailets gpt --prompt "Proofread the text, do not change the tone, target the B2 level:" --prompt @{text/plain}/dev/stdin
 
 # Use a tool
 ailets gpt --tool get_user_name --prompt "Hello!"
@@ -141,7 +144,7 @@ Second way is to separate the TOML block from the prompt text with a line consis
 To provide a system prompt, add a TOML block with a `role="system"` item:
 
 ```bash
-ailets0 gpt --prompt 'role="system"\n---\nYou are a helpful assistant who answers in Spanish' --prompt "Hello!"
+ailets gpt --prompt 'role="system"\n---\nYou are a helpful assistant who answers in Spanish' --prompt "Hello!"
 # Output:
 # ¡Hola! ¿En qué puedo ayudarte hoy?
 ```
@@ -153,9 +156,9 @@ ailets0 gpt --prompt 'role="system"\n---\nYou are a helpful assistant who answer
 
 `401 Unauthorized`: Bad API key.
 
-`429 Too Many Requests`: The key is expired or all funds have been used.
+`429 Too Many Requests`: The key has expired or all funds have been used.
 
-Currently, there is no straightforward way to get detailed error information. One approach is to observe what is sent to the vendor (`--stop-before .query.NN`) and then send the query manually using `wget` or `curl`.
+Currently, there is no easy way to get detailed error information. One option is to observe what is sent to the vendor (`--stop-before .query.NN`) and then send the query manually using `wget` or `curl`.
 
 
 ## Model-specific Notes: gpt
@@ -165,7 +168,7 @@ For the list of the model-specific options, see the section "Create chat complet
 Below is an example of overriding `n`, `temperature`, disabling streaming, and using a system prompt:
 
 ```bash
-ailets0 gpt --opt llm.n=3 --opt llm.temperature=0.8 --opt llm.stream=false --prompt '''role="system"
+ailets gpt --opt llm.n=3 --opt llm.temperature=0.8 --opt llm.stream=false --prompt '''role="system"
 ---
 Generate answers with 3 sentences.
 '''  --prompt "Hello!"
@@ -193,7 +196,7 @@ Hello!HelloHello How!! can How How I can can assist I I you assist assist today 
 Basic usage:
 
 ```bash
-ailets0 dalle --prompt 'linux logo'
+ailets dalle --prompt 'linux logo'
 ```
 
 The output is a rewritten prompt and a link to the generated image.
@@ -207,7 +210,7 @@ Create an image of the Linux logo. It's a penguin known as Tux, standing upright
 To get the image instead of the link, set the `response_format` parameter to `b64_json`:
 
 ```bash
-ailets0 dalle --prompt $'response_format="b64_json"\n---\nlinux logo'
+ailets dalle --prompt $'response_format="b64_json"\n---\nlinux logo'
 ```
 
 
@@ -248,7 +251,7 @@ sqlite3 x.db "INSERT INTO Dict (key, value) VALUES (CAST('$f' AS BLOB), readfile
 Example usage:
 
 ```bash
-$ ./ailets0.py gpt --prompt Hello --file-system x.db
+$ ailets gpt --prompt Hello --file-system x.db
 Hello! How can I assist you today?
 
 $ sqlite3 x.db "SELECT key FROM Dict;"
