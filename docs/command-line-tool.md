@@ -147,14 +147,12 @@ ailets0 gpt --prompt 'role="system"\n---\nYou are a helpful assistant who answer
 
 ## Model-specific notes: gpt
 
-With help of a TOML block, you can override model-specific options. For the list of them, see the section "Create chat completion" at <https://platform.openai.com/docs/api-reference/chat>.
+For the list of the model-specific options, see the section "Create chat completion" at <https://platform.openai.com/docs/api-reference/chat>.
 
-Below is an example of overriding `n` and `temperature`, and using a system prompt:
+Below is an example of overriding `n`, `temperature`, disabling streaming, and using a system prompt:
 
 ```bash
-ailets0 gpt --prompt '''n=3
-temperature=2
-role="system"
+ailets0 gpt --opt llm.n=3 --opt llm.temperature=0.8 --opt llm.stream=false --prompt '''role="system"
 ---
 Generate answers with 3 sentences.
 '''  --prompt "Hello!"
@@ -163,12 +161,19 @@ Generate answers with 3 sentences.
 Output:
 
 ```
-Hello! How can I assist you today? If you have any questions or topics to discuss, feel free to share!
+Hello! How can I assist you today? Feel free to ask me anything you're curious about.
 
-Hello! How can I assist you today? If you have any questions or need information, feel free to ask!
+Hello! How can I assist you today?
 
-Hello! How can I assist you today? If you have any questions or topics in mind, feel free to share!
+Hello! How can I assist you today? Feel free to ask me anything.
 ```
+
+Without disabling streaming, the output will be mixed:
+
+```
+Hello!HelloHello How!! can How How I can can assist I I you assist assist today you you? today today I'm?? here I'm to here help to with help any with questions any or questions topics you you're have interested. in.
+```
+
 
 ## Model-specific notes: dall-e
 
