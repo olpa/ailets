@@ -9,6 +9,11 @@ import sys
 import logging
 from typing import Any, Awaitable, Callable, Iterator, Literal, Optional, Tuple
 import localsetup  # noqa: F401
+from ailets.models.well_known import (
+    get_model_opts,
+    get_wellknown_aliases,
+    get_wellknown_models,
+)
 from ailets.atyping import IKVBuffers
 from ailets.cons.util import open_file, save_file
 from ailets.cons.dump import dump_environment, load_environment, print_dependency_tree
@@ -40,7 +45,14 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="AI Command Line Tool")
 
     # Required action argument
-    parser.add_argument("model", help="The model to run")
+    parser.add_argument(
+        "model",
+        help=(
+            "The model to run. The best choices are `gpt`, `gemini` or `claude`. "
+            "To get the list of models, run the tool with a non-existing model "
+            "name 'list'."
+        ),
+    )
 
     # Optional arguments
     parser.add_argument(
@@ -277,10 +289,18 @@ async def main() -> None:
     global env
 
     args = parse_args()
-    assert args.model in [
-        "gpt4o",
-        "dalle",
-    ], "At the moment, only gpt4o and dalle are supported"
+
+    try:
+        model_opts = get_model_opts(args.model)
+    except KeyError:
+        print(f"Model `{args.model}` not found. Available models:")
+        print(", ".join(sorted(get_wellknown_models())))
+        print("Aliases:")
+        aliases = get_wellknown_aliases()
+        for alias in sorted(aliases):
+            print(f"{alias} -> {aliases[alias]}")
+        return
+    model = model_opts["ailets.model"]
 
     # Setup logging
     logging_level = logging.DEBUG if args.debug else logging.INFO
@@ -294,13 +314,13 @@ async def main() -> None:
 
     nodereg = NodeRegistry()
     nodereg.load_plugin("ailets.stdlib", "")
-    nodereg.load_plugin(f"ailets.models.{args.model}", f".{args.model}")
+    nodereg.load_plugin(f"ailets.models.{model}", f".{model}")
     for tool in args.tools:
         nodereg.load_plugin(f"ailets.tools.{tool}", f".tool.{tool}")
 
     prompt = get_prompt(args.prompt)
 
-    if args.model == "gpt4o":
+    if model.startswith("gpt"):
         wasm_registry = WasmRegistry()
         hijack_msg2md(nodereg, wasm_registry)
         hijack_gpt_resp2msg(nodereg, wasm_registry)
@@ -314,7 +334,7 @@ async def main() -> None:
         with open_file(vfs, args.load_state) as h:
             tio = TextIOWrapper(h, encoding="utf-8")
             env = await load_environment(tio, nodereg)
-        toml_to_env(env, args.opt, toml=prompt)
+        toml_to_env(env, model_opts, args.opt, toml=prompt)
         target_node_name = next(
             node_name
             for node_name in env.dagops.get_node_names()
@@ -323,7 +343,7 @@ async def main() -> None:
 
     else:
         env = Environment(nodereg, kv=vfs)
-        toml_to_env(env, args.opt, toml=prompt)
+        toml_to_env(env, model_opts, args.opt, toml=prompt)
         toolspecs_to_dagops(env, args.tools)
         await prompt_to_dagops(env, prompt=prompt)
 
@@ -332,9 +352,7 @@ async def main() -> None:
         )
         env.dagops.alias(".chat_messages", chat_node_name)
 
-        model_node_name = instantiate_with_deps(
-            env.dagops, nodereg, f".{args.model}", {}
-        )
+        model_node_name = instantiate_with_deps(env.dagops, nodereg, f".{model}", {})
         env.dagops.alias(".model_output", model_node_name)
 
         resolve = {

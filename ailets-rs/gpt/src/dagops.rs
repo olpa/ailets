@@ -127,7 +127,7 @@ pub fn inject_tool_calls(
     }
 
     // Rerun model
-    let rerun_handle = dagops.instantiate_with_deps(".gpt4o", HashMap::new().into_iter())?;
+    let rerun_handle = dagops.instantiate_with_deps(".gpt", HashMap::new().into_iter())?;
     dagops.alias(".model_output", rerun_handle)?;
 
     Ok(())

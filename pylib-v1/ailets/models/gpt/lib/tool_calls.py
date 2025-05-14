@@ -84,5 +84,5 @@ class ToolCalls:
         #
         # Re-run the model
         #
-        rerun_node_name = dagops.instantiate_with_deps(".gpt4o", {})
+        rerun_node_name = dagops.instantiate_with_deps(".gpt", {})
         dagops.alias(".model_output", rerun_node_name)

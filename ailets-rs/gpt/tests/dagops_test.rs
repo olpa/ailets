@@ -214,7 +214,7 @@ fn inject_tool_calls_to_dag() {
     // Assert: re-run the model
     //
     let (handle_rerun, rerun_workflow, deps_rerun) = tracked_dagops.parse_workflow(&workflows[4]);
-    assert_that!(rerun_workflow, is(equal_to(format!(".gpt4o"))));
+    assert_that!(rerun_workflow, is(equal_to(format!(".gpt"))));
     assert_that!(deps_rerun, is(equal_to(HashMap::from([]))));
 
     //

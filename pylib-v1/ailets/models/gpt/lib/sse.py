@@ -8,7 +8,7 @@ from ailets.cons.util import write_all
 from typing import TypedDict
 from typing_extensions import NotRequired
 
-from ailets.models.gpt4o.lib.tool_calls import ToolCalls
+from ailets.models.gpt.lib.tool_calls import ToolCalls
 
 
 class Delta(TypedDict):

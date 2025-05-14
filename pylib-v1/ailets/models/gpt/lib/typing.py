@@ -4,26 +4,26 @@ from typing_extensions import NotRequired
 from ailets.atyping import ContentItemFunction, ContentItemRefusal, ContentItemText
 
 
-class Gpt4oImageUrl(TypedDict):
+class GptImageUrl(TypedDict):
     url: str
     detail: NotRequired[str]
 
 
-class Gpt4oImage(TypedDict):
+class GptImage(TypedDict):
     type: Literal["image_url"]
-    image_url: Gpt4oImageUrl
+    image_url: GptImageUrl
 
 
-Gpt4oContentItem = Union[Gpt4oImage, ContentItemText, ContentItemRefusal]
+GptContentItem = Union[GptImage, ContentItemText, ContentItemRefusal]
 
 
-class Gpt4oMessage(TypedDict):
+class GptMessage(TypedDict):
     role: str
     content: Any
     tool_calls: NotRequired[Sequence[ContentItemFunction]]
 
 
-def is_gpt4o_image(obj: Any) -> bool:
+def is_gpt_image(obj: Any) -> bool:
     if not isinstance(obj, dict):
         return False
     if obj.get("type") != "image_url":

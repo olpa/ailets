@@ -6,36 +6,36 @@ div='\n\n\n'
 
 ##
 
-echo ======== gpt4o ======== Hello
+echo ======== gpt ======== Hello
 
-../command-line-tool/ailets0.py gpt4o --prompt "Hello!"
+../command-line-tool/ailets0.py gpt --prompt "Hello!"
 
 ##
 
-echo $div======== gpt4o ======== With a system message
+echo $div======== gpt ======== With a system message
 
-../command-line-tool/ailets0.py gpt4o --prompt '''role="system"
+../command-line-tool/ailets0.py gpt --prompt '''role="system"
 ---
 You are a helpful assistant who answers in Spanish''' \
   --prompt "Hello!"
 
 ##
 
-echo $div======== gpt4o ======== Hello with a tool
+echo $div======== gpt ======== Hello with a tool
 
-../command-line-tool/ailets0.py gpt4o --prompt "Hello!" --tool get_user_name
-
-##
-
-echo $div======== gpt4o ======== Embed an image
-
-../command-line-tool/ailets0.py gpt4o --prompt "Describe the image." --prompt "@{image/png}tux.png"
+../command-line-tool/ailets0.py gpt --prompt "Hello!" --tool get_user_name
 
 ##
 
-echo $div======== gpt4o ======== Link to an image
+echo $div======== gpt ======== Embed an image
 
-../command-line-tool/ailets0.py gpt4o --prompt "Describe the image." --prompt "@https://gewova.com/assets/ui-blurred.png"
+../command-line-tool/ailets0.py gpt --prompt "Describe the image." --prompt "@{image/png}tux.png"
+
+##
+
+echo $div======== gpt ======== Link to an image
+
+../command-line-tool/ailets0.py gpt --prompt "Describe the image." --prompt "@https://gewova.com/assets/ui-blurred.png"
 
 ##
 

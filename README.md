@@ -34,13 +34,13 @@ ailets() {
 
 # Sample usage
 
-echo "Hello!" | ailets gpt4o --prompt -
+echo "Hello!" | ailets gpt --prompt -
 # Output: Hello! How can I assist you today?
 
-ailets gpt4o --prompt "Hello!" --tool get_user_name
+ailets gpt --prompt "Hello!" --tool get_user_name
 # Output: Hello, ailets! How can I assist you today?
 
-ailets gpt4o --prompt "What is it?" --prompt @https://rdi.berkeley.edu/llm-agents-hackathon/assets/img/llm_agents_hackathon_banner.png
+ailets gpt --prompt "What is it?" --prompt @https://rdi.berkeley.edu/llm-agents-hackathon/assets/img/llm_agents_hackathon_banner.png
 # Output: The image is an announcement or promotional banner for the "LLM
 # Agents MOOC Hackathon," hosted by Berkeley's Center for Responsible, De
 # centralized Intelligence. It likely pertains to a hackathon focused on
@@ -71,7 +71,7 @@ ailets dalle --prompt "linux logo"
 
 ## Deliverables
 
-- Command-line tool to use gpt4o and dall-e. <https://hub.docker.com/r/olpa/ailets>, <https://github.com/olpa/ailets/blob/master/docs/command-line-tool.md>
+- Command-line tool to use text generation models and dall-e. <https://hub.docker.com/r/olpa/ailets>, <https://github.com/olpa/ailets/blob/master/docs/command-line-tool.md>
 - Rust crate [RJiter](https://crates.io/crates/rjiter): A streaming JSON parser
 - Rust crate [scan_json](https://crates.io/crates/scan_json): React to elements in a JSON stream before the entire document is available
 - [pylib-v1 `ailets`](./pylib-v1/README.md): actor workflows in Python

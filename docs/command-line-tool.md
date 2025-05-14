@@ -10,7 +10,7 @@ ailets MODEL [options]
 
 ## Required Arguments
 
-- `MODEL`: The model to run (currently only supports 'gpt4o')
+- `MODEL`: The model to run. The best choices are `gpt`, `gemini`, or `claude`. To get the list of models, run the tool with a non-existing model name 'list'.
 
 ## Optional Arguments
 
@@ -21,24 +21,69 @@ ailets MODEL [options]
 - `--one-step`: Execute only one step
 - `--stop-before POINT`: Stop execution before specified point
 - `--stop-after POINT`: Stop execution after specified point
-- `--tool TOOL [TOOL ...]`: List of tools to use (e.g., get_user_name)
+- `--tool TOOL`: List of tools to use (e.g., get_user_name)
 - `--opt KEY=VALUE`: Configuration options in `key=value` format. The value is parsed as JSON if possible, otherwise used as string. Most important keys are 'http.url' and 'llm.model'.
 - `--download-to DIRECTORY`: Directory to download generated files to (default: "./out")
 - `--file-system PATH` : Path to the virtual file system database in the Python `dbm.sqlite3` format
 - `--debug`: Enable debug logging
 
-## API key
+## Examples
 
-Before using the tool, make sure to set your OpenAI API key:
+```base
+# Run with a stdin prompt
+echo "Hello!" | ailets gpt
+# Output: Hello! How can I assist you today?
+ 
+# Run with a direct prompt
+ailets gpt --prompt "hello"
+# Output: Hello! How can I assist you today?
 
-```bash
-export OPENAI_API_KEY=sk-your-api-key-here
+# Use a local LLM on the port `8000`
+ailets local --prompt "hello"
+
+# Use an OpenAI-compatible endpoint
+ailets gpt --prompt "hello" \
+    --opt http.url=http://localhost:8000/v1/chat/completions --opt llm.model=custom-model
+
+# Combined prompts
+ailets gpt --prompt "What’s in this image?" --prompt @./image.jpeg
+ailets gpt --prompt "What’s in this image?" --prompt "@https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
+
+# Combined prompt, with input from stdin
+ailets gpt --prompt "Proofread the text, do not change the tone, target the B2 level:" --prompt @{text/plain}/dev/stdin
+
+# Use a tool
+ailets gpt --tool get_user_name --prompt "Hello!"
+# Output: Hello, olpa! How can I assist you today?
+# Note that my name is included in the output
+
+# Dry run to see the dependency tree
+ailets gpt --prompt "Hello!" --dry-run
+
+# Stop at the specific point, save the state to a file
+ailets gpt --prompt "Hello" --stop-before .query.17 --save-state state.json
+
+# Load the state from a file
+ailets gpt --load-state state.json --dry-run
+
+# Execute one step at a time
+ailets gpt --prompt "Hello" --one-step
 ```
 
-## Available Tools
+## API key
 
-Currently supported tools:
-- `get_user_name`: Retrieves user name information
+Before using the tool, set an API key:
+
+```bash
+# For `gpt` models
+export OPENAI_API_KEY=...
+
+# For `gemini` models
+export GOOGLEAPIS_API_KEY=...
+
+# For `claude` models
+export ANTHROPIC_API_KEY=...
+```
 
 ## Input Formats
 
@@ -46,39 +91,39 @@ The `--prompt` argument can be specified multiple times and accepts several form
 
 - `text`: Regular text prompt
   ```bash
-  ailets gpt4o --prompt "Hello, how are you?"
+  ailets gpt --prompt "Hello, how are you?"
   ```
 
 - `@file`: Local file with auto-detected type
   ```bash
-  ailets gpt4o --prompt "@image.jpg"
+  ailets gpt --prompt "@image.jpg"
   ```
 
 - `@{type}file`: Local file with explicit type
   ```bash
-  ailets gpt4o --prompt "@{text/plain}input.txt"
+  ailets gpt --prompt "@{text/plain}input.txt"
   ```
 
 - `@url`: URL with auto-detected type
   ```bash
-  ailets gpt4o --prompt "@https://example.com/image.jpg"
+  ailets gpt --prompt "@https://example.com/image.jpg"
   ```
 
 - `@{type}url`: URL with explicit type
   ```bash
-  ailets gpt4o --prompt "@{image/png}https://example.com/image.png"
+  ailets gpt --prompt "@{image/png}https://example.com/image.png"
   ```
 
 - `-`: Read from stdin
   ```bash
-  echo "Hello" | ailets gpt4o --prompt "-"
+  echo "Hello" | ailets gpt --prompt "-"
   ```
 
 Supported content types:
 - `text/*`: Text content
 - `image/*`: Image content (both local files and URLs)
 
-### Configuration inside prompt
+### Configuration Inside Prompt
 
 Prompt can have a [TOML](https://toml.io/en/) configuration block. The tool will parse the block and make the values available to actors through a special stream called `env`.
 
@@ -94,64 +139,36 @@ One is to use a usual Markdown code block "toml":
 
 Second way is to separate the TOML block from the prompt text with a line consisting of three dashes `---`.
 
-### System prompt
+### System Prompt
 
 To provide a system prompt, add a TOML block with a `role="system"` item:
 
 ```bash
-ailets0 gpt4o --prompt 'role="system"\n---\nYou are a helpful assistant who answers in Spanish' --prompt "Hello!"
-
+ailets gpt --prompt 'role="system"\n---\nYou are a helpful assistant who answers in Spanish' --prompt "Hello!"
+# Output:
+# ¡Hola! ¿En qué puedo ayudarte hoy?
 ```
 
-## Examples
 
-```base
-# Run with stdin prompt
-echo "Hello!" | ailets gpt4o
-# Output: Hello! How can I assist you today?
- 
-# Run with direct prompt
-ailets gpt4o --prompt "hello"
-# Output: Hello! How can I assist you today?
+## LLM vendor errors
 
-# Use a tool
-ailets gpt4o --tool get_user_name --prompt "Hello!"
-# Output: Hello, olpa! How can I assist you today?
-# Note that my name is included in the output
+`404 Not Found`: The tool accepts any model name as long as the base name is known. For example, the name `gpt-no-such-model` is valid for ailets because the base name is `gpt`, but since there is no such model, the vendor will return a 404 error.
 
-# Dry run to see dependency tree
-ailets gpt4o --prompt "Hello!" --dry-run
+`401 Unauthorized`: Bad API key.
 
-# Save state to file
-ailets gpt4o --prompt "Hello!" --save-state state.json
+`429 Too Many Requests`: The key has expired or all funds have been used.
 
-# Load state from file
-ailets gpt4o --load-state state.json --dry-run
+Currently, there is no easy way to get detailed error information. One option is to observe what is sent to the vendor (`--stop-before .query.NN`) and then send the query manually using `wget` or `curl`.
 
-# Execute one step at a time
-ailets gpt4o --prompt "Hello" --one-step
 
-# Stop at specific point
-ailets gpt4o --prompt "Hello" --stop-at messages_to_query.5
+## Model-specific Notes: gpt
 
-# Multiple prompts
-ailets gpt4o --prompt "What’s in this image?" --prompt @./image.jpeg
-ailets gpt4o  --prompt "What’s in this image?" --prompt "@https://upload.wikimedia.org/wikipedia/commons/thumb/d/dd/Gfp-wisconsin-madison-the-nature-boardwalk.jpg/2560px-Gfp-wisconsin-madison-the-nature-boardwalk.jpg"
+For the list of the model-specific options, see the section "Create chat completion" at <https://platform.openai.com/docs/api-reference/chat>.
 
-# Using a local LLM
-ailets0.py gpt4o --opt http.url=http://localhost:8000/v1/chat/completions --opt llm.model=local-model
-```
-
-## Model-specific notes: gpt4o
-
-With help of a TOML block, you can override model-specific options. For the list of them, see the section "Create chat completion" at <https://platform.openai.com/docs/api-reference/chat>.
-
-Below is an example of overriding `n` and `temperature`, and using a system prompt:
+Below is an example of overriding `n`, `temperature`, disabling streaming, and using a system prompt:
 
 ```bash
-ailets0 gpt4o --prompt '''n=3
-temperature=2
-role="system"
+ailets gpt --opt llm.n=3 --opt llm.temperature=0.8 --opt llm.stream=false --prompt '''role="system"
 ---
 Generate answers with 3 sentences.
 '''  --prompt "Hello!"
@@ -160,19 +177,26 @@ Generate answers with 3 sentences.
 Output:
 
 ```
-Hello! How can I assist you today? If you have any questions or topics to discuss, feel free to share!
+Hello! How can I assist you today? Feel free to ask me anything you're curious about.
 
-Hello! How can I assist you today? If you have any questions or need information, feel free to ask!
+Hello! How can I assist you today?
 
-Hello! How can I assist you today? If you have any questions or topics in mind, feel free to share!
+Hello! How can I assist you today? Feel free to ask me anything.
 ```
 
-## Model-specific notes: dall-e
+Without disabling streaming, the output will be mixed:
+
+```
+Hello!HelloHello How!! can How How I can can assist I I you assist assist today you you? today today I'm?? here I'm to here help to with help any with questions any or questions topics you you're have interested. in.
+```
+
+
+## Model-specific Notes: dall-e
 
 Basic usage:
 
 ```bash
-ailets0 dalle --prompt 'linux logo'
+ailets dalle --prompt 'linux logo'
 ```
 
 The output is a rewritten prompt and a link to the generated image.
@@ -186,8 +210,15 @@ Create an image of the Linux logo. It's a penguin known as Tux, standing upright
 To get the image instead of the link, set the `response_format` parameter to `b64_json`:
 
 ```bash
-ailets0 dalle --prompt $'response_format="b64_json"\n---\nlinux logo'
+ailets dalle --prompt $'response_format="b64_json"\n---\nlinux logo'
 ```
+
+
+## Available Tools
+
+Currently supported tools:
+
+- `get_user_name`: Retrieves user name information
 
 
 ## Virtual File System
@@ -220,12 +251,12 @@ sqlite3 x.db "INSERT INTO Dict (key, value) VALUES (CAST('$f' AS BLOB), readfile
 Example usage:
 
 ```bash
-$ ./ailets0.py gpt4o --prompt Hello --file-system x.db
+$ ailets gpt --prompt Hello --file-system x.db
 Hello! How can I assist you today?
 
 $ sqlite3 x.db "SELECT key FROM Dict;"
-.gpt4o.messages_to_query.16
-.gpt4o.response_to_messages.18
+.gpt.messages_to_query.16
+.gpt.response_to_messages.18
 .messages_to_markdown.19
 .prompt_to_messages.15
 .query.17
@@ -258,12 +289,12 @@ ailets() {
 # Re-create the database
 rm -f x.db
 touch x.db
-ailets gpt4o --dry-run
+ailets gpt --dry-run
 
 # Put a file to the database and run Ailets
 f=tux.png
 sqlite3 x.db "INSERT INTO Dict (key, value) VALUES (CAST('$f' AS BLOB), readfile('$f'));"
 
-ailets gpt4o --prompt "Describe the image." --prompt "@tux.png"
+ailets gpt --prompt "Describe the image." --prompt "@tux.png"
 # The image features a cartoon penguin. It has ...
 ```

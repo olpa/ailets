@@ -22,7 +22,7 @@ from ailets.io.input_reader import read_all, read_env_pipe
 
 url_tpl = "https://api.openai.com/v1/images/##TASK##"
 auth_header = {
-    "Authorization": "Bearer {{secret('openai','dalle')}}",
+    "Authorization": "Bearer {{secret}}",
 }
 
 boundary = "----AiletsBoundary7MA4YWxkTrZu0gW"

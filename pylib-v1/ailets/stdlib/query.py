@@ -22,6 +22,8 @@ def resolve_secrets(value: str, url: str) -> str:
     domain_parts = parsed.netloc.split(".")
     if len(domain_parts) >= 2:
         provider = domain_parts[-2]
+    else:
+        provider = domain_parts[0].split(":")[0]
 
     def get_secret(match: re.Match[str]) -> str:
         envvar1 = f"{provider.upper()}_API_KEY"

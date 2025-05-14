@@ -15,7 +15,7 @@ The Python package `ailets` contains:
 
 - Dependency tree for actors
 - An orchestrator to run actors
-- Sample actors to run `gpt4o` and `dall-e` LLM workflows
+- Sample actors to run `gpt` and `dall-e` LLM workflows
 
 ## Orchestration is Hard, Use the Library
 
@@ -234,9 +234,9 @@ Below is an example of the environment immediately after executing an LLM:
 
 ```
 ├── .messages_to_markdown.21 [⋯ not built]
-│   ├── .gpt4o.response_to_messages.20 [⋯ not built]
+│   ├── .gpt.response_to_messages.20 [⋯ not built]
 │   │   ├── .query.19 [✓ built]
-│   │   │   ├── .gpt4o.messages_to_query.18 [✓ built]
+│   │   │   ├── .gpt.messages_to_query.18 [✓ built]
 │   │   │   │   ├── .prompt_to_messages.17 [✓ built]
 │   │   │   │   │   ├── value.15 [✓ built] (Prompt)
 │   │   │   │   ├── (param: toolspecs)
@@ -247,16 +247,16 @@ When processing the result of the `query`, the `response_to_messages` step will 
 
 ```
 ├── .messages_to_markdown.21 [⋯ not built]
-│   ├── .gpt4o.response_to_messages.20 [✓ built]
+│   ├── .gpt.response_to_messages.20 [✓ built]
 │   │   ├── .query.19 [✓ built]
-│   │   │   ├── .gpt4o.messages_to_query.18 [✓ built]
+│   │   │   ├── .gpt.messages_to_query.18 [✓ built]
 │   │   │   │   ├── .prompt_to_messages.17 [✓ built]
 │   │   │   │   │   ├── value.15 [✓ built] (Prompt)
 │   │   │   │   ├── (param: toolspecs)
 │   │   │   │   │   ├── value.13 [✓ built] (Tool spec get_user_name)
-│   ├── .gpt4o.response_to_messages.39 [⋯ not built]
+│   ├── .gpt.response_to_messages.39 [⋯ not built]
 │   │   ├── .query.38 [⋯ not built]
-│   │   │   ├── .gpt4o.messages_to_query.37 [⋯ not built]
+│   │   │   ├── .gpt.messages_to_query.37 [⋯ not built]
 │   │   │   │   ├── .prompt_to_messages.17 [✓ built]
 │   │   │   │   │   ├── value.15 [✓ built] (Prompt)
 │   │   │   │   ├── value.29 [✓ built] (tool calls in chat history - get_user_name)
@@ -269,4 +269,4 @@ When processing the result of the `query`, the `response_to_messages` step will 
 │   │   │   │   │   ├── value.13 [✓ built] (Tool spec get_user_name)
 ```
 
-The previous loop iteration `.gpt4o.response_to_messages.20` has been completed, and the new iteration `.gpt4o.response_to_messages.39` is now in the build plan.
+The previous loop iteration `.gpt.response_to_messages.20` has been completed, and the new iteration `.gpt.response_to_messages.39` is now in the build plan.
