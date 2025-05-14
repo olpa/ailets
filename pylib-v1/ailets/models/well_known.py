@@ -20,6 +20,12 @@ OPENAI_GPT_DEFAULTS = {
 
 OPENAI_GPT_MODELS = ["gpt-4o-mini", "gpt-4.1-nano", "o3", "o3-mini", "o4-mini", "chatgpt-4o-latest"]
 
+OPENAI_DALLE_DEFAULTS = {
+    "ailets.model": "dalle",
+}
+
+OPENAI_DALLE_MODELS = ["dall-e", "dalle"]
+
 LOCAL_DEFAULTS = {
     "http.url": "http://localhost:8000/v1/chat/completions",
     "ailets.model": "gpt",
@@ -45,6 +51,7 @@ ANTHROPIC_MODELS = ["claude-3-7-sonnet-latest", "claude-3-5-sonnet-latest", "cla
 
 KEY_TO_DEFAULTS = {
     "gpt": OPENAI_GPT_DEFAULTS,
+    "dalle": OPENAI_DALLE_DEFAULTS,
     "local": LOCAL_DEFAULTS,
     "google": GOOGLE_DEFAULTS,
     "anthropic": ANTHROPIC_DEFAULTS,
@@ -52,6 +59,7 @@ KEY_TO_DEFAULTS = {
 
 MODEL_TO_KEY = {
     **{model: "gpt" for model in OPENAI_GPT_MODELS},
+    **{model: "dalle" for model in OPENAI_DALLE_MODELS},
     **{model: "local" for model in LOCAL_MODELS},
     **{model: "google" for model in GOOGLE_MODELS},
     **{model: "anthropic" for model in ANTHROPIC_MODELS},
