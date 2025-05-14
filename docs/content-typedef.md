@@ -1,6 +1,6 @@
 # Content type definition
 
-To have interoperability between different models, we define a common content type.
+To have interoperability between different models, we define a common content type, based on [OpenAI chat completion messages](https://platform.openai.com/docs/api-reference/chat/create).
 
 Each model is expected to get a sequence of `ChatMessage`s as input and produce a sequence of `ChatMessage`s as output.
 
@@ -15,29 +15,37 @@ A `ChatMessage` represents a message in a chat conversation. It is defined as a 
   - `tool`: Tool output
 - `content`: A sequence of content items
 
+
 ## `ContentItem`
 
-`ContentItemText`: Text content with fields:
+### `ContentItemText`
 
-- `type: "text"`
+Text content with fields:
+
+- `type: "text"|"output_text"`
 - `text: str` - The actual text content
+
+See also [OpenAI reference](https://platform.openai.com/docs/guides/text).
+
 
 `ContentItemRefusal`: Refusal message with fields:
 
 - `type: "refusal"`
 - `refusal: str` - The refusal message
 
+
 `ContentItemImage`: Image content with fields:
 
 - `type: "image"` 
 - `content_type: str` - MIME type of the image, for example `image/png`
-- Either `url: str` or `stream: str` (but not both)
+- Either `url: str` or `key: str` (but not both)
 
 For `url`, some models produce and accept data URLs. Ailets should prefer `stream` over `url`, where `stream` is a named file stream inside ailets' runtime.
 
 The recommended stream name is `media/image.*`.
 
 If the stream name is `out/*`, ailets will save the file to the output directory. The name of the file is the md5 of the stream content.
+
 
 `ContentItemFunction`: Function call with fields:
 
