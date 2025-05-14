@@ -10,7 +10,7 @@ ailets MODEL [options]
 
 ## Required Arguments
 
-- `MODEL`: The model to run. The best choices are `gpt`, `gemini`, or `claude`.
+- `MODEL`: The model to run. The best choices are `gpt`, `gemini`, or `claude`. To get the list of models, run the tool with a non-existing model name 'list'.
 
 ## Optional Arguments
 
@@ -120,7 +120,7 @@ Supported content types:
 - `text/*`: Text content
 - `image/*`: Image content (both local files and URLs)
 
-### Configuration inside prompt
+### Configuration Inside Prompt
 
 Prompt can have a [TOML](https://toml.io/en/) configuration block. The tool will parse the block and make the values available to actors through a special stream called `env`.
 
@@ -136,16 +136,29 @@ One is to use a usual Markdown code block "toml":
 
 Second way is to separate the TOML block from the prompt text with a line consisting of three dashes `---`.
 
-### System prompt
+### System Prompt
 
 To provide a system prompt, add a TOML block with a `role="system"` item:
 
 ```bash
 ailets0 gpt --prompt 'role="system"\n---\nYou are a helpful assistant who answers in Spanish' --prompt "Hello!"
-
+# Output:
+# ¡Hola! ¿En qué puedo ayudarte hoy?
 ```
 
-## Model-specific notes: gpt
+
+## LLM vendor errors
+
+`404 Not Found`: The tool accepts any model name as long as the base name is known. For example, the name `gpt-no-such-model` is valid for ailets because the base name is `gpt`, but since there is no such model, the vendor will return a 404 error.
+
+`401 Unauthorized`: Bad API key.
+
+`429 Too Many Requests`: The key is expired or all funds have been used.
+
+Currently, there is no straightforward way to get detailed error information. One approach is to observe what is sent to the vendor (`--stop-before .query.NN`) and then send the query manually using `wget` or `curl`.
+
+
+## Model-specific Notes: gpt
 
 For the list of the model-specific options, see the section "Create chat completion" at <https://platform.openai.com/docs/api-reference/chat>.
 
@@ -175,7 +188,7 @@ Hello!HelloHello How!! can How How I can can assist I I you assist assist today 
 ```
 
 
-## Model-specific notes: dall-e
+## Model-specific Notes: dall-e
 
 Basic usage:
 
