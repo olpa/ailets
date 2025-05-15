@@ -22,18 +22,10 @@ A `ChatMessage` represents a message in a chat conversation. It is defined as a 
 
 Text content with fields:
 
-- `type: "text"|"output_text"`
+- `type: "text"`
 - `text: str` - The actual text content
 
 See also [OpenAI reference](https://platform.openai.com/docs/guides/text).
-
-
-### `ContentItemRefusal`
-
-Refusal message with fields:
-
-- `type: "refusal"`
-- `refusal: str` - The refusal message
 
 
 ### `ContentItemImage`
@@ -41,8 +33,10 @@ Refusal message with fields:
 Image content with fields:
 
 - `type: "image"` 
-- `content_type: str` - MIME type of the image, for example `image/png`
-- Either `url: str` or `key: str` (but not both)
+- `content_type: Optional<str>` - MIME type of the image, for example `image/png`
+- Either of but not both:
+  - `url: str`, or
+  - `key: str`
 
 For `url`, some models produce and accept data URLs. Ailets should prefer `stream` over `url`, where `stream` is a named file stream inside ailets' runtime.
 
