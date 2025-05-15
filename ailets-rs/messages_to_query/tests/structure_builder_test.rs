@@ -247,3 +247,32 @@ fn support_special_chars_and_unicode() {
     );
     assert_that!(writer.get_output(), equal_to(expected));
 }
+
+#[test]
+fn add_image_by_url() {
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let mut builder = builder;
+
+    builder.begin_message().unwrap();
+    builder.add_role("user").unwrap();
+    builder.begin_content().unwrap();
+    builder.begin_content_item().unwrap();
+    builder.add_item_type(String::from("image")).unwrap();
+    builder
+        .add_image_by_url("http://example.com/image.png")
+        .unwrap();
+    builder.end_content_item().unwrap();
+    builder.end_content().unwrap();
+    builder.end_message().unwrap();
+    builder.end().unwrap();
+
+    let expected_image_item = r#"{"type":"image","image_url":"http://example.com/image.png"}"#;
+    assert_that!(
+        writer.get_output(),
+        equal_to(wrap_boilerplate(&format!(
+            r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
+            expected_image_item
+        )))
+    );
+}
