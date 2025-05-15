@@ -20,7 +20,7 @@ A `ChatMessage` represents a message in a chat conversation. It is defined as a 
 
 ### `ContentItemText`
 
-Text content with fields:
+Text content with the following fields:
 
 - `type: "text"`
 - `text: str` - The actual text content
@@ -30,19 +30,34 @@ See also [OpenAI reference](https://platform.openai.com/docs/guides/text).
 
 ### `ContentItemImage`
 
-Image content with fields:
+Image content with the following fields:
 
-- `type: "image"` 
-- `content_type: Optional<str>` - MIME type of the image, for example `image/png`
-- Either of but not both:
+- `type: "image"`
+- `content_type: Optional<str>` – MIME type of the image, for example `image/png`
+- `detail: Optional<"low"|"high"|"auto" | str>` – Level of detail to use when processing and understanding the image
+- Either of, but not both:
   - `url: str`, or
   - `key: str`
 
-For `url`, some models produce and accept data URLs. Ailets should prefer `stream` over `url`, where `stream` is a named file stream inside ailets' runtime.
+See also [OpenAI reference](https://platform.openai.com/docs/guides/images-vision).
 
-The recommended stream name is `media/image.*`.
+There are three ways to include an image:
 
-If the stream name is `out/*`, ailets will save the file to the output directory. The name of the file is the md5 of the stream content.
+- Image reference using a normal `url`.
+- Image blob using a data URL in the form `data:[<mediatype>][;base64],<base64-encoded data>`.
+- Image blob using a `key` in a key-value storage.
+
+For image references, ailets do not download the data. Instead, the logic is:
+
+- Pass the URL to an LLM model as is.
+- Insert the URL into markdown when serializing.
+
+For image blobs, passing them to a model depends on the specific model. For OpenAI-compatible chats, data URLs are passed as they are.
+
+When serializing an image blob to markdown:
+
+- For a data URL, decode the blob and store it in the key-value storage.
+- When using a key, copy the blob to a new key with the prefix `out/`. In markdown, reference the `out/` version. Expect that the ailets runner will extract `out/*` blobs for the user.
 
 
 ### `ContentItemFunction`
