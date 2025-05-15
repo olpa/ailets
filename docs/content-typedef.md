@@ -28,13 +28,17 @@ Text content with fields:
 See also [OpenAI reference](https://platform.openai.com/docs/guides/text).
 
 
-`ContentItemRefusal`: Refusal message with fields:
+### `ContentItemRefusal`
+
+Refusal message with fields:
 
 - `type: "refusal"`
 - `refusal: str` - The refusal message
 
 
-`ContentItemImage`: Image content with fields:
+### `ContentItemImage`
+
+Image content with fields:
 
 - `type: "image"` 
 - `content_type: str` - MIME type of the image, for example `image/png`
@@ -47,7 +51,9 @@ The recommended stream name is `media/image.*`.
 If the stream name is `out/*`, ailets will save the file to the output directory. The name of the file is the md5 of the stream content.
 
 
-`ContentItemFunction`: Function call with fields:
+### `ContentItemFunction`
+
+Function call with fields:
 
 - `type: "function"`
 - `id: str` - Function call identifier
