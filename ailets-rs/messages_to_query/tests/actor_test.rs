@@ -63,3 +63,19 @@ fn input_as_array() {
         .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
+
+#[test]
+fn pass_image_url_as_is() {
+    let input = r#"{"role": "user", "content": [{"type": "image", "url": "https://example.com/image.jpg"}]}"#;
+    let reader = Cursor::new(input);
+    let writer = RcWriter::new();
+
+    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
+    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
+        .expect("Failed to parse output as JSON");
+
+    let expected_item = r#"[{"role": "user", "content": [{"type": "image", "image_url": "https://example.com/image.jpg"}]}]"#;
+    let expected_json = serde_json::from_str(wrap_boilerplate(expected_item).as_str())
+        .expect("Failed to parse expected output as JSON");
+    assert_that!(output_json, equal_to(expected_json));
+}
