@@ -1,4 +1,5 @@
 use crate::env_opts::EnvOpts;
+use actor_io::AReader;
 use std::io::Write;
 
 #[derive(Debug)]
@@ -349,8 +350,11 @@ impl<W: Write> StructureBuilder<W> {
             return Err("Content item is not started".to_string());
         }
         self.add_item_type(String::from("image_url"))?;
-        write!(self.writer, r#","image_url":{{"url":"data:base64,{key}"}}"#)
-            .map_err(|e| e.to_string())?;
+        write!(self.writer, r#","image_url":{{"url":"data:base64,"#).map_err(|e| e.to_string())?;
+        let cname = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
+        let mut blob = AReader::new(&cname).map_err(|e| e.to_string())?;
+        std::io::copy(&mut blob, &mut self.writer).map_err(|e| e.to_string())?;
+        write!(self.writer, r#""}}"#).map_err(|e| e.to_string())?;
         Ok(())
     }
 }
