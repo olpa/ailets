@@ -319,6 +319,25 @@ impl<W: Write> StructureBuilder<W> {
 
     /// # Errors
     /// - content item is not started
+    /// - I/O
+    pub fn begin_image_url(&mut self) -> Result<(), String> {
+        if let Progress::ChildrenAreUnexpected = self.content_item {
+            return Err("Content item is not started".to_string());
+        }
+        self.add_item_type(String::from("image"))?;
+        write!(self.writer, r#","image_url":""#).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// # Errors
+    /// - I/O
+    pub fn end_image_url(&mut self) -> Result<(), String> {
+        write!(self.writer, "\"").map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// # Errors
+    /// - content item is not started
     /// - content item type is already set to something other than "image"
     /// - I/O
     pub fn add_image_by_url(&mut self, image_url: &str) -> Result<(), String> {
