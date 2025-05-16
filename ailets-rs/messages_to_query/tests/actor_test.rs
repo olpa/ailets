@@ -66,7 +66,7 @@ fn input_as_array() {
 
 #[test]
 fn pass_image_url_as_is() {
-    let input = r#"{"role": "user", "content": [{"type": "image", "url": "https://example.com/image.jpg"}]}"#;
+    let input = r#"{"role": "user", "content": [{"type": "image", "image_url": "https://example.com/image.jpg"}]}"#;
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
 

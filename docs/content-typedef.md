@@ -32,20 +32,20 @@ See also [OpenAI reference](https://platform.openai.com/docs/guides/text).
 
 Image content with the following fields:
 
-- `type: "image"`
+- `type: "image"|"input_image"|"output_image"`
 - `content_type: Optional<str>` – MIME type of the image, for example `image/png`
 - `detail: Optional<"low"|"high"|"auto" | str>` – Level of detail to use when processing and understanding the image
 - Either of, but not both:
-  - `url: str`, or
-  - `key: str`
+  - `image_url: str`, or
+  - `image_key: str`
 
 See also [OpenAI reference](https://platform.openai.com/docs/guides/images-vision).
 
 There are three ways to include an image:
 
-- Image reference using a normal `url`.
+- Image reference using a normal URL.
 - Image blob using a data URL in the form `data:[<mediatype>][;base64],<base64-encoded data>`.
-- Image blob using a `key` in a key-value storage.
+- Image blob using a key in a key-value storage.
 
 For image references, ailets do not download the data. Instead, the logic is:
 
