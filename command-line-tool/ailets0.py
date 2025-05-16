@@ -324,11 +324,7 @@ async def main() -> None:
         wasm_registry = WasmRegistry()
         hijack_msg2md(nodereg, wasm_registry)
         hijack_gpt_resp2msg(nodereg, wasm_registry)
-        if not args.tools and all(
-            item.content_type is None or item.content_type.startswith("text/")
-            for item in prompt
-        ):
-            hijack_msg2query(nodereg, wasm_registry)
+        hijack_msg2query(nodereg, wasm_registry)
 
     if args.load_state:
         with open_file(vfs, args.load_state) as h:
