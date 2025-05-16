@@ -316,4 +316,17 @@ impl<W: Write> StructureBuilder<W> {
         write!(self.writer, "\"").map_err(|e| e.to_string())?;
         Ok(())
     }
+
+    /// # Errors
+    /// - content item is not started
+    /// - content item type is already set to something other than "image"
+    /// - I/O
+    pub fn add_image_by_url(&mut self, image_url: &str) -> Result<(), String> {
+        self.add_item_type(String::from("image"))?;
+
+        write!(self.writer, ",\"image_url\":").map_err(|e| e.to_string())?;
+        serde_json::to_writer(&mut self.writer, &image_url)
+            .map_err(|e| format!("Failed to write image_url JSON: {e}"))?;
+        Ok(())
+    }
 }
