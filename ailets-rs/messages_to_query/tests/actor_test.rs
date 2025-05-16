@@ -1,6 +1,6 @@
 #[macro_use]
 extern crate hamcrest;
-use actor_runtime_mocked::RcWriter;
+use actor_runtime_mocked::{add_file, RcWriter};
 use hamcrest::prelude::*;
 use messages_to_query::_process_query;
 use messages_to_query::env_opts::EnvOpts;
@@ -65,7 +65,7 @@ fn input_as_array() {
 }
 
 #[test]
-fn pass_image_url_as_is() {
+fn image_url_as_is() {
     let input = r#"{"role": "user", "content": [{"type": "image", "image_url": "https://example.com/image.jpg"}]}"#;
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
@@ -75,6 +75,23 @@ fn pass_image_url_as_is() {
         .expect("Failed to parse output as JSON");
 
     let expected_item = r#"[{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "https://example.com/image.jpg"}}]}]"#;
+    let expected_json = serde_json::from_str(wrap_boilerplate(expected_item).as_str())
+        .expect("Failed to parse expected output as JSON");
+    assert_that!(output_json, equal_to(expected_json));
+}
+
+#[test]
+fn image_as_key() {
+    let input = r#"{"role": "user", "content": [{"type": "image", "image_key": "media/image-as-key.png"}]}"#;
+    let reader = Cursor::new(input);
+    let writer = RcWriter::new();
+    add_file(String::from("media/image-as-key.png"), b"hello".to_vec());
+
+    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
+    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
+        .expect("Failed to parse output as JSON");
+
+    let expected_item = r#"[{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "data:base64,aGVsbG8="}}]}]"#;
     let expected_json = serde_json::from_str(wrap_boilerplate(expected_item).as_str())
         .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
