@@ -340,4 +340,17 @@ impl<W: Write> StructureBuilder<W> {
         write!(self.writer, r#""}}"#).map_err(|e| e.to_string())?;
         Ok(())
     }
+
+    /// # Errors
+    /// - content item is not started
+    /// - I/O
+    pub fn image_key(&mut self, key: &str) -> Result<(), String> {
+        if let Progress::ChildrenAreUnexpected = self.content_item {
+            return Err("Content item is not started".to_string());
+        }
+        self.add_item_type(String::from("image_url"))?;
+        write!(self.writer, r#","image_url":{{"url":"data:base64,{key}"}}"#)
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
 }

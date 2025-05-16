@@ -28,6 +28,13 @@ fn create_begin_triggers<'a, W: Write + 'a>(
         )),
         Box::new(handlers::on_content_image_url) as BoxedAction<'_, StructureBuilder<W>>,
     );
+    let content_image_key = Trigger::new(
+        Box::new(ParentAndName::new(
+            "#array".to_string(),
+            "image_key".to_string(),
+        )),
+        Box::new(handlers::on_content_image_key) as BoxedAction<'_, StructureBuilder<W>>,
+    );
     let content_item_begin = Trigger::new(
         Box::new(ParentParentAndName::new(
             "content".to_string(),
@@ -86,6 +93,7 @@ fn create_begin_triggers<'a, W: Write + 'a>(
     vec![
         content_text,
         content_image_url,
+        content_image_key,
         content_item_begin,
         content_item_type,
         content_begin_arr,
