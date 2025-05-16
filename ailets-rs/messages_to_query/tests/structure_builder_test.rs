@@ -258,16 +258,22 @@ fn add_image_by_url() {
     builder.add_role("user").unwrap();
     builder.begin_content().unwrap();
     builder.begin_content_item().unwrap();
+
     builder.add_item_type(String::from("image")).unwrap();
+    builder.begin_image_url().unwrap();
     builder
-        .add_image_by_url("http://example.com/image.png")
+        .get_writer()
+        .write_all(b"http://example.com/image.png")
         .unwrap();
+    builder.end_image_url().unwrap();
+
     builder.end_content_item().unwrap();
     builder.end_content().unwrap();
     builder.end_message().unwrap();
     builder.end().unwrap();
 
-    let expected_image_item = r#"{"type":"image","image_url":"http://example.com/image.png"}"#;
+    let expected_image_item =
+        r#"{"type":"image_url","image_url":{"url":"http://example.com/image.png"}}"#;
     assert_that!(
         writer.get_output(),
         equal_to(wrap_boilerplate(&format!(
