@@ -31,6 +31,7 @@ pub struct StructureBuilder<W: Write> {
     message_content: Progress,
     content_item: Progress,
     content_item_type: Option<String>,
+    image_type: Option<String>,
     env_opts: EnvOpts,
 }
 
@@ -43,6 +44,7 @@ impl<W: Write> StructureBuilder<W> {
             message_content: Progress::ChildrenAreUnexpected,
             content_item: Progress::ChildrenAreUnexpected,
             content_item_type: None,
+            image_type: None,
             env_opts,
         }
     }
@@ -203,6 +205,7 @@ impl<W: Write> StructureBuilder<W> {
         self.message_content = Progress::WaitingForFirstChild;
         self.content_item = Progress::ChildrenAreUnexpected;
         self.content_item_type = None;
+        self.image_type = None;
         // Unlike for other containers, allow empty content
         self.really_begin_content()?;
         Ok(())
@@ -349,7 +352,15 @@ impl<W: Write> StructureBuilder<W> {
     /// - I/O
     pub fn image_key(&mut self, key: &str) -> Result<(), String> {
         self.begin_image_url()?;
-        write!(self.writer, "data:base64,").map_err(|e| e.to_string())?;
+        write!(self.writer, "data:").map_err(|e| e.to_string())?;
+        if let Some(ref image_type) = self.image_type {
+            self.writer
+                .write_all(image_type.as_bytes())
+                .map_err(|e| e.to_string())?;
+        }
+        self.writer
+            .write_all(b";base64,")
+            .map_err(|e| e.to_string())?;
 
         let cname = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
         let mut blob_reader = AReader::new(&cname).map_err(|e| e.to_string())?;

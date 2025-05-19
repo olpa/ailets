@@ -82,7 +82,7 @@ fn image_url_as_is() {
 
 #[test]
 fn image_as_key() {
-    let input = r#"{"role": "user", "content": [{"type": "image", "image_key": "media/image-as-key.png"}]}"#;
+    let input = r#"{"role": "user", "content": [{"type": "image", "image_type": "image/png", "image_key": "media/image-as-key.png"}]}"#;
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
     add_file(String::from("media/image-as-key.png"), b"hello".to_vec());
@@ -91,7 +91,7 @@ fn image_as_key() {
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
 
-    let expected_item = r#"[{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "data:base64,aGVsbG8="}}]}]"#;
+    let expected_item = r#"[{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "data:image/png;base64,aGVsbG8="}}]}]"#;
     let expected_json = serde_json::from_str(wrap_boilerplate(expected_item).as_str())
         .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
