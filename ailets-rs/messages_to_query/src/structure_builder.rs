@@ -348,11 +348,8 @@ impl<W: Write> StructureBuilder<W> {
     /// - content item is not started
     /// - I/O
     pub fn image_key(&mut self, key: &str) -> Result<(), String> {
-        if let Progress::ChildrenAreUnexpected = self.content_item {
-            return Err("Content item is not started".to_string());
-        }
-        self.add_item_type(String::from("image_url"))?;
-        write!(self.writer, r#","image_url":{{"url":"data:base64,"#).map_err(|e| e.to_string())?;
+        self.begin_image_url()?;
+        write!(self.writer, "data:base64,").map_err(|e| e.to_string())?;
 
         let cname = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
         let mut blob_reader = AReader::new(&cname).map_err(|e| e.to_string())?;
@@ -362,7 +359,6 @@ impl<W: Write> StructureBuilder<W> {
         encoder.finish().map_err(|e| e.to_string())?;
         drop(encoder);
 
-        write!(self.writer, r#""}}"#).map_err(|e| e.to_string())?;
-        Ok(())
+        self.end_image_url()
     }
 }
