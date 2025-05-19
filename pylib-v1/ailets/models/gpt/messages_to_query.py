@@ -110,6 +110,7 @@ async def get_overrides(runtime: INodeRuntime) -> dict[str, Any]:
 
 async def messages_to_query(runtime: INodeRuntime) -> None:
     """Convert chat messages into a query."""
+    raise ValueError("Python-actor for GPT should not be used anymore")
 
     messages: list[GptMessage] = []
     async for message in iter_input_objects(runtime, StdHandles.stdin):
