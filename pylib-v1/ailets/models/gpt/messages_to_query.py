@@ -114,7 +114,7 @@ async def messages_to_query(runtime: INodeRuntime) -> None:
 
     messages: list[GptMessage] = []
     async for message in iter_input_objects(runtime, StdHandles.stdin):
-        new_message: GptMessage = message.copy()  # type: ignore[assignment]
+        new_message: GptMessage = message.copy()
         if "content" in message:
             new_content, tool_calls = await rewrite_content(runtime, message["content"])
             new_message["content"] = new_content
