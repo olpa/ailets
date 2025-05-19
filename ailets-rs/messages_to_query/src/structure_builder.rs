@@ -1,5 +1,7 @@
 use crate::env_opts::EnvOpts;
 use actor_io::AReader;
+use base64::engine::general_purpose::STANDARD;
+use base64::write::EncoderWriter as Base64Encoder;
 use std::io::Write;
 
 #[derive(Debug)]
@@ -351,9 +353,15 @@ impl<W: Write> StructureBuilder<W> {
         }
         self.add_item_type(String::from("image_url"))?;
         write!(self.writer, r#","image_url":{{"url":"data:base64,"#).map_err(|e| e.to_string())?;
+
         let cname = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
-        let mut blob = AReader::new(&cname).map_err(|e| e.to_string())?;
-        std::io::copy(&mut blob, &mut self.writer).map_err(|e| e.to_string())?;
+        let mut blob_reader = AReader::new(&cname).map_err(|e| e.to_string())?;
+
+        let mut encoder = Base64Encoder::new(&mut self.writer, &STANDARD);
+        std::io::copy(&mut blob_reader, &mut encoder).map_err(|e| e.to_string())?;
+        encoder.finish().map_err(|e| e.to_string())?;
+        drop(encoder);
+
         write!(self.writer, r#""}}"#).map_err(|e| e.to_string())?;
         Ok(())
     }

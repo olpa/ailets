@@ -241,6 +241,7 @@ dependencies = [
  "actor_io",
  "actor_runtime",
  "actor_runtime_mocked",
+ "base64",
  "getrandom",
  "hamcrest",
  "scan_json",
