@@ -374,10 +374,12 @@ impl<W: Write> StructureBuilder<W> {
         self.begin_image_url()?;
         write!(self.writer, "data:").map_err(|e| e.to_string())?;
         if let Some(ref attrs) = self.content_item_attr {
-            if let Some(ref image_type) = attrs.get("image_type") {
+            if let Some(ref content_type) = attrs.get("content_type") {
                 let mut ser =
                     serde_json::ser::Serializer::with_formatter(&mut self.writer, StrFormatter {});
-                image_type.serialize(&mut ser).map_err(|e| e.to_string())?;
+                content_type
+                    .serialize(&mut ser)
+                    .map_err(|e| e.to_string())?;
             }
         }
         self.writer

@@ -193,7 +193,7 @@ pub fn on_content_image_key<W: Write>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_content_item_attribute_image_type<W: Write>(
+pub fn on_content_item_attribute_content_type<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
@@ -202,13 +202,14 @@ pub fn on_content_item_attribute_image_type<W: Write>(
         Ok(v) => v,
         Err(e) => {
             return StreamOp::Error(
-                format!("Error getting attribute 'image_type'. Expected string, got: {e:?}").into(),
+                format!("Error getting attribute 'content_type'. Expected string, got: {e:?}")
+                    .into(),
             );
         }
     };
     let mut builder = builder_cell.borrow_mut();
     if let Err(e) =
-        builder.set_content_item_attribute(String::from("image_type"), String::from(value))
+        builder.set_content_item_attribute(String::from("content_type"), String::from(value))
     {
         return StreamOp::Error(e.into());
     }

@@ -47,12 +47,12 @@ fn create_begin_triggers<'a, W: Write + 'a>(
         Box::new(ParentAndName::new("#array".to_string(), "type".to_string())),
         Box::new(handlers::on_content_item_type) as BoxedAction<'_, StructureBuilder<W>>,
     );
-    let content_item_attribute_image_type = Trigger::new(
+    let content_item_attribute_content_type = Trigger::new(
         Box::new(ParentAndName::new(
             "#array".to_string(),
-            "image_type".to_string(),
+            "content_type".to_string(),
         )),
-        Box::new(handlers::on_content_item_attribute_image_type)
+        Box::new(handlers::on_content_item_attribute_content_type)
             as BoxedAction<'_, StructureBuilder<W>>,
     );
     let content_begin_arr = Trigger::new(
@@ -104,7 +104,7 @@ fn create_begin_triggers<'a, W: Write + 'a>(
         content_image_key,
         content_item_begin,
         content_item_type,
-        content_item_attribute_image_type,
+        content_item_attribute_content_type,
         content_begin_arr,
         content_begin_jsonl,
         role_arr,

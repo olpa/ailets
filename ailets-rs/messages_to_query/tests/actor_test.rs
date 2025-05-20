@@ -82,7 +82,7 @@ fn image_url_as_is() {
 
 #[test]
 fn image_as_key() {
-    let input = r#"{"role": "user", "content": [{"type": "image", "image_type": "image/png", "image_key": "media/image-as-key.png"}]}"#;
+    let input = r#"{"role": "user", "content": [{"type": "image", "content_type": "image/png", "image_key": "media/image-as-key.png"}]}"#;
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
     add_file(String::from("media/image-as-key.png"), b"hello".to_vec());
