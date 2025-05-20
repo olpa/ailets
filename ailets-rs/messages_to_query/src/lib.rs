@@ -79,7 +79,7 @@ fn create_begin_triggers<'a, W: Write + 'a>(
         Box::new(handlers::on_content_item_type) as BoxedAction<'_, StructureBuilder<W>>,
     );
     let content_item_attribute = Trigger::new(
-        Box::new(ContentItemAttribute),
+        Box::new(ContentItemAttribute { }),
         Box::new(handlers::on_content_item_attribute) as BoxedAction<'_, StructureBuilder<W>>,
     );
     let content_begin_arr = Trigger::new(
