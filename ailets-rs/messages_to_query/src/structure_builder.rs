@@ -398,11 +398,7 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// - content item is not started
     /// - I/O
-    pub fn set_content_item_attribute(
-        &mut self,
-        key: String,
-        value: String,
-    ) -> Result<(), String> {
+    pub fn set_content_item_attribute(&mut self, key: String, value: String) -> Result<(), String> {
         if let Progress::ChildrenAreUnexpected = self.content_item {
             return Err("Content item is not started".to_string());
         }

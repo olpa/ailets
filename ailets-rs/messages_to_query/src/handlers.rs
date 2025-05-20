@@ -207,7 +207,9 @@ pub fn on_content_item_attribute_image_type<W: Write>(
         }
     };
     let mut builder = builder_cell.borrow_mut();
-    if let Err(e) = builder.set_content_item_attribute(String::from("image_type"), String::from(value)) {
+    if let Err(e) =
+        builder.set_content_item_attribute(String::from("image_type"), String::from(value))
+    {
         return StreamOp::Error(e.into());
     }
     StreamOp::ValueIsConsumed
