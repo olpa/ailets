@@ -3,7 +3,6 @@ use actor_io::AReader;
 use base64::engine::general_purpose::STANDARD;
 use base64::write::EncoderWriter as Base64Encoder;
 use serde::Serialize;
-use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use std::io;
 use std::io::Write;
@@ -52,7 +51,7 @@ pub struct StructureBuilder<W: Write> {
     message_content: Progress,
     content_item: Progress,
     content_item_type: Option<String>,
-    content_item_attr: Option<HashMap<String, JsonValue>>,
+    content_item_attr: Option<HashMap<String, String>>,
     env_opts: EnvOpts,
 }
 
@@ -402,7 +401,7 @@ impl<W: Write> StructureBuilder<W> {
     pub fn set_content_item_attribute(
         &mut self,
         key: String,
-        value: serde_json::Value,
+        value: String,
     ) -> Result<(), String> {
         if let Progress::ChildrenAreUnexpected = self.content_item {
             return Err("Content item is not started".to_string());

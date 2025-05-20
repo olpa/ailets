@@ -193,30 +193,21 @@ pub fn on_content_image_key<W: Write>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_content_item_attribute<W: Write>(
+pub fn on_content_item_attribute_image_type<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
-    let key = match rjiter.next_str() {
-        Ok(k) => k,
+    let value = match rjiter.next_str() {
+        Ok(v) => v,
         Err(e) => {
             return StreamOp::Error(
-                format!("Error getting attribute key. Expected string, got: {e:?}").into(),
+                format!("Error getting attribute 'image_type'. Expected string, got: {e:?}").into(),
             );
         }
     };
-    let value = match rjiter.next_value_owned() {
-        Ok(v) => v,
-        Err(e) => {
-            return StreamOp::Error(format!("Error getting attribute value: {e:?}").into());
-        }
-    };
-    let value = serde_json::from(value).map_err(|e| e.to_string())?;
-    if let Err(e) = builder_cell
-        .borrow_mut()
-        .set_content_item_attribute(key.to_string(), value)
-    {
+    let mut builder = builder_cell.borrow_mut();
+    if let Err(e) = builder.set_content_item_attribute(String::from("image_type"), String::from(value)) {
         return StreamOp::Error(e.into());
     }
     StreamOp::ValueIsConsumed
