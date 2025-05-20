@@ -15,6 +15,37 @@ use structure_builder::StructureBuilder;
 
 const BUFFER_SIZE: u32 = 1024;
 
+#[derive(Debug)]
+struct ContentItemAttribute {}
+
+impl scan_json::Matcher for ContentItemAttribute {
+    fn matches(&self, _name: &str, context: &[scan_json::ContextFrame]) -> bool {
+        let mut iter = context.iter().rev();
+        let Some(parent) = iter.next() else {
+            return false;
+        };
+        if parent.current_key != "#object" {
+            return false;
+        };
+
+        let Some(grandparent) = iter.next() else {
+            return false;
+        };
+        if grandparent.current_key != "#array" {
+            return false;
+        };
+
+        let Some(named) = iter.next() else {
+            return false;
+        };
+        if named.current_key != "content" {
+            return false;
+        };
+
+        true
+    }
+}
+
 fn create_begin_triggers<'a, W: Write + 'a>(
 ) -> Vec<Trigger<'a, BoxedAction<'a, StructureBuilder<W>>>> {
     let content_text = Trigger::new(
@@ -46,6 +77,10 @@ fn create_begin_triggers<'a, W: Write + 'a>(
     let content_item_type = Trigger::new(
         Box::new(ParentAndName::new("#array".to_string(), "type".to_string())),
         Box::new(handlers::on_content_item_type) as BoxedAction<'_, StructureBuilder<W>>,
+    );
+    let content_item_attribute = Trigger::new(
+        Box::new(ContentItemAttribute),
+        Box::new(handlers::on_content_item_attribute) as BoxedAction<'_, StructureBuilder<W>>,
     );
     let content_begin_arr = Trigger::new(
         Box::new(ParentParentAndName::new(
@@ -96,6 +131,7 @@ fn create_begin_triggers<'a, W: Write + 'a>(
         content_image_key,
         content_item_begin,
         content_item_type,
+        content_item_attribute,
         content_begin_arr,
         content_begin_jsonl,
         role_arr,
