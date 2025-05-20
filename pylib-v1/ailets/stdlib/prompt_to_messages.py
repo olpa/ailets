@@ -26,5 +26,5 @@ async def prompt_to_messages(runtime: INodeRuntime) -> None:
     await write_all(
         runtime,
         StdHandles.stdout,
-        json.dumps(messages).encode("utf-8"),
+        json.dumps(messages, sort_keys=True).encode("utf-8"),
     )
