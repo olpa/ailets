@@ -2,7 +2,28 @@ use crate::env_opts::EnvOpts;
 use actor_io::AReader;
 use base64::engine::general_purpose::STANDARD;
 use base64::write::EncoderWriter as Base64Encoder;
+use serde::Serialize;
+use serde_json::Value as JsonValue;
+use std::collections::HashMap;
+use std::io;
 use std::io::Write;
+
+struct StrFormatter {}
+
+impl serde_json::ser::Formatter for StrFormatter {
+    fn begin_string<W>(&mut self, _writer: &mut W) -> io::Result<()>
+    where
+        W: ?Sized + io::Write,
+    {
+        Ok(())
+    }
+    fn end_string<W>(&mut self, _writer: &mut W) -> io::Result<()>
+    where
+        W: ?Sized + io::Write,
+    {
+        Ok(())
+    }
+}
 
 #[derive(Debug)]
 pub enum Progress {
@@ -31,7 +52,7 @@ pub struct StructureBuilder<W: Write> {
     message_content: Progress,
     content_item: Progress,
     content_item_type: Option<String>,
-    image_type: Option<String>,
+    content_item_attr: Option<HashMap<String, JsonValue>>,
     env_opts: EnvOpts,
 }
 
@@ -44,7 +65,7 @@ impl<W: Write> StructureBuilder<W> {
             message_content: Progress::ChildrenAreUnexpected,
             content_item: Progress::ChildrenAreUnexpected,
             content_item_type: None,
-            image_type: None,
+            content_item_attr: None,
             env_opts,
         }
     }
@@ -205,7 +226,7 @@ impl<W: Write> StructureBuilder<W> {
         self.message_content = Progress::WaitingForFirstChild;
         self.content_item = Progress::ChildrenAreUnexpected;
         self.content_item_type = None;
-        self.image_type = None;
+        self.content_item_attr = None;
         // Unlike for other containers, allow empty content
         self.really_begin_content()?;
         Ok(())
@@ -353,10 +374,12 @@ impl<W: Write> StructureBuilder<W> {
     pub fn image_key(&mut self, key: &str) -> Result<(), String> {
         self.begin_image_url()?;
         write!(self.writer, "data:").map_err(|e| e.to_string())?;
-        if let Some(ref image_type) = self.image_type {
-            self.writer
-                .write_all(image_type.as_bytes())
-                .map_err(|e| e.to_string())?;
+        if let Some(ref attrs) = self.content_item_attr {
+            if let Some(ref image_type) = attrs.get("image_type") {
+                let mut ser =
+                    serde_json::ser::Serializer::with_formatter(&mut self.writer, StrFormatter {});
+                image_type.serialize(&mut ser).map_err(|e| e.to_string())?;
+            }
         }
         self.writer
             .write_all(b";base64,")
