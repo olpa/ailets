@@ -318,12 +318,12 @@ impl<W: Write> StructureBuilder<W> {
                 ));
             }
         } else {
-            let item_type = if item_type == "image" {
-                String::from("image_url")
+            let write_item_type = if item_type == "image" {
+                &String::from("image_url")
             } else {
-                item_type
+                &item_type
             };
-            write!(self.writer, r#""type":"{item_type}""#).map_err(|e| e.to_string())?;
+            write!(self.writer, r#""type":"{write_item_type}""#).map_err(|e| e.to_string())?;
             self.content_item_type = Some(item_type);
         }
         Ok(())
@@ -355,7 +355,7 @@ impl<W: Write> StructureBuilder<W> {
         if let Progress::ChildrenAreUnexpected = self.content_item {
             return Err("Content item is not started".to_string());
         }
-        self.add_item_type(String::from("image_url"))?;
+        self.add_item_type(String::from("image"))?;
         write!(self.writer, r#","image_url":{{"url":""#).map_err(|e| e.to_string())?;
         Ok(())
     }
