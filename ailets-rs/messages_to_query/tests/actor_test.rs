@@ -108,8 +108,9 @@ fn image_as_key_file_not_found() {
         result.is_err(),
         "Expected _process_query to fail when image file doesn't exist"
     );
+    let err = result.unwrap_err();
     assert_that!(
-        result.unwrap_err().to_string().as_str(),
+        err.to_string().as_str(),
         matches_regex("media/nonexistent.png")
     );
 }

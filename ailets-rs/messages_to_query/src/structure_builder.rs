@@ -1,5 +1,6 @@
 use crate::env_opts::EnvOpts;
 use actor_io::AReader;
+use actor_runtime::annotate_error;
 use base64::engine::general_purpose::STANDARD;
 use base64::write::EncoderWriter as Base64Encoder;
 use serde::Serialize;
@@ -371,8 +372,13 @@ impl<W: Write> StructureBuilder<W> {
     /// - content item is not started
     /// - I/O
     pub fn image_key(&mut self, key: &str) -> Result<(), String> {
+        let err_to_str = |e: std::io::Error| {
+            let dyn_err: Box<dyn std::error::Error> = e.into();
+            let annotated_error = annotate_error(dyn_err, format!("image key `{key}`").as_str());
+            annotated_error.to_string()
+        };
         self.begin_image_url()?;
-        write!(self.writer, "data:").map_err(|e| e.to_string())?;
+        write!(self.writer, "data:").map_err(err_to_str)?;
         if let Some(ref attrs) = self.content_item_attr {
             if let Some(ref content_type) = attrs.get("content_type") {
                 let mut ser =
@@ -382,16 +388,14 @@ impl<W: Write> StructureBuilder<W> {
                     .map_err(|e| e.to_string())?;
             }
         }
-        self.writer
-            .write_all(b";base64,")
-            .map_err(|e| e.to_string())?;
+        self.writer.write_all(b";base64,").map_err(err_to_str)?;
 
         let cname = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
-        let mut blob_reader = AReader::new(&cname).map_err(|e| e.to_string())?;
+        let mut blob_reader = AReader::new(&cname).map_err(err_to_str)?;
 
         let mut encoder = Base64Encoder::new(&mut self.writer, &STANDARD);
-        std::io::copy(&mut blob_reader, &mut encoder).map_err(|e| e.to_string())?;
-        encoder.finish().map_err(|e| e.to_string())?;
+        std::io::copy(&mut blob_reader, &mut encoder).map_err(err_to_str)?;
+        encoder.finish().map_err(err_to_str)?;
         drop(encoder);
 
         self.end_image_url()
