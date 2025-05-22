@@ -215,3 +215,24 @@ pub fn on_content_item_attribute_content_type<W: Write>(
     }
     StreamOp::ValueIsConsumed
 }
+
+pub fn on_content_item_attribute_detail<W: Write>(
+    rjiter_cell: &RefCell<RJiter>,
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> StreamOp {
+    let mut rjiter = rjiter_cell.borrow_mut();
+    let value = match rjiter.next_str() {
+        Ok(v) => v,
+        Err(e) => {
+            return StreamOp::Error(
+                format!("Error getting attribute 'detail'. Expected string, got: {e:?}").into(),
+            );
+        }
+    };
+    let mut builder = builder_cell.borrow_mut();
+    if let Err(e) = builder.set_content_item_attribute(String::from("detail"), String::from(value))
+    {
+        return StreamOp::Error(e.into());
+    }
+    StreamOp::ValueIsConsumed
+}

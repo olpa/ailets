@@ -15,6 +15,7 @@ use structure_builder::StructureBuilder;
 
 const BUFFER_SIZE: u32 = 1024;
 
+#[allow(clippy::too_many_lines)]
 fn create_begin_triggers<'a, W: Write + 'a>(
 ) -> Vec<Trigger<'a, BoxedAction<'a, StructureBuilder<W>>>> {
     let content_text = Trigger::new(
@@ -53,6 +54,14 @@ fn create_begin_triggers<'a, W: Write + 'a>(
             "content_type".to_string(),
         )),
         Box::new(handlers::on_content_item_attribute_content_type)
+            as BoxedAction<'_, StructureBuilder<W>>,
+    );
+    let content_item_attribute_detail = Trigger::new(
+        Box::new(ParentAndName::new(
+            "#array".to_string(),
+            "detail".to_string(),
+        )),
+        Box::new(handlers::on_content_item_attribute_detail)
             as BoxedAction<'_, StructureBuilder<W>>,
     );
     let content_begin_arr = Trigger::new(
@@ -105,6 +114,7 @@ fn create_begin_triggers<'a, W: Write + 'a>(
         content_item_begin,
         content_item_type,
         content_item_attribute_content_type,
+        content_item_attribute_detail,
         content_begin_arr,
         content_begin_jsonl,
         role_arr,

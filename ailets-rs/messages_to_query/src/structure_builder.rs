@@ -357,7 +357,15 @@ impl<W: Write> StructureBuilder<W> {
             return Err("Content item is not started".to_string());
         }
         self.add_item_type(String::from("image"))?;
-        write!(self.writer, r#","image_url":{{"url":""#).map_err(|e| e.to_string())?;
+        write!(self.writer, r#","image_url":{{"#).map_err(|e| e.to_string())?;
+        if let Some(ref attrs) = self.content_item_attr {
+            if let Some(ref detail) = attrs.get("detail") {
+                write!(self.writer, r#""detail":"#).map_err(|e| e.to_string())?;
+                serde_json::to_writer(&mut self.writer, detail).map_err(|e| e.to_string())?;
+                write!(self.writer, r#","#).map_err(|e| e.to_string())?;
+            }
+        }
+        write!(self.writer, r#""url":""#).map_err(|e| e.to_string())?;
         Ok(())
     }
 
