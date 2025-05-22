@@ -282,3 +282,58 @@ fn add_image_by_url() {
         )))
     );
 }
+
+#[test]
+fn image_settings_dont_transfer() {
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let mut builder = builder;
+
+    builder.begin_message().unwrap();
+    builder.add_role("user").unwrap();
+    builder.begin_content().unwrap();
+
+    // First image with content_type and detail
+    builder.begin_content_item().unwrap();
+    builder.add_item_type(String::from("image")).unwrap();
+    builder.begin_image_url().unwrap();
+    builder
+        .get_writer()
+        .write_all(b"http://example.com/image1.png")
+        .unwrap();
+    builder.end_image_url().unwrap();
+    builder
+        .set_content_item_attribute(String::from("content_type"), String::from("image/png"))
+        .unwrap();
+    builder
+        .set_content_item_attribute(String::from("detail"), String::from("high"))
+        .unwrap();
+    builder.end_content_item().unwrap();
+
+    // Second image without content_type and detail
+    builder.begin_content_item().unwrap();
+    builder.add_item_type(String::from("image")).unwrap();
+    builder.begin_image_url().unwrap();
+    builder
+        .get_writer()
+        .write_all(b"http://example.com/image2.png")
+        .unwrap();
+    builder.end_image_url().unwrap();
+    builder.end_content_item().unwrap();
+
+    builder.end_content().unwrap();
+    builder.end_message().unwrap();
+    builder.end().unwrap();
+
+    let expected_image1 = r#"{"type":"image_url","image_url":{"url":"http://example.com/image1.png"},"content_type":"image/png","detail":"high"}"#;
+    let expected_image2 =
+        r#"{"type":"image_url","image_url":{"url":"http://example.com/image2.png"}}"#;
+
+    assert_that!(
+        writer.get_output(),
+        equal_to(wrap_boilerplate(&format!(
+            r#"{{"role":"user","content":[_NL_{},_NL_{}_NL_]}}"#,
+            expected_image1, expected_image2
+        )))
+    );
+}
