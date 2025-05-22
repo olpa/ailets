@@ -47,10 +47,16 @@ There are three ways to include an image:
 - Image blob using a data URL in the form `data:[<mediatype>][;base64],<base64-encoded data>`.
 - Image blob using a key in a key-value storage.
 
+#### Image reference
+
 For image references, ailets do not download the data. Instead, the logic is:
 
 - Pass the URL to an LLM model as is.
 - Insert the URL into markdown when serializing.
+
+It is expected that the provider will fetch the image. OpenAI GPT and Anthropic Claude do so, while Gemini limits fetching only to images uploaded to Gemini.
+
+#### Image blob
 
 For image blobs, passing them to a model depends on the specific model. For OpenAI-compatible chats, data URLs are passed as they are.
 
