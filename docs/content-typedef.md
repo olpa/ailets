@@ -56,6 +56,8 @@ For image references, ailets do not download the data. Instead, the logic is:
 
 It is expected that the provider will fetch the image. OpenAI GPT and Anthropic Claude do so, while Gemini limits fetching only to images uploaded to Gemini.
 
+For OpenAI-compatible chats, the value of `content_type` is ignored. Vendors do type auto-detection for image references but not for image blobs.
+
 #### Image blob
 
 For image blobs, passing them to a model depends on the specific model. For OpenAI-compatible chats, data URLs are passed as they are.
