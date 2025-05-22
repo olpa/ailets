@@ -96,3 +96,20 @@ fn image_as_key() {
         .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
+
+#[test]
+fn image_as_key_file_not_found() {
+    let input = r#"{"role": "user", "content": [{"type": "image", "content_type": "image/png", "image_key": "media/nonexistent.png"}]}"#;
+    let reader = Cursor::new(input);
+    let writer = RcWriter::new();
+
+    let result = _process_query(reader, writer.clone(), create_empty_env_opts());
+    assert!(
+        result.is_err(),
+        "Expected _process_query to fail when image file doesn't exist"
+    );
+    assert_that!(
+        result.unwrap_err().to_string().as_str(),
+        matches_regex("media/nonexistent.png")
+    );
+}
