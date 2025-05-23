@@ -333,18 +333,18 @@ fn image_settings_dont_transfer() {
     // First image with content_type and detail
     builder.begin_content_item().unwrap();
     builder.add_item_type(String::from("image")).unwrap();
-    builder.begin_image_url().unwrap();
-    builder
-        .get_writer()
-        .write_all(b"http://example.com/image1.png")
-        .unwrap();
-    builder.end_image_url().unwrap();
     builder
         .set_content_item_attribute(String::from("content_type"), String::from("image/png"))
         .unwrap();
     builder
         .set_content_item_attribute(String::from("detail"), String::from("high"))
         .unwrap();
+    builder.begin_image_url().unwrap();
+    builder
+        .get_writer()
+        .write_all(b"http://example.com/image1.png")
+        .unwrap();
+    builder.end_image_url().unwrap();
     builder.end_content_item().unwrap();
 
     // Second image without content_type and detail

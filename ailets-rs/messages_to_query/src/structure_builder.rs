@@ -274,6 +274,7 @@ impl<W: Write> StructureBuilder<W> {
     pub fn begin_content_item(&mut self) -> Result<(), String> {
         self.content_item = Progress::WaitingForFirstChild;
         self.content_item_type = None;
+        self.content_item_attr = None;
         Ok(())
     }
 
