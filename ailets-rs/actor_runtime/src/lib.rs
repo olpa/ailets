@@ -51,3 +51,23 @@ pub fn extract_errno(e: &Box<dyn std::error::Error>) -> i32 {
     }
     -1
 }
+
+// Annotate an io error
+#[must_use]
+#[allow(clippy::missing_panics_doc)]
+pub fn annotate_error(
+    e: Box<dyn std::error::Error>,
+    annotation: &str,
+) -> Box<dyn std::error::Error> {
+    if let Some(io_err) = e.downcast_ref::<std::io::Error>() {
+        let msg = format!("{annotation}: {io_err}");
+        return Box::new(std::io::Error::new(io_err.kind(), msg));
+    }
+    if let Some(scan_json::Error::RJiterError(rj_err)) = e.downcast_ref::<scan_json::Error>() {
+        if let scan_json::rjiter::error::ErrorType::IoError(ref io_err) = rj_err.error_type {
+            let msg = format!("{annotation}: {io_err}");
+            return Box::new(std::io::Error::new(io_err.kind(), msg));
+        }
+    }
+    e
+}

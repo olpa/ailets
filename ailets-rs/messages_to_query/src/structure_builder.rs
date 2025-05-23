@@ -1,5 +1,29 @@
 use crate::env_opts::EnvOpts;
+use actor_io::AReader;
+use actor_runtime::annotate_error;
+use base64::engine::general_purpose::STANDARD;
+use base64::write::EncoderWriter as Base64Encoder;
+use serde::Serialize;
+use std::collections::HashMap;
+use std::io;
 use std::io::Write;
+
+struct StrFormatter {}
+
+impl serde_json::ser::Formatter for StrFormatter {
+    fn begin_string<W>(&mut self, _writer: &mut W) -> io::Result<()>
+    where
+        W: ?Sized + io::Write,
+    {
+        Ok(())
+    }
+    fn end_string<W>(&mut self, _writer: &mut W) -> io::Result<()>
+    where
+        W: ?Sized + io::Write,
+    {
+        Ok(())
+    }
+}
 
 #[derive(Debug)]
 pub enum Progress {
@@ -28,6 +52,7 @@ pub struct StructureBuilder<W: Write> {
     message_content: Progress,
     content_item: Progress,
     content_item_type: Option<String>,
+    content_item_attr: Option<HashMap<String, String>>,
     env_opts: EnvOpts,
 }
 
@@ -40,6 +65,7 @@ impl<W: Write> StructureBuilder<W> {
             message_content: Progress::ChildrenAreUnexpected,
             content_item: Progress::ChildrenAreUnexpected,
             content_item_type: None,
+            content_item_attr: None,
             env_opts,
         }
     }
@@ -200,6 +226,7 @@ impl<W: Write> StructureBuilder<W> {
         self.message_content = Progress::WaitingForFirstChild;
         self.content_item = Progress::ChildrenAreUnexpected;
         self.content_item_type = None;
+        self.content_item_attr = None;
         // Unlike for other containers, allow empty content
         self.really_begin_content()?;
         Ok(())
@@ -247,6 +274,7 @@ impl<W: Write> StructureBuilder<W> {
     pub fn begin_content_item(&mut self) -> Result<(), String> {
         self.content_item = Progress::WaitingForFirstChild;
         self.content_item_type = None;
+        self.content_item_attr = None;
         Ok(())
     }
 
@@ -292,7 +320,12 @@ impl<W: Write> StructureBuilder<W> {
                 ));
             }
         } else {
-            write!(self.writer, r#""type":"{item_type}""#).map_err(|e| e.to_string())?;
+            let write_item_type = if item_type == "image" {
+                &String::from("image_url")
+            } else {
+                &item_type
+            };
+            write!(self.writer, r#""type":"{write_item_type}""#).map_err(|e| e.to_string())?;
             self.content_item_type = Some(item_type);
         }
         Ok(())
@@ -314,6 +347,82 @@ impl<W: Write> StructureBuilder<W> {
     /// - I/O
     pub fn end_text(&mut self) -> Result<(), String> {
         write!(self.writer, "\"").map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// # Errors
+    /// - content item is not started
+    /// - I/O
+    pub fn begin_image_url(&mut self) -> Result<(), String> {
+        if let Progress::ChildrenAreUnexpected = self.content_item {
+            return Err("Content item is not started".to_string());
+        }
+        self.add_item_type(String::from("image"))?;
+        write!(self.writer, r#","image_url":{{"#).map_err(|e| e.to_string())?;
+        if let Some(ref attrs) = self.content_item_attr {
+            if let Some(ref detail) = attrs.get("detail") {
+                write!(self.writer, r#""detail":"#).map_err(|e| e.to_string())?;
+                serde_json::to_writer(&mut self.writer, detail).map_err(|e| e.to_string())?;
+                write!(self.writer, r#","#).map_err(|e| e.to_string())?;
+            }
+        }
+        write!(self.writer, r#""url":""#).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// # Errors
+    /// - I/O
+    pub fn end_image_url(&mut self) -> Result<(), String> {
+        write!(self.writer, r#""}}"#).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// # Errors
+    /// - content item is not started
+    /// - I/O
+    pub fn image_key(&mut self, key: &str) -> Result<(), String> {
+        let err_to_str = |e: std::io::Error| {
+            let dyn_err: Box<dyn std::error::Error> = e.into();
+            let annotated_error = annotate_error(dyn_err, format!("image key `{key}`").as_str());
+            annotated_error.to_string()
+        };
+        self.begin_image_url()?;
+        write!(self.writer, "data:").map_err(err_to_str)?;
+        if let Some(ref attrs) = self.content_item_attr {
+            if let Some(ref content_type) = attrs.get("content_type") {
+                let mut ser =
+                    serde_json::ser::Serializer::with_formatter(&mut self.writer, StrFormatter {});
+                content_type
+                    .serialize(&mut ser)
+                    .map_err(|e| e.to_string())?;
+            }
+        }
+        self.writer.write_all(b";base64,").map_err(err_to_str)?;
+
+        let cname = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
+        let mut blob_reader = AReader::new(&cname).map_err(err_to_str)?;
+
+        let mut encoder = Base64Encoder::new(&mut self.writer, &STANDARD);
+        std::io::copy(&mut blob_reader, &mut encoder).map_err(err_to_str)?;
+        encoder.finish().map_err(err_to_str)?;
+        drop(encoder);
+
+        self.end_image_url()
+    }
+
+    /// # Errors
+    /// - content item is not started
+    /// - I/O
+    pub fn set_content_item_attribute(&mut self, key: String, value: String) -> Result<(), String> {
+        if let Progress::ChildrenAreUnexpected = self.content_item {
+            return Err("Content item is not started".to_string());
+        }
+        if self.content_item_attr.is_none() {
+            self.content_item_attr = Some(HashMap::new());
+        }
+        if let Some(ref mut attrs) = self.content_item_attr {
+            attrs.insert(key, value);
+        }
         Ok(())
     }
 }

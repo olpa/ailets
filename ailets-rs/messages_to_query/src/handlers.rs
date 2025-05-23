@@ -137,3 +137,102 @@ pub fn on_content_text<W: Write>(
 
     StreamOp::ValueIsConsumed
 }
+
+pub fn on_content_image_url<W: Write>(
+    rjiter_cell: &RefCell<RJiter>,
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> StreamOp {
+    let mut rjiter = rjiter_cell.borrow_mut();
+    let peeked = match rjiter.peek() {
+        Ok(p) => p,
+        Err(e) => return StreamOp::Error(Box::new(e)),
+    };
+    if peeked != Peek::String {
+        let idx = rjiter.current_index();
+        let pos = rjiter.error_position(idx);
+        return StreamOp::Error(
+            format!(
+                "Expected string for 'image_url' value, got {peeked:?} at index {idx}, position {pos}"
+            )
+            .into(),
+        );
+    }
+
+    let mut builder = builder_cell.borrow_mut();
+
+    if let Err(e) = builder.begin_image_url() {
+        return StreamOp::Error(e.into());
+    }
+    let writer = builder.get_writer();
+    if let Err(e) = rjiter.write_long_bytes(writer) {
+        return StreamOp::Error(e.into());
+    }
+    if let Err(e) = builder.end_image_url() {
+        return StreamOp::Error(e.into());
+    }
+
+    StreamOp::ValueIsConsumed
+}
+
+pub fn on_content_image_key<W: Write>(
+    rjiter_cell: &RefCell<RJiter>,
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> StreamOp {
+    let mut rjiter = rjiter_cell.borrow_mut();
+    let key = match rjiter.next_str() {
+        Ok(k) => k,
+        Err(e) => {
+            return StreamOp::Error(
+                format!("Error getting key value. Expected string, got: {e:?}").into(),
+            );
+        }
+    };
+    if let Err(e) = builder_cell.borrow_mut().image_key(key) {
+        return StreamOp::Error(e.into());
+    }
+    StreamOp::ValueIsConsumed
+}
+
+pub fn on_content_item_attribute_content_type<W: Write>(
+    rjiter_cell: &RefCell<RJiter>,
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> StreamOp {
+    let mut rjiter = rjiter_cell.borrow_mut();
+    let value = match rjiter.next_str() {
+        Ok(v) => v,
+        Err(e) => {
+            return StreamOp::Error(
+                format!("Error getting attribute 'content_type'. Expected string, got: {e:?}")
+                    .into(),
+            );
+        }
+    };
+    let mut builder = builder_cell.borrow_mut();
+    if let Err(e) =
+        builder.set_content_item_attribute(String::from("content_type"), String::from(value))
+    {
+        return StreamOp::Error(e.into());
+    }
+    StreamOp::ValueIsConsumed
+}
+
+pub fn on_content_item_attribute_detail<W: Write>(
+    rjiter_cell: &RefCell<RJiter>,
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> StreamOp {
+    let mut rjiter = rjiter_cell.borrow_mut();
+    let value = match rjiter.next_str() {
+        Ok(v) => v,
+        Err(e) => {
+            return StreamOp::Error(
+                format!("Error getting attribute 'detail'. Expected string, got: {e:?}").into(),
+            );
+        }
+    };
+    let mut builder = builder_cell.borrow_mut();
+    if let Err(e) = builder.set_content_item_attribute(String::from("detail"), String::from(value))
+    {
+        return StreamOp::Error(e.into());
+    }
+    StreamOp::ValueIsConsumed
+}

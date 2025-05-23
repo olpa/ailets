@@ -15,11 +15,26 @@ use structure_builder::StructureBuilder;
 
 const BUFFER_SIZE: u32 = 1024;
 
+#[allow(clippy::too_many_lines)]
 fn create_begin_triggers<'a, W: Write + 'a>(
 ) -> Vec<Trigger<'a, BoxedAction<'a, StructureBuilder<W>>>> {
     let content_text = Trigger::new(
         Box::new(ParentAndName::new("#array".to_string(), "text".to_string())),
         Box::new(handlers::on_content_text) as BoxedAction<'_, StructureBuilder<W>>,
+    );
+    let content_image_url = Trigger::new(
+        Box::new(ParentAndName::new(
+            "#array".to_string(),
+            "image_url".to_string(),
+        )),
+        Box::new(handlers::on_content_image_url) as BoxedAction<'_, StructureBuilder<W>>,
+    );
+    let content_image_key = Trigger::new(
+        Box::new(ParentAndName::new(
+            "#array".to_string(),
+            "image_key".to_string(),
+        )),
+        Box::new(handlers::on_content_image_key) as BoxedAction<'_, StructureBuilder<W>>,
     );
     let content_item_begin = Trigger::new(
         Box::new(ParentParentAndName::new(
@@ -32,6 +47,22 @@ fn create_begin_triggers<'a, W: Write + 'a>(
     let content_item_type = Trigger::new(
         Box::new(ParentAndName::new("#array".to_string(), "type".to_string())),
         Box::new(handlers::on_content_item_type) as BoxedAction<'_, StructureBuilder<W>>,
+    );
+    let content_item_attribute_content_type = Trigger::new(
+        Box::new(ParentAndName::new(
+            "#array".to_string(),
+            "content_type".to_string(),
+        )),
+        Box::new(handlers::on_content_item_attribute_content_type)
+            as BoxedAction<'_, StructureBuilder<W>>,
+    );
+    let content_item_attribute_detail = Trigger::new(
+        Box::new(ParentAndName::new(
+            "#array".to_string(),
+            "detail".to_string(),
+        )),
+        Box::new(handlers::on_content_item_attribute_detail)
+            as BoxedAction<'_, StructureBuilder<W>>,
     );
     let content_begin_arr = Trigger::new(
         Box::new(ParentParentAndName::new(
@@ -78,8 +109,12 @@ fn create_begin_triggers<'a, W: Write + 'a>(
 
     vec![
         content_text,
+        content_image_url,
+        content_image_key,
         content_item_begin,
         content_item_type,
+        content_item_attribute_content_type,
+        content_item_attribute_detail,
         content_begin_arr,
         content_begin_jsonl,
         role_arr,

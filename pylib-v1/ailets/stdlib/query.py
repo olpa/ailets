@@ -38,6 +38,22 @@ def resolve_secrets(value: str, url: str) -> str:
     return secret_pattern.sub(get_secret, value)
 
 
+async def raise_for_status(response: aiohttp.ClientResponse) -> None:
+    """Raise an exception if the HTTP response status indicates an error."""
+    if response.ok:
+        return
+
+    body = bytearray()
+    while len(body) < 1024:
+        chunk = await response.content.read(1024 - len(body))
+        if not chunk:
+            break
+        body.extend(chunk)
+
+    body_text = body.decode("utf-8", errors="replace")
+    raise ValueError(f"HTTP {response.status} {body_text}")
+
+
 async def query(runtime: INodeRuntime) -> None:
     """Perform the HTTP request to the API."""
     global _run_count
@@ -73,7 +89,7 @@ async def query(runtime: INodeRuntime) -> None:
                 headers=headers,
                 **body_kwargs,
             ) as response:
-                response.raise_for_status()
+                await raise_for_status(response)
                 async for chunk in response.content.iter_any():
                     await write_all(runtime, StdHandles.stdout, chunk)
 

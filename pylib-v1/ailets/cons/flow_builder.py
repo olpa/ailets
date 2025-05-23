@@ -78,7 +78,7 @@ async def prompt_to_dagops(
                 json.dumps(
                     {
                         "type": base_content_type,
-                        "url": prompt_item.value,
+                        "image_url": prompt_item.value,
                         "content_type": prompt_item.content_type,
                     }
                 )
@@ -92,7 +92,7 @@ async def prompt_to_dagops(
             json.dumps(
                 {
                     "type": base_content_type,
-                    "key": file_key,
+                    "image_key": file_key,
                     "content_type": prompt_item.content_type,
                 }
             )
