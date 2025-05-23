@@ -114,3 +114,22 @@ fn image_as_key_file_not_found() {
         matches_regex("media/nonexistent.png")
     );
 }
+
+#[test]
+fn mix_text_and_image() {
+    let input = r#"{"role": "user", "content": [{"type": "text", "text": "Here's an image:"}, {"type": "image", "image_url": "https://example.com/image.jpg"}, {"type": "text", "text": "What do you think about it?"}]}"#;
+    let reader = Cursor::new(input);
+    let writer = RcWriter::new();
+
+    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
+    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
+        .expect("Failed to parse output as JSON");
+
+    let text_item1 = r#"{"type":"text","text":"Here's an image:"}"#;
+    let image_item = r#"{"type":"image_url","image_url":{"url":"https://example.com/image.jpg"}}"#;
+    let text_item2 = r#"{"type":"text","text":"What do you think about it?"}"#;
+    let expected_item = format!(r#"[{{"role":"user","content":[_NL_{},_NL_{},_NL_{}_NL_]}}]"#, text_item1, image_item, text_item2);
+    let expected_json = serde_json::from_str(wrap_boilerplate(&expected_item).as_str())
+        .expect("Failed to parse expected output as JSON");
+    assert_that!(output_json, equal_to(expected_json));
+}
