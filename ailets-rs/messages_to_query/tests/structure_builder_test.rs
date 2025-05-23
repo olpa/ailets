@@ -374,3 +374,57 @@ fn image_settings_dont_transfer() {
         )))
     );
 }
+
+#[test]
+fn mix_text_and_image_content() {
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let mut builder = builder;
+    builder.begin_message().unwrap();
+    builder.add_role("user").unwrap();
+    builder.begin_content().unwrap();
+
+    // Text item
+    builder.begin_content_item().unwrap();
+    builder.add_item_type(String::from("text")).unwrap();
+    builder.begin_text().unwrap();
+    write!(builder.get_writer(), "Hello world").unwrap();
+    builder.end_text().unwrap();
+    builder.end_content_item().unwrap();
+
+    // Image item
+    builder.begin_content_item().unwrap();
+    builder.add_item_type(String::from("image")).unwrap();
+    builder.begin_image_url().unwrap();
+    builder
+        .get_writer()
+        .write_all(b"http://example.com/image.png")
+        .unwrap();
+    builder.end_image_url().unwrap();
+    builder.end_content_item().unwrap();
+
+    // Another text item
+    builder.begin_content_item().unwrap();
+    builder.add_item_type(String::from("text")).unwrap();
+    builder.begin_text().unwrap();
+    write!(builder.get_writer(), "Another text").unwrap();
+    builder.end_text().unwrap();
+    builder.end_content_item().unwrap();
+
+    builder.end_content().unwrap();
+    builder.end_message().unwrap();
+    builder.end().unwrap();
+
+    let text_item1 = r#"{"type":"text","text":"Hello world"}"#;
+    let image_item = r#"{"type":"image_url","image_url":{"url":"http://example.com/image.png"}}"#;
+    let text_item2 = r#"{"type":"text","text":"Another text"}"#;
+    let expected_content = format!(
+        r#"_NL_{},_NL_{},_NL_{}_NL_"#,
+        text_item1, image_item, text_item2
+    );
+    let expected_message = format!(r#"{{"role":"user","content":[{}]}}"#, expected_content);
+    assert_that!(
+        writer.get_output(),
+        equal_to(wrap_boilerplate(&expected_message))
+    );
+}
