@@ -383,6 +383,47 @@ fn add_image_with_detail() {
 }
 
 #[test]
+fn image_key_with_adversarial_content_type() {
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let mut builder = builder;
+
+    add_file(String::from("media/test.png"), b"hello".to_vec());
+
+    builder.begin_message().unwrap();
+    builder.add_role("user").unwrap();
+    builder.begin_content().unwrap();
+    builder.begin_content_item().unwrap();
+
+    builder.add_item_type(String::from("image")).unwrap();
+    builder
+        .set_content_item_attribute(
+            String::from("content_type"),
+            String::from("\"\"image/png\0\\/\"';\u{202E}\u{2028}"),
+        )
+        .unwrap();
+    builder.image_key("media/test.png").unwrap();
+
+    builder.end_content_item().unwrap();
+    builder.end_content().unwrap();
+    builder.end_message().unwrap();
+    builder.end().unwrap();
+
+    // Only escape enough to have a valid json
+    let expected_image_item = format!(
+        r#"{{"type":"image_url","image_url":{{"url":"data:\"\"image/png\u0000\\/\"';{}{};base64,aGVsbG8="}}}}"#,
+        '\u{202E}' as char, '\u{2028}' as char
+    );
+    assert_that!(
+        writer.get_output(),
+        equal_to(wrap_boilerplate(&format!(
+            r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
+            expected_image_item
+        )))
+    );
+}
+
+#[test]
 fn image_settings_dont_transfer() {
     let writer = RcWriter::new();
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
