@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate hamcrest;
 use actor_runtime_mocked::RcWriter;
+use actor_runtime_mocked::add_file;
 use hamcrest::prelude::*;
 use messages_to_query::env_opts::EnvOpts;
 use messages_to_query::structure_builder::StructureBuilder;
@@ -274,6 +275,40 @@ fn add_image_by_url() {
 
     let expected_image_item =
         r#"{"type":"image_url","image_url":{"url":"http://example.com/image.png"}}"#;
+    assert_that!(
+        writer.get_output(),
+        equal_to(wrap_boilerplate(&format!(
+            r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
+            expected_image_item
+        )))
+    );
+}
+
+#[test]
+fn add_image_by_key() {
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let mut builder = builder;
+
+    add_file(String::from("media/image-as-key-1.png"), b"hello".to_vec());
+
+    builder.begin_message().unwrap();
+    builder.add_role("user").unwrap();
+    builder.begin_content().unwrap();
+    builder.begin_content_item().unwrap();
+
+    builder.add_item_type(String::from("image")).unwrap();
+    builder
+        .set_content_item_attribute(String::from("content_type"), String::from("image/png"))
+        .unwrap();
+    builder.image_key("media/image-as-key-1.png").unwrap();
+
+    builder.end_content_item().unwrap();
+    builder.end_content().unwrap();
+    builder.end_message().unwrap();
+    builder.end().unwrap();
+
+    let expected_image_item = r#"{"type":"image_url","image_url":{"url":"data:image/png;base64,aGVsbG8="}}"#;
     assert_that!(
         writer.get_output(),
         equal_to(wrap_boilerplate(&format!(

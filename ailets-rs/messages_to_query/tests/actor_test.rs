@@ -82,10 +82,10 @@ fn image_url_as_is() {
 
 #[test]
 fn image_as_key() {
-    let input = r#"{"role": "user", "content": [{"type": "image", "detail": "auto", "content_type": "image/png", "image_key": "media/image-as-key.png"}]}"#;
+    let input = r#"{"role": "user", "content": [{"type": "image", "detail": "auto", "content_type": "image/png", "image_key": "media/image-as-key-2.png"}]}"#;
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
-    add_file(String::from("media/image-as-key.png"), b"hello".to_vec());
+    add_file(String::from("media/image-as-key-2.png"), b"hello".to_vec());
 
     _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
