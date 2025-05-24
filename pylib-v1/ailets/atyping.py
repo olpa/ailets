@@ -348,6 +348,7 @@ class ToolSpecification(TypedDict):
 
 class ContentItemTextAttrs(TypedDict):
     type: Literal["text"]
+    _role: NotRequired[Literal["system", "user", "assistant"]]  # To be removed after refactoring, ticket #162
 
 class ContentItemTextContent(TypedDict):
     text: str

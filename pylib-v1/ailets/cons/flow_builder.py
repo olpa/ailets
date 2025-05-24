@@ -14,6 +14,8 @@ else:
     import tomli as tomllib
 
 from ailets.atyping import (
+    ContentItemImage,
+    ContentItemText,
     Dependency,
     IDagops,
     IEnvironment,
@@ -52,15 +54,19 @@ async def prompt_to_dagops(
             return node
 
         if prompt_item.type == "text":
-            content_item = {
-                "type": "text",
-                "text": prompt_item.value,
-            }
+            text_item: ContentItemText = (
+                {
+                    "type": "text",
+                },
+                {
+                    "text": prompt_item.value,
+                },
+            )
             if prompt_item.toml:
                 toml = tomllib.loads(prompt_item.toml)
                 if toml.get("role", "").lower() == "system":
-                    content_item["role"] = "system"
-            mk_node(json.dumps(content_item))
+                    text_item[0]["_role"] = "system"
+            mk_node(json.dumps(text_item))
             return
 
         assert prompt_item.content_type is not None, "Content type is required"
@@ -74,29 +80,31 @@ async def prompt_to_dagops(
         ], f"Unknown prompt item type: {prompt_item.type}"
 
         if prompt_item.type == "url":
-            mk_node(
-                json.dumps(
-                    {
-                        "type": base_content_type,
-                        "image_url": prompt_item.value,
-                        "content_type": prompt_item.content_type,
-                    }
-                )
+            url_image_item: ContentItemImage = (
+                {
+                    "type": "image",
+                    "content_type": prompt_item.content_type,
+                },
+                {
+                    "image_url": prompt_item.value,
+                },
             )
+            mk_node(json.dumps(url_image_item))
             return  # return if "url"
 
         n = env.seqno.next_seqno()
         b = os.path.basename(prompt_item.value)
         file_key = env.dagops.get_next_name(f"spool/{b}.{n}")
-        mk_node(
-            json.dumps(
-                {
-                    "type": base_content_type,
-                    "image_key": file_key,
-                    "content_type": prompt_item.content_type,
-                }
-            )
+        key_image_item: ContentItemImage = (
+            {
+                "type": "image",
+                "content_type": prompt_item.content_type,
+            },
+            {
+                "image_key": file_key,
+            },
         )
+        mk_node(json.dumps(key_image_item))
 
         with open_file(env.kv, prompt_item.value) as f:
             bytes = f.read()
