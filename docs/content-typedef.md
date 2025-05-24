@@ -1,6 +1,6 @@
 # Content type definition
 
-To have interoperability between different models, we define a common content type, based on [OpenAI chat completion messages](https://platform.openai.com/docs/api-reference/chat/create).
+To have interoperability between different models, we define a common content type.
 
 Each model is expected to get a sequence of `ChatMessage`s as input and produce a sequence of `ChatMessage`s as output.
 
@@ -15,15 +15,25 @@ A `ChatMessage` represents a message in a chat conversation. It is defined as a 
   - `tool`: Tool output
 - `content`: A sequence of content items
 
+See also [OpenAI chat completion messages](https://platform.openai.com/docs/api-reference/chat/create).
+
 
 ## `ContentItem`
+
+Logically, a content item is a dictionary. Physically, it's a tuple of two dictionaries.
+
+- The first dictionary contains attributes. This dictionary is finite and small, with a size of less than 256 bytes.
+- The second dictionary contains the content. It holds one item, which can be potentially very large.
+
+The reason for having a tuple is to enforce the order of attributes, allowing streaming transformations. In particular, we want to see the attribute `type` before we get the actual content.
+
 
 ### `ContentItemText`
 
 Text content with the following fields:
 
-- `type: "text"`
-- `text: str` - The actual text content
+- `[0].type: "text"`
+- `[1].text: str` - The actual text content
 
 See also [OpenAI reference](https://platform.openai.com/docs/guides/text).
 
@@ -32,12 +42,12 @@ See also [OpenAI reference](https://platform.openai.com/docs/guides/text).
 
 Image content with the following fields:
 
-- `type: "image"|"input_image"|"output_image"`
-- `content_type: Optional<str>` – MIME type of the image, for example `image/png`
-- `detail: Optional<"low"|"high"|"auto" | str>` – Level of detail to use when processing and understanding the image
+- `[0].type: "image"|"input_image"|"output_image"`
+- `[0].content_type: Optional<str>` – MIME type of the image, for example `image/png`
+- `[0].detail: Optional<"low"|"high"|"auto" | str>` – Level of detail to use when processing and understanding the image
 - Either of, but not both:
-  - `image_url: str`, or
-  - `image_key: str`
+  - `[1].image_url: str`, or
+  - `[1].image_key: str`
 
 See also [OpenAI reference](https://platform.openai.com/docs/guides/images-vision).
 
@@ -72,9 +82,9 @@ When serializing an image blob to markdown:
 
 Function call with fields:
 
-- `type: "function"`
-- `id: str` - Function call identifier
-- `function: dict` containing:
+- `[0].type: "function"`
+- `[0].id: str` - Function call identifier
+- `[1].function: dict` containing:
     - `name: str` - Function name
     - `arguments: str` - Function arguments
 
