@@ -346,28 +346,43 @@ class ToolSpecification(TypedDict):
 #
 
 
-class ContentItemText(TypedDict):
+class ContentItemTextAttrs(TypedDict):
     type: Literal["text"]
+
+class ContentItemTextContent(TypedDict):
     text: str
 
+ContentItemText = Tuple[ContentItemTextAttrs, ContentItemTextContent]
 
-class ContentItemImage(TypedDict):
+
+class ContentItemImageAttrs(TypedDict):
     type: Literal["image"]
     content_type: str
-    # `url` or `key`, exactly one of them
-    url: NotRequired[str]
-    key: NotRequired[str]
+
+class ContentItemImageContent(TypedDict):
+    image_url: NotRequired[str]
+    image_key: NotRequired[str]
+
+ContentItemImage = Tuple[ContentItemImageAttrs, ContentItemImageContent]
 
 
-class ContentItemRefusal(TypedDict):
+class ContentItemRefusalAttrs(TypedDict):
     type: Literal["refusal"]
+
+class ContentItemRefusalContent(TypedDict):
     refusal: str
 
+ContentItemRefusal = Tuple[ContentItemRefusalAttrs, ContentItemRefusalContent]
 
-class ContentItemFunction(TypedDict):
+
+class ContentItemFunctionAttrs(TypedDict):
     type: Literal["function"]
     id: str
+
+class ContentItemFunctionContent(TypedDict):
     function: dict[Literal["name", "arguments"], str]
+
+ContentItemFunction = Tuple[ContentItemFunctionAttrs, ContentItemFunctionContent]
 
 
 ContentItem = Union[
