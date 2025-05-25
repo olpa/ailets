@@ -8,15 +8,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::io::Cursor;
 
-fn fix_json(json: &str) -> String {
-    if json.contains("}\n{") {
-        let json = json.replace("}\n{", "},\n{");
-        let json = format!("[{}]", json);
-        return json;
-    }
-    json.to_string()
-}
-
 fn create_empty_env_opts() -> EnvOpts {
     EnvOpts::from_map(HashMap::new())
 }
@@ -42,7 +33,11 @@ fn test_text_items() {
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
 
-    let expected_output = wrap_boilerplate(fix_json(&fixture_content).as_str());
+    let expected_item1 = r#"{"role":"system","content":[{"type":"text","text":"You are a helpful assistant who answers in Spanish"}]}"#;
+    let expected_item2 = r#"{"role":"user","content":[{"type":"text","text":"Hello!"}]}"#;
+    let expected_output = wrap_boilerplate(
+        format!(r#"[_NL_{},_NL_{}_NL_]"#, expected_item1, expected_item2).as_str(),
+    );
     let expected_json =
         serde_json::from_str(&expected_output).expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
@@ -50,7 +45,7 @@ fn test_text_items() {
 
 #[test]
 fn image_url_as_is() {
-    let input = r#"{"role": "user", "content": [{"type": "image", "image_url": "https://example.com/image.jpg"}]}"#;
+    let input = r#"{"role": "user", "content": [[{"type": "image", "image_url": "https://example.com/image.jpg"}]]}"#;
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
 
@@ -66,7 +61,7 @@ fn image_url_as_is() {
 
 #[test]
 fn image_as_key() {
-    let input = r#"{"role": "user", "content": [{"type": "image", "detail": "auto", "content_type": "image/png", "image_key": "media/image-as-key-2.png"}]}"#;
+    let input = r#"{"role": "user", "content": [[{"type": "image", "detail": "auto", "content_type": "image/png", "image_key": "media/image-as-key-2.png"}]]}"#;
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
     add_file(String::from("media/image-as-key-2.png"), b"hello".to_vec());
@@ -83,7 +78,7 @@ fn image_as_key() {
 
 #[test]
 fn mix_text_and_image() {
-    let input = r#"{"role": "user", "content": [{"type": "text", "text": "Here's an image:"}, {"type": "image", "image_url": "https://example.com/image.jpg"}, {"type": "text", "text": "What do you think about it?"}]}"#;
+    let input = r#"{"role": "user", "content": [[{"type": "text", "text": "Here's an image:"}, {"type": "image", "image_url": "https://example.com/image.jpg"}, {"type": "text", "text": "What do you think about it?"}]]}"#;
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
 
