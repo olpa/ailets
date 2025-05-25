@@ -97,3 +97,20 @@ fn mix_text_and_image() {
         .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
+
+#[test]
+fn regression_one_item_not_two() {
+    let input = r#"{"content": [[{"type": "text"}, {"text": "Hello!"}]], "role": "user"}"#;
+    let reader = Cursor::new(input);
+    let writer = RcWriter::new();
+
+    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
+    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
+        .expect("Failed to parse output as JSON");
+    println!("!!!! output: {}", writer.get_output()); // FIXME
+
+    let expected_item = r#"[{"content":[{"type":"text","text":"Hello!"}],"role":"user"}]"#;
+    let expected_json = serde_json::from_str(wrap_boilerplate(&expected_item).as_str())
+        .expect("Failed to parse expected output as JSON");
+    assert_that!(output_json, equal_to(expected_json));
+}
