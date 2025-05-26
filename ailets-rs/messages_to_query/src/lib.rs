@@ -1,12 +1,13 @@
 pub mod env_opts;
 mod handlers;
-pub mod matchers;
 pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
 use actor_runtime::{err_to_heap_c_string, extract_errno, StdHandle};
 use env_opts::EnvOpts;
-use scan_json::{scan, BoxedAction, BoxedEndAction, ParentAndName, ParentParentAndName, RJiter, Trigger};
+use scan_json::{
+    scan, BoxedAction, BoxedEndAction, ParentAndName, ParentParentAndName, RJiter, Trigger,
+};
 use std::cell::RefCell;
 use std::ffi::c_char;
 use std::io::Write;
