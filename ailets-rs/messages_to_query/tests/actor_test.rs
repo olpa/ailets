@@ -78,7 +78,7 @@ fn image_as_key() {
 
 #[test]
 fn mix_text_and_image() {
-    let input = r#"{"role": "user", "content": [[{"type": "text", "text": "Here's an image:"}, {"type": "image", "image_url": "https://example.com/image.jpg"}, {"type": "text", "text": "What do you think about it?"}]]}"#;
+    let input = r#"{"role": "user", "content": [[{"type": "text"}, {"text": "Here's an image:"}], [{"type": "image"}, {"image_url": "https://example.com/image.jpg"}], [{"type": "text"}, {"text": "What do you think about it?"}]]}"#;
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
 
