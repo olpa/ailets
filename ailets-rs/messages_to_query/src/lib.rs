@@ -6,8 +6,7 @@ pub mod structure_builder;
 use actor_io::{AReader, AWriter};
 use actor_runtime::{err_to_heap_c_string, extract_errno, StdHandle};
 use env_opts::EnvOpts;
-use matchers::ParentParentParentAndName;
-use scan_json::{scan, BoxedAction, BoxedEndAction, ParentAndName, RJiter, Trigger};
+use scan_json::{scan, BoxedAction, BoxedEndAction, ParentAndName, ParentParentAndName, RJiter, Trigger};
 use std::cell::RefCell;
 use std::ffi::c_char;
 use std::io::Write;
@@ -39,11 +38,10 @@ fn create_begin_triggers<'a, W: Write + 'a>(
         Box::new(handlers::on_content_begin) as BoxedAction<'_, StructureBuilder<W>>,
     );
     let content_item = Trigger::new(
-        Box::new(ParentParentParentAndName::new(
+        Box::new(ParentParentAndName::new(
             "content".to_string(),
             "#array".to_string(),
             "#array".to_string(),
-            "#object".to_string(),
         )),
         Box::new(handlers::on_content_item_begin) as BoxedAction<'_, StructureBuilder<W>>,
     );
@@ -121,11 +119,10 @@ fn create_end_triggers<'a, W: Write + 'a>(
         Box::new(handlers::on_content_end) as BoxedEndAction<'_, StructureBuilder<W>>,
     );
     let content_item = Trigger::new(
-        Box::new(ParentParentParentAndName::new(
+        Box::new(ParentParentAndName::new(
             "content".to_string(),
             "#array".to_string(),
             "#array".to_string(),
-            "#object".to_string(),
         )),
         Box::new(handlers::on_content_item_end) as BoxedEndAction<'_, StructureBuilder<W>>,
     );

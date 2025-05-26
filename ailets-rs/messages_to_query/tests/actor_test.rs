@@ -107,7 +107,6 @@ fn regression_one_item_not_two() {
     _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
-    println!("!!!! output: {}", writer.get_output()); // FIXME
 
     let expected_item = r#"[{"content":[{"type":"text","text":"Hello!"}],"role":"user"}]"#;
     let expected_json = serde_json::from_str(wrap_boilerplate(&expected_item).as_str())
