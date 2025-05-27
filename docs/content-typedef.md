@@ -84,8 +84,7 @@ Function call with fields:
 
 - `[0].type: "function"`
 - `[0].id: str` - Function call identifier
-- `[1].function: dict` containing:
-    - `name: str` - Function name
-    - `arguments: str` - Function arguments
+- `[0].name: str` - Function name
+- `[1].arguments: str` - Function arguments
 
 There is no content item representing the result of a function call. Instead, the `ChatMessage` with the role `tool` is used for that purpose. The tool result is then represented as `Content`.
