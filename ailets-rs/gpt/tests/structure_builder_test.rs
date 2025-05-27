@@ -17,9 +17,8 @@ fn basic_pass() {
     builder.end_message().unwrap();
 
     // Assert
-    let expected = r#"{"role":"assistant","content":[[{"type":"text"},{"text":"hello"}]]}"#
-        .to_owned()
-        + "\n";
+    let expected =
+        r#"{"role":"assistant","content":[[{"type":"text"},{"text":"hello"}]]}"#.to_owned() + "\n";
     assert_eq!(writer.get_output(), expected);
 }
 
@@ -55,9 +54,8 @@ fn create_message_without_input_role() {
     builder.end_message().unwrap();
 
     // Assert
-    let expected = r#"{"role":"assistant","content":[[{"type":"text"},{"text":"hello"}]]}"#
-        .to_owned()
-        + "\n";
+    let expected =
+        r#"{"role":"assistant","content":[[{"type":"text"},{"text":"hello"}]]}"#.to_owned() + "\n";
     assert_eq!(writer.get_output(), expected);
 }
 
@@ -76,9 +74,8 @@ fn can_call_end_message_multiple_times() {
     builder.end_message().unwrap(); // Should be ok
 
     // Assert
-    let expected = r#"{"role":"assistant","content":[[{"type":"text"},{"text":"hello"}]]}"#
-        .to_owned()
-        + "\n";
+    let expected =
+        r#"{"role":"assistant","content":[[{"type":"text"},{"text":"hello"}]]}"#.to_owned() + "\n";
     assert_eq!(writer.get_output(), expected);
 }
 

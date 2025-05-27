@@ -56,7 +56,7 @@ impl<W: Write> StructureBuilder<W> {
             return Ok(());
         }
         if self.text_is_open {
-            self.writer.write_all(b"\"}")?;
+            self.writer.write_all(b"\"}]")?;
             self.text_is_open = false;
         }
         self.writer.write_all(b"]}\n")?;
@@ -103,7 +103,8 @@ impl<W: Write> StructureBuilder<W> {
             self.begin_content()?;
         }
         if !self.text_is_open {
-            self.writer.write_all(b"{\"type\":\"text\",\"text\":\"")?;
+            self.writer
+                .write_all(b"[{\"type\":\"text\"},{\"text\":\"")?;
             self.text_is_open = true;
         }
         Ok(())
