@@ -14,9 +14,14 @@ def is_content_item_text(obj: Any) -> TypeGuard[ContentItemText]:
         return False
     if len(obj) != 2:
         return False
-    if obj[0].get("type") != "text":
+    (obj0, obj1) = obj
+    if not isinstance(obj0, dict) or not isinstance(obj1, dict):
         return False
-    return obj[1].get("text") is not None
+    if obj0.get("type") != "text":
+        return False
+    if not isinstance(obj1, dict):
+        return False
+    return obj1.get("text") is not None
 
 
 def is_content_item_refusal(obj: Any) -> TypeGuard[ContentItemRefusal]:
@@ -24,9 +29,12 @@ def is_content_item_refusal(obj: Any) -> TypeGuard[ContentItemRefusal]:
         return False
     if len(obj) != 2:
         return False
-    if obj[0].get("type") != "refusal":
+    (obj0, obj1) = obj
+    if not isinstance(obj0, dict) or not isinstance(obj1, dict):
         return False
-    return obj[1].get("refusal") is not None
+    if obj0.get("type") != "refusal":
+        return False
+    return obj1.get("refusal") is not None
 
 
 def is_content_item_image(obj: Any) -> TypeGuard[ContentItemImage]:
@@ -34,11 +42,12 @@ def is_content_item_image(obj: Any) -> TypeGuard[ContentItemImage]:
         return False
     if len(obj) != 2:
         return False
-    if obj[0].get("type") != "image":
+    (obj0, obj1) = obj
+    if not isinstance(obj0, dict) or not isinstance(obj1, dict):
         return False
-    return isinstance(obj[1].get("content_type"), str) and (
-        "image_url" in obj[1] or "image_key" in obj[1]
-    )
+    if obj0.get("type") != "image":
+        return False
+    return "image_url" in obj1 or "image_key" in obj1
 
 
 def is_content_item_function(obj: Any) -> TypeGuard[ContentItemFunction]:
@@ -46,9 +55,12 @@ def is_content_item_function(obj: Any) -> TypeGuard[ContentItemFunction]:
         return False
     if len(obj) != 2:
         return False
-    if obj[0].get("type") != "function":
+    (obj0, obj1) = obj
+    if not isinstance(obj0, dict) or not isinstance(obj1, dict):
         return False
-    return "id" in obj[1] and "function" in obj[1]
+    if obj0.get("type") != "function":
+        return False
+    return "id" in obj1 and "function" in obj1
 
 
 def is_content_item(obj: Any) -> TypeGuard[ContentItem]:
