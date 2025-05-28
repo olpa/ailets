@@ -3,8 +3,12 @@ from typing import Optional
 from ailets.atyping import (
     ChatMessage,
     ContentItemImage,
+    ContentItemImageAttrs,
+    ContentItemImageContent,
     ContentItemText,
     Content,
+    ContentItemTextAttrs,
+    ContentItemTextContent,
     INodeRuntime,
     StdHandles,
 )
@@ -28,14 +32,11 @@ async def response_to_messages(runtime: INodeRuntime) -> None:
         # }
 
         for item in response["data"]:
-            text: Optional[ContentItemText] = (
-                {
-                    "type": "text",
-                    "text": item["revised_prompt"],
-                }
-                if item.get("revised_prompt")
-                else None
-            )
+            text: Optional[ContentItemText] = None
+            if revised_prompt := item.get("revised_prompt"):
+                t0: ContentItemTextAttrs = {"type": "text"}
+                t1: ContentItemTextContent = {"text": revised_prompt}
+                text = (t0, t1)
 
             assert (
                 "url" in item or "b64_json" in item
@@ -46,11 +47,12 @@ async def response_to_messages(runtime: INodeRuntime) -> None:
                 else f"data:image/png;base64,{item['b64_json']}"
             )
 
-            image: ContentItemImage = {
+            i0: ContentItemImageAttrs = {
                 "type": "image",
-                "content_type": "image/png",
-                "url": url,
+                "content_type": item.get("content_type"),
             }
+            i1: ContentItemImageContent = {"image_url": url}
+            image: ContentItemImage = (i0, i1)
 
             content: Content = [text, image] if text else [image]
             message: ChatMessage = {
