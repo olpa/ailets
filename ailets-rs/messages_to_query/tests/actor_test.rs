@@ -113,3 +113,23 @@ fn regression_one_item_not_two() {
         .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
+
+#[test]
+fn function_call() {
+    let input = r#"{"role": "assistant", "content": [
+        [{"type": "function", "id": "id123", "name": "get_weather"}, {"arguments": "{\"location\": \"London\", \"unit\": \"celsius\"}"}]
+    ]}"#;
+    let reader = Cursor::new(input);
+    let writer = RcWriter::new();
+
+    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
+    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
+        .expect("Failed to parse output as JSON");
+
+    let expected_item = r#"[{"role":"assistant","content":null,"tool_calls": [
+        {"id":"id123","type":"function","function":{"name":"get_weather","arguments":"{\"location\": \"London\", \"unit\": \"celsius\"}"}}
+    ]}]"#;
+    let expected_json = serde_json::from_str(wrap_boilerplate(&expected_item).as_str())
+        .expect("Failed to parse expected output as JSON");
+    assert_that!(output_json, equal_to(expected_json));
+}
