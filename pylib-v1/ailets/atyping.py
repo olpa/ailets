@@ -379,9 +379,10 @@ ContentItemRefusal = Tuple[ContentItemRefusalAttrs, ContentItemRefusalContent]
 class ContentItemFunctionAttrs(TypedDict):
     type: Literal["function"]
     id: str
+    name: str
 
 class ContentItemFunctionContent(TypedDict):
-    function: dict[Literal["name", "arguments"], str]
+    arguments: str
 
 ContentItemFunction = Tuple[ContentItemFunctionAttrs, ContentItemFunctionContent]
 
