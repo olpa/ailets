@@ -28,11 +28,11 @@ def get_extension(media_type: str) -> str:
 
 
 async def rewrite_image_url(runtime: INodeRuntime, image: ContentItemImage) -> str:
-    if key := image.get("key"):
+    if key := image[1].get("image_key"):
         raise ValueError("Not implemented: Output image reference by key")
         return key
 
-    url = image.get("url")
+    url = image[1].get("image_url")
     if not url:
         raise ValueError("Image has no URL or kv key")
 
@@ -83,7 +83,7 @@ async def content_to_markdown(
     await separator(runtime, fd)
 
     if is_content_item_text(content):
-        await write_all(runtime, fd, content["text"].encode("utf-8"))
+        await write_all(runtime, fd, content[1]["text"].encode("utf-8"))
         return
 
     if is_content_item_image(content):
