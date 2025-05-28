@@ -69,7 +69,7 @@ async def to_binary_body_in_kv(
         if is_content_item_image(value):
             await write_all(runtime, fd, b'; filename="image.png"\r\n')
             await write_all(runtime, fd, b"Content-Type: image/png\r\n\r\n")
-            await copy_image_to_fd(runtime, value["key"], fd)
+            await copy_image_to_fd(runtime, value[1]["image_key"], fd)
             await write_all(runtime, fd, b"\r\n")
         else:
             value = str(value)
@@ -90,11 +90,11 @@ class ExtractedPrompt(TypedDict):
 def update_prompt(prompt: ExtractedPrompt, content: Content) -> None:
     for part in content:
         if is_content_item_text(part):
-            prompt["prompt_parts"].append(part["text"])
+            prompt["prompt_parts"].append(part[1]["text"])
         elif is_content_item_image(part):
-            key = part["key"]
+            key = part[1]["image_key"]
             assert key is not None, "Image has no key"
-            assert part["content_type"] == "image/png", "Image must be PNG"
+            assert part[0]["content_type"] == "image/png", "Image must be PNG"
             if prompt["image"] is None:
                 prompt["image"] = part
             elif prompt["mask"] is None:
