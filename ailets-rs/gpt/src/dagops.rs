@@ -55,14 +55,13 @@ pub fn inject_tool_calls(
     //
     let tcch = json!([{
         "role": "assistant",
-        "tool_calls": tool_calls.iter().map(|tc| json!({
-            "id": tc.id,
+        "tool_calls": tool_calls.iter().map(|tc| json!([{
             "type": "function",
-            "function": {
-                "name": tc.function_name,
-                "arguments": tc.function_arguments
-            }
-        })).collect::<Vec<_>>()
+            "id": tc.id,
+            "name": tc.function_name,
+          },{
+            "arguments": tc.function_arguments
+        }])).collect::<Vec<_>>()
     }]);
     let explain = format!(
         "tool calls in chat history - {}",
@@ -99,14 +98,13 @@ pub fn inject_tool_calls(
         //
         // Convert tool output to messages
         //
-        let tool_spec = json!({
-            "id": tool_call.id,
+        let tool_spec = json!([{
             "type": "function",
-            "function": {
-                "name": tool_call.function_name,
-                "arguments": tool_call.function_arguments
-            }
-        });
+            "id": tool_call.id,
+            "name": tool_call.function_name,
+        },{
+            "arguments": tool_call.function_arguments
+        }]);
         let explain = format!("tool call spec - {}", tool_call.function_name);
         let tool_spec_handle = dagops.value_node(
             serde_json::to_string(&tool_spec)

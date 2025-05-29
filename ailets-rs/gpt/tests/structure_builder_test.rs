@@ -18,7 +18,7 @@ fn basic_pass() {
 
     // Assert
     let expected =
-        r#"{"role":"assistant","content":[{"type":"text","text":"hello"}]}"#.to_owned() + "\n";
+        r#"{"role":"assistant","content":[[{"type":"text"},{"text":"hello"}]]}"#.to_owned() + "\n";
     assert_eq!(writer.get_output(), expected);
 }
 
@@ -37,7 +37,7 @@ fn ignore_additional_role() {
     builder.end_message().unwrap();
 
     // Assert
-    let expected = r#"{"role":"a1","content":[{"type":"text","text":""}]}"#.to_owned() + "\n";
+    let expected = r#"{"role":"a1","content":[[{"type":"text"},{"text":""}]]}"#.to_owned() + "\n";
     assert_eq!(writer.get_output(), expected);
 }
 
@@ -55,7 +55,7 @@ fn create_message_without_input_role() {
 
     // Assert
     let expected =
-        r#"{"role":"assistant","content":[{"type":"text","text":"hello"}]}"#.to_owned() + "\n";
+        r#"{"role":"assistant","content":[[{"type":"text"},{"text":"hello"}]]}"#.to_owned() + "\n";
     assert_eq!(writer.get_output(), expected);
 }
 
@@ -75,7 +75,7 @@ fn can_call_end_message_multiple_times() {
 
     // Assert
     let expected =
-        r#"{"role":"assistant","content":[{"type":"text","text":"hello"}]}"#.to_owned() + "\n";
+        r#"{"role":"assistant","content":[[{"type":"text"},{"text":"hello"}]]}"#.to_owned() + "\n";
     assert_eq!(writer.get_output(), expected);
 }
 

@@ -8,7 +8,7 @@ fn test_basic_conversion() {
     {
         "role":"assistant",
         "content":[
-            {"type":"text", "text":"Hello!"}
+            [{"type":"text"}, {"text":"Hello!"}]
         ]
     }"#;
     let reader = Cursor::new(json_data);
@@ -25,9 +25,9 @@ fn test_multiple_content_items() {
     {
         "role":"assistant",
         "content":[
-            {"type":"text", "text":"First item"},
-            {"type":"text", "text":"Second item"},
-            {"type":"text", "text":"Third item"}
+            [{"type":"text"}, {"text":"First item"}],
+            [{"type":"text"}, {"text":"Second item"}],
+            [{"type":"text"}, {"text":"Third item"}]
         ]
     }"#;
     let reader = Cursor::new(json_data);
@@ -47,14 +47,14 @@ fn test_two_messages() {
     {
         "role":"assistant", 
         "content":[
-            {"type":"text", "text":"First message"}
+            [{"type":"text"}, {"text":"First message"}]
         ]
     }
     {
         "role":"assistant",
         "content":[
-            {"type":"text", "text":"Second message"},
-            {"type":"text", "text":"Extra text"}
+            [{"type":"text"}, {"text":"Second message"}],
+            [{"type":"text"}, {"text":"Extra text"}]
         ]
     }"#;
     let reader = Cursor::new(json_data);
@@ -88,7 +88,7 @@ fn test_long_text() {
     {{
         "role":"assistant",
         "content":[
-            {{"type":"text", "text":"{}"}}
+            [{{"type":"text"}}, {{"text":"{}"}}]
         ]
     }}"#,
         long_text
@@ -107,9 +107,9 @@ fn test_skip_unknown_key_object() {
     {
         "role":"assistant", 
         "content":[
-            {"type":"text", "text":"First message"},
-            {"unknown_key": {"some": "object"}},
-            {"type":"text", "text":"Second message"}
+            [{"type":"text"}, {"text":"First message"}],
+            [{"unknown_key": {"some": "object"}}],
+            [{"type":"text"}, {"text":"Second message"}]
         ]
     }"#;
     let reader = Cursor::new(json_data);
@@ -126,7 +126,7 @@ fn test_json_escapes() {
     {
         "role":"assistant",
         "content":[
-            {"type":"text", "text":"a\n\"\u0401\""}
+            [{"type":"text"}, {"text":"a\n\"\u0401\""}]
         ]
     }"#;
     let reader = Cursor::new(json_data);

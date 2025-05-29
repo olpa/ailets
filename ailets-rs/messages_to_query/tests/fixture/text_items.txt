@@ -1,2 +1,2 @@
-{"role": "system", "content": [{"type": "text", "text": "You are a helpful assistant who answers in Spanish"}]}
-{"role": "user", "content": [{"type": "text", "text": "Hello!"}]}
+{"role": "system", "content": [[{"type": "text", "text": "You are a helpful assistant who answers in Spanish"}]]}
+{"role": "user", "content": [[{"type": "text", "text": "Hello!"}]]}

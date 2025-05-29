@@ -47,22 +47,20 @@ fn inject_tool_calls_to_dag() {
         {
             "role": "assistant",
             "tool_calls": [
-                {
+                [{
+                    "type": "function",
                     "id": "call_1",
+                    "name": "get_weather",
+                  },{
+                    "arguments": "{\"city\":\"London\"}"
+                }],
+                [{
                     "type": "function",
-                    "function": {
-                        "name": "get_weather",
-                        "arguments": "{\"city\":\"London\"}"
-                    }
-                },
-                {
                     "id": "call_2",
-                    "type": "function",
-                    "function": {
-                        "name": "get_forecast",
-                        "arguments": "{\"days\":5}"
-                    }
-                }
+                    "name": "get_forecast",
+                  },{
+                    "arguments": "{\"days\":5}"
+                }]
             ]
         }
     ]);
@@ -93,14 +91,13 @@ fn inject_tool_calls_to_dag() {
         matches_regex("tool call spec - get_weather")
     );
     let expected_toolspec_input1 = json!(
-        {
-            "id": "call_1",
+        [{
             "type": "function",
-            "function": {
-                "name": "get_weather",
-                "arguments": "{\"city\":\"London\"}"
-            }
-        }
+            "id": "call_1",
+            "name": "get_weather",
+        },{
+            "arguments": "{\"city\":\"London\"}"
+        }]
     );
     let value_toolspec_input1 = serde_json::from_str(&value_toolspec_input1)
         .expect(&format!("Failed to parse JSON: {value_toolspec_input1}"));
@@ -132,14 +129,13 @@ fn inject_tool_calls_to_dag() {
         matches_regex("tool call spec - get_forecast")
     );
     let expected_toolspec_input2 = json!(
-        {
-            "id": "call_2",
+        [{
             "type": "function",
-            "function": {
-                "name": "get_forecast",
-                "arguments": "{\"days\":5}"
-            }
-        }
+            "id": "call_2",
+            "name": "get_forecast",
+          },{
+            "arguments": "{\"days\":5}"
+        }]
     );
     let value_toolspec_input2 = serde_json::from_str(&value_toolspec_input2)
         .expect(&format!("Failed to parse JSON: {value_toolspec_input2}"));

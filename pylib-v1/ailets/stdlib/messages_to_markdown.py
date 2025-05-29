@@ -3,7 +3,7 @@ import base64
 import hashlib
 from ailets.cons.typeguards import is_content_item_image, is_content_item_text
 from ailets.atyping import (
-    Content,
+    ContentItem,
     ContentItemImage,
     INodeRuntime,
     StdHandles,
@@ -28,11 +28,11 @@ def get_extension(media_type: str) -> str:
 
 
 async def rewrite_image_url(runtime: INodeRuntime, image: ContentItemImage) -> str:
-    if key := image.get("key"):
+    if key := image[1].get("image_key"):
         raise ValueError("Not implemented: Output image reference by key")
         return key
 
-    url = image.get("url")
+    url = image[1].get("image_url")
     if not url:
         raise ValueError("Image has no URL or kv key")
 
@@ -78,20 +78,20 @@ async def rewrite_image_url(runtime: INodeRuntime, image: ContentItemImage) -> s
 async def content_to_markdown(
     runtime: INodeRuntime,
     fd: int,
-    content: Content,
+    content_item: ContentItem,
 ) -> None:
     await separator(runtime, fd)
 
-    if is_content_item_text(content):
-        await write_all(runtime, fd, content["text"].encode("utf-8"))
+    if is_content_item_text(content_item):
+        await write_all(runtime, fd, content_item[1]["text"].encode("utf-8"))
         return
 
-    if is_content_item_image(content):
-        url = await rewrite_image_url(runtime, content)
+    if is_content_item_image(content_item):
+        url = await rewrite_image_url(runtime, content_item)
         await write_all(runtime, fd, f"![image]({url})".encode("utf-8"))
         return
 
-    await write_all(runtime, fd, json.dumps(content).encode("utf-8"))
+    await write_all(runtime, fd, json.dumps(content_item).encode("utf-8"))
 
 
 async def messages_to_markdown(runtime: INodeRuntime) -> None:
@@ -100,10 +100,5 @@ async def messages_to_markdown(runtime: INodeRuntime) -> None:
     need_separator = False
 
     async for message in iter_input_objects(runtime, StdHandles.stdin):
-        content = message["content"]
-        if isinstance(content, str):
-            await separator(runtime, StdHandles.stdout)
-            await write_all(runtime, StdHandles.stdout, content.encode("utf-8"))
-            continue
-        for item in content:
+        for item in message["content"]:
             await content_to_markdown(runtime, StdHandles.stdout, item)

@@ -141,12 +141,7 @@ async def iter_input_objects(
         try:
             obj, obj_len = decoder.raw_decode(sbuf[pos:])
             pos += obj_len
-
-            if isinstance(obj, list):
-                for item in obj:
-                    yield item
-            else:
-                yield obj
+            yield obj
 
         except json.JSONDecodeError:
             raise ValueError(

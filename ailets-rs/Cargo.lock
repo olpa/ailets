@@ -15,7 +15,7 @@ name = "actor_runtime"
 version = "0.2.0"
 dependencies = [
  "base64",
- "scan_json",
+ "scan_json 1.0.2",
  "serde_json",
 ]
 
@@ -119,7 +119,7 @@ dependencies = [
  "actor_runtime_mocked",
  "getrandom",
  "hamcrest",
- "scan_json",
+ "scan_json 1.0.2",
  "serde_json",
 ]
 
@@ -231,7 +231,7 @@ dependencies = [
  "actor_runtime",
  "actor_runtime_mocked",
  "getrandom",
- "scan_json",
+ "scan_json 1.0.2",
 ]
 
 [[package]]
@@ -244,7 +244,7 @@ dependencies = [
  "base64",
  "getrandom",
  "hamcrest",
- "scan_json",
+ "scan_json 1.0.3",
  "serde",
  "serde_json",
 ]
@@ -524,6 +524,13 @@ name = "scan_json"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d3cd27a3cb591249884932704555c5ba91092b61813b32fe7ec528026127ee1"
+dependencies = [
+ "rjiter",
+]
+
+[[package]]
+name = "scan_json"
+version = "1.0.3"
 dependencies = [
  "rjiter",
 ]

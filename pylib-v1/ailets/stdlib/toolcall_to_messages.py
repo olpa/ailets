@@ -28,28 +28,33 @@ async def toolcall_to_messages(runtime: INodeRuntime) -> None:
     await runtime.close(fd)
 
     #
-    # LLM tool call spec
+    # Tool call message
     #
     # ```
-    # {
-    #     "id": "call-62136354",
-    #     "function": {
-    #         "arguments": "{\"order_id\": \"order_12345\"}",
-    #         "name": "get_delivery_date",
-    #     },
+    # [{
     #     "type": "function"
-    # }
+    #     "id": "call-62136354",
+    #     "name": "get_delivery_date"
+    #   },{
+    #     "arguments": "{\"order_id\": \"order_12345\"}"
+    # }]
     # ```
     #
-    function_name = spec["function"]["name"]
-    tool_call_id = spec["id"]
+    assert isinstance(spec, list), "Tool call message must be a list"
+    assert len(spec) == 2, "Tool call message must have exactly two items"
+    spec0 = spec[0]
+    assert isinstance(spec0, dict), "Tool call attributes must be a dict"
+    spec1 = spec[1]
+    assert isinstance(spec1, str), "Tool call arguments must be a string"
+    assert "name" in spec0, "Tool call attributes must have a name"
+    assert "id" in spec0, "Tool call attributes must have an id"
+    assert "arguments" in spec1, "Tool call arguments must be a string"
+    function_name = spec0["name"]
+    tool_call_id = spec0["id"]
+    arguments = spec1["arguments"]
 
-    try:
-        arguments = json.loads(spec["function"]["arguments"])
-    except json.JSONDecodeError as e:
-        print(f"Failed to parse tool arguments as JSON: {str(e)}")
-        raise
-
+    # Old comment:
+    #
     # Construct response content
     # Note that the argument list is extended with the item
     # `function_name: tool_result`
@@ -63,18 +68,16 @@ async def toolcall_to_messages(runtime: INodeRuntime) -> None:
     # }
     # ```
     #
-    content = {
-        **arguments,
-        function_name: tool_result,
-    }
-
+    # New comment:
+    #
+    # As an experiment, we go away from the official OpenAI example,
+    # and instead of patching arguments, we add a new item to the content.
+    #
     chat_message: ChatMessageTool = {
         "role": "tool",
         "content": [
-            {
-                "type": "text",
-                "text": json.dumps(content),
-            },
+            [{"type": "text"}, {"text": arguments}],
+            [{"type": "text"}, {"text": json.dumps({function_name: tool_result})}],
         ],
         "tool_call_id": tool_call_id,
     }

@@ -1,7 +1,6 @@
-from typing import Any, Sequence, TypeGuard
+from typing import Any, TypeGuard
 
 from ailets.atyping import (
-    Content,
     ContentItem,
     ContentItemFunction,
     ContentItemImage,
@@ -11,29 +10,57 @@ from ailets.atyping import (
 
 
 def is_content_item_text(obj: Any) -> TypeGuard[ContentItemText]:
-    return isinstance(obj, dict) and obj.get("type") == "text" and "text" in obj
+    if not isinstance(obj, list):
+        return False
+    if len(obj) != 2:
+        return False
+    (obj0, obj1) = obj
+    if not isinstance(obj0, dict) or not isinstance(obj1, dict):
+        return False
+    if obj0.get("type") != "text":
+        return False
+    if not isinstance(obj1, dict):
+        return False
+    return obj1.get("text") is not None
 
 
 def is_content_item_refusal(obj: Any) -> TypeGuard[ContentItemRefusal]:
-    return isinstance(obj, dict) and obj.get("type") == "refusal" and "refusal" in obj
+    if not isinstance(obj, list):
+        return False
+    if len(obj) != 2:
+        return False
+    (obj0, obj1) = obj
+    if not isinstance(obj0, dict) or not isinstance(obj1, dict):
+        return False
+    if obj0.get("type") != "refusal":
+        return False
+    return obj1.get("refusal") is not None
 
 
 def is_content_item_image(obj: Any) -> TypeGuard[ContentItemImage]:
-    return (
-        isinstance(obj, dict)
-        and obj.get("type") == "image"
-        and isinstance(obj.get("content_type"), str)
-        and ("url" in obj or "key" in obj)
-    )
+    if not isinstance(obj, list):
+        return False
+    if len(obj) != 2:
+        return False
+    (obj0, obj1) = obj
+    if not isinstance(obj0, dict) or not isinstance(obj1, dict):
+        return False
+    if obj0.get("type") != "image":
+        return False
+    return "image_url" in obj1 or "image_key" in obj1
 
 
 def is_content_item_function(obj: Any) -> TypeGuard[ContentItemFunction]:
-    return (
-        isinstance(obj, dict)
-        and obj.get("type") == "function"
-        and "id" in obj
-        and "function" in obj
-    )
+    if not isinstance(obj, list):
+        return False
+    if len(obj) != 2:
+        return False
+    (obj0, obj1) = obj
+    if not isinstance(obj0, dict) or not isinstance(obj1, dict):
+        return False
+    if obj0.get("type") != "function":
+        return False
+    return "id" in obj1 and "function" in obj1
 
 
 def is_content_item(obj: Any) -> TypeGuard[ContentItem]:
@@ -43,7 +70,3 @@ def is_content_item(obj: Any) -> TypeGuard[ContentItem]:
         or is_content_item_image(obj)
         or is_content_item_function(obj)
     )
-
-
-def is_chat_message_content(obj: Any) -> TypeGuard[Content]:
-    return isinstance(obj, Sequence) and all(is_content_item(item) for item in obj)

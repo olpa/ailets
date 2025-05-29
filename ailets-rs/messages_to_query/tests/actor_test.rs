@@ -8,15 +8,6 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::io::Cursor;
 
-fn fix_json(json: &str) -> String {
-    if json.contains("}\n{") {
-        let json = json.replace("}\n{", "},\n{");
-        let json = format!("[{}]", json);
-        return json;
-    }
-    json.to_string()
-}
-
 fn create_empty_env_opts() -> EnvOpts {
     EnvOpts::from_map(HashMap::new())
 }
@@ -42,31 +33,19 @@ fn test_text_items() {
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
 
-    let expected_output = wrap_boilerplate(fix_json(&fixture_content).as_str());
+    let expected_item1 = r#"{"role":"system","content":[{"type":"text","text":"You are a helpful assistant who answers in Spanish"}]}"#;
+    let expected_item2 = r#"{"role":"user","content":[{"type":"text","text":"Hello!"}]}"#;
+    let expected_output = wrap_boilerplate(
+        format!(r#"[_NL_{},_NL_{}_NL_]"#, expected_item1, expected_item2).as_str(),
+    );
     let expected_json =
         serde_json::from_str(&expected_output).expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
 
 #[test]
-fn input_as_array() {
-    let fixture_content = std::fs::read_to_string("tests/fixture/text_items_arr.txt")
-        .expect("Failed to read fixture file 'text_items_arr.txt'");
-    let reader = Cursor::new(fixture_content.clone());
-    let writer = RcWriter::new();
-
-    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
-    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
-        .expect("Failed to parse output as JSON");
-
-    let expected_json = serde_json::from_str(wrap_boilerplate(&fixture_content).as_str())
-        .expect("Failed to parse expected output as JSON");
-    assert_that!(output_json, equal_to(expected_json));
-}
-
-#[test]
 fn image_url_as_is() {
-    let input = r#"{"role": "user", "content": [{"type": "image", "image_url": "https://example.com/image.jpg"}]}"#;
+    let input = r#"{"role": "user", "content": [[{"type": "image", "image_url": "https://example.com/image.jpg"}]]}"#;
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
 
@@ -82,7 +61,7 @@ fn image_url_as_is() {
 
 #[test]
 fn image_as_key() {
-    let input = r#"{"role": "user", "content": [{"type": "image", "detail": "auto", "content_type": "image/png", "image_key": "media/image-as-key-2.png"}]}"#;
+    let input = r#"{"role": "user", "content": [[{"type": "image", "detail": "auto", "content_type": "image/png", "image_key": "media/image-as-key-2.png"}]]}"#;
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
     add_file(String::from("media/image-as-key-2.png"), b"hello".to_vec());
@@ -99,7 +78,7 @@ fn image_as_key() {
 
 #[test]
 fn mix_text_and_image() {
-    let input = r#"{"role": "user", "content": [{"type": "text", "text": "Here's an image:"}, {"type": "image", "image_url": "https://example.com/image.jpg"}, {"type": "text", "text": "What do you think about it?"}]}"#;
+    let input = r#"{"role": "user", "content": [[{"type": "text"}, {"text": "Here's an image:"}], [{"type": "image"}, {"image_url": "https://example.com/image.jpg"}], [{"type": "text"}, {"text": "What do you think about it?"}]]}"#;
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
 
@@ -114,6 +93,42 @@ fn mix_text_and_image() {
         r#"[{{"role":"user","content":[_NL_{},_NL_{},_NL_{}_NL_]}}]"#,
         text_item1, image_item, text_item2
     );
+    let expected_json = serde_json::from_str(wrap_boilerplate(&expected_item).as_str())
+        .expect("Failed to parse expected output as JSON");
+    assert_that!(output_json, equal_to(expected_json));
+}
+
+#[test]
+fn regression_one_item_not_two() {
+    let input = r#"{"content": [[{"type": "text"}, {"text": "Hello!"}]], "role": "user"}"#;
+    let reader = Cursor::new(input);
+    let writer = RcWriter::new();
+
+    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
+    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
+        .expect("Failed to parse output as JSON");
+
+    let expected_item = r#"[{"content":[{"type":"text","text":"Hello!"}],"role":"user"}]"#;
+    let expected_json = serde_json::from_str(wrap_boilerplate(&expected_item).as_str())
+        .expect("Failed to parse expected output as JSON");
+    assert_that!(output_json, equal_to(expected_json));
+}
+
+#[test]
+fn function_call() {
+    let input = r#"{"role": "assistant", "content": [
+        [{"type": "function", "id": "id123", "name": "get_weather"}, {"arguments": "{\"location\": \"London\", \"unit\": \"celsius\"}"}]
+    ]}"#;
+    let reader = Cursor::new(input);
+    let writer = RcWriter::new();
+
+    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
+    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
+        .expect("Failed to parse output as JSON");
+
+    let expected_item = r#"[{"role":"assistant","content":null,"tool_calls": [
+        {"id":"id123","type":"function","function":{"name":"get_weather","arguments":"{\"location\": \"London\", \"unit\": \"celsius\"}"}}
+    ]}]"#;
     let expected_json = serde_json::from_str(wrap_boilerplate(&expected_item).as_str())
         .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
