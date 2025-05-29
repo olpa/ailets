@@ -2,6 +2,7 @@ from typing import Any, TypeGuard
 
 from ailets.atyping import (
     ContentItem,
+    ContentItemCtl,
     ContentItemFunction,
     ContentItemImage,
     ContentItemRefusal,
@@ -63,10 +64,24 @@ def is_content_item_function(obj: Any) -> TypeGuard[ContentItemFunction]:
     return "id" in obj1 and "function" in obj1
 
 
+def is_content_item_ctl(obj: Any) -> TypeGuard[ContentItemCtl]:
+    if not isinstance(obj, list):
+        return False
+    if len(obj) != 2:
+        return False
+    (obj0, obj1) = obj
+    if not isinstance(obj0, dict) or not isinstance(obj1, dict):
+        return False
+    if obj0.get("type") != "ctl":
+        return False
+    return isinstance(obj1.get("role"), str)
+
+
 def is_content_item(obj: Any) -> TypeGuard[ContentItem]:
     return (
         is_content_item_text(obj)
         or is_content_item_refusal(obj)
         or is_content_item_image(obj)
         or is_content_item_function(obj)
+        or is_content_item_ctl(obj)
     )

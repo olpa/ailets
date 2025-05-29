@@ -387,11 +387,21 @@ class ContentItemFunctionContent(TypedDict):
 ContentItemFunction = Tuple[ContentItemFunctionAttrs, ContentItemFunctionContent]
 
 
+class ContentItemCtlAttrs(TypedDict):
+    type: Literal["ctl"]
+
+class ContentItemCtlContent(TypedDict):
+    role: str
+
+ContentItemCtl = Tuple[ContentItemCtlAttrs, ContentItemCtlContent]
+
+
 ContentItem = Union[
     ContentItemText,
     ContentItemImage,
     ContentItemRefusal,
     ContentItemFunction,
+    ContentItemCtl,
 ]
 
 
