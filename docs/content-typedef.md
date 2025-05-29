@@ -2,20 +2,7 @@
 
 To have interoperability between different models, we define a common content type.
 
-Each model is expected to get a sequence of `ChatMessage`s as input and produce a sequence of `ChatMessage`s as output.
-
-## `ChatMessage`
-
-A `ChatMessage` represents a message in a chat conversation. It is defined as a TypedDict with two required fields:
-
-- `role`: A literal string that must be one of: "system", "user", "assistant", or "tool"
-  - `system`: The system prompt
-  - `user`: A user message
-  - `assistant`: An assistant message
-  - `tool`: Tool output
-- `content`: A sequence of content items
-
-See also [OpenAI chat completion messages](https://platform.openai.com/docs/api-reference/chat/create).
+Each model is expected to get a sequence of `ContentItem`s as input and produce a sequence of `ContentItem`s as output.
 
 
 ## `ContentItem`
@@ -28,7 +15,7 @@ Logically, a content item is a dictionary. Physically, it's a tuple of two dicti
 The reason for having a tuple is to enforce the order of attributes, allowing streaming transformations. In particular, we want to see the attribute `type` before we get the actual content.
 
 
-### `ContentItemText`
+## `ContentItemText`
 
 Text content with the following fields:
 
@@ -38,7 +25,7 @@ Text content with the following fields:
 See also [OpenAI reference](https://platform.openai.com/docs/guides/text).
 
 
-### `ContentItemImage`
+## `ContentItemImage`
 
 Image content with the following fields:
 
@@ -57,7 +44,7 @@ There are three ways to include an image:
 - Image blob using a data URL in the form `data:[<mediatype>][;base64],<base64-encoded data>`.
 - Image blob using a key in a key-value storage.
 
-#### Image reference
+### Image reference
 
 For image references, ailets do not download the data. Instead, the logic is:
 
@@ -68,7 +55,7 @@ It is expected that the provider will fetch the image. OpenAI GPT and Anthropic 
 
 For OpenAI-compatible chats, the value of `content_type` is ignored. Vendors do type auto-detection for image references but not for image blobs.
 
-#### Image blob
+### Image blob
 
 For image blobs, passing them to a model depends on the specific model. For OpenAI-compatible chats, data URLs are passed as they are.
 
@@ -78,7 +65,7 @@ When serializing an image blob to markdown:
 - When using a key, copy the blob to a new key with the prefix `out/`. In markdown, reference the `out/` version. Expect that the ailets runner will extract `out/*` blobs for the user.
 
 
-### `ContentItemFunction`
+## `ContentItemFunction`
 
 Function call with fields:
 
@@ -88,3 +75,13 @@ Function call with fields:
 - `[1].arguments: str` - Function arguments
 
 There is no content item representing the result of a function call. Instead, the `ChatMessage` with the role `tool` is used for that purpose. The tool result is then represented as `Content`.
+
+
+## `ContentItemCtl`
+
+Affect the processing of the following items. Currently, its main use is to annotate "who" said the message. Additionally, if we decide to implement OpenAI choices (multiple outputs), the control message could indicate which choice comes next.
+
+- `[0].type: "ctl"`
+- `[1].role: "system"|"user"|"assistant"|"tool"|str`
+
+See also [OpenAI chat completion messages](https://platform.openai.com/docs/api-reference/chat/create).
