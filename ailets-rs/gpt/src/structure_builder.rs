@@ -59,7 +59,6 @@ impl<W: Write> StructureBuilder<W> {
             self.writer.write_all(b"\"}]")?;
             self.text_is_open = false;
         }
-        self.writer.write_all(b"]}\n")?;
         self.message_is_closed = true;
         Ok(())
     }
@@ -82,14 +81,13 @@ impl<W: Write> StructureBuilder<W> {
         if self.message_has_content {
             return Ok(());
         }
+        self.writer.write_all(b"{\"type\":\"ctl\",\"role\":\"")?;
         if let Some(role) = &self.role {
-            self.writer.write_all(b"{\"role\":\"")?;
             self.writer.write_all(role.as_bytes())?;
-            self.writer.write_all(b"\",\"content\":[")?;
         } else {
-            self.writer
-                .write_all(b"{\"role\":\"assistant\",\"content\":[")?;
+            self.writer.write_all(b"assistant")?;
         }
+        self.writer.write_all(b"\"}\n")?;
         self.message_has_content = true;
         self.text_is_open = false;
         Ok(())
