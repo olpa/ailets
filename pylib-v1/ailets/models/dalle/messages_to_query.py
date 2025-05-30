@@ -1,18 +1,17 @@
 import json
-from typing import Any, Optional, Sequence, TypedDict, Union
+from typing import Any, Optional, TypedDict, Union
 from ailets.io.input_reader import iter_input_objects
 from ailets.cons.typeguards import (
     is_content_item_image,
     is_content_item_text,
 )
 from ailets.atyping import (
-    Content,
+    ContentItem,
     ContentItemImage,
     INodeRuntime,
     StdHandles,
 )
 from ailets.cons.util import (
-    log,
     write_all,
 )
 from ailets.io.input_reader import read_all, read_env_pipe
@@ -87,24 +86,22 @@ class ExtractedPrompt(TypedDict):
     mask: Optional[ContentItemImage]
 
 
-def update_prompt(prompt: ExtractedPrompt, content: Content) -> None:
-    for part in content:
-        if is_content_item_text(part):
-            prompt["prompt_parts"].append(part[1]["text"])
-        elif is_content_item_image(part):
-            key = part[1]["image_key"]
-            assert key is not None, "Image has no key"
-            assert part[0]["content_type"] == "image/png", "Image must be PNG"
-            if prompt["image"] is None:
-                prompt["image"] = part
-            elif prompt["mask"] is None:
-                prompt["mask"] = part
-            else:
-                raise ValueError(
-                    "Too many images. First image is used as image, second as mask."
-                )
+def update_prompt(prompt: ExtractedPrompt, content_item: ContentItem) -> None:
+    if is_content_item_text(content_item):
+        prompt["prompt_parts"].append(content_item[1]["text"])
+        return
+    if is_content_item_image(content_item):
+        key = content_item[1]["image_key"]
+        assert key is not None, "Image has no key"
+        assert content_item[0]["content_type"] == "image/png", "Image must be PNG"
+        if prompt["image"] is None:
+            prompt["image"] = content_item
+        elif prompt["mask"] is None:
+            prompt["mask"] = content_item
         else:
-            raise ValueError(f"Unsupported content type: {part}")
+            raise ValueError(
+                "Too many images. First image is used as image, second as mask."
+            )
 
 
 async def messages_to_query(runtime: INodeRuntime) -> None:
@@ -118,14 +115,9 @@ async def messages_to_query(runtime: INodeRuntime) -> None:
     ), "Invalid DALL-E task, expected one of: generations, variations, edits"
 
     prompt = ExtractedPrompt(prompt_parts=[], image=None, mask=None)
-    async for message in iter_input_objects(runtime, StdHandles.stdin):
-        role = message.get("role")
-        if role != "user":
-            await log(runtime, "info", f"Skipping message with role {role}")
-            continue
-        content = message.get("content")
-        assert isinstance(content, Sequence), "Content must be a list"
-        update_prompt(prompt, content)
+    async for obj in iter_input_objects(runtime, StdHandles.stdin):
+        content_item: ContentItem = obj  # type: ignore
+        update_prompt(prompt, content_item)
 
     if not len(prompt["prompt_parts"]) and task != "variations":
         raise ValueError("No user prompt found in messages")
