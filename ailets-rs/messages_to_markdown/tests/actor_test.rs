@@ -74,7 +74,7 @@ fn test_long_text() {
         r#"
         [{{"type":"ctl"}}, {{"role":"assistant"}}]
         [{{"type":"text"}}, {{"text":"{}"}}]
-    }}"#,
+    "#,
         long_text
     );
     let reader = Cursor::new(json_data);
