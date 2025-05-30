@@ -403,15 +403,3 @@ ContentItem = Union[
     ContentItemFunction,
     ContentItemCtl,
 ]
-
-
-Content = Sequence[ContentItem]
-
-
-class ChatMessage(TypedDict):
-    role: Literal["system", "user", "assistant", "tool"]
-    content: Content
-
-
-class ChatMessageTool(ChatMessage):
-    tool_call_id: str
