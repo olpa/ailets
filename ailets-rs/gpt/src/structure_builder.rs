@@ -59,6 +59,7 @@ impl<W: Write> StructureBuilder<W> {
             self.writer.write_all(b"\"}]")?;
             self.text_is_open = false;
         }
+        self.writer.write_all(b"\n")?;
         self.message_is_closed = true;
         Ok(())
     }
