@@ -1,12 +1,10 @@
 import json
-from typing import Optional
 from ailets.atyping import (
-    ChatMessage,
+    ContentItemCtl,
     ContentItemImage,
     ContentItemImageAttrs,
     ContentItemImageContent,
     ContentItemText,
-    Content,
     ContentItemTextAttrs,
     ContentItemTextContent,
     INodeRuntime,
@@ -18,6 +16,9 @@ from ailets.cons.util import write_all
 
 async def response_to_messages(runtime: INodeRuntime) -> None:
     """Convert DALL-E response to messages."""
+
+    ctl: ContentItemCtl = ({"type": "ctl"}, {"role": "assistant"})
+    await write_all(runtime, StdHandles.stdout, json.dumps(ctl).encode("utf-8"))
 
     async for response in iter_input_objects(runtime, StdHandles.stdin):
         # `response` format:
@@ -32,11 +33,14 @@ async def response_to_messages(runtime: INodeRuntime) -> None:
         # }
 
         for item in response["data"]:
-            text: Optional[ContentItemText] = None
             if revised_prompt := item.get("revised_prompt"):
                 t0: ContentItemTextAttrs = {"type": "text"}
                 t1: ContentItemTextContent = {"text": revised_prompt}
-                text = (t0, t1)
+                text: ContentItemText = (t0, t1)
+                await write_all(
+                    runtime, StdHandles.stdout, json.dumps(text).encode("utf-8")
+                )
+                continue
 
             assert (
                 "url" in item or "b64_json" in item
@@ -53,14 +57,6 @@ async def response_to_messages(runtime: INodeRuntime) -> None:
             }
             i1: ContentItemImageContent = {"image_url": url}
             image: ContentItemImage = (i0, i1)
-
-            content: Content = [text, image] if text else [image]
-            message: ChatMessage = {
-                "role": "assistant",
-                "content": content,
-            }
             await write_all(
-                runtime,
-                StdHandles.stdout,
-                json.dumps(message).encode("utf-8"),
+                runtime, StdHandles.stdout, json.dumps(image).encode("utf-8")
             )
