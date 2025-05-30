@@ -22,6 +22,7 @@ fn on_content_text<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
+    println!("!!! on_content_text begin"); // FIXME
     let mut rjiter = rjiter_cell.borrow_mut();
 
     let peeked = match rjiter.peek() {
@@ -49,6 +50,7 @@ fn on_content_text<W: Write>(
         return StreamOp::Error(Box::new(e));
     }
 
+    println!("!!! on_content_text end"); // FIXME
     StreamOp::ValueIsConsumed
 }
 
