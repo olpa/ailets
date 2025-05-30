@@ -1,4 +1,3 @@
-mod matchers;
 mod structure_builder;
 
 use actor_io::{AReader, AWriter};
