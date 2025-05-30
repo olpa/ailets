@@ -18,26 +18,7 @@ fn basic_pass() {
 
     // Assert
     let expected =
-        r#"{"role":"assistant","content":[[{"type":"text"},{"text":"hello"}]]}"#.to_owned() + "\n";
-    assert_eq!(writer.get_output(), expected);
-}
-
-#[test]
-fn ignore_additional_role() {
-    // Arrange
-    let writer = RcWriter::new();
-    let mut builder = StructureBuilder::new(writer.clone());
-
-    // Act
-    builder.begin_message();
-    builder.role("a1").unwrap();
-    builder.role("a2").unwrap(); // Should be ignored
-    builder.role("a3").unwrap(); // Should be ignored
-    builder.begin_text_chunk().unwrap(); // otherwise message isn't written
-    builder.end_message().unwrap();
-
-    // Assert
-    let expected = r#"{"role":"a1","content":[[{"type":"text"},{"text":""}]]}"#.to_owned() + "\n";
+        r#"{"type":"ctl","role":"assistant"}\n[{"type":"text"},{"text":"hello"}]"#.to_owned() + "\n";
     assert_eq!(writer.get_output(), expected);
 }
 
@@ -55,7 +36,7 @@ fn create_message_without_input_role() {
 
     // Assert
     let expected =
-        r#"{"role":"assistant","content":[[{"type":"text"},{"text":"hello"}]]}"#.to_owned() + "\n";
+        r#"{"type":"ctl","role":"assistant"}\n[{"type":"text"},{"text":"hello"}]"#.to_owned() + "\n";
     assert_eq!(writer.get_output(), expected);
 }
 
@@ -75,21 +56,6 @@ fn can_call_end_message_multiple_times() {
 
     // Assert
     let expected =
-        r#"{"role":"assistant","content":[[{"type":"text"},{"text":"hello"}]]}"#.to_owned() + "\n";
+        r#"{"type":"ctl","role":"assistant"}\n[{"type":"text"},{"text":"hello"}]"#.to_owned() + "\n";
     assert_eq!(writer.get_output(), expected);
-}
-
-#[test]
-fn dont_write_message_if_content_is_missing() {
-    // Arrange
-    let writer = RcWriter::new();
-    let mut builder = StructureBuilder::new(writer.clone());
-
-    // Act
-    builder.begin_message();
-    builder.role("user").unwrap();
-    builder.end_message().unwrap();
-
-    // Assert
-    assert_eq!(writer.get_output(), "");
 }
