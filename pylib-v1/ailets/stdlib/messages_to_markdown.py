@@ -99,6 +99,6 @@ async def messages_to_markdown(runtime: INodeRuntime) -> None:
     global need_separator
     need_separator = False
 
-    async for message in iter_input_objects(runtime, StdHandles.stdin):
-        for item in message["content"]:
-            await content_to_markdown(runtime, StdHandles.stdout, item)
+    async for obj in iter_input_objects(runtime, StdHandles.stdin):
+        content_item: ContentItem = obj  # type: ignore
+        await content_to_markdown(runtime, StdHandles.stdout, content_item)
