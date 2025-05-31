@@ -30,16 +30,12 @@ async def prompt_to_messages(runtime: INodeRuntime) -> None:
             await write_all(
                 runtime,
                 StdHandles.stdout,
-                f'{{"type": "ctl", "role": "{last_role}"}}\n'.encode("utf-8"),
+                f'[{{"type": "ctl", "role": "{last_role}"}}]\n'.encode("utf-8"),
             )
         if is_ctl_node:
             continue
 
-        if should_start_message:
-            await write_all(runtime, StdHandles.stdout, b"\n")
-        else:
-            await write_all(runtime, StdHandles.stdout, b",\n")
-
         await write_all(
             runtime, StdHandles.stdout, json.dumps(content_item).encode("utf-8")
         )
+        await write_all(runtime, StdHandles.stdout, b"\n")
