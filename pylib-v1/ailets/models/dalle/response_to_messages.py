@@ -19,6 +19,7 @@ async def response_to_messages(runtime: INodeRuntime) -> None:
 
     ctl: ContentItemCtl = ({"type": "ctl"}, {"role": "assistant"})
     await write_all(runtime, StdHandles.stdout, json.dumps(ctl).encode("utf-8"))
+    await write_all(runtime, StdHandles.stdout, b"\n")
 
     async for response in iter_input_objects(runtime, StdHandles.stdin):
         # `response` format:
@@ -40,6 +41,7 @@ async def response_to_messages(runtime: INodeRuntime) -> None:
                 await write_all(
                     runtime, StdHandles.stdout, json.dumps(text).encode("utf-8")
                 )
+                await write_all(runtime, StdHandles.stdout, b"\n")
                 continue
 
             assert (
@@ -60,3 +62,4 @@ async def response_to_messages(runtime: INodeRuntime) -> None:
             await write_all(
                 runtime, StdHandles.stdout, json.dumps(image).encode("utf-8")
             )
+            await write_all(runtime, StdHandles.stdout, b"\n")
