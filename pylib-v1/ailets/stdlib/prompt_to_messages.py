@@ -6,6 +6,11 @@ from ailets.io.input_reader import iter_input_objects
 
 async def prompt_to_messages(runtime: INodeRuntime) -> None:
     last_role = None
+    should_close_messages = False
+
+    async def maybe_close_messages() -> None:
+        if should_close_messages:
+            await write_all(runtime, StdHandles.stdout, b"]}\n")
 
     async for content_item in iter_input_objects(runtime, StdHandles.stdin):
         should_start_message = False
@@ -26,16 +31,24 @@ async def prompt_to_messages(runtime: INodeRuntime) -> None:
             should_start_message = True
 
         if should_start_message:
+            await maybe_close_messages()
+            should_close_messages = True
             last_role = role
             await write_all(
                 runtime,
                 StdHandles.stdout,
-                f'[{{"type": "ctl", "role": "{last_role}"}}]\n'.encode("utf-8"),
+                f'{{"role": "{last_role}", "content": ['.encode("utf-8"),
             )
         if is_ctl_node:
             continue
 
+        if should_start_message:
+            await write_all(runtime, StdHandles.stdout, b"\n")
+        else:
+            await write_all(runtime, StdHandles.stdout, b",\n")
+
         await write_all(
             runtime, StdHandles.stdout, json.dumps(content_item).encode("utf-8")
         )
-        await write_all(runtime, StdHandles.stdout, b"\n")
+
+    await maybe_close_messages()
