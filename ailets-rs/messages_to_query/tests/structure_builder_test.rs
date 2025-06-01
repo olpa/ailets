@@ -22,22 +22,25 @@ fn create_empty_env_opts() -> EnvOpts {
     EnvOpts::from_map(HashMap::new())
 }
 
+fn begin_message(builder: &mut StructureBuilder<RcWriter>, role: &str) {
+    builder.begin_content_item().unwrap();
+    builder.add_item_type(String::from("ctl")).unwrap();
+    builder.add_role(role).unwrap();
+    builder.end_content_item().unwrap();
+}
+
 #[test]
 fn happy_path_for_text() {
     let writer = RcWriter::new();
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
 
-    builder.begin_message().unwrap();
-    builder.add_role("user").unwrap();
-    builder.begin_content().unwrap();
+    begin_message(&mut builder, "user");
     builder.begin_content_item().unwrap();
     builder.begin_text().unwrap();
     write!(builder.get_writer(), "Hello!").unwrap();
     builder.end_text().unwrap();
     builder.end_content_item().unwrap();
-    builder.end_content().unwrap();
-    builder.end_message().unwrap();
     builder.end().unwrap();
 
     assert_that!(
@@ -56,18 +59,15 @@ fn many_messages_and_items() {
 
     builder.begin_message().unwrap();
     builder.add_role("user").unwrap();
-    builder.begin_content().unwrap();
     builder.begin_content_item().unwrap();
     builder.begin_text().unwrap();
     write!(builder.get_writer(), "Text item of the first message").unwrap();
     builder.end_text().unwrap();
     builder.end_content_item().unwrap();
-    builder.end_content().unwrap();
     builder.end_message().unwrap();
 
     builder.begin_message().unwrap();
     builder.add_role("assistant").unwrap();
-    builder.begin_content().unwrap();
     builder.begin_content_item().unwrap();
     builder.begin_text().unwrap();
     write!(builder.get_writer(), "First item of the second message").unwrap();
@@ -78,13 +78,12 @@ fn many_messages_and_items() {
     write!(builder.get_writer(), "Second item of the second message").unwrap();
     builder.end_text().unwrap();
     builder.end_content_item().unwrap();
-    builder.end_content().unwrap();
     builder.end_message().unwrap();
     builder.end().unwrap();
+
     let text_item1 = r#"{"type":"text","text":"Text item of the first message"}"#;
     let text_item2a = r#"{"type":"text","text":"First item of the second message"}"#;
     let text_item2b = r#"{"type":"text","text":"Second item of the second message"}"#;
-
     let expected = String::from(
             r#"{"role":"user","content":[_NL__TI1__NL_]},{"role":"assistant","content":[_NL__TI2a_,_NL__TI2b__NL_]}"#
         ).replace("_TI1_", text_item1).replace("_TI2a_", text_item2a).replace("_TI2b_", text_item2b);
@@ -105,6 +104,7 @@ fn skip_contentless_messages() {
     builder.begin_message().unwrap();
     builder.end_message().unwrap();
     builder.end().unwrap();
+
     assert_that!(writer.get_output(), equal_to(String::new()));
 }
 
@@ -115,19 +115,15 @@ fn skip_empty_content_items() {
     let mut builder = builder;
 
     builder.begin_message().unwrap();
-    builder.begin_content().unwrap();
     builder.begin_content_item().unwrap();
     builder.end_content_item().unwrap();
-    builder.end_content().unwrap();
     builder.end_message().unwrap();
 
     builder.begin_message().unwrap();
-    builder.begin_content().unwrap();
     builder.begin_content_item().unwrap();
     builder.end_content_item().unwrap();
     builder.begin_content_item().unwrap();
     builder.end_content_item().unwrap();
-    builder.end_content().unwrap();
     builder.end_message().unwrap();
     builder.end().unwrap();
 
@@ -142,7 +138,6 @@ fn auto_generate_type_text() {
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
     builder.begin_message().unwrap();
-    builder.begin_content().unwrap();
 
     builder.begin_content_item().unwrap();
     builder.begin_text().unwrap();
@@ -150,6 +145,7 @@ fn auto_generate_type_text() {
     builder.end_text().unwrap();
     builder.end_content_item().unwrap();
     builder.get_writer().write_all(b"]}]}}\n").unwrap(); // boilerplate
+    builder.end().unwrap();
 
     let expected = wrap_boilerplate(r#"{"content":[_NL_{"type":"text","text":"hello"}]}"#);
     assert_that!(writer.get_output(), equal_to(expected));
@@ -161,8 +157,8 @@ fn mix_type_text() {
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
     builder.begin_message().unwrap();
-    builder.begin_content().unwrap();
 
+    builder.begin_content_item().unwrap();
     builder.begin_content_item().unwrap();
     builder.add_item_type(String::from("text")).unwrap();
     builder.begin_text().unwrap();
@@ -171,6 +167,7 @@ fn mix_type_text() {
     builder.add_item_type(String::from("text")).unwrap();
     builder.end_content_item().unwrap();
     builder.get_writer().write_all(b"]}]}}\n").unwrap(); // boilerplate
+    builder.end().unwrap();
 
     let expected = wrap_boilerplate(r#"{"content":[_NL_{"type":"text","text":"hello"}]}"#);
     assert_that!(writer.get_output(), equal_to(expected));
@@ -182,7 +179,6 @@ fn reject_conflicting_type() {
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
     builder.begin_message().unwrap();
-    builder.begin_content().unwrap();
 
     builder.begin_content_item().unwrap();
     builder.add_item_type(String::from("text")).unwrap();
@@ -200,21 +196,6 @@ fn reject_conflicting_type() {
 }
 
 #[test]
-fn having_role_enforces_content() {
-    let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
-    let mut builder = builder;
-
-    builder.begin_message().unwrap();
-    builder.add_role("user").unwrap();
-    builder.end_message().unwrap();
-    builder.end().unwrap();
-
-    let expected = wrap_boilerplate(r#"{"role":"user","content":[_NL__NL_]}"#);
-    assert_that!(writer.get_output(), equal_to(expected));
-}
-
-#[test]
 fn support_special_chars_and_unicode() {
     let writer = RcWriter::new();
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
@@ -223,8 +204,6 @@ fn support_special_chars_and_unicode() {
     let special_chars = "Special chars: \"\\/\n\r\t\u{1F600}";
 
     builder.begin_message().unwrap();
-    builder.begin_content().unwrap();
-
     builder.begin_content_item().unwrap();
     builder.add_item_type(String::from("text")).unwrap();
     builder.begin_text().unwrap();
@@ -234,8 +213,6 @@ fn support_special_chars_and_unicode() {
         .unwrap();
     builder.end_text().unwrap();
     builder.end_content_item().unwrap();
-
-    builder.end_content().unwrap();
     builder.end_message().unwrap();
     builder.end().unwrap();
 
@@ -257,7 +234,6 @@ fn add_image_by_url() {
 
     builder.begin_message().unwrap();
     builder.add_role("user").unwrap();
-    builder.begin_content().unwrap();
     builder.begin_content_item().unwrap();
 
     builder.add_item_type(String::from("image")).unwrap();
@@ -269,7 +245,6 @@ fn add_image_by_url() {
     builder.end_image_url().unwrap();
 
     builder.end_content_item().unwrap();
-    builder.end_content().unwrap();
     builder.end_message().unwrap();
     builder.end().unwrap();
 
@@ -294,7 +269,6 @@ fn add_image_by_key() {
 
     builder.begin_message().unwrap();
     builder.add_role("user").unwrap();
-    builder.begin_content().unwrap();
     builder.begin_content_item().unwrap();
 
     builder.add_item_type(String::from("image")).unwrap();
@@ -304,7 +278,6 @@ fn add_image_by_key() {
     builder.image_key("media/image-as-key-1.png").unwrap();
 
     builder.end_content_item().unwrap();
-    builder.end_content().unwrap();
     builder.end_message().unwrap();
     builder.end().unwrap();
 
@@ -327,7 +300,6 @@ fn image_as_key_file_not_found() {
 
     builder.begin_message().unwrap();
     builder.add_role("user").unwrap();
-    builder.begin_content().unwrap();
     builder.begin_content_item().unwrap();
 
     builder.add_item_type(String::from("image")).unwrap();
@@ -353,7 +325,6 @@ fn add_image_with_detail() {
 
     builder.begin_message().unwrap();
     builder.add_role("user").unwrap();
-    builder.begin_content().unwrap();
     builder.begin_content_item().unwrap();
 
     builder.add_item_type(String::from("image")).unwrap();
@@ -368,7 +339,6 @@ fn add_image_with_detail() {
     builder.end_image_url().unwrap();
 
     builder.end_content_item().unwrap();
-    builder.end_content().unwrap();
     builder.end_message().unwrap();
     builder.end().unwrap();
 
@@ -392,7 +362,6 @@ fn image_key_with_adversarial_content_type() {
 
     builder.begin_message().unwrap();
     builder.add_role("user").unwrap();
-    builder.begin_content().unwrap();
     builder.begin_content_item().unwrap();
 
     builder.add_item_type(String::from("image")).unwrap();
@@ -405,7 +374,6 @@ fn image_key_with_adversarial_content_type() {
     builder.image_key("media/test.png").unwrap();
 
     builder.end_content_item().unwrap();
-    builder.end_content().unwrap();
     builder.end_message().unwrap();
     builder.end().unwrap();
 
@@ -431,7 +399,6 @@ fn image_settings_dont_transfer() {
 
     builder.begin_message().unwrap();
     builder.add_role("user").unwrap();
-    builder.begin_content().unwrap();
 
     // First image with content_type and detail
     builder.begin_content_item().unwrap();
@@ -461,7 +428,6 @@ fn image_settings_dont_transfer() {
     builder.end_image_url().unwrap();
     builder.end_content_item().unwrap();
 
-    builder.end_content().unwrap();
     builder.end_message().unwrap();
     builder.end().unwrap();
 
@@ -485,7 +451,6 @@ fn mix_text_and_image_content() {
     let mut builder = builder;
     builder.begin_message().unwrap();
     builder.add_role("user").unwrap();
-    builder.begin_content().unwrap();
 
     // Text item
     builder.begin_content_item().unwrap();
@@ -514,7 +479,6 @@ fn mix_text_and_image_content() {
     builder.end_text().unwrap();
     builder.end_content_item().unwrap();
 
-    builder.end_content().unwrap();
     builder.end_message().unwrap();
     builder.end().unwrap();
 
@@ -526,6 +490,37 @@ fn mix_text_and_image_content() {
         text_item1, image_item, text_item2
     );
     let expected_message = format!(r#"{{"role":"user","content":[{}]}}"#, expected_content);
+    assert_that!(
+        writer.get_output(),
+        equal_to(wrap_boilerplate(&expected_message))
+    );
+}
+
+#[test]
+fn end_message_can_be_called_multiple_times() {
+    let writer = RcWriter::new();
+    let mut builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+
+    // Call end_message before beginning - should be idempotent
+    builder.end_message().unwrap();
+    builder.end_message().unwrap();
+
+    builder.begin_message().unwrap();
+    builder.add_role("user").unwrap();
+    builder.begin_content_item().unwrap();
+    builder.add_item_type(String::from("text")).unwrap();
+    builder.begin_text().unwrap();
+    write!(builder.get_writer(), "Hello").unwrap();
+    builder.end_text().unwrap();
+    builder.end_content_item().unwrap();
+
+    // Call end_message multiple times after message - should be idempotent
+    builder.end_message().unwrap();
+    builder.end_message().unwrap();
+    builder.end_message().unwrap();
+    builder.end().unwrap();
+
+    let expected_message = r#"{"role":"user","content":[_NL_{"type":"text","text":"Hello"}_NL_]}"#;
     assert_that!(
         writer.get_output(),
         equal_to(wrap_boilerplate(&expected_message))

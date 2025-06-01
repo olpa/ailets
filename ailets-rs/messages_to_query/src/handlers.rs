@@ -42,24 +42,6 @@ pub fn on_role<W: Write>(
     }
     StreamOp::ValueIsConsumed
 }
-pub fn on_content_begin<W: Write>(
-    _rjiter_cell: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
-) -> StreamOp {
-    let mut builder = builder_cell.borrow_mut();
-    if let Err(e) = builder.begin_content() {
-        return StreamOp::Error(e.into());
-    }
-    StreamOp::None
-}
-
-pub fn on_content_end<W: Write>(
-    builder_cell: &RefCell<StructureBuilder<W>>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut builder = builder_cell.borrow_mut();
-    builder.end_content()?;
-    Ok(())
-}
 
 pub fn on_content_item_begin<W: Write>(
     _rjiter_cell: &RefCell<RJiter>,

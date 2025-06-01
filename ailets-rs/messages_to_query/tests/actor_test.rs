@@ -45,7 +45,8 @@ fn test_text_items() {
 
 #[test]
 fn image_url_as_is() {
-    let input = r#"{"role": "user", "content": [[{"type": "image", "image_url": "https://example.com/image.jpg"}]]}"#;
+    let input = r#"[{"type": "ctl"}, {"role": "user"}]
+                   [{"type": "image"}, {"image_url": "https://example.com/image.jpg"}]"#;
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
 
@@ -61,7 +62,9 @@ fn image_url_as_is() {
 
 #[test]
 fn image_as_key() {
-    let input = r#"{"role": "user", "content": [[{"type": "image", "detail": "auto", "content_type": "image/png", "image_key": "media/image-as-key-2.png"}]]}"#;
+    let input = r#"[{"type": "ctl"}, {"role": "user"}]
+                   [{"type": "image", "detail": "auto", "content_type": "image/png"},
+                       {"image_key": "media/image-as-key-2.png"}]"#;
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
     add_file(String::from("media/image-as-key-2.png"), b"hello".to_vec());
@@ -78,7 +81,10 @@ fn image_as_key() {
 
 #[test]
 fn mix_text_and_image() {
-    let input = r#"{"role": "user", "content": [[{"type": "text"}, {"text": "Here's an image:"}], [{"type": "image"}, {"image_url": "https://example.com/image.jpg"}], [{"type": "text"}, {"text": "What do you think about it?"}]]}"#;
+    let input = r#"[{"type": "ctl"}, {"role": "user"}]
+                   [{"type": "text"}, {"text": "Here's an image:"}]
+                   [{"type": "image"}, {"image_url": "https://example.com/image.jpg"}]
+                   [{"type": "text"}, {"text": "What do you think about it?"}]"#;
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
 
@@ -100,7 +106,8 @@ fn mix_text_and_image() {
 
 #[test]
 fn regression_one_item_not_two() {
-    let input = r#"{"content": [[{"type": "text"}, {"text": "Hello!"}]], "role": "user"}"#;
+    let input = r#"[{"type": "ctl"}, {"role": "user"}]
+                   [{"type": "text"}, {"text": "Hello!"}]"#;
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
 
@@ -116,9 +123,9 @@ fn regression_one_item_not_two() {
 
 #[test]
 fn function_call() {
-    let input = r#"{"role": "assistant", "content": [
-        [{"type": "function", "id": "id123", "name": "get_weather"}, {"arguments": "{\"location\": \"London\", \"unit\": \"celsius\"}"}]
-    ]}"#;
+    let input = r#"[{"type": "ctl"}, {"role": "assistant"}]
+                   [{"type": "function", "id": "id123", "name": "get_weather"},
+                       {"arguments": "{\"location\": \"London\", \"unit\": \"celsius\"}"}]"#;
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
 

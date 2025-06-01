@@ -31,13 +31,6 @@ fn create_begin_triggers<'a, W: Write + 'a>(
         Box::new(ParentAndName::new("#top".to_string(), "role".to_string())),
         Box::new(handlers::on_role) as BoxedAction<'_, StructureBuilder<W>>,
     );
-    let content = Trigger::new(
-        Box::new(ParentAndName::new(
-            "#top".to_string(),
-            "content".to_string(),
-        )),
-        Box::new(handlers::on_content_begin) as BoxedAction<'_, StructureBuilder<W>>,
-    );
     let content_item = Trigger::new(
         Box::new(ParentParentAndName::new(
             "content".to_string(),
@@ -97,7 +90,6 @@ fn create_begin_triggers<'a, W: Write + 'a>(
         content_item,
         content_item_attribute_content_type,
         content_item_attribute_detail,
-        content,
         role,
         message,
     ]
@@ -112,13 +104,6 @@ fn create_end_triggers<'a, W: Write + 'a>(
         )),
         Box::new(handlers::on_message_end) as BoxedEndAction<'_, StructureBuilder<W>>,
     );
-    let content = Trigger::new(
-        Box::new(ParentAndName::new(
-            "#top".to_string(),
-            "content".to_string(),
-        )),
-        Box::new(handlers::on_content_end) as BoxedEndAction<'_, StructureBuilder<W>>,
-    );
     let content_item = Trigger::new(
         Box::new(ParentParentAndName::new(
             "content".to_string(),
@@ -128,7 +113,7 @@ fn create_end_triggers<'a, W: Write + 'a>(
         Box::new(handlers::on_content_item_end) as BoxedEndAction<'_, StructureBuilder<W>>,
     );
 
-    vec![content_item, content, message]
+    vec![content_item, message]
 }
 
 /// # Errors
