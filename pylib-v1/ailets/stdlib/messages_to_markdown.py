@@ -1,7 +1,11 @@
 import json
 import base64
 import hashlib
-from ailets.cons.typeguards import is_content_item_image, is_content_item_text
+from ailets.cons.typeguards import (
+    is_content_item_ctl,
+    is_content_item_image,
+    is_content_item_text,
+)
 from ailets.atyping import (
     ContentItem,
     ContentItemImage,
@@ -82,13 +86,18 @@ async def content_to_markdown(
 ) -> None:
     await separator(runtime, fd)
 
+    if is_content_item_ctl(content_item):
+        return
+
     if is_content_item_text(content_item):
         await write_all(runtime, fd, content_item[1]["text"].encode("utf-8"))
+        await write_all(runtime, fd, b"\n")
+        await write_all(runtime, fd, b"\n")
         return
 
     if is_content_item_image(content_item):
         url = await rewrite_image_url(runtime, content_item)
-        await write_all(runtime, fd, f"![image]({url})".encode("utf-8"))
+        await write_all(runtime, fd, f"![image]({url})\n".encode("utf-8"))
         return
 
     await write_all(runtime, fd, json.dumps(content_item).encode("utf-8"))
@@ -99,6 +108,6 @@ async def messages_to_markdown(runtime: INodeRuntime) -> None:
     global need_separator
     need_separator = False
 
-    async for message in iter_input_objects(runtime, StdHandles.stdin):
-        for item in message["content"]:
-            await content_to_markdown(runtime, StdHandles.stdout, item)
+    async for obj in iter_input_objects(runtime, StdHandles.stdin):
+        content_item: ContentItem = obj  # type: ignore
+        await content_to_markdown(runtime, StdHandles.stdout, content_item)

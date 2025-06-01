@@ -1,39 +1,53 @@
 import json
-from typing import Any, Dict
 from ailets.atyping import INodeRuntime, StdHandles
 from ailets.cons.util import write_all
 from ailets.io.input_reader import iter_input_objects
 
 
 async def prompt_to_messages(runtime: INodeRuntime) -> None:
-    role_to_content: Dict[str, Any] = {}
+    last_role = None
+    should_close_messages = False
+    item_prefix = b"\n"
+
+    async def maybe_close_messages() -> None:
+        if should_close_messages:
+            await write_all(runtime, StdHandles.stdout, b"]}\n")
+
     async for content_item in iter_input_objects(runtime, StdHandles.stdin):
-        role = "user"
-        if (
+        should_start_message = False
+        role = last_role
+
+        is_ctl_node = (
             isinstance(content_item, list)
             and len(content_item) > 0
-            and "_role" in content_item[0]
-        ):
-            role = content_item[0]["_role"]
-            del content_item[0]["_role"]
-        role_to_content.setdefault(role, []).append(content_item)
-
-    keys = list(role_to_content.keys())
-    keys.sort()
-    messages = list(
-        map(
-            lambda key: {
-                "role": key,
-                "content": role_to_content[key],
-            },
-            keys,
+            and content_item[0].get("type") == "ctl"
         )
-    )
+        if is_ctl_node:
+            role = content_item[1]["role"]  # type: ignore[index]
+            should_start_message = True
+        if role != last_role:
+            should_start_message = True
+        if role is None:
+            role = "user"
+            should_start_message = True
 
-    for message in messages:
+        if should_start_message:
+            await maybe_close_messages()
+            should_close_messages = True
+            last_role = role
+            await write_all(
+                runtime,
+                StdHandles.stdout,
+                f'{{"role": "{last_role}", "content": ['.encode("utf-8"),
+            )
+            item_prefix = b"\n"
+        if is_ctl_node:
+            continue
+
+        await write_all(runtime, StdHandles.stdout, item_prefix)
         await write_all(
-            runtime,
-            StdHandles.stdout,
-            json.dumps(message, sort_keys=True).encode("utf-8"),
+            runtime, StdHandles.stdout, json.dumps(content_item).encode("utf-8")
         )
-        await write_all(runtime, StdHandles.stdout, b"\n")
+        item_prefix = b",\n"
+
+    await maybe_close_messages()

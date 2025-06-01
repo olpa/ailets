@@ -387,21 +387,19 @@ class ContentItemFunctionContent(TypedDict):
 ContentItemFunction = Tuple[ContentItemFunctionAttrs, ContentItemFunctionContent]
 
 
+class ContentItemCtlAttrs(TypedDict):
+    type: Literal["ctl"]
+
+class ContentItemCtlContent(TypedDict):
+    role: str
+
+ContentItemCtl = Tuple[ContentItemCtlAttrs, ContentItemCtlContent]
+
+
 ContentItem = Union[
     ContentItemText,
     ContentItemImage,
     ContentItemRefusal,
     ContentItemFunction,
+    ContentItemCtl,
 ]
-
-
-Content = Sequence[ContentItem]
-
-
-class ChatMessage(TypedDict):
-    role: Literal["system", "user", "assistant", "tool"]
-    content: Content
-
-
-class ChatMessageTool(ChatMessage):
-    tool_call_id: str

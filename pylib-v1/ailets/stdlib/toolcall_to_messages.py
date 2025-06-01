@@ -1,7 +1,8 @@
 import json
 from ailets.atyping import (
-    ChatMessageTool,
+    ContentItemCtl,
     ContentItemFunction,
+    ContentItemText,
     INodeRuntime,
     StdHandles,
 )
@@ -73,14 +74,20 @@ async def toolcall_to_messages(runtime: INodeRuntime) -> None:
     # As an experiment, we go away from the official OpenAI example,
     # and instead of patching arguments, we add a new item to the content.
     #
-    chat_message: ChatMessageTool = {
-        "role": "tool",
-        "content": [
-            [{"type": "text"}, {"text": arguments}],
-            [{"type": "text"}, {"text": json.dumps({function_name: tool_result})}],
-        ],
-        "tool_call_id": tool_call_id,
-    }
+    tool_marker: ContentItemCtl = [
+        {"type": "ctl"},
+        {
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+        },
+    ]
+    await write_all(runtime, StdHandles.stdout, json.dumps(tool_marker).encode("utf-8"))
 
-    value = json.dumps([chat_message]).encode("utf-8")
-    await write_all(runtime, StdHandles.stdout, value)
+    repeat_args: ContentItemText = [{"type": "text"}, {"text": arguments}]
+    await write_all(runtime, StdHandles.stdout, json.dumps(repeat_args).encode("utf-8"))
+
+    result_text: ContentItemText = [
+        {"type": "text"},
+        {"text": json.dumps({function_name: tool_result})},
+    ]
+    await write_all(runtime, StdHandles.stdout, json.dumps(result_text).encode("utf-8"))

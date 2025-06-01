@@ -6,7 +6,7 @@ use gpt::funcalls::ContentItemFunction;
 use std::io::Cursor;
 
 fn get_expected_basic_message() -> String {
-    "{\"role\":\"assistant\",\"content\":[[{\"type\":\"text\"},{\"text\":\"Hello! How can I assist you today?\"}]]}\n"
+    "{\"type\":\"ctl\",\"role\":\"assistant\"}\n[{\"type\":\"text\"},{\"text\":\"Hello! How can I assist you today?\"}]\n"
         .to_string()
 }
 

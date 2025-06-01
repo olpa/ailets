@@ -1,12 +1,10 @@
-mod matchers;
 mod structure_builder;
 
 use actor_io::{AReader, AWriter};
 use actor_runtime::{err_to_heap_c_string, extract_errno, StdHandle};
-use matchers::ParentParentParentAndName;
 use scan_json::jiter::Peek;
 use scan_json::RJiter;
-use scan_json::{scan, BoxedAction, StreamOp, Trigger};
+use scan_json::{scan, BoxedAction, ParentParentAndName, StreamOp, Trigger};
 use std::cell::RefCell;
 use std::ffi::c_char;
 use std::io::Write;
@@ -66,9 +64,8 @@ pub fn _messages_to_markdown<W: Write>(
     let rjiter_cell = RefCell::new(RJiter::new(&mut reader, &mut buffer));
 
     let content_text = Trigger::new(
-        Box::new(ParentParentParentAndName::new(
-            "content".to_string(),
-            "#array".to_string(),
+        Box::new(ParentParentAndName::new(
+            "#top".to_string(),
             "#array".to_string(),
             "text".to_string(),
         )),

@@ -5,12 +5,9 @@ use std::io::Cursor;
 #[test]
 fn test_basic_conversion() {
     let json_data = r#"
-    {
-        "role":"assistant",
-        "content":[
-            [{"type":"text"}, {"text":"Hello!"}]
-        ]
-    }"#;
+        [{"type":"ctl"}, {"role":"assistant"}]
+        [{"type":"text"}, {"text":"Hello!"}]
+    "#;
     let reader = Cursor::new(json_data);
     let writer = RcWriter::new();
 
@@ -22,14 +19,11 @@ fn test_basic_conversion() {
 #[test]
 fn test_multiple_content_items() {
     let json_data = r#"
-    {
-        "role":"assistant",
-        "content":[
-            [{"type":"text"}, {"text":"First item"}],
-            [{"type":"text"}, {"text":"Second item"}],
-            [{"type":"text"}, {"text":"Third item"}]
-        ]
-    }"#;
+        [{"type":"ctl"}, {"role":"assistant"}]
+        [{"type":"text"}, {"text":"First item"}]
+        [{"type":"text"}, {"text":"Second item"}]
+        [{"type":"text"}, {"text":"Third item"}]
+    "#;
     let reader = Cursor::new(json_data);
     let writer = RcWriter::new();
 
@@ -44,19 +38,12 @@ fn test_multiple_content_items() {
 #[test]
 fn test_two_messages() {
     let json_data = r#"
-    {
-        "role":"assistant", 
-        "content":[
-            [{"type":"text"}, {"text":"First message"}]
-        ]
-    }
-    {
-        "role":"assistant",
-        "content":[
-            [{"type":"text"}, {"text":"Second message"}],
-            [{"type":"text"}, {"text":"Extra text"}]
-        ]
-    }"#;
+    [{"type":"ctl"}, {"role":"assistant"}]
+      [{"type":"text"}, {"text":"First message"}]
+    [{"type":"ctl"}, {"role":"assistant"}]
+      [{"type":"text"}, {"text":"Second message"}]
+      [{"type":"text"}, {"text":"Extra text"}]
+    "#;
     let reader = Cursor::new(json_data);
     let writer = RcWriter::new();
 
@@ -85,12 +72,9 @@ fn test_long_text() {
     let long_text = "x".repeat(4096);
     let json_data = format!(
         r#"
-    {{
-        "role":"assistant",
-        "content":[
-            [{{"type":"text"}}, {{"text":"{}"}}]
-        ]
-    }}"#,
+        [{{"type":"ctl"}}, {{"role":"assistant"}}]
+        [{{"type":"text"}}, {{"text":"{}"}}]
+    "#,
         long_text
     );
     let reader = Cursor::new(json_data);
@@ -104,14 +88,11 @@ fn test_long_text() {
 #[test]
 fn test_skip_unknown_key_object() {
     let json_data = r#"
-    {
-        "role":"assistant", 
-        "content":[
-            [{"type":"text"}, {"text":"First message"}],
-            [{"unknown_key": {"some": "object"}}],
-            [{"type":"text"}, {"text":"Second message"}]
-        ]
-    }"#;
+        [{"type":"ctl"}, {"role":"assistant"}]
+        [{"type":"text"}, {"text":"First message", "unknown_key": {"some": "object"}}]
+        [{"unknown_key": {"some": "object"}}]
+        [{"type":"text"}, {"text":"Second message"}]
+    "#;
     let reader = Cursor::new(json_data);
     let writer = RcWriter::new();
 
@@ -123,12 +104,9 @@ fn test_skip_unknown_key_object() {
 #[test]
 fn test_json_escapes() {
     let json_data = r#"
-    {
-        "role":"assistant",
-        "content":[
-            [{"type":"text"}, {"text":"a\n\"\u0401\""}]
-        ]
-    }"#;
+        [{"type":"ctl"}, {"role":"assistant"}]
+        [{"type":"text"}, {"text":"a\n\"\u0401\""}]
+    "#;
     let reader = Cursor::new(json_data);
     let writer = RcWriter::new();
 

@@ -14,6 +14,7 @@ else:
     import tomli as tomllib
 
 from ailets.atyping import (
+    ContentItemCtl,
     ContentItemImage,
     ContentItemText,
     Dependency,
@@ -35,23 +36,61 @@ class CmdlinePromptItem:
     toml: Optional[str] = None
 
 
+@dataclass
+class AnnotatedPromptItem:
+    role: str
+    prompt_item: CmdlinePromptItem
+
+
+def annotate_prompt(
+    prompt: Sequence[CmdlinePromptItem],
+) -> Sequence[AnnotatedPromptItem]:
+    result = []
+    for item in prompt:
+        if item.type == "toml":
+            continue
+
+        role = "user"
+        if item.toml:
+            try:
+                toml_data = tomllib.loads(item.toml)
+                if toml_data.get("role", "").lower() == "system":
+                    role = "system"
+            except Exception:
+                pass
+
+        result.append(AnnotatedPromptItem(role=role, prompt_item=item))
+    return result
+
+
 async def prompt_to_dagops(
     env: IEnvironment,
     prompt: Sequence[CmdlinePromptItem] = [CmdlinePromptItem("Hello!", "text")],
 ) -> None:
+    def mk_node(prompt_content: str) -> Node:
+        node = env.dagops.add_value_node(
+            prompt_content.encode("utf-8"),
+            env.piper,
+            env.processes,
+            explain="Prompt",
+        )
+        env.dagops.alias(".prompt", node.name)
+        return node
+
+    def role_to_messages(role: str) -> None:
+        ctl_item: ContentItemCtl = (
+            {
+                "type": "ctl",
+            },
+            {
+                "role": role,
+            },
+        )
+        mk_node(json.dumps(ctl_item))
+
     async def prompt_to_node(prompt_item: CmdlinePromptItem) -> None:
         if prompt_item.type == "toml":
             return
-
-        def mk_node(prompt_content: str) -> Node:
-            node = env.dagops.add_value_node(
-                prompt_content.encode("utf-8"),
-                env.piper,
-                env.processes,
-                explain="Prompt",
-            )
-            env.dagops.alias(".prompt", node.name)
-            return node
 
         if prompt_item.type == "text":
             text_item: ContentItemText = (
@@ -62,10 +101,6 @@ async def prompt_to_dagops(
                     "text": prompt_item.value,
                 },
             )
-            if prompt_item.toml:
-                toml = tomllib.loads(prompt_item.toml)
-                if toml.get("role", "").lower() == "system":
-                    text_item[0]["_role"] = "system"
             mk_node(json.dumps(text_item))
             return
 
@@ -113,8 +148,14 @@ async def prompt_to_dagops(
             ba[:] = bytes
             env.kv.flush(file_key)
 
-    for prompt_item in prompt:
-        await prompt_to_node(prompt_item)
+    annotated_prompt = annotate_prompt(prompt)
+    last_role = "user"
+    for prompt_item in annotated_prompt:
+        role = prompt_item.role
+        if role != last_role:
+            role_to_messages(role)
+            last_role = role
+        await prompt_to_node(prompt_item.prompt_item)
 
 
 def toml_to_env(
