@@ -165,7 +165,7 @@ impl<W: Write> StructureBuilder<W> {
     /// Called implicitly by `add_role` or `begin_content_item`
     /// # Errors
     /// I/O
-    pub fn begin_message(&mut self) -> Result<(), String> {
+    fn begin_message(&mut self) -> Result<(), String> {
         if is_write_started(&self.message) {
             self.end_message()?;
             self.writer.write_all(b",").map_err(|e| e.to_string())?;
@@ -185,7 +185,7 @@ impl<W: Write> StructureBuilder<W> {
     /// Called implicitly by `end` or indirectly by (`add_role` or `begin_content_item`) through `begin_message`
     /// # Errors
     /// I/O
-    pub fn end_message(&mut self) -> Result<(), String> {
+    fn end_message(&mut self) -> Result<(), String> {
         if is_write_started(&self.message) {
             // Enforce "content" key, even if there is no content
             self.maybe_begin_content()?;
