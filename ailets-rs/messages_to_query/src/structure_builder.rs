@@ -156,6 +156,7 @@ impl<W: Write> StructureBuilder<W> {
     /// I/O
     pub fn end(&mut self) -> Result<(), String> {
         if let Progress::ChildIsWritten = self.top {
+            self.end_message()?;
             self.writer.write_all(b"]}}\n").map_err(|e| e.to_string())?;
         }
         Ok(())
@@ -253,10 +254,6 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// I/O
     pub fn begin_content_item(&mut self) -> Result<(), String> {
-        if !is_write_started(&self.message) {
-            self.begin_message()?;
-        }
-        self.maybe_begin_content()?;
         self.content_item = Progress::WaitingForFirstChild;
         self.content_item_type = None;
         self.content_item_attr = None;
@@ -297,6 +294,10 @@ impl<W: Write> StructureBuilder<W> {
     /// - content item is not started
     /// - I/O
     pub fn add_item_type(&mut self, item_type: String) -> Result<(), String> {
+        if item_type == "ctl" {
+            self.content_item_type = Some(item_type);
+            return Ok(());
+        }
         self.really_begin_content_item()?;
         if let Some(ref existing_type) = self.content_item_type {
             if existing_type != &item_type {
