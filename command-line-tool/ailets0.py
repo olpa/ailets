@@ -379,6 +379,12 @@ async def main() -> None:
         node_iter = env.processes.next_node_iter(
             target_node_name, args.one_step, stop_before_node, stop_after_node
         )
+        if args.one_step:
+            next_node = next(node_iter)
+            if next_node is not None:
+                dup_output_to_stdout(env, {next_node})
+                node_iter = iter([next_node])
+
         try:
             await env.processes.run_nodes(node_iter)
         except Exception as e:
