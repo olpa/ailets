@@ -88,7 +88,7 @@ fn many_messages_and_items() {
 }
 
 #[test]
-fn skip_empty_content_items() {
+fn skip_empty_content_items_but_create_content_wrapper() {
     let writer = RcWriter::new();
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
@@ -104,7 +104,7 @@ fn skip_empty_content_items() {
     builder.end_content_item().unwrap();
     builder.end().unwrap();
 
-    let empty_msg = "{\"content\":[\n\n]}".to_owned();
+    let empty_msg = "{\"role\":\"user\",\"content\":[\n\n]}".to_owned();
     let two_empty_msgs = wrap_boilerplate(format!("{},{}", empty_msg, empty_msg).as_str());
     assert_that!(writer.get_output(), equal_to(two_empty_msgs));
 }
@@ -121,10 +121,10 @@ fn auto_generate_type_text() {
     write!(builder.get_writer(), "hello").unwrap();
     builder.end_text().unwrap();
     builder.end_content_item().unwrap();
-    builder.get_writer().write_all(b"]}]}}\n").unwrap(); // boilerplate
     builder.end().unwrap();
 
-    let expected = wrap_boilerplate(r#"{"content":[_NL_{"type":"text","text":"hello"}]}"#);
+    let expected =
+        wrap_boilerplate(r#"{"role":"user","content":[_NL_{"type":"text","text":"hello"}_NL_]}"#);
     assert_that!(writer.get_output(), equal_to(expected));
 }
 
@@ -143,10 +143,10 @@ fn mix_type_text() {
     builder.end_text().unwrap();
     builder.add_item_type(String::from("text")).unwrap();
     builder.end_content_item().unwrap();
-    builder.get_writer().write_all(b"]}]}}\n").unwrap(); // boilerplate
     builder.end().unwrap();
 
-    let expected = wrap_boilerplate(r#"{"content":[_NL_{"type":"text","text":"hello"}]}"#);
+    let expected =
+        wrap_boilerplate(r#"{"role":"user","content":[_NL_{"type":"text","text":"hello"}_NL_]}"#);
     assert_that!(writer.get_output(), equal_to(expected));
 }
 
@@ -194,7 +194,7 @@ fn support_special_chars_and_unicode() {
 
     let expected = wrap_boilerplate(
         format!(
-            r#"{{"content":[_NL_{{"type":"text","text":"{}"}}_NL_]}}"#,
+            r#"{{"role":"user","content":[_NL_{{"type":"text","text":"{}"}}_NL_]}}"#,
             special_chars
         )
         .as_str(),

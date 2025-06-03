@@ -187,10 +187,8 @@ impl<W: Write> StructureBuilder<W> {
     /// I/O
     pub fn end_message(&mut self) -> Result<(), String> {
         if is_write_started(&self.message) {
-            if self.content_item_type.is_none() {
-                // Enforce "content" key, even if there is no content
-                self.maybe_begin_content()?;
-            }
+            // Enforce "content" key, even if there is no content
+            self.maybe_begin_content()?;
             self.end_content()?;
             self.writer.write_all(b"}").map_err(|e| e.to_string())?;
             self.top = Progress::ChildIsWritten;
