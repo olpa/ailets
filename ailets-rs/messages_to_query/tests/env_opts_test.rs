@@ -40,16 +40,14 @@ fn test_env_opts_invalid_json() {
 fn _build_with_env_opts(env_opts: EnvOpts) -> String {
     let writer = RcWriter::new();
     let mut builder = StructureBuilder::new(writer.clone(), env_opts);
-    builder.begin_message().unwrap();
+    builder.begin_content_item().unwrap();
     builder.add_role("user").unwrap();
-    builder.begin_content().unwrap();
+    builder.end_content_item().unwrap();
     builder.begin_content_item().unwrap();
     builder.begin_text().unwrap();
     write!(builder.get_writer(), "Hello!").unwrap();
     builder.end_text().unwrap();
     builder.end_content_item().unwrap();
-    builder.end_content().unwrap();
-    builder.end_message().unwrap();
     builder.end().unwrap();
     writer.get_output()
 }
