@@ -161,34 +161,27 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
+    /// Called implicitly by `add_role` or `begin_content_item`
     /// # Errors
     /// I/O
     pub fn begin_message(&mut self) -> Result<(), String> {
-        self.message = Progress::WaitingForFirstChild;
+        if is_write_started(&self.message) {
+            self.end_message()?;
+            self.writer.write_all(b",").map_err(|e| e.to_string())?;
+        } else {
+            self.really_begin().map_err(|e| e.to_string())?;
+        }
+
+        self.writer.write_all(b"{").map_err(|e| e.to_string())?;
+
+        self.top = Progress::ChildIsWritten;
+        self.message = Progress::WriteIsStarted;
         self.message_content = Progress::ChildrenAreUnexpected;
         self.content_item = Progress::ChildrenAreUnexpected;
         Ok(())
     }
 
-    /// # Errors
-    /// - message is not started
-    /// - I/O
-    fn really_begin_message(&mut self) -> Result<(), String> {
-        if let Progress::ChildrenAreUnexpected = self.message {
-            return Err("Message is not started".to_string());
-        }
-        if is_write_started(&self.message) {
-            return Ok(());
-        }
-        self.really_begin().map_err(|e| e.to_string())?;
-        if let Progress::ChildIsWritten = self.top {
-            self.writer.write_all(b",").map_err(|e| e.to_string())?;
-        }
-        self.writer.write_all(b"{").map_err(|e| e.to_string())?;
-        self.message = Progress::WriteIsStarted;
-        Ok(())
-    }
-
+    /// Called implicitly by `end` or indirectly by (`add_role` or `begin_content_item`) through `begin_message`
     /// # Errors
     /// I/O
     pub fn end_message(&mut self) -> Result<(), String> {
@@ -207,11 +200,11 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
+    /// Start a new message with the given role
     /// # Errors
-    /// - message is not started
     /// - I/O
     pub fn add_role(&mut self, role: &str) -> Result<(), String> {
-        self.really_begin_message()?;
+        self.begin_message()?;
         if let Progress::ChildIsWritten = self.message {
             self.writer.write_all(b",").map_err(|e| e.to_string())?;
         }
@@ -232,7 +225,6 @@ impl<W: Write> StructureBuilder<W> {
         if is_write_started(&self.message_content) {
             return Ok(());
         }
-        self.really_begin_message()?;
         if let Progress::ChildIsWritten = self.message {
             self.writer.write_all(b",").map_err(|e| e.to_string())?;
         }
@@ -261,6 +253,9 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// I/O
     pub fn begin_content_item(&mut self) -> Result<(), String> {
+        if !is_write_started(&self.message) {
+            self.begin_message()?;
+        }
         self.maybe_begin_content()?;
         self.content_item = Progress::WaitingForFirstChild;
         self.content_item_type = None;
