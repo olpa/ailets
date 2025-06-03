@@ -110,6 +110,29 @@ fn skip_empty_content_items_but_create_content_wrapper() {
 }
 
 #[test]
+fn several_contentless_roles_create_several_messages_anyway() {
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let mut builder = builder;
+
+    begin_message(&mut builder, "user");
+    begin_message(&mut builder, "assistant");
+    begin_message(&mut builder, "user");
+    begin_message(&mut builder, "tool");
+    builder.end().unwrap();
+
+    let msg_user = r#"{"role":"user","content":[_NL__NL_]}"#;
+    let msg_assistant = r#"{"role":"assistant","content":[_NL__NL_]}"#;
+    let msg_tool = r#"{"role":"tool","content":[_NL__NL_]}"#;
+    let msg_user2 = r#"{"role":"user","content":[_NL__NL_]}"#;
+    let expected = wrap_boilerplate(&format!(
+        "{},{},{},{}",
+        msg_user, msg_assistant, msg_user2, msg_tool
+    ));
+    assert_that!(writer.get_output(), equal_to(expected));
+}
+
+#[test]
 fn auto_generate_type_text() {
     let writer = RcWriter::new();
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
