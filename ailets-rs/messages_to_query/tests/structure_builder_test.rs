@@ -57,17 +57,14 @@ fn many_messages_and_items() {
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
 
-    builder.begin_message().unwrap();
-    builder.add_role("user").unwrap();
+    begin_message(&mut builder, "user");
     builder.begin_content_item().unwrap();
     builder.begin_text().unwrap();
     write!(builder.get_writer(), "Text item of the first message").unwrap();
     builder.end_text().unwrap();
     builder.end_content_item().unwrap();
-    builder.end_message().unwrap();
 
-    builder.begin_message().unwrap();
-    builder.add_role("assistant").unwrap();
+    begin_message(&mut builder, "assistant");
     builder.begin_content_item().unwrap();
     builder.begin_text().unwrap();
     write!(builder.get_writer(), "First item of the second message").unwrap();
@@ -78,7 +75,6 @@ fn many_messages_and_items() {
     write!(builder.get_writer(), "Second item of the second message").unwrap();
     builder.end_text().unwrap();
     builder.end_content_item().unwrap();
-    builder.end_message().unwrap();
     builder.end().unwrap();
 
     let text_item1 = r#"{"type":"text","text":"Text item of the first message"}"#;
@@ -92,39 +88,20 @@ fn many_messages_and_items() {
 }
 
 #[test]
-fn skip_contentless_messages() {
-    let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
-    let mut builder = builder;
-
-    builder.begin_message().unwrap();
-    builder.end_message().unwrap();
-    builder.begin_message().unwrap();
-    builder.end_message().unwrap();
-    builder.begin_message().unwrap();
-    builder.end_message().unwrap();
-    builder.end().unwrap();
-
-    assert_that!(writer.get_output(), equal_to(String::new()));
-}
-
-#[test]
 fn skip_empty_content_items() {
     let writer = RcWriter::new();
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
 
-    builder.begin_message().unwrap();
+    begin_message(&mut builder, "user");
     builder.begin_content_item().unwrap();
     builder.end_content_item().unwrap();
-    builder.end_message().unwrap();
 
-    builder.begin_message().unwrap();
+    begin_message(&mut builder, "user");
     builder.begin_content_item().unwrap();
     builder.end_content_item().unwrap();
     builder.begin_content_item().unwrap();
     builder.end_content_item().unwrap();
-    builder.end_message().unwrap();
     builder.end().unwrap();
 
     let empty_msg = "{\"content\":[\n\n]}".to_owned();
@@ -137,7 +114,7 @@ fn auto_generate_type_text() {
     let writer = RcWriter::new();
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
-    builder.begin_message().unwrap();
+    begin_message(&mut builder, "user");
 
     builder.begin_content_item().unwrap();
     builder.begin_text().unwrap();
@@ -156,7 +133,7 @@ fn mix_type_text() {
     let writer = RcWriter::new();
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
-    builder.begin_message().unwrap();
+    begin_message(&mut builder, "user");
 
     builder.begin_content_item().unwrap();
     builder.begin_content_item().unwrap();
@@ -178,7 +155,7 @@ fn reject_conflicting_type() {
     let writer = RcWriter::new();
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
-    builder.begin_message().unwrap();
+    begin_message(&mut builder, "user");
 
     builder.begin_content_item().unwrap();
     builder.add_item_type(String::from("text")).unwrap();
@@ -203,7 +180,7 @@ fn support_special_chars_and_unicode() {
 
     let special_chars = "Special chars: \"\\/\n\r\t\u{1F600}";
 
-    builder.begin_message().unwrap();
+    begin_message(&mut builder, "user");
     builder.begin_content_item().unwrap();
     builder.add_item_type(String::from("text")).unwrap();
     builder.begin_text().unwrap();
@@ -213,7 +190,6 @@ fn support_special_chars_and_unicode() {
         .unwrap();
     builder.end_text().unwrap();
     builder.end_content_item().unwrap();
-    builder.end_message().unwrap();
     builder.end().unwrap();
 
     let expected = wrap_boilerplate(
@@ -232,8 +208,7 @@ fn add_image_by_url() {
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
 
-    builder.begin_message().unwrap();
-    builder.add_role("user").unwrap();
+    begin_message(&mut builder, "user");
     builder.begin_content_item().unwrap();
 
     builder.add_item_type(String::from("image")).unwrap();
@@ -245,7 +220,6 @@ fn add_image_by_url() {
     builder.end_image_url().unwrap();
 
     builder.end_content_item().unwrap();
-    builder.end_message().unwrap();
     builder.end().unwrap();
 
     let expected_image_item =
@@ -267,8 +241,7 @@ fn add_image_by_key() {
 
     add_file(String::from("media/image-as-key-1.png"), b"hello".to_vec());
 
-    builder.begin_message().unwrap();
-    builder.add_role("user").unwrap();
+    begin_message(&mut builder, "user");
     builder.begin_content_item().unwrap();
 
     builder.add_item_type(String::from("image")).unwrap();
@@ -278,7 +251,6 @@ fn add_image_by_key() {
     builder.image_key("media/image-as-key-1.png").unwrap();
 
     builder.end_content_item().unwrap();
-    builder.end_message().unwrap();
     builder.end().unwrap();
 
     let expected_image_item =
@@ -298,8 +270,7 @@ fn image_as_key_file_not_found() {
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
 
-    builder.begin_message().unwrap();
-    builder.add_role("user").unwrap();
+    begin_message(&mut builder, "user");
     builder.begin_content_item().unwrap();
 
     builder.add_item_type(String::from("image")).unwrap();
@@ -323,8 +294,7 @@ fn add_image_with_detail() {
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
 
-    builder.begin_message().unwrap();
-    builder.add_role("user").unwrap();
+    begin_message(&mut builder, "user");
     builder.begin_content_item().unwrap();
 
     builder.add_item_type(String::from("image")).unwrap();
@@ -339,7 +309,6 @@ fn add_image_with_detail() {
     builder.end_image_url().unwrap();
 
     builder.end_content_item().unwrap();
-    builder.end_message().unwrap();
     builder.end().unwrap();
 
     let expected_image_item = r#"{"type":"image_url","image_url":{"detail":"high","url":"http://example.com/image.png"}}"#;
@@ -360,8 +329,7 @@ fn image_key_with_adversarial_content_type() {
 
     add_file(String::from("media/test.png"), b"hello".to_vec());
 
-    builder.begin_message().unwrap();
-    builder.add_role("user").unwrap();
+    begin_message(&mut builder, "user");
     builder.begin_content_item().unwrap();
 
     builder.add_item_type(String::from("image")).unwrap();
@@ -374,7 +342,6 @@ fn image_key_with_adversarial_content_type() {
     builder.image_key("media/test.png").unwrap();
 
     builder.end_content_item().unwrap();
-    builder.end_message().unwrap();
     builder.end().unwrap();
 
     // Only escape enough to have a valid json
@@ -397,8 +364,7 @@ fn image_settings_dont_transfer() {
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
 
-    builder.begin_message().unwrap();
-    builder.add_role("user").unwrap();
+    begin_message(&mut builder, "user");
 
     // First image with content_type and detail
     builder.begin_content_item().unwrap();
@@ -428,7 +394,6 @@ fn image_settings_dont_transfer() {
     builder.end_image_url().unwrap();
     builder.end_content_item().unwrap();
 
-    builder.end_message().unwrap();
     builder.end().unwrap();
 
     let expected_image1 = r#"{"type":"image_url","image_url":{"detail":"high","url":"http://example.com/image1.png"}}"#;
@@ -449,8 +414,7 @@ fn mix_text_and_image_content() {
     let writer = RcWriter::new();
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
-    builder.begin_message().unwrap();
-    builder.add_role("user").unwrap();
+    begin_message(&mut builder, "user");
 
     // Text item
     builder.begin_content_item().unwrap();
@@ -479,7 +443,6 @@ fn mix_text_and_image_content() {
     builder.end_text().unwrap();
     builder.end_content_item().unwrap();
 
-    builder.end_message().unwrap();
     builder.end().unwrap();
 
     let text_item1 = r#"{"type":"text","text":"Hello world"}"#;
@@ -490,37 +453,6 @@ fn mix_text_and_image_content() {
         text_item1, image_item, text_item2
     );
     let expected_message = format!(r#"{{"role":"user","content":[{}]}}"#, expected_content);
-    assert_that!(
-        writer.get_output(),
-        equal_to(wrap_boilerplate(&expected_message))
-    );
-}
-
-#[test]
-fn end_message_can_be_called_multiple_times() {
-    let writer = RcWriter::new();
-    let mut builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
-
-    // Call end_message before beginning - should be idempotent
-    builder.end_message().unwrap();
-    builder.end_message().unwrap();
-
-    builder.begin_message().unwrap();
-    builder.add_role("user").unwrap();
-    builder.begin_content_item().unwrap();
-    builder.add_item_type(String::from("text")).unwrap();
-    builder.begin_text().unwrap();
-    write!(builder.get_writer(), "Hello").unwrap();
-    builder.end_text().unwrap();
-    builder.end_content_item().unwrap();
-
-    // Call end_message multiple times after message - should be idempotent
-    builder.end_message().unwrap();
-    builder.end_message().unwrap();
-    builder.end_message().unwrap();
-    builder.end().unwrap();
-
-    let expected_message = r#"{"role":"user","content":[_NL_{"type":"text","text":"Hello"}_NL_]}"#;
     assert_that!(
         writer.get_output(),
         equal_to(wrap_boilerplate(&expected_message))
