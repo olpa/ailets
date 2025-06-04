@@ -24,8 +24,9 @@ fn create_empty_env_opts() -> EnvOpts {
 
 fn begin_message(builder: &mut StructureBuilder<RcWriter>, role: &str) {
     builder.begin_content_item().unwrap();
-    builder.add_item_type(String::from("ctl")).unwrap();
-    builder.add_role(role).unwrap();
+    builder.add_item_attribute(String::from("type"), String::from("ctl")).unwrap();
+    builder.add_item_attribute(String::from("role"), String::from(role)).unwrap();
+    builder.handle_role().unwrap();
     builder.end_content_item().unwrap();
 }
 
@@ -37,6 +38,7 @@ fn happy_path_for_text() {
 
     begin_message(&mut builder, "user");
     builder.begin_content_item().unwrap();
+    builder.add_item_attribute(String::from("type"), String::from("text")).unwrap();
     builder.begin_text().unwrap();
     write!(builder.get_writer(), "Hello!").unwrap();
     builder.end_text().unwrap();
