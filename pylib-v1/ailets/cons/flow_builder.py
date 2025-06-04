@@ -74,7 +74,7 @@ async def prompt_to_dagops(
             env.processes,
             explain="Prompt",
         )
-        env.dagops.alias(".prompt", node.name)
+        env.dagops.alias(".chat_messages", node.name)
         return node
 
     def role_to_messages(role: str) -> None:

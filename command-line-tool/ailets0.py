@@ -344,19 +344,11 @@ async def main() -> None:
         toolspecs_to_dagops(env, args.tools)
         await prompt_to_dagops(env, prompt=prompt)
 
-        chat_node_name = instantiate_with_deps(
-            env.dagops, nodereg, ".prompt_to_messages", {}
-        )
-        env.dagops.alias(".chat_messages", chat_node_name)
-
         model_node_name = instantiate_with_deps(env.dagops, nodereg, f".{model}", {})
         env.dagops.alias(".model_output", model_node_name)
 
-        resolve = {
-            ".prompt_to_messages": chat_node_name,
-        }
         target_node_name = instantiate_with_deps(
-            env.dagops, nodereg, ".messages_to_markdown", resolve
+            env.dagops, nodereg, ".messages_to_markdown", {}
         )
 
     stop_after_node = args.stop_after or target_node_name
