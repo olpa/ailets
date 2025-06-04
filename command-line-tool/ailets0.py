@@ -3,6 +3,7 @@
 
 import argparse
 import asyncio
+import itertools
 import json
 from io import BytesIO, TextIOWrapper
 import sys
@@ -343,19 +344,11 @@ async def main() -> None:
         toolspecs_to_dagops(env, args.tools)
         await prompt_to_dagops(env, prompt=prompt)
 
-        chat_node_name = instantiate_with_deps(
-            env.dagops, nodereg, ".prompt_to_messages", {}
-        )
-        env.dagops.alias(".chat_messages", chat_node_name)
-
         model_node_name = instantiate_with_deps(env.dagops, nodereg, f".{model}", {})
         env.dagops.alias(".model_output", model_node_name)
 
-        resolve = {
-            ".prompt_to_messages": chat_node_name,
-        }
         target_node_name = instantiate_with_deps(
-            env.dagops, nodereg, ".messages_to_markdown", resolve
+            env.dagops, nodereg, ".messages_to_markdown", {}
         )
 
     stop_after_node = args.stop_after or target_node_name
@@ -370,24 +363,56 @@ async def main() -> None:
     if args.dry_run:
         print_dependency_tree(env.dagops, env.processes, target_node_name)
     else:
-        # Setup Ctrl+Z handler
-        def ctrl_z_handler(signum: int, frame: Any) -> None:
-            minishell.MiniShell(env).cmdloop()
-
-        signal.signal(signal.SIGTSTP, ctrl_z_handler)
-
+        # Handle '--one-step', '--stop-before' and '--stop-after'
         node_iter = env.processes.next_node_iter(
             target_node_name, args.one_step, stop_before_node, stop_after_node
         )
-        try:
-            await env.processes.run_nodes(node_iter)
-        except Exception as e:
-            await coredump(vfs, env)
-            cleanup()
-            raise e
+        node_iter, node_iter_copy = itertools.tee(node_iter)
+        first_node = next(node_iter_copy, None)
 
-        # Reset SIGTSTP handler back to default
-        signal.signal(signal.SIGTSTP, signal.SIG_DFL)
+        if args.one_step and first_node is not None:
+            dup_output_to_stdout(env, {first_node})
+
+        for maybe_built_node in print_nodes:
+            if env.processes.is_node_finished(maybe_built_node):
+                try:
+                    pipe = env.piper.get_existing_pipe(maybe_built_node, "")
+                    reader = pipe.get_reader(env.seqno.next_seqno())
+                    output = await reader.read(-1)
+                    if output:
+                        print(output.decode("utf-8"))
+                    else:
+                        print(
+                            f"'{maybe_built_node}' is already built (no output)",
+                            file=sys.stderr,
+                        )
+                except KeyError:
+                    print(
+                        f"'{maybe_built_node}' is already built (no pipe)",
+                        file=sys.stderr,
+                    )
+                first_node = None
+                break
+
+        # If there are nodes to run, prepare and run them
+        if first_node is not None:
+
+            # Setup Ctrl+Z handler
+            def ctrl_z_handler(signum: int, frame: Any) -> None:
+                minishell.MiniShell(env).cmdloop()
+
+            signal.signal(signal.SIGTSTP, ctrl_z_handler)
+
+            # Run nodes
+            try:
+                await env.processes.run_nodes(node_iter)
+            except Exception as e:
+                await coredump(vfs, env)
+                cleanup()
+                raise e
+
+            # Reset SIGTSTP handler back to default
+            signal.signal(signal.SIGTSTP, signal.SIG_DFL)
 
     if args.save_state:
         await save_file(vfs, args.save_state, mk_save_env(env))
