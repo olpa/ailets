@@ -3,6 +3,7 @@
 
 import argparse
 import asyncio
+import itertools
 import json
 from io import BytesIO, TextIOWrapper
 import sys
@@ -370,30 +371,35 @@ async def main() -> None:
     if args.dry_run:
         print_dependency_tree(env.dagops, env.processes, target_node_name)
     else:
-        # Setup Ctrl+Z handler
-        def ctrl_z_handler(signum: int, frame: Any) -> None:
-            minishell.MiniShell(env).cmdloop()
-
-        signal.signal(signal.SIGTSTP, ctrl_z_handler)
-
+        # Handle '--one-step', '--stop-before' and '--stop-after'
         node_iter = env.processes.next_node_iter(
             target_node_name, args.one_step, stop_before_node, stop_after_node
         )
-        if args.one_step:
-            next_node = next(node_iter)
-            if next_node is not None:
-                dup_output_to_stdout(env, {next_node})
-                node_iter = iter([next_node])
+        node_iter, node_iter_copy = itertools.tee(node_iter)
+        first_node = next(node_iter_copy, None)
 
-        try:
-            await env.processes.run_nodes(node_iter)
-        except Exception as e:
-            await coredump(vfs, env)
-            cleanup()
-            raise e
+        if args.one_step and first_node is not None:
+            dup_output_to_stdout(env, {first_node})
 
-        # Reset SIGTSTP handler back to default
-        signal.signal(signal.SIGTSTP, signal.SIG_DFL)
+        # If there are nodes to run, prepare and run them
+        if first_node is not None:
+
+            # Setup Ctrl+Z handler
+            def ctrl_z_handler(signum: int, frame: Any) -> None:
+                minishell.MiniShell(env).cmdloop()
+
+            signal.signal(signal.SIGTSTP, ctrl_z_handler)
+
+            # Run nodes
+            try:
+                await env.processes.run_nodes(node_iter)
+            except Exception as e:
+                await coredump(vfs, env)
+                cleanup()
+                raise e
+
+            # Reset SIGTSTP handler back to default
+            signal.signal(signal.SIGTSTP, signal.SIG_DFL)
 
     if args.save_state:
         await save_file(vfs, args.save_state, mk_save_env(env))
