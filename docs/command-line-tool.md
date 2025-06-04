@@ -274,7 +274,7 @@ $ sqlite3 x.db "SELECT value FROM Dict WHERE key=CAST('value.13' AS BLOB);"
 [{"type": "text"}, {"text": "Hello"}]
 
 $ sqlite3 x.db "SELECT value FROM Dict WHERE key=CAST('.gpt.response_to_messages.17' AS BLOB);"
-{"type":"ctl","role":"assistant"}
+[{"type":"ctl"},{"role":"assistant"}]
 [{"type":"text"},{"text":"Hello! How can I assist you today?"}]
 ```
 
