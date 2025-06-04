@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from io import StringIO
 from typing import Any, Literal, Mapping, Optional, Set
 import json
 from typing import Sequence
@@ -21,7 +22,6 @@ from ailets.atyping import (
     IDagops,
     IEnvironment,
     INodeRegistry,
-    Node,
 )
 
 
@@ -67,15 +67,7 @@ async def prompt_to_dagops(
     env: IEnvironment,
     prompt: Sequence[CmdlinePromptItem] = [CmdlinePromptItem("Hello!", "text")],
 ) -> None:
-    def mk_node(prompt_content: str) -> Node:
-        node = env.dagops.add_value_node(
-            prompt_content.encode("utf-8"),
-            env.piper,
-            env.processes,
-            explain="Prompt",
-        )
-        env.dagops.alias(".chat_messages", node.name)
-        return node
+    chat_messages = StringIO()
 
     def role_to_messages(role: str) -> None:
         ctl_item: ContentItemCtl = (
@@ -86,7 +78,8 @@ async def prompt_to_dagops(
                 "role": role,
             },
         )
-        mk_node(json.dumps(ctl_item))
+        json.dump(ctl_item, chat_messages)
+        chat_messages.write("\n")
 
     async def prompt_to_node(prompt_item: CmdlinePromptItem) -> None:
         if prompt_item.type == "toml":
@@ -101,7 +94,8 @@ async def prompt_to_dagops(
                     "text": prompt_item.value,
                 },
             )
-            mk_node(json.dumps(text_item))
+            json.dump(text_item, chat_messages)
+            chat_messages.write("\n")
             return
 
         assert prompt_item.content_type is not None, "Content type is required"
@@ -124,7 +118,8 @@ async def prompt_to_dagops(
                     "image_url": prompt_item.value,
                 },
             )
-            mk_node(json.dumps(url_image_item))
+            json.dump(url_image_item, chat_messages)
+            chat_messages.write("\n")
             return  # return if "url"
 
         n = env.seqno.next_seqno()
@@ -139,7 +134,8 @@ async def prompt_to_dagops(
                 "image_key": file_key,
             },
         )
-        mk_node(json.dumps(key_image_item))
+        json.dump(key_image_item, chat_messages)
+        chat_messages.write("\n")
 
         with open_file(env.kv, prompt_item.value) as f:
             bytes = f.read()
@@ -149,13 +145,21 @@ async def prompt_to_dagops(
             env.kv.flush(file_key)
 
     annotated_prompt = annotate_prompt(prompt)
-    last_role = "user"
+    last_role = None
     for prompt_item in annotated_prompt:
         role = prompt_item.role
         if role != last_role:
             role_to_messages(role)
             last_role = role
         await prompt_to_node(prompt_item.prompt_item)
+
+    node = env.dagops.add_value_node(
+        chat_messages.getvalue().encode("utf-8"),
+        env.piper,
+        env.processes,
+        explain="chat messages",
+    )
+    env.dagops.alias(".chat_messages", node.name)
 
 
 def toml_to_env(
