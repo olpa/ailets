@@ -82,13 +82,13 @@ impl<W: Write> StructureBuilder<W> {
         if self.message_has_content {
             return Ok(());
         }
-        self.writer.write_all(b"{\"type\":\"ctl\",\"role\":\"")?;
+        self.writer.write_all(b"[{\"type\":\"ctl\"},{\"role\":\"")?;
         if let Some(role) = &self.role {
             self.writer.write_all(role.as_bytes())?;
         } else {
             self.writer.write_all(b"assistant")?;
         }
-        self.writer.write_all(b"\"}\n")?;
+        self.writer.write_all(b"\"}]\n")?;
         self.message_has_content = true;
         self.text_is_open = false;
         Ok(())
