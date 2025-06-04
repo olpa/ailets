@@ -251,28 +251,31 @@ sqlite3 x.db "INSERT INTO Dict (key, value) VALUES (CAST('$f' AS BLOB), readfile
 Example usage:
 
 ```bash
+$ ailets gpt --prompt Hello --dry-run
+├── .messages_to_markdown.18 [⋯ not built]
+│   ├── .gpt.response_to_messages.17 [⋯ not built]
+│   │   ├── .query.16 [⋯ not built]
+│   │   │   ├── .gpt.messages_to_query.15 [⋯ not built]
+│   │   │   │   ├── value.13 [✓ built] (chat messages)
+
+$ rm -f x.db && touch x.db
 $ ailets gpt --prompt Hello --file-system x.db
 Hello! How can I assist you today?
 
 $ sqlite3 x.db "SELECT key FROM Dict;"
-.gpt.messages_to_query.16
-.gpt.response_to_messages.18
-.messages_to_markdown.19
-.prompt_to_messages.15
-.query.17
+.gpt.messages_to_query.15
+.gpt.response_to_messages.17
+.messages_to_markdown.18
+.query.16
+value.13
 
-$ sqlite3 x.db "SELECT value FROM Dict WHERE key=CAST('.prompt_to_messages.15' AS BLOB);" | jq .
-[
-  {
-    "role": "user",
-    "content": [
-      {
-        "type": "text",
-        "text": "Hello"
-      }
-    ]
-  }
-]
+$ sqlite3 x.db "SELECT value FROM Dict WHERE key=CAST('value.13' AS BLOB);"
+[{"type": "ctl"}, {"role": "user"}]
+[{"type": "text"}, {"text": "Hello"}]
+
+$ sqlite3 x.db "SELECT value FROM Dict WHERE key=CAST('.gpt.response_to_messages.17' AS BLOB);"
+{"type":"ctl","role":"assistant"}
+[{"type":"text"},{"text":"Hello! How can I assist you today?"}]
 ```
 
 Together: Docker and VFS.
@@ -287,8 +290,7 @@ ailets() {
 }
 
 # Re-create the database
-rm -f x.db
-touch x.db
+rm -f x.db && touch x.db
 ailets gpt --dry-run
 
 # Put a file to the database and run Ailets
