@@ -381,6 +381,27 @@ async def main() -> None:
         if args.one_step and first_node is not None:
             dup_output_to_stdout(env, {first_node})
 
+        for maybe_built_node in print_nodes:
+            if env.processes.is_node_finished(maybe_built_node):
+                try:
+                    pipe = env.piper.get_existing_pipe(maybe_built_node, "")
+                    reader = pipe.get_reader(env.seqno.next_seqno())
+                    output = await reader.read(-1)
+                    if output:
+                        print(output.decode("utf-8"))
+                    else:
+                        print(
+                            f"'{maybe_built_node}' is already built (no output)",
+                            file=sys.stderr,
+                        )
+                except KeyError:
+                    print(
+                        f"'{maybe_built_node}' is already built (no pipe)",
+                        file=sys.stderr,
+                    )
+                first_node = None
+                break
+
         # If there are nodes to run, prepare and run them
         if first_node is not None:
 
