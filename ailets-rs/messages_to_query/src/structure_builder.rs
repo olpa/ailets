@@ -51,7 +51,6 @@ pub struct StructureBuilder<W: Write> {
     message: Progress,
     message_content: Progress,
     content_item: Progress,
-    content_item_type: Option<String>,
     content_item_attr: Option<HashMap<String, String>>,
     env_opts: EnvOpts,
 }
@@ -64,7 +63,6 @@ impl<W: Write> StructureBuilder<W> {
             message: Progress::ChildrenAreUnexpected,
             message_content: Progress::ChildrenAreUnexpected,
             content_item: Progress::ChildrenAreUnexpected,
-            content_item_type: None,
             content_item_attr: None,
             env_opts,
         }
@@ -242,9 +240,9 @@ impl<W: Write> StructureBuilder<W> {
             self.message = Progress::ChildIsWritten;
         }
         self.content_item = Progress::ChildrenAreUnexpected;
-        if self.content_item_type.is_none() {
+        if self.content_item_attr.is_none() {
             // Signal that "content" key is present
-            self.content_item_type = Some(String::new());
+            self.content_item_attr = Some(HashMap::new());
         }
         Ok(())
     }
@@ -253,7 +251,6 @@ impl<W: Write> StructureBuilder<W> {
     /// I/O
     pub fn begin_content_item(&mut self) -> Result<(), String> {
         self.content_item = Progress::WaitingForFirstChild;
-        self.content_item_type = None;
         self.content_item_attr = None;
         Ok(())
     }
@@ -285,12 +282,13 @@ impl<W: Write> StructureBuilder<W> {
         if let Progress::ChildrenAreUnexpected = self.content_item {
             return Err("Content item is not started".to_string());
         }
-        if let Some(ref item_type) = self.content_item_type {
-            if item_type != "ctl" {
-                return Err(format!("Expected type 'ctl', got '{item_type}'"));
-            }
-        } else {
-            return Err("Content item type is not set".to_string());
+        let item_type = self.content_item_attr.as_ref()
+            .ok_or_else(|| "Content item attributes are not set".to_string())?
+            .get("type")
+            .ok_or_else(|| "Content item type is not set".to_string())?;
+
+        if item_type != "ctl" {
+            return Err(format!("Expected type 'ctl', got '{item_type}'"));
         }
 
         self.begin_message()?;
@@ -298,15 +296,11 @@ impl<W: Write> StructureBuilder<W> {
             self.writer.write_all(b",").map_err(|e| e.to_string())?;
         }
 
-        let role = if let Some(ref attrs) = self.content_item_attr {
-            if let Some(role) = attrs.get("role") {
-                role
-            } else {
-                return Err("Role attribute is not set".to_string());
-            }
-        } else {
-            return Err("Content item attributes are not set".to_string());
-        };
+        let role = self.content_item_attr.as_ref()
+            .ok_or_else(|| "Content item attributes are not set".to_string())?
+            .get("role")
+            .ok_or_else(|| "Role attribute is not set".to_string())?;
+
         write!(self.writer, r#""role":"{role}""#).map_err(|e| e.to_string())?;
         self.message = Progress::ChildIsWritten;
         self.message_content = Progress::WaitingForFirstChild;
@@ -317,9 +311,11 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// I/O
     pub fn end_content_item(&mut self) -> Result<(), String> {
-        if let Some(ref item_type) = self.content_item_type {
-            if item_type == "ctl" {
-                return Ok(());
+        if let Some(ref attrs) = self.content_item_attr {
+            if let Some(item_type) = attrs.get("type") {
+                if item_type == "ctl" {
+                    return Ok(());
+                }
             }
         }
         if is_write_started(&self.content_item) {
@@ -333,25 +329,22 @@ impl<W: Write> StructureBuilder<W> {
     /// - content item is not started
     /// - I/O
     pub fn add_item_type(&mut self, item_type: String) -> Result<(), String> {
-        if item_type == "ctl" {
-            self.content_item_type = Some(item_type);
-            return Ok(());
+        if let Progress::ChildrenAreUnexpected = self.content_item {
+            return Err("Content item is not started".to_string());
         }
-        self.really_begin_content_item()?;
-        if let Some(ref existing_type) = self.content_item_type {
-            if existing_type != &item_type {
-                return Err(format!(
-                    "Wrong content item type: already typed as \"{existing_type}\", new type is \"{item_type}\""
-                ));
-            }
-        } else {
-            let write_item_type = if item_type == "image" {
-                &String::from("image_url")
+        if self.content_item_attr.is_none() {
+            self.content_item_attr = Some(HashMap::new());
+        }
+        if let Some(ref mut attrs) = self.content_item_attr {
+            if let Some(existing_type) = attrs.get("type") {
+                if existing_type != &item_type {
+                    return Err(format!(
+                        "Wrong content item type: already typed as \"{existing_type}\", new type is \"{item_type}\""
+                    ));
+                }
             } else {
-                &item_type
-            };
-            write!(self.writer, r#""type":"{write_item_type}""#).map_err(|e| e.to_string())?;
-            self.content_item_type = Some(item_type);
+                attrs.insert(String::from("type"), item_type);
+            }
         }
         Ok(())
     }
@@ -364,7 +357,8 @@ impl<W: Write> StructureBuilder<W> {
             return Err("Content item is not started".to_string());
         }
         self.add_item_type(String::from("text"))?;
-        write!(self.writer, r#","text":""#).map_err(|e| e.to_string())?;
+        self.really_begin_content_item()?;
+        write!(self.writer, r#""type":"text","text":""#).map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -383,7 +377,8 @@ impl<W: Write> StructureBuilder<W> {
             return Err("Content item is not started".to_string());
         }
         self.add_item_type(String::from("image"))?;
-        write!(self.writer, r#","image_url":{{"#).map_err(|e| e.to_string())?;
+        self.really_begin_content_item()?;
+        write!(self.writer, r#""type":"image_url","image_url":{{"#).map_err(|e| e.to_string())?;
         if let Some(ref attrs) = self.content_item_attr {
             if let Some(ref detail) = attrs.get("detail") {
                 write!(self.writer, r#""detail":"#).map_err(|e| e.to_string())?;
