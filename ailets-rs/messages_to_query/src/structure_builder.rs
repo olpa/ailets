@@ -282,7 +282,9 @@ impl<W: Write> StructureBuilder<W> {
         if let Progress::ChildrenAreUnexpected = self.content_item {
             return Err("Content item is not started".to_string());
         }
-        let item_type = self.content_item_attr.as_ref()
+        let item_type = self
+            .content_item_attr
+            .as_ref()
             .ok_or_else(|| "Content item attributes are not set".to_string())?
             .get("type")
             .ok_or_else(|| "Content item type is not set".to_string())?;
@@ -296,7 +298,9 @@ impl<W: Write> StructureBuilder<W> {
             self.writer.write_all(b",").map_err(|e| e.to_string())?;
         }
 
-        let role = self.content_item_attr.as_ref()
+        let role = self
+            .content_item_attr
+            .as_ref()
             .ok_or_else(|| "Content item attributes are not set".to_string())?
             .get("role")
             .ok_or_else(|| "Role attribute is not set".to_string())?;
@@ -328,7 +332,7 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// - content item is not started
     /// - I/O
-    pub fn add_item_type(&mut self, item_type: String) -> Result<(), String> {
+    pub fn add_item_attribute(&mut self, key: String, value: String) -> Result<(), String> {
         if let Progress::ChildrenAreUnexpected = self.content_item {
             return Err("Content item is not started".to_string());
         }
@@ -336,15 +340,7 @@ impl<W: Write> StructureBuilder<W> {
             self.content_item_attr = Some(HashMap::new());
         }
         if let Some(ref mut attrs) = self.content_item_attr {
-            if let Some(existing_type) = attrs.get("type") {
-                if existing_type != &item_type {
-                    return Err(format!(
-                        "Wrong content item type: already typed as \"{existing_type}\", new type is \"{item_type}\""
-                    ));
-                }
-            } else {
-                attrs.insert(String::from("type"), item_type);
-            }
+            attrs.insert(key, value);
         }
         Ok(())
     }
@@ -356,7 +352,7 @@ impl<W: Write> StructureBuilder<W> {
         if let Progress::ChildrenAreUnexpected = self.content_item {
             return Err("Content item is not started".to_string());
         }
-        self.add_item_type(String::from("text"))?;
+        self.add_item_attribute(String::from("type"), String::from("text"))?;
         self.really_begin_content_item()?;
         write!(self.writer, r#""type":"text","text":""#).map_err(|e| e.to_string())?;
         Ok(())
@@ -376,7 +372,7 @@ impl<W: Write> StructureBuilder<W> {
         if let Progress::ChildrenAreUnexpected = self.content_item {
             return Err("Content item is not started".to_string());
         }
-        self.add_item_type(String::from("image"))?;
+        self.add_item_attribute(String::from("type"), String::from("image"))?;
         self.really_begin_content_item()?;
         write!(self.writer, r#""type":"image_url","image_url":{{"#).map_err(|e| e.to_string())?;
         if let Some(ref attrs) = self.content_item_attr {
@@ -434,22 +430,6 @@ impl<W: Write> StructureBuilder<W> {
     /// - content item is not started
     /// - I/O
     pub fn set_content_item_attribute(&mut self, key: String, value: String) -> Result<(), String> {
-        if let Progress::ChildrenAreUnexpected = self.content_item {
-            return Err("Content item is not started".to_string());
-        }
-        if self.content_item_attr.is_none() {
-            self.content_item_attr = Some(HashMap::new());
-        }
-        if let Some(ref mut attrs) = self.content_item_attr {
-            attrs.insert(key, value);
-        }
-        Ok(())
-    }
-
-    /// # Errors
-    /// - content item is not started
-    /// - I/O
-    pub fn add_item_attribute(&mut self, key: String, value: String) -> Result<(), String> {
         if let Progress::ChildrenAreUnexpected = self.content_item {
             return Err("Content item is not started".to_string());
         }

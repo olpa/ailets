@@ -168,11 +168,15 @@ fn mix_type_text() {
 
     builder.begin_content_item().unwrap();
     builder.begin_content_item().unwrap();
-    builder.add_item_type(String::from("text")).unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("text"))
+        .unwrap();
     builder.begin_text().unwrap();
     write!(builder.get_writer(), "hello").unwrap();
     builder.end_text().unwrap();
-    builder.add_item_type(String::from("text")).unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("text"))
+        .unwrap();
     builder.end_content_item().unwrap();
     builder.end().unwrap();
 
@@ -189,8 +193,12 @@ fn reject_conflicting_type() {
     begin_message(&mut builder, "user");
 
     builder.begin_content_item().unwrap();
-    builder.add_item_type(String::from("text")).unwrap();
-    let err = builder.add_item_type(String::from("image")).unwrap_err();
+    builder
+        .add_item_attribute(String::from("type"), String::from("text"))
+        .unwrap();
+    let err = builder
+        .add_item_attribute(String::from("type"), String::from("image"))
+        .unwrap_err();
     assert_that!(
         err,
         equal_to(
@@ -200,7 +208,9 @@ fn reject_conflicting_type() {
 
     // Different content items have different types
     builder.begin_content_item().unwrap();
-    builder.add_item_type(String::from("image")).unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("image"))
+        .unwrap();
 }
 
 #[test]
@@ -213,7 +223,9 @@ fn support_special_chars_and_unicode() {
 
     begin_message(&mut builder, "user");
     builder.begin_content_item().unwrap();
-    builder.add_item_type(String::from("text")).unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("text"))
+        .unwrap();
     builder.begin_text().unwrap();
     builder
         .get_writer()
@@ -242,7 +254,9 @@ fn add_image_by_url() {
     begin_message(&mut builder, "user");
     builder.begin_content_item().unwrap();
 
-    builder.add_item_type(String::from("image")).unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("image"))
+        .unwrap();
     builder.begin_image_url().unwrap();
     builder
         .get_writer()
@@ -275,7 +289,9 @@ fn add_image_by_key() {
     begin_message(&mut builder, "user");
     builder.begin_content_item().unwrap();
 
-    builder.add_item_type(String::from("image")).unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("image"))
+        .unwrap();
     builder
         .set_content_item_attribute(String::from("content_type"), String::from("image/png"))
         .unwrap();
@@ -304,7 +320,9 @@ fn image_as_key_file_not_found() {
     begin_message(&mut builder, "user");
     builder.begin_content_item().unwrap();
 
-    builder.add_item_type(String::from("image")).unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("image"))
+        .unwrap();
     builder
         .set_content_item_attribute(String::from("content_type"), String::from("image/png"))
         .unwrap();
@@ -328,7 +346,9 @@ fn add_image_with_detail() {
     begin_message(&mut builder, "user");
     builder.begin_content_item().unwrap();
 
-    builder.add_item_type(String::from("image")).unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("image"))
+        .unwrap();
     builder
         .set_content_item_attribute(String::from("detail"), String::from("high"))
         .unwrap();
@@ -363,7 +383,9 @@ fn image_key_with_adversarial_content_type() {
     begin_message(&mut builder, "user");
     builder.begin_content_item().unwrap();
 
-    builder.add_item_type(String::from("image")).unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("image"))
+        .unwrap();
     builder
         .set_content_item_attribute(
             String::from("content_type"),
@@ -399,7 +421,9 @@ fn image_settings_dont_transfer() {
 
     // First image with content_type and detail
     builder.begin_content_item().unwrap();
-    builder.add_item_type(String::from("image")).unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("image"))
+        .unwrap();
     builder
         .set_content_item_attribute(String::from("content_type"), String::from("image/png"))
         .unwrap();
@@ -416,7 +440,9 @@ fn image_settings_dont_transfer() {
 
     // Second image without content_type and detail
     builder.begin_content_item().unwrap();
-    builder.add_item_type(String::from("image")).unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("image"))
+        .unwrap();
     builder.begin_image_url().unwrap();
     builder
         .get_writer()
@@ -449,7 +475,9 @@ fn mix_text_and_image_content() {
 
     // Text item
     builder.begin_content_item().unwrap();
-    builder.add_item_type(String::from("text")).unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("text"))
+        .unwrap();
     builder.begin_text().unwrap();
     write!(builder.get_writer(), "Hello world").unwrap();
     builder.end_text().unwrap();
@@ -457,7 +485,9 @@ fn mix_text_and_image_content() {
 
     // Image item
     builder.begin_content_item().unwrap();
-    builder.add_item_type(String::from("image")).unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("image"))
+        .unwrap();
     builder.begin_image_url().unwrap();
     builder
         .get_writer()
@@ -468,7 +498,9 @@ fn mix_text_and_image_content() {
 
     // Another text item
     builder.begin_content_item().unwrap();
-    builder.add_item_type(String::from("text")).unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("text"))
+        .unwrap();
     builder.begin_text().unwrap();
     write!(builder.get_writer(), "Another text").unwrap();
     builder.end_text().unwrap();

@@ -58,7 +58,7 @@ pub fn on_content_item_type<W: Write>(
     };
     if let Err(e) = builder_cell
         .borrow_mut()
-        .add_item_type(item_type.to_string())
+        .add_item_attribute(String::from("type"), item_type.to_string())
     {
         return StreamOp::Error(e.into());
     }
