@@ -318,6 +318,7 @@ impl<W: Write> StructureBuilder<W> {
         if let Some(ref attrs) = self.content_item_attr {
             if let Some(item_type) = attrs.get("type") {
                 if item_type == "ctl" {
+                    self.content_item_attr = None;
                     return Ok(());
                 }
             }
@@ -326,6 +327,7 @@ impl<W: Write> StructureBuilder<W> {
             self.writer.write_all(b"}").map_err(|e| e.to_string())?;
             self.message_content = Progress::ChildIsWritten;
         }
+        self.content_item_attr = None;
         Ok(())
     }
 
@@ -340,6 +342,19 @@ impl<W: Write> StructureBuilder<W> {
             self.content_item_attr = Some(HashMap::new());
         }
         if let Some(ref mut attrs) = self.content_item_attr {
+            if key == "type" {
+                if let Some(existing_type) = attrs.get("type") {
+                    if existing_type != &value {
+                        return Err(format!("Wrong content item type: already typed as \"{existing_type}\", new type is \"{value}\""));
+                    }
+                    return Ok(());
+                }
+                if !matches!(value.as_str(), "text" | "image" | "ctl") {
+                    return Err(format!(
+                        "Invalid type value: '{value}'. Allowed values are: text, image, ctl"
+                    ));
+                }
+            }
             attrs.insert(key, value);
         }
         Ok(())
