@@ -3,8 +3,8 @@ use actor_io::AReader;
 use actor_runtime::annotate_error;
 use base64::engine::general_purpose::STANDARD;
 use base64::write::EncoderWriter as Base64Encoder;
+use linked_hash_map::LinkedHashMap;
 use serde::Serialize;
-use std::collections::HashMap;
 use std::io;
 use std::io::Write;
 
@@ -51,7 +51,7 @@ pub struct StructureBuilder<W: Write> {
     message: Progress,
     message_content: Progress,
     content_item: Progress,
-    content_item_attr: Option<HashMap<String, String>>,
+    content_item_attr: Option<LinkedHashMap<String, String>>,
     env_opts: EnvOpts,
 }
 
@@ -242,7 +242,7 @@ impl<W: Write> StructureBuilder<W> {
         self.content_item = Progress::ChildrenAreUnexpected;
         if self.content_item_attr.is_none() {
             // Signal that "content" key is present
-            self.content_item_attr = Some(HashMap::new());
+            self.content_item_attr = Some(LinkedHashMap::new());
         }
         Ok(())
     }
@@ -339,7 +339,7 @@ impl<W: Write> StructureBuilder<W> {
             return Err("Content item is not started".to_string());
         }
         if self.content_item_attr.is_none() {
-            self.content_item_attr = Some(HashMap::new());
+            self.content_item_attr = Some(LinkedHashMap::new());
         }
         if let Some(ref mut attrs) = self.content_item_attr {
             if key == "type" {
@@ -458,7 +458,7 @@ impl<W: Write> StructureBuilder<W> {
             return Err("Content item is not started".to_string());
         }
         if self.content_item_attr.is_none() {
-            self.content_item_attr = Some(HashMap::new());
+            self.content_item_attr = Some(LinkedHashMap::new());
         }
         if let Some(ref mut attrs) = self.content_item_attr {
             attrs.insert(key, value);
