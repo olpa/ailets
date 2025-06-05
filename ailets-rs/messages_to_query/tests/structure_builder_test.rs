@@ -252,7 +252,7 @@ fn pass_preceding_attributes_to_text_output() {
         .add_item_attribute(String::from("type"), String::from("text"))
         .unwrap();
     builder
-        .add_item_attribute(String::from("custom_attr_3"), String::from("value_3"))
+        .add_item_attribute(String::from("custom_attr_2"), String::from("value_2"))
         .unwrap();
 
     builder.begin_text().unwrap();
@@ -261,7 +261,7 @@ fn pass_preceding_attributes_to_text_output() {
     builder.end_content_item().unwrap();
     builder.end().unwrap();
 
-    let expected_text_item = r#"{"type":"text","custom_attr_1":"value_1","custom_attr_3":"value_3","text":"Hello world"}"#;
+    let expected_text_item = r#"{"type":"text","custom_attr_1":"value_1","custom_attr_2":"value_2","text":"Hello world"}"#;
     assert_that!(
         writer.get_output(),
         equal_to(wrap_boilerplate(&format!(

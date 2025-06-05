@@ -369,7 +369,16 @@ impl<W: Write> StructureBuilder<W> {
         }
         self.add_item_attribute(String::from("type"), String::from("text"))?;
         self.really_begin_content_item()?;
-        write!(self.writer, r#""type":"text","text":""#).map_err(|e| e.to_string())?;
+
+        if let Some(ref attrs) = self.content_item_attr {
+            for (key, value) in attrs {
+                write!(self.writer, r#""{key}":"#).map_err(|e| e.to_string())?;
+                serde_json::to_writer(&mut self.writer, value).map_err(|e| e.to_string())?;
+                write!(self.writer, r#","#).map_err(|e| e.to_string())?;
+            }
+        }
+
+        write!(self.writer, r#""text":""#).map_err(|e| e.to_string())?;
         Ok(())
     }
 
