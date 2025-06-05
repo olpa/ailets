@@ -160,6 +160,23 @@ fn auto_generate_type_text() {
 }
 
 #[test]
+fn reject_unknown_type() {
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let mut builder = builder;
+    begin_message(&mut builder, "user");
+
+    builder.begin_content_item().unwrap();
+    let err = builder
+        .add_item_attribute(String::from("type"), String::from("unknown"))
+        .unwrap_err();
+    assert_that!(
+        err,
+        equal_to("Invalid type value: 'unknown'. Allowed values are: text, image, ctl".to_string())
+    );
+}
+
+#[test]
 fn reject_conflicting_type() {
     let writer = RcWriter::new();
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
