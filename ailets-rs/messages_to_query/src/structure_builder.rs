@@ -279,8 +279,49 @@ impl<W: Write> StructureBuilder<W> {
     }
 
     /// # Errors
+    /// - content item is not started
+    /// - I/O
+    pub fn handle_role(&mut self) -> Result<(), String> {
+        if let Progress::ChildrenAreUnexpected = self.content_item {
+            return Err("Content item is not started".to_string());
+        }
+        if let Some(ref item_type) = self.content_item_type {
+            if item_type != "ctl" {
+                return Err(format!("Expected type 'ctl', got '{item_type}'"));
+            }
+        } else {
+            return Err("Content item type is not set".to_string());
+        }
+
+        self.begin_message()?;
+        if let Progress::ChildIsWritten = self.message {
+            self.writer.write_all(b",").map_err(|e| e.to_string())?;
+        }
+
+        let role = if let Some(ref attrs) = self.content_item_attr {
+            if let Some(role) = attrs.get("role") {
+                role
+            } else {
+                return Err("Role attribute is not set".to_string());
+            }
+        } else {
+            return Err("Content item attributes are not set".to_string());
+        };
+        write!(self.writer, r#""role":"{role}""#).map_err(|e| e.to_string())?;
+        self.message = Progress::ChildIsWritten;
+        self.message_content = Progress::WaitingForFirstChild;
+        self.content_item = Progress::ChildrenAreUnexpected;
+        Ok(())
+    }
+
+    /// # Errors
     /// I/O
     pub fn end_content_item(&mut self) -> Result<(), String> {
+        if let Some(ref item_type) = self.content_item_type {
+            if item_type == "ctl" {
+                return Ok(());
+            }
+        }
         if is_write_started(&self.content_item) {
             self.writer.write_all(b"}").map_err(|e| e.to_string())?;
             self.message_content = Progress::ChildIsWritten;
