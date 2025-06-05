@@ -235,6 +235,7 @@ fn support_special_chars_and_unicode() {
     );
     assert_that!(writer.get_output(), equal_to(expected));
 }
+
 #[test]
 fn pass_preceding_attributes_to_text_output() {
     let writer = RcWriter::new();
@@ -261,6 +262,38 @@ fn pass_preceding_attributes_to_text_output() {
     builder.end().unwrap();
 
     let expected_text_item = r#"{"custom_attr_1":"value_1","type":"text","custom_attr_2":"value_2","text":"Hello world"}"#;
+    assert_that!(
+        writer.get_output(),
+        equal_to(wrap_boilerplate(&format!(
+            r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
+            expected_text_item
+        )))
+    );
+}
+
+#[test]
+fn pass_following_attributes_to_text_output() {
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let mut builder = builder;
+
+    begin_message(&mut builder, "user");
+    builder.begin_content_item().unwrap();
+    builder.begin_text().unwrap();
+    write!(builder.get_writer(), "Hello world").unwrap();
+    builder.end_text().unwrap();
+
+    builder
+        .add_item_attribute(String::from("custom_attr_3"), String::from("value_3"))
+        .unwrap();
+    builder
+        .add_item_attribute(String::from("custom_attr_4"), String::from("value_4"))
+        .unwrap();
+
+    builder.end_content_item().unwrap();
+    builder.end().unwrap();
+
+    let expected_text_item = r#"{"type":"text","text":"Hello world","custom_attr_3":"value_3","custom_attr_4":"value_4"}"#;
     assert_that!(
         writer.get_output(),
         equal_to(wrap_boilerplate(&format!(
