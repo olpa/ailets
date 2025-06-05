@@ -409,4 +409,20 @@ impl<W: Write> StructureBuilder<W> {
         }
         Ok(())
     }
+
+    /// # Errors
+    /// - content item is not started
+    /// - I/O
+    pub fn add_item_attribute(&mut self, key: String, value: String) -> Result<(), String> {
+        if let Progress::ChildrenAreUnexpected = self.content_item {
+            return Err("Content item is not started".to_string());
+        }
+        if self.content_item_attr.is_none() {
+            self.content_item_attr = Some(HashMap::new());
+        }
+        if let Some(ref mut attrs) = self.content_item_attr {
+            attrs.insert(key, value);
+        }
+        Ok(())
+    }
 }
