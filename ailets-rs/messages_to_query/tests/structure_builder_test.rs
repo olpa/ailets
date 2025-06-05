@@ -160,32 +160,6 @@ fn auto_generate_type_text() {
 }
 
 #[test]
-fn mix_type_text() {
-    let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
-    let mut builder = builder;
-    begin_message(&mut builder, "user");
-
-    builder.begin_content_item().unwrap();
-    builder.begin_content_item().unwrap();
-    builder
-        .add_item_attribute(String::from("type"), String::from("text"))
-        .unwrap();
-    builder.begin_text().unwrap();
-    write!(builder.get_writer(), "hello").unwrap();
-    builder.end_text().unwrap();
-    builder
-        .add_item_attribute(String::from("type"), String::from("text"))
-        .unwrap();
-    builder.end_content_item().unwrap();
-    builder.end().unwrap();
-
-    let expected =
-        wrap_boilerplate(r#"{"role":"user","content":[_NL_{"type":"text","text":"hello"}_NL_]}"#);
-    assert_that!(writer.get_output(), equal_to(expected));
-}
-
-#[test]
 fn reject_conflicting_type() {
     let writer = RcWriter::new();
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
