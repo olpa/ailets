@@ -168,7 +168,7 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
-    /// Called implicitly by `add_role` or `begin_item`
+    /// Called implicitly by `handle_role` or `begin_item`
     /// # Errors
     /// I/O
     fn begin_message(&mut self) -> Result<(), String> {
@@ -188,7 +188,7 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
-    /// Called implicitly by `end` or indirectly by (`add_role` or `begin_item`) through `begin_message`
+    /// Called implicitly by `end` or indirectly by (`handle_role` or `begin_item`) through `begin_message`
     /// # Errors
     /// I/O
     fn end_message(&mut self) -> Result<(), String> {
@@ -202,21 +202,6 @@ impl<W: Write> StructureBuilder<W> {
         self.message = Progress::ChildrenAreUnexpected;
         self.message_content = Progress::ChildrenAreUnexpected;
         self.item_attr_mode = ItemAttrMode::RaiseError;
-        Ok(())
-    }
-
-    /// Start a new message with the given role
-    /// # Errors
-    /// - I/O
-    pub fn add_role(&mut self, role: &str) -> Result<(), String> {
-        self.begin_message()?;
-        if let Progress::ChildIsWritten = self.message {
-            self.writer.write_all(b",").map_err(|e| e.to_string())?;
-        }
-        write!(self.writer, r#""role":"{role}","content":["#).map_err(|e| e.to_string())?;
-        self.message = Progress::ChildIsWritten;
-        self.message_content = Progress::WaitingForFirstChild;
-        self.item_attr_mode = ItemAttrMode::Drop;
         Ok(())
     }
 
@@ -312,7 +297,7 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// - content item is not started
     /// - I/O
-    pub fn handle_role(&mut self) -> Result<(), String> {
+    pub fn handle_role(&mut self, role: &str) -> Result<(), String> {
         if let ItemAttrMode::RaiseError = self.item_attr_mode {
             return Err("Content item is not started".to_string());
         }
@@ -331,13 +316,6 @@ impl<W: Write> StructureBuilder<W> {
         if let Progress::ChildIsWritten = self.message {
             self.writer.write_all(b",").map_err(|e| e.to_string())?;
         }
-
-        let role = self
-            .item_attr
-            .as_ref()
-            .ok_or_else(|| "Content item attributes are not set".to_string())?
-            .get("role")
-            .ok_or_else(|| "Role attribute is not set".to_string())?;
 
         write!(self.writer, r#""role":"{role}","content":["#).map_err(|e| e.to_string())?;
         self.writer.write_all(b"\n").map_err(|e| e.to_string())?;

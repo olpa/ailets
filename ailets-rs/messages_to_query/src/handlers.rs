@@ -18,7 +18,7 @@ pub fn on_role<W: Write>(
             );
         }
     };
-    if let Err(e) = builder_cell.borrow_mut().add_role(role) {
+    if let Err(e) = builder_cell.borrow_mut().handle_role(role) {
         return StreamOp::Error(e.into());
     }
     StreamOp::ValueIsConsumed

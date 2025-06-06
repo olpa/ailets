@@ -27,10 +27,7 @@ fn begin_message(builder: &mut StructureBuilder<RcWriter>, role: &str) {
     builder
         .add_item_attribute(String::from("type"), String::from("ctl"))
         .unwrap();
-    builder
-        .add_item_attribute(String::from("role"), String::from(role))
-        .unwrap();
-    builder.handle_role().unwrap();
+    builder.handle_role(role).unwrap();
     builder.end_item().unwrap();
 }
 
