@@ -57,7 +57,6 @@ pub struct StructureBuilder<W: Write> {
     writer: W,
     top: Progress,
     message: Progress,
-    message_content: Progress,
     item_attr: Option<LinkedHashMap<String, String>>,
     item_attr_mode: ItemAttrMode,
     env_opts: EnvOpts,
@@ -69,7 +68,6 @@ impl<W: Write> StructureBuilder<W> {
             writer,
             top: Progress::WaitingForFirstChild,
             message: Progress::ChildrenAreUnexpected,
-            message_content: Progress::ChildrenAreUnexpected,
             item_attr: None,
             item_attr_mode: ItemAttrMode::RaiseError,
             env_opts,
@@ -183,7 +181,6 @@ impl<W: Write> StructureBuilder<W> {
 
         self.top = Progress::ChildIsWritten;
         self.message = Progress::WriteIsStarted;
-        self.message_content = Progress::ChildrenAreUnexpected;
         self.item_attr_mode = ItemAttrMode::RaiseError;
         Ok(())
     }
@@ -193,50 +190,11 @@ impl<W: Write> StructureBuilder<W> {
     /// I/O
     fn end_message(&mut self) -> Result<(), String> {
         if is_write_started(&self.message) {
-            // Enforce "content" key, even if there is no content
-            self.maybe_begin_content()?;
-            self.end_content()?;
-            self.writer.write_all(b"}").map_err(|e| e.to_string())?;
+            self.writer.write_all(b"]}").map_err(|e| e.to_string())?;
             self.top = Progress::ChildIsWritten;
         }
         self.message = Progress::ChildrenAreUnexpected;
-        self.message_content = Progress::ChildrenAreUnexpected;
         self.item_attr_mode = ItemAttrMode::RaiseError;
-        Ok(())
-    }
-
-    /// # Errors
-    /// - message is not started
-    /// - I/O
-    fn maybe_begin_content(&mut self) -> Result<(), String> {
-        if let Progress::ChildrenAreUnexpected = self.message {
-            return Err("Message is not started".to_string());
-        }
-        if is_write_started(&self.message_content) {
-            return Ok(());
-        }
-        if let Progress::ChildIsWritten = self.message {
-            self.writer.write_all(b",").map_err(|e| e.to_string())?;
-        }
-        self.writer
-            .write_all(b"\"content\":[\n")
-            .map_err(|e| e.to_string())?;
-        self.message_content = Progress::WriteIsStarted;
-        Ok(())
-    }
-
-    /// # Errors
-    /// I/O
-    fn end_content(&mut self) -> Result<(), String> {
-        if is_write_started(&self.message_content) {
-            self.writer.write_all(b"\n]").map_err(|e| e.to_string())?;
-            self.message = Progress::ChildIsWritten;
-        }
-        self.item_attr_mode = ItemAttrMode::RaiseError;
-        if self.item_attr.is_none() {
-            // Signal that "content" key is present
-            self.item_attr = Some(LinkedHashMap::new());
-        }
         Ok(())
     }
 
@@ -287,8 +245,7 @@ impl<W: Write> StructureBuilder<W> {
                 }
             }
         }
-        self.writer.write_all(b"}").map_err(|e| e.to_string())?;
-        self.message_content = Progress::ChildIsWritten;
+        self.writer.write_all(b"}\n").map_err(|e| e.to_string())?;
         self.item_attr = None;
         self.item_attr_mode = ItemAttrMode::RaiseError;
         Ok(())
@@ -320,7 +277,6 @@ impl<W: Write> StructureBuilder<W> {
         write!(self.writer, r#""role":"{role}","content":["#).map_err(|e| e.to_string())?;
         self.writer.write_all(b"\n").map_err(|e| e.to_string())?;
         self.message = Progress::ChildIsWritten;
-        self.message_content = Progress::WaitingForFirstChild;
         self.item_attr_mode = ItemAttrMode::Drop;
         Ok(())
     }
