@@ -23,7 +23,7 @@ fn create_empty_env_opts() -> EnvOpts {
 }
 
 fn begin_message(builder: &mut StructureBuilder<RcWriter>, role: &str) {
-    builder.begin_content_item().unwrap();
+    builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("ctl"))
         .unwrap();
@@ -31,7 +31,7 @@ fn begin_message(builder: &mut StructureBuilder<RcWriter>, role: &str) {
         .add_item_attribute(String::from("role"), String::from(role))
         .unwrap();
     builder.handle_role().unwrap();
-    builder.end_content_item().unwrap();
+    builder.end_item().unwrap();
 }
 
 #[test]
@@ -41,14 +41,14 @@ fn happy_path_for_text() {
     let mut builder = builder;
 
     begin_message(&mut builder, "user");
-    builder.begin_content_item().unwrap();
+    builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("text"))
         .unwrap();
     builder.begin_text().unwrap();
     write!(builder.get_writer(), "Hello!").unwrap();
     builder.end_text().unwrap();
-    builder.end_content_item().unwrap();
+    builder.end_item().unwrap();
     builder.end().unwrap();
 
     assert_that!(
@@ -66,23 +66,23 @@ fn many_messages_and_items() {
     let mut builder = builder;
 
     begin_message(&mut builder, "user");
-    builder.begin_content_item().unwrap();
+    builder.begin_item().unwrap();
     builder.begin_text().unwrap();
     write!(builder.get_writer(), "Text item of the first message").unwrap();
     builder.end_text().unwrap();
-    builder.end_content_item().unwrap();
+    builder.end_item().unwrap();
 
     begin_message(&mut builder, "assistant");
-    builder.begin_content_item().unwrap();
+    builder.begin_item().unwrap();
     builder.begin_text().unwrap();
     write!(builder.get_writer(), "First item of the second message").unwrap();
     builder.end_text().unwrap();
-    builder.end_content_item().unwrap();
-    builder.begin_content_item().unwrap();
+    builder.end_item().unwrap();
+    builder.begin_item().unwrap();
     builder.begin_text().unwrap();
     write!(builder.get_writer(), "Second item of the second message").unwrap();
     builder.end_text().unwrap();
-    builder.end_content_item().unwrap();
+    builder.end_item().unwrap();
     builder.end().unwrap();
 
     let text_item1 = r#"{"type":"text","text":"Text item of the first message"}"#;
@@ -96,20 +96,20 @@ fn many_messages_and_items() {
 }
 
 #[test]
-fn skip_empty_content_items_but_create_content_wrapper() {
+fn skip_empty_items_but_create_content_wrapper() {
     let writer = RcWriter::new();
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
 
     begin_message(&mut builder, "user");
-    builder.begin_content_item().unwrap();
-    builder.end_content_item().unwrap();
+    builder.begin_item().unwrap();
+    builder.end_item().unwrap();
 
     begin_message(&mut builder, "user");
-    builder.begin_content_item().unwrap();
-    builder.end_content_item().unwrap();
-    builder.begin_content_item().unwrap();
-    builder.end_content_item().unwrap();
+    builder.begin_item().unwrap();
+    builder.end_item().unwrap();
+    builder.begin_item().unwrap();
+    builder.end_item().unwrap();
     builder.end().unwrap();
 
     let empty_msg = "{\"role\":\"user\",\"content\":[\n\n]}".to_owned();
@@ -147,11 +147,11 @@ fn auto_generate_type_text() {
     let mut builder = builder;
     begin_message(&mut builder, "user");
 
-    builder.begin_content_item().unwrap();
+    builder.begin_item().unwrap();
     builder.begin_text().unwrap();
     write!(builder.get_writer(), "hello").unwrap();
     builder.end_text().unwrap();
-    builder.end_content_item().unwrap();
+    builder.end_item().unwrap();
     builder.end().unwrap();
 
     let expected =
@@ -166,7 +166,7 @@ fn reject_unknown_type() {
     let mut builder = builder;
     begin_message(&mut builder, "user");
 
-    builder.begin_content_item().unwrap();
+    builder.begin_item().unwrap();
     let err = builder
         .add_item_attribute(String::from("type"), String::from("unknown"))
         .unwrap_err();
@@ -183,7 +183,7 @@ fn reject_conflicting_type() {
     let mut builder = builder;
     begin_message(&mut builder, "user");
 
-    builder.begin_content_item().unwrap();
+    builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("text"))
         .unwrap();
@@ -198,7 +198,7 @@ fn reject_conflicting_type() {
     );
 
     // Different content items have different types
-    builder.begin_content_item().unwrap();
+    builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("image"))
         .unwrap();
@@ -213,7 +213,7 @@ fn support_special_chars_and_unicode() {
     let special_chars = "Special chars: \"\\/\n\r\t\u{1F600}";
 
     begin_message(&mut builder, "user");
-    builder.begin_content_item().unwrap();
+    builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("text"))
         .unwrap();
@@ -223,7 +223,7 @@ fn support_special_chars_and_unicode() {
         .write_all(special_chars.as_bytes())
         .unwrap();
     builder.end_text().unwrap();
-    builder.end_content_item().unwrap();
+    builder.end_item().unwrap();
     builder.end().unwrap();
 
     let expected = wrap_boilerplate(
@@ -243,7 +243,7 @@ fn pass_preceding_attributes_to_text_output() {
     let mut builder = builder;
 
     begin_message(&mut builder, "user");
-    builder.begin_content_item().unwrap();
+    builder.begin_item().unwrap();
 
     builder
         .add_item_attribute(String::from("custom_attr_1"), String::from("value_1"))
@@ -258,7 +258,7 @@ fn pass_preceding_attributes_to_text_output() {
     builder.begin_text().unwrap();
     write!(builder.get_writer(), "Hello world").unwrap();
     builder.end_text().unwrap();
-    builder.end_content_item().unwrap();
+    builder.end_item().unwrap();
     builder.end().unwrap();
 
     let expected_text_item = r#"{"custom_attr_1":"value_1","type":"text","custom_attr_2":"value_2","text":"Hello world"}"#;
@@ -278,7 +278,7 @@ fn pass_following_attributes_to_text_output() {
     let mut builder = builder;
 
     begin_message(&mut builder, "user");
-    builder.begin_content_item().unwrap();
+    builder.begin_item().unwrap();
     builder.begin_text().unwrap();
     write!(builder.get_writer(), "Hello world").unwrap();
     builder.end_text().unwrap();
@@ -290,7 +290,7 @@ fn pass_following_attributes_to_text_output() {
         .add_item_attribute(String::from("custom_attr_4"), String::from("value_4"))
         .unwrap();
 
-    builder.end_content_item().unwrap();
+    builder.end_item().unwrap();
     builder.end().unwrap();
 
     let expected_text_item = r#"{"type":"text","text":"Hello world","custom_attr_3":"value_3","custom_attr_4":"value_4"}"#;
@@ -310,7 +310,7 @@ fn add_image_by_url() {
     let mut builder = builder;
 
     begin_message(&mut builder, "user");
-    builder.begin_content_item().unwrap();
+    builder.begin_item().unwrap();
 
     builder
         .add_item_attribute(String::from("type"), String::from("image"))
@@ -322,7 +322,7 @@ fn add_image_by_url() {
         .unwrap();
     builder.end_image_url().unwrap();
 
-    builder.end_content_item().unwrap();
+    builder.end_item().unwrap();
     builder.end().unwrap();
 
     let expected_image_item =
@@ -345,17 +345,17 @@ fn add_image_by_key() {
     add_file(String::from("media/image-as-key-1.png"), b"hello".to_vec());
 
     begin_message(&mut builder, "user");
-    builder.begin_content_item().unwrap();
+    builder.begin_item().unwrap();
 
     builder
         .add_item_attribute(String::from("type"), String::from("image"))
         .unwrap();
     builder
-        .set_content_item_attribute(String::from("content_type"), String::from("image/png"))
+        .set_item_attribute(String::from("content_type"), String::from("image/png"))
         .unwrap();
     builder.image_key("media/image-as-key-1.png").unwrap();
 
-    builder.end_content_item().unwrap();
+    builder.end_item().unwrap();
     builder.end().unwrap();
 
     let expected_image_item =
@@ -376,13 +376,13 @@ fn image_as_key_file_not_found() {
     let mut builder = builder;
 
     begin_message(&mut builder, "user");
-    builder.begin_content_item().unwrap();
+    builder.begin_item().unwrap();
 
     builder
         .add_item_attribute(String::from("type"), String::from("image"))
         .unwrap();
     builder
-        .set_content_item_attribute(String::from("content_type"), String::from("image/png"))
+        .set_item_attribute(String::from("content_type"), String::from("image/png"))
         .unwrap();
 
     let result = builder.image_key("media/nonexistent.png");
@@ -402,13 +402,13 @@ fn add_image_with_detail() {
     let mut builder = builder;
 
     begin_message(&mut builder, "user");
-    builder.begin_content_item().unwrap();
+    builder.begin_item().unwrap();
 
     builder
         .add_item_attribute(String::from("type"), String::from("image"))
         .unwrap();
     builder
-        .set_content_item_attribute(String::from("detail"), String::from("high"))
+        .set_item_attribute(String::from("detail"), String::from("high"))
         .unwrap();
     builder.begin_image_url().unwrap();
     builder
@@ -417,7 +417,7 @@ fn add_image_with_detail() {
         .unwrap();
     builder.end_image_url().unwrap();
 
-    builder.end_content_item().unwrap();
+    builder.end_item().unwrap();
     builder.end().unwrap();
 
     let expected_image_item = r#"{"type":"image_url","image_url":{"detail":"high","url":"http://example.com/image.png"}}"#;
@@ -439,20 +439,20 @@ fn image_key_with_adversarial_content_type() {
     add_file(String::from("media/test.png"), b"hello".to_vec());
 
     begin_message(&mut builder, "user");
-    builder.begin_content_item().unwrap();
+    builder.begin_item().unwrap();
 
     builder
         .add_item_attribute(String::from("type"), String::from("image"))
         .unwrap();
     builder
-        .set_content_item_attribute(
+        .set_item_attribute(
             String::from("content_type"),
             String::from("\"\"image/png\0\\/\"';\u{202E}\u{2028}"),
         )
         .unwrap();
     builder.image_key("media/test.png").unwrap();
 
-    builder.end_content_item().unwrap();
+    builder.end_item().unwrap();
     builder.end().unwrap();
 
     // Only escape enough to have a valid json
@@ -478,15 +478,15 @@ fn image_settings_dont_transfer() {
     begin_message(&mut builder, "user");
 
     // First image with content_type and detail
-    builder.begin_content_item().unwrap();
+    builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("image"))
         .unwrap();
     builder
-        .set_content_item_attribute(String::from("content_type"), String::from("image/png"))
+        .set_item_attribute(String::from("content_type"), String::from("image/png"))
         .unwrap();
     builder
-        .set_content_item_attribute(String::from("detail"), String::from("high"))
+        .set_item_attribute(String::from("detail"), String::from("high"))
         .unwrap();
     builder.begin_image_url().unwrap();
     builder
@@ -494,10 +494,10 @@ fn image_settings_dont_transfer() {
         .write_all(b"http://example.com/image1.png")
         .unwrap();
     builder.end_image_url().unwrap();
-    builder.end_content_item().unwrap();
+    builder.end_item().unwrap();
 
     // Second image without content_type and detail
-    builder.begin_content_item().unwrap();
+    builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("image"))
         .unwrap();
@@ -507,7 +507,7 @@ fn image_settings_dont_transfer() {
         .write_all(b"http://example.com/image2.png")
         .unwrap();
     builder.end_image_url().unwrap();
-    builder.end_content_item().unwrap();
+    builder.end_item().unwrap();
 
     builder.end().unwrap();
 
@@ -532,17 +532,17 @@ fn mix_text_and_image_content() {
     begin_message(&mut builder, "user");
 
     // Text item
-    builder.begin_content_item().unwrap();
+    builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("text"))
         .unwrap();
     builder.begin_text().unwrap();
     write!(builder.get_writer(), "Hello world").unwrap();
     builder.end_text().unwrap();
-    builder.end_content_item().unwrap();
+    builder.end_item().unwrap();
 
     // Image item
-    builder.begin_content_item().unwrap();
+    builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("image"))
         .unwrap();
@@ -552,17 +552,17 @@ fn mix_text_and_image_content() {
         .write_all(b"http://example.com/image.png")
         .unwrap();
     builder.end_image_url().unwrap();
-    builder.end_content_item().unwrap();
+    builder.end_item().unwrap();
 
     // Another text item
-    builder.begin_content_item().unwrap();
+    builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("text"))
         .unwrap();
     builder.begin_text().unwrap();
     write!(builder.get_writer(), "Another text").unwrap();
     builder.end_text().unwrap();
-    builder.end_content_item().unwrap();
+    builder.end_item().unwrap();
 
     builder.end().unwrap();
 

@@ -22,73 +22,71 @@ fn create_begin_triggers<'a, W: Write + 'a>(
         Box::new(ParentAndName::new("#array".to_string(), "role".to_string())),
         Box::new(handlers::on_role) as BoxedAction<'_, StructureBuilder<W>>,
     );
-    let content_item = Trigger::new(
+    let item = Trigger::new(
         Box::new(ParentAndName::new("#top".to_string(), "#array".to_string())),
-        Box::new(handlers::on_content_item_begin) as BoxedAction<'_, StructureBuilder<W>>,
+        Box::new(handlers::on_item_begin) as BoxedAction<'_, StructureBuilder<W>>,
     );
-    let content_item_type = Trigger::new(
+    let item_type = Trigger::new(
         Box::new(ParentAndName::new("#array".to_string(), "type".to_string())),
-        Box::new(handlers::on_content_item_type) as BoxedAction<'_, StructureBuilder<W>>,
+        Box::new(handlers::on_item_type) as BoxedAction<'_, StructureBuilder<W>>,
     );
 
     //
     // Content items
     //
-    let content_text = Trigger::new(
+    let text = Trigger::new(
         Box::new(ParentAndName::new("#array".to_string(), "text".to_string())),
-        Box::new(handlers::on_content_text) as BoxedAction<'_, StructureBuilder<W>>,
+        Box::new(handlers::on_item_text) as BoxedAction<'_, StructureBuilder<W>>,
     );
-    let content_image_url = Trigger::new(
+    let image_url = Trigger::new(
         Box::new(ParentAndName::new(
             "#array".to_string(),
             "image_url".to_string(),
         )),
-        Box::new(handlers::on_content_image_url) as BoxedAction<'_, StructureBuilder<W>>,
+        Box::new(handlers::on_item_image_url) as BoxedAction<'_, StructureBuilder<W>>,
     );
-    let content_image_key = Trigger::new(
+    let image_key = Trigger::new(
         Box::new(ParentAndName::new(
             "#array".to_string(),
             "image_key".to_string(),
         )),
-        Box::new(handlers::on_content_image_key) as BoxedAction<'_, StructureBuilder<W>>,
+        Box::new(handlers::on_item_image_key) as BoxedAction<'_, StructureBuilder<W>>,
     );
-    let content_item_attribute_content_type = Trigger::new(
+    let attr_content_type = Trigger::new(
         Box::new(ParentAndName::new(
             "#array".to_string(),
             "content_type".to_string(),
         )),
-        Box::new(handlers::on_content_item_attribute_content_type)
-            as BoxedAction<'_, StructureBuilder<W>>,
+        Box::new(handlers::on_item_attribute_content_type) as BoxedAction<'_, StructureBuilder<W>>,
     );
-    let content_item_attribute_detail = Trigger::new(
+    let attr_detail = Trigger::new(
         Box::new(ParentAndName::new(
             "#array".to_string(),
             "detail".to_string(),
         )),
-        Box::new(handlers::on_content_item_attribute_detail)
-            as BoxedAction<'_, StructureBuilder<W>>,
+        Box::new(handlers::on_item_attribute_detail) as BoxedAction<'_, StructureBuilder<W>>,
     );
 
     vec![
-        content_item_type,
-        content_text,
-        content_image_url,
-        content_image_key,
-        content_item,
-        content_item_attribute_content_type,
-        content_item_attribute_detail,
+        item_type,
+        text,
+        image_url,
+        image_key,
+        item,
+        attr_content_type,
+        attr_detail,
         role,
     ]
 }
 
 fn create_end_triggers<'a, W: Write + 'a>(
 ) -> Vec<Trigger<'a, BoxedEndAction<'a, StructureBuilder<W>>>> {
-    let content_item = Trigger::new(
+    let item = Trigger::new(
         Box::new(ParentAndName::new("#top".to_string(), "#array".to_string())),
-        Box::new(handlers::on_content_item_end) as BoxedEndAction<'_, StructureBuilder<W>>,
+        Box::new(handlers::on_item_end) as BoxedEndAction<'_, StructureBuilder<W>>,
     );
 
-    vec![content_item]
+    vec![item]
 }
 
 /// # Errors

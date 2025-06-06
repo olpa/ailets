@@ -275,13 +275,15 @@ impl<W: Write> StructureBuilder<W> {
                     }
                     Some(item_type) => {
                         write!(self.writer, r#"{{"type":"#).map_err(|e| e.to_string())?;
-                        serde_json::to_writer(&mut self.writer, item_type).map_err(|e| e.to_string())?;
+                        serde_json::to_writer(&mut self.writer, item_type)
+                            .map_err(|e| e.to_string())?;
                     }
                 }
-                for (key, value) in attrs.iter() {
+                for (key, value) in attrs {
                     if key != "type" {
                         write!(self.writer, r#",""{key}":"#).map_err(|e| e.to_string())?;
-                        serde_json::to_writer(&mut self.writer, value).map_err(|e| e.to_string())?;
+                        serde_json::to_writer(&mut self.writer, value)
+                            .map_err(|e| e.to_string())?;
                     }
                 }
             }
@@ -337,8 +339,8 @@ impl<W: Write> StructureBuilder<W> {
             .get("role")
             .ok_or_else(|| "Role attribute is not set".to_string())?;
 
-        write!(self.writer, r#""role":"{role}","content":[
-"#).map_err(|e| e.to_string())?;
+        write!(self.writer, r#""role":"{role}","content":["#).map_err(|e| e.to_string())?;
+        self.writer.write_all(b"\n").map_err(|e| e.to_string())?;
         self.message = Progress::ChildIsWritten;
         self.message_content = Progress::WaitingForFirstChild;
         self.item_attr_mode = ItemAttrMode::Drop;
