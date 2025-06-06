@@ -349,6 +349,7 @@ impl<W: Write> StructureBuilder<W> {
 
     /// # Errors
     /// - content item is not started
+    /// - for "type" attribute, the value is unknown or conflicting with the already typed item
     /// - I/O
     pub fn add_item_attribute(&mut self, key: String, value: String) -> Result<(), String> {
         if let ItemAttrMode::RaiseError = self.item_attr_mode {
@@ -457,21 +458,5 @@ impl<W: Write> StructureBuilder<W> {
         drop(encoder);
 
         self.end_image_url()
-    }
-
-    /// # Errors
-    /// - content item is not started
-    /// - I/O
-    pub fn set_item_attribute(&mut self, key: String, value: String) -> Result<(), String> {
-        if let ItemAttrMode::RaiseError = self.item_attr_mode {
-            return Err("Content item is not started".to_string());
-        }
-        if self.item_attr.is_none() {
-            self.item_attr = Some(LinkedHashMap::new());
-        }
-        if let Some(ref mut attrs) = self.item_attr {
-            attrs.insert(key, value);
-        }
-        Ok(())
     }
 }

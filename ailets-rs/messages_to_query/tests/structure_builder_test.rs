@@ -351,7 +351,7 @@ fn add_image_by_key() {
         .add_item_attribute(String::from("type"), String::from("image"))
         .unwrap();
     builder
-        .set_item_attribute(String::from("content_type"), String::from("image/png"))
+        .add_item_attribute(String::from("content_type"), String::from("image/png"))
         .unwrap();
     builder.image_key("media/image-as-key-1.png").unwrap();
 
@@ -382,7 +382,7 @@ fn image_as_key_file_not_found() {
         .add_item_attribute(String::from("type"), String::from("image"))
         .unwrap();
     builder
-        .set_item_attribute(String::from("content_type"), String::from("image/png"))
+        .add_item_attribute(String::from("content_type"), String::from("image/png"))
         .unwrap();
 
     let result = builder.image_key("media/nonexistent.png");
@@ -408,7 +408,7 @@ fn add_image_with_detail() {
         .add_item_attribute(String::from("type"), String::from("image"))
         .unwrap();
     builder
-        .set_item_attribute(String::from("detail"), String::from("high"))
+        .add_item_attribute(String::from("detail"), String::from("high"))
         .unwrap();
     builder.begin_image_url().unwrap();
     builder
@@ -445,7 +445,7 @@ fn image_key_with_adversarial_content_type() {
         .add_item_attribute(String::from("type"), String::from("image"))
         .unwrap();
     builder
-        .set_item_attribute(
+        .add_item_attribute(
             String::from("content_type"),
             String::from("\"\"image/png\0\\/\"';\u{202E}\u{2028}"),
         )
@@ -483,10 +483,10 @@ fn image_settings_dont_transfer() {
         .add_item_attribute(String::from("type"), String::from("image"))
         .unwrap();
     builder
-        .set_item_attribute(String::from("content_type"), String::from("image/png"))
+        .add_item_attribute(String::from("content_type"), String::from("image/png"))
         .unwrap();
     builder
-        .set_item_attribute(String::from("detail"), String::from("high"))
+        .add_item_attribute(String::from("detail"), String::from("high"))
         .unwrap();
     builder.begin_image_url().unwrap();
     builder

@@ -171,7 +171,7 @@ pub fn on_item_attribute_content_type<W: Write>(
         }
     };
     let mut builder = builder_cell.borrow_mut();
-    if let Err(e) = builder.set_item_attribute(String::from("content_type"), String::from(value)) {
+    if let Err(e) = builder.add_item_attribute(String::from("content_type"), String::from(value)) {
         return StreamOp::Error(e.into());
     }
     StreamOp::ValueIsConsumed
@@ -191,7 +191,7 @@ pub fn on_item_attribute_detail<W: Write>(
         }
     };
     let mut builder = builder_cell.borrow_mut();
-    if let Err(e) = builder.set_item_attribute(String::from("detail"), String::from(value)) {
+    if let Err(e) = builder.add_item_attribute(String::from("detail"), String::from(value)) {
         return StreamOp::Error(e.into());
     }
     StreamOp::ValueIsConsumed
