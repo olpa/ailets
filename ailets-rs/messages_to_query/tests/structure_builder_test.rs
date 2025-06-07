@@ -594,3 +594,33 @@ fn mix_text_and_image_content() {
         equal_to(wrap_boilerplate(&expected_message))
     );
 }
+
+#[test]
+fn function_call() {
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let mut builder = builder;
+
+    begin_message(&mut builder, "assistant");
+    builder.begin_item().unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("function"))
+        .unwrap();
+    builder
+        .add_item_attribute(String::from("id"), String::from("id123"))
+        .unwrap();
+    builder
+        .add_item_attribute(String::from("name"), String::from("get_weather"))
+        .unwrap();
+    builder.begin_function_arguments().unwrap();
+    write!(builder.get_writer(), "foo,bar").unwrap();
+    builder.end_function_arguments().unwrap();
+    builder.end_item().unwrap();
+    builder.end().unwrap();
+
+    let expected_item = r#"{"role":"assistant","tool_calls":[{"id":"id123","type":"function","function":{"name":"get_weather","arguments":"foo,bar"}}]}"#;
+    assert_that!(
+        writer.get_output(),
+        equal_to(wrap_boilerplate(expected_item))
+    );
+}
