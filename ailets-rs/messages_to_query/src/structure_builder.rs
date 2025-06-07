@@ -205,7 +205,7 @@ impl<W: Write> StructureBuilder<W> {
     /// I/O
     fn end_message(&mut self) -> Result<(), String> {
         if self.divider == Divider::ItemComma || self.divider == Divider::ItemNone {
-            self.writer.write_all(b"]}").map_err(|e| e.to_string())?;
+            self.writer.write_all(b"\n]}").map_err(|e| e.to_string())?;
             self.divider = Divider::MessageComma;
         }
         self.item_attr_mode = ItemAttrMode::RaiseError;
@@ -236,6 +236,11 @@ impl<W: Write> StructureBuilder<W> {
                         return Err("Missing 'type' attribute".to_string());
                     }
                     Some(item_type) => {
+                        let item_type = if item_type == "image" {
+                            "image_url"
+                        } else {
+                            item_type
+                        };
                         // `divider` is set to `ItemComma` by `end_item`
                         if self.divider == Divider::ItemComma {
                             self.writer.write_all(b",\n").map_err(|e| e.to_string())?;
@@ -243,13 +248,20 @@ impl<W: Write> StructureBuilder<W> {
                         write!(self.writer, r#"{{"type":"#).map_err(|e| e.to_string())?;
                         serde_json::to_writer(&mut self.writer, item_type)
                             .map_err(|e| e.to_string())?;
-                    }
-                }
-                for (key, value) in attrs {
-                    if key != "type" {
-                        write!(self.writer, r#",""{key}":"#).map_err(|e| e.to_string())?;
-                        serde_json::to_writer(&mut self.writer, value)
-                            .map_err(|e| e.to_string())?;
+
+                        for (key, value) in attrs {
+                            if key == "type" {
+                                continue;
+                            }
+                            if item_type == "image_url"
+                                && (key == "detail" || key == "content_type")
+                            {
+                                continue;
+                            }
+                            write!(self.writer, r#","{key}":"#).map_err(|e| e.to_string())?;
+                            serde_json::to_writer(&mut self.writer, value)
+                                .map_err(|e| e.to_string())?;
+                        }
                     }
                 }
             }
@@ -267,7 +279,7 @@ impl<W: Write> StructureBuilder<W> {
             .and_then(|attrs| attrs.get("type"))
             .map_or(true, |t| t == "ctl");
         if !is_ctl {
-            self.writer.write_all(b"}\n").map_err(|e| e.to_string())?;
+            self.writer.write_all(b"}").map_err(|e| e.to_string())?;
             self.divider = Divider::ItemComma;
         }
 
@@ -362,7 +374,7 @@ impl<W: Write> StructureBuilder<W> {
         self.add_item_attribute(String::from("type"), String::from("image"))?;
         self.really_begin_item()?;
 
-        write!(self.writer, r#""image_url":{{"#).map_err(|e| e.to_string())?;
+        write!(self.writer, r#","image_url":{{"#).map_err(|e| e.to_string())?;
         if let Some(ref attrs) = self.item_attr {
             if let Some(ref detail) = attrs.get("detail") {
                 write!(self.writer, r#""detail":"#).map_err(|e| e.to_string())?;

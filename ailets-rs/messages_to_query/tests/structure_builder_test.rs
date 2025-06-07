@@ -258,7 +258,7 @@ fn pass_preceding_attributes_to_text_output() {
     builder.end_item().unwrap();
     builder.end().unwrap();
 
-    let expected_text_item = r#"{"custom_attr_1":"value_1","type":"text","custom_attr_2":"value_2","text":"Hello world"}"#;
+    let expected_text_item = r#"{"type":"text","custom_attr_1":"value_1","custom_attr_2":"value_2","text":"Hello world"}"#;
     assert_that!(
         writer.get_output(),
         equal_to(wrap_boilerplate(&format!(
