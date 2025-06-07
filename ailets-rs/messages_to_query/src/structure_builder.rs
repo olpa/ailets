@@ -25,19 +25,12 @@ impl serde_json::ser::Formatter for StrFormatter {
     }
 }
 
-#[derive(Debug)]
-pub enum Progress {
-    ChildrenAreUnexpected,
-    WaitingForFirstChild,
-    WriteIsStarted, // to have idempotent "really_start" and to close the element
-    ChildIsWritten, // to write the comma
-}
-
-fn is_write_started(progress: &Progress) -> bool {
-    matches!(
-        progress,
-        Progress::WriteIsStarted | Progress::ChildIsWritten
-    )
+#[derive(Debug, PartialEq)]
+pub enum Divider {
+    Prologue,
+    MessageComma,
+    ItemNone,
+    ItemComma,
 }
 
 #[derive(Debug)]
@@ -55,22 +48,20 @@ const DEFAULT_AUTHORIZATION: &str = "Bearer {{secret}}";
 
 pub struct StructureBuilder<W: Write> {
     writer: W,
-    top: Progress,
-    message: Progress,
+    env_opts: EnvOpts,
+    divider: Divider,
     item_attr: Option<LinkedHashMap<String, String>>,
     item_attr_mode: ItemAttrMode,
-    env_opts: EnvOpts,
 }
 
 impl<W: Write> StructureBuilder<W> {
     pub fn new(writer: W, env_opts: EnvOpts) -> Self {
         StructureBuilder {
             writer,
-            top: Progress::WaitingForFirstChild,
-            message: Progress::ChildrenAreUnexpected,
+            env_opts,
+            divider: Divider::Prologue,
             item_attr: None,
             item_attr_mode: ItemAttrMode::RaiseError,
-            env_opts,
         }
     }
 
@@ -79,19 +70,36 @@ impl<W: Write> StructureBuilder<W> {
         &mut self.writer
     }
 
-    fn really_begin(&mut self) -> Result<(), std::io::Error> {
-        if is_write_started(&self.top) {
-            return Ok(());
+    /// Close JSON object, unless nothing was written yet
+    ///
+    /// There is no "pub fn begin" because it is done implicitly by the call chain
+    /// `pub fn handle_role` -> `begin_message` -> `write_prologue`
+    ///
+    /// # Errors
+    /// I/O
+    pub fn end(&mut self) -> Result<(), String> {
+        if self.divider != Divider::Prologue {
+            self.end_message()?;
+            self.writer.write_all(b"]}}\n").map_err(|e| e.to_string())?;
         }
-        self.writer.write_all(b"{ \"url\": \"")?;
+        Ok(())
+    }
+
+    fn write_prologue(&mut self) -> Result<(), String> {
+        self.writer
+            .write_all(b"{ \"url\": \"")
+            .map_err(|e| e.to_string())?;
         let url = self
             .env_opts
             .get("http.url")
             .and_then(|v| v.as_str())
             .unwrap_or(DEFAULT_URL);
-        self.writer.write_all(url.as_bytes())?;
         self.writer
-            .write_all(b"\",\n\"method\": \"POST\",\n\"headers\": { ")?;
+            .write_all(url.as_bytes())
+            .map_err(|e| e.to_string())?;
+        self.writer
+            .write_all(b"\",\n\"method\": \"POST\",\n\"headers\": { ")
+            .map_err(|e| e.to_string())?;
 
         // Write Content-type header
         let content_type = self
@@ -99,15 +107,23 @@ impl<W: Write> StructureBuilder<W> {
             .get("http.header.Content-type")
             .and_then(|v| v.as_str())
             .unwrap_or(DEFAULT_CONTENT_TYPE);
-        self.writer.write_all(b"\"Content-type\": \"")?;
-        self.writer.write_all(content_type.as_bytes())?;
+        self.writer
+            .write_all(b"\"Content-type\": \"")
+            .map_err(|e| e.to_string())?;
+        self.writer
+            .write_all(content_type.as_bytes())
+            .map_err(|e| e.to_string())?;
         let authorization = self
             .env_opts
             .get("http.header.Authorization")
             .and_then(|v| v.as_str())
             .unwrap_or(DEFAULT_AUTHORIZATION);
-        self.writer.write_all(b"\", \"Authorization\": \"")?;
-        self.writer.write_all(authorization.as_bytes())?;
+        self.writer
+            .write_all(b"\", \"Authorization\": \"")
+            .map_err(|e| e.to_string())?;
+        self.writer
+            .write_all(authorization.as_bytes())
+            .map_err(|e| e.to_string())?;
 
         // Add remaining http.header.* parameters
         for (key, value) in &self.env_opts {
@@ -115,89 +131,88 @@ impl<W: Write> StructureBuilder<W> {
                 && key != "http.header.Content-type"
                 && key != "http.header.Authorization"
             {
-                self.writer.write_all(b", ")?;
+                self.writer.write_all(b", ").map_err(|e| e.to_string())?;
                 if let Some(header_name) = key.strip_prefix("http.header.") {
-                    write!(self.writer, r#""{header_name}": "#)?;
-                    serde_json::to_writer(&mut self.writer, value)?;
+                    write!(self.writer, r#""{header_name}": "#).map_err(|e| e.to_string())?;
+                    serde_json::to_writer(&mut self.writer, value).map_err(|e| e.to_string())?;
                 }
             }
         }
 
         // Write the body
-        self.writer.write_all(b"\" },\n\"body\": { \"model\": \"")?;
+        self.writer
+            .write_all(b"\" },\n\"body\": { \"model\": \"")
+            .map_err(|e| e.to_string())?;
         let model = self
             .env_opts
             .get("llm.model")
             .and_then(|v| v.as_str())
             .unwrap_or(DEFAULT_MODEL);
-        self.writer.write_all(model.as_bytes())?;
-        self.writer.write_all(b"\", \"stream\": ")?;
+        self.writer
+            .write_all(model.as_bytes())
+            .map_err(|e| e.to_string())?;
+        self.writer
+            .write_all(b"\", \"stream\": ")
+            .map_err(|e| e.to_string())?;
         let stream = self
             .env_opts
             .get("llm.stream")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(true);
-        self.writer.write_all(stream.to_string().as_bytes())?;
+        self.writer
+            .write_all(stream.to_string().as_bytes())
+            .map_err(|e| e.to_string())?;
 
         // Add remaining llm.* parameters
         for (key, value) in &self.env_opts {
             if key.starts_with("llm.") && key != "llm.model" && key != "llm.stream" {
-                self.writer.write_all(b", ")?;
+                self.writer.write_all(b", ").map_err(|e| e.to_string())?;
                 if let Some(param_name) = key.strip_prefix("llm.") {
-                    write!(self.writer, r#""{param_name}": "#)?;
-                    serde_json::to_writer(&mut self.writer, value)?;
+                    write!(self.writer, r#""{param_name}": "#).map_err(|e| e.to_string())?;
+                    serde_json::to_writer(&mut self.writer, value).map_err(|e| e.to_string())?;
                 }
             }
         }
 
         // Add messages array
-        self.writer.write_all(b", \"messages\": [")?;
-        self.top = Progress::WriteIsStarted;
+        self.writer
+            .write_all(b", \"messages\": [")
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
+    /// Called by `handle_role`
     /// # Errors
     /// I/O
-    pub fn end(&mut self) -> Result<(), String> {
-        if let Progress::ChildIsWritten = self.top {
-            self.end_message()?;
-            self.writer.write_all(b"]}}\n").map_err(|e| e.to_string())?;
+    fn begin_message(&mut self, role: &str) -> Result<(), String> {
+        if self.divider == Divider::Prologue {
+            self.write_prologue()?;
         }
-        Ok(())
-    }
-
-    /// Called implicitly by `handle_role` or `begin_item`
-    /// # Errors
-    /// I/O
-    fn begin_message(&mut self) -> Result<(), String> {
-        if is_write_started(&self.message) {
-            self.end_message()?;
+        self.end_message()?; // Can update the divider
+        if self.divider == Divider::MessageComma {
             self.writer.write_all(b",").map_err(|e| e.to_string())?;
-        } else {
-            self.really_begin().map_err(|e| e.to_string())?;
         }
 
-        self.writer.write_all(b"{").map_err(|e| e.to_string())?;
-
-        self.top = Progress::ChildIsWritten;
-        self.message = Progress::WriteIsStarted;
+        write!(self.writer, r#"{{"role":"{role}","content":["#).map_err(|e| e.to_string())?;
+        self.writer.write_all(b"\n").map_err(|e| e.to_string())?;
+        self.divider = Divider::ItemNone;
         self.item_attr_mode = ItemAttrMode::RaiseError;
         Ok(())
     }
 
-    /// Called implicitly by `end` or indirectly by (`handle_role` or `begin_item`) through `begin_message`
+    /// Called by `end`, by `begin_message` or indirectly by `handle_role` through `begin_message`
     /// # Errors
     /// I/O
     fn end_message(&mut self) -> Result<(), String> {
-        if is_write_started(&self.message) {
+        if self.divider == Divider::ItemComma || self.divider == Divider::ItemNone {
             self.writer.write_all(b"]}").map_err(|e| e.to_string())?;
-            self.top = Progress::ChildIsWritten;
+            self.divider = Divider::MessageComma;
         }
-        self.message = Progress::ChildrenAreUnexpected;
         self.item_attr_mode = ItemAttrMode::RaiseError;
         Ok(())
     }
 
+    /// Reset the internal state for a new content item
     /// # Errors
     /// I/O
     pub fn begin_item(&mut self) -> Result<(), String> {
@@ -206,6 +221,10 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
+    /// Start output JSON object for a content item
+    /// # Errors
+    /// - I/O
+    /// - missing "type" attribute
     fn really_begin_item(&mut self) -> Result<(), String> {
         match self.item_attr {
             None => {
@@ -217,6 +236,10 @@ impl<W: Write> StructureBuilder<W> {
                         return Err("Missing 'type' attribute".to_string());
                     }
                     Some(item_type) => {
+                        // `divider` is set to `ItemComma` by `end_item`
+                        if self.divider == Divider::ItemComma {
+                            self.writer.write_all(b",\n").map_err(|e| e.to_string())?;
+                        }
                         write!(self.writer, r#"{{"type":"#).map_err(|e| e.to_string())?;
                         serde_json::to_writer(&mut self.writer, item_type)
                             .map_err(|e| e.to_string())?;
@@ -234,22 +257,28 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
+    /// Close JSON object for a content item, unless it is a control item which was not written
     /// # Errors
     /// I/O
     pub fn end_item(&mut self) -> Result<(), String> {
-        if let Some(ref attrs) = self.item_attr {
-            if let Some(item_type) = attrs.get("type") {
-                if item_type == "ctl" {
-                    self.item_attr = None;
-                    return Ok(());
-                }
-            }
+        let is_ctl = self
+            .item_attr
+            .as_ref()
+            .and_then(|attrs| attrs.get("type"))
+            .map_or(true, |t| t == "ctl");
+        if !is_ctl {
+            self.writer.write_all(b"}\n").map_err(|e| e.to_string())?;
+            self.divider = Divider::ItemComma;
         }
-        self.writer.write_all(b"}\n").map_err(|e| e.to_string())?;
+
         self.item_attr = None;
         self.item_attr_mode = ItemAttrMode::RaiseError;
         Ok(())
     }
+
+    //
+    // Action-triggering item content
+    //
 
     /// # Errors
     /// - content item is not started
@@ -269,16 +298,7 @@ impl<W: Write> StructureBuilder<W> {
             return Err(format!("Expected type 'ctl', got '{item_type}'"));
         }
 
-        self.begin_message()?;
-        if let Progress::ChildIsWritten = self.message {
-            self.writer.write_all(b",").map_err(|e| e.to_string())?;
-        }
-
-        write!(self.writer, r#""role":"{role}","content":["#).map_err(|e| e.to_string())?;
-        self.writer.write_all(b"\n").map_err(|e| e.to_string())?;
-        self.message = Progress::ChildIsWritten;
-        self.item_attr_mode = ItemAttrMode::Drop;
-        Ok(())
+        self.begin_message(role)
     }
 
     /// # Errors
