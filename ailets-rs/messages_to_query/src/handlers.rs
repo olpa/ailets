@@ -18,32 +18,32 @@ pub fn on_role<W: Write>(
             );
         }
     };
-    if let Err(e) = builder_cell.borrow_mut().add_role(role) {
+    if let Err(e) = builder_cell.borrow_mut().handle_role(role) {
         return StreamOp::Error(e.into());
     }
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_content_item_begin<W: Write>(
+pub fn on_item_begin<W: Write>(
     _rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
     let mut builder = builder_cell.borrow_mut();
-    if let Err(e) = builder.begin_content_item() {
+    if let Err(e) = builder.begin_item() {
         return StreamOp::Error(e.into());
     }
     StreamOp::None
 }
 
-pub fn on_content_item_end<W: Write>(
+pub fn on_item_end<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut builder = builder_cell.borrow_mut();
-    builder.end_content_item()?;
+    builder.end_item()?;
     Ok(())
 }
 
-pub fn on_content_item_type<W: Write>(
+pub fn on_item_type<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
@@ -58,14 +58,14 @@ pub fn on_content_item_type<W: Write>(
     };
     if let Err(e) = builder_cell
         .borrow_mut()
-        .add_item_type(item_type.to_string())
+        .add_item_attribute(String::from("type"), item_type.to_string())
     {
         return StreamOp::Error(e.into());
     }
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_content_text<W: Write>(
+pub fn on_item_text<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
@@ -101,7 +101,7 @@ pub fn on_content_text<W: Write>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_content_image_url<W: Write>(
+pub fn on_item_image_url<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
@@ -137,7 +137,7 @@ pub fn on_content_image_url<W: Write>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_content_image_key<W: Write>(
+pub fn on_item_image_key<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
@@ -156,7 +156,7 @@ pub fn on_content_image_key<W: Write>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_content_item_attribute_content_type<W: Write>(
+pub fn on_item_attribute_content_type<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
@@ -171,15 +171,13 @@ pub fn on_content_item_attribute_content_type<W: Write>(
         }
     };
     let mut builder = builder_cell.borrow_mut();
-    if let Err(e) =
-        builder.set_content_item_attribute(String::from("content_type"), String::from(value))
-    {
+    if let Err(e) = builder.add_item_attribute(String::from("content_type"), String::from(value)) {
         return StreamOp::Error(e.into());
     }
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_content_item_attribute_detail<W: Write>(
+pub fn on_item_attribute_detail<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
@@ -193,8 +191,7 @@ pub fn on_content_item_attribute_detail<W: Write>(
         }
     };
     let mut builder = builder_cell.borrow_mut();
-    if let Err(e) = builder.set_content_item_attribute(String::from("detail"), String::from(value))
-    {
+    if let Err(e) = builder.add_item_attribute(String::from("detail"), String::from(value)) {
         return StreamOp::Error(e.into());
     }
     StreamOp::ValueIsConsumed
