@@ -33,7 +33,7 @@ pub enum Divider {
     ItemComma,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum ItemAttrMode {
     RaiseError,
     Collect,
@@ -262,6 +262,8 @@ impl<W: Write> StructureBuilder<W> {
                             serde_json::to_writer(&mut self.writer, value)
                                 .map_err(|e| e.to_string())?;
                         }
+
+                        self.item_attr_mode = ItemAttrMode::Passthrough;
                     }
                 }
             }
@@ -321,6 +323,13 @@ impl<W: Write> StructureBuilder<W> {
         if let ItemAttrMode::RaiseError = self.item_attr_mode {
             return Err("Content item is not started".to_string());
         }
+
+        if self.item_attr_mode == ItemAttrMode::Passthrough {
+            write!(self.writer, r#","{key}":"#).map_err(|e| e.to_string())?;
+            serde_json::to_writer(&mut self.writer, &value).map_err(|e| e.to_string())?;
+            return Ok(());
+        }
+
         if self.item_attr.is_none() {
             self.item_attr = Some(LinkedHashMap::new());
         }
