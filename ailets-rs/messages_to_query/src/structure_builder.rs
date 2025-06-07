@@ -309,7 +309,9 @@ impl<W: Write> StructureBuilder<W> {
             .ok_or_else(|| "Content item type is not set".to_string())?;
 
         if item_type != "ctl" {
-            return Err(format!("Expected type 'ctl', got '{item_type}'"));
+            return Err(format!(
+                "For 'role' attribute, expected item type 'ctl', got '{item_type}'"
+            ));
         }
 
         self.begin_message(role)

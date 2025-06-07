@@ -138,6 +138,24 @@ fn several_contentless_roles_create_several_messages_anyway() {
 }
 
 #[test]
+fn reject_role_for_non_ctl_type() {
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let mut builder = builder;
+
+    builder.begin_item().unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("text"))
+        .unwrap();
+
+    let err = builder.handle_role("user").unwrap_err();
+    assert_that!(
+        err,
+        equal_to("For 'role' attribute, expected item type 'ctl', got 'text'".to_string())
+    );
+}
+
+#[test]
 fn auto_generate_type_text() {
     let writer = RcWriter::new();
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
