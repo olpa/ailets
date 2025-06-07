@@ -343,9 +343,9 @@ impl<W: Write> StructureBuilder<W> {
                     }
                     return Ok(());
                 }
-                if !matches!(value.as_str(), "text" | "image" | "ctl") {
+                if !matches!(value.as_str(), "text" | "image" | "ctl" | "function") {
                     return Err(format!(
-                        "Invalid type value: '{value}'. Allowed values are: text, image, ctl"
+                        "Invalid type value: '{value}'. Allowed values are: text, image, ctl, function"
                     ));
                 }
             }
@@ -435,5 +435,35 @@ impl<W: Write> StructureBuilder<W> {
         drop(encoder);
 
         self.end_image_url()
+    }
+
+    /// # Errors
+    /// - content item is not started
+    /// - I/O
+    pub fn begin_function_arguments(&mut self) -> Result<(), String> {
+        if let ItemAttrMode::RaiseError = self.item_attr_mode {
+            return Err("Content item is not started".to_string());
+        }
+        let name = self
+            .item_attr
+            .as_mut()
+            .ok_or_else(|| "Content item attributes not found".to_string())?
+            .remove("name")
+            .ok_or_else(|| "Missing required 'name' attribute for function call".to_string())?;
+
+        self.add_item_attribute(String::from("type"), String::from("function"))?;
+        self.really_begin_item()?;
+
+        write!(self.writer, r#","function":{{"name":"#).map_err(|e| e.to_string())?;
+        serde_json::to_writer(&mut self.writer, &name).map_err(|e| e.to_string())?;
+        write!(self.writer, r#","arguments":""#).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// # Errors
+    /// - I/O
+    pub fn end_function_arguments(&mut self) -> Result<(), String> {
+        write!(self.writer, "\"}}").map_err(|e| e.to_string())?;
+        Ok(())
     }
 }

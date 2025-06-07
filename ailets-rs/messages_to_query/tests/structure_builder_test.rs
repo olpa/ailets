@@ -618,7 +618,7 @@ fn function_call() {
     builder.end_item().unwrap();
     builder.end().unwrap();
 
-    let expected_item = r#"{"role":"assistant","tool_calls":[{"id":"id123","type":"function","function":{"name":"get_weather","arguments":"foo,bar"}}]}"#;
+    let expected_item = r#"{"role":"assistant","tool_calls":[{"type":"function","id":"id123","function":{"name":"get_weather","arguments":"foo,bar"}}_NL_]}"#;
     assert_that!(
         writer.get_output(),
         equal_to(wrap_boilerplate(expected_item))
