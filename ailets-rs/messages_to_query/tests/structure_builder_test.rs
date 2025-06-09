@@ -627,3 +627,24 @@ fn function_call() {
         equal_to(wrap_boilerplate(expected_item))
     );
 }
+
+#[test]
+fn function_must_have_name() {
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let mut builder = builder;
+
+    begin_message(&mut builder, "assistant");
+    builder.begin_item().unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("function"))
+        .unwrap();
+    builder
+        .add_item_attribute(String::from("id"), String::from("id123"))
+        .unwrap();
+    let err = builder.begin_function_arguments().unwrap_err();
+    assert_that!(
+        err,
+        equal_to("Missing required 'name' attribute for 'type=function'".to_string())
+    );
+}

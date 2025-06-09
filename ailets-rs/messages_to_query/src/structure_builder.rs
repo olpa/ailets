@@ -496,7 +496,7 @@ impl<W: Write> StructureBuilder<W> {
             .as_mut()
             .ok_or_else(|| "Content item attributes not found".to_string())?
             .remove("name")
-            .ok_or_else(|| "Missing required 'name' attribute for function call".to_string())?;
+            .ok_or_else(|| "Missing required 'name' attribute for 'type=function'".to_string())?;
 
         self.add_item_attribute(String::from("type"), String::from("function"))?;
         self.really_begin_item()?;
