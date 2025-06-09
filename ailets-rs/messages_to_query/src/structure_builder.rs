@@ -30,7 +30,8 @@ pub enum Divider {
     Prologue,
     MessageComma,
     ItemNone,
-    ItemComma,
+    ItemCommaContent,
+    ItemCommaFunctions,
 }
 
 #[derive(Debug, PartialEq)]
@@ -193,7 +194,7 @@ impl<W: Write> StructureBuilder<W> {
             self.writer.write_all(b",").map_err(|e| e.to_string())?;
         }
 
-        write!(self.writer, r#"{{"role":"{role}","content":["#).map_err(|e| e.to_string())?;
+        write!(self.writer, r#"{{"role":"{role}""#).map_err(|e| e.to_string())?;
         self.writer.write_all(b"\n").map_err(|e| e.to_string())?;
         self.divider = Divider::ItemNone;
         self.item_attr_mode = ItemAttrMode::RaiseError;
@@ -204,7 +205,7 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// I/O
     fn end_message(&mut self) -> Result<(), String> {
-        if self.divider == Divider::ItemComma || self.divider == Divider::ItemNone {
+        if self.divider == Divider::ItemCommaContent || self.divider == Divider::ItemCommaFunctions {
             self.writer.write_all(b"\n]}").map_err(|e| e.to_string())?;
             self.divider = Divider::MessageComma;
         }
@@ -221,53 +222,74 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
+    /// Begin a section of the messages, "content" or "tool_calls"
+    /// # Errors
+    /// I/O
+    fn begin_section(writer: &mut W, divider: &Divider, is_function: bool) -> Result<Divider, String> {
+        match (divider, is_function) {
+            // First item in message
+            (Divider::ItemNone, _) => {
+                if is_function {
+                    writer.write_all(b",\"tool_calls\":[").map_err(|e| e.to_string())?;
+                } else {
+                    writer.write_all(b",\"content\":[").map_err(|e| e.to_string())?;
+                }
+            }
+            // Switching from content to functions
+            (Divider::ItemCommaContent, true) => {
+                writer.write_all(b"]").map_err(|e| e.to_string())?;
+                writer.write_all(b",\"tool_calls\":[\n").map_err(|e| e.to_string())?;
+            }
+            // Switching from functions to content
+            (Divider::ItemCommaFunctions, false) => {
+                writer.write_all(b"]").map_err(|e| e.to_string())?;
+                writer.write_all(b",\"content\":[\n").map_err(|e| e.to_string())?;
+            }
+            // Same section, just add comma
+            (Divider::ItemCommaContent, false) | (Divider::ItemCommaFunctions, true) => {
+                writer.write_all(b",\n").map_err(|e| e.to_string())?;
+            }
+            _ => {}
+        }
+
+        // Return new divider based on current item type
+        Ok(if is_function {
+            Divider::ItemCommaFunctions
+        } else {
+            Divider::ItemCommaContent
+        })
+    }
+
     /// Start output JSON object for a content item
     /// # Errors
     /// - I/O
     /// - missing "type" attribute
     fn really_begin_item(&mut self) -> Result<(), String> {
-        match self.item_attr {
-            None => {
-                return Err("Missing 'type' attribute".to_string());
-            }
-            Some(ref attrs) => {
-                match attrs.get("type") {
-                    None => {
-                        return Err("Missing 'type' attribute".to_string());
-                    }
-                    Some(item_type) => {
-                        let item_type = if item_type == "image" {
-                            "image_url"
-                        } else {
-                            item_type
-                        };
-                        // `divider` is set to `ItemComma` by `end_item`
-                        if self.divider == Divider::ItemComma {
-                            self.writer.write_all(b",\n").map_err(|e| e.to_string())?;
-                        }
-                        write!(self.writer, r#"{{"type":"#).map_err(|e| e.to_string())?;
-                        serde_json::to_writer(&mut self.writer, item_type)
-                            .map_err(|e| e.to_string())?;
+        // Step 1: Get attrs and item_type
+        let attrs = self.item_attr.as_ref().ok_or_else(|| "Missing 'type' attribute".to_string())?;
+        let item_type = attrs.get("type").ok_or_else(|| "Missing 'type' attribute".to_string())?;
+        let item_type = if item_type == "image" { "image_url" } else { item_type };
 
-                        for (key, value) in attrs {
-                            if key == "type" {
-                                continue;
-                            }
-                            if item_type == "image_url"
-                                && (key == "detail" || key == "content_type")
-                            {
-                                continue;
-                            }
-                            write!(self.writer, r#","{key}":"#).map_err(|e| e.to_string())?;
-                            serde_json::to_writer(&mut self.writer, value)
-                                .map_err(|e| e.to_string())?;
-                        }
+        // Step 2: Begin section
+        let is_function = item_type == "function";
+        self.divider = Self::begin_section(&mut self.writer, &self.divider, is_function)?;
 
-                        self.item_attr_mode = ItemAttrMode::Passthrough;
-                    }
-                }
+        // Step 3: Write the item
+        write!(self.writer, r#"{{"type":"#).map_err(|e| e.to_string())?;
+        serde_json::to_writer(&mut self.writer, item_type).map_err(|e| e.to_string())?;
+
+        for (key, value) in attrs {
+            if key == "type" {
+                continue;
             }
+            if item_type == "image_url" && (key == "detail" || key == "content_type") {
+                continue;
+            }
+            write!(self.writer, r#","{key}":"#).map_err(|e| e.to_string())?;
+            serde_json::to_writer(&mut self.writer, value).map_err(|e| e.to_string())?;
         }
+
+        self.item_attr_mode = ItemAttrMode::Passthrough;
         Ok(())
     }
 
@@ -282,7 +304,6 @@ impl<W: Write> StructureBuilder<W> {
             .map_or(true, |t| t == "ctl");
         if !is_ctl {
             self.writer.write_all(b"}").map_err(|e| e.to_string())?;
-            self.divider = Divider::ItemComma;
         }
 
         self.item_attr = None;
