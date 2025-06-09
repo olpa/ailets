@@ -109,7 +109,7 @@ fn skip_empty_items_but_create_content_wrapper() {
     builder.end_item().unwrap();
     builder.end().unwrap();
 
-    let empty_msg = "{\"role\":\"user\",\"content\":[\n\n]}".to_owned();
+    let empty_msg = "{\"role\":\"user\",\"content\":[]}".to_owned();
     let two_empty_msgs = wrap_boilerplate(format!("{},{}", empty_msg, empty_msg).as_str());
     assert_that!(writer.get_output(), equal_to(two_empty_msgs));
 }
@@ -126,10 +126,10 @@ fn several_contentless_roles_create_several_messages_anyway() {
     begin_message(&mut builder, "tool");
     builder.end().unwrap();
 
-    let msg_user = r#"{"role":"user","content":[_NL__NL_]}"#;
-    let msg_assistant = r#"{"role":"assistant","content":[_NL__NL_]}"#;
-    let msg_tool = r#"{"role":"tool","content":[_NL__NL_]}"#;
-    let msg_user2 = r#"{"role":"user","content":[_NL__NL_]}"#;
+    let msg_user = r#"{"role":"user","content":[]}"#;
+    let msg_assistant = r#"{"role":"assistant","content":[]}"#;
+    let msg_tool = r#"{"role":"tool","content":[]}"#;
+    let msg_user2 = r#"{"role":"user","content":[]}"#;
     let expected = wrap_boilerplate(&format!(
         "{},{},{},{}",
         msg_user, msg_assistant, msg_user2, msg_tool

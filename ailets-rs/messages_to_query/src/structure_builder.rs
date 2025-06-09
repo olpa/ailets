@@ -207,6 +207,9 @@ impl<W: Write> StructureBuilder<W> {
         if self.divider == Divider::ItemCommaContent || self.divider == Divider::ItemCommaFunctions {
             self.writer.write_all(b"\n]}").map_err(|e| e.to_string())?;
             self.divider = Divider::MessageComma;
+        } else if self.divider == Divider::ItemNone {
+            self.writer.write_all(b",\"content\":[]}").map_err(|e| e.to_string())?;
+            self.divider = Divider::MessageComma;
         }
         self.item_attr_mode = ItemAttrMode::RaiseError;
         Ok(())
