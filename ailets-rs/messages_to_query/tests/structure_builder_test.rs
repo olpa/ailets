@@ -648,3 +648,103 @@ fn function_must_have_name() {
         equal_to("Missing required 'name' attribute for 'type=function'".to_string())
     );
 }
+
+#[test]
+fn mix_content_and_tool_calls() {
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let mut builder = builder;
+
+    begin_message(&mut builder, "assistant");
+
+    // Two text items (content section)
+    builder.begin_item().unwrap();
+    builder.begin_text().unwrap();
+    builder.get_writer().write_all(b"First text").unwrap();
+    builder.end_text().unwrap();
+    builder.end_item().unwrap();
+
+    builder.begin_item().unwrap();
+    builder.begin_text().unwrap();
+    builder.get_writer().write_all(b"Second text").unwrap();
+    builder.end_text().unwrap();
+    builder.end_item().unwrap();
+
+    // Single function call (tool_calls section)
+    builder.begin_item().unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("function"))
+        .unwrap();
+    builder
+        .add_item_attribute(String::from("name"), String::from("get_weather"))
+        .unwrap();
+    builder.begin_function_arguments().unwrap();
+    builder
+        .get_writer()
+        .write_all(br#"{\"location\":\"London\"}"#)
+        .unwrap();
+    builder.end_function_arguments().unwrap();
+    builder.end_item().unwrap();
+
+    begin_message(&mut builder, "user");
+
+    // Single text item (content section)
+    builder.begin_item().unwrap();
+    builder.begin_text().unwrap();
+    builder.get_writer().write_all(b"User response").unwrap();
+    builder.end_text().unwrap();
+    builder.end_item().unwrap();
+
+    // Two function calls (tool_calls section)
+    builder.begin_item().unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("function"))
+        .unwrap();
+    builder
+        .add_item_attribute(String::from("name"), String::from("get_time"))
+        .unwrap();
+    builder.begin_function_arguments().unwrap();
+    builder
+        .get_writer()
+        .write_all(br#"{\"timezone\":\"UTC\"}"#)
+        .unwrap();
+    builder.end_function_arguments().unwrap();
+    builder.end_item().unwrap();
+
+    builder.begin_item().unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("function"))
+        .unwrap();
+    builder
+        .add_item_attribute(String::from("name"), String::from("get_date"))
+        .unwrap();
+    builder.begin_function_arguments().unwrap();
+    builder
+        .get_writer()
+        .write_all(br#"{\"format\":\"ISO\"}"#)
+        .unwrap();
+    builder.end_function_arguments().unwrap();
+    builder.end_item().unwrap();
+
+    builder.end().unwrap();
+
+    let msg1_text1 = r#"{"type":"text","text":"First text"}"#;
+    let msg1_text2 = r#"{"type":"text","text":"Second text"}"#;
+    let msg1_fn = r#"{"type":"function","function":{"name":"get_weather","arguments":"{\"location\":\"London\"}"}}"#;
+
+    let msg2_text = r#"{"type":"text","text":"User response"}"#;
+    let msg2_fn1 = r#"{"type":"function","function":{"name":"get_time","arguments":"{\"timezone\":\"UTC\"}"}}"#;
+    let msg2_fn2 =
+        r#"{"type":"function","function":{"name":"get_date","arguments":"{\"format\":\"ISO\"}"}}"#;
+
+    let msg1 = format!(
+        r#"{{"role":"assistant","content":[_NL_{},_NL_{}],"tool_calls":[_NL_{}_NL_]}}"#,
+        msg1_text1, msg1_text2, msg1_fn
+    );
+    let msg2 = format!(
+        r#"{{"role":"user","content":[_NL_{}],"tool_calls":[_NL_{},_NL_{}_NL_]}}"#,
+        msg2_text, msg2_fn1, msg2_fn2
+    );
+    let expected = format!("{},{}", msg1, msg2);
+    assert_that!(writer.get_output(), equal_to(wrap_boilerplate(&expected)));
+}
