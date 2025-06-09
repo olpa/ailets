@@ -52,19 +52,40 @@ fn create_begin_triggers<'a, W: Write + 'a>(
         )),
         Box::new(handlers::on_item_image_key) as BoxedAction<'_, StructureBuilder<W>>,
     );
-    let attr_content_type = Trigger::new(
+    let image_content_type = Trigger::new(
         Box::new(ParentAndName::new(
             "#array".to_string(),
             "content_type".to_string(),
         )),
         Box::new(handlers::on_item_attribute_content_type) as BoxedAction<'_, StructureBuilder<W>>,
     );
-    let attr_detail = Trigger::new(
+    let image_detail = Trigger::new(
         Box::new(ParentAndName::new(
             "#array".to_string(),
             "detail".to_string(),
         )),
         Box::new(handlers::on_item_attribute_detail) as BoxedAction<'_, StructureBuilder<W>>,
+    );
+    let func_id = Trigger::new(
+        Box::new(ParentAndName::new(
+            "#array".to_string(),
+            "id".to_string(),
+        )),
+        Box::new(handlers::on_item_attribute_id) as BoxedAction<'_, StructureBuilder<W>>,
+    );
+    let func_name = Trigger::new(
+        Box::new(ParentAndName::new(
+            "#array".to_string(),
+            "name".to_string(),
+        )),
+        Box::new(handlers::on_item_attribute_name) as BoxedAction<'_, StructureBuilder<W>>,
+    );
+    let func_arguments = Trigger::new(
+        Box::new(ParentAndName::new(
+            "#array".to_string(),
+            "arguments".to_string(),
+        )),
+        Box::new(handlers::on_item_attribute_arguments) as BoxedAction<'_, StructureBuilder<W>>,
     );
 
     vec![
@@ -73,8 +94,11 @@ fn create_begin_triggers<'a, W: Write + 'a>(
         image_url,
         image_key,
         item,
-        attr_content_type,
-        attr_detail,
+        image_content_type,
+        image_detail,
+        func_id,
+        func_name,
+        func_arguments,
         role,
     ]
 }
