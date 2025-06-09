@@ -195,7 +195,6 @@ impl<W: Write> StructureBuilder<W> {
         }
 
         write!(self.writer, r#"{{"role":"{role}""#).map_err(|e| e.to_string())?;
-        self.writer.write_all(b"\n").map_err(|e| e.to_string())?;
         self.divider = Divider::ItemNone;
         self.item_attr_mode = ItemAttrMode::RaiseError;
         Ok(())
@@ -225,14 +224,14 @@ impl<W: Write> StructureBuilder<W> {
     /// Begin a section of the messages, "content" or "tool_calls"
     /// # Errors
     /// I/O
-    fn begin_section(writer: &mut W, divider: &Divider, is_function: bool) -> Result<Divider, String> {
+    fn maybe_begin_section(writer: &mut W, divider: &Divider, is_function: bool) -> Result<Divider, String> {
         match (divider, is_function) {
             // First item in message
             (Divider::ItemNone, _) => {
                 if is_function {
-                    writer.write_all(b",\"tool_calls\":[").map_err(|e| e.to_string())?;
+                    writer.write_all(b",\"tool_calls\":[\n").map_err(|e| e.to_string())?;
                 } else {
-                    writer.write_all(b",\"content\":[").map_err(|e| e.to_string())?;
+                    writer.write_all(b",\"content\":[\n").map_err(|e| e.to_string())?;
                 }
             }
             // Switching from content to functions
@@ -272,7 +271,7 @@ impl<W: Write> StructureBuilder<W> {
 
         // Step 2: Begin section
         let is_function = item_type == "function";
-        self.divider = Self::begin_section(&mut self.writer, &self.divider, is_function)?;
+        self.divider = Self::maybe_begin_section(&mut self.writer, &self.divider, is_function)?;
 
         // Step 3: Write the item
         write!(self.writer, r#"{{"type":"#).map_err(|e| e.to_string())?;
