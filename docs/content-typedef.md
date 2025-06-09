@@ -76,6 +76,8 @@ Function call with fields:
 
 There is no content item representing the result of a function call. Instead, the `ChatMessage` with the role `tool` is used for that purpose. The tool result is then represented as `Content`.
 
+You should not mix function-items with content-items such as text, image etc in one message.
+
 
 ## `ContentItemCtl`
 
