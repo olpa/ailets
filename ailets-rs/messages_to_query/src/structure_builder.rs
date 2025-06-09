@@ -204,11 +204,14 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// I/O
     fn end_message(&mut self) -> Result<(), String> {
-        if self.divider == Divider::ItemCommaContent || self.divider == Divider::ItemCommaFunctions {
+        if self.divider == Divider::ItemCommaContent || self.divider == Divider::ItemCommaFunctions
+        {
             self.writer.write_all(b"\n]}").map_err(|e| e.to_string())?;
             self.divider = Divider::MessageComma;
         } else if self.divider == Divider::ItemNone {
-            self.writer.write_all(b",\"content\":[]}").map_err(|e| e.to_string())?;
+            self.writer
+                .write_all(b",\"content\":[]}")
+                .map_err(|e| e.to_string())?;
             self.divider = Divider::MessageComma;
         }
         self.item_attr_mode = ItemAttrMode::RaiseError;
@@ -224,28 +227,40 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
-    /// Begin a section of the messages, "content" or "tool_calls"
+    /// Begin a section of the messages, `content` or `tool_calls`
     /// # Errors
     /// I/O
-    fn maybe_begin_section(writer: &mut W, divider: &Divider, is_function: bool) -> Result<Divider, String> {
+    fn maybe_begin_section(
+        writer: &mut W,
+        divider: &Divider,
+        is_function: bool,
+    ) -> Result<Divider, String> {
         match (divider, is_function) {
             // First item in message
             (Divider::ItemNone, _) => {
                 if is_function {
-                    writer.write_all(b",\"tool_calls\":[\n").map_err(|e| e.to_string())?;
+                    writer
+                        .write_all(b",\"tool_calls\":[\n")
+                        .map_err(|e| e.to_string())?;
                 } else {
-                    writer.write_all(b",\"content\":[\n").map_err(|e| e.to_string())?;
+                    writer
+                        .write_all(b",\"content\":[\n")
+                        .map_err(|e| e.to_string())?;
                 }
             }
             // Switching from content to functions
             (Divider::ItemCommaContent, true) => {
                 writer.write_all(b"]").map_err(|e| e.to_string())?;
-                writer.write_all(b",\"tool_calls\":[\n").map_err(|e| e.to_string())?;
+                writer
+                    .write_all(b",\"tool_calls\":[\n")
+                    .map_err(|e| e.to_string())?;
             }
             // Switching from functions to content
             (Divider::ItemCommaFunctions, false) => {
                 writer.write_all(b"]").map_err(|e| e.to_string())?;
-                writer.write_all(b",\"content\":[\n").map_err(|e| e.to_string())?;
+                writer
+                    .write_all(b",\"content\":[\n")
+                    .map_err(|e| e.to_string())?;
             }
             // Same section, just add comma
             (Divider::ItemCommaContent, false) | (Divider::ItemCommaFunctions, true) => {
@@ -268,9 +283,18 @@ impl<W: Write> StructureBuilder<W> {
     /// - missing "type" attribute
     fn really_begin_item(&mut self) -> Result<(), String> {
         // Step 1: Get attrs and item_type
-        let attrs = self.item_attr.as_ref().ok_or_else(|| "Missing 'type' attribute".to_string())?;
-        let item_type = attrs.get("type").ok_or_else(|| "Missing 'type' attribute".to_string())?;
-        let item_type = if item_type == "image" { "image_url" } else { item_type };
+        let attrs = self
+            .item_attr
+            .as_ref()
+            .ok_or_else(|| "Missing 'type' attribute".to_string())?;
+        let item_type = attrs
+            .get("type")
+            .ok_or_else(|| "Missing 'type' attribute".to_string())?;
+        let item_type = if item_type == "image" {
+            "image_url"
+        } else {
+            item_type
+        };
 
         // Step 2: Begin section
         let is_function = item_type == "function";

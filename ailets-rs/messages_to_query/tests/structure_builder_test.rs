@@ -187,7 +187,10 @@ fn reject_unknown_type() {
         .unwrap_err();
     assert_that!(
         err,
-        equal_to("Invalid type value: 'unknown'. Allowed values are: text, image, function, ctl".to_string())
+        equal_to(
+            "Invalid type value: 'unknown'. Allowed values are: text, image, function, ctl"
+                .to_string()
+        )
     );
 }
 
