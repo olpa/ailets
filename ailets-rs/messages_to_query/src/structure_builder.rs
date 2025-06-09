@@ -365,7 +365,7 @@ impl<W: Write> StructureBuilder<W> {
                 }
                 if !matches!(value.as_str(), "text" | "image" | "ctl" | "function") {
                     return Err(format!(
-                        "Invalid type value: '{value}'. Allowed values are: text, image, ctl, function"
+                        "Invalid type value: '{value}'. Allowed values are: text, image, function, ctl"
                     ));
                 }
             }
