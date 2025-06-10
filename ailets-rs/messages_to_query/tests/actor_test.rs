@@ -44,6 +44,29 @@ fn test_text_items() {
 }
 
 #[test]
+fn special_symbols_in_text() {
+    let input = r#"[{"type": "ctl"}, {"role": "user"}]
+                   [{"type": "text"}, {"text": "Here's a \"quoted\" string\nwith newline and unicode: \u1F60 🌟"}]
+                   [{"type": "text"}, {"text": "Tab\there & escaped quotes: \"hello\""}]
+                   [{"type": "text"}, {"text": "Backslashes \\ and more \\\\ and control chars \u0007"}]"#;
+    let reader = Cursor::new(input);
+    let writer = RcWriter::new();
+
+    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
+    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
+        .expect("Failed to parse output as JSON");
+
+    let expected_item = r#"[{"role":"user","content":[
+        {"type":"text","text":"Here's a \"quoted\" string\nwith newline and unicode: \u1F60 🌟"},
+        {"type":"text","text":"Tab\there & escaped quotes: \"hello\""},
+        {"type":"text","text":"Backslashes \\ and more \\\\ and control chars \u0007"}
+    ]}]"#;
+    let expected_json = serde_json::from_str(wrap_boilerplate(expected_item).as_str())
+        .expect("Failed to parse expected output as JSON");
+    assert_that!(output_json, equal_to(expected_json));
+}
+
+#[test]
 fn image_url_as_is() {
     let input = r#"[{"type": "ctl"}, {"role": "user"}]
                    [{"type": "image"}, {"image_url": "https://example.com/image.jpg"}]"#;
