@@ -65,7 +65,7 @@ pub fn on_item_type<W: Write>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_item_text<W: Write>(
+pub fn on_text<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
@@ -101,7 +101,7 @@ pub fn on_item_text<W: Write>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_item_image_url<W: Write>(
+pub fn on_image_url<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
@@ -137,7 +137,7 @@ pub fn on_item_image_url<W: Write>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_item_image_key<W: Write>(
+pub fn on_image_key<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
@@ -156,7 +156,7 @@ pub fn on_item_image_key<W: Write>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_item_attribute_content_type<W: Write>(
+pub fn on_image_content_type<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
@@ -177,7 +177,7 @@ pub fn on_item_attribute_content_type<W: Write>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_item_attribute_detail<W: Write>(
+pub fn on_image_detail<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {

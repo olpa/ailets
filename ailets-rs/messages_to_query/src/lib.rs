@@ -36,35 +36,35 @@ fn create_begin_triggers<'a, W: Write + 'a>(
     //
     let text = Trigger::new(
         Box::new(ParentAndName::new("#array".to_string(), "text".to_string())),
-        Box::new(handlers::on_item_text) as BoxedAction<'_, StructureBuilder<W>>,
+        Box::new(handlers::on_text) as BoxedAction<'_, StructureBuilder<W>>,
     );
     let image_url = Trigger::new(
         Box::new(ParentAndName::new(
             "#array".to_string(),
             "image_url".to_string(),
         )),
-        Box::new(handlers::on_item_image_url) as BoxedAction<'_, StructureBuilder<W>>,
+        Box::new(handlers::on_image_url) as BoxedAction<'_, StructureBuilder<W>>,
     );
     let image_key = Trigger::new(
         Box::new(ParentAndName::new(
             "#array".to_string(),
             "image_key".to_string(),
         )),
-        Box::new(handlers::on_item_image_key) as BoxedAction<'_, StructureBuilder<W>>,
+        Box::new(handlers::on_image_key) as BoxedAction<'_, StructureBuilder<W>>,
     );
     let image_content_type = Trigger::new(
         Box::new(ParentAndName::new(
             "#array".to_string(),
             "content_type".to_string(),
         )),
-        Box::new(handlers::on_item_attribute_content_type) as BoxedAction<'_, StructureBuilder<W>>,
+        Box::new(handlers::on_image_content_type) as BoxedAction<'_, StructureBuilder<W>>,
     );
     let image_detail = Trigger::new(
         Box::new(ParentAndName::new(
             "#array".to_string(),
             "detail".to_string(),
         )),
-        Box::new(handlers::on_item_attribute_detail) as BoxedAction<'_, StructureBuilder<W>>,
+        Box::new(handlers::on_image_detail) as BoxedAction<'_, StructureBuilder<W>>,
     );
     let func_id = Trigger::new(
         Box::new(ParentAndName::new("#array".to_string(), "id".to_string())),
