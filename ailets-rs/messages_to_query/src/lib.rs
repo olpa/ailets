@@ -67,17 +67,11 @@ fn create_begin_triggers<'a, W: Write + 'a>(
         Box::new(handlers::on_item_attribute_detail) as BoxedAction<'_, StructureBuilder<W>>,
     );
     let func_id = Trigger::new(
-        Box::new(ParentAndName::new(
-            "#array".to_string(),
-            "id".to_string(),
-        )),
+        Box::new(ParentAndName::new("#array".to_string(), "id".to_string())),
         Box::new(handlers::on_func_id) as BoxedAction<'_, StructureBuilder<W>>,
     );
     let func_name = Trigger::new(
-        Box::new(ParentAndName::new(
-            "#array".to_string(),
-            "name".to_string(),
-        )),
+        Box::new(ParentAndName::new("#array".to_string(), "name".to_string())),
         Box::new(handlers::on_func_name) as BoxedAction<'_, StructureBuilder<W>>,
     );
     let func_arguments = Trigger::new(

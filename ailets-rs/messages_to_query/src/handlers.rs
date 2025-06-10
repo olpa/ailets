@@ -210,7 +210,10 @@ pub fn on_func_id<W: Write>(
             );
         }
     };
-    if let Err(e) = builder_cell.borrow_mut().func_id(id) {
+    if let Err(e) = builder_cell
+        .borrow_mut()
+        .add_item_attribute(String::from("id"), String::from(id))
+    {
         return StreamOp::Error(e.into());
     }
     StreamOp::ValueIsConsumed
@@ -229,7 +232,10 @@ pub fn on_func_name<W: Write>(
             );
         }
     };
-    if let Err(e) = builder_cell.borrow_mut().func_name(name) {
+    if let Err(e) = builder_cell
+        .borrow_mut()
+        .add_item_attribute(String::from("name"), String::from(name))
+    {
         return StreamOp::Error(e.into());
     }
     StreamOp::ValueIsConsumed
@@ -257,14 +263,14 @@ pub fn on_func_arguments<W: Write>(
 
     let mut builder = builder_cell.borrow_mut();
 
-    if let Err(e) = builder.begin_arguments() {
+    if let Err(e) = builder.begin_function_arguments() {
         return StreamOp::Error(e.into());
     }
     let writer = builder.get_writer();
     if let Err(e) = rjiter.write_long_bytes(writer) {
         return StreamOp::Error(e.into());
     }
-    if let Err(e) = builder.end_arguments() {
+    if let Err(e) = builder.end_function_arguments() {
         return StreamOp::Error(e.into());
     }
 
