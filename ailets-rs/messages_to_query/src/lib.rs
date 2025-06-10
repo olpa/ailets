@@ -71,21 +71,21 @@ fn create_begin_triggers<'a, W: Write + 'a>(
             "#array".to_string(),
             "id".to_string(),
         )),
-        Box::new(handlers::on_item_attribute_id) as BoxedAction<'_, StructureBuilder<W>>,
+        Box::new(handlers::on_func_id) as BoxedAction<'_, StructureBuilder<W>>,
     );
     let func_name = Trigger::new(
         Box::new(ParentAndName::new(
             "#array".to_string(),
             "name".to_string(),
         )),
-        Box::new(handlers::on_item_attribute_name) as BoxedAction<'_, StructureBuilder<W>>,
+        Box::new(handlers::on_func_name) as BoxedAction<'_, StructureBuilder<W>>,
     );
     let func_arguments = Trigger::new(
         Box::new(ParentAndName::new(
             "#array".to_string(),
             "arguments".to_string(),
         )),
-        Box::new(handlers::on_item_attribute_arguments) as BoxedAction<'_, StructureBuilder<W>>,
+        Box::new(handlers::on_func_arguments) as BoxedAction<'_, StructureBuilder<W>>,
     );
 
     vec![

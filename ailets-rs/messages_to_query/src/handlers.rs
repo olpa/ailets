@@ -196,3 +196,77 @@ pub fn on_item_attribute_detail<W: Write>(
     }
     StreamOp::ValueIsConsumed
 }
+
+pub fn on_func_id<W: Write>(
+    rjiter_cell: &RefCell<RJiter>,
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> StreamOp {
+    let mut rjiter = rjiter_cell.borrow_mut();
+    let id = match rjiter.next_str() {
+        Ok(i) => i,
+        Err(e) => {
+            return StreamOp::Error(
+                format!("Error getting function id value. Expected string, got: {e:?}").into(),
+            );
+        }
+    };
+    if let Err(e) = builder_cell.borrow_mut().func_id(id) {
+        return StreamOp::Error(e.into());
+    }
+    StreamOp::ValueIsConsumed
+}
+
+pub fn on_func_name<W: Write>(
+    rjiter_cell: &RefCell<RJiter>,
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> StreamOp {
+    let mut rjiter = rjiter_cell.borrow_mut();
+    let name = match rjiter.next_str() {
+        Ok(n) => n,
+        Err(e) => {
+            return StreamOp::Error(
+                format!("Error getting function name value. Expected string, got: {e:?}").into(),
+            );
+        }
+    };
+    if let Err(e) = builder_cell.borrow_mut().func_name(name) {
+        return StreamOp::Error(e.into());
+    }
+    StreamOp::ValueIsConsumed
+}
+
+pub fn on_func_arguments<W: Write>(
+    rjiter_cell: &RefCell<RJiter>,
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> StreamOp {
+    let mut rjiter = rjiter_cell.borrow_mut();
+    let peeked = match rjiter.peek() {
+        Ok(p) => p,
+        Err(e) => return StreamOp::Error(Box::new(e)),
+    };
+    if peeked != Peek::String {
+        let idx = rjiter.current_index();
+        let pos = rjiter.error_position(idx);
+        return StreamOp::Error(
+            format!(
+                "Expected string for 'arguments' value, got {peeked:?} at index {idx}, position {pos}"
+            )
+            .into(),
+        );
+    }
+
+    let mut builder = builder_cell.borrow_mut();
+
+    if let Err(e) = builder.begin_arguments() {
+        return StreamOp::Error(e.into());
+    }
+    let writer = builder.get_writer();
+    if let Err(e) = rjiter.write_long_bytes(writer) {
+        return StreamOp::Error(e.into());
+    }
+    if let Err(e) = builder.end_arguments() {
+        return StreamOp::Error(e.into());
+    }
+
+    StreamOp::ValueIsConsumed
+}
