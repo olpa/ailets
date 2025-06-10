@@ -163,3 +163,24 @@ fn function_call() {
         .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
+
+#[test]
+fn special_symbols_in_function_arguments() {
+    let input = r#"[{"type": "ctl"}, {"role": "assistant"}]
+                   [{"type": "function", "id": "id123", "name": "process_text"},
+                       {"arguments": "{\"text\": \"Hello\\n\\\"World\\\" 🌟 🎉\u1F60\\\""}]"#;
+    let reader = Cursor::new(input);
+    let writer = RcWriter::new();
+
+    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
+    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
+        .expect("Failed to parse output as JSON");
+
+    let expected_item = r#"[{"role":"assistant","tool_calls": [
+        {"id":"id123","type":"function","function":{"name":"process_text",
+          "arguments":"{\"text\": \"Hello\\n\\\"World\\\" 🌟 🎉\u1F60\\\""}}
+    ]}]"#;
+    let expected_json = serde_json::from_str(wrap_boilerplate(&expected_item).as_str())
+        .expect("Failed to parse expected output as JSON");
+    assert_that!(output_json, equal_to(expected_json));
+}
