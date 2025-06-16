@@ -193,9 +193,7 @@ fn special_symbols_in_function_arguments() {
 
 #[test]
 fn tool_specification() {
-    let input = r#"[{"type": "ctl"}, {"role": "user"}]
-                   [{"type": "text"}, {"text": "Hello!"}]"#;
-    let tools_input = r#"{
+    let tools = r#"{
         "name": "get_user_name",
         "description": "Get the user's name. Call this whenever you need to know the name of the user.",
         "strict": true,
@@ -208,18 +206,15 @@ fn tool_specification() {
     {
         "name": "another_function", "foo": "bar"
     }"#;
+    let input = r#"[{"type": "ctl"}, {"role": "user"}]
+                   [{"type": "tools"}, _TOOLS_]
+                   [{"type": "text"}, {"text": "Hello!"}]"#;
+    let input = input.replace("_TOOLS_", &tools);
+
     let reader = Cursor::new(input);
-    let tools_reader = Cursor::new(tools_input);
     let writer = RcWriter::new();
 
-    _process_query(
-        reader,
-        tools_reader,
-        writer.clone(),
-        create_empty_env_opts(),
-    )
-    .unwrap();
-    println!("!!! output {}", writer.get_output().as_str()); // FIXME
+    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
 
