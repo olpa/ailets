@@ -12,14 +12,19 @@ fn create_empty_env_opts() -> EnvOpts {
     EnvOpts::from_map(HashMap::new())
 }
 
-fn wrap_boilerplate(s: &str) -> String {
+fn wrap_boilerplate(s: &str, tools: Option<&str>) -> String {
     let s1 = r#"{ "url": "https://api.openai.com/v1/chat/completions","#;
     let s2 = r#""method": "POST","#;
     let s3 = r#""headers": { "Content-type": "application/json", "Authorization": "Bearer {{secret}}" },"#;
-    let s4 = r#""body": { "model": "gpt-4o-mini", "stream": true, "messages": "#;
+    let s4 = r#""body": { "model": "gpt-4o-mini", "stream": true, _TOOLS_ "messages": "#;
+    let tools = match tools {
+        Some(tools) => format!(r#""tools": {tools},"#),
+        None => "".to_string(),
+    };
+    let s4 = s4.replace("_TOOLS_", &tools);
     let s_end = "}}\n";
     let s = s.replace("_NL_", "\n");
-    format!("{}\n{}\n{}\n{}{}{}", s1, s2, s3, s4, s, s_end)
+    format!("{}\n{}\n{}\n{}{}{}{}", s1, s2, s3, s4, tools, s, s_end)
 }
 
 #[test]
@@ -37,6 +42,7 @@ fn test_text_items() {
     let expected_item2 = r#"{"role":"user","content":[{"type":"text","text":"Hello!"}]}"#;
     let expected_output = wrap_boilerplate(
         format!(r#"[_NL_{},_NL_{}_NL_]"#, expected_item1, expected_item2).as_str(),
+        None,
     );
     let expected_json =
         serde_json::from_str(&expected_output).expect("Failed to parse expected output as JSON");
@@ -61,7 +67,7 @@ fn special_symbols_in_text() {
         {"type":"text","text":"Tab\there & escaped quotes: \"hello\""},
         {"type":"text","text":"Backslashes \\ and more \\\\ and control chars \u0007"}
     ]}]"#;
-    let expected_json = serde_json::from_str(wrap_boilerplate(expected_item).as_str())
+    let expected_json = serde_json::from_str(wrap_boilerplate(expected_item, None).as_str())
         .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
@@ -78,7 +84,7 @@ fn image_url_as_is() {
         .expect("Failed to parse output as JSON");
 
     let expected_item = r#"[{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "https://example.com/image.jpg"}}]}]"#;
-    let expected_json = serde_json::from_str(wrap_boilerplate(expected_item).as_str())
+    let expected_json = serde_json::from_str(wrap_boilerplate(expected_item, None).as_str())
         .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
@@ -97,7 +103,7 @@ fn image_as_key() {
         .expect("Failed to parse output as JSON");
 
     let expected_item = r#"[{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "data:image/png;base64,aGVsbG8=", "detail": "auto"}}]}]"#;
-    let expected_json = serde_json::from_str(wrap_boilerplate(expected_item).as_str())
+    let expected_json = serde_json::from_str(wrap_boilerplate(expected_item, None).as_str())
         .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
@@ -122,7 +128,7 @@ fn mix_text_and_image() {
         r#"[{{"role":"user","content":[_NL_{},_NL_{},_NL_{}_NL_]}}]"#,
         text_item1, image_item, text_item2
     );
-    let expected_json = serde_json::from_str(wrap_boilerplate(&expected_item).as_str())
+    let expected_json = serde_json::from_str(wrap_boilerplate(&expected_item, None).as_str())
         .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
@@ -139,7 +145,7 @@ fn regression_one_item_not_two() {
         .expect("Failed to parse output as JSON");
 
     let expected_item = r#"[{"content":[{"type":"text","text":"Hello!"}],"role":"user"}]"#;
-    let expected_json = serde_json::from_str(wrap_boilerplate(&expected_item).as_str())
+    let expected_json = serde_json::from_str(wrap_boilerplate(&expected_item, None).as_str())
         .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
@@ -159,7 +165,7 @@ fn function_call() {
     let expected_item = r#"[{"role":"assistant","tool_calls": [
         {"id":"id123","type":"function","function":{"name":"get_weather","arguments":"{\"location\": \"London\", \"unit\": \"celsius\"}"}}
     ]}]"#;
-    let expected_json = serde_json::from_str(wrap_boilerplate(&expected_item).as_str())
+    let expected_json = serde_json::from_str(wrap_boilerplate(&expected_item, None).as_str())
         .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
@@ -180,7 +186,65 @@ fn special_symbols_in_function_arguments() {
         {"id":"id123","type":"function","function":{"name":"process_text",
           "arguments":"{\"text\": \"Hello\\n\\\"World\\\" 🌟 🎉\u1F60\\\""}}
     ]}]"#;
-    let expected_json = serde_json::from_str(wrap_boilerplate(&expected_item).as_str())
+    let expected_json = serde_json::from_str(wrap_boilerplate(&expected_item, None).as_str())
         .expect("Failed to parse expected output as JSON");
+    assert_that!(output_json, equal_to(expected_json));
+}
+
+#[test]
+fn tool_specification() {
+    let input = r#"[{"type": "ctl"}, {"role": "user"}]
+                   [{"type": "text"}, {"text": "Hello!"}]"#;
+    let tools_input = r#"{
+        "name": "get_user_name",
+        "description": "Get the user's name. Call this whenever you need to know the name of the user.",
+        "strict": true,
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }
+    }
+    {
+        "name": "another_function", "foo": "bar"
+    }"#;
+    let reader = Cursor::new(input);
+    let tools_reader = Cursor::new(tools_input);
+    let writer = RcWriter::new();
+
+    _process_query(
+        reader,
+        tools_reader,
+        writer.clone(),
+        create_empty_env_opts(),
+    )
+    .unwrap();
+    println!("!!! output {}", writer.get_output().as_str()); // FIXME
+    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
+        .expect("Failed to parse output as JSON");
+
+    let expected_item = r#"[{"role":"user","content":[{"type":"text","text":"Hello!"}]}]"#;
+    let expected_tools = r#"[{
+        "type": "function",
+        "function": {
+            "name": "get_user_name",
+            "description": "Get the user's name. Call this whenever you need to know the name of the user.",
+            "strict": true,
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": false
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "another_function", "foo": "bar"
+        }
+    }]"#;
+    let expected = wrap_boilerplate(&expected_item, Some(&expected_tools));
+    let expected_json =
+        serde_json::from_str(&expected).expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
