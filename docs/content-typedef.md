@@ -87,3 +87,17 @@ Affect the processing of the following items. Currently, its main use is to anno
 - `[1].role: "system"|"user"|"assistant"|"tool"|str`
 
 See also [OpenAI chat completion messages](https://platform.openai.com/docs/api-reference/chat/create).
+
+
+## `ContentItemToolSpecs`
+
+Create a `tools` section to inform the LLM about what it can use. See the OpenAI documentation on [function calling](https://platform.openai.com/docs/guides/function-calling) for details.
+
+- `[0].type: "toolspecs"`
+- Either of, but not both:
+  - `[1].toolspecs: FunctionSpec[]`, or
+  - `[1].toolspecs_key: str`
+
+For `toolspecs`, the value is an array of function specifications in the OpenAI format.
+
+For `toolspecs_key`, the function specifications are read from the given key. The format is extended JSONL: instead of being wrapped in an array, the objects are immediately on the top level and _not_ divided by commas.
