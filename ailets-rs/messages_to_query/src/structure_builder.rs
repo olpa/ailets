@@ -32,6 +32,7 @@ pub enum Divider {
     ItemNone,
     ItemCommaContent,
     ItemCommaFunctions,
+    ItemCommaToolspecs,
 }
 
 #[derive(Debug, PartialEq)]
@@ -204,7 +205,9 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// I/O
     fn end_message(&mut self) -> Result<(), String> {
-        if self.divider == Divider::ItemCommaContent || self.divider == Divider::ItemCommaFunctions
+        if self.divider == Divider::ItemCommaContent
+            || self.divider == Divider::ItemCommaFunctions
+            || self.divider == Divider::ItemCommaToolspecs
         {
             self.writer.write_all(b"\n]}").map_err(|e| e.to_string())?;
             self.divider = Divider::MessageComma;
@@ -227,50 +230,89 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
-    /// Begin a section of the messages, `content` or `tool_calls`
+    /// Begin a section of the messages, `content`, `tool_calls`, or `tools`
     /// # Errors
-    /// I/O
+    /// - I/O
+    /// - internal error: unexpected combination of flags
     fn maybe_begin_section(
         writer: &mut W,
         divider: &Divider,
         is_function: bool,
+        is_toolspecs: bool,
     ) -> Result<Divider, String> {
-        match (divider, is_function) {
-            // First item in message
-            (Divider::ItemNone, _) => {
-                if is_function {
-                    writer
-                        .write_all(b",\"tool_calls\":[\n")
-                        .map_err(|e| e.to_string())?;
-                } else {
-                    writer
-                        .write_all(b",\"content\":[\n")
-                        .map_err(|e| e.to_string())?;
-                }
+        match (divider, is_function, is_toolspecs) {
+            // First item in message, "content", "tool_calls", or "tools"
+            (Divider::ItemNone, false, false) => {
+                writer
+                    .write_all(b",\"content\":[\n")
+                    .map_err(|e| e.to_string())?;
             }
-            // Switching from content to functions
-            (Divider::ItemCommaContent, true) => {
+            (Divider::ItemNone, true, false) => {
+                writer
+                    .write_all(b",\"tool_calls\":[\n")
+                    .map_err(|e| e.to_string())?;
+            }
+            (Divider::ItemNone, false, true) => {
+                writer
+                    .write_all(b",\"tools\":[\n")
+                    .map_err(|e| e.to_string())?;
+            }
+            // Same section, just add comma
+            (Divider::ItemCommaContent, false, false)
+            | (Divider::ItemCommaFunctions, true, false)
+            | (Divider::ItemCommaToolspecs, false, true) => {
+                writer.write_all(b",\n").map_err(|e| e.to_string())?;
+            }
+            // Switch from "content" to "tool_calls" or "tools"
+            (Divider::ItemCommaContent, true, false) => {
                 writer.write_all(b"]").map_err(|e| e.to_string())?;
                 writer
                     .write_all(b",\"tool_calls\":[\n")
                     .map_err(|e| e.to_string())?;
             }
-            // Switching from functions to content
-            (Divider::ItemCommaFunctions, false) => {
+            (Divider::ItemCommaContent, false, true) => {
+                writer.write_all(b"]").map_err(|e| e.to_string())?;
+                writer
+                    .write_all(b",\"tools\":[\n")
+                    .map_err(|e| e.to_string())?;
+            }
+            // Switch from "tool_calls" to "content" or "tools"
+            (Divider::ItemCommaFunctions, false, false) => {
                 writer.write_all(b"]").map_err(|e| e.to_string())?;
                 writer
                     .write_all(b",\"content\":[\n")
                     .map_err(|e| e.to_string())?;
             }
-            // Same section, just add comma
-            (Divider::ItemCommaContent, false) | (Divider::ItemCommaFunctions, true) => {
-                writer.write_all(b",\n").map_err(|e| e.to_string())?;
+            (Divider::ItemCommaFunctions, false, true) => {
+                writer.write_all(b"]").map_err(|e| e.to_string())?;
+                writer
+                    .write_all(b",\"tools\":[\n")
+                    .map_err(|e| e.to_string())?;
             }
-            _ => {}
+            // Switch from "tools" to "content" or "tool_calls"
+            (Divider::ItemCommaToolspecs, false, false) => {
+                writer.write_all(b"]").map_err(|e| e.to_string())?;
+                writer
+                    .write_all(b",\"content\":[\n")
+                    .map_err(|e| e.to_string())?;
+            }
+            (Divider::ItemCommaToolspecs, true, false) => {
+                writer.write_all(b"]").map_err(|e| e.to_string())?;
+                writer
+                    .write_all(b",\"tool_calls\":[\n")
+                    .map_err(|e| e.to_string())?;
+            }
+            _ => {
+                return Err(format!(
+                    "Internal error: Unexpected combination of flags: {divider:?}, is_function: {is_function}, is_toolspecs: {is_toolspecs}"
+                ));
+            }
         }
 
         // Return new divider based on current item type
-        Ok(if is_function {
+        Ok(if is_toolspecs {
+            Divider::ItemCommaToolspecs
+        } else if is_function {
             Divider::ItemCommaFunctions
         } else {
             Divider::ItemCommaContent
@@ -298,7 +340,9 @@ impl<W: Write> StructureBuilder<W> {
 
         // Step 2: Begin section
         let is_function = item_type == "function";
-        self.divider = Self::maybe_begin_section(&mut self.writer, &self.divider, is_function)?;
+        let is_toolspecs = item_type == "toolspecs";
+        self.divider =
+            Self::maybe_begin_section(&mut self.writer, &self.divider, is_function, is_toolspecs)?;
 
         // Step 3: Write the item
         write!(self.writer, r#"{{"type":"#).map_err(|e| e.to_string())?;
@@ -390,9 +434,12 @@ impl<W: Write> StructureBuilder<W> {
                     }
                     return Ok(());
                 }
-                if !matches!(value.as_str(), "text" | "image" | "ctl" | "function") {
+                if !matches!(
+                    value.as_str(),
+                    "text" | "image" | "ctl" | "function" | "toolspecs"
+                ) {
                     return Err(format!(
-                        "Invalid type value: '{value}'. Allowed values are: text, image, function, ctl"
+                        "Invalid type value: '{value}'. Allowed values are: text, image, function, ctl, toolspecs"
                     ));
                 }
             }
