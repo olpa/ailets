@@ -806,14 +806,26 @@ fn happy_path_toolspecs() {
 
     builder.begin_item().unwrap();
     builder
-        .add_item_attribute(String::from("type"), String::from("toolspecs"))
+        .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.begin_text().unwrap();
+    builder.begin_toolspec().unwrap();
     builder
         .get_writer()
-        .write_all(format!("{}\n{}", get_user_name_fn, another_function_fn).as_bytes())
+        .write_all(get_user_name_fn.as_bytes())
         .unwrap();
-    builder.end_text().unwrap();
+    builder.end_toolspec().unwrap();
+    builder.end_item().unwrap();
+
+    builder.begin_item().unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("toolspec"))
+        .unwrap();
+    builder.begin_toolspec().unwrap();
+    builder
+        .get_writer()
+        .write_all(another_function_fn.as_bytes())
+        .unwrap();
+    builder.end_toolspec().unwrap();
     builder.end_item().unwrap();
 
     builder.begin_item().unwrap();

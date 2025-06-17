@@ -193,7 +193,7 @@ fn special_symbols_in_function_arguments() {
 
 #[test]
 fn tool_specification() {
-    let tools = r#"{
+    let get_user_name_function = r#"{
         "name": "get_user_name",
         "description": "Get the user's name. Call this whenever you need to know the name of the user.",
         "strict": true,
@@ -202,14 +202,19 @@ fn tool_specification() {
             "properties": {},
             "additionalProperties": false
         }
-    }
-    {
+    }"#;
+
+    let another_function = r#"{
         "name": "another_function", "foo": "bar"
     }"#;
-    let input = r#"[{"type": "ctl"}, {"role": "user"}]
-                   [{"type": "tools"}, _TOOLS_]
-                   [{"type": "text"}, {"text": "Hello!"}]"#;
-    let input = input.replace("_TOOLS_", &tools);
+
+    let input = format!(
+        r#"[{{"type": "ctl"}}, {{"role": "user"}}]
+                   [{{"type": "toolspec"}}, {}]
+                   [{{"type": "toolspec"}}, {}]
+                   [{{"type": "text"}}, {{"text": "Hello!"}}]"#,
+        get_user_name_function, another_function
+    );
 
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
@@ -219,25 +224,10 @@ fn tool_specification() {
         .expect("Failed to parse output as JSON");
 
     let expected_item = r#"[{"role":"user","content":[{"type":"text","text":"Hello!"}]}]"#;
-    let expected_tools = r#"[{
-        "type": "function",
-        "function": {
-            "name": "get_user_name",
-            "description": "Get the user's name. Call this whenever you need to know the name of the user.",
-            "strict": true,
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "additionalProperties": false
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "another_function", "foo": "bar"
-        }
-    }]"#;
+    let expected_tools = format!(
+        r#"[{{"type":"function","function":{}}},{{"type":"function","function":{}}}]"#,
+        get_user_name_function, another_function
+    );
     let expected = wrap_boilerplate(&expected_item, Some(&expected_tools));
     let expected_json =
         serde_json::from_str(&expected).expect("Failed to parse expected output as JSON");
