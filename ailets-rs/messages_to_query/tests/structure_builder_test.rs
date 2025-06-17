@@ -8,14 +8,19 @@ use messages_to_query::structure_builder::StructureBuilder;
 use std::collections::HashMap;
 use std::io::Write;
 
-fn wrap_boilerplate(s: &str) -> String {
+fn wrap_boilerplate(s: &str, tools: Option<&str>) -> String {
     let s1 = r#"{ "url": "https://api.openai.com/v1/chat/completions","#;
     let s2 = r#""method": "POST","#;
     let s3 = r#""headers": { "Content-type": "application/json", "Authorization": "Bearer {{secret}}" },"#;
-    let s4 = r#""body": { "model": "gpt-4o-mini", "stream": true, "messages": ["#;
-    let s_end = "]}}\n";
+    let s4 = r#""body": { "model": "gpt-4o-mini", "stream": true, _TOOLS_ "messages": "#;
+    let tools = match tools {
+        Some(tools) => format!(r#""tools": {tools},"#),
+        None => "".to_string(),
+    };
+    let s4 = s4.replace("_TOOLS_", &tools);
+    let s_end = "}}\n";
     let s = s.replace("_NL_", "\n");
-    format!("{}\n{}\n{}\n{}{}{}", s1, s2, s3, s4, s, s_end)
+    format!("{}\n{}\n{}\n{}{}{}{}", s1, s2, s3, s4, tools, s, s_end)
 }
 
 fn create_empty_env_opts() -> EnvOpts {
@@ -51,7 +56,8 @@ fn happy_path_for_text() {
     assert_that!(
         writer.get_output(),
         equal_to(wrap_boilerplate(
-            r#"{"role":"user","content":[_NL_{"type":"text","text":"Hello!"}_NL_]}"#
+            r#"{"role":"user","content":[_NL_{"type":"text","text":"Hello!"}_NL_]}"#,
+            None
         ))
     );
 }
@@ -88,7 +94,7 @@ fn many_messages_and_items() {
     let expected = String::from(
             r#"{"role":"user","content":[_NL__TI1__NL_]},{"role":"assistant","content":[_NL__TI2a_,_NL__TI2b__NL_]}"#
         ).replace("_TI1_", text_item1).replace("_TI2a_", text_item2a).replace("_TI2b_", text_item2b);
-    let expected = wrap_boilerplate(expected.as_str());
+    let expected = wrap_boilerplate(expected.as_str(), None);
     assert_that!(writer.get_output(), equal_to(expected));
 }
 
@@ -110,7 +116,7 @@ fn skip_empty_items_but_create_content_wrapper() {
     builder.end().unwrap();
 
     let empty_msg = "{\"role\":\"user\",\"content\":[]}".to_owned();
-    let two_empty_msgs = wrap_boilerplate(format!("{},{}", empty_msg, empty_msg).as_str());
+    let two_empty_msgs = wrap_boilerplate(format!("{},{}", empty_msg, empty_msg).as_str(), None);
     assert_that!(writer.get_output(), equal_to(two_empty_msgs));
 }
 
@@ -130,10 +136,10 @@ fn several_contentless_roles_create_several_messages_anyway() {
     let msg_assistant = r#"{"role":"assistant","content":[]}"#;
     let msg_tool = r#"{"role":"tool","content":[]}"#;
     let msg_user2 = r#"{"role":"user","content":[]}"#;
-    let expected = wrap_boilerplate(&format!(
-        "{},{},{},{}",
-        msg_user, msg_assistant, msg_user2, msg_tool
-    ));
+    let expected = wrap_boilerplate(
+        &format!("{},{},{},{}", msg_user, msg_assistant, msg_user2, msg_tool),
+        None,
+    );
     assert_that!(writer.get_output(), equal_to(expected));
 }
 
@@ -169,8 +175,10 @@ fn auto_generate_type_text() {
     builder.end_item().unwrap();
     builder.end().unwrap();
 
-    let expected =
-        wrap_boilerplate(r#"{"role":"user","content":[_NL_{"type":"text","text":"hello"}_NL_]}"#);
+    let expected = wrap_boilerplate(
+        r#"{"role":"user","content":[_NL_{"type":"text","text":"hello"}_NL_]}"#,
+        None,
+    );
     assert_that!(writer.get_output(), equal_to(expected));
 }
 
@@ -250,6 +258,7 @@ fn support_special_chars_and_unicode() {
             special_chars
         )
         .as_str(),
+        None,
     );
     assert_that!(writer.get_output(), equal_to(expected));
 }
@@ -282,10 +291,13 @@ fn pass_preceding_attributes_to_text_output() {
     let expected_text_item = r#"{"type":"text","custom_attr_1":"value_1","custom_attr_2":"value_2","text":"Hello world"}"#;
     assert_that!(
         writer.get_output(),
-        equal_to(wrap_boilerplate(&format!(
-            r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
-            expected_text_item
-        )))
+        equal_to(wrap_boilerplate(
+            &format!(
+                r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
+                expected_text_item
+            ),
+            None
+        ))
     );
 }
 
@@ -314,10 +326,13 @@ fn pass_following_attributes_to_text_output() {
     let expected_text_item = r#"{"type":"text","text":"Hello world","custom_attr_3":"value_3","custom_attr_4":"value_4"}"#;
     assert_that!(
         writer.get_output(),
-        equal_to(wrap_boilerplate(&format!(
-            r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
-            expected_text_item
-        )))
+        equal_to(wrap_boilerplate(
+            &format!(
+                r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
+                expected_text_item
+            ),
+            None
+        ))
     );
 }
 
@@ -347,10 +362,13 @@ fn add_image_by_url() {
         r#"{"type":"image_url","image_url":{"url":"http://example.com/image.png"}}"#;
     assert_that!(
         writer.get_output(),
-        equal_to(wrap_boilerplate(&format!(
-            r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
-            expected_image_item
-        )))
+        equal_to(wrap_boilerplate(
+            &format!(
+                r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
+                expected_image_item
+            ),
+            None
+        ))
     );
 }
 
@@ -380,10 +398,13 @@ fn add_image_by_key() {
         r#"{"type":"image_url","image_url":{"url":"data:image/png;base64,aGVsbG8="}}"#;
     assert_that!(
         writer.get_output(),
-        equal_to(wrap_boilerplate(&format!(
-            r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
-            expected_image_item
-        )))
+        equal_to(wrap_boilerplate(
+            &format!(
+                r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
+                expected_image_item
+            ),
+            None
+        ))
     );
 }
 
@@ -441,10 +462,13 @@ fn add_image_with_detail() {
     let expected_image_item = r#"{"type":"image_url","image_url":{"detail":"high","url":"http://example.com/image.png"}}"#;
     assert_that!(
         writer.get_output(),
-        equal_to(wrap_boilerplate(&format!(
-            r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
-            expected_image_item
-        )))
+        equal_to(wrap_boilerplate(
+            &format!(
+                r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
+                expected_image_item
+            ),
+            None
+        ))
     );
 }
 
@@ -480,10 +504,13 @@ fn image_key_with_adversarial_content_type() {
     );
     assert_that!(
         writer.get_output(),
-        equal_to(wrap_boilerplate(&format!(
-            r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
-            expected_image_item
-        )))
+        equal_to(wrap_boilerplate(
+            &format!(
+                r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
+                expected_image_item
+            ),
+            None
+        ))
     );
 }
 
@@ -535,10 +562,13 @@ fn image_settings_dont_transfer() {
 
     assert_that!(
         writer.get_output(),
-        equal_to(wrap_boilerplate(&format!(
-            r#"{{"role":"user","content":[_NL_{},_NL_{}_NL_]}}"#,
-            expected_image1, expected_image2
-        )))
+        equal_to(wrap_boilerplate(
+            &format!(
+                r#"{{"role":"user","content":[_NL_{},_NL_{}_NL_]}}"#,
+                expected_image1, expected_image2
+            ),
+            None
+        ))
     );
 }
 
@@ -594,7 +624,7 @@ fn mix_text_and_image_content() {
     let expected_message = format!(r#"{{"role":"user","content":[{}]}}"#, expected_content);
     assert_that!(
         writer.get_output(),
-        equal_to(wrap_boilerplate(&expected_message))
+        equal_to(wrap_boilerplate(&expected_message, None))
     );
 }
 
@@ -624,7 +654,7 @@ fn function_call() {
     let expected_item = r#"{"role":"assistant","tool_calls":[_NL_{"type":"function","id":"id123","function":{"name":"get_weather","arguments":"foo,bar"}}_NL_]}"#;
     assert_that!(
         writer.get_output(),
-        equal_to(wrap_boilerplate(expected_item))
+        equal_to(wrap_boilerplate(expected_item, None))
     );
 }
 
@@ -746,5 +776,68 @@ fn mix_content_and_tool_calls() {
         msg2_text, msg2_fn1, msg2_fn2
     );
     let expected = format!("{},{}", msg1, msg2);
-    assert_that!(writer.get_output(), equal_to(wrap_boilerplate(&expected)));
+    assert_that!(
+        writer.get_output(),
+        equal_to(wrap_boilerplate(&expected, None))
+    );
+}
+
+#[test]
+fn happy_path_toolspecs() {
+    let writer = RcWriter::new();
+    let mut builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+
+    let get_user_name_fn = r#"{
+        "name": "get_user_name",
+        "description": "Get the user's name. Call this whenever you need to know the name of the user.",
+        "strict": true,
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }
+    }"#;
+
+    let another_function_fn = r#"{
+        "name": "another_function", "foo": "bar"
+    }"#;
+
+    begin_message(&mut builder, "user");
+
+    builder.begin_item().unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("toolspecs"))
+        .unwrap();
+    builder.begin_text().unwrap();
+    builder
+        .get_writer()
+        .write_all(format!("{}\n{}", get_user_name_fn, another_function_fn).as_bytes())
+        .unwrap();
+    builder.end_text().unwrap();
+    builder.end_item().unwrap();
+
+    builder.begin_item().unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("text"))
+        .unwrap();
+    builder.begin_text().unwrap();
+    write!(builder.get_writer(), "Hello!").unwrap();
+    builder.end_text().unwrap();
+    builder.end_item().unwrap();
+
+    builder.end().unwrap();
+
+    let expected_item = r#"[{"role":"user","content":[{"type":"text","text":"Hello!"}]}]"#;
+    let expected_tools = format!(
+        r#"[{{
+        "type": "function",
+        "function": {get_user_name_fn}
+    }},
+    {{
+        "type": "function",
+        "function": {another_function_fn}
+    }}]"#
+    );
+    let expected = wrap_boilerplate(&expected_item, Some(&expected_tools));
+    assert_that!(writer.get_output(), equal_to(expected));
 }
