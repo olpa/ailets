@@ -238,9 +238,9 @@ impl<W: Write> StructureBuilder<W> {
         writer: &mut W,
         divider: &Divider,
         is_function: bool,
-        is_toolspecs: bool,
+        is_toolspec: bool,
     ) -> Result<Divider, String> {
-        match (divider, is_function, is_toolspecs) {
+        match (divider, is_function, is_toolspec) {
             // First item in message, "content", "tool_calls", or "tools"
             (Divider::ItemNone, false, false) => {
                 writer
@@ -304,13 +304,13 @@ impl<W: Write> StructureBuilder<W> {
             }
             _ => {
                 return Err(format!(
-                    "Internal error: Unexpected combination of flags: {divider:?}, is_function: {is_function}, is_toolspecs: {is_toolspecs}"
+                    "Internal error: Unexpected combination of flags: {divider:?}, is_function: {is_function}, is_toolspec: {is_toolspec}"
                 ));
             }
         }
 
         // Return new divider based on current item type
-        Ok(if is_toolspecs {
+        Ok(if is_toolspec {
             Divider::ItemCommaToolspecs
         } else if is_function {
             Divider::ItemCommaFunctions
@@ -332,17 +332,17 @@ impl<W: Write> StructureBuilder<W> {
         let item_type = attrs
             .get("type")
             .ok_or_else(|| "Missing 'type' attribute".to_string())?;
-        let item_type = if item_type == "image" {
-            "image_url"
-        } else {
-            item_type
+        let item_type = match item_type.as_str() {
+            "image" => "image_url",
+            "toolspec" => "function",
+            _ => item_type,
         };
 
         // Step 2: Begin section
         let is_function = item_type == "function";
-        let is_toolspecs = item_type == "toolspecs";
+        let is_toolspec = item_type == "toolspec";
         self.divider =
-            Self::maybe_begin_section(&mut self.writer, &self.divider, is_function, is_toolspecs)?;
+            Self::maybe_begin_section(&mut self.writer, &self.divider, is_function, is_toolspec)?;
 
         // Step 3: Write the item
         write!(self.writer, r#"{{"type":"#).map_err(|e| e.to_string())?;
@@ -436,10 +436,10 @@ impl<W: Write> StructureBuilder<W> {
                 }
                 if !matches!(
                     value.as_str(),
-                    "text" | "image" | "ctl" | "function" | "toolspecs"
+                    "text" | "image" | "ctl" | "function" | "toolspec"
                 ) {
                     return Err(format!(
-                        "Invalid type value: '{value}'. Allowed values are: text, image, function, ctl, toolspecs"
+                        "Invalid type value: '{value}'. Allowed values are: text, image, function, ctl, toolspec"
                     ));
                 }
             }
@@ -557,7 +557,30 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// - I/O
     pub fn end_function_arguments(&mut self) -> Result<(), String> {
-        write!(self.writer, "\"}}").map_err(|e| e.to_string())?;
+        self.writer.write_all(b"\"}").map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// # Errors
+    /// - content item is not started
+    /// - I/O
+    pub fn begin_toolspec(&mut self) -> Result<(), String> {
+        if let ItemAttrMode::RaiseError = self.item_attr_mode {
+            return Err("Content item is not started".to_string());
+        }
+        self.add_item_attribute(String::from("type"), String::from("toolspec"))?;
+        self.really_begin_item()?;
+
+        self.writer
+            .write_all(b"\"function\":{")
+            .map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    /// # Errors
+    /// - I/O
+    pub fn end_toolspec(&mut self) -> Result<(), String> {
+        self.writer.write_all(b"}").map_err(|e| e.to_string())?;
         Ok(())
     }
 }
