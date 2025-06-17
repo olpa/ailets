@@ -75,18 +75,18 @@ Affect the processing of the following items. Currently, its main use is to anno
 See also [OpenAI chat completion messages](https://platform.openai.com/docs/api-reference/chat/create).
 
 
-## `ContentItemToolSpecs`
+## `ContentItemToolSpec`
 
-Create a `tools` section to inform the LLM about what it can use. See the OpenAI documentation on [function calling](https://platform.openai.com/docs/guides/function-calling) for details.
+Inform an LLM about a tool (also called a "function") it can use. See the OpenAI documentation on [function calling](https://platform.openai.com/docs/guides/function-calling) for more details. In particular, the detailed type `ToolSpec` is explained there.
 
-- `[0].type: "toolspecs"`
+- `[0].type: "toolspec"`
 - Either of, but not both:
-  - `[1].toolspecs: FunctionSpec[]`, or
+  - `[1].toolspecs: ToolSpec[]`, or
   - `[1].toolspecs_key: str`
 
-For `toolspecs`, the value is an array of function specifications in the OpenAI format.
+For `toolspecs_key`, the tool specification is read from the given key.
 
-For `toolspecs_key`, the function specifications are read from the given key. The format is extended JSONL: instead of being wrapped in an array, the objects are immediately on the top level and _not_ divided by commas.
+You should not mix toolspec items with content items like text or images. Instead, provide all `toolspec` items first, followed by all content items.
 
 
 ## `ContentItemFunction`
