@@ -65,20 +65,6 @@ When serializing an image blob to markdown:
 - When using a key, copy the blob to a new key with the prefix `out/`. In markdown, reference the `out/` version. Expect that the ailets runner will extract `out/*` blobs for the user.
 
 
-## `ContentItemFunction`
-
-Function call with fields:
-
-- `[0].type: "function"`
-- `[0].id: str` - Function call identifier
-- `[0].name: str` - Function name
-- `[1].arguments: str` - Function arguments
-
-There is no content item representing the result of a function call. Instead, the `ChatMessage` with the role `tool` is used for that purpose. The tool result is then represented as `Content`.
-
-You should not mix function-items with content-items such as text, image etc in one message.
-
-
 ## `ContentItemCtl`
 
 Affect the processing of the following items. Currently, its main use is to annotate "who" said the message. Additionally, if we decide to implement OpenAI choices (multiple outputs), the control message could indicate which choice comes next.
@@ -101,3 +87,19 @@ Create a `tools` section to inform the LLM about what it can use. See the OpenAI
 For `toolspecs`, the value is an array of function specifications in the OpenAI format.
 
 For `toolspecs_key`, the function specifications are read from the given key. The format is extended JSONL: instead of being wrapped in an array, the objects are immediately on the top level and _not_ divided by commas.
+
+
+## `ContentItemFunction`
+
+An artifact of the serialization-deserialization process when calling functions for an LLM. See the OpenAI documentation on [function calling](https://platform.openai.com/docs/guides/function-calling) for more details.
+
+- `[0].type: "function"`
+- `[0].id: str` - Function call identifier
+- `[0].name: str` - Function name
+- `[1].arguments: str` - Function arguments
+
+As a user, you should not create `function` items, but instead use `toolspec` items.
+
+There is no content item representing the result of a function call. Instead, the `ChatMessage` with the role `tool` is used for that purpose. The tool result is then represented as `content` items.
+
+You should not mix function-items with content-items such as text, image etc in one message.
