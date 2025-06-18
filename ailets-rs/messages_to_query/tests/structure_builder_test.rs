@@ -9,7 +9,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::io::Write;
 
-fn wrap_boilerplate(s: &str, _tools: Option<&str>) -> String {
+fn wrap_boilerplate(s: &str) -> String {
     let s1 = r#"{ "url": "https://api.openai.com/v1/chat/completions","#;
     let s2 = r#""method": "POST","#;
     let s3 = r#""headers": { "Content-type": "application/json", "Authorization": "Bearer {{secret}}" },"#;
@@ -52,8 +52,7 @@ fn happy_path_for_text() {
     assert_that!(
         writer.get_output(),
         equal_to(wrap_boilerplate(
-            r#"{"role":"user","content":[_NL_{"type":"text","text":"Hello!"}_NL_]}"#,
-            None
+            r#"{"role":"user","content":[_NL_{"type":"text","text":"Hello!"}_NL_]}"#
         ))
     );
 }
@@ -90,7 +89,7 @@ fn many_messages_and_items() {
     let expected = String::from(
             r#"{"role":"user","content":[_NL__TI1__NL_]},{"role":"assistant","content":[_NL__TI2a_,_NL__TI2b__NL_]}"#
         ).replace("_TI1_", text_item1).replace("_TI2a_", text_item2a).replace("_TI2b_", text_item2b);
-    let expected = wrap_boilerplate(expected.as_str(), None);
+    let expected = wrap_boilerplate(expected.as_str());
     assert_that!(writer.get_output(), equal_to(expected));
 }
 
@@ -112,7 +111,7 @@ fn skip_empty_items_but_create_content_wrapper() {
     builder.end().unwrap();
 
     let empty_msg = "{\"role\":\"user\",\"content\":[]}".to_owned();
-    let two_empty_msgs = wrap_boilerplate(format!("{},{}", empty_msg, empty_msg).as_str(), None);
+    let two_empty_msgs = wrap_boilerplate(format!("{},{}", empty_msg, empty_msg).as_str());
     assert_that!(writer.get_output(), equal_to(two_empty_msgs));
 }
 
@@ -132,10 +131,10 @@ fn several_contentless_roles_create_several_messages_anyway() {
     let msg_assistant = r#"{"role":"assistant","content":[]}"#;
     let msg_tool = r#"{"role":"tool","content":[]}"#;
     let msg_user2 = r#"{"role":"user","content":[]}"#;
-    let expected = wrap_boilerplate(
-        &format!("{},{},{},{}", msg_user, msg_assistant, msg_user2, msg_tool),
-        None,
-    );
+    let expected = wrap_boilerplate(&format!(
+        "{},{},{},{}",
+        msg_user, msg_assistant, msg_user2, msg_tool
+    ));
     assert_that!(writer.get_output(), equal_to(expected));
 }
 
@@ -171,10 +170,8 @@ fn auto_generate_type_text() {
     builder.end_item().unwrap();
     builder.end().unwrap();
 
-    let expected = wrap_boilerplate(
-        r#"{"role":"user","content":[_NL_{"type":"text","text":"hello"}_NL_]}"#,
-        None,
-    );
+    let expected =
+        wrap_boilerplate(r#"{"role":"user","content":[_NL_{"type":"text","text":"hello"}_NL_]}"#);
     assert_that!(writer.get_output(), equal_to(expected));
 }
 
@@ -254,7 +251,6 @@ fn support_special_chars_and_unicode() {
             special_chars
         )
         .as_str(),
-        None,
     );
     assert_that!(writer.get_output(), equal_to(expected));
 }
@@ -288,11 +284,11 @@ fn pass_preceding_attributes_to_text_output() {
     assert_that!(
         writer.get_output(),
         equal_to(wrap_boilerplate(
-            &format!(
+            format!(
                 r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
                 expected_text_item
-            ),
-            None
+            )
+            .as_str()
         ))
     );
 }
@@ -323,11 +319,11 @@ fn pass_following_attributes_to_text_output() {
     assert_that!(
         writer.get_output(),
         equal_to(wrap_boilerplate(
-            &format!(
+            format!(
                 r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
                 expected_text_item
-            ),
-            None
+            )
+            .as_str()
         ))
     );
 }
@@ -359,11 +355,11 @@ fn add_image_by_url() {
     assert_that!(
         writer.get_output(),
         equal_to(wrap_boilerplate(
-            &format!(
+            format!(
                 r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
                 expected_image_item
-            ),
-            None
+            )
+            .as_str()
         ))
     );
 }
@@ -395,11 +391,11 @@ fn add_image_by_key() {
     assert_that!(
         writer.get_output(),
         equal_to(wrap_boilerplate(
-            &format!(
+            format!(
                 r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
                 expected_image_item
-            ),
-            None
+            )
+            .as_str()
         ))
     );
 }
@@ -459,11 +455,11 @@ fn add_image_with_detail() {
     assert_that!(
         writer.get_output(),
         equal_to(wrap_boilerplate(
-            &format!(
+            format!(
                 r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
                 expected_image_item
-            ),
-            None
+            )
+            .as_str()
         ))
     );
 }
@@ -501,11 +497,11 @@ fn image_key_with_adversarial_content_type() {
     assert_that!(
         writer.get_output(),
         equal_to(wrap_boilerplate(
-            &format!(
+            format!(
                 r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
                 expected_image_item
-            ),
-            None
+            )
+            .as_str()
         ))
     );
 }
@@ -559,11 +555,11 @@ fn image_settings_dont_transfer() {
     assert_that!(
         writer.get_output(),
         equal_to(wrap_boilerplate(
-            &format!(
+            format!(
                 r#"{{"role":"user","content":[_NL_{},_NL_{}_NL_]}}"#,
                 expected_image1, expected_image2
-            ),
-            None
+            )
+            .as_str()
         ))
     );
 }
@@ -620,7 +616,7 @@ fn mix_text_and_image_content() {
     let expected_message = format!(r#"{{"role":"user","content":[{}]}}"#, expected_content);
     assert_that!(
         writer.get_output(),
-        equal_to(wrap_boilerplate(&expected_message, None))
+        equal_to(wrap_boilerplate(expected_message.as_str()))
     );
 }
 
@@ -650,7 +646,7 @@ fn function_call() {
     let expected_item = r#"{"role":"assistant","tool_calls":[_NL_{"type":"function","id":"id123","function":{"name":"get_weather","arguments":"foo,bar"}}_NL_]}"#;
     assert_that!(
         writer.get_output(),
-        equal_to(wrap_boilerplate(expected_item, None))
+        equal_to(wrap_boilerplate(expected_item))
     );
 }
 
@@ -772,10 +768,7 @@ fn mix_content_and_tool_calls() {
         msg2_text, msg2_fn1, msg2_fn2
     );
     let expected = format!("{},{}", msg1, msg2);
-    assert_that!(
-        writer.get_output(),
-        equal_to(wrap_boilerplate(&expected, None))
-    );
+    assert_that!(writer.get_output(), equal_to(wrap_boilerplate(&expected)));
 }
 
 #[test]
@@ -857,7 +850,7 @@ fn happy_path_toolspecs() {
     let expected_item = format!(
         r#"{{"role":"user","tools":{expected_tools},"content":[{{"type":"text","text":"Hello!"}}]}}"#
     );
-    let expected = wrap_boilerplate(&expected_item, None);
+    let expected = wrap_boilerplate(&expected_item);
     let expected_json =
         serde_json::from_str(&expected).expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
