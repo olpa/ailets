@@ -373,6 +373,9 @@ impl<W: Write> StructureBuilder<W> {
             .and_then(|attrs| attrs.get("type"))
             .map_or(true, |t| t == "ctl");
         if !is_ctl {
+            if self.item_attr_mode == ItemAttrMode::Collect {
+                self.really_begin_item()?;
+            }
             self.writer.write_all(b"}").map_err(|e| e.to_string())?;
         }
 
