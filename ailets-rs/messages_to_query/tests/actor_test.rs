@@ -205,23 +205,25 @@ fn tool_specification() {
 
     let input = format!(
         r#"[{{"type": "ctl"}}, {{"role": "user"}}]
-                   [{{"type": "toolspec"}}, {}]
-                   [{{"type": "toolspec"}}, {}]
-                   [{{"type": "text"}}, {{"text": "Hello!"}}]"#,
-        get_user_name_function, another_function
+                   [{{"type": "toolspec"}}, {{"toolspec": {get_user_name_function}}}]
+                   [{{"type": "toolspec"}}, {{"toolspec": {another_function}}}]
+                   [{{"type": "text"}}, {{"text": "Hello!"}}]"#
     );
 
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
 
     _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
+    println!("output: {}", writer.get_output()); // FIXME
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
 
-    let expected_item = r#"[{"role":"user","content":[{"type":"text","text":"Hello!"}]}]"#;
     let expected_tools = format!(
         r#"[{{"type":"function","function":{}}},{{"type":"function","function":{}}}]"#,
         get_user_name_function, another_function
+    );
+    let expected_item = format!(
+        r#"[{{"role":"user","tools":[{expected_tools}],"content":[{{"type":"text","text":"Hello!"}}]}}]"#
     );
     let expected = wrap_boilerplate(&expected_item);
     let expected_json =
