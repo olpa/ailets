@@ -5,22 +5,18 @@ use actor_runtime_mocked::RcWriter;
 use hamcrest::prelude::*;
 use messages_to_query::env_opts::EnvOpts;
 use messages_to_query::structure_builder::StructureBuilder;
+use serde_json::Value;
 use std::collections::HashMap;
 use std::io::Write;
 
-fn wrap_boilerplate(s: &str, tools: Option<&str>) -> String {
+fn wrap_boilerplate(s: &str, _tools: Option<&str>) -> String {
     let s1 = r#"{ "url": "https://api.openai.com/v1/chat/completions","#;
     let s2 = r#""method": "POST","#;
     let s3 = r#""headers": { "Content-type": "application/json", "Authorization": "Bearer {{secret}}" },"#;
-    let s4 = r#""body": { "model": "gpt-4o-mini", "stream": true, _TOOLS_ "messages": "#;
-    let tools = match tools {
-        Some(tools) => format!(r#""tools": {tools},"#),
-        None => "".to_string(),
-    };
-    let s4 = s4.replace("_TOOLS_", &tools);
-    let s_end = "}}\n";
+    let s4 = r#""body": { "model": "gpt-4o-mini", "stream": true, "messages": ["#;
+    let s_end = "]}}\n";
     let s = s.replace("_NL_", "\n");
-    format!("{}\n{}\n{}\n{}{}{}{}", s1, s2, s3, s4, tools, s, s_end)
+    format!("{}\n{}\n{}\n{}{}{}", s1, s2, s3, s4, s, s_end)
 }
 
 fn create_empty_env_opts() -> EnvOpts {
@@ -196,7 +192,7 @@ fn reject_unknown_type() {
     assert_that!(
         err,
         equal_to(
-            "Invalid type value: 'unknown'. Allowed values are: text, image, function, ctl"
+            "Invalid type value: 'unknown'. Allowed values are: text, image, function, ctl, toolspec"
                 .to_string()
         )
     );
@@ -802,6 +798,9 @@ fn happy_path_toolspecs() {
         "name": "another_function", "foo": "bar"
     }"#;
 
+    //
+    // Act
+    //
     begin_message(&mut builder, "user");
 
     builder.begin_item().unwrap();
@@ -839,7 +838,12 @@ fn happy_path_toolspecs() {
 
     builder.end().unwrap();
 
-    let expected_item = r#"[{"role":"user","content":[{"type":"text","text":"Hello!"}]}]"#;
+    //
+    // Assert
+    //
+    let output_json: Value =
+        serde_json::from_str(&writer.get_output()).expect("Failed to parse output as JSON");
+
     let expected_tools = format!(
         r#"[{{
         "type": "function",
@@ -850,6 +854,11 @@ fn happy_path_toolspecs() {
         "function": {another_function_fn}
     }}]"#
     );
-    let expected = wrap_boilerplate(&expected_item, Some(&expected_tools));
-    assert_that!(writer.get_output(), equal_to(expected));
+    let expected_item = format!(
+        r#"{{"role":"user","tools":{expected_tools},"content":[{{"type":"text","text":"Hello!"}}]}}"#
+    );
+    let expected = wrap_boilerplate(&expected_item, None);
+    let expected_json =
+        serde_json::from_str(&expected).expect("Failed to parse expected output as JSON");
+    assert_that!(output_json, equal_to(expected_json));
 }

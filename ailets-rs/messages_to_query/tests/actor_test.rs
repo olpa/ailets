@@ -24,7 +24,7 @@ fn wrap_boilerplate(s: &str, tools: Option<&str>) -> String {
     let s4 = s4.replace("_TOOLS_", &tools);
     let s_end = "}}\n";
     let s = s.replace("_NL_", "\n");
-    format!("{}\n{}\n{}\n{}{}{}{}", s1, s2, s3, s4, tools, s, s_end)
+    format!("{}\n{}\n{}\n{}{}{}", s1, s2, s3, s4, s, s_end)
 }
 
 #[test]

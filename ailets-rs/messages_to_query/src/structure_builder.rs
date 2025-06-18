@@ -332,6 +332,8 @@ impl<W: Write> StructureBuilder<W> {
         let item_type = attrs
             .get("type")
             .ok_or_else(|| "Missing 'type' attribute".to_string())?;
+        let is_function = item_type == "function";
+        let is_toolspec = item_type == "toolspec";
         let item_type = match item_type.as_str() {
             "image" => "image_url",
             "toolspec" => "function",
@@ -339,8 +341,6 @@ impl<W: Write> StructureBuilder<W> {
         };
 
         // Step 2: Begin section
-        let is_function = item_type == "function";
-        let is_toolspec = item_type == "toolspec";
         self.divider =
             Self::maybe_begin_section(&mut self.writer, &self.divider, is_function, is_toolspec)?;
 
@@ -572,15 +572,13 @@ impl<W: Write> StructureBuilder<W> {
         self.really_begin_item()?;
 
         self.writer
-            .write_all(b"\"function\":{")
+            .write_all(b",\"function\":")
             .map_err(|e| e.to_string())?;
         Ok(())
     }
 
     /// # Errors
-    /// - I/O
     pub fn end_toolspec(&mut self) -> Result<(), String> {
-        self.writer.write_all(b"}").map_err(|e| e.to_string())?;
         Ok(())
     }
 }
