@@ -18,6 +18,7 @@ from ailets.atyping import (
     ContentItemCtl,
     ContentItemImage,
     ContentItemText,
+    ContentItemToolSpec,
     Dependency,
     IDagops,
     IEnvironment,
@@ -31,9 +32,10 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CmdlinePromptItem:
     value: str
-    type: Literal["toml", "text", "file", "url"]
+    type: Literal["toml", "text", "file", "url", "tool"]
     content_type: Optional[str] = None
     toml: Optional[str] = None
+    tool_name: Optional[str] = None
 
 
 @dataclass
@@ -98,6 +100,20 @@ async def prompt_to_dagops(
             chat_messages.write("\n")
             return
 
+        if prompt_item.type == "tool":
+            assert prompt_item.tool_name is not None, "Tool name is required for tool type"
+            toolspec_item: ContentItemToolSpec = (
+                {
+                    "type": "toolspec",
+                },
+                {
+                    "toolspec_key": prompt_item.value,
+                },
+            )
+            json.dump(toolspec_item, chat_messages)
+            chat_messages.write("\n")
+            return
+
         assert prompt_item.content_type is not None, "Content type is required"
         base_content_type = prompt_item.content_type.split("/")[0]
         assert base_content_type in [
@@ -106,6 +122,7 @@ async def prompt_to_dagops(
         assert prompt_item.type in [
             "url",
             "file",
+            "tool",
         ], f"Unknown prompt item type: {prompt_item.type}"
 
         if prompt_item.type == "url":
@@ -179,7 +196,11 @@ def toml_to_env(
         env.for_env_pipe.update(items)
 
 
-def toolspecs_to_dagops(env: IEnvironment, tools: Sequence[str]) -> None:
+def toolspecs_to_dagops(
+    env: IEnvironment, tools: Sequence[str]
+) -> Sequence[CmdlinePromptItem]:
+    prompt = []
+
     for tool in tools:
         plugin_nodes = env.nodereg.get_plugin(f".tool.{tool}")
         schema = env.nodereg.get_node(plugin_nodes[0]).inputs[0].schema
@@ -192,9 +213,11 @@ def toolspecs_to_dagops(env: IEnvironment, tools: Sequence[str]) -> None:
             explain=f"Tool spec {tool}",
         )
 
-        env.dagops.alias(".toolspecs", tool_spec.name)
-    else:
-        env.dagops.alias(".toolspecs", None)
+        prompt.append(
+            CmdlinePromptItem(type="tool", tool_name=tool, value=tool_spec.name)
+        )
+
+    return prompt
 
 
 def instantiate_with_deps(

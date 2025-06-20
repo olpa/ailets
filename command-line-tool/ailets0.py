@@ -341,9 +341,8 @@ async def main() -> None:
     else:
         env = Environment(nodereg, kv=vfs)
         toml_to_env(env, model_opts, args.opt, toml=prompt)
-        toolspecs_to_dagops(env, args.tools)
-        await prompt_to_dagops(env, prompt=prompt)
-
+        tools_prompt = toolspecs_to_dagops(env, args.tools)
+        await prompt_to_dagops(env, prompt=list(tools_prompt) + list(prompt))
         model_node_name = instantiate_with_deps(env.dagops, nodereg, f".{model}", {})
         env.dagops.alias(".model_output", model_node_name)
 
