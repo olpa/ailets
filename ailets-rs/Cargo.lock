@@ -251,7 +251,7 @@ dependencies = [
  "getrandom",
  "hamcrest",
  "linked-hash-map",
- "scan_json 1.0.3",
+ "scan_json 1.1.0",
  "serde",
  "serde_json",
 ]
@@ -537,7 +537,7 @@ dependencies = [
 
 [[package]]
 name = "scan_json"
-version = "1.0.3"
+version = "1.1.0"
 dependencies = [
  "rjiter",
 ]

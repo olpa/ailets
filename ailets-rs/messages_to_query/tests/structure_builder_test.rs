@@ -855,3 +855,72 @@ fn happy_path_toolspecs() {
         serde_json::from_str(&expected).expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
+
+#[test]
+fn toolspec_by_key() {
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let mut builder = builder;
+
+    let toolspec_content = r#"{
+        "name": "get_user_name",
+        "description": "Get the user's name. Call this whenever you need to know the name of the user.",
+        "strict": true,
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }
+    }"#;
+    add_file(
+        String::from("tools/get_user_name.json"),
+        toolspec_content.as_bytes().to_vec(),
+    );
+
+    begin_message(&mut builder, "user");
+    builder.begin_item().unwrap();
+
+    builder
+        .add_item_attribute(String::from("type"), String::from("toolspec_key"))
+        .unwrap();
+    builder.toolspec_key("tools/get_user_name.json").unwrap();
+
+    builder.end_item().unwrap();
+    builder.end().unwrap();
+
+    let expected_toolspec_item =
+        format!(r#"{{"type":"function","function":{}}}"#, toolspec_content);
+    assert_that!(
+        writer.get_output(),
+        equal_to(wrap_boilerplate(
+            format!(
+                r#"{{"role":"user","tools":[_NL_{}_NL_],"content":[]}}"#,
+                expected_toolspec_item
+            )
+            .as_str()
+        ))
+    );
+}
+
+#[test]
+fn toolspec_key_file_not_found() {
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let mut builder = builder;
+
+    begin_message(&mut builder, "user");
+    builder.begin_item().unwrap();
+
+    builder
+        .add_item_attribute(String::from("type"), String::from("toolspec_key"))
+        .unwrap();
+
+    let result = builder.toolspec_key("tools/nonexistent.json");
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert_that!(
+        err.to_string().as_str(),
+        matches_regex("tools/nonexistent.json")
+    );
+}
