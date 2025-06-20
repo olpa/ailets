@@ -4,7 +4,6 @@ messages_to_query = NodeDesc(
     name="messages_to_query",
     inputs=[
         Dependency(source=".chat_messages"),
-        Dependency(name="toolspecs", source=".toolspecs"),
     ],
 )
 
