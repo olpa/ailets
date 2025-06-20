@@ -879,26 +879,22 @@ fn toolspec_by_key() {
 
     begin_message(&mut builder, "user");
     builder.begin_item().unwrap();
-
     builder
-        .add_item_attribute(String::from("type"), String::from("toolspec_key"))
+        .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
     builder.toolspec_key("tools/get_user_name.json").unwrap();
-
     builder.end_item().unwrap();
     builder.end().unwrap();
 
     let expected_toolspec_item =
         format!(r#"{{"type":"function","function":{}}}"#, toolspec_content);
+    let expected_output = format!(
+        r#"{{"role":"user","tools":[_NL_{}_NL_]}}"#,
+        expected_toolspec_item
+    );
     assert_that!(
         writer.get_output(),
-        equal_to(wrap_boilerplate(
-            format!(
-                r#"{{"role":"user","tools":[_NL_{}_NL_],"content":[]}}"#,
-                expected_toolspec_item
-            )
-            .as_str()
-        ))
+        equal_to(wrap_boilerplate(expected_output.as_str()))
     );
 }
 
@@ -910,9 +906,8 @@ fn toolspec_key_file_not_found() {
 
     begin_message(&mut builder, "user");
     builder.begin_item().unwrap();
-
     builder
-        .add_item_attribute(String::from("type"), String::from("toolspec_key"))
+        .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
 
     let result = builder.toolspec_key("tools/nonexistent.json");

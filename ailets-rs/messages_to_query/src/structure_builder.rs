@@ -584,4 +584,25 @@ impl<W: Write> StructureBuilder<W> {
     pub fn end_toolspec(&mut self) -> Result<(), String> {
         Ok(())
     }
+
+    /// # Errors
+    /// - content item is not started
+    /// - I/O
+    /// - file not found
+    pub fn toolspec_key(&mut self, key: &str) -> Result<(), String> {
+        let err_to_str = |e: std::io::Error| {
+            let dyn_err: Box<dyn std::error::Error> = e.into();
+            let annotated_error = annotate_error(dyn_err, format!("toolspec key `{key}`").as_str());
+            annotated_error.to_string()
+        };
+
+        self.begin_toolspec()?;
+
+        let cname = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
+        let mut blob_reader = AReader::new(&cname).map_err(err_to_str)?;
+
+        std::io::copy(&mut blob_reader, &mut self.writer).map_err(err_to_str)?;
+
+        self.end_toolspec()
+    }
 }
