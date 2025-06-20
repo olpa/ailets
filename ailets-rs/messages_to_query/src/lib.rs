@@ -133,9 +133,9 @@ pub fn _process_query<W: Write>(
     scan(
         &begin_triggers,
         &end_triggers,
-        &[],
         &rjiter_cell,
         &builder_cell,
+        &scan_json::Options::default(),
     )?;
     builder_cell.borrow_mut().end()?;
     Ok(())
