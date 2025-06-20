@@ -387,6 +387,16 @@ class ContentItemFunctionContent(TypedDict):
 ContentItemFunction = Tuple[ContentItemFunctionAttrs, ContentItemFunctionContent]
 
 
+class ContentItemToolSpecAttrs(TypedDict):
+    type: Literal["toolspec"]
+
+class ContentItemToolSpecContent(TypedDict):
+    toolspec: NotRequired[Any]
+    toolspec_key: NotRequired[str]
+
+ContentItemToolSpec = Tuple[ContentItemToolSpecAttrs, ContentItemToolSpecContent]
+
+
 class ContentItemCtlAttrs(TypedDict):
     type: Literal["ctl"]
 
@@ -401,5 +411,6 @@ ContentItem = Union[
     ContentItemImage,
     ContentItemRefusal,
     ContentItemFunction,
+    ContentItemToolSpec,
     ContentItemCtl,
 ]

@@ -101,7 +101,9 @@ async def prompt_to_dagops(
             return
 
         if prompt_item.type == "tool":
-            assert prompt_item.tool_name is not None, "Tool name is required for tool type"
+            assert (
+                prompt_item.tool_name is not None
+            ), "Tool name is required for tool type"
             toolspec_item: ContentItemToolSpec = (
                 {
                     "type": "toolspec",
