@@ -212,7 +212,7 @@ def toolspecs_to_dagops(
             json.dumps(schema).encode("utf-8"),
             env.piper,
             env.processes,
-            explain=f"Tool spec {tool}",
+            explain=f"toolspec {tool}",
         )
 
         prompt.append(
@@ -220,6 +220,15 @@ def toolspecs_to_dagops(
         )
 
     return prompt
+
+
+def toolspecs_to_alias(env: IEnvironment, tools: Sequence[CmdlinePromptItem]) -> str:
+    alias = env.dagops.get_next_name("toolspecs")
+    for tool in tools:
+        env.dagops.alias(alias, tool.value)
+    else:
+        env.dagops.alias(alias, None)
+    return alias
 
 
 def instantiate_with_deps(
