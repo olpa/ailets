@@ -10,7 +10,7 @@ from ailets.atyping import IKVBuffers, INodeRuntime, StdHandles
 def get_path(node_name: str, slot_name: Optional[str]) -> str:
     if not slot_name:
         return node_name
-    if "/" in slot_name:
+    if "/" in slot_name or not node_name:
         return slot_name
     return f"{node_name}-{slot_name}"
 
