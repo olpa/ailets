@@ -297,3 +297,22 @@ pub fn on_toolspec<W: Write>(
 
     StreamOp::ValueIsConsumed
 }
+
+pub fn on_toolspec_key<W: Write>(
+    rjiter_cell: &RefCell<RJiter>,
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> StreamOp {
+    let mut rjiter = rjiter_cell.borrow_mut();
+    let key = match rjiter.next_str() {
+        Ok(k) => k,
+        Err(e) => {
+            return StreamOp::Error(
+                format!("Error getting toolspec_key value. Expected string, got: {e:?}").into(),
+            );
+        }
+    };
+    if let Err(e) = builder_cell.borrow_mut().toolspec_key(key) {
+        return StreamOp::Error(e.into());
+    }
+    StreamOp::ValueIsConsumed
+}

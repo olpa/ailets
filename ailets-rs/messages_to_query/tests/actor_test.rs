@@ -229,3 +229,42 @@ fn tool_specification() {
         serde_json::from_str(&expected).expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
+
+#[test]
+fn toolspec_by_key() {
+    let toolspec_content = r#"{
+        "name": "get_user_name",
+        "description": "Get the user's name. Call this whenever you need to know the name of the user.",
+        "strict": true,
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "additionalProperties": false
+        }
+    }"#;
+    add_file(
+        String::from("tools/get_user_name.json"),
+        toolspec_content.as_bytes().to_vec(),
+    );
+    let input = format!(
+        r#"[{{"type": "ctl"}}, {{"role": "user"}}]
+           [{{"type": "toolspec"}}, {{"toolspec_key": "tools/get_user_name.json"}}]"#
+    );
+
+    let reader = Cursor::new(input);
+    let writer = RcWriter::new();
+
+    // Act
+    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
+
+    // Assert
+    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
+        .expect("Failed to parse output as JSON");
+
+    let expected_tools = format!(r#"[{{"type":"function","function":{}}}]"#, toolspec_content);
+    let expected_item = format!(r#"[{{"role":"user","tools":{expected_tools}}}]"#);
+    let expected = wrap_boilerplate(&expected_item);
+    let expected_json =
+        serde_json::from_str(&expected).expect("Failed to parse expected output as JSON");
+    assert_that!(output_json, equal_to(expected_json));
+}
