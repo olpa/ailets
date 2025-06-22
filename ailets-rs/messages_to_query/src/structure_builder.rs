@@ -27,9 +27,9 @@ impl serde_json::ser::Formatter for StrFormatter {
 
 #[derive(Debug, PartialEq)]
 pub enum Divider {
-    Prologue,
-    MessageComma,
-    ItemNone,
+    Prologue, // Need to write the prologue, then start "messages" or "tools"
+    MessageComma, // Add `,` after the last "messages" or "tools"
+    ItemNone, // First item in message, "content", or "tool_calls"
     ItemCommaContent,
     ItemCommaFunctions,
     ItemCommaToolspecs,
@@ -72,6 +72,10 @@ impl<W: Write> StructureBuilder<W> {
         &mut self.writer
     }
 
+    // ----------------------------------------------------
+    // State machine: End a level
+    //
+
     /// Close JSON object, unless nothing was written yet
     ///
     /// There is no "pub fn begin" because it is done implicitly by the call chain
@@ -80,12 +84,78 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// I/O
     pub fn end(&mut self) -> Result<(), String> {
-        if self.divider != Divider::Prologue {
-            self.end_message()?;
-            self.writer.write_all(b"]}}\n").map_err(|e| e.to_string())?;
+        match self.divider {
+            Divider::Prologue => Ok(()),
+            Divider::MessageComma | Divider::ItemNone | Divider::ItemCommaContent | Divider::ItemCommaFunctions => {
+                self.end_messages()?;
+                self.writer.write_all(b"}\n").map_err(|e| e.to_string())
+            }
+            Divider::Tools => {
+                self.writer.write_all(b"]}}\n").map_err(|e| e.to_string())
+            }
         }
+    }
+
+    fn end_messages(&mut self) -> Result<(), String> {
+        match self.divider {
+            Divider::Prologue | Divider::Tools => Err("Internal error: Cannot end message in prologue or tools state".to_string()),
+            Divider::MessageComma | Divider::ItemNone => {
+                self.writer.write_all(b"]}").map_err(|e| e.to_string())
+            }
+            Divider::ItemCommaContent | Divider::ItemCommaFunctions => {
+                self.end_content()?;
+                self.writer.write_all(b"]}").map_err(|e| e.to_string())
+            }
+        }
+    }
+
+    fn end_content(&mut self) -> Result<(), String> {
+        match self.divider {
+            Divider::Prologue | Divider::Tools | Divider::MessageComma | Divider::ItemCommaToolspecs => Err("Internal error: Cannot end content in prologue or tools state".to_string()),
+            Divider::ItemNone => {
+                self.writer.write_all(b"\n]}").map_err(|e| e.to_string())
+            }
+            Divider::ItemCommaContent | Divider::ItemCommaFunctions => {
+                self.end_item()?;
+                self.writer.write_all(b"\n]}").map_err(|e| e.to_string())
+            }
+        }
+    }
+
+    /// Close JSON object for a content item, unless it is a control item which was not written
+    /// # Errors
+    /// I/O
+    pub fn end_item(&mut self) -> Result<(), String> {
+        if !matches!(self.divider, Divider::ItemCommaContent | Divider::ItemCommaFunctions | Divider::ItemCommaToolspecs) {
+            return Err("Internal error: Cannot end item - not in item state".to_string());
+        }
+        let is_ctl = self
+            .item_attr
+            .as_ref()
+            .and_then(|attrs| attrs.get("type"))
+            .map_or(true, |t| t == "ctl");
+        let is_toolspec = self
+            .item_attr
+            .as_ref()
+            .and_then(|attrs| attrs.get("type"))
+            .map_or(false, |t| t == "toolspec");
+        
+        if !is_ctl && !is_toolspec {
+            if self.item_attr_mode == ItemAttrMode::Collect {
+                self.really_begin_item()?;
+            }
+            self.writer.write_all(b"}").map_err(|e| e.to_string())?;
+        }
+
+        self.item_attr = None;
+        self.item_attr_mode = ItemAttrMode::RaiseError;
         Ok(())
     }
+
+
+    // ----------------------------------------------------
+    // State machine: Begin a level
+    //
 
     fn write_prologue(&mut self) -> Result<(), String> {
         self.writer
@@ -190,6 +260,13 @@ impl<W: Write> StructureBuilder<W> {
         if self.divider == Divider::Prologue {
             self.write_prologue()?;
         }
+        
+        // If we're in tools section, close it and reopen messages
+        if self.divider == Divider::Tools {
+            self.writer.write_all(b"]").map_err(|e| e.to_string())?;
+            self.writer.write_all(b", \"messages\": [").map_err(|e| e.to_string())?;
+        }
+        
         self.end_message()?; // Can update the divider
         if self.divider == Divider::MessageComma {
             self.writer.write_all(b",").map_err(|e| e.to_string())?;
@@ -197,26 +274,6 @@ impl<W: Write> StructureBuilder<W> {
 
         write!(self.writer, r#"{{"role":"{role}""#).map_err(|e| e.to_string())?;
         self.divider = Divider::ItemNone;
-        self.item_attr_mode = ItemAttrMode::RaiseError;
-        Ok(())
-    }
-
-    /// Called by `end`, by `begin_message` or indirectly by `handle_role` through `begin_message`
-    /// # Errors
-    /// I/O
-    fn end_message(&mut self) -> Result<(), String> {
-        if self.divider == Divider::ItemCommaContent
-            || self.divider == Divider::ItemCommaFunctions
-            || self.divider == Divider::ItemCommaToolspecs
-        {
-            self.writer.write_all(b"\n]}").map_err(|e| e.to_string())?;
-            self.divider = Divider::MessageComma;
-        } else if self.divider == Divider::ItemNone {
-            self.writer
-                .write_all(b",\"content\":[]}")
-                .map_err(|e| e.to_string())?;
-            self.divider = Divider::MessageComma;
-        }
         self.item_attr_mode = ItemAttrMode::RaiseError;
         Ok(())
     }
@@ -334,6 +391,38 @@ impl<W: Write> StructureBuilder<W> {
             .ok_or_else(|| "Missing 'type' attribute".to_string())?;
         let is_function = item_type == "function";
         let is_toolspec = item_type == "toolspec";
+        
+        // Handle toolspecs by closing messages and starting tools section
+        if is_toolspec {
+            // Close the current message if it's open
+            if self.divider == Divider::ItemCommaContent
+                || self.divider == Divider::ItemCommaFunctions
+                || self.divider == Divider::ItemCommaToolspecs
+            {
+                self.writer.write_all(b"\n]}").map_err(|e| e.to_string())?;
+            } else if self.divider == Divider::ItemNone {
+                self.writer
+                    .write_all(b",\"content\":[]}")
+                    .map_err(|e| e.to_string())?;
+            }
+            
+            // Close the messages array
+            self.writer.write_all(b"]").map_err(|e| e.to_string())?;
+            
+            // Start tools section if not already started
+            if self.divider != Divider::Tools {
+                self.writer.write_all(b", \"tools\": [").map_err(|e| e.to_string())?;
+                self.divider = Divider::Tools;
+            } else {
+                self.writer.write_all(b",").map_err(|e| e.to_string())?;
+            }
+            
+            // Write the tool object
+            write!(self.writer, r#"{{"type":"function","function":""#).map_err(|e| e.to_string())?;
+            self.item_attr_mode = ItemAttrMode::Passthrough;
+            return Ok(());
+        }
+        
         let item_type = match item_type.as_str() {
             "image" => "image_url",
             "toolspec" => "function",
@@ -363,28 +452,7 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
-    /// Close JSON object for a content item, unless it is a control item which was not written
-    /// # Errors
-    /// I/O
-    pub fn end_item(&mut self) -> Result<(), String> {
-        let is_ctl = self
-            .item_attr
-            .as_ref()
-            .and_then(|attrs| attrs.get("type"))
-            .map_or(true, |t| t == "ctl");
-        if !is_ctl {
-            if self.item_attr_mode == ItemAttrMode::Collect {
-                self.really_begin_item()?;
-            }
-            self.writer.write_all(b"}").map_err(|e| e.to_string())?;
-        }
-
-        self.item_attr = None;
-        self.item_attr_mode = ItemAttrMode::RaiseError;
-        Ok(())
-    }
-
-    //
+    // ----------------------------------------------------
     // Action-triggering item content
     //
 
@@ -582,6 +650,8 @@ impl<W: Write> StructureBuilder<W> {
 
     /// # Errors
     pub fn end_toolspec(&mut self) -> Result<(), String> {
+        self.writer.write_all(b"\"}").map_err(|e| e.to_string())?;
+        self.item_attr_mode = ItemAttrMode::RaiseError;
         Ok(())
     }
 
