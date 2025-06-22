@@ -25,6 +25,12 @@ impl serde_json::ser::Formatter for StrFormatter {
     }
 }
 
+//
+// The state machine, to generate on the levels:
+// top -> messages -> message with role -> content -> content item
+// top -> messages -> message with role -> tool_calls -> function call item
+// top -> tools -> toolspec item
+//
 #[derive(Debug, PartialEq)]
 pub enum Divider {
     Prologue, // Need to write the prologue, then start "messages" or "tools"
