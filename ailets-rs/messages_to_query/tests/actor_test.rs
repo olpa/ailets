@@ -22,6 +22,13 @@ fn wrap_boilerplate(s: &str) -> String {
     format!("{}\n{}\n{}\n{}{}{}", s1, s2, s3, s4, s, s_end)
 }
 
+fn inject_tools(payload: &str, tools: &str) -> String {
+    payload.replace(
+        r#""messages": ["#,
+        &format!(r#""tools": {},"messages": ["#, tools),
+    )
+}
+
 #[test]
 fn test_text_items() {
     let fixture_content = std::fs::read_to_string("tests/fixture/text_items.txt")
@@ -221,12 +228,12 @@ fn tool_specification() {
         r#"[{{"type":"function","function":{}}},{{"type":"function","function":{}}}]"#,
         get_user_name_function, another_function
     );
-    let expected_item = format!(
-        r#"[{{"role":"user","tools":{expected_tools},"content":[{{"type":"text","text":"Hello!"}}]}}]"#
-    );
+    let expected_item =
+        format!(r#"[{{"role":"user","content":[{{"type":"text","text":"Hello!"}}]}}]"#);
     let expected = wrap_boilerplate(&expected_item);
-    let expected_json =
-        serde_json::from_str(&expected).expect("Failed to parse expected output as JSON");
+    let expected_with_tools = inject_tools(&expected, &expected_tools);
+    let expected_json = serde_json::from_str(&expected_with_tools)
+        .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
 
@@ -262,9 +269,10 @@ fn toolspec_by_key() {
         .expect("Failed to parse output as JSON");
 
     let expected_tools = format!(r#"[{{"type":"function","function":{}}}]"#, toolspec_content);
-    let expected_item = format!(r#"[{{"role":"user","tools":{expected_tools}}}]"#);
+    let expected_item = format!(r#"[{{"role":"user","content":[]}}]"#);
     let expected = wrap_boilerplate(&expected_item);
-    let expected_json =
-        serde_json::from_str(&expected).expect("Failed to parse expected output as JSON");
+    let expected_with_tools = inject_tools(&expected, &expected_tools);
+    let expected_json = serde_json::from_str(&expected_with_tools)
+        .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
