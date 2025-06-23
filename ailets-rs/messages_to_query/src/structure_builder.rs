@@ -33,9 +33,9 @@ impl serde_json::ser::Formatter for StrFormatter {
 //
 #[derive(Debug, PartialEq)]
 pub enum Divider {
-    Prologue, // Need to write the prologue, then start "messages" or "tools"
+    Prologue,     // Need to write the prologue, then start "messages" or "tools"
     MessageComma, // Add `,` after the last "messages" or "tools"
-    ItemNone, // First item in message, "content", or "tool_calls"
+    ItemNone,     // First item in message, "content", or "tool_calls"
     ItemCommaContent,
     ItemCommaFunctions,
     ItemCommaToolspecs,
@@ -82,82 +82,118 @@ impl<W: Write> StructureBuilder<W> {
     // State machine: End a level
     //
 
-    /// Close JSON object, unless nothing was written yet
-    ///
-    /// There is no "pub fn begin" because it is done implicitly by the call chain
-    /// `pub fn handle_role` -> `begin_message` -> `write_prologue`
-    ///
+    //
+    // General logic: for the path
+    //
+    //   up_level1 -> up_level2 -> ... -> foo -> down_level1 -> down_level2 -> ...
+    //
+    // handle all the states:
+    //
+    // - not in the path: raise error
+    // - up levels: raise error
+    // - down levels:
+    //   - end the level "down_level1", which may recursively end other down levels
+    //   - continue like the level "foo"
+    // - foo: end the level "foo"
+    //
+
     /// # Errors
     /// I/O
     pub fn end(&mut self) -> Result<(), String> {
         match self.divider {
-            Divider::Prologue => Ok(()),
-            Divider::MessageComma | Divider::ItemNone | Divider::ItemCommaContent | Divider::ItemCommaFunctions => {
+            Divider::Prologue => return Ok(()),
+            Divider::MessageComma
+            | Divider::ItemNone
+            | Divider::ItemCommaContent
+            | Divider::ItemCommaFunctions => {
                 self.end_messages()?;
-                self.writer.write_all(b"}\n").map_err(|e| e.to_string())
             }
-            Divider::Tools => {
-                self.writer.write_all(b"]}}\n").map_err(|e| e.to_string())
+            Divider::Toolspecs => {
+                self.end_toolspecs()?;
             }
         }
+        self.writer.write_all(b"}\n").map_err(|e| e.to_string())?;
+        self.divider = Divider::Prologue;
+        Ok(())
+    }
+
+    fn end_toolspecs(&mut self) -> Result<(), String> {
+        match self.divider {
+            Divider::Prologue
+            | Divider::MessageComma
+            | Divider::ItemNone
+            | Divider::ItemCommaContent
+            | Divider::ItemCommaFunctions => {
+                return Err(format!(
+                    "Internal error: Wrong state {:?} to end tools",
+                    self.divider
+                ))
+            }
+            Divider::ItemCommaToolspecs => {
+                self.end_item()?;
+            }
+            Divider::Toolspecs => {}
+        }
+        self.writer.write_all(b"]}").map_err(|e| e.to_string())?;
+        self.divider = Divider::Prologue;
+        Ok(())
     }
 
     fn end_messages(&mut self) -> Result<(), String> {
         match self.divider {
-            Divider::Prologue | Divider::Tools => Err("Internal error: Cannot end message in prologue or tools state".to_string()),
-            Divider::MessageComma | Divider::ItemNone => {
-                self.writer.write_all(b"]}").map_err(|e| e.to_string())
+            Divider::Prologue | Divider::Toolspecs => {
+                return Err(format!(
+                    "Internal error: Wrong state {:?} to end messages",
+                    self.divider
+                ))
             }
-            Divider::ItemCommaContent | Divider::ItemCommaFunctions => {
-                self.end_content()?;
-                self.writer.write_all(b"]}").map_err(|e| e.to_string())
+            Divider::ItemCommaContent | Divider::ItemNone | Divider::ItemCommaFunctions => {
+                self.end_message_content()?;
             }
+            Divider::MessageComma => {}
         }
+        self.writer.write_all(b"]").map_err(|e| e.to_string())?;
+        self.divider = Divider::MessageComma;
+        Ok(())
     }
 
-    fn end_content(&mut self) -> Result<(), String> {
+    fn end_message_content(&mut self) -> Result<(), String> {
         match self.divider {
-            Divider::Prologue | Divider::Tools | Divider::MessageComma | Divider::ItemCommaToolspecs => Err("Internal error: Cannot end content in prologue or tools state".to_string()),
-            Divider::ItemNone => {
-                self.writer.write_all(b"\n]}").map_err(|e| e.to_string())
+            Divider::Prologue
+            | Divider::Toolspecs
+            | Divider::MessageComma
+            | Divider::ItemCommaToolspecs => {
+                return Err(format!(
+                    "Internal error: Wrong state {:?} to end message content",
+                    self.divider
+                ))
             }
             Divider::ItemCommaContent | Divider::ItemCommaFunctions => {
                 self.end_item()?;
-                self.writer.write_all(b"\n]}").map_err(|e| e.to_string())
             }
+            Divider::ItemNone => {}
         }
+        self.writer.write_all(b"\n}").map_err(|e| e.to_string())?;
+        self.divider = Divider::Prologue; // Bad state, to be updated in `end_messages`
+        Ok(())
     }
 
     /// Close JSON object for a content item, unless it is a control item which was not written
     /// # Errors
     /// I/O
     pub fn end_item(&mut self) -> Result<(), String> {
-        if !matches!(self.divider, Divider::ItemCommaContent | Divider::ItemCommaFunctions | Divider::ItemCommaToolspecs) {
-            return Err("Internal error: Cannot end item - not in item state".to_string());
-        }
-        let is_ctl = self
-            .item_attr
-            .as_ref()
-            .and_then(|attrs| attrs.get("type"))
-            .map_or(true, |t| t == "ctl");
-        let is_toolspec = self
-            .item_attr
-            .as_ref()
-            .and_then(|attrs| attrs.get("type"))
-            .map_or(false, |t| t == "toolspec");
-        
-        if !is_ctl && !is_toolspec {
-            if self.item_attr_mode == ItemAttrMode::Collect {
-                self.really_begin_item()?;
+        match self.divider {
+            Divider::Prologue | Divider::MessageComma | Divider::Toolspecs | Divider::ItemNone => {
+                return Err(format!(
+                    "Internal error: Wrong state {:?} to end item",
+                    self.divider
+                ));
             }
-            self.writer.write_all(b"}").map_err(|e| e.to_string())?;
+            Divider::ItemCommaContent
+            | Divider::ItemCommaFunctions
+            | Divider::ItemCommaToolspecs => self.end_item_logic(),
         }
-
-        self.item_attr = None;
-        self.item_attr_mode = ItemAttrMode::RaiseError;
-        Ok(())
     }
-
 
     // ----------------------------------------------------
     // State machine: Begin a level
@@ -266,13 +302,15 @@ impl<W: Write> StructureBuilder<W> {
         if self.divider == Divider::Prologue {
             self.write_prologue()?;
         }
-        
+
         // If we're in tools section, close it and reopen messages
         if self.divider == Divider::Tools {
             self.writer.write_all(b"]").map_err(|e| e.to_string())?;
-            self.writer.write_all(b", \"messages\": [").map_err(|e| e.to_string())?;
+            self.writer
+                .write_all(b", \"messages\": [")
+                .map_err(|e| e.to_string())?;
         }
-        
+
         self.end_message()?; // Can update the divider
         if self.divider == Divider::MessageComma {
             self.writer.write_all(b",").map_err(|e| e.to_string())?;
@@ -397,7 +435,7 @@ impl<W: Write> StructureBuilder<W> {
             .ok_or_else(|| "Missing 'type' attribute".to_string())?;
         let is_function = item_type == "function";
         let is_toolspec = item_type == "toolspec";
-        
+
         // Handle toolspecs by closing messages and starting tools section
         if is_toolspec {
             // Close the current message if it's open
@@ -411,24 +449,27 @@ impl<W: Write> StructureBuilder<W> {
                     .write_all(b",\"content\":[]}")
                     .map_err(|e| e.to_string())?;
             }
-            
+
             // Close the messages array
             self.writer.write_all(b"]").map_err(|e| e.to_string())?;
-            
+
             // Start tools section if not already started
             if self.divider != Divider::Tools {
-                self.writer.write_all(b", \"tools\": [").map_err(|e| e.to_string())?;
+                self.writer
+                    .write_all(b", \"tools\": [")
+                    .map_err(|e| e.to_string())?;
                 self.divider = Divider::Tools;
             } else {
                 self.writer.write_all(b",").map_err(|e| e.to_string())?;
             }
-            
+
             // Write the tool object
-            write!(self.writer, r#"{{"type":"function","function":""#).map_err(|e| e.to_string())?;
+            write!(self.writer, r#"{{"type":"function","function":""#)
+                .map_err(|e| e.to_string())?;
             self.item_attr_mode = ItemAttrMode::Passthrough;
             return Ok(());
         }
-        
+
         let item_type = match item_type.as_str() {
             "image" => "image_url",
             "toolspec" => "function",
@@ -455,6 +496,31 @@ impl<W: Write> StructureBuilder<W> {
         }
 
         self.item_attr_mode = ItemAttrMode::Passthrough;
+        Ok(())
+    }
+
+    fn end_item_logic(&mut self) -> Result<(), String> {
+        let is_ctl = self
+            .item_attr
+            .as_ref()
+            .and_then(|attrs| attrs.get("type"))
+            .map_or(true, |t| t == "ctl");
+        // FIXME: looks wrong vibe conding
+        let is_toolspec = self
+            .item_attr
+            .as_ref()
+            .and_then(|attrs| attrs.get("type"))
+            .map_or(false, |t| t == "toolspec");
+
+        if !is_ctl && !is_toolspec {
+            if self.item_attr_mode == ItemAttrMode::Collect {
+                self.really_begin_item()?;
+            }
+            self.writer.write_all(b"}").map_err(|e| e.to_string())?;
+        }
+
+        self.item_attr = None;
+        self.item_attr_mode = ItemAttrMode::RaiseError;
         Ok(())
     }
 
