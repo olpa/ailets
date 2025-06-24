@@ -286,10 +286,6 @@ impl<W: Write> StructureBuilder<W> {
             }
         }
 
-        // Add messages array
-        self.writer
-            .write_all(b", \"messages\": [")
-            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -297,18 +293,7 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// I/O
     fn begin_message(&mut self, role: &str) -> Result<(), String> {
-        if self.divider == Divider::Prologue {
-            self.write_prologue()?;
-        }
-
-        // If we're in tools section, close it and reopen messages
-        if self.divider == Divider::ItemCommaToolspecs {
-            self.writer.write_all(b"]").map_err(|e| e.to_string())?;
-            self.writer
-                .write_all(b", \"messages\": [")
-                .map_err(|e| e.to_string())?;
-        }
-
+        self.want_messages()?;
         self.end_messages()?; // Can update the divider
         if self.divider == Divider::MessageComma {
             self.writer.write_all(b",").map_err(|e| e.to_string())?;
@@ -328,6 +313,29 @@ impl<W: Write> StructureBuilder<W> {
     pub fn begin_item(&mut self) -> Result<(), String> {
         self.item_attr_mode = ItemAttrMode::Collect;
         self.item_attr = None;
+        Ok(())
+    }
+
+    /// Ensure we're in a state where we can write messages
+    /// # Errors
+    /// I/O, state machine errors
+    fn want_messages(&mut self) -> Result<(), String> {
+        match self.divider {
+            Divider::Prologue => {
+                self.write_prologue()?;
+                self.writer.write_all(b", \"messages\": [").map_err(|e| e.to_string())?;
+                self.divider = Divider::MessageComma;
+            }
+            Divider::ItemCommaToolspecs => {
+                // Close tools section and start messages
+                self.writer.write_all(b"]").map_err(|e| e.to_string())?;
+                self.writer.write_all(b", \"messages\": [").map_err(|e| e.to_string())?;
+                self.divider = Divider::MessageComma;
+            }
+            Divider::MessageComma | Divider::ItemNone | Divider::ItemCommaContent | Divider::ItemCommaFunctions => {
+                // Already in messages section or in a message
+            }
+        }
         Ok(())
     }
 
@@ -360,43 +368,16 @@ impl<W: Write> StructureBuilder<W> {
             Divider::ItemCommaToolspecs => {
                 // Already in tools section, add comma for next toolspec
                 self.writer.write_all(b",").map_err(|e| e.to_string())?;
+                return Ok(());
             }
-            _ => {
-                // Need to transition to tools section
-                match self.divider {
-                    Divider::Prologue => {
-                        self.write_prologue()?;
-                        // After prologue, we need to close messages and start tools
-                        self.writer.write_all(b"]").map_err(|e| e.to_string())?;
-                    }
-                    Divider::MessageComma => {
-                        // Close messages
-                        self.writer.write_all(b"]").map_err(|e| e.to_string())?;
-                    }
-                    Divider::ItemNone | Divider::ItemCommaContent | Divider::ItemCommaFunctions => {
-                        // Close the current message
-                        if self.divider == Divider::ItemCommaContent || self.divider == Divider::ItemCommaFunctions {
-                            self.writer.write_all(b"\n]}").map_err(|e| e.to_string())?;
-                        } else if self.divider == Divider::ItemNone {
-                            self.writer.write_all(b",\"content\":[]}").map_err(|e| e.to_string())?;
-                        }
-                        // Close messages
-                        self.writer.write_all(b"]").map_err(|e| e.to_string())?;
-                    }
-                    Divider::ItemCommaToolspecs => {
-                        // This should be handled by the outer match, but just in case
-                        return Ok(());
-                    }
-                }
-                
-                // Start tools section
-                self.writer.write_all(b", \"tools\": [").map_err(|e| e.to_string())?;
+            Divider::MessageComma | Divider::ItemNone | Divider::ItemCommaContent | Divider::ItemCommaFunctions => {
+                self.end_messages()?;
+            }
+            Divider::Prologue => {
+                self.write_prologue()?;
             }
         }
-        
-        // Write the tool object structure
-        write!(self.writer, r#"{{"type":"function","function":"#).map_err(|e| e.to_string())?;
-        self.item_attr_mode = ItemAttrMode::Passthrough;
+        self.writer.write_all(b", \"tools\": [").map_err(|e| e.to_string())?;
         self.divider = Divider::ItemCommaToolspecs;
         Ok(())
     }
@@ -423,7 +404,11 @@ impl<W: Write> StructureBuilder<W> {
         }
         if is_toolspec {
             self.want_toolspecs()?;
-            return Ok(()); // Toolspecs are fully handled by want_toolspecs
+            // Write the tool object structure
+            write!(self.writer, r#"{{"type":"function","function":"#).map_err(|e| e.to_string())?;
+            self.item_attr_mode = ItemAttrMode::Passthrough;
+            self.divider = Divider::ItemCommaToolspecs;
+            return Ok(());
         }
 
         // Step 3: Get attrs after state changes (needed for non-toolspec items)

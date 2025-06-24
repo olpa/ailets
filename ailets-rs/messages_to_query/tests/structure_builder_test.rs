@@ -896,7 +896,7 @@ fn toolspec_by_key() {
     let expected_toolspec_item =
         format!(r#"{{"type":"function","function":{}}}"#, toolspec_content);
     let expected_tools = format!(r#"[_NL_{}_NL_]"#, expected_toolspec_item);
-    let expected_output = format!(r#"{{"role":"user","content":[]}}"#);
+    let expected_output = format!(r#"{{"role":"user"}}"#);
     let expected = wrap_boilerplate(expected_output.as_str());
     let expected_with_tools = inject_tools(&expected, &expected_tools);
     assert_that!(writer.get_output(), equal_to(expected_with_tools));
