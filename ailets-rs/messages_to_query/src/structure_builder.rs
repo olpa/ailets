@@ -358,8 +358,8 @@ impl<W: Write> StructureBuilder<W> {
     fn want_toolspecs(&mut self) -> Result<(), String> {
         match self.divider {
             Divider::ItemCommaToolspecs => {
-                // Already in tools section
-                return Ok(());
+                // Already in tools section, add comma for next toolspec
+                self.writer.write_all(b",").map_err(|e| e.to_string())?;
             }
             _ => {
                 // Need to transition to tools section
@@ -391,10 +391,13 @@ impl<W: Write> StructureBuilder<W> {
                 
                 // Start tools section
                 self.writer.write_all(b", \"tools\": [").map_err(|e| e.to_string())?;
-                // Use MessageComma to indicate we're ready for the first toolspec
-                self.divider = Divider::MessageComma;
             }
         }
+        
+        // Write the tool object structure
+        write!(self.writer, r#"{{"type":"function","function":"#).map_err(|e| e.to_string())?;
+        self.item_attr_mode = ItemAttrMode::Passthrough;
+        self.divider = Divider::ItemCommaToolspecs;
         Ok(())
     }
 
@@ -420,27 +423,16 @@ impl<W: Write> StructureBuilder<W> {
         }
         if is_toolspec {
             self.want_toolspecs()?;
+            return Ok(()); // Toolspecs are fully handled by want_toolspecs
         }
 
-        // Step 1.5: Get attrs after state changes
+        // Step 3: Get attrs after state changes (needed for non-toolspec items)
         let attrs = self
             .item_attr
             .as_ref()
             .ok_or_else(|| "Missing 'type' attribute".to_string())?;
 
-        // Step 3: Handle toolspecs specially (they have different JSON structure)
-        if is_toolspec {
-            // Add comma if not the first toolspec
-            if self.divider == Divider::ItemCommaToolspecs {
-                self.writer.write_all(b",").map_err(|e| e.to_string())?;
-            }
-            // Write the tool object
-            write!(self.writer, r#"{{"type":"function","function":"#)
-                .map_err(|e| e.to_string())?;
-            self.item_attr_mode = ItemAttrMode::Passthrough;
-            self.divider = Divider::ItemCommaToolspecs;
-            return Ok(());
-        }
+
 
         let item_type = match item_type.as_str() {
             "image" => "image_url",
@@ -482,21 +474,7 @@ impl<W: Write> StructureBuilder<W> {
                     .map_err(|e| e.to_string())?;
                 self.divider = Divider::ItemCommaContent;
             }
-            // Switch from "tools" to "content" or "tool_calls" (shouldn't happen since toolspecs are handled above)
-            (Divider::ItemCommaToolspecs, false) => {
-                self.writer.write_all(b"]").map_err(|e| e.to_string())?;
-                self.writer
-                    .write_all(b",\"content\":[\n")
-                    .map_err(|e| e.to_string())?;
-                self.divider = Divider::ItemCommaContent;
-            }
-            (Divider::ItemCommaToolspecs, true) => {
-                self.writer.write_all(b"]").map_err(|e| e.to_string())?;
-                self.writer
-                    .write_all(b",\"tool_calls\":[\n")
-                    .map_err(|e| e.to_string())?;
-                self.divider = Divider::ItemCommaFunctions;
-            }
+
             _ => {
                 return Err(format!(
                     "Internal error: Unexpected divider state for content/function item: {:?}, is_function: {}",
