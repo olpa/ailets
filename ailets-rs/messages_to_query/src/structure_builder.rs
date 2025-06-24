@@ -108,7 +108,7 @@ impl<W: Write> StructureBuilder<W> {
             | Divider::ItemCommaFunctions => {
                 self.end_messages()?;
             }
-            Divider::Toolspecs => {
+            Divider::ItemCommaToolspecs => {
                 self.end_toolspecs()?;
             }
         }
@@ -132,7 +132,6 @@ impl<W: Write> StructureBuilder<W> {
             Divider::ItemCommaToolspecs => {
                 self.end_item()?;
             }
-            Divider::Toolspecs => {}
         }
         self.writer.write_all(b"]}").map_err(|e| e.to_string())?;
         self.divider = Divider::Prologue;
@@ -141,9 +140,9 @@ impl<W: Write> StructureBuilder<W> {
 
     fn end_messages(&mut self) -> Result<(), String> {
         match self.divider {
-            Divider::Prologue | Divider::Toolspecs => {
+            Divider::Prologue | Divider::ItemCommaToolspecs => {
                 return Err(format!(
-                    "Internal error: Wrong state {:?} to end messages",
+                    "Internal error: Cannot end messages while in tools section: {:?}",
                     self.divider
                 ))
             }
@@ -160,7 +159,6 @@ impl<W: Write> StructureBuilder<W> {
     fn end_message_content(&mut self) -> Result<(), String> {
         match self.divider {
             Divider::Prologue
-            | Divider::Toolspecs
             | Divider::MessageComma
             | Divider::ItemCommaToolspecs => {
                 return Err(format!(
@@ -178,17 +176,17 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
-    /// Close JSON object for a content item, unless it is a control item which was not written
     /// # Errors
     /// I/O
     pub fn end_item(&mut self) -> Result<(), String> {
         match self.divider {
-            Divider::Prologue | Divider::MessageComma | Divider::Toolspecs | Divider::ItemNone => {
+            Divider::Prologue | Divider::MessageComma => {
                 return Err(format!(
                     "Internal error: Wrong state {:?} to end item",
                     self.divider
                 ));
             }
+            Divider::ItemNone => { }
             Divider::ItemCommaContent
             | Divider::ItemCommaFunctions
             | Divider::ItemCommaToolspecs => self.end_item_logic(),
@@ -304,14 +302,14 @@ impl<W: Write> StructureBuilder<W> {
         }
 
         // If we're in tools section, close it and reopen messages
-        if self.divider == Divider::Tools {
+        if self.divider == Divider::ItemCommaToolspecs {
             self.writer.write_all(b"]").map_err(|e| e.to_string())?;
             self.writer
                 .write_all(b", \"messages\": [")
                 .map_err(|e| e.to_string())?;
         }
 
-        self.end_message()?; // Can update the divider
+        self.end_messages()?; // Can update the divider
         if self.divider == Divider::MessageComma {
             self.writer.write_all(b",").map_err(|e| e.to_string())?;
         }
@@ -319,15 +317,6 @@ impl<W: Write> StructureBuilder<W> {
         write!(self.writer, r#"{{"role":"{role}""#).map_err(|e| e.to_string())?;
         self.divider = Divider::ItemNone;
         self.item_attr_mode = ItemAttrMode::RaiseError;
-        Ok(())
-    }
-
-    /// Reset the internal state for a new content item
-    /// # Errors
-    /// I/O
-    pub fn begin_item(&mut self) -> Result<(), String> {
-        self.item_attr_mode = ItemAttrMode::Collect;
-        self.item_attr = None;
         Ok(())
     }
 
@@ -420,67 +409,136 @@ impl<W: Write> StructureBuilder<W> {
         })
     }
 
-    /// Start output JSON object for a content item
+    /// Reset the internal state for a new content item
+    /// # Errors
+    /// I/O
+    pub fn begin_item(&mut self) -> Result<(), String> {
+        self.item_attr_mode = ItemAttrMode::Collect;
+        self.item_attr = None;
+        Ok(())
+    }
+
+    /// Ensure we're in a state where we can write tool calls
+    /// # Errors
+    /// I/O, state machine errors
+    fn want_tool_calls(&mut self) -> Result<(), String> {
+        match self.divider {
+            Divider::Prologue => {
+                return Err("Cannot write tool calls without a message role".to_string());
+            }
+            Divider::MessageComma => {
+                return Err("Cannot write tool calls without a message role".to_string());
+            }
+            Divider::ItemCommaToolspecs => {
+                return Err("Cannot write tool calls while in tools section".to_string());
+            }
+            Divider::ItemNone | Divider::ItemCommaContent | Divider::ItemCommaFunctions => {
+                // We're in a message, ready for tool calls
+                Ok(())
+            }
+        }
+    }
+
+    /// Ensure we're in a state where we can write toolspecs
+    /// # Errors
+    /// I/O, state machine errors
+    fn want_toolspecs(&mut self) -> Result<(), String> {
+        match self.divider {
+            Divider::ItemCommaToolspecs => {
+                // Already in tools section
+                return Ok(());
+            }
+            _ => {
+                // Need to transition to tools section
+                match self.divider {
+                    Divider::Prologue => {
+                        self.write_prologue()?;
+                        // After prologue, we need to close messages and start tools
+                        self.writer.write_all(b"]").map_err(|e| e.to_string())?;
+                    }
+                    Divider::MessageComma => {
+                        // Close messages
+                        self.writer.write_all(b"]").map_err(|e| e.to_string())?;
+                    }
+                    Divider::ItemNone | Divider::ItemCommaContent | Divider::ItemCommaFunctions => {
+                        // Close the current message
+                        if self.divider == Divider::ItemCommaContent || self.divider == Divider::ItemCommaFunctions {
+                            self.writer.write_all(b"\n]}").map_err(|e| e.to_string())?;
+                        } else if self.divider == Divider::ItemNone {
+                            self.writer.write_all(b",\"content\":[]}").map_err(|e| e.to_string())?;
+                        }
+                        // Close messages
+                        self.writer.write_all(b"]").map_err(|e| e.to_string())?;
+                    }
+                    Divider::ItemCommaToolspecs => {
+                        // This should be handled by the outer match, but just in case
+                        return Ok(());
+                    }
+                }
+                
+                // Start tools section
+                self.writer.write_all(b", \"tools\": [").map_err(|e| e.to_string())?;
+                // Use MessageComma to indicate we're ready for the first toolspec
+                self.divider = Divider::MessageComma;
+            }
+        }
+        Ok(())
+    }
+
+        /// Start output JSON object for a content item
     /// # Errors
     /// - I/O
     /// - missing "type" attribute
     fn really_begin_item(&mut self) -> Result<(), String> {
-        // Step 1: Get attrs and item_type
+        // Step 1: Extract needed values to avoid borrowing conflicts
+        let item_type = self
+            .item_attr
+            .as_ref()
+            .ok_or_else(|| "Missing 'type' attribute".to_string())?
+            .get("type")
+            .ok_or_else(|| "Missing 'type' attribute".to_string())?
+            .clone();
+        let is_function = item_type == "function";
+        let is_toolspec = item_type == "toolspec";
+
+        // Step 2: Ensure we're in the right state for this item type
+        if is_function {
+            self.want_tool_calls()?;
+        }
+        if is_toolspec {
+            self.want_toolspecs()?;
+        }
+
+        // Step 1.5: Get attrs after state changes
         let attrs = self
             .item_attr
             .as_ref()
             .ok_or_else(|| "Missing 'type' attribute".to_string())?;
-        let item_type = attrs
-            .get("type")
-            .ok_or_else(|| "Missing 'type' attribute".to_string())?;
-        let is_function = item_type == "function";
-        let is_toolspec = item_type == "toolspec";
 
-        // Handle toolspecs by closing messages and starting tools section
+        // Step 3: Handle toolspecs specially (they have different JSON structure)
         if is_toolspec {
-            // Close the current message if it's open
-            if self.divider == Divider::ItemCommaContent
-                || self.divider == Divider::ItemCommaFunctions
-                || self.divider == Divider::ItemCommaToolspecs
-            {
-                self.writer.write_all(b"\n]}").map_err(|e| e.to_string())?;
-            } else if self.divider == Divider::ItemNone {
-                self.writer
-                    .write_all(b",\"content\":[]}")
-                    .map_err(|e| e.to_string())?;
-            }
-
-            // Close the messages array
-            self.writer.write_all(b"]").map_err(|e| e.to_string())?;
-
-            // Start tools section if not already started
-            if self.divider != Divider::Tools {
-                self.writer
-                    .write_all(b", \"tools\": [")
-                    .map_err(|e| e.to_string())?;
-                self.divider = Divider::Tools;
-            } else {
+            // Add comma if not the first toolspec
+            if self.divider == Divider::ItemCommaToolspecs {
                 self.writer.write_all(b",").map_err(|e| e.to_string())?;
             }
-
             // Write the tool object
-            write!(self.writer, r#"{{"type":"function","function":""#)
+            write!(self.writer, r#"{{"type":"function","function":"#)
                 .map_err(|e| e.to_string())?;
             self.item_attr_mode = ItemAttrMode::Passthrough;
+            self.divider = Divider::ItemCommaToolspecs;
             return Ok(());
         }
 
         let item_type = match item_type.as_str() {
             "image" => "image_url",
-            "toolspec" => "function",
-            _ => item_type,
+            _ => &item_type,
         };
 
-        // Step 2: Begin section
+        // Step 4: Begin section for regular content/function items
         self.divider =
             Self::maybe_begin_section(&mut self.writer, &self.divider, is_function, is_toolspec)?;
 
-        // Step 3: Write the item
+        // Step 5: Write the item
         write!(self.writer, r#"{{"type":"#).map_err(|e| e.to_string())?;
         serde_json::to_writer(&mut self.writer, item_type).map_err(|e| e.to_string())?;
 
