@@ -186,7 +186,7 @@ impl<W: Write> StructureBuilder<W> {
                     self.divider
                 ));
             }
-            Divider::ItemNone => { }
+            Divider::ItemNone => Ok(()), // Nothing to end when no item has been started
             Divider::ItemCommaContent
             | Divider::ItemCommaFunctions
             | Divider::ItemCommaToolspecs => self.end_item_logic(),
@@ -320,94 +320,7 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
-    /// Begin a section of the messages, `content`, `tool_calls`, or `tools`
-    /// # Errors
-    /// - I/O
-    /// - internal error: unexpected combination of flags
-    fn maybe_begin_section(
-        writer: &mut W,
-        divider: &Divider,
-        is_function: bool,
-        is_toolspec: bool,
-    ) -> Result<Divider, String> {
-        match (divider, is_function, is_toolspec) {
-            // First item in message, "content", "tool_calls", or "tools"
-            (Divider::ItemNone, false, false) => {
-                writer
-                    .write_all(b",\"content\":[\n")
-                    .map_err(|e| e.to_string())?;
-            }
-            (Divider::ItemNone, true, false) => {
-                writer
-                    .write_all(b",\"tool_calls\":[\n")
-                    .map_err(|e| e.to_string())?;
-            }
-            (Divider::ItemNone, false, true) => {
-                writer
-                    .write_all(b",\"tools\":[\n")
-                    .map_err(|e| e.to_string())?;
-            }
-            // Same section, just add comma
-            (Divider::ItemCommaContent, false, false)
-            | (Divider::ItemCommaFunctions, true, false)
-            | (Divider::ItemCommaToolspecs, false, true) => {
-                writer.write_all(b",\n").map_err(|e| e.to_string())?;
-            }
-            // Switch from "content" to "tool_calls" or "tools"
-            (Divider::ItemCommaContent, true, false) => {
-                writer.write_all(b"]").map_err(|e| e.to_string())?;
-                writer
-                    .write_all(b",\"tool_calls\":[\n")
-                    .map_err(|e| e.to_string())?;
-            }
-            (Divider::ItemCommaContent, false, true) => {
-                writer.write_all(b"]").map_err(|e| e.to_string())?;
-                writer
-                    .write_all(b",\"tools\":[\n")
-                    .map_err(|e| e.to_string())?;
-            }
-            // Switch from "tool_calls" to "content" or "tools"
-            (Divider::ItemCommaFunctions, false, false) => {
-                writer.write_all(b"]").map_err(|e| e.to_string())?;
-                writer
-                    .write_all(b",\"content\":[\n")
-                    .map_err(|e| e.to_string())?;
-            }
-            (Divider::ItemCommaFunctions, false, true) => {
-                writer.write_all(b"]").map_err(|e| e.to_string())?;
-                writer
-                    .write_all(b",\"tools\":[\n")
-                    .map_err(|e| e.to_string())?;
-            }
-            // Switch from "tools" to "content" or "tool_calls"
-            (Divider::ItemCommaToolspecs, false, false) => {
-                writer.write_all(b"]").map_err(|e| e.to_string())?;
-                writer
-                    .write_all(b",\"content\":[\n")
-                    .map_err(|e| e.to_string())?;
-            }
-            (Divider::ItemCommaToolspecs, true, false) => {
-                writer.write_all(b"]").map_err(|e| e.to_string())?;
-                writer
-                    .write_all(b",\"tool_calls\":[\n")
-                    .map_err(|e| e.to_string())?;
-            }
-            _ => {
-                return Err(format!(
-                    "Internal error: Unexpected combination of flags: {divider:?}, is_function: {is_function}, is_toolspec: {is_toolspec}"
-                ));
-            }
-        }
 
-        // Return new divider based on current item type
-        Ok(if is_toolspec {
-            Divider::ItemCommaToolspecs
-        } else if is_function {
-            Divider::ItemCommaFunctions
-        } else {
-            Divider::ItemCommaContent
-        })
-    }
 
     /// Reset the internal state for a new content item
     /// # Errors
@@ -535,8 +448,62 @@ impl<W: Write> StructureBuilder<W> {
         };
 
         // Step 4: Begin section for regular content/function items
-        self.divider =
-            Self::maybe_begin_section(&mut self.writer, &self.divider, is_function, is_toolspec)?;
+        match (&self.divider, is_function) {
+            // First item in message, "content" or "tool_calls"
+            (Divider::ItemNone, false) => {
+                self.writer
+                    .write_all(b",\"content\":[\n")
+                    .map_err(|e| e.to_string())?;
+                self.divider = Divider::ItemCommaContent;
+            }
+            (Divider::ItemNone, true) => {
+                self.writer
+                    .write_all(b",\"tool_calls\":[\n")
+                    .map_err(|e| e.to_string())?;
+                self.divider = Divider::ItemCommaFunctions;
+            }
+            // Same section, just add comma
+            (Divider::ItemCommaContent, false) | (Divider::ItemCommaFunctions, true) => {
+                self.writer.write_all(b",\n").map_err(|e| e.to_string())?;
+            }
+            // Switch from "content" to "tool_calls"
+            (Divider::ItemCommaContent, true) => {
+                self.writer.write_all(b"]").map_err(|e| e.to_string())?;
+                self.writer
+                    .write_all(b",\"tool_calls\":[\n")
+                    .map_err(|e| e.to_string())?;
+                self.divider = Divider::ItemCommaFunctions;
+            }
+            // Switch from "tool_calls" to "content"
+            (Divider::ItemCommaFunctions, false) => {
+                self.writer.write_all(b"]").map_err(|e| e.to_string())?;
+                self.writer
+                    .write_all(b",\"content\":[\n")
+                    .map_err(|e| e.to_string())?;
+                self.divider = Divider::ItemCommaContent;
+            }
+            // Switch from "tools" to "content" or "tool_calls" (shouldn't happen since toolspecs are handled above)
+            (Divider::ItemCommaToolspecs, false) => {
+                self.writer.write_all(b"]").map_err(|e| e.to_string())?;
+                self.writer
+                    .write_all(b",\"content\":[\n")
+                    .map_err(|e| e.to_string())?;
+                self.divider = Divider::ItemCommaContent;
+            }
+            (Divider::ItemCommaToolspecs, true) => {
+                self.writer.write_all(b"]").map_err(|e| e.to_string())?;
+                self.writer
+                    .write_all(b",\"tool_calls\":[\n")
+                    .map_err(|e| e.to_string())?;
+                self.divider = Divider::ItemCommaFunctions;
+            }
+            _ => {
+                return Err(format!(
+                    "Internal error: Unexpected divider state for content/function item: {:?}, is_function: {}",
+                    self.divider, is_function
+                ));
+            }
+        }
 
         // Step 5: Write the item
         write!(self.writer, r#"{{"type":"#).map_err(|e| e.to_string())?;
