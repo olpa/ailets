@@ -102,17 +102,19 @@ impl<W: Write> StructureBuilder<W> {
     pub fn end(&mut self) -> Result<(), String> {
         match self.divider {
             Divider::Prologue => return Ok(()),
-            Divider::MessageComma
-            | Divider::ItemNone
+            Divider::ItemNone
             | Divider::ItemCommaContent
             | Divider::ItemCommaFunctions => {
                 self.end_messages()?;
+            }
+            Divider::MessageComma => {
+                // Messages are already closed, nothing to do
             }
             Divider::ItemCommaToolspecs => {
                 self.end_toolspecs()?;
             }
         }
-        self.writer.write_all(b"}\n").map_err(|e| e.to_string())?;
+        self.writer.write_all(b"}}\n").map_err(|e| e.to_string())?;
         self.divider = Divider::Prologue;
         Ok(())
     }
@@ -166,12 +168,19 @@ impl<W: Write> StructureBuilder<W> {
                     self.divider
                 ))
             }
-            Divider::ItemCommaContent | Divider::ItemCommaFunctions => {
+            Divider::ItemCommaContent => {
                 self.end_item()?;
+                // Close the content array
+                self.writer.write_all(b"\n]").map_err(|e| e.to_string())?;
+            }
+            Divider::ItemCommaFunctions => {
+                self.end_item()?;
+                // Close the tool_calls array
+                self.writer.write_all(b"\n]").map_err(|e| e.to_string())?;
             }
             Divider::ItemNone => {}
         }
-        self.writer.write_all(b"\n}").map_err(|e| e.to_string())?;
+        self.writer.write_all(b"}").map_err(|e| e.to_string())?;
         self.divider = Divider::Prologue; // Bad state, to be updated in `end_messages`
         Ok(())
     }
@@ -294,8 +303,22 @@ impl<W: Write> StructureBuilder<W> {
     /// I/O
     fn begin_message(&mut self, role: &str) -> Result<(), String> {
         self.want_messages()?;
-        self.end_messages()?; // Can update the divider
-        if self.divider == Divider::MessageComma {
+        
+        // If we're in a message, end the current message content first
+        let need_comma = match self.divider {
+            Divider::ItemCommaContent | Divider::ItemNone | Divider::ItemCommaFunctions => {
+                self.end_message_content()?;
+                // Fix the divider state that end_message_content sets to Prologue
+                self.divider = Divider::MessageComma;
+                true // We need a comma because we just completed a message
+            }
+            Divider::MessageComma => {
+                false // This is the first message, no comma needed
+            }
+            _ => return Err(format!("Invalid state for begin_message: {:?}", self.divider)),
+        };
+        
+        if need_comma {
             self.writer.write_all(b",").map_err(|e| e.to_string())?;
         }
 
@@ -304,8 +327,6 @@ impl<W: Write> StructureBuilder<W> {
         self.item_attr_mode = ItemAttrMode::RaiseError;
         Ok(())
     }
-
-
 
     /// Reset the internal state for a new content item
     /// # Errors
@@ -382,49 +403,10 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
-        /// Start output JSON object for a content item
+    /// Ensure we're in a state where we can write content items (text, image) or function calls
     /// # Errors
-    /// - I/O
-    /// - missing "type" attribute
-    fn really_begin_item(&mut self) -> Result<(), String> {
-        // Step 1: Extract needed values to avoid borrowing conflicts
-        let item_type = self
-            .item_attr
-            .as_ref()
-            .ok_or_else(|| "Missing 'type' attribute".to_string())?
-            .get("type")
-            .ok_or_else(|| "Missing 'type' attribute".to_string())?
-            .clone();
-        let is_function = item_type == "function";
-        let is_toolspec = item_type == "toolspec";
-
-        // Step 2: Ensure we're in the right state for this item type
-        if is_function {
-            self.want_tool_calls()?;
-        }
-        if is_toolspec {
-            self.want_toolspecs()?;
-            // Write the tool object structure
-            write!(self.writer, r#"{{"type":"function","function":"#).map_err(|e| e.to_string())?;
-            self.item_attr_mode = ItemAttrMode::Passthrough;
-            self.divider = Divider::ItemCommaToolspecs;
-            return Ok(());
-        }
-
-        // Step 3: Get attrs after state changes (needed for non-toolspec items)
-        let attrs = self
-            .item_attr
-            .as_ref()
-            .ok_or_else(|| "Missing 'type' attribute".to_string())?;
-
-
-
-        let item_type = match item_type.as_str() {
-            "image" => "image_url",
-            _ => &item_type,
-        };
-
-        // Step 4: Begin section for regular content/function items
+    /// I/O, state machine errors
+    fn want_content_item(&mut self, is_function: bool) -> Result<(), String> {
         match (&self.divider, is_function) {
             // First item in message, "content" or "tool_calls"
             (Divider::ItemNone, false) => {
@@ -467,6 +449,51 @@ impl<W: Write> StructureBuilder<W> {
                 ));
             }
         }
+        Ok(())
+    }
+
+    /// Start output JSON object for a content item
+    /// # Errors
+    /// - I/O
+    /// - missing "type" attribute
+    fn really_begin_item(&mut self) -> Result<(), String> {
+        // Step 1: Extract needed values to avoid borrowing conflicts
+        let item_type = self
+            .item_attr
+            .as_ref()
+            .ok_or_else(|| "Missing 'type' attribute".to_string())?
+            .get("type")
+            .ok_or_else(|| "Missing 'type' attribute".to_string())?
+            .clone();
+        let is_function = item_type == "function";
+        let is_toolspec = item_type == "toolspec";
+
+        // Step 2: Ensure we're in the right state for this item type
+        if is_function {
+            self.want_tool_calls()?;
+        }
+        if is_toolspec {
+            self.want_toolspecs()?;
+            // Write the tool object structure
+            write!(self.writer, r#"{{"type":"function","function":"#).map_err(|e| e.to_string())?;
+            self.item_attr_mode = ItemAttrMode::Passthrough;
+            self.divider = Divider::ItemCommaToolspecs;
+            return Ok(());
+        }
+
+        let item_type = match item_type.as_str() {
+            "image" => "image_url",
+            _ => &item_type,
+        };
+
+        // Step 3: Begin section for regular content/function items
+        self.want_content_item(is_function)?;
+
+        // Step 4: Get attrs after state changes (needed for non-toolspec items)
+        let attrs = self
+            .item_attr
+            .as_ref()
+            .ok_or_else(|| "Missing 'type' attribute".to_string())?;
 
         // Step 5: Write the item
         write!(self.writer, r#"{{"type":"#).map_err(|e| e.to_string())?;
