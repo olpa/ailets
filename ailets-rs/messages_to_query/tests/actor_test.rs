@@ -254,8 +254,8 @@ fn toolspec_by_key() {
         toolspec_content.as_bytes().to_vec(),
     );
     let input = format!(
-        r#"[{{"type": "ctl"}}, {{"role": "user"}}]
-           [{{"type": "toolspec"}}, {{"toolspec_key": "tools/get_user_name.json"}}]"#
+        r#"[{{"type": "toolspec"}}, {{"toolspec_key": "tools/get_user_name.json"}}]
+           [{{"type": "ctl"}}, {{"role": "user"}}]"#
     );
 
     let reader = Cursor::new(input);
@@ -269,7 +269,7 @@ fn toolspec_by_key() {
         .expect("Failed to parse output as JSON");
 
     let expected_tools = format!(r#"[{{"type":"function","function":{}}}]"#, toolspec_content);
-    let expected_item = format!(r#"[{{"role":"user","content":[]}}]"#);
+    let expected_item = format!(r#"[{{"role":"user"}}]"#);
     let expected = wrap_boilerplate(&expected_item);
     let expected_with_tools = inject_tools(&expected, &expected_tools);
     let expected_json = serde_json::from_str(&expected_with_tools)
