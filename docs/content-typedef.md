@@ -86,7 +86,10 @@ Inform an LLM about a tool (also called a "function") it can use. See the OpenAI
 
 For `toolspecs_key`, the tool specification is read from the given key.
 
-You should not mix toolspec items with content items like text or images. Instead, provide all `toolspec` items first, followed by all content items.
+You should not mix toolspec items with messages. Instead:
+
+- provide all `toolspec` items first,
+- then continue with messages.
 
 
 ## `ContentItemFunction`
