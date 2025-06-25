@@ -7,8 +7,8 @@ license.workspace = true
 
 [lib]
 # To run tests, two types are needed
-# crate-type = ["cdylib", "lib"]
-crate-type = ["lib"]
+crate-type = ["cdylib", "lib"]
+# crate-type = ["lib"]
 
 [dependencies]
 actor_io = { version = "0.1.0", path = "../actor_io" }
