@@ -780,8 +780,6 @@ fn happy_path_toolspecs() {
     //
     // Act
     //
-    begin_message(&mut builder, "user");
-
     builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
@@ -806,6 +804,7 @@ fn happy_path_toolspecs() {
     builder.end_toolspec().unwrap();
     builder.end_item().unwrap();
 
+    begin_message(&mut builder, "user");
     builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("text"))
@@ -863,7 +862,6 @@ fn toolspec_by_key() {
         toolspec_content.as_bytes().to_vec(),
     );
 
-    begin_message(&mut builder, "user");
     builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
@@ -874,11 +872,16 @@ fn toolspec_by_key() {
 
     let expected_toolspec_item =
         format!(r#"{{"type":"function","function":{}}}"#, toolspec_content);
-    let expected_tools = format!(r#"[_NL_{}_NL_]"#, expected_toolspec_item);
-    let expected_output = format!(r#"{{"role":"user"}}"#);
-    let expected = wrap_boilerplate(expected_output.as_str());
-    let expected_with_tools = inject_tools(&expected, &expected_tools);
-    assert_that!(writer.get_output(), equal_to(expected_with_tools));
+    let expected_tools = format!(r#"[{}]"#, expected_toolspec_item);
+    let expected = format!(
+        r#"{{ "url": "https://api.openai.com/v1/chat/completions",
+"method": "POST",
+"headers": {{ "Content-type": "application/json", "Authorization": "Bearer {{{{secret}}}}" }},
+"body": {{ "model": "gpt-4o-mini", "stream": true, "tools": {} }}}}
+"#,
+        expected_tools
+    );
+    assert_that!(writer.get_output(), equal_to(expected));
 }
 
 #[test]
@@ -887,7 +890,6 @@ fn toolspec_key_file_not_found() {
     let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
     let mut builder = builder;
 
-    begin_message(&mut builder, "user");
     builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))

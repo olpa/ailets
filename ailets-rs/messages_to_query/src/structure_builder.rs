@@ -135,8 +135,8 @@ impl<W: Write> StructureBuilder<W> {
                 self.end_item()?;
             }
         }
-        self.writer.write_all(b"]}").map_err(|e| e.to_string())?;
-        self.divider = Divider::Prologue;
+        self.writer.write_all(b"] ").map_err(|e| e.to_string())?;
+        self.divider = Divider::MessageComma;
         Ok(())
     }
 
@@ -421,6 +421,20 @@ impl<W: Write> StructureBuilder<W> {
                     .map_err(|e| e.to_string())?;
                 self.divider = Divider::ItemCommaContent;
             }
+            // Transition from toolspecs to content/function items
+            (Divider::ItemCommaToolspecs, _) => {
+                // Use want_messages to handle the transition from toolspecs to messages
+                self.want_messages()?;
+                // Now recursively call want_content_item to handle the content/function item
+                self.want_content_item(is_function)?;
+            }
+            // Start a new message when we're in MessageComma state
+            (Divider::MessageComma, _) => {
+                // Start a new user message (based on the test expectation)
+                self.begin_message("user")?;
+                // Now recursively call want_content_item to handle the content/function item
+                self.want_content_item(is_function)?;
+            }
 
             _ => {
                 return Err(format!(
@@ -703,16 +717,12 @@ impl<W: Write> StructureBuilder<W> {
         }
         self.add_item_attribute(String::from("type"), String::from("toolspec"))?;
         self.really_begin_item()?;
-
-        self.writer
-            .write_all(b",\"function\":")
-            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
     /// # Errors
     pub fn end_toolspec(&mut self) -> Result<(), String> {
-        self.writer.write_all(b"\"}").map_err(|e| e.to_string())?;
+        self.writer.write_all(b"}").map_err(|e| e.to_string())?;
         self.item_attr_mode = ItemAttrMode::RaiseError;
         Ok(())
     }
