@@ -157,7 +157,10 @@ async def prompt_to_dagops(
     last_role = None
     for prompt_item in annotated_prompt:
         role = prompt_item.role
-        if role != last_role:
+        if prompt_item.prompt_item.type == "tool":
+            role = None
+            last_role = None
+        if role != last_role and role is not None:
             role_to_messages(role)
             last_role = role
         await prompt_to_node(prompt_item.prompt_item)
