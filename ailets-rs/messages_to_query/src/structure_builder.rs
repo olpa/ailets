@@ -360,26 +360,6 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
-    /// Ensure we're in a state where we can write tool calls
-    /// # Errors
-    /// I/O, state machine errors
-    fn want_tool_calls(&mut self) -> Result<(), String> {
-        match self.divider {
-            Divider::Prologue => {
-                return Err("Cannot write tool calls without a message role".to_string());
-            }
-            Divider::MessageComma => {
-                return Err("Cannot write tool calls without a message role".to_string());
-            }
-            Divider::ItemCommaToolspecs => {
-                return Err("Cannot write tool calls while in tools section".to_string());
-            }
-            Divider::ItemNone | Divider::ItemCommaContent | Divider::ItemCommaFunctions => {
-                // We're in a message, ready for tool calls
-                Ok(())
-            }
-        }
-    }
 
     /// Ensure we're in a state where we can write toolspecs
     /// # Errors
@@ -465,14 +445,8 @@ impl<W: Write> StructureBuilder<W> {
             .get("type")
             .ok_or_else(|| "Missing 'type' attribute".to_string())?
             .clone();
-        let is_function = item_type == "function";
-        let is_toolspec = item_type == "toolspec";
 
-        // Step 2: Ensure we're in the right state for this item type
-        if is_function {
-            self.want_tool_calls()?;
-        }
-        if is_toolspec {
+        if item_type == "toolspec" {
             self.want_toolspecs()?;
             // Write the tool object structure
             write!(self.writer, r#"{{"type":"function","function":"#).map_err(|e| e.to_string())?;
@@ -487,6 +461,7 @@ impl<W: Write> StructureBuilder<W> {
         };
 
         // Step 3: Begin section for regular content/function items
+        let is_function = item_type == "function";
         self.want_content_item(is_function)?;
 
         // Step 4: Get attrs after state changes (needed for non-toolspec items)

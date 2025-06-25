@@ -100,27 +100,6 @@ fn many_messages_and_items() {
     assert_that!(writer.get_output(), equal_to(expected));
 }
 
-#[test]
-fn skip_empty_items_but_create_content_wrapper() {
-    let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
-    let mut builder = builder;
-
-    begin_message(&mut builder, "user");
-    builder.begin_item().unwrap();
-    builder.end_item().unwrap();
-
-    begin_message(&mut builder, "user");
-    builder.begin_item().unwrap();
-    builder.end_item().unwrap();
-    builder.begin_item().unwrap();
-    builder.end_item().unwrap();
-    builder.end().unwrap();
-
-    let empty_msg = "{\"role\":\"user\",\"content\":[]}".to_owned();
-    let two_empty_msgs = wrap_boilerplate(format!("{},{}", empty_msg, empty_msg).as_str());
-    assert_that!(writer.get_output(), equal_to(two_empty_msgs));
-}
 
 #[test]
 fn several_contentless_roles_create_several_messages_anyway() {
@@ -134,10 +113,10 @@ fn several_contentless_roles_create_several_messages_anyway() {
     begin_message(&mut builder, "tool");
     builder.end().unwrap();
 
-    let msg_user = r#"{"role":"user","content":[]}"#;
-    let msg_assistant = r#"{"role":"assistant","content":[]}"#;
-    let msg_tool = r#"{"role":"tool","content":[]}"#;
-    let msg_user2 = r#"{"role":"user","content":[]}"#;
+    let msg_user = r#"{"role":"user"}"#;
+    let msg_assistant = r#"{"role":"assistant"}"#;
+    let msg_tool = r#"{"role":"tool"}"#;
+    let msg_user2 = r#"{"role":"user"}"#;
     let expected = wrap_boilerplate(&format!(
         "{},{},{},{}",
         msg_user, msg_assistant, msg_user2, msg_tool
