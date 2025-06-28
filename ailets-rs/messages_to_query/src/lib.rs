@@ -125,7 +125,7 @@ fn create_end_triggers<'a, W: Write + 'a>(
 
 /// # Errors
 /// If anything goes wrong.
-pub fn _process_query<W: Write>(
+pub fn _process_messages<W: Write>(
     mut reader: impl std::io::Read,
     writer: W,
     env_opts: EnvOpts,
@@ -152,7 +152,7 @@ pub fn _process_query<W: Write>(
 /// # Panics
 /// If anything goes wrong.
 #[no_mangle]
-pub extern "C" fn process_query() -> *const c_char {
+pub extern "C" fn process_messages() -> *const c_char {
     let reader = AReader::new_from_std(StdHandle::Stdin);
     let writer = AWriter::new_from_std(StdHandle::Stdout);
 
@@ -167,7 +167,7 @@ pub extern "C" fn process_query() -> *const c_char {
         }
     };
 
-    if let Err(e) = _process_query(reader, writer, env_opts) {
+    if let Err(e) = _process_messages(reader, writer, env_opts) {
         return err_to_heap_c_string(extract_errno(&e), &format!("Messages to query: {e}"));
     }
     std::ptr::null()

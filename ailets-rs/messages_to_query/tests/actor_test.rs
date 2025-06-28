@@ -2,7 +2,7 @@
 extern crate hamcrest;
 use actor_runtime_mocked::{add_file, RcWriter};
 use hamcrest::prelude::*;
-use messages_to_query::_process_query;
+use messages_to_query::_process_messages;
 use messages_to_query::env_opts::EnvOpts;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -36,7 +36,7 @@ fn test_text_items() {
     let reader = Cursor::new(fixture_content.clone());
     let writer = RcWriter::new();
 
-    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
+    _process_messages(reader, writer.clone(), create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
 
@@ -60,7 +60,7 @@ fn special_symbols_in_text() {
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
 
-    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
+    _process_messages(reader, writer.clone(), create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
 
@@ -81,7 +81,7 @@ fn image_url_as_is() {
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
 
-    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
+    _process_messages(reader, writer.clone(), create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
 
@@ -100,7 +100,7 @@ fn image_as_key() {
     let writer = RcWriter::new();
     add_file(String::from("media/image-as-key-2.png"), b"hello".to_vec());
 
-    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
+    _process_messages(reader, writer.clone(), create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
 
@@ -119,7 +119,7 @@ fn mix_text_and_image() {
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
 
-    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
+    _process_messages(reader, writer.clone(), create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
 
@@ -142,7 +142,7 @@ fn regression_one_item_not_two() {
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
 
-    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
+    _process_messages(reader, writer.clone(), create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
 
@@ -160,7 +160,7 @@ fn function_call() {
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
 
-    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
+    _process_messages(reader, writer.clone(), create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
 
@@ -180,7 +180,7 @@ fn special_symbols_in_function_arguments() {
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
 
-    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
+    _process_messages(reader, writer.clone(), create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
 
@@ -220,7 +220,7 @@ fn tool_specification() {
     let reader = Cursor::new(input);
     let writer = RcWriter::new();
 
-    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
+    _process_messages(reader, writer.clone(), create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
 
@@ -262,7 +262,7 @@ fn toolspec_by_key() {
     let writer = RcWriter::new();
 
     // Act
-    _process_query(reader, writer.clone(), create_empty_env_opts()).unwrap();
+    _process_messages(reader, writer.clone(), create_empty_env_opts()).unwrap();
 
     // Assert
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())

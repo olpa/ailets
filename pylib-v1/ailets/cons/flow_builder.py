@@ -156,7 +156,7 @@ async def prompt_to_dagops(
     annotated_prompt = annotate_prompt(prompt)
     last_role = None
     for prompt_item in annotated_prompt:
-        role = prompt_item.role
+        role: Optional[str] = prompt_item.role
         if prompt_item.prompt_item.type == "tool":
             role = None
             last_role = None
