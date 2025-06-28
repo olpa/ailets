@@ -278,24 +278,39 @@ pub fn on_func_arguments<W: Write>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_toolspec<W: Write>(
-    rjiter_cell: &RefCell<RJiter>,
+/// Helper function to handle toolspec processing with a custom JSON source
+fn process_toolspec<W: Write, F>(
     builder_cell: &RefCell<StructureBuilder<W>>,
-) -> StreamOp {
+    json_source: F,
+) -> StreamOp
+where
+    F: FnOnce(&mut StructureBuilder<W>) -> Result<(), String>,
+{
     let mut builder = builder_cell.borrow_mut();
 
     if let Err(e) = builder.begin_toolspec() {
         return StreamOp::Error(e.into());
     }
-    let writer = builder.get_writer();
-    if let Err(e) = idtransform(rjiter_cell, writer) {
+
+    if let Err(e) = json_source(&mut builder) {
         return StreamOp::Error(e.into());
     }
+
     if let Err(e) = builder.end_toolspec() {
         return StreamOp::Error(e.into());
     }
 
     StreamOp::ValueIsConsumed
+}
+
+pub fn on_toolspec<W: Write>(
+    rjiter_cell: &RefCell<RJiter>,
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> StreamOp {
+    process_toolspec(builder_cell, |builder| {
+        let writer = builder.get_writer();
+        idtransform(rjiter_cell, writer).map_err(|e| e.to_string())
+    })
 }
 
 pub fn on_toolspec_key<W: Write>(
@@ -311,8 +326,6 @@ pub fn on_toolspec_key<W: Write>(
             );
         }
     };
-    if let Err(e) = builder_cell.borrow_mut().toolspec_key(key) {
-        return StreamOp::Error(e.into());
-    }
-    StreamOp::ValueIsConsumed
+
+    process_toolspec(builder_cell, |builder| builder.toolspec_key_internal(key))
 }

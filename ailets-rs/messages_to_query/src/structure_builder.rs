@@ -743,13 +743,21 @@ impl<W: Write> StructureBuilder<W> {
     /// - file not found
     /// - invalid JSON in file
     pub fn toolspec_key(&mut self, key: &str) -> Result<(), String> {
+        self.begin_toolspec()?;
+        self.toolspec_key_internal(key)?;
+        self.end_toolspec()
+    }
+
+    /// # Errors
+    /// - I/O
+    /// - file not found
+    /// - invalid JSON in file
+    pub(crate) fn toolspec_key_internal(&mut self, key: &str) -> Result<(), String> {
         let err_to_str = |e: std::io::Error| {
             let dyn_err: Box<dyn std::error::Error> = e.into();
             let annotated_error = annotate_error(dyn_err, format!("toolspec key `{key}`").as_str());
             annotated_error.to_string()
         };
-
-        self.begin_toolspec()?;
 
         let cname = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
         let mut blob_reader = AReader::new(&cname).map_err(err_to_str)?;
@@ -760,8 +768,6 @@ impl<W: Write> StructureBuilder<W> {
         let rjiter_cell = std::cell::RefCell::new(rjiter);
         let writer = self.get_writer();
         scan_json::idtransform::idtransform(&rjiter_cell, writer)
-            .map_err(|e| format!("toolspec key `{key}`: {e}"))?;
-
-        self.end_toolspec()
+            .map_err(|e| format!("toolspec key `{key}`: {e}"))
     }
 }
