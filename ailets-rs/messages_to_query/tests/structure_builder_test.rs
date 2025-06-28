@@ -1011,3 +1011,114 @@ fn several_toolspecs_to_one_block() {
     );
     assert_that!(writer.get_output(), equal_to(expected));
 }
+
+#[test]
+fn mix_toolspec_and_other_content() {
+    let writer = RcWriter::new();
+    let mut builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+
+    // 1. ctl-item to start a section
+    begin_message(&mut builder, "assistant");
+
+    // 2. a toolspec -> it should stop just started section and create "tools"
+    let toolspec1_content = r#"{"name":"tool1","description":"First tool"}"#;
+    builder.begin_item().unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("toolspec"))
+        .unwrap();
+    builder.begin_toolspec().unwrap();
+    builder
+        .get_writer()
+        .write_all(toolspec1_content.as_bytes())
+        .unwrap();
+    builder.end_toolspec().unwrap();
+    builder.end_item().unwrap();
+
+    // 3. some content: it should start "content"
+    builder.begin_item().unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("text"))
+        .unwrap();
+    builder.begin_text().unwrap();
+    write!(builder.get_writer(), "Some text content").unwrap();
+    builder.end_text().unwrap();
+    builder.end_item().unwrap();
+
+    // 4. another toolspec, so that another "tools" will be created
+    let toolspec2_content = r#"{"name":"tool2","description":"Second tool"}"#;
+    builder.begin_item().unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("toolspec"))
+        .unwrap();
+    builder.begin_toolspec().unwrap();
+    builder
+        .get_writer()
+        .write_all(toolspec2_content.as_bytes())
+        .unwrap();
+    builder.end_toolspec().unwrap();
+    builder.end_item().unwrap();
+
+    // 5. a tool call item: it should start "tool_calls"
+    builder.begin_item().unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("function"))
+        .unwrap();
+    builder
+        .add_item_attribute(String::from("name"), String::from("get_weather"))
+        .unwrap();
+    builder.begin_function_arguments().unwrap();
+    builder
+        .get_writer()
+        .write_all(br#"{\"location\":\"London\"}"#)
+        .unwrap();
+    builder.end_function_arguments().unwrap();
+    builder.end_item().unwrap();
+
+    builder.end().unwrap();
+
+    //
+    // Assert
+    //
+    let actual_output = writer.get_output();
+    println!("Actual output: {}", actual_output);
+
+    // Get the prefix (everything before "messages") from wrap_boilerplate
+    let mut prefix = wrap_boilerplate("").replace(r#""messages": []"#, "");
+    if let Some(idx) = prefix.find("\"stream\": true,") {
+        prefix = prefix[..idx + "\"stream\": true,".len()].to_string();
+    }
+
+    // Build expected output manually by concatenating parts
+    let expected_message1 = r#"{"role":"assistant"}"#;
+    let expected_tools1 = format!(
+        r#"[{{"type":"function","function":{}}}]"#,
+        toolspec1_content
+    );
+    let expected_message2 =
+        format!(r#"{{"role":"user","content":[{{"type":"text","text":"Some text content"}}]}}"#);
+    let expected_tools2 = format!(
+        r#"[{{"type":"function","function":{}}}]"#,
+        toolspec2_content
+    );
+    let expected_message3 = format!(
+        r#"{{"role":"user","tool_calls":[{{"type":"function","function":{{"name":"get_weather","arguments":"{{\"location\":\"London\"}}"}}}}]}}"#
+    );
+
+    // Concatenate all parts to build the expected output
+    let expected_final = format!(
+        "{} \"messages\": [{}], \"tools\": {}, \"messages\": [{}], \"tools\": {}, \"messages\": [{}]}}}}",
+        prefix,
+        expected_message1,
+        expected_tools1,
+        expected_message2,
+        expected_tools2,
+        expected_message3
+    );
+
+    // Compare after removing all whitespace
+    let strip_ws = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+    assert_that!(
+        strip_ws(&actual_output),
+        equal_to(strip_ws(&expected_final))
+    );
+}
