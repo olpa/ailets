@@ -939,3 +939,75 @@ fn toolspec_key_with_bad_json() {
         matches_regex("tools/bad_json.json")
     );
 }
+
+#[test]
+fn several_toolspecs_to_one_block() {
+    let writer = RcWriter::new();
+    let mut builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+
+    // Simple placeholder toolspecs (compact JSON)
+    let toolspec1_content = r#"{\"name\":\"tool1\",\"description\":\"First tool\"}"#;
+    let toolspec2_content = r#"{\"name\":\"tool2\",\"description\":\"Second tool\"}"#;
+    let toolspec3_content = r#"{\"name\":\"tool3\",\"description\":\"Third tool\"}"#;
+
+    //
+    // Act - Add several toolspecs to one block
+    //
+    builder.begin_item().unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("toolspec"))
+        .unwrap();
+    builder.begin_toolspec().unwrap();
+    builder
+        .get_writer()
+        .write_all(toolspec1_content.as_bytes())
+        .unwrap();
+    builder.end_toolspec().unwrap();
+    builder.end_item().unwrap();
+
+    builder.begin_item().unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("toolspec"))
+        .unwrap();
+    builder.begin_toolspec().unwrap();
+    builder
+        .get_writer()
+        .write_all(toolspec2_content.as_bytes())
+        .unwrap();
+    builder.end_toolspec().unwrap();
+    builder.end_item().unwrap();
+
+    builder.begin_item().unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("toolspec"))
+        .unwrap();
+    builder.begin_toolspec().unwrap();
+    builder
+        .get_writer()
+        .write_all(toolspec3_content.as_bytes())
+        .unwrap();
+    builder.end_toolspec().unwrap();
+    builder.end_item().unwrap();
+
+    builder.end().unwrap();
+
+    //
+    // Assert
+    //
+    let expected_tools = format!(
+        r#"[{{"type":"function","function":{}}},
+{{"type":"function","function":{}}},
+{{"type":"function","function":{}}}]"#,
+        toolspec1_content, toolspec2_content, toolspec3_content
+    );
+
+    let expected = format!(
+        r#"{{ "url": "https://api.openai.com/v1/chat/completions",
+"method": "POST",
+"headers": {{ "Content-type": "application/json", "Authorization": "Bearer {{{{secret}}}}" }},
+"body": {{ "model": "gpt-4o-mini", "stream": true, "tools": {} }}}}
+"#,
+        expected_tools
+    );
+    assert_that!(writer.get_output(), equal_to(expected));
+}

@@ -372,8 +372,8 @@ impl<W: Write> StructureBuilder<W> {
     fn want_toolspecs(&mut self) -> Result<(), String> {
         match self.divider {
             Divider::ItemCommaToolspecs => {
-                // Already in tools section, add comma for next toolspec
-                self.writer.write_all(b",").map_err(|e| e.to_string())?;
+                // Already in tools section, add comma and newline for next toolspec
+                self.writer.write_all(b",\n").map_err(|e| e.to_string())?;
                 return Ok(());
             }
             Divider::MessageComma
