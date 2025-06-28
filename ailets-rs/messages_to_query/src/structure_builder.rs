@@ -102,9 +102,7 @@ impl<W: Write> StructureBuilder<W> {
     pub fn end(&mut self) -> Result<(), String> {
         match self.divider {
             Divider::Prologue => return Ok(()),
-            Divider::ItemNone
-            | Divider::ItemCommaContent
-            | Divider::ItemCommaFunctions => {
+            Divider::ItemNone | Divider::ItemCommaContent | Divider::ItemCommaFunctions => {
                 self.end_messages()?;
             }
             Divider::MessageComma => {
@@ -160,9 +158,7 @@ impl<W: Write> StructureBuilder<W> {
 
     fn end_message_content(&mut self) -> Result<(), String> {
         match self.divider {
-            Divider::Prologue
-            | Divider::MessageComma
-            | Divider::ItemCommaToolspecs => {
+            Divider::Prologue | Divider::MessageComma | Divider::ItemCommaToolspecs => {
                 return Err(format!(
                     "Internal error: Wrong state {:?} to end message content",
                     self.divider
@@ -189,12 +185,10 @@ impl<W: Write> StructureBuilder<W> {
     /// I/O
     pub fn end_item(&mut self) -> Result<(), String> {
         match self.divider {
-            Divider::Prologue | Divider::MessageComma => {
-                return Err(format!(
-                    "Internal error: Wrong state {:?} to end item",
-                    self.divider
-                ));
-            }
+            Divider::Prologue | Divider::MessageComma => Err(format!(
+                "Internal error: Wrong state {:?} to end item",
+                self.divider
+            )),
             Divider::ItemNone => Ok(()), // Nothing to end when no item has been started
             Divider::ItemCommaContent
             | Divider::ItemCommaFunctions
@@ -303,7 +297,7 @@ impl<W: Write> StructureBuilder<W> {
     /// I/O
     fn begin_message(&mut self, role: &str) -> Result<(), String> {
         self.want_messages()?;
-        
+
         // If we're in a message, end the current message content first
         let need_comma = match self.divider {
             Divider::ItemCommaContent | Divider::ItemNone | Divider::ItemCommaFunctions => {
@@ -315,9 +309,14 @@ impl<W: Write> StructureBuilder<W> {
             Divider::MessageComma => {
                 false // This is the first message, no comma needed
             }
-            _ => return Err(format!("Invalid state for begin_message: {:?}", self.divider)),
+            _ => {
+                return Err(format!(
+                    "Invalid state for begin_message: {:?}",
+                    self.divider
+                ))
+            }
         };
-        
+
         if need_comma {
             self.writer.write_all(b",").map_err(|e| e.to_string())?;
         }
@@ -344,22 +343,28 @@ impl<W: Write> StructureBuilder<W> {
         match self.divider {
             Divider::Prologue => {
                 self.write_prologue()?;
-                self.writer.write_all(b", \"messages\": [").map_err(|e| e.to_string())?;
+                self.writer
+                    .write_all(b", \"messages\": [")
+                    .map_err(|e| e.to_string())?;
                 self.divider = Divider::MessageComma;
             }
             Divider::ItemCommaToolspecs => {
                 // Close tools section and start messages
                 self.writer.write_all(b"]").map_err(|e| e.to_string())?;
-                self.writer.write_all(b", \"messages\": [").map_err(|e| e.to_string())?;
+                self.writer
+                    .write_all(b", \"messages\": [")
+                    .map_err(|e| e.to_string())?;
                 self.divider = Divider::MessageComma;
             }
-            Divider::MessageComma | Divider::ItemNone | Divider::ItemCommaContent | Divider::ItemCommaFunctions => {
+            Divider::MessageComma
+            | Divider::ItemNone
+            | Divider::ItemCommaContent
+            | Divider::ItemCommaFunctions => {
                 // Already in messages section or in a message
             }
         }
         Ok(())
     }
-
 
     /// Ensure we're in a state where we can write toolspecs
     /// # Errors
@@ -371,14 +376,19 @@ impl<W: Write> StructureBuilder<W> {
                 self.writer.write_all(b",").map_err(|e| e.to_string())?;
                 return Ok(());
             }
-            Divider::MessageComma | Divider::ItemNone | Divider::ItemCommaContent | Divider::ItemCommaFunctions => {
+            Divider::MessageComma
+            | Divider::ItemNone
+            | Divider::ItemCommaContent
+            | Divider::ItemCommaFunctions => {
                 self.end_messages()?;
             }
             Divider::Prologue => {
                 self.write_prologue()?;
             }
         }
-        self.writer.write_all(b", \"tools\": [").map_err(|e| e.to_string())?;
+        self.writer
+            .write_all(b", \"tools\": [")
+            .map_err(|e| e.to_string())?;
         self.divider = Divider::ItemCommaToolspecs;
         Ok(())
     }
@@ -731,6 +741,7 @@ impl<W: Write> StructureBuilder<W> {
     /// - content item is not started
     /// - I/O
     /// - file not found
+    /// - invalid JSON in file
     pub fn toolspec_key(&mut self, key: &str) -> Result<(), String> {
         let err_to_str = |e: std::io::Error| {
             let dyn_err: Box<dyn std::error::Error> = e.into();
@@ -743,7 +754,13 @@ impl<W: Write> StructureBuilder<W> {
         let cname = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
         let mut blob_reader = AReader::new(&cname).map_err(err_to_str)?;
 
-        std::io::copy(&mut blob_reader, &mut self.writer).map_err(err_to_str)?;
+        // Create RJiter directly on the blob_reader
+        let mut buffer = [0u8; 1024];
+        let rjiter = scan_json::RJiter::new(&mut blob_reader, &mut buffer);
+        let rjiter_cell = std::cell::RefCell::new(rjiter);
+        let writer = self.get_writer();
+        scan_json::idtransform::idtransform(&rjiter_cell, writer)
+            .map_err(|e| format!("toolspec key `{key}`: {e}"))?;
 
         self.end_toolspec()
     }

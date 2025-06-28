@@ -100,7 +100,6 @@ fn many_messages_and_items() {
     assert_that!(writer.get_output(), equal_to(expected));
 }
 
-
 #[test]
 fn several_contentless_roles_create_several_messages_anyway() {
     let writer = RcWriter::new();
@@ -862,6 +861,9 @@ fn toolspec_by_key() {
         toolspec_content.as_bytes().to_vec(),
     );
 
+    //
+    // Act
+    //
     builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
@@ -870,8 +872,11 @@ fn toolspec_by_key() {
     builder.end_item().unwrap();
     builder.end().unwrap();
 
-    let expected_toolspec_item =
-        format!(r#"{{"type":"function","function":{}}}"#, toolspec_content);
+    //
+    // Assert
+    //
+    let compact_content = r#"{"name":"get_user_name","description":"Get the user's name. Call this whenever you need to know the name of the user.","strict":true,"parameters":{"type":"object","properties":{},"additionalProperties":false}}"#;
+    let expected_toolspec_item = format!(r#"{{"type":"function","function":{}}}"#, compact_content);
     let expected_tools = format!(r#"[{}]"#, expected_toolspec_item);
     let expected = format!(
         r#"{{ "url": "https://api.openai.com/v1/chat/completions",
@@ -902,5 +907,35 @@ fn toolspec_key_file_not_found() {
     assert_that!(
         err.to_string().as_str(),
         matches_regex("tools/nonexistent.json")
+    );
+}
+
+#[test]
+fn toolspec_key_with_bad_json() {
+    let writer = RcWriter::new();
+    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let mut builder = builder;
+
+    // Add a file with invalid JSON content
+    let bad_json_content = r#"{
+        "name": "get_user_name",
+        "description": bad json here.."#;
+    add_file(
+        String::from("tools/bad_json.json"),
+        bad_json_content.as_bytes().to_vec(),
+    );
+
+    builder.begin_item().unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("toolspec"))
+        .unwrap();
+
+    let result = builder.toolspec_key("tools/bad_json.json");
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert_that!(
+        err.to_string().as_str(),
+        matches_regex("tools/bad_json.json")
     );
 }
