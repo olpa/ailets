@@ -59,7 +59,7 @@ fn happy_path_for_text() {
     assert_that!(
         writer.get_output(),
         equal_to(wrap_boilerplate(
-            r#"{"role":"user","content":[_NL_{"type":"text","text":"Hello!"}_NL_]}"#
+            r#"{"role":"user",_NL_"content":[_NL_{"type":"text","text":"Hello!"}_NL_]}"#
         ))
     );
 }
@@ -94,7 +94,7 @@ fn many_messages_and_items() {
     let text_item2a = r#"{"type":"text","text":"First item of the second message"}"#;
     let text_item2b = r#"{"type":"text","text":"Second item of the second message"}"#;
     let expected = String::from(
-            r#"{"role":"user","content":[_NL__TI1__NL_]},{"role":"assistant","content":[_NL__TI2a_,_NL__TI2b__NL_]}"#
+            r#"{"role":"user",_NL_"content":[_NL__TI1__NL_]},{"role":"assistant",_NL_"content":[_NL__TI2a_,_NL__TI2b__NL_]}"#
         ).replace("_TI1_", text_item1).replace("_TI2a_", text_item2a).replace("_TI2b_", text_item2b);
     let expected = wrap_boilerplate(expected.as_str());
     assert_that!(writer.get_output(), equal_to(expected));
@@ -155,8 +155,9 @@ fn auto_generate_type_text() {
     builder.end_item().unwrap();
     builder.end().unwrap();
 
-    let expected =
-        wrap_boilerplate(r#"{"role":"user","content":[_NL_{"type":"text","text":"hello"}_NL_]}"#);
+    let expected = wrap_boilerplate(
+        r#"{"role":"user",_NL_"content":[_NL_{"type":"text","text":"hello"}_NL_]}"#,
+    );
     assert_that!(writer.get_output(), equal_to(expected));
 }
 
@@ -232,7 +233,7 @@ fn support_special_chars_and_unicode() {
 
     let expected = wrap_boilerplate(
         format!(
-            r#"{{"role":"user","content":[_NL_{{"type":"text","text":"{}"}}_NL_]}}"#,
+            r#"{{"role":"user",_NL_"content":[_NL_{{"type":"text","text":"{}"}}_NL_]}}"#,
             special_chars
         )
         .as_str(),
@@ -270,7 +271,7 @@ fn pass_preceding_attributes_to_text_output() {
         writer.get_output(),
         equal_to(wrap_boilerplate(
             format!(
-                r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
+                r#"{{"role":"user",_NL_"content":[_NL_{}_NL_]}}"#,
                 expected_text_item
             )
             .as_str()
@@ -305,7 +306,7 @@ fn pass_following_attributes_to_text_output() {
         writer.get_output(),
         equal_to(wrap_boilerplate(
             format!(
-                r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
+                r#"{{"role":"user",_NL_"content":[_NL_{}_NL_]}}"#,
                 expected_text_item
             )
             .as_str()
@@ -341,7 +342,7 @@ fn add_image_by_url() {
         writer.get_output(),
         equal_to(wrap_boilerplate(
             format!(
-                r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
+                r#"{{"role":"user",_NL_"content":[_NL_{}_NL_]}}"#,
                 expected_image_item
             )
             .as_str()
@@ -377,7 +378,7 @@ fn add_image_by_key() {
         writer.get_output(),
         equal_to(wrap_boilerplate(
             format!(
-                r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
+                r#"{{"role":"user",_NL_"content":[_NL_{}_NL_]}}"#,
                 expected_image_item
             )
             .as_str()
@@ -441,7 +442,7 @@ fn add_image_with_detail() {
         writer.get_output(),
         equal_to(wrap_boilerplate(
             format!(
-                r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
+                r#"{{"role":"user",_NL_"content":[_NL_{}_NL_]}}"#,
                 expected_image_item
             )
             .as_str()
@@ -483,7 +484,7 @@ fn image_key_with_adversarial_content_type() {
         writer.get_output(),
         equal_to(wrap_boilerplate(
             format!(
-                r#"{{"role":"user","content":[_NL_{}_NL_]}}"#,
+                r#"{{"role":"user",_NL_"content":[_NL_{}_NL_]}}"#,
                 expected_image_item
             )
             .as_str()
@@ -541,7 +542,7 @@ fn image_settings_dont_transfer() {
         writer.get_output(),
         equal_to(wrap_boilerplate(
             format!(
-                r#"{{"role":"user","content":[_NL_{},_NL_{}_NL_]}}"#,
+                r#"{{"role":"user",_NL_"content":[_NL_{},_NL_{}_NL_]}}"#,
                 expected_image1, expected_image2
             )
             .as_str()
@@ -598,7 +599,7 @@ fn mix_text_and_image_content() {
         r#"_NL_{},_NL_{},_NL_{}_NL_"#,
         text_item1, image_item, text_item2
     );
-    let expected_message = format!(r#"{{"role":"user","content":[{}]}}"#, expected_content);
+    let expected_message = format!(r#"{{"role":"user",_NL_"content":[{}]}}"#, expected_content);
     assert_that!(
         writer.get_output(),
         equal_to(wrap_boilerplate(expected_message.as_str()))
@@ -628,7 +629,7 @@ fn function_call() {
     builder.end_item().unwrap();
     builder.end().unwrap();
 
-    let expected_item = r#"{"role":"assistant","tool_calls":[_NL_{"type":"function","id":"id123","function":{"name":"get_weather","arguments":"foo,bar"}}_NL_]}"#;
+    let expected_item = r#"{"role":"assistant",_NL_"tool_calls":[_NL_{"type":"function","id":"id123","function":{"name":"get_weather","arguments":"foo,bar"}}_NL_]}"#;
     assert_that!(
         writer.get_output(),
         equal_to(wrap_boilerplate(expected_item))
@@ -745,11 +746,11 @@ fn mix_content_and_tool_calls() {
         r#"{"type":"function","function":{"name":"get_date","arguments":"{\"format\":\"ISO\"}"}}"#;
 
     let msg1 = format!(
-        r#"{{"role":"assistant","content":[_NL_{},_NL_{}],"tool_calls":[_NL_{}_NL_]}}"#,
+        r#"{{"role":"assistant",_NL_"content":[_NL_{},_NL_{}],_NL_"tool_calls":[_NL_{}_NL_]}}"#,
         msg1_text1, msg1_text2, msg1_fn
     );
     let msg2 = format!(
-        r#"{{"role":"user","content":[_NL_{}],"tool_calls":[_NL_{},_NL_{}_NL_]}}"#,
+        r#"{{"role":"user",_NL_"content":[_NL_{}],_NL_"tool_calls":[_NL_{},_NL_{}_NL_]}}"#,
         msg2_text, msg2_fn1, msg2_fn2
     );
     let expected = format!("{},{}", msg1, msg2);
@@ -832,7 +833,7 @@ fn happy_path_toolspecs() {
     }}]"#
     );
     let expected_item =
-        format!(r#"{{"role":"user","content":[{{"type":"text","text":"Hello!"}}]}}"#);
+        format!(r#"{{"role":"user",_NL_"content":[{{"type":"text","text":"Hello!"}}]}}"#);
     let expected = wrap_boilerplate(&expected_item);
     let expected_with_tools = inject_tools(&expected, &expected_tools);
     let expected_json = serde_json::from_str(&expected_with_tools)
@@ -882,7 +883,8 @@ fn toolspec_by_key() {
         r#"{{ "url": "https://api.openai.com/v1/chat/completions",
 "method": "POST",
 "headers": {{ "Content-type": "application/json", "Authorization": "Bearer {{{{secret}}}}" }},
-"body": {{ "model": "gpt-4o-mini", "stream": true, "tools": {} }}}}
+"body": {{ "model": "gpt-4o-mini", "stream": true,
+"tools": {} }}}}
 "#,
         expected_tools
     );
@@ -1005,7 +1007,8 @@ fn several_toolspecs_to_one_block() {
         r#"{{ "url": "https://api.openai.com/v1/chat/completions",
 "method": "POST",
 "headers": {{ "Content-type": "application/json", "Authorization": "Bearer {{{{secret}}}}" }},
-"body": {{ "model": "gpt-4o-mini", "stream": true, "tools": {} }}}}
+"body": {{ "model": "gpt-4o-mini", "stream": true,
+"tools": {} }}}}
 "#,
         expected_tools
     );
@@ -1094,19 +1097,26 @@ fn mix_toolspec_and_other_content() {
         r#"[{{"type":"function","function":{}}}]"#,
         toolspec1_content
     );
-    let expected_message2 =
-        format!(r#"{{"role":"user","content":[{{"type":"text","text":"Some text content"}}]}}"#);
+    let expected_message2 = format!(
+        r#"{{"role":"user",
+"content":[
+{{"type":"text","text":"Some text content"}}
+]}}"#
+    );
     let expected_tools2 = format!(
         r#"[{{"type":"function","function":{}}}]"#,
         toolspec2_content
     );
     let expected_message3 = format!(
-        r#"{{"role":"user","tool_calls":[{{"type":"function","function":{{"name":"get_weather","arguments":"{{\"location\":\"London\"}}"}}}}]}}"#
+        r#"{{"role":"user",
+"tool_calls":[
+{{"type":"function","function":{{"name":"get_weather","arguments":"{{\"location\":\"London\"}}"}}}}
+]}}"#
     );
 
     // Concatenate all parts to build the expected output
     let expected_final = format!(
-        "{} \"messages\": [{}], \"tools\": {}, \"messages\": [{}], \"tools\": {}, \"messages\": [{}]}}}}",
+        "{} \"messages\": [{}],\n\"tools\": {}, \"messages\": [{}],\n\"tools\": {}, \"messages\": [{}]}}}}\n",
         prefix,
         expected_message1,
         expected_tools1,
@@ -1115,10 +1125,5 @@ fn mix_toolspec_and_other_content() {
         expected_message3
     );
 
-    // Compare after removing all whitespace
-    let strip_ws = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
-    assert_that!(
-        strip_ws(&actual_output),
-        equal_to(strip_ws(&expected_final))
-    );
+    assert_that!(actual_output, equal_to(expected_final));
 }

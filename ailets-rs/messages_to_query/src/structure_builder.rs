@@ -387,7 +387,7 @@ impl<W: Write> StructureBuilder<W> {
             }
         }
         self.writer
-            .write_all(b", \"tools\": [")
+            .write_all(b",\n\"tools\": [")
             .map_err(|e| e.to_string())?;
         self.divider = Divider::ItemCommaToolspecs;
         Ok(())
@@ -401,13 +401,13 @@ impl<W: Write> StructureBuilder<W> {
             // First item in message, "content" or "tool_calls"
             (Divider::ItemNone, false) => {
                 self.writer
-                    .write_all(b",\"content\":[\n")
+                    .write_all(b",\n\"content\":[\n")
                     .map_err(|e| e.to_string())?;
                 self.divider = Divider::ItemCommaContent;
             }
             (Divider::ItemNone, true) => {
                 self.writer
-                    .write_all(b",\"tool_calls\":[\n")
+                    .write_all(b",\n\"tool_calls\":[\n")
                     .map_err(|e| e.to_string())?;
                 self.divider = Divider::ItemCommaFunctions;
             }
@@ -419,7 +419,7 @@ impl<W: Write> StructureBuilder<W> {
             (Divider::ItemCommaContent, true) => {
                 self.writer.write_all(b"]").map_err(|e| e.to_string())?;
                 self.writer
-                    .write_all(b",\"tool_calls\":[\n")
+                    .write_all(b",\n\"tool_calls\":[\n")
                     .map_err(|e| e.to_string())?;
                 self.divider = Divider::ItemCommaFunctions;
             }
@@ -427,7 +427,7 @@ impl<W: Write> StructureBuilder<W> {
             (Divider::ItemCommaFunctions, false) => {
                 self.writer.write_all(b"]").map_err(|e| e.to_string())?;
                 self.writer
-                    .write_all(b",\"content\":[\n")
+                    .write_all(b",\n\"content\":[\n")
                     .map_err(|e| e.to_string())?;
                 self.divider = Divider::ItemCommaContent;
             }
