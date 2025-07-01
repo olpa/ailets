@@ -167,7 +167,7 @@ pub fn _process_gpt<W: Write>(
         &rjiter_cell,
         &builder_cell,
         &scan_json::Options {
-            sse_tokens: sse_tokens,
+            sse_tokens,
             stop_early: false,
         },
     )?;
