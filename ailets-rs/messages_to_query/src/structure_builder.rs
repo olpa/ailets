@@ -292,24 +292,19 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
-    /// Called by `handle_role`
     /// # Errors
     /// I/O
     fn begin_message(&mut self, role: &str) -> Result<(), String> {
         self.want_messages()?;
 
-        // If we're in a message, end the current message content first
         let need_comma = match self.divider {
             Divider::ItemCommaContent | Divider::ItemNone | Divider::ItemCommaFunctions => {
                 self.end_message_content()?;
-                // Fix the divider state that end_message_content sets to Prologue
                 self.divider = Divider::MessageComma;
-                true // We need a comma because we just completed a message
+                true
             }
-            Divider::MessageComma => {
-                false // This is the first message, no comma needed
-            }
-            _ => {
+            Divider::MessageComma => false,
+            Divider::Prologue | Divider::ItemCommaToolspecs => {
                 return Err(format!(
                     "Invalid state for begin_message: {:?}",
                     self.divider
@@ -327,7 +322,6 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
-    /// Reset the internal state for a new content item
     /// # Errors
     /// I/O
     pub fn begin_item(&mut self) -> Result<(), String> {
@@ -336,7 +330,6 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
-    /// Ensure we're in a state where we can write messages
     /// # Errors
     /// I/O, state machine errors
     fn want_messages(&mut self) -> Result<(), String> {
@@ -359,20 +352,16 @@ impl<W: Write> StructureBuilder<W> {
             Divider::MessageComma
             | Divider::ItemNone
             | Divider::ItemCommaContent
-            | Divider::ItemCommaFunctions => {
-                // Already in messages section or in a message
-            }
+            | Divider::ItemCommaFunctions => {}
         }
         Ok(())
     }
 
-    /// Ensure we're in a state where we can write toolspecs
     /// # Errors
     /// I/O, state machine errors
     fn want_toolspecs(&mut self) -> Result<(), String> {
         match self.divider {
             Divider::ItemCommaToolspecs => {
-                // Already in tools section, add comma and newline for next toolspec
                 self.writer.write_all(b",\n").map_err(|e| e.to_string())?;
                 return Ok(());
             }
@@ -393,12 +382,10 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
-    /// Ensure we're in a state where we can write content items (text, image) or function calls
     /// # Errors
     /// I/O, state machine errors
     fn want_content_item(&mut self, is_function: bool) -> Result<(), String> {
         match (&self.divider, is_function) {
-            // First item in message, "content" or "tool_calls"
             (Divider::ItemNone, false) => {
                 self.writer
                     .write_all(b",\n\"content\":[\n")
@@ -433,16 +420,12 @@ impl<W: Write> StructureBuilder<W> {
             }
             // Transition from toolspecs to content/function items
             (Divider::ItemCommaToolspecs, _) => {
-                // Use want_messages to handle the transition from toolspecs to messages
                 self.want_messages()?;
-                // Now recursively call want_content_item to handle the content/function item
                 self.want_content_item(is_function)?;
             }
             // Start a new message when we're in MessageComma state
             (Divider::MessageComma, _) => {
-                // Start a new user message (based on the test expectation)
                 self.begin_message("user")?;
-                // Now recursively call want_content_item to handle the content/function item
                 self.want_content_item(is_function)?;
             }
 
@@ -456,11 +439,14 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
-    /// Start output JSON object for a content item
+    // ----------------------------------------------------
+    // Begin an item, end an item
+    //
+
     /// # Errors
     /// - I/O
     /// - missing "type" attribute
-    fn really_begin_item(&mut self) -> Result<(), String> {
+    fn begin_item_logic(&mut self) -> Result<(), String> {
         // Step 1: Extract needed values to avoid borrowing conflicts
         let item_type = self
             .item_attr
@@ -528,7 +514,7 @@ impl<W: Write> StructureBuilder<W> {
 
         if !is_ctl && !is_toolspec {
             if self.item_attr_mode == ItemAttrMode::Collect {
-                self.really_begin_item()?;
+                self.begin_item_logic()?;
             }
             self.writer.write_all(b"}").map_err(|e| e.to_string())?;
         }
@@ -613,7 +599,7 @@ impl<W: Write> StructureBuilder<W> {
             return Err("Content item is not started".to_string());
         }
         self.add_item_attribute(String::from("type"), String::from("text"))?;
-        self.really_begin_item()?;
+        self.begin_item_logic()?;
 
         write!(self.writer, r#","text":""#).map_err(|e| e.to_string())?;
         Ok(())
@@ -634,7 +620,7 @@ impl<W: Write> StructureBuilder<W> {
             return Err("Content item is not started".to_string());
         }
         self.add_item_attribute(String::from("type"), String::from("image"))?;
-        self.really_begin_item()?;
+        self.begin_item_logic()?;
 
         write!(self.writer, r#","image_url":{{"#).map_err(|e| e.to_string())?;
         if let Some(ref attrs) = self.item_attr {
@@ -703,7 +689,7 @@ impl<W: Write> StructureBuilder<W> {
             .ok_or_else(|| "Missing required 'name' attribute for 'type=function'".to_string())?;
 
         self.add_item_attribute(String::from("type"), String::from("function"))?;
-        self.really_begin_item()?;
+        self.begin_item_logic()?;
 
         write!(self.writer, r#","function":{{"name":"#).map_err(|e| e.to_string())?;
         serde_json::to_writer(&mut self.writer, &name).map_err(|e| e.to_string())?;
@@ -726,7 +712,7 @@ impl<W: Write> StructureBuilder<W> {
             return Err("Content item is not started".to_string());
         }
         self.add_item_attribute(String::from("type"), String::from("toolspec"))?;
-        self.really_begin_item()?;
+        self.begin_item_logic()?;
         Ok(())
     }
 
