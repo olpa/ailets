@@ -689,8 +689,6 @@ impl<W: Write> StructureBuilder<W> {
     /// - file not found
     /// - invalid JSON in file
     pub fn toolspec_key(&mut self, key: &str) -> Result<(), String> {
-        self.begin_toolspec_function()?;
-
         let err_to_str = |e: std::io::Error| {
             let dyn_err: Box<dyn std::error::Error> = e.into();
             let annotated_error = annotate_error(dyn_err, format!("toolspec key `{key}`").as_str());
@@ -701,14 +699,15 @@ impl<W: Write> StructureBuilder<W> {
         let mut buffer = [0u8; 1024];
         let rjiter = scan_json::RJiter::new(&mut blob_reader, &mut buffer);
         let rjiter_cell = std::cell::RefCell::new(rjiter);
-        let writer = self.get_writer();
-        scan_json::idtransform::idtransform(&rjiter_cell, writer)
-            .map_err(|e| format!("toolspec key `{key}`: {e}"))?;
-
-        self.end_toolspec_function()
+        
+        self.toolspec_rjiter(&rjiter_cell)
     }
 
-    pub fn begin_toolspec_function(&mut self) -> Result<(), String> {
+    /// # Errors
+    /// - content item is not started
+    /// - I/O
+    /// - invalid JSON in rjiter
+    pub fn toolspec_rjiter(&mut self, rjiter_cell: &std::cell::RefCell<scan_json::RJiter>) -> Result<(), String> {
         if let ItemAttrMode::RaiseError = self.item_attr_mode {
             return Err("Content item is not started".to_string());
         }
@@ -716,11 +715,12 @@ impl<W: Write> StructureBuilder<W> {
         self.begin_item_logic()?;
 
         write!(self.writer, r#","function":"#).map_err(|e| e.to_string())?;
-        Ok(())
-    }
+        
+        let writer = self.get_writer();
 
-    // Do nothing - just have a counterpart to begin_toolspec_function
-    pub fn end_toolspec_function(&mut self) -> Result<(), String> {
+        scan_json::idtransform::idtransform(rjiter_cell, writer)
+            .map_err(|e| format!("toolspec rjiter: {e}"))?;
+
         Ok(())
     }
 }

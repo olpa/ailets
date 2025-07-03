@@ -1,5 +1,4 @@
 use crate::structure_builder::StructureBuilder;
-use scan_json::idtransform::idtransform;
 use scan_json::rjiter::jiter::Peek;
 use scan_json::RJiter;
 use scan_json::StreamOp;
@@ -278,39 +277,15 @@ pub fn on_func_arguments<W: Write>(
     StreamOp::ValueIsConsumed
 }
 
-/// Helper function to handle toolspec processing with a custom JSON source
-fn process_toolspec<W: Write, F>(
-    builder_cell: &RefCell<StructureBuilder<W>>,
-    json_source: F,
-) -> StreamOp
-where
-    F: FnOnce(&mut StructureBuilder<W>) -> Result<(), String>,
-{
-    let mut builder = builder_cell.borrow_mut();
-
-    if let Err(e) = builder.begin_toolspec_function() {
-        return StreamOp::Error(e.into());
-    }
-
-    if let Err(e) = json_source(&mut builder) {
-        return StreamOp::Error(e.into());
-    }
-
-    if let Err(e) = builder.end_toolspec_function() {
-        return StreamOp::Error(e.into());
-    }
-
-    StreamOp::ValueIsConsumed
-}
-
 pub fn on_toolspec<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
-    process_toolspec(builder_cell, |builder| {
-        let writer = builder.get_writer();
-        idtransform(rjiter_cell, writer).map_err(|e| e.to_string())
-    })
+    let mut builder = builder_cell.borrow_mut();
+    if let Err(e) = builder.toolspec_rjiter(rjiter_cell) {
+        return StreamOp::Error(e.into());
+    }
+    StreamOp::ValueIsConsumed
 }
 
 pub fn on_toolspec_key<W: Write>(
@@ -327,5 +302,9 @@ pub fn on_toolspec_key<W: Write>(
         }
     };
 
-    process_toolspec(builder_cell, |builder| builder.toolspec_key(key))
+    let mut builder = builder_cell.borrow_mut();
+    if let Err(e) = builder.toolspec_key(key) {
+        return StreamOp::Error(e.into());
+    }
+    StreamOp::ValueIsConsumed
 }
