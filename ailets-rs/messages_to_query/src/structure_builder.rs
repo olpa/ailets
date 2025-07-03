@@ -97,6 +97,9 @@ impl<W: Write> StructureBuilder<W> {
     // - foo: end the level "foo"
     //
 
+    // Never call `end_item` to avoid infinite recursion.
+    // Let it be the responsibility of the client.
+
     /// # Errors
     /// I/O
     pub fn end(&mut self) -> Result<(), String> {
@@ -130,7 +133,7 @@ impl<W: Write> StructureBuilder<W> {
                 ))
             }
             Divider::ItemCommaToolspecs => {
-                self.end_item()?;
+                // not: self.end_item()?;
             }
         }
         self.writer.write_all(b"] ").map_err(|e| e.to_string())?;
@@ -165,12 +168,12 @@ impl<W: Write> StructureBuilder<W> {
                 ))
             }
             Divider::ItemCommaContent => {
-                self.end_item()?;
+                // not: self.end_item()?;
                 // Close the content array
                 self.writer.write_all(b"\n]").map_err(|e| e.to_string())?;
             }
             Divider::ItemCommaFunctions => {
-                self.end_item()?;
+                // not: self.end_item()?;
                 // Close the tool_calls array
                 self.writer.write_all(b"\n]").map_err(|e| e.to_string())?;
             }
