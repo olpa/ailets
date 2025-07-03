@@ -391,19 +391,22 @@ impl<W: Write> StructureBuilder<W> {
                 self.writer.write_all(b",\n").map_err(|e| e.to_string())?;
             }
             // The very beginning, write message content/function section
+            // Assume that the attribute `role` has been written already, therefore add a comma
             (Divider::ItemNone, false) => {
                 self.writer
-                    .write_all(b"\"content\":[\n")
+                    .write_all(b",\n\"content\":[\n")
                     .map_err(|e| e.to_string())?;
+                self.divider = Divider::ItemCommaContent;
             }
             (Divider::ItemNone, true) => {
                 self.writer
-                    .write_all(b"\"tool_calls\":[\n")
+                    .write_all(b",\n\"tool_calls\":[\n")
                     .map_err(|e| e.to_string())?;
+                self.divider = Divider::ItemCommaFunctions;
             }
             // Switch between "content" to "tool_calls"
             (Divider::ItemCommaContent, true) | (Divider::ItemCommaFunctions, false) => {
-                self.writer.write_all(b",\n").map_err(|e| e.to_string())?;
+                self.writer.write_all(b"]").map_err(|e| e.to_string())?;
                 self.divider = Divider::ItemNone;
                 self.want_message_item(is_function)?;
             }
