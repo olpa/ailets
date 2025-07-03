@@ -384,56 +384,36 @@ impl<W: Write> StructureBuilder<W> {
 
     /// # Errors
     /// I/O, state machine errors
-    fn want_content_item(&mut self, is_function: bool) -> Result<(), String> {
+    fn want_message_item(&mut self, is_function: bool) -> Result<(), String> {
         match (&self.divider, is_function) {
-            (Divider::ItemNone, false) => {
-                self.writer
-                    .write_all(b",\n\"content\":[\n")
-                    .map_err(|e| e.to_string())?;
-                self.divider = Divider::ItemCommaContent;
-            }
-            (Divider::ItemNone, true) => {
-                self.writer
-                    .write_all(b",\n\"tool_calls\":[\n")
-                    .map_err(|e| e.to_string())?;
-                self.divider = Divider::ItemCommaFunctions;
-            }
             // Same section, just add comma
             (Divider::ItemCommaContent, false) | (Divider::ItemCommaFunctions, true) => {
                 self.writer.write_all(b",\n").map_err(|e| e.to_string())?;
             }
-            // Switch from "content" to "tool_calls"
-            (Divider::ItemCommaContent, true) => {
-                self.writer.write_all(b"]").map_err(|e| e.to_string())?;
+            // The very beginning, write message content/function section
+            (Divider::ItemNone, false) => {
                 self.writer
-                    .write_all(b",\n\"tool_calls\":[\n")
+                    .write_all(b"\"content\":[\n")
                     .map_err(|e| e.to_string())?;
-                self.divider = Divider::ItemCommaFunctions;
             }
-            // Switch from "tool_calls" to "content"
-            (Divider::ItemCommaFunctions, false) => {
-                self.writer.write_all(b"]").map_err(|e| e.to_string())?;
+            (Divider::ItemNone, true) => {
                 self.writer
-                    .write_all(b",\n\"content\":[\n")
+                    .write_all(b"\"tool_calls\":[\n")
                     .map_err(|e| e.to_string())?;
-                self.divider = Divider::ItemCommaContent;
             }
-            // Transition from toolspecs to content/function items
-            (Divider::ItemCommaToolspecs, _) => {
-                self.want_messages()?;
-                self.want_content_item(is_function)?;
+            // Switch between "content" to "tool_calls"
+            (Divider::ItemCommaContent, true) | (Divider::ItemCommaFunctions, false) => {
+                self.writer.write_all(b",\n").map_err(|e| e.to_string())?;
+                self.divider = Divider::ItemNone;
+                self.want_message_item(is_function)?;
             }
-            // Start a new message when we're in MessageComma state
-            (Divider::MessageComma, _) => {
+            // Should start message first
+            (Divider::ItemCommaToolspecs, _)
+            | (Divider::MessageComma, _)
+            | (Divider::Prologue, _) => {
                 self.begin_message("user")?;
-                self.want_content_item(is_function)?;
-            }
-
-            _ => {
-                return Err(format!(
-                    "Internal error: Unexpected divider state for content/function item: {:?}, is_function: {}",
-                    self.divider, is_function
-                ));
+                self.divider = Divider::ItemNone;
+                self.want_message_item(is_function)?;
             }
         }
         Ok(())
@@ -471,7 +451,7 @@ impl<W: Write> StructureBuilder<W> {
             self.want_toolspecs()?;
         } else {
             let is_function = item_type == "function";
-            self.want_content_item(is_function)?;
+            self.want_message_item(is_function)?;
         }
 
         let attrs = self
