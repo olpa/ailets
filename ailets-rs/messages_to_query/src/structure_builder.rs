@@ -447,7 +447,7 @@ impl<W: Write> StructureBuilder<W> {
     /// - I/O
     /// - missing "type" attribute
     fn begin_item_logic(&mut self) -> Result<(), String> {
-        // Step 1: Extract needed values to avoid borrowing conflicts
+        // Extract needed values to avoid borrowing conflicts
         let item_type = self
             .item_attr
             .as_ref()
@@ -456,33 +456,32 @@ impl<W: Write> StructureBuilder<W> {
             .ok_or_else(|| "Missing 'type' attribute".to_string())?
             .clone();
 
-        if item_type == "toolspec" {
-            self.want_toolspecs()?;
-            // Write the tool object structure
-            write!(self.writer, r#"{{"type":"function","function":"#).map_err(|e| e.to_string())?;
-            self.item_attr_mode = ItemAttrMode::Passthrough;
-            self.divider = Divider::ItemCommaToolspecs;
-            return Ok(());
-        }
-
-        let item_type = match item_type.as_str() {
-            "image" => "image_url",
-            _ => &item_type,
+        // Need `write_item_type` to avoid collision on `function` for `tool_calls` and `toolspec`
+        let is_toolspec = item_type == "toolspec";
+        let write_item_type = if is_toolspec {
+            "function"
+        } else if item_type == "image" {
+            "image_url"
+        } else {
+            &item_type
         };
 
-        // Step 3: Begin section for regular content/function items
-        let is_function = item_type == "function";
-        self.want_content_item(is_function)?;
+        // Begin section for content/function items
+        if is_toolspec {
+            self.want_toolspecs()?;
+        } else {
+            let is_function = item_type == "function";
+            self.want_content_item(is_function)?;
+        }
 
-        // Step 4: Get attrs after state changes (needed for non-toolspec items)
         let attrs = self
             .item_attr
             .as_ref()
             .ok_or_else(|| "Missing 'type' attribute".to_string())?;
 
-        // Step 5: Write the item
+        // Write the item
         write!(self.writer, r#"{{"type":"#).map_err(|e| e.to_string())?;
-        serde_json::to_writer(&mut self.writer, item_type).map_err(|e| e.to_string())?;
+        serde_json::to_writer(&mut self.writer, write_item_type).map_err(|e| e.to_string())?;
 
         for (key, value) in attrs {
             if key == "type" {
@@ -505,14 +504,8 @@ impl<W: Write> StructureBuilder<W> {
             .as_ref()
             .and_then(|attrs| attrs.get("type"))
             .map_or(true, |t| t == "ctl");
-        // FIXME: looks wrong vibe conding
-        let is_toolspec = self
-            .item_attr
-            .as_ref()
-            .and_then(|attrs| attrs.get("type"))
-            .map_or(false, |t| t == "toolspec");
 
-        if !is_ctl && !is_toolspec {
+        if !is_ctl {
             if self.item_attr_mode == ItemAttrMode::Collect {
                 self.begin_item_logic()?;
             }
@@ -707,53 +700,41 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// - content item is not started
     /// - I/O
-    pub fn begin_toolspec(&mut self) -> Result<(), String> {
-        if let ItemAttrMode::RaiseError = self.item_attr_mode {
-            return Err("Content item is not started".to_string());
-        }
-        self.add_item_attribute(String::from("type"), String::from("toolspec"))?;
-        self.begin_item_logic()?;
-        Ok(())
-    }
-
-    /// # Errors
-    pub fn end_toolspec(&mut self) -> Result<(), String> {
-        self.writer.write_all(b"}").map_err(|e| e.to_string())?;
-        self.item_attr_mode = ItemAttrMode::RaiseError;
-        Ok(())
-    }
-
-    /// # Errors
-    /// - content item is not started
-    /// - I/O
     /// - file not found
     /// - invalid JSON in file
     pub fn toolspec_key(&mut self, key: &str) -> Result<(), String> {
-        self.begin_toolspec()?;
-        self.toolspec_key_internal(key)?;
-        self.end_toolspec()
-    }
+        self.begin_toolspec_function()?;
 
-    /// # Errors
-    /// - I/O
-    /// - file not found
-    /// - invalid JSON in file
-    pub(crate) fn toolspec_key_internal(&mut self, key: &str) -> Result<(), String> {
         let err_to_str = |e: std::io::Error| {
             let dyn_err: Box<dyn std::error::Error> = e.into();
             let annotated_error = annotate_error(dyn_err, format!("toolspec key `{key}`").as_str());
             annotated_error.to_string()
         };
-
         let cname = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
         let mut blob_reader = AReader::new(&cname).map_err(err_to_str)?;
-
-        // Create RJiter directly on the blob_reader
         let mut buffer = [0u8; 1024];
         let rjiter = scan_json::RJiter::new(&mut blob_reader, &mut buffer);
         let rjiter_cell = std::cell::RefCell::new(rjiter);
         let writer = self.get_writer();
         scan_json::idtransform::idtransform(&rjiter_cell, writer)
-            .map_err(|e| format!("toolspec key `{key}`: {e}"))
+            .map_err(|e| format!("toolspec key `{key}`: {e}"))?;
+
+        self.end_toolspec_function()
+    }
+
+    pub fn begin_toolspec_function(&mut self) -> Result<(), String> {
+        if let ItemAttrMode::RaiseError = self.item_attr_mode {
+            return Err("Content item is not started".to_string());
+        }
+        self.add_item_attribute(String::from("type"), String::from("toolspec"))?;
+        self.begin_item_logic()?;
+
+        write!(self.writer, r#","function":"#).map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    // Do nothing - just have a counterpart to begin_toolspec_function
+    pub fn end_toolspec_function(&mut self) -> Result<(), String> {
+        Ok(())
     }
 }

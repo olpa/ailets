@@ -784,24 +784,24 @@ fn happy_path_toolspecs() {
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.begin_toolspec().unwrap();
+    builder.begin_toolspec_function().unwrap();
     builder
         .get_writer()
         .write_all(get_user_name_fn.as_bytes())
         .unwrap();
-    builder.end_toolspec().unwrap();
+    builder.end_toolspec_function().unwrap();
     builder.end_item().unwrap();
 
     builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.begin_toolspec().unwrap();
+    builder.begin_toolspec_function().unwrap();
     builder
         .get_writer()
         .write_all(another_function_fn.as_bytes())
         .unwrap();
-    builder.end_toolspec().unwrap();
+    builder.end_toolspec_function().unwrap();
     builder.end_item().unwrap();
 
     begin_message(&mut builder, "user");
@@ -959,36 +959,36 @@ fn several_toolspecs_to_one_block() {
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.begin_toolspec().unwrap();
+    builder.begin_toolspec_function().unwrap();
     builder
         .get_writer()
         .write_all(toolspec1_content.as_bytes())
         .unwrap();
-    builder.end_toolspec().unwrap();
+    builder.end_toolspec_function().unwrap();
     builder.end_item().unwrap();
 
     builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.begin_toolspec().unwrap();
+    builder.begin_toolspec_function().unwrap();
     builder
         .get_writer()
         .write_all(toolspec2_content.as_bytes())
         .unwrap();
-    builder.end_toolspec().unwrap();
+    builder.end_toolspec_function().unwrap();
     builder.end_item().unwrap();
 
     builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.begin_toolspec().unwrap();
+    builder.begin_toolspec_function().unwrap();
     builder
         .get_writer()
         .write_all(toolspec3_content.as_bytes())
         .unwrap();
-    builder.end_toolspec().unwrap();
+    builder.end_toolspec_function().unwrap();
     builder.end_item().unwrap();
 
     builder.end().unwrap();
@@ -1029,12 +1029,12 @@ fn mix_toolspec_and_other_content() {
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.begin_toolspec().unwrap();
+    builder.begin_toolspec_function().unwrap();
     builder
         .get_writer()
         .write_all(toolspec1_content.as_bytes())
         .unwrap();
-    builder.end_toolspec().unwrap();
+    builder.end_toolspec_function().unwrap();
     builder.end_item().unwrap();
 
     // 3. some content: it should start "content"
@@ -1053,12 +1053,12 @@ fn mix_toolspec_and_other_content() {
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.begin_toolspec().unwrap();
+    builder.begin_toolspec_function().unwrap();
     builder
         .get_writer()
         .write_all(toolspec2_content.as_bytes())
         .unwrap();
-    builder.end_toolspec().unwrap();
+    builder.end_toolspec_function().unwrap();
     builder.end_item().unwrap();
 
     // 5. a tool call item: it should start "tool_calls"

@@ -288,7 +288,7 @@ where
 {
     let mut builder = builder_cell.borrow_mut();
 
-    if let Err(e) = builder.begin_toolspec() {
+    if let Err(e) = builder.begin_toolspec_function() {
         return StreamOp::Error(e.into());
     }
 
@@ -296,7 +296,7 @@ where
         return StreamOp::Error(e.into());
     }
 
-    if let Err(e) = builder.end_toolspec() {
+    if let Err(e) = builder.end_toolspec_function() {
         return StreamOp::Error(e.into());
     }
 
@@ -327,5 +327,5 @@ pub fn on_toolspec_key<W: Write>(
         }
     };
 
-    process_toolspec(builder_cell, |builder| builder.toolspec_key_internal(key))
+    process_toolspec(builder_cell, |builder| builder.toolspec_key(key))
 }
