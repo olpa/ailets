@@ -473,7 +473,7 @@ impl<W: Write> StructureBuilder<W> {
             if key == "type" {
                 continue;
             }
-            if item_type == "image_url" && (key == "detail" || key == "content_type") {
+            if item_type == "image" && (key == "detail" || key == "content_type") {
                 continue;
             }
             write!(self.writer, r#","{key}":"#).map_err(|e| e.to_string())?;
