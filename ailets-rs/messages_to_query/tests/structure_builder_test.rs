@@ -30,8 +30,6 @@ fn create_empty_env_opts() -> EnvOpts {
     EnvOpts::from_map(HashMap::new())
 }
 
-
-
 fn begin_message(builder: &mut StructureBuilder<RcWriter>, role: &str) {
     builder.begin_item().unwrap();
     builder
@@ -1029,7 +1027,7 @@ fn mix_toolspec_and_other_content() {
 
     let toolspec1_content = r#"{"name":"tool1","description":"First tool"}"#;
     let toolspec2_content = r#"{"name":"tool2","description":"Second tool"}"#;
-    
+
     let mut cursor1 = Cursor::new(toolspec1_content.as_bytes().to_vec());
     let mut buffer1 = [0u8; 1024];
     let rjiter1 = scan_json::RJiter::new(&mut cursor1, &mut buffer1);

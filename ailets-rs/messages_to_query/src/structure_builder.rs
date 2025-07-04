@@ -101,7 +101,7 @@ impl<W: Write> StructureBuilder<W> {
     // Let it be the responsibility of the client.
 
     /// # Errors
-    /// I/O
+    /// I/O, state machine errors
     pub fn end(&mut self) -> Result<(), String> {
         match self.divider {
             Divider::Prologue => return Ok(()),
@@ -185,7 +185,7 @@ impl<W: Write> StructureBuilder<W> {
     }
 
     /// # Errors
-    /// I/O
+    /// I/O, state machine errors
     pub fn end_item(&mut self) -> Result<(), String> {
         match self.divider {
             Divider::Prologue | Divider::MessageComma => Err(format!(
@@ -296,7 +296,7 @@ impl<W: Write> StructureBuilder<W> {
     }
 
     /// # Errors
-    /// I/O
+    /// I/O, state machine errors
     fn begin_message(&mut self, role: &str) -> Result<(), String> {
         self.want_messages()?;
 
@@ -326,7 +326,7 @@ impl<W: Write> StructureBuilder<W> {
     }
 
     /// # Errors
-    /// I/O
+    /// I/O, state machine errors
     pub fn begin_item(&mut self) -> Result<(), String> {
         self.item_attr_mode = ItemAttrMode::Collect;
         self.item_attr = None;
@@ -414,9 +414,7 @@ impl<W: Write> StructureBuilder<W> {
                 self.want_message_item(is_function)?;
             }
             // Should start message first
-            (Divider::ItemCommaToolspecs, _)
-            | (Divider::MessageComma, _)
-            | (Divider::Prologue, _) => {
+            (Divider::ItemCommaToolspecs | Divider::MessageComma | Divider::Prologue, _) => {
                 self.begin_message("user")?;
                 self.divider = Divider::ItemNone;
                 self.want_message_item(is_function)?;
@@ -430,7 +428,7 @@ impl<W: Write> StructureBuilder<W> {
     //
 
     /// # Errors
-    /// - I/O
+    /// - I/O, state machine errors
     /// - missing "type" attribute
     fn begin_item_logic(&mut self) -> Result<(), String> {
         // Extract needed values to avoid borrowing conflicts
@@ -508,8 +506,7 @@ impl<W: Write> StructureBuilder<W> {
     //
 
     /// # Errors
-    /// - content item is not started
-    /// - I/O
+    /// - I/O, state machine errors
     pub fn handle_role(&mut self, role: &str) -> Result<(), String> {
         if let ItemAttrMode::RaiseError = self.item_attr_mode {
             return Err("Content item is not started".to_string());
@@ -531,9 +528,8 @@ impl<W: Write> StructureBuilder<W> {
     }
 
     /// # Errors
-    /// - content item is not started
+    /// - I/O, state machine errors
     /// - for "type" attribute, the value is unknown or conflicting with the already typed item
-    /// - I/O
     pub fn add_item_attribute(&mut self, key: String, value: String) -> Result<(), String> {
         if let ItemAttrMode::RaiseError = self.item_attr_mode {
             return Err("Content item is not started".to_string());
@@ -571,8 +567,7 @@ impl<W: Write> StructureBuilder<W> {
     }
 
     /// # Errors
-    /// - content item is not started
-    /// - I/O
+    /// - I/O, state machine errors
     pub fn begin_text(&mut self) -> Result<(), String> {
         if let ItemAttrMode::RaiseError = self.item_attr_mode {
             return Err("Content item is not started".to_string());
@@ -585,15 +580,14 @@ impl<W: Write> StructureBuilder<W> {
     }
 
     /// # Errors
-    /// - I/O
+    /// - I/O, state machine errors
     pub fn end_text(&mut self) -> Result<(), String> {
         write!(self.writer, "\"").map_err(|e| e.to_string())?;
         Ok(())
     }
 
     /// # Errors
-    /// - content item is not started
-    /// - I/O
+    /// - I/O, state machine errors
     pub fn begin_image_url(&mut self) -> Result<(), String> {
         if let ItemAttrMode::RaiseError = self.item_attr_mode {
             return Err("Content item is not started".to_string());
@@ -614,15 +608,14 @@ impl<W: Write> StructureBuilder<W> {
     }
 
     /// # Errors
-    /// - I/O
+    /// - I/O, state machine errors
     pub fn end_image_url(&mut self) -> Result<(), String> {
         write!(self.writer, r#""}}"#).map_err(|e| e.to_string())?;
         Ok(())
     }
 
     /// # Errors
-    /// - content item is not started
-    /// - I/O
+    /// - I/O, state machine errors
     pub fn image_key(&mut self, key: &str) -> Result<(), String> {
         let err_to_str = |e: std::io::Error| {
             let dyn_err: Box<dyn std::error::Error> = e.into();
@@ -654,8 +647,7 @@ impl<W: Write> StructureBuilder<W> {
     }
 
     /// # Errors
-    /// - content item is not started
-    /// - I/O
+    /// - I/O, state machine errors
     pub fn begin_function_arguments(&mut self) -> Result<(), String> {
         if let ItemAttrMode::RaiseError = self.item_attr_mode {
             return Err("Content item is not started".to_string());
@@ -677,15 +669,15 @@ impl<W: Write> StructureBuilder<W> {
     }
 
     /// # Errors
-    /// - I/O
+    /// - I/O, state machine errors
     pub fn end_function_arguments(&mut self) -> Result<(), String> {
         self.writer.write_all(b"\"}").map_err(|e| e.to_string())?;
         Ok(())
     }
 
     /// # Errors
-    /// - content item is not started
     /// - I/O
+    /// - state machine errors
     /// - file not found
     /// - invalid JSON in file
     pub fn toolspec_key(&mut self, key: &str) -> Result<(), String> {
@@ -699,23 +691,30 @@ impl<W: Write> StructureBuilder<W> {
         let mut buffer = [0u8; 1024];
         let rjiter = scan_json::RJiter::new(&mut blob_reader, &mut buffer);
         let rjiter_cell = std::cell::RefCell::new(rjiter);
-        
+
         self.toolspec_rjiter_with_key(&rjiter_cell, Some(key))
     }
 
     /// # Errors
-    /// - content item is not started
     /// - I/O
+    /// - state machine errors
     /// - invalid JSON in rjiter
-    pub fn toolspec_rjiter(&mut self, rjiter_cell: &std::cell::RefCell<scan_json::RJiter>) -> Result<(), String> {
+    pub fn toolspec_rjiter(
+        &mut self,
+        rjiter_cell: &std::cell::RefCell<scan_json::RJiter>,
+    ) -> Result<(), String> {
         self.toolspec_rjiter_with_key(rjiter_cell, None)
     }
 
     /// # Errors
-    /// - content item is not started
     /// - I/O
+    /// - state machine errors
     /// - invalid JSON in rjiter
-    fn toolspec_rjiter_with_key(&mut self, rjiter_cell: &std::cell::RefCell<scan_json::RJiter>, key: Option<&str>) -> Result<(), String> {
+    fn toolspec_rjiter_with_key(
+        &mut self,
+        rjiter_cell: &std::cell::RefCell<scan_json::RJiter>,
+        key: Option<&str>,
+    ) -> Result<(), String> {
         if let ItemAttrMode::RaiseError = self.item_attr_mode {
             return Err("Content item is not started".to_string());
         }
@@ -723,7 +722,7 @@ impl<W: Write> StructureBuilder<W> {
         self.begin_item_logic()?;
 
         write!(self.writer, r#","function":"#).map_err(|e| e.to_string())?;
-        
+
         let writer = self.get_writer();
 
         let error_prefix = if let Some(k) = key {
