@@ -211,7 +211,13 @@ fn inject_tool_calls_to_dag() {
     //
     let (handle_rerun, rerun_workflow, deps_rerun) = tracked_dagops.parse_workflow(&workflows[4]);
     assert_that!(rerun_workflow, is(equal_to(format!(".gpt"))));
-    assert_that!(deps_rerun, is(equal_to(HashMap::from([]))));
+    assert_that!(
+        deps_rerun,
+        is(equal_to(HashMap::from([
+            (".chat_messages.media".to_string(), 0),
+            (".chat_messages.toolspecs".to_string(), 0),
+        ])))
+    );
 
     //
     // Assert: aliases

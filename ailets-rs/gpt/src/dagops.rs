@@ -125,7 +125,14 @@ pub fn inject_tool_calls(
     }
 
     // Rerun model
-    let rerun_handle = dagops.instantiate_with_deps(".gpt", HashMap::new().into_iter())?;
+    let rerun_handle = dagops.instantiate_with_deps(
+        ".gpt",
+        HashMap::from([
+            (".chat_messages.media".to_string(), 0),
+            (".chat_messages.toolspecs".to_string(), 0),
+        ])
+        .into_iter(),
+    )?;
     dagops.alias(".model_output", rerun_handle)?;
 
     Ok(())
