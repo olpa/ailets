@@ -7,7 +7,7 @@ use messages_to_query::env_opts::EnvOpts;
 use messages_to_query::structure_builder::StructureBuilder;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::io::Write;
+use std::io::{Cursor, Write};
 
 fn wrap_boilerplate(s: &str) -> String {
     let s1 = r#"{ "url": "https://api.openai.com/v1/chat/completions","#;
@@ -29,6 +29,8 @@ fn inject_tools(payload: &str, tools: &str) -> String {
 fn create_empty_env_opts() -> EnvOpts {
     EnvOpts::from_map(HashMap::new())
 }
+
+
 
 fn begin_message(builder: &mut StructureBuilder<RcWriter>, role: &str) {
     builder.begin_item().unwrap();
@@ -777,6 +779,16 @@ fn happy_path_toolspecs() {
         "name": "another_function", "foo": "bar"
     }"#;
 
+    let mut cursor1 = Cursor::new(get_user_name_fn.as_bytes().to_vec());
+    let mut buffer1 = [0u8; 1024];
+    let rjiter1 = scan_json::RJiter::new(&mut cursor1, &mut buffer1);
+    let rjiter_cell_1 = std::cell::RefCell::new(rjiter1);
+
+    let mut cursor2 = Cursor::new(another_function_fn.as_bytes().to_vec());
+    let mut buffer2 = [0u8; 1024];
+    let rjiter2 = scan_json::RJiter::new(&mut cursor2, &mut buffer2);
+    let rjiter_cell_2 = std::cell::RefCell::new(rjiter2);
+
     //
     // Act
     //
@@ -784,24 +796,14 @@ fn happy_path_toolspecs() {
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.begin_toolspec_function().unwrap();
-    builder
-        .get_writer()
-        .write_all(get_user_name_fn.as_bytes())
-        .unwrap();
-    builder.end_toolspec_function().unwrap();
+    builder.toolspec_rjiter(&rjiter_cell_1).unwrap();
     builder.end_item().unwrap();
 
     builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.begin_toolspec_function().unwrap();
-    builder
-        .get_writer()
-        .write_all(another_function_fn.as_bytes())
-        .unwrap();
-    builder.end_toolspec_function().unwrap();
+    builder.toolspec_rjiter(&rjiter_cell_2).unwrap();
     builder.end_item().unwrap();
 
     begin_message(&mut builder, "user");
@@ -862,6 +864,11 @@ fn toolspec_by_key() {
         toolspec_content.as_bytes().to_vec(),
     );
 
+    let mut cursor = Cursor::new(toolspec_content.as_bytes().to_vec());
+    let mut buffer = [0u8; 1024];
+    let rjiter = scan_json::RJiter::new(&mut cursor, &mut buffer);
+    let rjiter_cell = std::cell::RefCell::new(rjiter);
+
     //
     // Act
     //
@@ -869,7 +876,7 @@ fn toolspec_by_key() {
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.toolspec_key("tools/get_user_name.json").unwrap();
+    builder.toolspec_rjiter(&rjiter_cell).unwrap();
     builder.end_item().unwrap();
     builder.end().unwrap();
 
@@ -947,10 +954,25 @@ fn several_toolspecs_to_one_block() {
     let writer = RcWriter::new();
     let mut builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
 
-    // Simple placeholder toolspecs (compact JSON)
-    let toolspec1_content = r#"{\"name\":\"tool1\",\"description\":\"First tool\"}"#;
-    let toolspec2_content = r#"{\"name\":\"tool2\",\"description\":\"Second tool\"}"#;
-    let toolspec3_content = r#"{\"name\":\"tool3\",\"description\":\"Third tool\"}"#;
+    // Simple placeholder toolspecs (valid JSON)
+    let toolspec1_content = r#"{"name":"tool1","description":"First tool"}"#;
+    let toolspec2_content = r#"{"name":"tool2","description":"Second tool"}"#;
+    let toolspec3_content = r#"{"name":"tool3","description":"Third tool"}"#;
+
+    let mut cursor1 = Cursor::new(toolspec1_content.as_bytes().to_vec());
+    let mut buffer1 = [0u8; 1024];
+    let rjiter1 = scan_json::RJiter::new(&mut cursor1, &mut buffer1);
+    let rjiter_cell_1 = std::cell::RefCell::new(rjiter1);
+
+    let mut cursor2 = Cursor::new(toolspec2_content.as_bytes().to_vec());
+    let mut buffer2 = [0u8; 1024];
+    let rjiter2 = scan_json::RJiter::new(&mut cursor2, &mut buffer2);
+    let rjiter_cell_2 = std::cell::RefCell::new(rjiter2);
+
+    let mut cursor3 = Cursor::new(toolspec3_content.as_bytes().to_vec());
+    let mut buffer3 = [0u8; 1024];
+    let rjiter3 = scan_json::RJiter::new(&mut cursor3, &mut buffer3);
+    let rjiter_cell_3 = std::cell::RefCell::new(rjiter3);
 
     //
     // Act - Add several toolspecs to one block
@@ -959,36 +981,21 @@ fn several_toolspecs_to_one_block() {
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.begin_toolspec_function().unwrap();
-    builder
-        .get_writer()
-        .write_all(toolspec1_content.as_bytes())
-        .unwrap();
-    builder.end_toolspec_function().unwrap();
+    builder.toolspec_rjiter(&rjiter_cell_1).unwrap();
     builder.end_item().unwrap();
 
     builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.begin_toolspec_function().unwrap();
-    builder
-        .get_writer()
-        .write_all(toolspec2_content.as_bytes())
-        .unwrap();
-    builder.end_toolspec_function().unwrap();
+    builder.toolspec_rjiter(&rjiter_cell_2).unwrap();
     builder.end_item().unwrap();
 
     builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.begin_toolspec_function().unwrap();
-    builder
-        .get_writer()
-        .write_all(toolspec3_content.as_bytes())
-        .unwrap();
-    builder.end_toolspec_function().unwrap();
+    builder.toolspec_rjiter(&rjiter_cell_3).unwrap();
     builder.end_item().unwrap();
 
     builder.end().unwrap();
@@ -1020,21 +1027,32 @@ fn mix_toolspec_and_other_content() {
     let writer = RcWriter::new();
     let mut builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
 
+    let toolspec1_content = r#"{"name":"tool1","description":"First tool"}"#;
+    let toolspec2_content = r#"{"name":"tool2","description":"Second tool"}"#;
+    
+    let mut cursor1 = Cursor::new(toolspec1_content.as_bytes().to_vec());
+    let mut buffer1 = [0u8; 1024];
+    let rjiter1 = scan_json::RJiter::new(&mut cursor1, &mut buffer1);
+    let rjiter_cell_1 = std::cell::RefCell::new(rjiter1);
+
+    let mut cursor2 = Cursor::new(toolspec2_content.as_bytes().to_vec());
+    let mut buffer2 = [0u8; 1024];
+    let rjiter2 = scan_json::RJiter::new(&mut cursor2, &mut buffer2);
+    let rjiter_cell_2 = std::cell::RefCell::new(rjiter2);
+
+    //
+    // Act
+    //
+
     // 1. ctl-item to start a section
     begin_message(&mut builder, "assistant");
 
     // 2. a toolspec -> it should stop just started section and create "tools"
-    let toolspec1_content = r#"{"name":"tool1","description":"First tool"}"#;
     builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.begin_toolspec_function().unwrap();
-    builder
-        .get_writer()
-        .write_all(toolspec1_content.as_bytes())
-        .unwrap();
-    builder.end_toolspec_function().unwrap();
+    builder.toolspec_rjiter(&rjiter_cell_1).unwrap();
     builder.end_item().unwrap();
 
     // 3. some content: it should start "content"
@@ -1048,17 +1066,11 @@ fn mix_toolspec_and_other_content() {
     builder.end_item().unwrap();
 
     // 4. another toolspec, so that another "tools" will be created
-    let toolspec2_content = r#"{"name":"tool2","description":"Second tool"}"#;
     builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.begin_toolspec_function().unwrap();
-    builder
-        .get_writer()
-        .write_all(toolspec2_content.as_bytes())
-        .unwrap();
-    builder.end_toolspec_function().unwrap();
+    builder.toolspec_rjiter(&rjiter_cell_2).unwrap();
     builder.end_item().unwrap();
 
     // 5. a tool call item: it should start "tool_calls"

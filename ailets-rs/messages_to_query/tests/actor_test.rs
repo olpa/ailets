@@ -211,10 +211,10 @@ fn tool_specification() {
     }"#;
 
     let input = format!(
-        r#"[{{"type": "ctl"}}, {{"role": "user"}}]
-                   [{{"type": "toolspec"}}, {{"toolspec": {get_user_name_function}}}]
-                   [{{"type": "toolspec"}}, {{"toolspec": {another_function}}}]
-                   [{{"type": "text"}}, {{"text": "Hello!"}}]"#
+        r#"[{{"type": "toolspec"}}, {{"toolspec": {get_user_name_function}}}]
+           [{{"type": "toolspec"}}, {{"toolspec": {another_function}}}]
+           [{{"type": "ctl"}}, {{"role": "user"}}]
+           [{{"type": "text"}}, {{"text": "Hello!"}}]"#
     );
 
     let reader = Cursor::new(input);
@@ -253,10 +253,9 @@ fn toolspec_by_key() {
         String::from("tools/get_user_name.json"),
         toolspec_content.as_bytes().to_vec(),
     );
-    let input = format!(
-        r#"[{{"type": "toolspec"}}, {{"toolspec_key": "tools/get_user_name.json"}}]
-           [{{"type": "ctl"}}, {{"role": "user"}}]"#
-    );
+    let input = r#"[{"type": "toolspec"}, {"toolspec_key": "tools/get_user_name.json"}]
+           [{"type": "ctl"}, {"role": "user"}]
+           "#;
 
     let reader = Cursor::new(input);
     let writer = RcWriter::new();

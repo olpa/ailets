@@ -700,7 +700,7 @@ impl<W: Write> StructureBuilder<W> {
         let rjiter = scan_json::RJiter::new(&mut blob_reader, &mut buffer);
         let rjiter_cell = std::cell::RefCell::new(rjiter);
         
-        self.toolspec_rjiter(&rjiter_cell)
+        self.toolspec_rjiter_with_key(&rjiter_cell, Some(key))
     }
 
     /// # Errors
@@ -708,6 +708,14 @@ impl<W: Write> StructureBuilder<W> {
     /// - I/O
     /// - invalid JSON in rjiter
     pub fn toolspec_rjiter(&mut self, rjiter_cell: &std::cell::RefCell<scan_json::RJiter>) -> Result<(), String> {
+        self.toolspec_rjiter_with_key(rjiter_cell, None)
+    }
+
+    /// # Errors
+    /// - content item is not started
+    /// - I/O
+    /// - invalid JSON in rjiter
+    fn toolspec_rjiter_with_key(&mut self, rjiter_cell: &std::cell::RefCell<scan_json::RJiter>, key: Option<&str>) -> Result<(), String> {
         if let ItemAttrMode::RaiseError = self.item_attr_mode {
             return Err("Content item is not started".to_string());
         }
@@ -718,8 +726,14 @@ impl<W: Write> StructureBuilder<W> {
         
         let writer = self.get_writer();
 
+        let error_prefix = if let Some(k) = key {
+            format!("toolspec key `{k}`")
+        } else {
+            "toolspec rjiter".to_string()
+        };
+
         scan_json::idtransform::idtransform(rjiter_cell, writer)
-            .map_err(|e| format!("toolspec rjiter: {e}"))?;
+            .map_err(|e| format!("{error_prefix}: {e}"))?;
 
         Ok(())
     }
