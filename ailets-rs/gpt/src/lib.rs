@@ -159,14 +159,17 @@ pub fn _process_gpt<W: Write>(
     );
     let triggers = make_triggers::<W>();
     let triggers_end = vec![end_message];
-    let sse_tokens = vec!["data:", "DONE"];
+    let sse_tokens = vec![String::from("data:"), String::from("DONE")];
 
     scan(
         &triggers,
         &triggers_end,
-        &sse_tokens,
         &rjiter_cell,
         &builder_cell,
+        &scan_json::Options {
+            sse_tokens,
+            stop_early: false,
+        },
     )?;
     let mut builder = builder_cell.borrow_mut();
     builder.end_message()?;

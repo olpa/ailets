@@ -17,7 +17,7 @@ fn basic_pass() {
     builder.end_message().unwrap();
 
     // Assert
-    let expected = r#"{"type":"ctl","role":"assistant"}
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
 [{"type":"text"},{"text":"hello"}]
 "#
     .to_owned();
@@ -37,7 +37,7 @@ fn create_message_without_input_role() {
     builder.end_message().unwrap();
 
     // Assert
-    let expected = r#"{"type":"ctl","role":"assistant"}
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
 [{"type":"text"},{"text":"hello"}]
 "#
     .to_owned();
@@ -59,7 +59,7 @@ fn can_call_end_message_multiple_times() {
     builder.end_message().unwrap(); // Should be ok
 
     // Assert
-    let expected = r#"{"type":"ctl","role":"assistant"}
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
 [{"type":"text"},{"text":"hello"}]
 "#
     .to_owned();

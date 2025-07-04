@@ -65,18 +65,6 @@ When serializing an image blob to markdown:
 - When using a key, copy the blob to a new key with the prefix `out/`. In markdown, reference the `out/` version. Expect that the ailets runner will extract `out/*` blobs for the user.
 
 
-## `ContentItemFunction`
-
-Function call with fields:
-
-- `[0].type: "function"`
-- `[0].id: str` - Function call identifier
-- `[0].name: str` - Function name
-- `[1].arguments: str` - Function arguments
-
-There is no content item representing the result of a function call. Instead, the `ChatMessage` with the role `tool` is used for that purpose. The tool result is then represented as `Content`.
-
-
 ## `ContentItemCtl`
 
 Affect the processing of the following items. Currently, its main use is to annotate "who" said the message. Additionally, if we decide to implement OpenAI choices (multiple outputs), the control message could indicate which choice comes next.
@@ -85,3 +73,36 @@ Affect the processing of the following items. Currently, its main use is to anno
 - `[1].role: "system"|"user"|"assistant"|"tool"|str`
 
 See also [OpenAI chat completion messages](https://platform.openai.com/docs/api-reference/chat/create).
+
+
+## `ContentItemToolSpec`
+
+Inform an LLM about a tool (also called a "function") it can use. See the OpenAI documentation on [function calling](https://platform.openai.com/docs/guides/function-calling) for more details. In particular, the detailed type `ToolSpec` is explained there.
+
+- `[0].type: "toolspec"`
+- Either of, but not both:
+  - `[1].toolspecs: ToolSpec[]`, or
+  - `[1].toolspecs_key: str`
+
+For `toolspecs_key`, the tool specification is read from the given key.
+
+You should not mix toolspec items with messages. Instead:
+
+- provide all `toolspec` items first,
+- then continue with messages.
+
+
+## `ContentItemFunction`
+
+An artifact of the serialization-deserialization process when calling functions for an LLM. See the OpenAI documentation on [function calling](https://platform.openai.com/docs/guides/function-calling) for more details.
+
+- `[0].type: "function"`
+- `[0].id: str` - Function call identifier
+- `[0].name: str` - Function name
+- `[1].arguments: str` - Function arguments
+
+As a user, you should not create `function` items, but instead use `toolspec` items.
+
+There is no content item representing the result of a function call. Instead, the `ChatMessage` with the role `tool` is used for that purpose. The tool result is then represented as `content` items.
+
+You should not mix function-items with content-items such as text, image etc in one message.

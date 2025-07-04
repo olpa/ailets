@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import dataclasses
 from io import StringIO
 from typing import Any, Literal, Mapping, Optional, Set
 import json
@@ -18,6 +19,7 @@ from ailets.atyping import (
     ContentItemCtl,
     ContentItemImage,
     ContentItemText,
+    ContentItemToolSpec,
     Dependency,
     IDagops,
     IEnvironment,
@@ -31,9 +33,10 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CmdlinePromptItem:
     value: str
-    type: Literal["toml", "text", "file", "url"]
+    type: Literal["toml", "text", "file", "url", "tool"]
     content_type: Optional[str] = None
     toml: Optional[str] = None
+    node_name: Optional[str] = None
 
 
 @dataclass
@@ -98,6 +101,21 @@ async def prompt_to_dagops(
             chat_messages.write("\n")
             return
 
+        if prompt_item.type == "tool":
+            assert prompt_item.value is not None, "Tool name is required for tool type"
+            assert prompt_item.node_name is not None, "Tool node name is required"
+            toolspec_item: ContentItemToolSpec = (
+                {
+                    "type": "toolspec",
+                },
+                {
+                    "toolspec_key": prompt_item.node_name,
+                },
+            )
+            json.dump(toolspec_item, chat_messages)
+            chat_messages.write("\n")
+            return
+
         assert prompt_item.content_type is not None, "Content type is required"
         base_content_type = prompt_item.content_type.split("/")[0]
         assert base_content_type in [
@@ -122,33 +140,27 @@ async def prompt_to_dagops(
             chat_messages.write("\n")
             return  # return if "url"
 
-        n = env.seqno.next_seqno()
-        b = os.path.basename(prompt_item.value)
-        file_key = env.dagops.get_next_name(f"spool/{b}.{n}")
+        assert prompt_item.node_name is not None, "Image node name is required"
         key_image_item: ContentItemImage = (
             {
                 "type": "image",
                 "content_type": prompt_item.content_type,
             },
             {
-                "image_key": file_key,
+                "image_key": prompt_item.node_name,
             },
         )
         json.dump(key_image_item, chat_messages)
         chat_messages.write("\n")
 
-        with open_file(env.kv, prompt_item.value) as f:
-            bytes = f.read()
-            h = env.kv.open(file_key, "write")
-            ba = h.borrow_mut_buffer()
-            ba[:] = bytes
-            env.kv.flush(file_key)
-
     annotated_prompt = annotate_prompt(prompt)
     last_role = None
     for prompt_item in annotated_prompt:
-        role = prompt_item.role
-        if role != last_role:
+        role: Optional[str] = prompt_item.role
+        if prompt_item.prompt_item.type == "tool":
+            role = None
+            last_role = None
+        if role != last_role and role is not None:
             role_to_messages(role)
             last_role = role
         await prompt_to_node(prompt_item.prompt_item)
@@ -179,7 +191,46 @@ def toml_to_env(
         env.for_env_pipe.update(items)
 
 
-def toolspecs_to_dagops(env: IEnvironment, tools: Sequence[str]) -> None:
+def media_to_dagops(
+    env: IEnvironment, whole_prompt: Sequence[CmdlinePromptItem]
+) -> Sequence[CmdlinePromptItem]:
+    new_prompt = []
+    for prompt_item in whole_prompt:
+        if prompt_item.type != "file":
+            new_prompt.append(prompt_item)
+            continue
+        b = os.path.basename(prompt_item.value)
+
+        with open_file(env.kv, prompt_item.value) as f:
+            bytes = f.read()
+        media_spec = env.dagops.add_value_node(
+            bytes,
+            env.piper,
+            env.processes,
+            explain=f"file {b}",
+        )
+
+        new_item = dataclasses.replace(prompt_item, node_name=media_spec.name)
+        new_prompt.append(new_item)
+
+    return new_prompt
+
+
+def media_to_alias(env: IEnvironment, whole_prompt: Sequence[CmdlinePromptItem]) -> str:
+    media = [prompt_item for prompt_item in whole_prompt if prompt_item.type == "file"]
+    alias = env.dagops.get_next_name("media")
+    for media_item in media:
+        env.dagops.alias(alias, media_item.node_name)
+    else:
+        env.dagops.alias(alias, None)
+    return alias
+
+
+def toolspecs_to_dagops(
+    env: IEnvironment, tools: Sequence[str]
+) -> Sequence[CmdlinePromptItem]:
+    prompt = []
+
     for tool in tools:
         plugin_nodes = env.nodereg.get_plugin(f".tool.{tool}")
         schema = env.nodereg.get_node(plugin_nodes[0]).inputs[0].schema
@@ -189,12 +240,23 @@ def toolspecs_to_dagops(env: IEnvironment, tools: Sequence[str]) -> None:
             json.dumps(schema).encode("utf-8"),
             env.piper,
             env.processes,
-            explain=f"Tool spec {tool}",
+            explain=f"toolspec {tool}",
         )
 
-        env.dagops.alias(".toolspecs", tool_spec.name)
+        prompt.append(
+            CmdlinePromptItem(type="tool", value=tool, node_name=tool_spec.name)
+        )
+
+    return prompt
+
+
+def toolspecs_to_alias(env: IEnvironment, tools: Sequence[CmdlinePromptItem]) -> str:
+    alias = env.dagops.get_next_name("toolspecs")
+    for tool in tools:
+        env.dagops.alias(alias, tool.node_name)
     else:
-        env.dagops.alias(".toolspecs", None)
+        env.dagops.alias(alias, None)
+    return alias
 
 
 def instantiate_with_deps(

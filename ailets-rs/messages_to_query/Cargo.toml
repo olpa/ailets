@@ -8,7 +8,7 @@ license.workspace = true
 [lib]
 # To run tests, two types are needed
 crate-type = ["cdylib", "lib"]
-# crate-type = ["cdylib"]
+# crate-type = ["lib"]
 
 [dependencies]
 actor_io = { version = "0.1.0", path = "../actor_io" }
@@ -16,10 +16,10 @@ actor_runtime = { version = "0.2.0", path = "../actor_runtime" }
 actor_runtime_mocked = { version = "0.1.0", path = "../actor_runtime_mocked" }
 serde_json = "1.0.140"
 getrandom = { version = "0.2", features = ["custom"] }
-scan_json = { version = "1.0.3", path = "../../../streaming_json/scan_json" }
 serde = { version = "1.0.219", features = ["derive"] }
 base64 = "0.22.1"
 linked-hash-map = "0.5.6"
+scan_json = "1.1.0"
 
 [dev-dependencies]
 hamcrest = "0.1.5"

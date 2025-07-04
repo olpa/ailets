@@ -7,6 +7,7 @@ from ailets.atyping import (
     ContentItemImage,
     ContentItemRefusal,
     ContentItemText,
+    ContentItemToolSpec,
 )
 
 
@@ -77,6 +78,19 @@ def is_content_item_ctl(obj: Any) -> TypeGuard[ContentItemCtl]:
     return isinstance(obj1.get("role"), str)
 
 
+def is_content_item_toolspec(obj: Any) -> TypeGuard[ContentItemToolSpec]:
+    if not isinstance(obj, list):
+        return False
+    if len(obj) != 2:
+        return False
+    (obj0, obj1) = obj
+    if not isinstance(obj0, dict) or not isinstance(obj1, dict):
+        return False
+    if obj0.get("type") != "toolspec":
+        return False
+    return "toolspec_key" in obj1 or "toolspec" in obj1
+
+
 def is_content_item(obj: Any) -> TypeGuard[ContentItem]:
     return (
         is_content_item_text(obj)
@@ -84,4 +98,5 @@ def is_content_item(obj: Any) -> TypeGuard[ContentItem]:
         or is_content_item_image(obj)
         or is_content_item_function(obj)
         or is_content_item_ctl(obj)
+        or is_content_item_toolspec(obj)
     )

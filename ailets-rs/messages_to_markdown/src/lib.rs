@@ -72,7 +72,7 @@ pub fn _messages_to_markdown<W: Write>(
         Box::new(on_content_text) as BA<'_, W>,
     );
 
-    scan(&[content_text], &[], &[], &rjiter_cell, &builder_cell)?;
+    scan(&[content_text], &[], &rjiter_cell, &builder_cell, &scan_json::Options::default())?;
     builder_cell.borrow_mut().finish_with_newline()?;
     Ok(())
 }
