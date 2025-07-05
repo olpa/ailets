@@ -60,9 +60,16 @@ fn inject_tool_calls_to_dag() {
             "arguments": "{\"days\":5}"
         }]
     ]);
-    let value_tcch =
-        serde_json::from_str(&value_tcch).expect(&format!("Failed to parse JSON: {value_tcch}"));
-    assert_that!(value_tcch, is(equal_to(expected_tcch)));
+    let value_tcch_lines: Vec<serde_json::Value> = value_tcch
+        .lines()
+        .map(|line| {
+            serde_json::from_str(line).expect(&format!("Failed to parse JSON line: {line}"))
+        })
+        .collect();
+    assert_that!(
+        serde_json::Value::Array(value_tcch_lines),
+        is(equal_to(expected_tcch))
+    );
 
     //
     // Assert: `get_weather` tool input and call spec

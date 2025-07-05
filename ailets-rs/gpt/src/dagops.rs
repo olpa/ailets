@@ -53,16 +53,26 @@ pub fn inject_tool_calls(
     //
     // Put tool calls in chat history
     //
-    let tcch = json!([{
-        "role": "assistant",
-        "tool_calls": tool_calls.iter().map(|tc| json!([{
-            "type": "function",
-            "id": tc.id,
-            "name": tc.function_name,
-          },{
-            "arguments": tc.function_arguments
-        }])).collect::<Vec<_>>()
-    }]);
+    let mut tcch_lines = vec![
+        serde_json::to_string(&json!([{"type":"ctl"},{"role":"assistant"}]))
+            .map_err(|e| e.to_string())?,
+    ];
+    tcch_lines.extend(
+        tool_calls
+            .iter()
+            .map(|tc| {
+                serde_json::to_string(&json!([{
+                    "type": "function",
+                    "id": tc.id,
+                    "name": tc.function_name,
+                  },{
+                    "arguments": tc.function_arguments
+                }]))
+                .map_err(|e| e.to_string())
+            })
+            .collect::<Result<Vec<_>, String>>()?,
+    );
+    let tcch = tcch_lines.join("\n");
     let explain = format!(
         "tool calls in chat history - {}",
         tool_calls
@@ -71,12 +81,7 @@ pub fn inject_tool_calls(
             .collect::<Vec<_>>()
             .join(" - ")
     );
-    let node = dagops.value_node(
-        serde_json::to_string(&tcch)
-            .map_err(|e| e.to_string())?
-            .as_bytes(),
-        &explain,
-    )?;
+    let node = dagops.value_node(tcch.as_bytes(), &explain)?;
     dagops.alias(".chat_messages", node)?;
 
     //
