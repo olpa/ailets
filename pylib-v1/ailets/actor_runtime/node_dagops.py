@@ -17,7 +17,7 @@ class NodeDagops(INodeDagops):
         self.piper = env.piper
         self.processes = env.processes
         self.node = node
-        self.handle_to_name: List[str] = []
+        self.handle_to_name: List[str] = ['no-node-id-0']
 
     def add_value_node(self, value: bytes, explain: Optional[str] = None) -> str:
         node = self.dagops.add_value_node(value, self.piper, self.processes, explain)
@@ -55,9 +55,16 @@ class NodeDagops(INodeDagops):
 
         return len(self.handle_to_name) - 1
 
+    def _resolve_alias_handle(self, alias: str, handle: int) -> str:
+        """Resolve an alias using dagops if handle is 0, otherwise use handle_to_name."""
+        if handle == 0:
+            return alias
+        else:
+            return self.handle_to_name[handle]
+
     def v2_instantiate_with_deps(self, target: str, aliases: dict[str, int]) -> int:
         name_aliases = {
-            alias: self.handle_to_name[handle] for alias, handle in aliases.items()
+            alias: self._resolve_alias_handle(alias, handle) for alias, handle in aliases.items()
         }
 
         node_name = self.instantiate_with_deps(target, name_aliases)
