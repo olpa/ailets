@@ -44,25 +44,21 @@ fn inject_tool_calls_to_dag() {
     );
 
     let expected_tcch = json!([
-        {
-            "role": "assistant",
-            "tool_calls": [
-                [{
-                    "type": "function",
-                    "id": "call_1",
-                    "name": "get_weather",
-                  },{
-                    "arguments": "{\"city\":\"London\"}"
-                }],
-                [{
-                    "type": "function",
-                    "id": "call_2",
-                    "name": "get_forecast",
-                  },{
-                    "arguments": "{\"days\":5}"
-                }]
-            ]
-        }
+        [{"type":"ctl"},{"role":"assistant"}],
+        [{
+            "type": "function",
+            "id": "call_1",
+            "name": "get_weather",
+          },{
+            "arguments": "{\"city\":\"London\"}"
+        }],
+        [{
+            "type": "function",
+            "id": "call_2",
+            "name": "get_forecast",
+          },{
+            "arguments": "{\"days\":5}"
+        }]
     ]);
     let value_tcch =
         serde_json::from_str(&value_tcch).expect(&format!("Failed to parse JSON: {value_tcch}"));
