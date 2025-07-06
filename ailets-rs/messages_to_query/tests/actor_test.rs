@@ -275,3 +275,24 @@ fn toolspec_by_key() {
         .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
+
+#[test]
+fn tool_role_with_tool_call_id() {
+    let input = r#"[{"type": "ctl", "tool_call_id": "call_hEUJSGdhP42m1HYos3OTEeCS"}, {"role": "tool"}]
+                   [{"type": "text"}, {"text": "{}"}]
+                   [{"type": "text"}, {"text": "{\"get_user_name\": \"olpa\"}"}]"#;
+    let reader = Cursor::new(input);
+    let writer = RcWriter::new();
+
+    _process_messages(reader, writer.clone(), create_empty_env_opts()).unwrap();
+    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
+        .expect("Failed to parse output as JSON");
+
+    let expected_item = r#"[{"role":"tool","tool_call_id":"call_hEUJSGdhP42m1HYos3OTEeCS","content":[
+        {"type":"text","text":"{}"},
+        {"type":"text","text":"{\"get_user_name\": \"olpa\"}"}
+    ]}]"#;
+    let expected_json = serde_json::from_str(&wrap_boilerplate(&expected_item))
+        .expect("Failed to parse expected output as JSON");
+    assert_that!(output_json, equal_to(expected_json));
+}

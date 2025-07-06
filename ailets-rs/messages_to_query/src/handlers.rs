@@ -297,13 +297,32 @@ pub fn on_toolspec_key<W: Write>(
         Ok(k) => k,
         Err(e) => {
             return StreamOp::Error(
-                format!("Error getting toolspec_key value. Expected string, got: {e:?}").into(),
+                format!("Error getting toolspec key value. Expected string, got: {e:?}").into(),
             );
         }
     };
+    if let Err(e) = builder_cell.borrow_mut().toolspec_key(key) {
+        return StreamOp::Error(e.into());
+    }
+    StreamOp::ValueIsConsumed
+}
 
+pub fn on_tool_call_id<W: Write>(
+    rjiter_cell: &RefCell<RJiter>,
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> StreamOp {
+    let mut rjiter = rjiter_cell.borrow_mut();
+    let value = match rjiter.next_str() {
+        Ok(v) => v,
+        Err(e) => {
+            return StreamOp::Error(
+                format!("Error getting attribute 'tool_call_id'. Expected string, got: {e:?}")
+                    .into(),
+            );
+        }
+    };
     let mut builder = builder_cell.borrow_mut();
-    if let Err(e) = builder.toolspec_key(key) {
+    if let Err(e) = builder.add_item_attribute(String::from("tool_call_id"), String::from(value)) {
         return StreamOp::Error(e.into());
     }
     StreamOp::ValueIsConsumed

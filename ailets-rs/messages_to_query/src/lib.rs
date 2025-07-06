@@ -95,6 +95,13 @@ fn create_begin_triggers<'a, W: Write + 'a>(
         )),
         Box::new(handlers::on_toolspec_key) as BoxedAction<'_, StructureBuilder<W>>,
     );
+    let tool_call_id = Trigger::new(
+        Box::new(ParentAndName::new(
+            "#array".to_string(),
+            "tool_call_id".to_string(),
+        )),
+        Box::new(handlers::on_tool_call_id) as BoxedAction<'_, StructureBuilder<W>>,
+    );
 
     vec![
         item_type,
@@ -109,6 +116,7 @@ fn create_begin_triggers<'a, W: Write + 'a>(
         func_arguments,
         toolspec,
         toolspec_key,
+        tool_call_id,
         role,
     ]
 }
