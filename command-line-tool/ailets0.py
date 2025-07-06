@@ -350,7 +350,7 @@ async def main() -> None:
         media_to_alias(env, media_ref_prompt)
         await prompt_to_dagops(env, prompt=list(tools_prompt) + list(media_ref_prompt))
         model_node_name = instantiate_with_deps(env.dagops, nodereg, f".{model}", {})
-        env.dagops.alias(".model_output", model_node_name)
+        env.dagops.alias(".output_messages", model_node_name)
 
         target_node_name = instantiate_with_deps(
             env.dagops, nodereg, ".messages_to_markdown", {}

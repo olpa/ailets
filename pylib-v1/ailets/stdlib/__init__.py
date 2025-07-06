@@ -19,7 +19,7 @@ query = NodeDesc(
 messages_to_markdown = NodeDesc(
     name="messages_to_markdown",
     inputs=[
-        Dependency(source=".model_output"),
+        Dependency(source=".output_messages"),
     ],
 )
 

@@ -243,7 +243,7 @@ fn inject_tool_calls_to_dag() {
     assert_that!(alias_handle, is(equal_to(handle_aftercall_2)));
 
     let (_, alias_name, alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases[3]);
-    assert_that!(&alias_name, is(equal_to(".model_output")));
+    assert_that!(&alias_name, is(equal_to(".output_messages")));
     assert_that!(alias_handle, is(equal_to(handle_rerun)));
 }
 

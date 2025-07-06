@@ -138,7 +138,7 @@ pub fn inject_tool_calls(
         ])
         .into_iter(),
     )?;
-    dagops.alias(".model_output", rerun_handle)?;
+    dagops.alias(".output_messages", rerun_handle)?;
 
     Ok(())
 }
