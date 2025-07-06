@@ -54,6 +54,7 @@ fn funcall_response() {
         )]
     );
 }
+
 #[test]
 fn funcall_streaming() {
     let fixture_content = std::fs::read_to_string("tests/fixture/funcall_streaming.txt")
@@ -72,5 +73,25 @@ fn funcall_streaming() {
             "get_user_name",
             "{}"
         )]
+    );
+}
+
+#[test]
+fn delta_index_regress() {
+    let fixture_content = std::fs::read_to_string("tests/fixture/delta_index_regress.txt")
+        .expect("Failed to read fixture file 'delta_index_regress.txt'");
+    let reader = Cursor::new(fixture_content);
+    let writer = RcWriter::new();
+    let mut dagops = TrackedInjectDagOps::new();
+
+    _process_gpt(reader, writer.clone(), &mut dagops).unwrap();
+
+    assert_eq!(writer.get_output(), "");
+    assert_eq!(
+        dagops.get_tool_calls(),
+        &[
+            ContentItemFunction::new("call_O8vJyvRJrH6ST1ssD97c3jPI", "get_user_name", "{}"),
+            ContentItemFunction::new("call_5fx8xXsKGpAhCNDTZsYoWWUx", "get_user_name", "{}")
+        ]
     );
 }

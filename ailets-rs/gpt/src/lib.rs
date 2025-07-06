@@ -7,8 +7,8 @@ use actor_io::{AReader, AWriter};
 use actor_runtime::{err_to_heap_c_string, extract_errno, DagOps, StdHandle};
 use dagops::{InjectDagOps, InjectDagOpsTrait};
 use handlers::{
-    on_begin_message, on_choices, on_content, on_end_message, on_function_arguments,
-    on_function_begin, on_function_id, on_function_index, on_function_name, on_role,
+    on_begin_message, on_content, on_end_message, on_function_arguments, on_function_id,
+    on_function_index, on_function_name, on_role,
 };
 use scan_json::RJiter;
 use scan_json::{scan, BoxedAction, BoxedEndAction, ContextFrame, Name, ParentAndName, Trigger};
@@ -58,13 +58,7 @@ fn make_triggers<'a, W: Write + 'a>() -> Vec<Trigger<'a, BA<'a, W>>> {
         Box::new(Name::new("message".to_string())),
         Box::new(on_begin_message) as BA<'a, W>,
     );
-    let choices = Trigger::new(
-        Box::new(ParentAndName::new(
-            "#top".to_string(),
-            "choices".to_string(),
-        )),
-        Box::new(on_choices) as BA<'a, W>,
-    );
+
     let message_role = Trigger::new(
         Box::new(ParentAndName::new(
             "message".to_string(),
@@ -91,12 +85,6 @@ fn make_triggers<'a, W: Write + 'a>() -> Vec<Trigger<'a, BA<'a, W>>> {
         Box::new(on_content) as BA<'a, W>,
     );
 
-    let function_begin = Trigger::new(
-        Box::new(MatchInToolCall {
-            field: "#object".to_string(),
-        }),
-        Box::new(on_function_begin) as BA<'a, W>,
-    );
     let function_id = Trigger::new(
         Box::new(MatchInToolCall {
             field: "id".to_string(),
@@ -124,12 +112,10 @@ fn make_triggers<'a, W: Write + 'a>() -> Vec<Trigger<'a, BA<'a, W>>> {
 
     let triggers = vec![
         begin_message,
-        choices,
         message_role,
         message_content,
         delta_role,
         delta_content,
-        function_begin,
         function_id,
         function_name,
         function_arguments,

@@ -1,8 +1,6 @@
 use actor_runtime_mocked::RcWriter;
 use gpt::funcalls::ContentItemFunction;
-use gpt::handlers::{
-    on_choices, on_content, on_function_begin, on_function_index, on_function_name,
-};
+use gpt::handlers::{on_content, on_function_index, on_function_name};
 use gpt::structure_builder::StructureBuilder;
 use scan_json::{RJiter, StreamOp};
 use std::cell::RefCell;
@@ -65,7 +63,6 @@ fn on_function_string_field() {
     let rjiter_cell = RefCell::new(rjiter);
 
     // Act
-    on_function_begin(&rjiter_cell, &builder_cell);
     let result = on_function_name(&rjiter_cell, &builder_cell);
     assert!(matches!(result, StreamOp::ValueIsConsumed));
 
@@ -93,7 +90,6 @@ fn on_function_string_field_invalid_value_type() {
     let rjiter_cell = RefCell::new(rjiter);
 
     // Act
-    on_function_begin(&rjiter_cell, &builder_cell);
     let result = on_function_name(&rjiter_cell, &builder_cell);
 
     // Assert
@@ -125,15 +121,13 @@ fn test_on_function_index() {
     assert!(matches!(result, StreamOp::Error(_)));
 
     // Act and assert: Valid index
-    on_function_begin(&rjiter_cell, &builder_cell);
-    on_function_begin(&rjiter_cell, &builder_cell);
-    on_function_begin(&rjiter_cell, &builder_cell);
+    // on_function_begin(&rjiter_cell, &builder_cell);
+    // on_function_begin(&rjiter_cell, &builder_cell);
+    // on_function_begin(&rjiter_cell, &builder_cell);
     let result = on_function_index(&rjiter_cell, &builder_cell);
     assert!(matches!(result, StreamOp::ValueIsConsumed));
 
     // Act and assert: Index mismatch
-    on_choices(&rjiter_cell, &builder_cell);
-    on_function_begin(&rjiter_cell, &builder_cell);
     let result = on_function_index(&rjiter_cell, &builder_cell);
     assert!(matches!(result, StreamOp::Error(_)));
 }

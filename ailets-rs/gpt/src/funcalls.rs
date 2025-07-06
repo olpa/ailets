@@ -62,40 +62,21 @@ impl FunCalls {
         }
     }
 
-    /// Initiates a new round of delta updates by resetting the index
-    pub fn start_delta_round(&mut self) {
-        self.idx = None;
-    }
-
-    /// Starts a new delta update by incrementing the index and ensuring space
-    /// for the new function call
-    pub fn start_delta(&mut self) {
-        self.idx = Some(match self.idx {
-            None => 0,
-            Some(idx) => idx + 1,
-        });
-        if let Some(idx) = self.idx {
-            if idx >= self.tool_calls.len() {
-                self.tool_calls.push(ContentItemFunction::default());
-            }
-        }
-    }
-
-    /// Verifies that the provided index matches the current delta position
+    /// Sets the current delta index and ensures space for the function call
     ///
     /// # Arguments
-    /// * `index` - Expected current position in the collection
+    /// * `index` - The index to set for the current delta position
     ///
     /// # Errors
-    /// Returns an error if the provided index doesn't match the current position
+    /// Returns an error if the index is invalid
     pub fn delta_index(&mut self, index: usize) -> Result<(), String> {
-        if self.idx.unwrap_or(usize::MAX) == index {
-            return Ok(());
+        if self.idx != Some(index) {
+            self.idx = Some(index);
         }
-        Err(format!(
-            "Delta index mismatch. Got: {}, expected: {:?}",
-            index, self.idx
-        ))
+        while self.tool_calls.len() <= index {
+            self.tool_calls.push(ContentItemFunction::default());
+        }
+        Ok(())
     }
 
     /// Appends to the ID of the current function call

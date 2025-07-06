@@ -17,10 +17,6 @@ pub fn on_begin_message<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
     builder_cell.borrow_mut().begin_message();
-    builder_cell
-        .borrow_mut()
-        .get_funcalls_mut()
-        .start_delta_round();
     StreamOp::None
 }
 
@@ -83,39 +79,6 @@ pub fn on_content<W: Write>(
     let writer = builder.get_writer();
     if let Err(e) = rjiter.write_long_bytes(writer) {
         return StreamOp::Error(Box::new(e));
-    }
-    StreamOp::ValueIsConsumed
-}
-
-pub fn on_function_begin<W: Write>(
-    _rjiter_cell: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
-) -> StreamOp {
-    builder_cell.borrow_mut().get_funcalls_mut().start_delta();
-    StreamOp::None
-}
-
-fn on_function_str_field<W: Write, F>(
-    rjiter_cell: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
-    field_name: &str,
-    apply_field: F,
-) -> StreamOp
-where
-    F: FnOnce(&mut crate::funcalls::FunCalls, &str) -> Result<(), String>,
-{
-    let mut rjiter = rjiter_cell.borrow_mut();
-    let value = match rjiter.next_str() {
-        Ok(value) => value,
-        Err(e) => {
-            let error: Box<dyn std::error::Error> =
-                format!("Expected string as the function {field_name}, got {e:?}").into();
-            return StreamOp::Error(error);
-        }
-    };
-    if let Err(e) = apply_field(builder_cell.borrow_mut().get_funcalls_mut(), value) {
-        let error: Box<dyn std::error::Error> = e.into();
-        return StreamOp::Error(error);
     }
     StreamOp::ValueIsConsumed
 }
@@ -189,13 +152,27 @@ pub fn on_function_index<W: Write>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_choices<W: Write>(
-    _rjiter_cell: &RefCell<RJiter>,
+fn on_function_str_field<W: Write, F>(
+    rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
-) -> StreamOp {
-    builder_cell
-        .borrow_mut()
-        .get_funcalls_mut()
-        .start_delta_round();
-    StreamOp::None
+    field_name: &str,
+    apply_field: F,
+) -> StreamOp
+where
+    F: FnOnce(&mut crate::funcalls::FunCalls, &str) -> Result<(), String>,
+{
+    let mut rjiter = rjiter_cell.borrow_mut();
+    let value = match rjiter.next_str() {
+        Ok(value) => value,
+        Err(e) => {
+            let error: Box<dyn std::error::Error> =
+                format!("Expected string as the function {field_name}, got {e:?}").into();
+            return StreamOp::Error(error);
+        }
+    };
+    if let Err(e) = apply_field(builder_cell.borrow_mut().get_funcalls_mut(), value) {
+        let error: Box<dyn std::error::Error> = e.into();
+        return StreamOp::Error(error);
+    }
+    StreamOp::ValueIsConsumed
 }

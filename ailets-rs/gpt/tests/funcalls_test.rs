@@ -5,8 +5,7 @@ fn single_funcall() {
     let mut funcalls = FunCalls::new();
 
     // Act
-    funcalls.start_delta_round();
-    funcalls.start_delta();
+    funcalls.delta_index(0).unwrap();
     funcalls.delta_id("call_9cFpsOXfVWMUoDz1yyyP1QXD").unwrap();
     funcalls.delta_function_name("get_user_name").unwrap();
     funcalls.delta_function_arguments("{}").unwrap();
@@ -27,26 +26,19 @@ fn single_funcall() {
 fn check_index() {
     // Arrange
     let mut funcalls = FunCalls::new();
-    funcalls.start_delta_round();
 
     // Act
-    funcalls.start_delta();
     assert!(funcalls.delta_index(0).is_ok());
-    assert!(funcalls.delta_index(1).is_err());
-
-    funcalls.start_delta();
-    assert!(funcalls.delta_index(1).is_ok());
-    assert!(funcalls.delta_index(0).is_err());
+    assert!(funcalls.delta_index(1).is_ok()); // Now we can set any index
 }
 
 #[test]
 fn delta_appends() {
     // Arrange
     let mut funcalls = FunCalls::new();
-    funcalls.start_delta_round();
 
     // Act
-    funcalls.start_delta();
+    funcalls.delta_index(0).unwrap();
     funcalls.delta_id("call_1").unwrap();
     funcalls.delta_function_name("func1").unwrap();
     funcalls.delta_function_arguments("{}").unwrap();
@@ -72,26 +64,20 @@ fn several_rounds_with_delta() {
     let mut funcalls = FunCalls::new();
 
     // Act: first round
-    funcalls.start_delta_round();
-    funcalls.start_delta();
     funcalls.delta_index(0).unwrap();
     funcalls.delta_id("call_1").unwrap();
     funcalls.delta_function_name("func1").unwrap();
     funcalls.delta_function_arguments("{}").unwrap();
-    funcalls.start_delta();
     funcalls.delta_index(1).unwrap();
     funcalls.delta_id("call_2").unwrap();
     funcalls.delta_function_name("func2").unwrap();
     funcalls.delta_function_arguments("{\"param\":2}").unwrap();
 
-    // Act: second round
-    funcalls.start_delta_round();
-    funcalls.start_delta();
+    // Act: second round - append to existing items
     funcalls.delta_index(0).unwrap();
     funcalls.delta_id("++").unwrap();
     funcalls.delta_function_name("++").unwrap();
     funcalls.delta_function_arguments("++").unwrap();
-    funcalls.start_delta();
     funcalls.delta_index(1).unwrap();
     funcalls.delta_id("==").unwrap();
     funcalls.delta_function_name("==").unwrap();
@@ -112,13 +98,12 @@ fn several_rounds_with_delta() {
 fn start_delta_reuse() {
     let mut funcalls = FunCalls::new();
 
-    // Act: first round - create 3 items
-    funcalls.start_delta_round();
-    funcalls.start_delta();
-    funcalls.start_delta();
-    funcalls.start_delta();
+    // Act: create 3 items
+    funcalls.delta_index(0).unwrap();
+    funcalls.delta_index(1).unwrap();
+    funcalls.delta_index(2).unwrap();
 
-    // Assert: first round - 3 items are created
+    // Assert: 3 items are created
     let tool_calls = funcalls.get_tool_calls();
     assert_eq!(
         tool_calls,
@@ -129,27 +114,10 @@ fn start_delta_reuse() {
         ]
     );
 
-    // Act: second round - reuse 3 items
-    funcalls.start_delta_round();
-    funcalls.start_delta();
-    funcalls.start_delta();
-    funcalls.start_delta();
+    // Act: create a new item
+    funcalls.delta_index(3).unwrap();
 
-    // Assert: second round - so far 3 items are reused
-    let tool_calls = funcalls.get_tool_calls();
-    assert_eq!(
-        tool_calls,
-        &vec![
-            ContentItemFunction::default(),
-            ContentItemFunction::default(),
-            ContentItemFunction::default(),
-        ]
-    );
-
-    // Act: second round - create a new item
-    funcalls.start_delta();
-
-    // Assert: second round - now there are 4 items
+    // Assert: now there are 4 items
     let tool_calls = funcalls.get_tool_calls();
     assert_eq!(
         tool_calls,
@@ -166,7 +134,6 @@ fn start_delta_reuse() {
 fn has_cell_for_delta() {
     let mut funcalls = FunCalls::new();
     let expected_err = "No active delta index";
-    funcalls.start_delta_round();
 
     let result = funcalls.delta_id("foo");
     assert_eq!(result.unwrap_err(), expected_err);
@@ -176,4 +143,32 @@ fn has_cell_for_delta() {
 
     let result = funcalls.delta_function_arguments("foo");
     assert_eq!(result.unwrap_err(), expected_err);
+}
+
+#[test]
+fn delta_index_regress_scenario() {
+    let mut funcalls = FunCalls::new();
+
+    // Simulate the delta_index_regress.txt scenario:
+    // First tool call with index 0
+    funcalls.delta_index(0).unwrap();
+    funcalls.delta_id("call_O8vJyvRJrH6ST1ssD97c3jPI").unwrap();
+    funcalls.delta_function_name("get_user_name").unwrap();
+    funcalls.delta_function_arguments("{}").unwrap();
+
+    // Second tool call with index 1
+    funcalls.delta_index(1).unwrap();
+    funcalls.delta_id("call_5fx8xXsKGpAhCNDTZsYoWWUx").unwrap();
+    funcalls.delta_function_name("get_user_name").unwrap();
+    funcalls.delta_function_arguments("{}").unwrap();
+
+    // Assert
+    let tool_calls = funcalls.get_tool_calls();
+    assert_eq!(
+        tool_calls,
+        &vec![
+            ContentItemFunction::new("call_O8vJyvRJrH6ST1ssD97c3jPI", "get_user_name", "{}"),
+            ContentItemFunction::new("call_5fx8xXsKGpAhCNDTZsYoWWUx", "get_user_name", "{}")
+        ]
+    );
 }
