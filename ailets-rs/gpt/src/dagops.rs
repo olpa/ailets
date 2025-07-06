@@ -46,7 +46,14 @@ pub fn inject_tool_calls(
     }
 
     //
-    // Don't interfere with previous model workflow
+    // Don't interfere with previous model workflow:
+    //
+    // - We are going to update the chat history, by adding more to the alias ".chat_messages"
+    // - The old finished run of "user prompt to messages" depended on ".chat_messages"
+    // - If we don't detach, the dependency graph will show that the old "user prompt to messages"
+    //   run depends on the new items in ".chat_messages". It's very very confusing,
+    //   even despite the current runner implementation ignores the dependency changes
+    //   of a finished step.
     //
     dagops.detach_from_alias(".chat_messages")?;
 
