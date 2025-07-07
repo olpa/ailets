@@ -11,7 +11,10 @@ use handlers::{
     on_function_id, on_function_index, on_function_name, on_role,
 };
 use scan_json::RJiter;
-use scan_json::{scan, BoxedAction, BoxedEndAction, ContextFrame, Name, ParentAndName, Trigger};
+use scan_json::{
+    scan, BoxedAction, BoxedEndAction, ContextFrame, Name, ParentAndName, ParentParentAndName,
+    Trigger,
+};
 use std::cell::RefCell;
 use std::ffi::c_char;
 use std::io::Write;
@@ -143,12 +146,16 @@ pub fn _process_gpt<W: Write>(
         Box::new(Name::new("message".to_string())),
         Box::new(on_end_message) as BoxedEndAction<StructureBuilder<W>>,
     );
-    let end_tool_calls = Trigger::new(
-        Box::new(Name::new("tool_calls".to_string())),
+    let end_tool_call = Trigger::new(
+        Box::new(ParentParentAndName::new(
+            "tool_calls".to_string(),
+            "#array".to_string(),
+            "#object".to_string(),
+        )),
         Box::new(on_function_end) as BoxedEndAction<StructureBuilder<W>>,
     );
     let triggers = make_triggers::<W>();
-    let triggers_end = vec![end_message, end_tool_calls];
+    let triggers_end = vec![end_message, end_tool_call];
     let sse_tokens = vec![String::from("data:"), String::from("DONE")];
 
     scan(
