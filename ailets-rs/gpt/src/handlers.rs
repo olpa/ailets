@@ -88,7 +88,7 @@ pub fn on_function_id<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
     on_function_str_field(rjiter_cell, builder_cell, "id", |funcalls, value| {
-        funcalls.delta_id(value)
+        funcalls.delta_id(value);
     })
 }
 
@@ -97,7 +97,7 @@ pub fn on_function_name<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
     on_function_str_field(rjiter_cell, builder_cell, "name", |funcalls, value| {
-        funcalls.delta_function_name(value)
+        funcalls.delta_function_name(value);
     })
 }
 
@@ -106,7 +106,7 @@ pub fn on_function_arguments<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
     on_function_str_field(rjiter_cell, builder_cell, "arguments", |funcalls, value| {
-        funcalls.delta_function_arguments(value)
+        funcalls.delta_function_arguments(value);
     })
 }
 
@@ -141,14 +141,7 @@ pub fn on_function_index<W: Write>(
             }
         }
     };
-    if let Err(e) = builder_cell
-        .borrow_mut()
-        .get_funcalls_mut()
-        .delta_index(idx)
-    {
-        let error: Box<dyn std::error::Error> = e.into();
-        return StreamOp::Error(error);
-    }
+    builder_cell.borrow_mut().get_funcalls_mut().delta_index(idx);
     StreamOp::ValueIsConsumed
 }
 
@@ -159,7 +152,7 @@ fn on_function_str_field<W: Write, F>(
     apply_field: F,
 ) -> StreamOp
 where
-    F: FnOnce(&mut crate::funcalls::FunCalls, &str) -> Result<(), String>,
+    F: FnOnce(&mut crate::funcalls::FunCalls, &str),
 {
     let mut rjiter = rjiter_cell.borrow_mut();
     let value = match rjiter.next_str() {
@@ -170,9 +163,6 @@ where
             return StreamOp::Error(error);
         }
     };
-    if let Err(e) = apply_field(builder_cell.borrow_mut().get_funcalls_mut(), value) {
-        let error: Box<dyn std::error::Error> = e.into();
-        return StreamOp::Error(error);
-    }
+    apply_field(builder_cell.borrow_mut().get_funcalls_mut(), value);
     StreamOp::ValueIsConsumed
 }

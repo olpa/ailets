@@ -118,12 +118,9 @@ impl FunCalls {
     /// # Arguments
     /// * `id` - String to append to the current function call's ID
     ///
-    /// # Errors
-    /// Returns an error if the current index is invalid
-    pub fn delta_id(&mut self, id: &str) -> Result<(), String> {
+    pub fn delta_id(&mut self, id: &str) {
         let cell = self.ensure_current();
         cell.id.push_str(id);
-        Ok(())
     }
 
     /// Appends to the function name of the current function call
@@ -131,12 +128,9 @@ impl FunCalls {
     /// # Arguments
     /// * `function_name` - String to append to the current function call's name
     ///
-    /// # Errors
-    /// Returns an error if the current index is invalid
-    pub fn delta_function_name(&mut self, function_name: &str) -> Result<(), String> {
+    pub fn delta_function_name(&mut self, function_name: &str) {
         let cell = self.ensure_current();
         cell.function_name.push_str(function_name);
-        Ok(())
     }
 
     /// Appends to the function arguments of the current function call
@@ -144,12 +138,9 @@ impl FunCalls {
     /// # Arguments
     /// * `function_arguments` - String to append to the current function call's arguments
     ///
-    /// # Errors
-    /// Returns an error if the current index is invalid
-    pub fn delta_function_arguments(&mut self, function_arguments: &str) -> Result<(), String> {
+    pub fn delta_function_arguments(&mut self, function_arguments: &str) {
         let cell = self.ensure_current();
         cell.function_arguments.push_str(function_arguments);
-        Ok(())
     }
 
     /// Returns a reference to the vector of function calls
