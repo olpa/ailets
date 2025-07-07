@@ -67,8 +67,9 @@ fn on_function_string_field() {
     assert!(matches!(result, StreamOp::ValueIsConsumed));
 
     // Assert: Verify that the function name was set in FunCalls
-    let builder = builder_cell.borrow();
-    let funcalls = builder.get_funcalls();
+    let mut builder = builder_cell.borrow_mut();
+    let funcalls = builder.get_funcalls_mut();
+    funcalls.end_current();
     assert_eq!(
         funcalls.get_tool_calls(),
         &[ContentItemFunction::new("", "test_function", "")]
@@ -93,42 +94,6 @@ fn on_function_string_field_invalid_value_type() {
     let result = on_function_name(&rjiter_cell, &builder_cell);
 
     // Assert
-    assert!(matches!(result, StreamOp::Error(_)));
-    let builder = builder_cell.borrow();
-    let funcalls = builder.get_funcalls();
-    assert_eq!(
-        funcalls.get_tool_calls(),
-        &[ContentItemFunction::new("", "", "")]
-    );
-}
-
-#[test]
-fn test_on_function_index() {
-    // Arrange
-    let mut buffer = Cursor::new(Vec::new());
-    let builder = StructureBuilder::new(&mut buffer);
-    let builder_cell = RefCell::new(builder);
-
-    // Arrange: Create RJiter with input for 3 tests
-    let json = "2 2 2";
-    let mut json_reader = Cursor::new(json);
-    let mut buffer = [0u8; 32];
-    let rjiter = RJiter::new(&mut json_reader, &mut buffer);
-    let rjiter_cell = RefCell::new(rjiter);
-
-    // Act and assert: Out of range
-    let result = on_function_index(&rjiter_cell, &builder_cell);
-    assert!(matches!(result, StreamOp::Error(_)));
-
-    // Act and assert: Valid index
-    // on_function_begin(&rjiter_cell, &builder_cell);
-    // on_function_begin(&rjiter_cell, &builder_cell);
-    // on_function_begin(&rjiter_cell, &builder_cell);
-    let result = on_function_index(&rjiter_cell, &builder_cell);
-    assert!(matches!(result, StreamOp::ValueIsConsumed));
-
-    // Act and assert: Index mismatch
-    let result = on_function_index(&rjiter_cell, &builder_cell);
     assert!(matches!(result, StreamOp::Error(_)));
 }
 

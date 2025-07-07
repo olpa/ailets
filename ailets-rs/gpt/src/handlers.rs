@@ -148,6 +148,15 @@ pub fn on_function_index<W: Write>(
     StreamOp::ValueIsConsumed
 }
 
+/// # Errors
+/// Should never happen.
+pub fn on_function_end<W: Write>(
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    builder_cell.borrow_mut().get_funcalls_mut().end_current();
+    Ok(())
+}
+
 fn on_function_str_field<W: Write, F>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
