@@ -94,7 +94,7 @@ impl FunCalls {
     /// - Ensures there's enough space in the vector for the given index
     /// - Merges any existing `current_funcall` data with the vector entry at the specified index
     /// - Sets the streaming mode index
-    /// - Initializes `current_funcall` with a default `ContentItemFunction` if it wasn't already set
+    /// - Initializes `current_funcall` with the existing data at the specified index
     ///
     /// # Arguments
     /// * `index` - The index to set for the current delta position
@@ -121,9 +121,15 @@ impl FunCalls {
         // Set the streaming mode index
         self.idx = Some(index);
 
-        // Initialize current_funcall for streaming mode if it wasn't set
+        // Initialize current_funcall with the existing data at the specified index
         if self.current_funcall.is_none() {
-            self.current_funcall = Some(ContentItemFunction::default());
+            if let Some(existing_funcall) = self.tool_calls.get(index) {
+                self.current_funcall = Some(ContentItemFunction {
+                    id: existing_funcall.id.clone(),
+                    function_name: existing_funcall.function_name.clone(),
+                    function_arguments: existing_funcall.function_arguments.clone(),
+                });
+            }
         }
     }
 
