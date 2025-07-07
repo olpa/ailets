@@ -1,11 +1,10 @@
 use gpt::funcalls::{ContentItemFunction, FunCalls};
 
 #[test]
-fn single_funcall() {
+fn single_funcall_direct() {
     let mut funcalls = FunCalls::new();
 
     // Act
-    funcalls.delta_index(0);
     funcalls.delta_id("call_9cFpsOXfVWMUoDz1yyyP1QXD");
     funcalls.delta_function_name("get_user_name");
     funcalls.delta_function_arguments("{}");
@@ -23,24 +22,26 @@ fn single_funcall() {
     );
 }
 
-
 #[test]
-fn delta_index_regress_scenario() {
+fn several_funcalls_direct() {
     let mut funcalls = FunCalls::new();
 
-    // Simulate the delta_index_regress.txt scenario:
     // First tool call with index 0
-    funcalls.delta_index(0);
-    funcalls.delta_id("call_O8vJyvRJrH6ST1ssD97c3jPI");
-    funcalls.delta_function_name("get_user_name");
-    funcalls.delta_function_arguments("{}");
+    funcalls.delta_id("call_foo");
+    funcalls.delta_function_name("get_foo");
+    funcalls.delta_function_arguments("{foo_args}");
     funcalls.end_current();
 
     // Second tool call with index 1
-    funcalls.delta_index(1);
-    funcalls.delta_id("call_5fx8xXsKGpAhCNDTZsYoWWUx");
-    funcalls.delta_function_name("get_user_name");
-    funcalls.delta_function_arguments("{}");
+    funcalls.delta_id("call_bar");
+    funcalls.delta_function_name("get_bar");
+    funcalls.delta_function_arguments("{bar_args}");
+    funcalls.end_current();
+
+    // Third tool call with index 2
+    funcalls.delta_id("call_baz");
+    funcalls.delta_function_name("get_baz");
+    funcalls.delta_function_arguments("{baz_args}");
     funcalls.end_current();
 
     // Assert
@@ -48,8 +49,9 @@ fn delta_index_regress_scenario() {
     assert_eq!(
         tool_calls,
         &vec![
-            ContentItemFunction::new("call_O8vJyvRJrH6ST1ssD97c3jPI", "get_user_name", "{}"),
-            ContentItemFunction::new("call_5fx8xXsKGpAhCNDTZsYoWWUx", "get_user_name", "{}")
+            ContentItemFunction::new("call_foo", "get_foo", "{foo_args}"),
+            ContentItemFunction::new("call_bar", "get_bar", "{bar_args}"),
+            ContentItemFunction::new("call_baz", "get_baz", "{baz_args}"),
         ]
     );
 }
