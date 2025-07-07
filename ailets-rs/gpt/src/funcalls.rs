@@ -39,6 +39,7 @@ impl ContentItemFunction {
 pub struct FunCalls {
     idx: Option<usize>,
     tool_calls: Vec<ContentItemFunction>,
+    current_funcall: Option<ContentItemFunction>,
 }
 
 impl FunCalls {
@@ -48,35 +49,68 @@ impl FunCalls {
         Self {
             idx: None,
             tool_calls: Vec::new(),
+            current_funcall: None,
         }
     }
 
-    fn get_cell(&mut self) -> Result<&mut ContentItemFunction, String> {
-        let len = self.tool_calls.len();
-        match self.idx {
-            Some(idx) => self
-                .tool_calls
-                .get_mut(idx)
-                .ok_or_else(|| format!("Delta index is out of bounds: {idx}, n of deltas: {len}")),
-            None => Err("No active delta index".to_string()),
+    fn ensure_current(&mut self) -> &mut ContentItemFunction {
+        if self.current_funcall.is_none() {
+            self.current_funcall = Some(ContentItemFunction::default());
         }
+        self.current_funcall.as_mut().unwrap()
+    }
+
+    /// Ends the current function call and cleans up the delta state
+    ///
+    /// This method should be called when a function call is complete.
+    /// In direct mode (no index), it pushes the current function call.
+    /// In streaming mode (with index), it updates the function call at the current index.
+    pub fn end_current(&mut self) {
+        if let Some(current_funcall) = self.current_funcall.take() {
+            if let Some(idx) = self.idx {
+                // Streaming mode: replace the element at the index
+                self.tool_calls[idx] = current_funcall;
+            } else {
+                // Direct mode: push to the vector
+                self.tool_calls.push(current_funcall);
+            }
+        }
+        
+        // Reset the streaming mode index
+        self.idx = None;
     }
 
     /// Sets the current delta index and ensures space for the function call
     ///
+    /// This method:
+    /// - Ensures there's enough space in the vector for the given index
+    /// - Merges any existing current_funcall data with the vector entry at the specified index
+    /// - Sets the streaming mode index
+    /// - Initializes current_funcall with a default ContentItemFunction if it wasn't already set
+    ///
     /// # Arguments
     /// * `index` - The index to set for the current delta position
-    ///
-    /// # Errors
-    /// Returns an error if the index is invalid
-    pub fn delta_index(&mut self, index: usize) -> Result<(), String> {
-        if self.idx != Some(index) {
-            self.idx = Some(index);
-        }
+    pub fn delta_index(&mut self, index: usize) {
+        // Ensure we have enough space in the vector
         while self.tool_calls.len() <= index {
             self.tool_calls.push(ContentItemFunction::default());
         }
-        Ok(())
+        
+        // If we have a current function call in direct mode, merge it with the existing one at index
+        if let Some(current_funcall) = self.current_funcall.take() {
+            let existing_funcall = &mut self.tool_calls[index];
+            existing_funcall.id.push_str(&current_funcall.id);
+            existing_funcall.function_name.push_str(&current_funcall.function_name);
+            existing_funcall.function_arguments.push_str(&current_funcall.function_arguments);
+        }
+        
+        // Set the streaming mode index
+        self.idx = Some(index);
+        
+        // Initialize current_funcall for streaming mode if it wasn't set
+        if self.current_funcall.is_none() {
+            self.current_funcall = Some(ContentItemFunction::default());
+        }
     }
 
     /// Appends to the ID of the current function call
@@ -87,7 +121,7 @@ impl FunCalls {
     /// # Errors
     /// Returns an error if the current index is invalid
     pub fn delta_id(&mut self, id: &str) -> Result<(), String> {
-        let cell = self.get_cell()?;
+        let cell = self.ensure_current();
         cell.id.push_str(id);
         Ok(())
     }
@@ -100,20 +134,20 @@ impl FunCalls {
     /// # Errors
     /// Returns an error if the current index is invalid
     pub fn delta_function_name(&mut self, function_name: &str) -> Result<(), String> {
-        let cell = self.get_cell()?;
+        let cell = self.ensure_current();
         cell.function_name.push_str(function_name);
         Ok(())
     }
 
     /// Appends to the function arguments of the current function call
-    ///
+    /// 
     /// # Arguments
     /// * `function_arguments` - String to append to the current function call's arguments
     ///
     /// # Errors
     /// Returns an error if the current index is invalid
     pub fn delta_function_arguments(&mut self, function_arguments: &str) -> Result<(), String> {
-        let cell = self.get_cell()?;
+        let cell = self.ensure_current();
         cell.function_arguments.push_str(function_arguments);
         Ok(())
     }
