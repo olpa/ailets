@@ -141,7 +141,10 @@ pub fn on_function_index<W: Write>(
             }
         }
     };
-    builder_cell.borrow_mut().get_funcalls_mut().delta_index(idx);
+    builder_cell
+        .borrow_mut()
+        .get_funcalls_mut()
+        .delta_index(idx);
     StreamOp::ValueIsConsumed
 }
 

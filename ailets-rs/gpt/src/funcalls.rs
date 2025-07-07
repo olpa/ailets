@@ -53,11 +53,14 @@ impl FunCalls {
         }
     }
 
+    /// Ensures the current function call is initialized
+    ///
+    /// Returns a mutable reference to the current function call,
+    /// initializing it with a default `ContentItemFunction` if it wasn't already set.
+    #[must_use]
     fn ensure_current(&mut self) -> &mut ContentItemFunction {
-        if self.current_funcall.is_none() {
-            self.current_funcall = Some(ContentItemFunction::default());
-        }
-        self.current_funcall.as_mut().unwrap()
+        self.current_funcall
+            .get_or_insert_with(ContentItemFunction::default)
     }
 
     /// Ends the current function call and cleans up the delta state
@@ -69,13 +72,18 @@ impl FunCalls {
         if let Some(current_funcall) = self.current_funcall.take() {
             if let Some(idx) = self.idx {
                 // Streaming mode: replace the element at the index
-                self.tool_calls[idx] = current_funcall;
+                if let Some(tool_call) = self.tool_calls.get_mut(idx) {
+                    *tool_call = current_funcall;
+                } else {
+                    // This shouldn't happen in normal operation, but handle gracefully
+                    self.tool_calls.push(current_funcall);
+                }
             } else {
                 // Direct mode: push to the vector
                 self.tool_calls.push(current_funcall);
             }
         }
-        
+
         // Reset the streaming mode index
         self.idx = None;
     }
@@ -84,9 +92,9 @@ impl FunCalls {
     ///
     /// This method:
     /// - Ensures there's enough space in the vector for the given index
-    /// - Merges any existing current_funcall data with the vector entry at the specified index
+    /// - Merges any existing `current_funcall` data with the vector entry at the specified index
     /// - Sets the streaming mode index
-    /// - Initializes current_funcall with a default ContentItemFunction if it wasn't already set
+    /// - Initializes `current_funcall` with a default `ContentItemFunction` if it wasn't already set
     ///
     /// # Arguments
     /// * `index` - The index to set for the current delta position
@@ -95,18 +103,24 @@ impl FunCalls {
         while self.tool_calls.len() <= index {
             self.tool_calls.push(ContentItemFunction::default());
         }
-        
+
         // If we have a current function call in direct mode, merge it with the existing one at index
         if let Some(current_funcall) = self.current_funcall.take() {
-            let existing_funcall = &mut self.tool_calls[index];
-            existing_funcall.id.push_str(&current_funcall.id);
-            existing_funcall.function_name.push_str(&current_funcall.function_name);
-            existing_funcall.function_arguments.push_str(&current_funcall.function_arguments);
+            // Index is guaranteed to be valid after the while loop above
+            if let Some(existing_funcall) = self.tool_calls.get_mut(index) {
+                existing_funcall.id.push_str(&current_funcall.id);
+                existing_funcall
+                    .function_name
+                    .push_str(&current_funcall.function_name);
+                existing_funcall
+                    .function_arguments
+                    .push_str(&current_funcall.function_arguments);
+            }
         }
-        
+
         // Set the streaming mode index
         self.idx = Some(index);
-        
+
         // Initialize current_funcall for streaming mode if it wasn't set
         if self.current_funcall.is_none() {
             self.current_funcall = Some(ContentItemFunction::default());
@@ -134,7 +148,7 @@ impl FunCalls {
     }
 
     /// Appends to the function arguments of the current function call
-    /// 
+    ///
     /// # Arguments
     /// * `function_arguments` - String to append to the current function call's arguments
     ///
