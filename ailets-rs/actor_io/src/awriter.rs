@@ -21,7 +21,7 @@
 use std::ffi::CStr;
 use std::os::raw::{c_int, c_uint};
 
-use actor_runtime::{aclose, awrite, get_errno, open_write, StdHandle};
+use actor_runtime::{aclose, awrite, get_errno, open_write, open_write_value_node, StdHandle};
 
 pub struct AWriter {
     fd: Option<c_int>,
@@ -34,6 +34,19 @@ impl AWriter {
     /// Returns an error if the file could not be created.
     pub fn new(filename: &CStr) -> std::io::Result<Self> {
         let fd = unsafe { open_write(filename.as_ptr()) };
+        if fd < 0 {
+            Err(std::io::Error::from_raw_os_error(unsafe { get_errno() }))
+        } else {
+            Ok(AWriter { fd: Some(fd) })
+        }
+    }
+
+    /// Create a new `AWriter` instance for writing to a value node by its node ID.
+    ///
+    /// # Errors
+    /// Returns an error if the value node could not be opened for writing.
+    pub fn new_for_value_node(node_id: c_int) -> std::io::Result<Self> {
+        let fd = unsafe { open_write_value_node(node_id) };
         if fd < 0 {
             Err(std::io::Error::from_raw_os_error(unsafe { get_errno() }))
         } else {

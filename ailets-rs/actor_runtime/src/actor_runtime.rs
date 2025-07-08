@@ -14,7 +14,6 @@ extern "C" {
     /// - `node_handle`: handle to the value node
     ///
     /// return: file descriptor for writing to the value node, or -1 if error
-    #[cfg(feature = "dagops")]
     pub fn open_write_value_node(node_handle: c_int) -> c_int;
 
     /// `dag_value_node` parameters:
