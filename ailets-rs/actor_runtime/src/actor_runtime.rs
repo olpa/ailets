@@ -10,6 +10,13 @@ extern "C" {
     pub fn awrite(fd: c_int, buffer_ptr: *const u8, count: c_uint) -> c_int;
     pub fn aclose(fd: c_int) -> c_int;
 
+    /// `open_write_value_node` parameters:
+    /// - `node_handle`: handle to the value node
+    ///
+    /// return: file descriptor for writing to the value node, or -1 if error
+    #[cfg(feature = "dagops")]
+    pub fn open_write_value_node(node_handle: c_int) -> c_int;
+
     /// `dag_value_node` parameters:
     /// - `value_ptr`: pointer to the base64 encoded value
     /// - `explain_ptr`: pointer to the C-string explanation

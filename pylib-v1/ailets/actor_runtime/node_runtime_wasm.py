@@ -149,6 +149,19 @@ def fill_wasm_import_object(
             )
             return -1
 
+    async def open_write_value_node(node_handle: int) -> int:
+        try:
+            # Get the node name from the handle
+            node_name = runtime.dagops().handle_to_name[node_handle]
+            # Open the value node for writing using the node name as the path
+            return await runtime.open_write(node_name)
+        except Exception as e:
+            print(
+                f"open_write_value_node: Error opening value node {node_handle} for writing: {e}",
+                file=sys.stderr,
+            )
+            return -1
+
     def sync_open_read(name_ptr: int) -> int:
         return asyncio.run(open_read(name_ptr))
 
@@ -179,6 +192,9 @@ def fill_wasm_import_object(
     def sync_dag_detach_from_alias(alias_ptr: int) -> int:
         return asyncio.run(dag_detach_from_alias(alias_ptr))
 
+    def sync_open_write_value_node(node_handle: int) -> int:
+        return asyncio.run(open_write_value_node(node_handle))
+
     # Register functions with WASM
     import_object.register(
         "",
@@ -195,5 +211,6 @@ def fill_wasm_import_object(
             "dag_value_node": wasmer.Function(store, sync_dag_value_node),
             "dag_alias": wasmer.Function(store, sync_dag_alias),
             "dag_detach_from_alias": wasmer.Function(store, sync_dag_detach_from_alias),
+            "open_write_value_node": wasmer.Function(store, sync_open_write_value_node),
         },
     )
