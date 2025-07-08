@@ -44,15 +44,18 @@ async def toolcall_to_messages(runtime: INodeRuntime) -> None:
     assert isinstance(spec, list), "Tool call message must be a list"
     assert len(spec) == 2, "Tool call message must have exactly two items"
     spec0 = spec[0]
-    assert isinstance(spec0, dict), "Tool call attributes must be a dict"
+    assert isinstance(spec0, dict), "Tool call attributes.0 must be a dict"
     spec1 = spec[1]
-    assert isinstance(spec1, str), "Tool call arguments must be a string"
-    assert "name" in spec0, "Tool call attributes must have a name"
-    assert "id" in spec0, "Tool call attributes must have an id"
-    assert "arguments" in spec1, "Tool call arguments must be a string"
+    assert isinstance(spec1, dict), "Tool call attributes.1 must be a dict"
+    assert "name" in spec0, "Tool call attributes.0 must have a name field"
+    assert "id" in spec0, "Tool call attributes.0 must have an id field"
+    assert "arguments" in spec1, "Tool call attributes.1 must have an arguments field"
     function_name = spec0["name"]
     tool_call_id = spec0["id"]
     arguments = spec1["arguments"]
+    assert isinstance(function_name, str), "Tool call function name must be a string"
+    assert isinstance(tool_call_id, str), "Tool call id must be a string"
+    assert isinstance(arguments, str), "Tool call arguments must be a string"
 
     # Old comment:
     #
@@ -75,19 +78,24 @@ async def toolcall_to_messages(runtime: INodeRuntime) -> None:
     # and instead of patching arguments, we add a new item to the content.
     #
     tool_marker: ContentItemCtl = [
-        {"type": "ctl"},
+        {
+            "type": "ctl",
+            "tool_call_id": tool_call_id,
+        },
         {
             "role": "tool",
-            "tool_call_id": tool_call_id,
         },
     ]
     await write_all(runtime, StdHandles.stdout, json.dumps(tool_marker).encode("utf-8"))
+    await write_all(runtime, StdHandles.stdout, b"\n")
 
     repeat_args: ContentItemText = [{"type": "text"}, {"text": arguments}]
     await write_all(runtime, StdHandles.stdout, json.dumps(repeat_args).encode("utf-8"))
+    await write_all(runtime, StdHandles.stdout, b"\n")
 
     result_text: ContentItemText = [
         {"type": "text"},
         {"text": json.dumps({function_name: tool_result})},
     ]
     await write_all(runtime, StdHandles.stdout, json.dumps(result_text).encode("utf-8"))
+    await write_all(runtime, StdHandles.stdout, b"\n")

@@ -218,7 +218,7 @@ def media_to_dagops(
 
 def media_to_alias(env: IEnvironment, whole_prompt: Sequence[CmdlinePromptItem]) -> str:
     media = [prompt_item for prompt_item in whole_prompt if prompt_item.type == "file"]
-    alias = env.dagops.get_next_name("media")
+    alias = ".chat_messages.media"
     for media_item in media:
         env.dagops.alias(alias, media_item.node_name)
     else:
@@ -251,7 +251,7 @@ def toolspecs_to_dagops(
 
 
 def toolspecs_to_alias(env: IEnvironment, tools: Sequence[CmdlinePromptItem]) -> str:
-    alias = env.dagops.get_next_name("toolspecs")
+    alias = ".chat_messages.toolspecs"
     for tool in tools:
         env.dagops.alias(alias, tool.node_name)
     else:

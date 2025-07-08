@@ -109,12 +109,23 @@ fn several_contentless_roles_create_several_messages_anyway() {
     begin_message(&mut builder, "user");
     begin_message(&mut builder, "assistant");
     begin_message(&mut builder, "user");
-    begin_message(&mut builder, "tool");
+
+    // For tool role, we need to set up tool_call_id
+    builder.begin_item().unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("ctl"))
+        .unwrap();
+    builder
+        .add_item_attribute(String::from("tool_call_id"), String::from("call_dummy"))
+        .unwrap();
+    builder.handle_role("tool").unwrap();
+    builder.end_item().unwrap();
+
     builder.end().unwrap();
 
     let msg_user = r#"{"role":"user"}"#;
     let msg_assistant = r#"{"role":"assistant"}"#;
-    let msg_tool = r#"{"role":"tool"}"#;
+    let msg_tool = r#"{"role":"tool","tool_call_id":"call_dummy"}"#;
     let msg_user2 = r#"{"role":"user"}"#;
     let expected = wrap_boilerplate(&format!(
         "{},{},{},{}",
@@ -1136,4 +1147,56 @@ fn mix_toolspec_and_other_content() {
     );
 
     assert_that!(actual_output, equal_to(expected_final));
+}
+
+#[test]
+fn tool_role_requires_tool_call_id() {
+    let writer = RcWriter::new();
+    let mut builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+
+    // Set up item_attr with tool_call_id before begin_message
+    builder.begin_item().unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("ctl"))
+        .unwrap();
+    builder
+        .add_item_attribute(String::from("tool_call_id"), String::from("call_123"))
+        .unwrap();
+    builder.handle_role("tool").unwrap();
+    builder.end_item().unwrap();
+
+    builder.begin_item().unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("text"))
+        .unwrap();
+    builder.begin_text().unwrap();
+    write!(builder.get_writer(), "Tool response content").unwrap();
+    builder.end_text().unwrap();
+    builder.end_item().unwrap();
+    builder.end().unwrap();
+
+    // Verify that the tool_call_id appears in the output
+    let expected = wrap_boilerplate(
+        r#"{"role":"tool","tool_call_id":"call_123",_NL_"content":[_NL_{"type":"text","text":"Tool response content"}_NL_]}"#,
+    );
+    assert_that!(writer.get_output(), equal_to(expected));
+}
+
+#[test]
+fn tool_role_missing_tool_call_id() {
+    let writer = RcWriter::new();
+    let mut builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+
+    // Set up item_attr without tool_call_id for tool role
+    builder.begin_item().unwrap();
+    builder
+        .add_item_attribute(String::from("type"), String::from("ctl"))
+        .unwrap();
+    // Don't add tool_call_id attribute
+
+    let err = builder.handle_role("tool").unwrap_err();
+    assert_that!(
+        err,
+        equal_to("Missing required 'tool_call_id' attribute for role 'tool'".to_string())
+    );
 }

@@ -524,7 +524,28 @@ impl<W: Write> StructureBuilder<W> {
             ));
         }
 
-        self.begin_message(role)
+        self.begin_message(role)?;
+
+        // If role is "tool", require and write tool_call_id at message level
+        if role == "tool" {
+            let tool_call_id = self
+                .item_attr
+                .as_mut()
+                .and_then(|attrs| attrs.remove("tool_call_id"));
+            match tool_call_id {
+                Some(id) => {
+                    write!(self.writer, ",\"tool_call_id\":").map_err(|e| e.to_string())?;
+                    serde_json::to_writer(&mut self.writer, &id).map_err(|e| e.to_string())?;
+                }
+                None => {
+                    return Err(
+                        "Missing required 'tool_call_id' attribute for role 'tool'".to_string()
+                    );
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// # Errors

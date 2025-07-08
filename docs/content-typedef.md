@@ -70,7 +70,10 @@ When serializing an image blob to markdown:
 Affect the processing of the following items. Currently, its main use is to annotate "who" said the message. Additionally, if we decide to implement OpenAI choices (multiple outputs), the control message could indicate which choice comes next.
 
 - `[0].type: "ctl"`
+- `[0].tool_call_id: Optional[str]`
 - `[1].role: "system"|"user"|"assistant"|"tool"|str`
+
+If the role is `tool`, then the attribute `tool_call_id` is required, otherwise if the role is not `tool`, the attribute is not used.
 
 See also [OpenAI chat completion messages](https://platform.openai.com/docs/api-reference/chat/create).
 

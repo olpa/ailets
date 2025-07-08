@@ -345,20 +345,12 @@ async def main() -> None:
         env = Environment(nodereg, kv=vfs)
         toml_to_env(env, model_opts, args.opt, toml=prompt)
         tools_prompt = toolspecs_to_dagops(env, args.tools)
-        tools_alias = toolspecs_to_alias(env, tools_prompt)
+        toolspecs_to_alias(env, tools_prompt)
         media_ref_prompt = media_to_dagops(env, prompt)
-        media_alias = media_to_alias(env, media_ref_prompt)
+        media_to_alias(env, media_ref_prompt)
         await prompt_to_dagops(env, prompt=list(tools_prompt) + list(media_ref_prompt))
-        model_node_name = instantiate_with_deps(
-            env.dagops,
-            nodereg,
-            f".{model}",
-            {
-                ".chat_messages.toolspecs": tools_alias,
-                ".chat_messages.media": media_alias,
-            },
-        )
-        env.dagops.alias(".model_output", model_node_name)
+        model_node_name = instantiate_with_deps(env.dagops, nodereg, f".{model}", {})
+        env.dagops.alias(".output_messages", model_node_name)
 
         target_node_name = instantiate_with_deps(
             env.dagops, nodereg, ".messages_to_markdown", {}

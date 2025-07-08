@@ -44,29 +44,32 @@ fn inject_tool_calls_to_dag() {
     );
 
     let expected_tcch = json!([
-        {
-            "role": "assistant",
-            "tool_calls": [
-                [{
-                    "type": "function",
-                    "id": "call_1",
-                    "name": "get_weather",
-                  },{
-                    "arguments": "{\"city\":\"London\"}"
-                }],
-                [{
-                    "type": "function",
-                    "id": "call_2",
-                    "name": "get_forecast",
-                  },{
-                    "arguments": "{\"days\":5}"
-                }]
-            ]
-        }
+        [{"type":"ctl"},{"role":"assistant"}],
+        [{
+            "type": "function",
+            "id": "call_1",
+            "name": "get_weather",
+          },{
+            "arguments": "{\"city\":\"London\"}"
+        }],
+        [{
+            "type": "function",
+            "id": "call_2",
+            "name": "get_forecast",
+          },{
+            "arguments": "{\"days\":5}"
+        }]
     ]);
-    let value_tcch =
-        serde_json::from_str(&value_tcch).expect(&format!("Failed to parse JSON: {value_tcch}"));
-    assert_that!(value_tcch, is(equal_to(expected_tcch)));
+    let value_tcch_lines: Vec<serde_json::Value> = value_tcch
+        .lines()
+        .map(|line| {
+            serde_json::from_str(line).expect(&format!("Failed to parse JSON line: {line}"))
+        })
+        .collect();
+    assert_that!(
+        serde_json::Value::Array(value_tcch_lines),
+        is(equal_to(expected_tcch))
+    );
 
     //
     // Assert: `get_weather` tool input and call spec
@@ -211,7 +214,13 @@ fn inject_tool_calls_to_dag() {
     //
     let (handle_rerun, rerun_workflow, deps_rerun) = tracked_dagops.parse_workflow(&workflows[4]);
     assert_that!(rerun_workflow, is(equal_to(format!(".gpt"))));
-    assert_that!(deps_rerun, is(equal_to(HashMap::from([]))));
+    assert_that!(
+        deps_rerun,
+        is(equal_to(HashMap::from([
+            (".chat_messages.media".to_string(), 0),
+            (".chat_messages.toolspecs".to_string(), 0),
+        ])))
+    );
 
     //
     // Assert: aliases
@@ -234,7 +243,7 @@ fn inject_tool_calls_to_dag() {
     assert_that!(alias_handle, is(equal_to(handle_aftercall_2)));
 
     let (_, alias_name, alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases[3]);
-    assert_that!(&alias_name, is(equal_to(".model_output")));
+    assert_that!(&alias_name, is(equal_to(".output_messages")));
     assert_that!(alias_handle, is(equal_to(handle_rerun)));
 }
 

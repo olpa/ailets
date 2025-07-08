@@ -46,23 +46,40 @@ pub fn inject_tool_calls(
     }
 
     //
-    // Don't interfere with previous model workflow
+    // Don't interfere with previous model workflow:
+    //
+    // - We are going to update the chat history, by adding more to the alias ".chat_messages"
+    // - The old finished run of "user prompt to messages" depended on ".chat_messages"
+    // - If we don't detach, the dependency graph will show that the old "user prompt to messages"
+    //   run depends on the new items in ".chat_messages". It's very very confusing,
+    //   even despite the current runner implementation ignores the dependency changes
+    //   of a finished step.
     //
     dagops.detach_from_alias(".chat_messages")?;
 
     //
     // Put tool calls in chat history
     //
-    let tcch = json!([{
-        "role": "assistant",
-        "tool_calls": tool_calls.iter().map(|tc| json!([{
-            "type": "function",
-            "id": tc.id,
-            "name": tc.function_name,
-          },{
-            "arguments": tc.function_arguments
-        }])).collect::<Vec<_>>()
-    }]);
+    let mut tcch_lines = vec![
+        serde_json::to_string(&json!([{"type":"ctl"},{"role":"assistant"}]))
+            .map_err(|e| e.to_string())?,
+    ];
+    tcch_lines.extend(
+        tool_calls
+            .iter()
+            .map(|tc| {
+                serde_json::to_string(&json!([{
+                    "type": "function",
+                    "id": tc.id,
+                    "name": tc.function_name,
+                  },{
+                    "arguments": tc.function_arguments
+                }]))
+                .map_err(|e| e.to_string())
+            })
+            .collect::<Result<Vec<_>, String>>()?,
+    );
+    let tcch = tcch_lines.join("\n");
     let explain = format!(
         "tool calls in chat history - {}",
         tool_calls
@@ -71,12 +88,7 @@ pub fn inject_tool_calls(
             .collect::<Vec<_>>()
             .join(" - ")
     );
-    let node = dagops.value_node(
-        serde_json::to_string(&tcch)
-            .map_err(|e| e.to_string())?
-            .as_bytes(),
-        &explain,
-    )?;
+    let node = dagops.value_node(tcch.as_bytes(), &explain)?;
     dagops.alias(".chat_messages", node)?;
 
     //
@@ -125,8 +137,15 @@ pub fn inject_tool_calls(
     }
 
     // Rerun model
-    let rerun_handle = dagops.instantiate_with_deps(".gpt", HashMap::new().into_iter())?;
-    dagops.alias(".model_output", rerun_handle)?;
+    let rerun_handle = dagops.instantiate_with_deps(
+        ".gpt",
+        HashMap::from([
+            (".chat_messages.media".to_string(), 0),
+            (".chat_messages.toolspecs".to_string(), 0),
+        ])
+        .into_iter(),
+    )?;
+    dagops.alias(".output_messages", rerun_handle)?;
 
     Ok(())
 }

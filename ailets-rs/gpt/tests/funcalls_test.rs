@@ -1,15 +1,14 @@
 use gpt::funcalls::{ContentItemFunction, FunCalls};
 
 #[test]
-fn single_funcall() {
+fn single_funcall_direct() {
     let mut funcalls = FunCalls::new();
 
     // Act
-    funcalls.start_delta_round();
-    funcalls.start_delta();
-    funcalls.delta_id("call_9cFpsOXfVWMUoDz1yyyP1QXD").unwrap();
-    funcalls.delta_function_name("get_user_name").unwrap();
-    funcalls.delta_function_arguments("{}").unwrap();
+    funcalls.delta_id("call_9cFpsOXfVWMUoDz1yyyP1QXD");
+    funcalls.delta_function_name("get_user_name");
+    funcalls.delta_function_arguments("{}");
+    funcalls.end_current();
 
     // Assert
     let tool_calls = funcalls.get_tool_calls();
@@ -24,156 +23,175 @@ fn single_funcall() {
 }
 
 #[test]
-fn check_index() {
-    // Arrange
+fn several_funcalls_direct() {
     let mut funcalls = FunCalls::new();
-    funcalls.start_delta_round();
 
-    // Act
-    funcalls.start_delta();
-    assert!(funcalls.delta_index(0).is_ok());
-    assert!(funcalls.delta_index(1).is_err());
+    // First tool call with index 0
+    funcalls.delta_id("call_foo");
+    funcalls.delta_function_name("get_foo");
+    funcalls.delta_function_arguments("{foo_args}");
+    funcalls.end_current();
 
-    funcalls.start_delta();
-    assert!(funcalls.delta_index(1).is_ok());
-    assert!(funcalls.delta_index(0).is_err());
+    // Second tool call with index 1
+    funcalls.delta_id("call_bar");
+    funcalls.delta_function_name("get_bar");
+    funcalls.delta_function_arguments("{bar_args}");
+    funcalls.end_current();
+
+    // Third tool call with index 2
+    funcalls.delta_id("call_baz");
+    funcalls.delta_function_name("get_baz");
+    funcalls.delta_function_arguments("{baz_args}");
+    funcalls.end_current();
+
+    // Assert
+    let tool_calls = funcalls.get_tool_calls();
+    assert_eq!(
+        tool_calls,
+        &vec![
+            ContentItemFunction::new("call_foo", "get_foo", "{foo_args}"),
+            ContentItemFunction::new("call_bar", "get_bar", "{bar_args}"),
+            ContentItemFunction::new("call_baz", "get_baz", "{baz_args}"),
+        ]
+    );
 }
 
 #[test]
-fn delta_appends() {
-    // Arrange
+fn single_element_streaming_one_round() {
     let mut funcalls = FunCalls::new();
-    funcalls.start_delta_round();
 
-    // Act
-    funcalls.start_delta();
-    funcalls.delta_id("call_1").unwrap();
-    funcalls.delta_function_name("func1").unwrap();
-    funcalls.delta_function_arguments("{}").unwrap();
-
-    funcalls.delta_id("call_2").unwrap();
-    funcalls.delta_function_name("func2").unwrap();
-    funcalls.delta_function_arguments("{\"param\":2}").unwrap();
+    // Act - streaming mode with delta_index
+    funcalls.delta_index(0);
+    funcalls.delta_id("call_9cFpsOXfVWMUoDz1yyyP1QXD");
+    funcalls.delta_function_name("get_user_name");
+    funcalls.delta_function_arguments("{}");
+    funcalls.end_current();
 
     // Assert
     let tool_calls = funcalls.get_tool_calls();
     assert_eq!(
         tool_calls,
         &vec![ContentItemFunction::new(
-            "call_1call_2",
-            "func1func2",
-            "{}{\"param\":2}"
+            "call_9cFpsOXfVWMUoDz1yyyP1QXD",
+            "get_user_name",
+            "{}",
         )]
     );
 }
 
 #[test]
-fn several_rounds_with_delta() {
+fn single_element_streaming_several_rounds() {
     let mut funcalls = FunCalls::new();
 
-    // Act: first round
-    funcalls.start_delta_round();
-    funcalls.start_delta();
-    funcalls.delta_index(0).unwrap();
-    funcalls.delta_id("call_1").unwrap();
-    funcalls.delta_function_name("func1").unwrap();
-    funcalls.delta_function_arguments("{}").unwrap();
-    funcalls.start_delta();
-    funcalls.delta_index(1).unwrap();
-    funcalls.delta_id("call_2").unwrap();
-    funcalls.delta_function_name("func2").unwrap();
-    funcalls.delta_function_arguments("{\"param\":2}").unwrap();
+    // Act - streaming mode with delta_index, multiple rounds
+    // Round 1: Start building the element
+    funcalls.delta_index(0);
+    funcalls.delta_id("call_9cFps");
+    funcalls.delta_function_name("get_user");
+    funcalls.end_current();
 
-    // Act: second round
-    funcalls.start_delta_round();
-    funcalls.start_delta();
-    funcalls.delta_index(0).unwrap();
-    funcalls.delta_id("++").unwrap();
-    funcalls.delta_function_name("++").unwrap();
-    funcalls.delta_function_arguments("++").unwrap();
-    funcalls.start_delta();
-    funcalls.delta_index(1).unwrap();
-    funcalls.delta_id("==").unwrap();
-    funcalls.delta_function_name("==").unwrap();
-    funcalls.delta_function_arguments("==").unwrap();
+    // Round 2: Continue building the same element (accumulate)
+    funcalls.delta_id("call_9cFpsOXfVWMUoDz1yyyP1QXD");
+    funcalls.delta_function_name("get_user_name");
+    funcalls.delta_index(0);
+    funcalls.delta_function_arguments("{}");
+    funcalls.end_current();
+
+    // Assert
+    let tool_calls = funcalls.get_tool_calls();
+    assert_eq!(
+        tool_calls,
+        &vec![ContentItemFunction::new(
+            "call_9cFpscall_9cFpsOXfVWMUoDz1yyyP1QXD",
+            "get_userget_user_name",
+            "{}",
+        )]
+    );
+}
+
+#[test]
+fn several_elements_streaming_one_round() {
+    let mut funcalls = FunCalls::new();
+
+    // Act - streaming mode with delta_index, multiple elements in one round
+    funcalls.delta_index(0);
+    funcalls.delta_id("call_foo");
+    funcalls.delta_function_name("get_foo");
+    funcalls.delta_function_arguments("{foo_args}");
+    funcalls.end_current();
+
+    funcalls.delta_id("call_bar");
+    funcalls.delta_function_name("get_bar");
+    funcalls.delta_function_arguments("{bar_args}");
+    funcalls.delta_index(1);
+    funcalls.end_current();
+
+    funcalls.delta_index(2);
+    funcalls.delta_id("call_baz");
+    funcalls.delta_function_name("get_baz");
+    funcalls.delta_function_arguments("{baz_args}");
+    funcalls.end_current();
 
     // Assert
     let tool_calls = funcalls.get_tool_calls();
     assert_eq!(
         tool_calls,
         &vec![
-            ContentItemFunction::new("call_1++", "func1++", "{}++"),
-            ContentItemFunction::new("call_2==", "func2==", "{\"param\":2}=="),
+            ContentItemFunction::new("call_foo", "get_foo", "{foo_args}"),
+            ContentItemFunction::new("call_bar", "get_bar", "{bar_args}"),
+            ContentItemFunction::new("call_baz", "get_baz", "{baz_args}"),
         ]
     );
 }
 
 #[test]
-fn start_delta_reuse() {
+fn several_elements_streaming_several_rounds() {
     let mut funcalls = FunCalls::new();
 
-    // Act: first round - create 3 items
-    funcalls.start_delta_round();
-    funcalls.start_delta();
-    funcalls.start_delta();
-    funcalls.start_delta();
+    // Act - streaming mode with delta_index, multiple elements and multiple rounds
+    // Round 1: Start building all elements
+    funcalls.delta_index(0);
+    funcalls.delta_id("call_foo");
+    funcalls.delta_function_name("get_foo");
+    funcalls.end_current();
 
-    // Assert: first round - 3 items are created
+    funcalls.delta_id("call_bar");
+    funcalls.delta_index(1);
+    funcalls.delta_function_name("get_bar");
+    funcalls.end_current();
+
+    funcalls.delta_id("call_baz");
+    funcalls.delta_function_name("get_baz");
+    funcalls.delta_index(2);
+    funcalls.end_current();
+
+    // Round 2: Add more to all elements (should accumulate)
+    funcalls.delta_id("_extra");
+    funcalls.delta_function_name("_plus");
+    funcalls.delta_function_arguments("{foo_args}");
+    funcalls.delta_index(0);
+    funcalls.end_current();
+
+    funcalls.delta_id("_extra");
+    funcalls.delta_index(1);
+    funcalls.delta_function_name("_plus");
+    funcalls.delta_function_arguments("{bar_args}");
+    funcalls.end_current();
+
+    funcalls.delta_index(2);
+    funcalls.delta_id("_extra");
+    funcalls.delta_function_name("_plus");
+    funcalls.delta_function_arguments("{baz_args}");
+    funcalls.end_current();
+
+    // Assert
     let tool_calls = funcalls.get_tool_calls();
     assert_eq!(
         tool_calls,
         &vec![
-            ContentItemFunction::default(),
-            ContentItemFunction::default(),
-            ContentItemFunction::default(),
+            ContentItemFunction::new("call_foo_extra", "get_foo_plus", "{foo_args}"),
+            ContentItemFunction::new("call_bar_extra", "get_bar_plus", "{bar_args}"),
+            ContentItemFunction::new("call_baz_extra", "get_baz_plus", "{baz_args}"),
         ]
     );
-
-    // Act: second round - reuse 3 items
-    funcalls.start_delta_round();
-    funcalls.start_delta();
-    funcalls.start_delta();
-    funcalls.start_delta();
-
-    // Assert: second round - so far 3 items are reused
-    let tool_calls = funcalls.get_tool_calls();
-    assert_eq!(
-        tool_calls,
-        &vec![
-            ContentItemFunction::default(),
-            ContentItemFunction::default(),
-            ContentItemFunction::default(),
-        ]
-    );
-
-    // Act: second round - create a new item
-    funcalls.start_delta();
-
-    // Assert: second round - now there are 4 items
-    let tool_calls = funcalls.get_tool_calls();
-    assert_eq!(
-        tool_calls,
-        &vec![
-            ContentItemFunction::default(),
-            ContentItemFunction::default(),
-            ContentItemFunction::default(),
-            ContentItemFunction::default(),
-        ]
-    );
-}
-
-#[test]
-fn has_cell_for_delta() {
-    let mut funcalls = FunCalls::new();
-    let expected_err = "No active delta index";
-    funcalls.start_delta_round();
-
-    let result = funcalls.delta_id("foo");
-    assert_eq!(result.unwrap_err(), expected_err);
-
-    let result = funcalls.delta_function_name("foo");
-    assert_eq!(result.unwrap_err(), expected_err);
-
-    let result = funcalls.delta_function_arguments("foo");
-    assert_eq!(result.unwrap_err(), expected_err);
 }
