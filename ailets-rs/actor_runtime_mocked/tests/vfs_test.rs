@@ -1,6 +1,6 @@
 use actor_runtime_mocked::vfs::{
-    aclose, add_file, aread, awrite, clear_mocks, get_errno, get_file, open_read, open_write,
-    WANT_ERROR,
+    aclose, add_file, aread, awrite, clear_mocks, dag_value_node, get_errno, get_file,
+    get_value_node, open_read, open_write, open_write_value_node, WANT_ERROR,
 };
 use std::os::raw::c_uint;
 
@@ -241,4 +241,133 @@ fn write_in_chunks_with_io_interrupt() {
     // Verify complete (until error) content
     let written = get_file("test").unwrap();
     assert_eq!(written, b"one\ntwo\nthree\nx");
+}
+
+#[test]
+fn dag_value_node_creates_value_node() {
+    clear_mocks();
+
+    let value = b"test value\0";
+    let explain = c"test explanation";
+    let handle = dag_value_node(value.as_ptr(), explain.as_ptr());
+
+    assert!(handle >= 0);
+    assert_eq!(get_errno(), 0);
+
+    let value_node = get_value_node(handle as u32).unwrap();
+    assert_eq!(value_node.handle, handle as u32);
+    assert_eq!(value_node.name, "test value");
+    assert_eq!(value_node.value, b"test value");
+    assert_eq!(value_node.explain, "test explanation");
+}
+
+#[test]
+fn open_write_value_node_returns_minus_one_for_invalid_handle() {
+    clear_mocks();
+
+    let fd = open_write_value_node(999);
+    assert_eq!(fd, -1);
+    assert_eq!(get_errno(), -1);
+}
+
+#[test]
+fn open_write_value_node_opens_existing_value_node() {
+    clear_mocks();
+
+    // Create a value node
+    let value = b"initial value\0";
+    let explain = c"test explanation";
+    let handle = dag_value_node(value.as_ptr(), explain.as_ptr());
+    assert!(handle >= 0);
+
+    // Open the value node for writing
+    let fd = open_write_value_node(handle);
+    assert!(fd >= 0);
+    assert_eq!(get_errno(), 0);
+
+    // Write to the value node
+    let content = b"new content";
+    let bytes_written = awrite(fd, content.as_ptr() as *mut u8, content.len() as c_uint);
+    assert_eq!(bytes_written, content.len() as i32);
+
+    // Verify the content was written to the file
+    let value_node = get_value_node(handle as u32).unwrap();
+    let written = get_file(&value_node.name).unwrap();
+    assert_eq!(written, content);
+    assert_eq!(get_errno(), 0);
+}
+
+#[test]
+fn open_write_value_node_creates_file_with_value_node_name() {
+    clear_mocks();
+
+    // Create a value node
+    let value = b"test value\0";
+    let explain = c"test explanation";
+    let handle = dag_value_node(value.as_ptr(), explain.as_ptr());
+    assert!(handle >= 0);
+
+    // Open the value node for writing
+    let fd = open_write_value_node(handle);
+    assert!(fd >= 0);
+
+    // Verify the file was created with the correct name
+    let value_node = get_value_node(handle as u32).unwrap();
+    assert!(get_file(&value_node.name).is_ok());
+}
+
+#[test]
+fn dag_value_node_creates_file_with_original_name() {
+    clear_mocks();
+
+    // Test with lowercase value
+    let value = b"foo\0";
+    let explain = c"test explanation";
+    let handle = dag_value_node(value.as_ptr(), explain.as_ptr());
+    assert!(handle >= 0);
+
+    let value_node = get_value_node(handle as u32).unwrap();
+    assert_eq!(value_node.name, "foo");
+
+    // Test with already capitalized value
+    let value2 = b"Bar\0";
+    let handle2 = dag_value_node(value2.as_ptr(), explain.as_ptr());
+    assert!(handle2 >= 0);
+
+    let value_node2 = get_value_node(handle2 as u32).unwrap();
+    assert_eq!(value_node2.name, "Bar");
+
+    // Test with empty value
+    let value3 = b"\0";
+    let handle3 = dag_value_node(value3.as_ptr(), explain.as_ptr());
+    assert!(handle3 >= 0);
+
+    let value_node3 = get_value_node(handle3 as u32).unwrap();
+    assert_eq!(value_node3.name, "");
+}
+
+#[test]
+fn writing_to_value_node_writes_to_original_file() {
+    clear_mocks();
+
+    // Create a value node with lowercase name
+    let value = b"foo\0";
+    let explain = c"test explanation";
+    let handle = dag_value_node(value.as_ptr(), explain.as_ptr());
+    assert!(handle >= 0);
+
+    // Open the value node for writing
+    let fd = open_write_value_node(handle);
+    assert!(fd >= 0);
+
+    // Write content
+    let content = b"new content";
+    let bytes_written = awrite(fd, content.as_ptr() as *mut u8, content.len() as c_uint);
+    assert_eq!(bytes_written, content.len() as i32);
+
+    // Verify content was written to the original file name
+    let value_node = get_value_node(handle as u32).unwrap();
+    assert_eq!(value_node.name, "foo");
+    let written = get_file("foo").unwrap();
+    assert_eq!(written, content);
 }
