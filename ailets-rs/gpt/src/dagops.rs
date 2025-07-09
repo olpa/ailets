@@ -1,9 +1,11 @@
 //! DAG Operations Module
 
 use crate::funcalls::ContentItemFunction;
+use actor_io::AWriter;
 use actor_runtime::DagOpsTrait;
 use serde_json::json;
 use std::collections::HashMap;
+use std::io::Write;
 
 /// One level of indirection to test that funcalls are collected correctly
 pub trait InjectDagOpsTrait {
@@ -88,7 +90,16 @@ pub fn inject_tool_calls(
             .collect::<Vec<_>>()
             .join(" - ")
     );
-    let node = dagops.value_node(tcch.as_bytes(), &explain)?;
+    // Create value node (empty), then write to it
+    let node = dagops.value_node(&[], &explain)?;
+    let mut writer = AWriter::new_for_value_node(
+        i32::try_from(node).map_err(|_| "Node handle too large for i32".to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    writer
+        .write_all(tcch.as_bytes())
+        .map_err(|e| e.to_string())?;
+    writer.close().map_err(|e| e.to_string())?;
     dagops.alias(".chat_messages", node)?;
 
     //
@@ -99,7 +110,16 @@ pub fn inject_tool_calls(
         // Run the tool
         //
         let explain = format!("tool input - {}", tool_call.function_name);
-        let tool_input = dagops.value_node(tool_call.function_arguments.as_bytes(), &explain)?;
+        // Create value node (empty), then write to it
+        let tool_input = dagops.value_node(&[], &explain)?;
+        let mut writer = AWriter::new_for_value_node(
+            i32::try_from(tool_input).map_err(|_| "Node handle too large for i32".to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        writer
+            .write_all(tool_call.function_arguments.as_bytes())
+            .map_err(|e| e.to_string())?;
+        writer.close().map_err(|e| e.to_string())?;
 
         let tool_name = &tool_call.function_name;
         let tool_handle = dagops.instantiate_with_deps(
@@ -118,12 +138,21 @@ pub fn inject_tool_calls(
             "arguments": tool_call.function_arguments
         }]);
         let explain = format!("tool call spec - {}", tool_call.function_name);
-        let tool_spec_handle = dagops.value_node(
-            serde_json::to_string(&tool_spec)
-                .map_err(|e| e.to_string())?
-                .as_bytes(),
-            &explain,
-        )?;
+        // Create value node (empty), then write to it
+        let tool_spec_handle = dagops.value_node(&[], &explain)?;
+        let mut writer = AWriter::new_for_value_node(
+            i32::try_from(tool_spec_handle)
+                .map_err(|_| "Node handle too large for i32".to_string())?,
+        )
+        .map_err(|e| e.to_string())?;
+        writer
+            .write_all(
+                serde_json::to_string(&tool_spec)
+                    .map_err(|e| e.to_string())?
+                    .as_bytes(),
+            )
+            .map_err(|e| e.to_string())?;
+        writer.close().map_err(|e| e.to_string())?;
 
         let msg_handle = dagops.instantiate_with_deps(
             ".toolcall_to_messages",
