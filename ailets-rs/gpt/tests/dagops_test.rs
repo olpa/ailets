@@ -11,6 +11,7 @@ pub mod dagops_mock;
 
 #[test]
 fn inject_tool_calls_to_dag() {
+    actor_runtime_mocked::clear_mocks();
     // Arrange
     let mut tracked_dagops = TrackedDagOps::default();
 
