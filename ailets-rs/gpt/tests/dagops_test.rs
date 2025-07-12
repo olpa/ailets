@@ -11,8 +11,6 @@ pub mod dagops_mock;
 
 #[test]
 fn inject_tool_calls_to_dag() {
-    // Need to call to enforce linking with the mock
-    actor_runtime_mocked::clear_mocks();
     // Arrange
     let mut tracked_dagops = TrackedDagOps::default();
 
@@ -32,14 +30,13 @@ fn inject_tool_calls_to_dag() {
     // - 1 for chat history, with 2 tool calls
     // - 2 for tool calls input
     // - 2 for output to chat history
-    let value_nodes = &tracked_dagops.value_nodes;
+    let value_nodes = tracked_dagops.value_nodes.borrow();
     assert_that!(value_nodes.len(), is(equal_to(5)));
 
     //
     // Assert: tool calls are in the chat history
     //
-    let (handle_tcch, explain_tcch, value_tcch) =
-        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[0]);
+    let (handle_tcch, explain_tcch, value_tcch) = tracked_dagops.parse_value_node(&value_nodes[0]);
     assert_that!(
         &explain_tcch,
         matches_regex("tool calls in chat history - get_weather - get_forecast")
@@ -77,7 +74,7 @@ fn inject_tool_calls_to_dag() {
     // Assert: `get_weather` tool input and call spec
     //
     let (handle_tool_input1, explain_tool_input1, value_tool_input1) =
-        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[1]);
+        tracked_dagops.parse_value_node(&value_nodes[1]);
     assert_that!(
         &explain_tool_input1,
         matches_regex("tool input - get_weather")
@@ -90,7 +87,7 @@ fn inject_tool_calls_to_dag() {
     //
 
     let (handle_toolspec_input1, explain_toolspec_input1, value_toolspec_input1) =
-        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[2]);
+        tracked_dagops.parse_value_node(&value_nodes[2]);
     assert_that!(
         &explain_toolspec_input1,
         matches_regex("tool call spec - get_weather")
@@ -115,7 +112,7 @@ fn inject_tool_calls_to_dag() {
     // Assert: `get_forecast` tool input and call spec
     //
     let (handle_tool_input2, explain_tool_input2, value_tool_input2) =
-        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[3]);
+        tracked_dagops.parse_value_node(&value_nodes[3]);
     assert_that!(
         &explain_tool_input2,
         matches_regex("tool input - get_forecast")
@@ -128,7 +125,7 @@ fn inject_tool_calls_to_dag() {
     //
 
     let (handle_toolspec_input2, explain_toolspec_input2, value_toolspec_input2) =
-        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[4]);
+        tracked_dagops.parse_value_node(&value_nodes[4]);
     assert_that!(
         &explain_toolspec_input2,
         matches_regex("tool call spec - get_forecast")
@@ -251,7 +248,6 @@ fn inject_tool_calls_to_dag() {
 
 #[test]
 fn inject_empty_tool_calls_to_dag() {
-    actor_runtime_mocked::clear_mocks();
     // Arrange
     let mut tracked_dagops = TrackedDagOps::default();
     let tool_calls: Vec<ContentItemFunction> = vec![];
@@ -260,7 +256,7 @@ fn inject_empty_tool_calls_to_dag() {
     inject_tool_calls(&mut tracked_dagops, &tool_calls).unwrap();
 
     // Assert no operations were performed
-    assert_that!(tracked_dagops.value_nodes.len(), is(equal_to(0)));
+    assert_that!(tracked_dagops.value_nodes.borrow().len(), is(equal_to(0)));
     assert_that!(tracked_dagops.workflows.len(), is(equal_to(0)));
     assert_that!(tracked_dagops.aliases.len(), is(equal_to(0)));
     assert_that!(tracked_dagops.detached.len(), is(equal_to(0)));
