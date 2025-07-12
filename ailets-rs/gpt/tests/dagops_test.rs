@@ -11,6 +11,7 @@ pub mod dagops_mock;
 
 #[test]
 fn inject_tool_calls_to_dag() {
+    // Need to call to enforce linking with the mock
     actor_runtime_mocked::clear_mocks();
     // Arrange
     let mut tracked_dagops = TrackedDagOps::default();
@@ -250,6 +251,7 @@ fn inject_tool_calls_to_dag() {
 
 #[test]
 fn inject_empty_tool_calls_to_dag() {
+    actor_runtime_mocked::clear_mocks();
     // Arrange
     let mut tracked_dagops = TrackedDagOps::default();
     let tool_calls: Vec<ContentItemFunction> = vec![];
