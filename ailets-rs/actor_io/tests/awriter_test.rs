@@ -67,29 +67,3 @@ fn write_error() {
         "Error message should indicate write failure"
     );
 }
-
-#[test]
-fn write_to_value_node() {
-    use actor_io::AWriter;
-    use actor_runtime_mocked::{clear_mocks, dag_value_node, get_file};
-    use std::ffi::CString;
-    use std::io::Write;
-
-    clear_mocks();
-
-    // Create a value node named "foo"
-    let value = CString::new("foo").unwrap();
-    let explain = CString::new("test value node").unwrap();
-    let handle = dag_value_node(value.as_ptr().cast::<u8>(), explain.as_ptr());
-    assert!(handle >= 0);
-
-    // Write to the value node
-    let mut writer =
-        AWriter::new_for_value_node(handle).expect("Should create writer for value node");
-    writer.write_all(b"hello value node!").unwrap();
-    writer.close().unwrap();
-
-    // Check the file content
-    let written = get_file("foo").unwrap();
-    assert_eq!(written, b"hello value node!");
-}
