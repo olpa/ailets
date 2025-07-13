@@ -240,3 +240,61 @@ pub extern "C" fn aclose(fd: c_int) -> c_int {
 pub extern "C" fn get_errno() -> c_int {
     IO_ERRNO.load(Ordering::Relaxed)
 }
+
+// DAG operations for testing
+#[no_mangle]
+#[allow(clippy::missing_panics_doc)]
+#[allow(clippy::unwrap_used)]
+pub extern "C" fn dag_value_node(value_ptr: *const u8, _explain_ptr: *const c_char) -> c_int {
+    IO_ERRNO.store(0, Ordering::Relaxed);
+    let mut files = FILES.lock().unwrap();
+
+    // Extract the content from the value pointer (assuming it's a C string)
+    let content = if value_ptr.is_null() {
+        Vec::new()
+    } else {
+        unsafe { CStr::from_ptr(value_ptr.cast::<c_char>()) }
+            .to_bytes()
+            .to_vec()
+    };
+
+    // Create a file named "value.N" where N is the future handle
+    let handle = files.len();
+    let name = format!("value.{handle}");
+
+    files.push(VfsFile {
+        name,
+        buffer: content,
+    });
+
+    c_int::try_from(handle).unwrap_or_else(|_| {
+        IO_ERRNO.store(-1, Ordering::Relaxed);
+        -1
+    })
+}
+
+#[no_mangle]
+#[allow(clippy::missing_panics_doc)]
+#[allow(clippy::unwrap_used)]
+pub extern "C" fn open_write_value_node(node_handle: c_int) -> c_int {
+    IO_ERRNO.store(0, Ordering::Relaxed);
+    let files = FILES.lock().unwrap();
+    let mut handles = HANDLES.lock().unwrap();
+
+    // Open file named "value.N" where N is the node_handle
+    let name = format!("value.{node_handle}");
+
+    if let Some(vfs_index) = files.iter().position(|f| f.name == name) {
+        let handle = FileHandle { vfs_index, pos: 0 };
+        handles.push(handle);
+        let handle_index = handles.len() - 1;
+
+        return c_int::try_from(handle_index).unwrap_or_else(|_| {
+            IO_ERRNO.store(-1, Ordering::Relaxed);
+            -1
+        });
+    }
+
+    IO_ERRNO.store(-1, Ordering::Relaxed);
+    -1
+}

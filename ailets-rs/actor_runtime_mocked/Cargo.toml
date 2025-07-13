@@ -8,5 +8,8 @@ license.workspace = true
 [lib]
 crate-type = ["cdylib", "lib"]
 
+[features]
+dagops = []
+
 [dependencies]
 lazy_static = { version = "1.5.0" }
