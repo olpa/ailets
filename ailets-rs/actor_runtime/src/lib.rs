@@ -4,7 +4,7 @@ mod actor_runtime;
 #[cfg(feature = "dagops")]
 mod dagops;
 
-pub use actor_runtime::{aclose, aread, awrite, get_errno, open_read, open_write, open_write_value_node};
+pub use actor_runtime::{aclose, aread, awrite, get_errno, open_read, open_write};
 #[cfg(feature = "dagops")]
 pub use dagops::{DagOps, DagOpsTrait};
 

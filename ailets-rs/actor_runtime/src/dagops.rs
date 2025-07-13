@@ -1,9 +1,11 @@
 use crate::actor_runtime::{
     dag_alias, dag_detach_from_alias, dag_instantiate_with_deps, dag_value_node,
+    open_write_value_node,
 };
 use base64::engine;
 use std::io::Write;
 use std::iter::Iterator;
+use std::os::raw::c_int;
 
 pub trait DagOpsTrait {
     /// # Errors
@@ -25,6 +27,13 @@ pub trait DagOpsTrait {
         workflow_name: &str,
         deps: impl Iterator<Item = (String, u32)>,
     ) -> Result<u32, String>;
+
+    /// Open a file descriptor for writing to a value node by its handle.
+    /// This uses the global open_write_value_node function.
+    ///
+    /// # Errors
+    /// From the host
+    fn open_write_value_node(&mut self, node_handle: u32) -> Result<i32, String>;
 }
 
 pub struct DagOps;
@@ -90,5 +99,17 @@ impl DagOpsTrait for DagOps {
             )
         };
         u32::try_from(handle).map_err(|_| "dag_instantiate_with_deps: error".to_string())
+    }
+
+    fn open_write_value_node(&mut self, node_handle: u32) -> Result<i32, String> {
+        let node_handle_i32 = c_int::try_from(node_handle)
+            .map_err(|_| "Node handle too large for i32".to_string())?;
+
+        let fd = unsafe { open_write_value_node(node_handle_i32) };
+        if fd < 0 {
+            return Err("Failed to open value node for writing".to_string());
+        }
+
+        Ok(fd)
     }
 }
