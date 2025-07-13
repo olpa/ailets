@@ -1,0 +1,5 @@
+actor_runtime: Core runtime interface for actor-based systems, offering I/O operations and optional DAG workflow management. See actor_runtime/doc/llms.txt for more details.
+
+actor_runtime_mocked: Mock implementation of actor runtime for testing purposes, providing virtual file system. See actor_runtime_mocked/doc/llms.txt for more details.
+
+actor_io: Provides high-level reader and writer abstractions over the actor runtime's low-level I/O operations. See actor_io/doc/llms.txt for more details.
