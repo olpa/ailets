@@ -16,14 +16,6 @@
 /// `aread`, `awrite`:
 /// - stops on `IO_INTERRUPT` or `WANT_ERROR`.
 /// - return an error if `WANT_ERROR` is encountered.
-///
-/// `dag_value_node`:
-/// - creates a value node with the given value and explanation.
-/// - returns a handle that can be used with `open_write_value_node`.
-///
-/// `open_write_value_node`:
-/// - opens a value node for writing by its handle.
-/// - creates a file with a name that corresponds to the value node.
 use lazy_static::lazy_static;
 use std::ffi::CStr;
 use std::os::raw::{c_char, c_int, c_uint};
@@ -40,17 +32,9 @@ struct FileHandle {
     pos: usize,
 }
 
-pub struct ValueNode {
-    pub handle: u32,
-    pub name: String,
-    pub value: Vec<u8>,
-    pub explain: String,
-}
-
 lazy_static! {
     static ref FILES: Mutex<Vec<VfsFile>> = Mutex::new(Vec::new());
     static ref HANDLES: Mutex<Vec<FileHandle>> = Mutex::new(Vec::new());
-    static ref VALUE_NODES: Mutex<Vec<ValueNode>> = Mutex::new(Vec::new());
 }
 
 static IO_ERRNO: AtomicI32 = AtomicI32::new(0);
@@ -66,8 +50,6 @@ pub fn clear_mocks() {
     files.clear();
     let mut handles = HANDLES.lock().unwrap();
     handles.clear();
-    let mut value_nodes = VALUE_NODES.lock().unwrap();
-    value_nodes.clear();
 }
 
 #[allow(clippy::missing_panics_doc)]
@@ -89,22 +71,6 @@ pub fn get_file(name: &str) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         .ok_or_else(|| {
             IO_ERRNO.store(-1, Ordering::Relaxed);
             format!("File not found: {name}").into()
-        })
-}
-
-#[allow(clippy::missing_panics_doc)]
-#[allow(clippy::unwrap_used)]
-#[must_use]
-pub fn get_value_node(handle: u32) -> Option<ValueNode> {
-    let value_nodes = VALUE_NODES.lock().unwrap();
-    value_nodes
-        .iter()
-        .find(|vn| vn.handle == handle)
-        .map(|vn| ValueNode {
-            handle: vn.handle,
-            name: vn.name.clone(),
-            value: vn.value.clone(),
-            explain: vn.explain.clone(),
         })
 }
 
@@ -154,73 +120,6 @@ pub extern "C" fn open_write(name_ptr: *const c_char) -> c_int {
 
     let handle = FileHandle { vfs_index, pos: 0 };
     handles.push(handle);
-    let handle_index = handles.len() - 1;
-
-    c_int::try_from(handle_index).unwrap_or_else(|_| {
-        IO_ERRNO.store(-1, Ordering::Relaxed);
-        -1
-    })
-}
-
-#[no_mangle]
-#[allow(clippy::missing_panics_doc)]
-#[allow(clippy::unwrap_used)]
-pub extern "C" fn dag_value_node(value_ptr: *const u8, explain_ptr: *const c_char) -> c_int {
-    IO_ERRNO.store(0, Ordering::Relaxed);
-    let mut value_nodes = VALUE_NODES.lock().unwrap();
-
-    // For the mock, we'll assume the value is a null-terminated string
-    // In a real implementation, this would decode base64
-    let value_string = unsafe { CStr::from_ptr(value_ptr.cast::<c_char>()) }
-        .to_string_lossy()
-        .to_string();
-    let explain_string = cstr_to_string(explain_ptr);
-
-    let Ok(handle) = u32::try_from(value_nodes.len()) else {
-        IO_ERRNO.store(-1, Ordering::Relaxed);
-        return -1;
-    };
-    value_nodes.push(ValueNode {
-        handle,
-        name: value_string.clone(),
-        value: value_string.as_bytes().to_vec(),
-        explain: explain_string,
-    });
-
-    c_int::try_from(handle).unwrap_or_else(|_| {
-        IO_ERRNO.store(-1, Ordering::Relaxed);
-        -1
-    })
-}
-
-#[no_mangle]
-#[allow(clippy::missing_panics_doc)]
-#[allow(clippy::unwrap_used)]
-pub extern "C" fn open_write_value_node(node_handle: c_int) -> c_int {
-    IO_ERRNO.store(0, Ordering::Relaxed);
-    let mut files = FILES.lock().unwrap();
-    let mut handles = HANDLES.lock().unwrap();
-    let value_nodes = VALUE_NODES.lock().unwrap();
-
-    let Ok(handle) = u32::try_from(node_handle) else {
-        IO_ERRNO.store(-1, Ordering::Relaxed);
-        return -1;
-    };
-
-    let Some(value_node) = value_nodes.iter().find(|vn| vn.handle == handle) else {
-        IO_ERRNO.store(-1, Ordering::Relaxed);
-        return -1;
-    };
-
-    let name = value_node.name.clone();
-    // Start with an empty buffer for writing
-    let buffer = Vec::new();
-
-    files.push(VfsFile { name, buffer });
-    let vfs_index = files.len() - 1;
-
-    let file_handle = FileHandle { vfs_index, pos: 0 };
-    handles.push(file_handle);
     let handle_index = handles.len() - 1;
 
     c_int::try_from(handle_index).unwrap_or_else(|_| {
