@@ -8,6 +8,9 @@ license.workspace = true
 [lib]
 crate-type = ["cdylib", "lib"]
 
+[features]
+dagops = ["actor_runtime/dagops"]
+
 [dependencies]
 actor_runtime = { version = "0.2.0", path = "../actor_runtime" }
 actor_runtime_mocked = { version = "0.1.0", path = "../actor_runtime_mocked" }

@@ -21,7 +21,10 @@
 use std::ffi::CStr;
 use std::os::raw::{c_int, c_uint};
 
-use actor_runtime::{aclose, awrite, get_errno, open_write, open_write_value_node, StdHandle};
+use actor_runtime::{aclose, awrite, get_errno, open_write, StdHandle};
+
+#[cfg(feature = "dagops")]
+use actor_runtime::open_write_value_node;
 
 pub struct AWriter {
     fd: Option<c_int>,
@@ -45,6 +48,7 @@ impl AWriter {
     ///
     /// # Errors
     /// Returns an error if the value node could not be opened for writing.
+    #[cfg(feature = "dagops")]
     pub fn new_for_value_node(node_id: c_int) -> std::io::Result<Self> {
         let fd = unsafe { open_write_value_node(node_id) };
         if fd < 0 {
