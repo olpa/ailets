@@ -30,7 +30,7 @@ fn inject_tool_calls_to_dag() {
     // - 1 for chat history, with 2 tool calls
     // - 2 for tool calls input
     // - 2 for output to chat history
-    let value_nodes = tracked_dagops.value_nodes.borrow();
+    let value_nodes = &tracked_dagops.value_nodes;
     assert_that!(value_nodes.len(), is(equal_to(5)));
 
     //
@@ -256,7 +256,7 @@ fn inject_empty_tool_calls_to_dag() {
     inject_tool_calls(&mut tracked_dagops, &tool_calls).unwrap();
 
     // Assert no operations were performed
-    assert_that!(tracked_dagops.value_nodes.borrow().len(), is(equal_to(0)));
+    assert_that!(tracked_dagops.value_nodes.len(), is(equal_to(0)));
     assert_that!(tracked_dagops.workflows.len(), is(equal_to(0)));
     assert_that!(tracked_dagops.aliases.len(), is(equal_to(0)));
     assert_that!(tracked_dagops.detached.len(), is(equal_to(0)));
