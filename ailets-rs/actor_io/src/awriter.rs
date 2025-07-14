@@ -55,7 +55,10 @@ impl AWriter {
     /// Returns an error if the file descriptor is invalid (negative).
     pub fn new_from_fd(fd: c_int) -> std::io::Result<Self> {
         if fd < 0 {
-            Err(std::io::Error::from_raw_os_error(unsafe { get_errno() }))
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Bad handle",
+            ))
         } else {
             Ok(AWriter { fd: Some(fd) })
         }

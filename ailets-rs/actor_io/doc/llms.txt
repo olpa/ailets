@@ -50,6 +50,7 @@
 - **Methods**:
   - `new(filename: &CStr)` - Create writer for file
   - `new_from_std(handle: StdHandle)` - Create writer for standard handle
+  - `new_from_fd(fd: c_int)` - Create writer from existing file descriptor
   - `close()` - Manually close the writer
   - `write()` - Write data (via std::io::Write trait)
   - `flush()` - Flush output (no-op implementation)
