@@ -1,10 +1,10 @@
 //! DAG Operations Module
 
 use crate::funcalls::ContentItemFunction;
+use actor_io::AWriter;
 use serde_json::json;
 use std::collections::HashMap;
 use std::io::Write;
-use actor_io::AWriter;
 
 pub trait DagOpsTrait {
     /// # Errors
@@ -27,25 +27,37 @@ pub trait DagOpsTrait {
         deps: impl Iterator<Item = (String, u32)>,
     ) -> Result<u32, String>;
 
-    /// Open a file descriptor for writing to a value node by its handle.
-    /// This uses the global open_write_value_node function.
-    ///
     /// # Errors
     /// From the host
     fn open_write_value_node(&mut self, node_handle: u32) -> Result<i32, String>;
 }
 
-impl DagOpsTrait for actor_runtime::DagOps {
+pub struct DagOps;
+
+impl DagOps {
+    #[must_use]
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+impl Default for DagOps {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl DagOpsTrait for DagOps {
     fn value_node(&mut self, value: &[u8], explain: &str) -> Result<u32, String> {
-        self.value_node(value, explain)
+        actor_runtime::value_node(value, explain)
     }
 
     fn alias(&mut self, alias: &str, node_handle: u32) -> Result<u32, String> {
-        self.alias(alias, node_handle)
+        actor_runtime::alias(alias, node_handle)
     }
 
     fn detach_from_alias(&mut self, alias: &str) -> Result<(), String> {
-        self.detach_from_alias(alias)
+        actor_runtime::detach_from_alias(alias)
     }
 
     fn instantiate_with_deps(
@@ -53,11 +65,11 @@ impl DagOpsTrait for actor_runtime::DagOps {
         workflow_name: &str,
         deps: impl Iterator<Item = (String, u32)>,
     ) -> Result<u32, String> {
-        self.instantiate_with_deps(workflow_name, deps)
+        actor_runtime::instantiate_with_deps(workflow_name, deps)
     }
 
     fn open_write_value_node(&mut self, node_handle: u32) -> Result<i32, String> {
-        self.open_write_value_node(node_handle)
+        actor_runtime::open_write_value_node(node_handle)
     }
 }
 
@@ -147,8 +159,7 @@ pub fn inject_tool_calls(
     // Create value node (empty), then write to it
     let node = dagops.value_node(&[], &explain)?;
     let fd = dagops.open_write_value_node(node)?;
-    let mut writer = AWriter::new_from_fd(fd)
-        .map_err(|e| e.to_string())?;
+    let mut writer = AWriter::new_from_fd(fd).map_err(|e| e.to_string())?;
     writer
         .write_all(tcch.as_bytes())
         .map_err(|e| e.to_string())?;
@@ -165,8 +176,7 @@ pub fn inject_tool_calls(
         // Create value node (empty), then write to it
         let tool_input = dagops.value_node(&[], &explain)?;
         let fd = dagops.open_write_value_node(tool_input)?;
-        let mut writer = AWriter::new_from_fd(fd)
-            .map_err(|e| e.to_string())?;
+        let mut writer = AWriter::new_from_fd(fd).map_err(|e| e.to_string())?;
         writer
             .write_all(tool_call.function_arguments.as_bytes())
             .map_err(|e| e.to_string())?;
@@ -191,8 +201,7 @@ pub fn inject_tool_calls(
         // Create value node (empty), then write to it
         let tool_spec_handle = dagops.value_node(&[], &explain)?;
         let fd = dagops.open_write_value_node(tool_spec_handle)?;
-        let mut writer = AWriter::new_from_fd(fd)
-            .map_err(|e| e.to_string())?;
+        let mut writer = AWriter::new_from_fd(fd).map_err(|e| e.to_string())?;
         writer
             .write_all(
                 serde_json::to_string(&tool_spec)

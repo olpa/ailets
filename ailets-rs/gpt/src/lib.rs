@@ -4,8 +4,8 @@ pub mod handlers;
 pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
-use actor_runtime::{err_to_heap_c_string, extract_errno, DagOps, StdHandle};
-use dagops::{InjectDagOps, InjectDagOpsTrait};
+use actor_runtime::{err_to_heap_c_string, extract_errno, StdHandle};
+use dagops::{DagOps, InjectDagOps, InjectDagOpsTrait};
 use handlers::{
     on_begin_message, on_content, on_end_message, on_function_arguments, on_function_end,
     on_function_id, on_function_index, on_function_name, on_role,
