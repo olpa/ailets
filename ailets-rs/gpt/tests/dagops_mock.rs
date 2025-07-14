@@ -82,16 +82,11 @@ impl DagOpsTrait for TrackedDagOps {
         Ok(())
     }
 
-    fn writer_for_value_node(
-        &mut self,
-        node_handle: u32,
-    ) -> Result<Box<dyn std::io::Write>, String> {
-        use std::io::Write;
-
+    fn open_write_value_node(&mut self, node_handle: u32) -> Result<i32, String> {
         let idx = node_handle as usize;
         let current_len = self.value_nodes.borrow().len();
         eprintln!(
-            "writer_for_value_node: node_handle={}, value_nodes.len()={:?}",
+            "open_write_value_node: node_handle={}, value_nodes.len()={:?}",
             idx, current_len
         );
         if idx >= current_len {
@@ -99,37 +94,9 @@ impl DagOpsTrait for TrackedDagOps {
             return Err("Invalid node handle".to_string());
         }
 
-        // Create a shared reference to the value_nodes vector (no lifetime issues)
-        let value_nodes_ref = Rc::clone(&self.value_nodes);
-
-        struct MockValueWriter {
-            value_nodes: Rc<RefCell<Vec<String>>>,
-            idx: usize,
-        }
-
-        impl std::io::Write for MockValueWriter {
-            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-                let prefix = {
-                    let value_nodes = self.value_nodes.borrow();
-                    let value_node = &value_nodes[self.idx];
-                    value_node.rsplit_once(':').map(|(p, _)| p.to_string())
-                };
-                if let Some(prefix) = prefix {
-                    let mut value_nodes = self.value_nodes.borrow_mut();
-                    value_nodes[self.idx] =
-                        format!("{}:{}", prefix, std::str::from_utf8(buf).unwrap());
-                }
-                Ok(buf.len())
-            }
-            fn flush(&mut self) -> std::io::Result<()> {
-                Ok(())
-            }
-        }
-
-        Ok(Box::new(MockValueWriter {
-            value_nodes: value_nodes_ref,
-            idx,
-        }))
+        // For mocking purposes, return a fake file descriptor
+        // The actual writing will be handled by the runtime
+        Ok(node_handle as i32)
     }
 }
 

@@ -5,6 +5,7 @@ use actor_runtime::DagOpsTrait;
 use serde_json::json;
 use std::collections::HashMap;
 use std::io::Write;
+use actor_io::AWriter;
 
 /// One level of indirection to test that funcalls are collected correctly
 pub trait InjectDagOpsTrait {
@@ -91,7 +92,9 @@ pub fn inject_tool_calls(
     );
     // Create value node (empty), then write to it
     let node = dagops.value_node(&[], &explain)?;
-    let mut writer = dagops.writer_for_value_node(node)?;
+    let fd = dagops.open_write_value_node(node)?;
+    let mut writer = AWriter::new_from_fd(fd)
+        .map_err(|e| e.to_string())?;
     writer
         .write_all(tcch.as_bytes())
         .map_err(|e| e.to_string())?;
@@ -107,7 +110,9 @@ pub fn inject_tool_calls(
         let explain = format!("tool input - {}", tool_call.function_name);
         // Create value node (empty), then write to it
         let tool_input = dagops.value_node(&[], &explain)?;
-        let mut writer = dagops.writer_for_value_node(tool_input)?;
+        let fd = dagops.open_write_value_node(tool_input)?;
+        let mut writer = AWriter::new_from_fd(fd)
+            .map_err(|e| e.to_string())?;
         writer
             .write_all(tool_call.function_arguments.as_bytes())
             .map_err(|e| e.to_string())?;
@@ -131,7 +136,9 @@ pub fn inject_tool_calls(
         let explain = format!("tool call spec - {}", tool_call.function_name);
         // Create value node (empty), then write to it
         let tool_spec_handle = dagops.value_node(&[], &explain)?;
-        let mut writer = dagops.writer_for_value_node(tool_spec_handle)?;
+        let fd = dagops.open_write_value_node(tool_spec_handle)?;
+        let mut writer = AWriter::new_from_fd(fd)
+            .map_err(|e| e.to_string())?;
         writer
             .write_all(
                 serde_json::to_string(&tool_spec)

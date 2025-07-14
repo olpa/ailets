@@ -12,7 +12,7 @@ crate-type = ["cdylib", "lib"]
 getrandom = { version = "0.2", features = ["custom"] }
 actor_runtime = { version = "0.2.0", path = "../actor_runtime", features = ["dagops"] }
 actor_runtime_mocked = { version = "0.1.0", path = "../actor_runtime_mocked" }
-actor_io = { version = "0.1.0", path = "../actor_io", features = ["dagops"] }
+actor_io = { version = "0.1.0", path = "../actor_io" }
 serde_json = "1.0.139"
 scan_json = "1.1.0"
 
