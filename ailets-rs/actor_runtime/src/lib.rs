@@ -1,13 +1,10 @@
 use std::ffi::c_char;
 
 mod actor_runtime;
-#[cfg(feature = "dagops")]
 mod dagops;
 
-#[cfg(feature = "dagops")]
 pub use actor_runtime::open_write_value_node;
 pub use actor_runtime::{aclose, aread, awrite, get_errno, open_read, open_write};
-#[cfg(feature = "dagops")]
 pub use dagops::{DagOps, DagOpsTrait};
 
 /// Standard handles for I/O streams.

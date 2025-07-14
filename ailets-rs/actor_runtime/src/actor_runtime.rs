@@ -15,14 +15,12 @@ extern "C" {
     /// - `explain_ptr`: pointer to the C-string explanation
     ///
     /// return: handle to the value, or -1 if error
-    #[cfg(feature = "dagops")]
     pub fn dag_value_node(value_ptr: *const u8, explain_ptr: *const c_char) -> c_int;
 
     /// `open_write_value_node` parameters:
     /// - `node_handle`: handle to the value node
     ///
     /// return: file descriptor for writing to the value node, or -1 if error
-    #[cfg(feature = "dagops")]
     pub fn open_write_value_node(node_handle: c_int) -> c_int;
 
     /// `dag_alias` parameters:
@@ -30,14 +28,12 @@ extern "C" {
     /// - `node_handle`: handle to the node
     ///
     /// return: handle to the alias, or -1 if error
-    #[cfg(feature = "dagops")]
     pub fn dag_alias(alias_ptr: *const c_char, node_handle: c_int) -> c_int;
 
     /// `dag_detach_from_alias` parameters:
     /// - `alias_ptr`: pointer to the C-string alias
     ///
     /// return: 0 if success, -1 if error
-    #[cfg(feature = "dagops")]
     pub fn dag_detach_from_alias(alias_ptr: *const c_char) -> c_int;
 
     /// `dag_instantiate_with_deps` parameters:
@@ -45,6 +41,5 @@ extern "C" {
     /// - `deps`: pointer to the C-string JSON dependencies map
     ///
     /// return: handle to the workflow, or -1 if error
-    #[cfg(feature = "dagops")]
     pub fn dag_instantiate_with_deps(workflow: *const c_char, deps: *const c_char) -> c_int;
 }
