@@ -6,6 +6,20 @@ use base64::engine;
 use std::io::Write;
 use std::os::raw::c_int;
 
+/// Creates a value node in the DAG with the provided data.
+///
+/// # Arguments
+///
+/// * `value` - The binary data to store in the value node
+/// * `explain` - A description or explanation of the value node
+///
+/// # Returns
+///
+/// Returns a `Result` containing the node handle on success, or an error message on failure.
+///
+/// # Errors
+///
+/// - Normally, should never fail.
 pub fn value_node(value: &[u8], explain: &str) -> Result<u32, String> {
     let mut value_base64 = Vec::new();
     let mut enc =
@@ -21,6 +35,20 @@ pub fn value_node(value: &[u8], explain: &str) -> Result<u32, String> {
     u32::try_from(handle).map_err(|_| "dag_value_node: error".to_string())
 }
 
+/// Creates an alias for an existing node in the DAG.
+///
+/// # Arguments
+///
+/// * `alias` - The alias name to assign to the node
+/// * `node_handle` - The handle of the existing node to alias
+///
+/// # Returns
+///
+/// Returns a `Result` containing the alias handle on success, or an error message on failure.
+///
+/// # Errors
+///
+/// - Wrong handle.
 pub fn alias(alias: &str, node_handle: u32) -> Result<u32, String> {
     let alias = std::ffi::CString::new(alias).map_err(|e| e.to_string())?;
 
@@ -31,6 +59,19 @@ pub fn alias(alias: &str, node_handle: u32) -> Result<u32, String> {
     u32::try_from(handle).map_err(|_| "dag_alias: error".to_string())
 }
 
+/// Detaches a node from its alias in the DAG.
+///
+/// # Arguments
+///
+/// * `alias` - The alias name to detach
+///
+/// # Returns
+///
+/// Returns a `Result` indicating success or failure.
+///
+/// # Errors
+///
+/// - Normally, should never fail
 pub fn detach_from_alias(alias: &str) -> Result<(), String> {
     let alias = std::ffi::CString::new(alias).map_err(|e| e.to_string())?;
 
@@ -42,6 +83,20 @@ pub fn detach_from_alias(alias: &str) -> Result<(), String> {
     }
 }
 
+/// Instantiates a workflow with dependencies in the DAG.
+///
+/// # Arguments
+///
+/// * `workflow_name` - The name of the workflow to instantiate
+/// * `deps` - An iterator of dependencies as (name, handle) pairs
+///
+/// # Returns
+///
+/// Returns a `Result` containing the workflow instance handle on success, or an error message on failure.
+///
+/// # Errors
+///
+/// - The host can fail
 pub fn instantiate_with_deps(
     workflow_name: &str,
     deps: impl Iterator<Item = (String, u32)>,
@@ -64,6 +119,19 @@ pub fn instantiate_with_deps(
     u32::try_from(handle).map_err(|_| "dag_instantiate_with_deps: error".to_string())
 }
 
+/// Opens a value node for writing and returns a file descriptor.
+///
+/// # Arguments
+///
+/// * `node_handle` - The handle of the value node to open for writing
+///
+/// # Returns
+///
+/// Returns a `Result` containing the file descriptor on success, or an error message on failure.
+///
+/// # Errors
+///
+/// - Wrong handle
 pub fn open_write_value_node(node_handle: u32) -> Result<i32, String> {
     let node_handle_i32 =
         c_int::try_from(node_handle).map_err(|_| "Node handle too large for i32".to_string())?;
