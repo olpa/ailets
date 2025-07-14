@@ -1,11 +1,65 @@
 //! DAG Operations Module
 
 use crate::funcalls::ContentItemFunction;
-use actor_runtime::DagOpsTrait;
 use serde_json::json;
 use std::collections::HashMap;
 use std::io::Write;
 use actor_io::AWriter;
+
+pub trait DagOpsTrait {
+    /// # Errors
+    /// From the host
+    fn value_node(&mut self, value: &[u8], explain: &str) -> Result<u32, String>;
+
+    /// # Errors
+    /// From the host
+    fn alias(&mut self, alias: &str, node_handle: u32) -> Result<u32, String>;
+
+    /// # Errors
+    /// From the host
+    fn detach_from_alias(&mut self, alias: &str) -> Result<(), String>;
+
+    /// # Errors
+    /// From the host
+    fn instantiate_with_deps(
+        &mut self,
+        workflow_name: &str,
+        deps: impl Iterator<Item = (String, u32)>,
+    ) -> Result<u32, String>;
+
+    /// Open a file descriptor for writing to a value node by its handle.
+    /// This uses the global open_write_value_node function.
+    ///
+    /// # Errors
+    /// From the host
+    fn open_write_value_node(&mut self, node_handle: u32) -> Result<i32, String>;
+}
+
+impl DagOpsTrait for actor_runtime::DagOps {
+    fn value_node(&mut self, value: &[u8], explain: &str) -> Result<u32, String> {
+        self.value_node(value, explain)
+    }
+
+    fn alias(&mut self, alias: &str, node_handle: u32) -> Result<u32, String> {
+        self.alias(alias, node_handle)
+    }
+
+    fn detach_from_alias(&mut self, alias: &str) -> Result<(), String> {
+        self.detach_from_alias(alias)
+    }
+
+    fn instantiate_with_deps(
+        &mut self,
+        workflow_name: &str,
+        deps: impl Iterator<Item = (String, u32)>,
+    ) -> Result<u32, String> {
+        self.instantiate_with_deps(workflow_name, deps)
+    }
+
+    fn open_write_value_node(&mut self, node_handle: u32) -> Result<i32, String> {
+        self.open_write_value_node(node_handle)
+    }
+}
 
 /// One level of indirection to test that funcalls are collected correctly
 pub trait InjectDagOpsTrait {

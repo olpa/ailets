@@ -183,7 +183,7 @@ pub extern "C" fn process_gpt() -> *const c_char {
     let reader = AReader::new_from_std(StdHandle::Stdin);
     let writer = AWriter::new_from_std(StdHandle::Stdout);
 
-    let mut dagops = InjectDagOps::new(DagOps {});
+    let mut dagops = InjectDagOps::new(DagOps::new());
     if let Err(e) = _process_gpt(reader, writer, &mut dagops) {
         return err_to_heap_c_string(extract_errno(&e), &format!("Failed to process GPT: {e}"));
     }

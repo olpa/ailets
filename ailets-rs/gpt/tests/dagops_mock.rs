@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use actor_runtime::DagOpsTrait;
+use gpt::dagops::DagOpsTrait;
 use gpt::dagops::{inject_tool_calls, InjectDagOpsTrait};
 use gpt::funcalls::ContentItemFunction;
 

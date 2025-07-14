@@ -3,9 +3,10 @@ use std::ffi::c_char;
 mod actor_runtime;
 mod dagops;
 
-pub use actor_runtime::open_write_value_node;
 pub use actor_runtime::{aclose, aread, awrite, get_errno, open_read, open_write};
-pub use dagops::{DagOps, DagOpsTrait};
+pub use dagops::{
+    alias, detach_from_alias, instantiate_with_deps, open_write_value_node, value_node,
+};
 
 /// Standard handles for I/O streams.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
