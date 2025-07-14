@@ -40,7 +40,14 @@ pub struct Vfs {
 pub const WANT_ERROR: char = '\u{0001}';
 pub const IO_INTERRUPT: char = '\n';
 
+impl Default for Vfs {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Vfs {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             files: Mutex::new(Vec::new()),

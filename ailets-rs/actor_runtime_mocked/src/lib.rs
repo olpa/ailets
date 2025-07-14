@@ -19,6 +19,12 @@ pub fn add_file(name: String, buffer: Vec<u8>) {
     VFS_INSTANCE.add_file(name, buffer);
 }
 
+/// Gets the content of a file from the virtual file system.
+///
+/// # Errors
+///
+/// Returns an error if the file is not found in the virtual file system,
+/// or if there's an issue acquiring the internal mutex lock.
 pub fn get_file(name: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + '_>> {
     VFS_INSTANCE.get_file(name)
 }
