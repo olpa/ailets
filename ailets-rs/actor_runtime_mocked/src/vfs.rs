@@ -73,6 +73,21 @@ impl Vfs {
         files.push(VfsFile { name, buffer });
     }
 
+    /// Update an existing file by appending data to it
+    /// # Errors
+    /// - File not found
+    #[allow(clippy::missing_panics_doc)]
+    #[allow(clippy::unwrap_used)]
+    pub fn append_to_file(&self, name: &str, data: &[u8]) -> Result<(), String> {
+        let mut files = self.files.lock().unwrap();
+        if let Some(file) = files.iter_mut().find(|f| f.name == name) {
+            file.buffer.extend_from_slice(data);
+            Ok(())
+        } else {
+            Err(format!("File {name} not found for appending"))
+        }
+    }
+
     #[allow(clippy::missing_errors_doc)]
     #[allow(clippy::unwrap_used)]
     pub fn get_file(&self, name: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + '_>> {
