@@ -2,10 +2,11 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use actor_runtime_mocked::Vfs;
+use actor_runtime_mocked::{Vfs, VfsWriter};
 use gpt::dagops::DagOpsTrait;
 use gpt::dagops::{inject_tool_calls, InjectDagOpsTrait};
 use gpt::funcalls::ContentItemFunction;
+use std::io::Write;
 
 pub struct TrackedInjectDagOps {
     dagops: Rc<RefCell<TrackedDagOps>>,
@@ -36,7 +37,7 @@ impl InjectDagOpsTrait for TrackedInjectDagOps {
 }
 
 pub struct TrackedDagOps {
-    pub vfs: Vfs,
+    pub vfs: Rc<RefCell<Vfs>>,
     pub value_nodes: Vec<String>,
     pub aliases: Vec<String>,
     pub detached: Vec<String>,
@@ -46,7 +47,7 @@ pub struct TrackedDagOps {
 impl Default for TrackedDagOps {
     fn default() -> Self {
         Self {
-            vfs: Vfs::new(),
+            vfs: Rc::new(RefCell::new(Vfs::new())),
             value_nodes: Vec::new(),
             aliases: Vec::new(),
             detached: Vec::new(),
@@ -62,7 +63,7 @@ impl DagOpsTrait for TrackedDagOps {
 
         // Create file "value.N" on the VFS with the initial value
         let filename = format!("value.{handle}");
-        self.vfs.add_file(filename, value.to_vec());
+        self.vfs.borrow_mut().add_file(filename, value.to_vec());
 
         eprintln!(
             "value_node: created, handle={}, explain={}",
@@ -113,11 +114,17 @@ impl DagOpsTrait for TrackedDagOps {
         }
 
         // Use VFS to open the value file for writing
-        let fd = self.vfs.open_write_value_node(node_handle as i32);
+        let fd = self.vfs.borrow().open_write_value_node(node_handle as i32);
         if fd < 0 {
             return Err("Failed to open value node for writing".to_string());
         }
         Ok(fd)
+    }
+
+    fn open_writer_to_value_node(&mut self, node_handle: u32) -> Result<Box<dyn Write>, String> {
+        let filename = format!("value.{node_handle}");
+        let writer = VfsWriter::new(self.vfs.clone(), filename);
+        Ok(Box::new(writer))
     }
 }
 
@@ -130,7 +137,11 @@ impl TrackedDagOps {
 
         // Get content from value.N file in VFS
         let filename = format!("value.{handle}");
-        let content = self.vfs.get_file(&filename).unwrap_or_else(|_| Vec::new());
+        let content = self
+            .vfs
+            .borrow()
+            .get_file(&filename)
+            .unwrap_or_else(|_| Vec::new());
         let value = String::from_utf8(content).unwrap_or_default();
 
         (handle, explain, value)
@@ -169,7 +180,7 @@ impl TrackedDagOps {
 impl Clone for TrackedDagOps {
     fn clone(&self) -> Self {
         TrackedDagOps {
-            vfs: Vfs::new(), // Create a new VFS instance for the clone
+            vfs: self.vfs.clone(), // Share the same VFS instance
             value_nodes: self.value_nodes.clone(),
             aliases: self.aliases.clone(),
             detached: self.detached.clone(),

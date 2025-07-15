@@ -30,6 +30,12 @@ pub trait DagOpsTrait {
     /// # Errors
     /// From the host
     fn open_write_value_node(&mut self, node_handle: u32) -> Result<i32, String>;
+
+    /// Open a writer to a value node without performing the write operation.
+    /// Returns a writer that can be used to write data incrementally.
+    /// # Errors
+    /// From the host or I/O operations
+    fn open_writer_to_value_node(&mut self, node_handle: u32) -> Result<Box<dyn Write>, String>;
 }
 
 pub struct DagOps;
@@ -70,6 +76,12 @@ impl DagOpsTrait for DagOps {
 
     fn open_write_value_node(&mut self, node_handle: u32) -> Result<i32, String> {
         actor_runtime::open_write_value_node(node_handle)
+    }
+
+    fn open_writer_to_value_node(&mut self, node_handle: u32) -> Result<Box<dyn Write>, String> {
+        let fd = self.open_write_value_node(node_handle)?;
+        let writer = AWriter::new_from_fd(fd).map_err(|e| e.to_string())?;
+        Ok(Box::new(writer))
     }
 }
 
@@ -158,11 +170,12 @@ pub fn inject_tool_calls(
     );
     // Create value node (empty), then write to it
     let node = dagops.value_node(&[], &explain)?;
-    let fd = dagops.open_write_value_node(node)?;
-    let mut writer = AWriter::new_from_fd(fd).map_err(|e| e.to_string())?;
-    writer
-        .write_all(tcch.as_bytes())
-        .map_err(|e| e.to_string())?;
+    {
+        let mut writer = dagops.open_writer_to_value_node(node)?;
+        writer
+            .write_all(tcch.as_bytes())
+            .map_err(|e| e.to_string())?;
+    } // writer auto-closes here
     dagops.alias(".chat_messages", node)?;
 
     //
@@ -175,11 +188,12 @@ pub fn inject_tool_calls(
         let explain = format!("tool input - {}", tool_call.function_name);
         // Create value node (empty), then write to it
         let tool_input = dagops.value_node(&[], &explain)?;
-        let fd = dagops.open_write_value_node(tool_input)?;
-        let mut writer = AWriter::new_from_fd(fd).map_err(|e| e.to_string())?;
-        writer
-            .write_all(tool_call.function_arguments.as_bytes())
-            .map_err(|e| e.to_string())?;
+        {
+            let mut writer = dagops.open_writer_to_value_node(tool_input)?;
+            writer
+                .write_all(tool_call.function_arguments.as_bytes())
+                .map_err(|e| e.to_string())?;
+        } // writer auto-closes here
 
         let tool_name = &tool_call.function_name;
         let tool_handle = dagops.instantiate_with_deps(
@@ -200,15 +214,16 @@ pub fn inject_tool_calls(
         let explain = format!("tool call spec - {}", tool_call.function_name);
         // Create value node (empty), then write to it
         let tool_spec_handle = dagops.value_node(&[], &explain)?;
-        let fd = dagops.open_write_value_node(tool_spec_handle)?;
-        let mut writer = AWriter::new_from_fd(fd).map_err(|e| e.to_string())?;
-        writer
-            .write_all(
-                serde_json::to_string(&tool_spec)
-                    .map_err(|e| e.to_string())?
-                    .as_bytes(),
-            )
-            .map_err(|e| e.to_string())?;
+        {
+            let mut writer = dagops.open_writer_to_value_node(tool_spec_handle)?;
+            writer
+                .write_all(
+                    serde_json::to_string(&tool_spec)
+                        .map_err(|e| e.to_string())?
+                        .as_bytes(),
+                )
+                .map_err(|e| e.to_string())?;
+        } // writer auto-closes here
 
         let msg_handle = dagops.instantiate_with_deps(
             ".toolcall_to_messages",
