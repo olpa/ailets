@@ -65,10 +65,6 @@ impl DagOpsTrait for TrackedDagOps {
         let filename = format!("value.{handle}");
         self.vfs.borrow_mut().add_file(filename, value.to_vec());
 
-        eprintln!(
-            "value_node: created, handle={}, explain={}",
-            handle, explain
-        );
         Ok(handle as u32)
     }
 
@@ -104,12 +100,7 @@ impl DagOpsTrait for TrackedDagOps {
     fn open_write_value_node(&mut self, node_handle: u32) -> Result<i32, String> {
         let idx = node_handle as usize;
         let current_len = self.value_nodes.len();
-        eprintln!(
-            "open_write_value_node: node_handle={}, value_nodes.len()={:?}",
-            idx, current_len
-        );
         if idx >= current_len {
-            eprintln!("Invalid node handle: {} >= {}", idx, current_len);
             return Err("Invalid node handle".to_string());
         }
 
