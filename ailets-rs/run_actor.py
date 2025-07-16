@@ -240,12 +240,6 @@ class NodeRuntime:
         print(f"dag_detach_from_alias: alias: {alias}")
         return 0
 
-    def open_write_value_node(self, node_handle: int) -> int:
-        # For the mock implementation, just create a new stream
-        # In a real implementation, this would look up the node name and open it for writing
-        self.streams.append(io.BytesIO())
-        print(f"open_write_value_node: node_handle: {node_handle} -> {len(self.streams) - 1}")
-        return len(self.streams) - 1
 
 
 class BufToStr:
@@ -319,8 +313,6 @@ def register_node_runtime(
     def dag_detach_from_alias(alias: int) -> int:
         return nr.dag_detach_from_alias(buf_to_str.get_string(alias))
 
-    def open_write_value_node(node_handle: int) -> int:
-        return nr.open_write_value_node(node_handle)
 
     import_object.register(
         "",
@@ -337,7 +329,6 @@ def register_node_runtime(
             "dag_value_node": wasmer.Function(store, dag_value_node),
             "dag_alias": wasmer.Function(store, dag_alias),
             "dag_detach_from_alias": wasmer.Function(store, dag_detach_from_alias),
-            "open_write_value_node": wasmer.Function(store, open_write_value_node),
         },
     )
 

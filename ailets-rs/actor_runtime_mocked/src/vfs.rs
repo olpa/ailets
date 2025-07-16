@@ -286,30 +286,6 @@ impl Vfs {
         })
     }
 
-    #[allow(clippy::missing_panics_doc)]
-    #[allow(clippy::unwrap_used)]
-    pub fn open_write_value_node(&self, node_handle: c_int) -> c_int {
-        self.io_errno.store(0, Ordering::Relaxed);
-        let files = self.files.lock().unwrap();
-        let mut handles = self.handles.lock().unwrap();
-
-        // Open file named "value.N" where N is the node_handle
-        let name = format!("value.{node_handle}");
-
-        if let Some(vfs_index) = files.iter().position(|f| f.name == name) {
-            let handle = FileHandle { vfs_index, pos: 0 };
-            handles.push(handle);
-            let handle_index = handles.len() - 1;
-
-            return c_int::try_from(handle_index).unwrap_or_else(|_| {
-                self.io_errno.store(-1, Ordering::Relaxed);
-                -1
-            });
-        }
-
-        self.io_errno.store(-1, Ordering::Relaxed);
-        -1
-    }
 }
 
 fn cstr_to_string(ptr: *const c_char) -> String {

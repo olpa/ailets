@@ -66,7 +66,3 @@ pub extern "C" fn dag_value_node(value_ptr: *const u8, explain_ptr: *const c_cha
     VFS_INSTANCE.dag_value_node(value_ptr, explain_ptr)
 }
 
-#[no_mangle]
-pub extern "C" fn open_write_value_node(node_handle: c_int) -> c_int {
-    VFS_INSTANCE.open_write_value_node(node_handle)
-}

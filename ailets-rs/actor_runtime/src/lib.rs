@@ -5,7 +5,7 @@ mod dagops;
 
 pub use actor_runtime::{aclose, aread, awrite, get_errno, open_read, open_write};
 pub use dagops::{
-    alias, detach_from_alias, instantiate_with_deps, open_write_value_node, value_node,
+    alias, detach_from_alias, instantiate_with_deps, value_node,
     open_write_pipe, depend_fd, alias_fd,
 };
 

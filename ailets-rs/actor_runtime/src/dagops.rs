@@ -1,6 +1,5 @@
 use crate::actor_runtime::{
     dag_alias, dag_detach_from_alias, dag_instantiate_with_deps, dag_value_node,
-    open_write_value_node as raw_open_write_value_node,
     open_write_pipe as raw_open_write_pipe, depend_fd as raw_depend_fd,
     alias_fd as raw_alias_fd,
 };
@@ -121,30 +120,6 @@ pub fn instantiate_with_deps(
     u32::try_from(handle).map_err(|_| "dag_instantiate_with_deps: error".to_string())
 }
 
-/// Opens a value node for writing and returns a file descriptor.
-///
-/// # Arguments
-///
-/// * `node_handle` - The handle of the value node to open for writing
-///
-/// # Returns
-///
-/// Returns a `Result` containing the file descriptor on success, or an error message on failure.
-///
-/// # Errors
-///
-/// - Wrong handle
-pub fn open_write_value_node(node_handle: u32) -> Result<i32, String> {
-    let node_handle_i32 =
-        c_int::try_from(node_handle).map_err(|_| "Node handle too large for i32".to_string())?;
-
-    let fd = unsafe { raw_open_write_value_node(node_handle_i32) };
-    if fd < 0 {
-        return Err("Failed to open value node for writing".to_string());
-    }
-
-    Ok(fd)
-}
 
 /// Creates an open value node that can be written to through a file descriptor.
 ///

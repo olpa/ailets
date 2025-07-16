@@ -17,11 +17,6 @@ extern "C" {
     /// return: handle to the value, or -1 if error
     pub fn dag_value_node(value_ptr: *const u8, explain_ptr: *const c_char) -> c_int;
 
-    /// `open_write_value_node` parameters:
-    /// - `node_handle`: handle to the value node
-    ///
-    /// return: file descriptor for writing to the value node, or -1 if error
-    pub fn open_write_value_node(node_handle: c_int) -> c_int;
 
     /// `dag_alias` parameters:
     /// - `alias_ptr`: pointer to the C-string alias
