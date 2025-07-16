@@ -1,6 +1,7 @@
 use crate::actor_runtime::{
     dag_alias, dag_detach_from_alias, dag_instantiate_with_deps, dag_value_node,
     open_write_value_node as raw_open_write_value_node,
+    open_write_pipe as raw_open_write_pipe, depend_fd as raw_depend_fd,
 };
 use base64::engine;
 use std::io::Write;
@@ -142,4 +143,55 @@ pub fn open_write_value_node(node_handle: u32) -> Result<i32, String> {
     }
 
     Ok(fd)
+}
+
+/// Creates an open value node that can be written to through a file descriptor.
+///
+/// # Arguments
+///
+/// * `explain` - Optional description or explanation of the open value node
+///
+/// # Returns
+///
+/// Returns a `Result` containing the node handle on success, or an error message on failure.
+///
+/// # Errors
+///
+/// - Host runtime error
+pub fn open_write_pipe(explain: Option<&str>) -> Result<u32, String> {
+    let explain_cstr = if let Some(explain) = explain {
+        Some(std::ffi::CString::new(explain).map_err(|e| e.to_string())?)
+    } else {
+        None
+    };
+
+    let explain_ptr = explain_cstr
+        .as_ref()
+        .map_or(std::ptr::null(), |s| s.as_ptr().cast::<i8>());
+
+    let handle = unsafe { raw_open_write_pipe(explain_ptr) };
+    u32::try_from(handle).map_err(|_| "open_write_pipe: error".to_string())
+}
+
+/// Establishes dependency tracking for a file descriptor, linking it to its corresponding node.
+///
+/// # Arguments
+///
+/// * `fd` - The file descriptor to establish dependency tracking for
+///
+/// # Returns
+///
+/// Returns a `Result` indicating success or failure.
+///
+/// # Errors
+///
+/// - Invalid file descriptor
+/// - Host runtime error
+pub fn depend_fd(fd: i32) -> Result<(), String> {
+    let result = unsafe { raw_depend_fd(fd) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err("depend_fd: error".to_string())
+    }
 }
