@@ -154,6 +154,23 @@ def fill_wasm_import_object(
             )
             return -1
 
+    async def alias_fd(fd: int) -> int:
+        try:
+            node_handle = runtime.dagops().find_node_by_fd(fd)
+            if node_handle == -1:
+                print(
+                    f"alias_fd: Could not find node for fd {fd}",
+                    file=sys.stderr,
+                )
+                return -1
+            return runtime.dagops().alias_fd(node_handle)
+        except Exception as e:
+            print(
+                f"alias_fd: Error in alias_fd for fd {fd}: {e}",
+                file=sys.stderr,
+            )
+            return -1
+
     async def dag_alias(alias_ptr: int, node_handle: int) -> int:
         alias = buf_to_str.get_string(alias_ptr)
         try:
@@ -216,6 +233,9 @@ def fill_wasm_import_object(
     def sync_depend_fd(fd: int) -> int:
         return asyncio.run(depend_fd(fd))
 
+    def sync_alias_fd(fd: int) -> int:
+        return asyncio.run(alias_fd(fd))
+
     # Register functions with WASM
     import_object.register(
         "",
@@ -234,5 +254,6 @@ def fill_wasm_import_object(
             "dag_detach_from_alias": wasmer.Function(store, sync_dag_detach_from_alias),
             "open_write_pipe": wasmer.Function(store, sync_open_write_pipe),
             "depend_fd": wasmer.Function(store, sync_depend_fd),
+            "alias_fd": wasmer.Function(store, sync_alias_fd),
         },
     )

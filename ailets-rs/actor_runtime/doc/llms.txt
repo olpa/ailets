@@ -38,6 +38,7 @@ The `actor_runtime` crate provides a runtime interface for actor-based systems w
 - `open_write_value_node(node_handle: u32) -> Result<i32, String>`: Open value node for writing
 - `open_write_pipe(explain: Option<&str>) -> Result<u32, String>`: Create open value node that can be written to through file descriptor
 - `depend_fd(fd: i32) -> Result<(), String>`: Establish dependency tracking for file descriptor
+- `alias_fd(fd: i32) -> Result<(), String>`: Create alias for file descriptor
 
 ### Types
 
@@ -71,6 +72,7 @@ Direct function interface for DAG workflow operations:
 - `open_write_value_node(node_handle: u32) -> Result<i32, String>`: Opens a value node for writing and returns a file descriptor
 - `open_write_pipe(explain: Option<&str>) -> Result<u32, String>`: Creates an open value node that can be written to through a file descriptor
 - `depend_fd(fd: i32) -> Result<(), String>`: Establishes dependency tracking for a file descriptor, linking it to its corresponding node
+- `alias_fd(fd: i32) -> Result<(), String>`: Creates an alias for a file descriptor
 
 ### Implementation Details
 
@@ -91,6 +93,7 @@ WASM import functions for DAG operations:
 - `dag_instantiate_with_deps(workflow: *const c_char, deps: *const c_char) -> c_int`
 - `open_write_pipe(explain_ptr: *const c_char) -> c_int`
 - `depend_fd(fd: c_int) -> c_int`
+- `alias_fd(fd: c_int) -> c_int`
 
 ## Usage Patterns
 
@@ -108,7 +111,7 @@ unsafe { aclose(fd) };
 
 ### DAG Operations
 ```rust
-use actor_runtime::{value_node, alias, detach_from_alias, instantiate_with_deps, open_write_value_node, open_write_pipe, depend_fd};
+use actor_runtime::{value_node, alias, detach_from_alias, instantiate_with_deps, open_write_value_node, open_write_pipe, depend_fd, alias_fd};
 
 // Create value node
 let node = value_node(b"data", "explanation")?;
@@ -120,6 +123,8 @@ let fd = open_write_value_node(node)?;
 let pipe_node = open_write_pipe(Some("pipe explanation"))?;
 // Establish dependency tracking for file descriptor
 depend_fd(fd)?;
+// Create alias for file descriptor
+alias_fd(fd)?;
 // Instantiate workflow with dependencies
 let deps = vec![("input".to_string(), node)];
 let workflow = instantiate_with_deps("my_workflow", deps.into_iter())?;

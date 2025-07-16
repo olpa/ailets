@@ -185,6 +185,9 @@ class INodeDagops(Protocol):
     def depend_fd(self, node_handle: int) -> int:
         raise NotImplementedError
 
+    def alias_fd(self, node_handle: int) -> int:
+        raise NotImplementedError
+
 
 class INodeRuntime(Protocol):
     def get_name(self) -> str:

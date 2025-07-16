@@ -54,4 +54,10 @@ extern "C" {
     ///
     /// return: 0 if success, or -1 if error
     pub fn depend_fd(fd: c_int) -> c_int;
+
+    /// `alias_fd` parameters:
+    /// - `fd`: file descriptor to create an alias for
+    ///
+    /// return: 0 if success, or -1 if error
+    pub fn alias_fd(fd: c_int) -> c_int;
 }

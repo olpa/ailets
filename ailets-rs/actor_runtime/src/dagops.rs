@@ -2,6 +2,7 @@ use crate::actor_runtime::{
     dag_alias, dag_detach_from_alias, dag_instantiate_with_deps, dag_value_node,
     open_write_value_node as raw_open_write_value_node,
     open_write_pipe as raw_open_write_pipe, depend_fd as raw_depend_fd,
+    alias_fd as raw_alias_fd,
 };
 use base64::engine;
 use std::io::Write;
@@ -193,5 +194,28 @@ pub fn depend_fd(fd: i32) -> Result<(), String> {
         Ok(())
     } else {
         Err("depend_fd: error".to_string())
+    }
+}
+
+/// Creates an alias for a file descriptor.
+///
+/// # Arguments
+///
+/// * `fd` - The file descriptor to create an alias for
+///
+/// # Returns
+///
+/// Returns a `Result` indicating success or failure.
+///
+/// # Errors
+///
+/// - Invalid file descriptor
+/// - Host runtime error
+pub fn alias_fd(fd: i32) -> Result<(), String> {
+    let result = unsafe { raw_alias_fd(fd) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err("alias_fd: error".to_string())
     }
 }

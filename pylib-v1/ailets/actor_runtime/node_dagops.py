@@ -92,3 +92,8 @@ class NodeDagops(INodeDagops):
         # This is a placeholder - should implement dependency tracking
         # The actual implementation would depend on what "depend_fd" should do
         return 0
+
+    def alias_fd(self, node_handle: int) -> int:
+        # This is a placeholder - should implement alias functionality for file descriptors
+        # The actual implementation would depend on what "alias_fd" should do
+        return 0
