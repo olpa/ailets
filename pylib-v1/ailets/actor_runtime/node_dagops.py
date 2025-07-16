@@ -12,12 +12,14 @@ from ailets.atyping import (
 
 class NodeDagops(INodeDagops):
     def __init__(self, env: IEnvironment, node: INodeRuntime):
+        self.env = env
         self.nodereg = env.nodereg
         self.dagops = env.dagops
         self.piper = env.piper
         self.processes = env.processes
         self.node = node
         self.handle_to_name: List[str] = ['no-node-id-0']
+        self.fd_to_node_handle: dict[int, int] = {}
 
     def add_value_node(self, value: bytes, explain: Optional[str] = None) -> str:
         node = self.dagops.add_value_node(value, self.piper, self.processes, explain)
@@ -71,3 +73,22 @@ class NodeDagops(INodeDagops):
 
         self.handle_to_name.append(node_name)
         return len(self.handle_to_name) - 1
+
+    def open_write_pipe(self, explain: Optional[str] = None) -> int:
+        node = self.dagops.add_open_value_node(
+            self.piper, 
+            self.processes, 
+            self.env.notification_queue, 
+            explain
+        )
+
+        self.handle_to_name.append(node.name)
+        return len(self.handle_to_name) - 1
+
+    def find_node_by_fd(self, fd: int) -> int:
+        return self.fd_to_node_handle.get(fd, -1)
+
+    def depend_fd(self, node_handle: int) -> int:
+        # This is a placeholder - should implement dependency tracking
+        # The actual implementation would depend on what "depend_fd" should do
+        return 0

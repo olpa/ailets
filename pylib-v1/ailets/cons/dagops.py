@@ -111,7 +111,7 @@ class Dagops(IDagops):
         """Add a typed value node to the environment."""
         return _add_value_node(self, value, piper, processes, explain)
 
-    def create_open_value_node(
+    def add_open_value_node(
         self,
         piper: IPiper,
         processes: IProcesses,

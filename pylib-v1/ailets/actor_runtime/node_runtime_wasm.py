@@ -125,6 +125,35 @@ def fill_wasm_import_object(
             )
             return -1
 
+    async def open_write_pipe(explain_ptr: int) -> int:
+        explain_str = buf_to_str.get_string(explain_ptr)
+        try:
+            handle = runtime.dagops().open_write_pipe(explain_str)
+            return handle
+        except Exception as e:
+            print(
+                f"open_write_pipe: Error creating open value node for '{explain_str}': {e}",
+                file=sys.stderr,
+            )
+            return -1
+
+    async def depend_fd(fd: int) -> int:
+        try:
+            node_handle = runtime.dagops().find_node_by_fd(fd)
+            if node_handle == -1:
+                print(
+                    f"depend_fd: Could not find node for fd {fd}",
+                    file=sys.stderr,
+                )
+                return -1
+            return runtime.dagops().depend_fd(node_handle)
+        except Exception as e:
+            print(
+                f"depend_fd: Error in depend_fd for fd {fd}: {e}",
+                file=sys.stderr,
+            )
+            return -1
+
     async def dag_alias(alias_ptr: int, node_handle: int) -> int:
         alias = buf_to_str.get_string(alias_ptr)
         try:
@@ -149,18 +178,6 @@ def fill_wasm_import_object(
             )
             return -1
 
-    async def open_write_value_node(node_handle: int) -> int:
-        try:
-            # Get the node name from the handle
-            node_name = runtime.dagops().handle_to_name[node_handle]
-            # Open the value node for writing using the node name as the path
-            return await runtime.open_write(node_name)
-        except Exception as e:
-            print(
-                f"open_write_value_node: Error opening value node {node_handle} for writing: {e}",
-                file=sys.stderr,
-            )
-            return -1
 
     def sync_open_read(name_ptr: int) -> int:
         return asyncio.run(open_read(name_ptr))
@@ -192,8 +209,12 @@ def fill_wasm_import_object(
     def sync_dag_detach_from_alias(alias_ptr: int) -> int:
         return asyncio.run(dag_detach_from_alias(alias_ptr))
 
-    def sync_open_write_value_node(node_handle: int) -> int:
-        return asyncio.run(open_write_value_node(node_handle))
+    def sync_open_write_pipe(explain_ptr: int) -> int:
+        return asyncio.run(open_write_pipe(explain_ptr))
+
+
+    def sync_depend_fd(fd: int) -> int:
+        return asyncio.run(depend_fd(fd))
 
     # Register functions with WASM
     import_object.register(
@@ -211,6 +232,7 @@ def fill_wasm_import_object(
             "dag_value_node": wasmer.Function(store, sync_dag_value_node),
             "dag_alias": wasmer.Function(store, sync_dag_alias),
             "dag_detach_from_alias": wasmer.Function(store, sync_dag_detach_from_alias),
-            "open_write_value_node": wasmer.Function(store, sync_open_write_value_node),
+            "open_write_pipe": wasmer.Function(store, sync_open_write_pipe),
+            "depend_fd": wasmer.Function(store, sync_depend_fd),
         },
     )

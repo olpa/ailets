@@ -176,6 +176,15 @@ class INodeDagops(Protocol):
     def v2_instantiate_with_deps(self, target: str, aliases: dict[str, int]) -> int:
         raise NotImplementedError
 
+    def open_write_pipe(self, explain: Optional[str] = None) -> int:
+        raise NotImplementedError
+
+    def find_node_by_fd(self, fd: int) -> int:
+        raise NotImplementedError
+
+    def depend_fd(self, node_handle: int) -> int:
+        raise NotImplementedError
+
 
 class INodeRuntime(Protocol):
     def get_name(self) -> str:
@@ -243,6 +252,15 @@ class IDagops(Protocol):
         value: bytes,
         piper: IPiper,
         processes: "IProcesses",
+        explain: Optional[str] = None,
+    ) -> Node:
+        raise NotImplementedError
+
+    def add_open_value_node(
+        self,
+        piper: IPiper,
+        processes: "IProcesses", 
+        notification_queue: "INotificationQueue",
         explain: Optional[str] = None,
     ) -> Node:
         raise NotImplementedError
