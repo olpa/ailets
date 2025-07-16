@@ -13,14 +13,17 @@ from typing import (
 from ailets.atyping import (
     Dependency,
     IDagops,
-    INodeRuntime,
     IProcesses,
     IPiper,
     Node,
 )
+from ailets.cons.notification_queue import INotificationQueue
 from ailets.cons.util import to_basename
 from ailets.cons.seqno import Seqno
-from ailets.io.mempipe import Writer as MemPipeWriter
+from ailets.cons.value_node import (
+    add_value_node as _add_value_node,
+    add_open_value_node as _add_open_value_node,
+)
 
 
 class Dagops(IDagops):
@@ -105,37 +108,18 @@ class Dagops(IDagops):
         processes: IProcesses,
         explain: Optional[str] = None,
     ) -> Node:
-        """Add a typed value node to the environment.
+        """Add a typed value node to the environment."""
+        return _add_value_node(self, value, piper, processes, explain)
 
-        Args:
-            value: The value to store
-            explain: Optional explanation of what the value represents
-
-        """
-        full_name = self.get_next_name("value")
-
-        async def async_dummy(runtime: INodeRuntime) -> None: ...
-
-        node = Node(
-            name=full_name,
-            func=async_dummy,
-            deps=[],  # No dependencies
-            explain=explain,
-        )
-
-        self.nodes[full_name] = node
-
-        # Set the value in the pipe
-        pipe = piper.create_pipe(full_name, "")
-        writer = pipe.get_writer()
-        assert isinstance(
-            writer, MemPipeWriter
-        ), "Internal error: MemPipeWriter is expected"
-        writer.write_sync(value)
-        writer.close()
-        processes.add_finished_node(full_name)
-
-        return node
+    def create_open_value_node(
+        self,
+        piper: IPiper,
+        processes: IProcesses,
+        notification_queue: INotificationQueue,
+        explain: Optional[str] = None,
+    ) -> Node:
+        """Create a value node without closing the pipe or marking as completed."""
+        return _add_open_value_node(self, piper, notification_queue, explain)
 
     def alias(self, alias: str, node_name: Optional[str]) -> None:
         """Associate an alias with a node.
