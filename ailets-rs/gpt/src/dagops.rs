@@ -29,13 +29,17 @@ pub trait DagOpsTrait {
 
     /// # Errors
     /// From the host
-    fn open_write_value_node(&mut self, node_handle: u32) -> Result<i32, String>;
+    fn open_write_pipe(&mut self, explain: Option<&str>) -> Result<i32, String>;
 
-    /// Open a writer to a value node without performing the write operation.
+    /// # Errors
+    /// From the host
+    fn alias_fd(&mut self, alias: &str, fd: u32) -> Result<u32, String>;
+
+    /// Open a writer to a write pipe.
     /// Returns a writer that can be used to write data incrementally.
     /// # Errors
     /// From the host or I/O operations
-    fn open_writer_to_value_node(&mut self, node_handle: u32) -> Result<Box<dyn Write>, String>;
+    fn open_writer_to_pipe(&mut self, fd: i32) -> Result<Box<dyn Write>, String>;
 }
 
 pub struct DagOps;
@@ -74,12 +78,17 @@ impl DagOpsTrait for DagOps {
         actor_runtime::instantiate_with_deps(workflow_name, deps)
     }
 
-    fn open_write_value_node(&mut self, node_handle: u32) -> Result<i32, String> {
-        actor_runtime::open_write_value_node(node_handle)
+    fn open_write_pipe(&mut self, explain: Option<&str>) -> Result<i32, String> {
+        #[allow(clippy::cast_possible_wrap)]
+        let result = actor_runtime::open_write_pipe(explain).map(|handle| handle as i32);
+        result
     }
 
-    fn open_writer_to_value_node(&mut self, node_handle: u32) -> Result<Box<dyn Write>, String> {
-        let fd = self.open_write_value_node(node_handle)?;
+    fn alias_fd(&mut self, alias: &str, fd: u32) -> Result<u32, String> {
+        actor_runtime::alias_fd(alias, fd)
+    }
+
+    fn open_writer_to_pipe(&mut self, fd: i32) -> Result<Box<dyn Write>, String> {
         let writer = AWriter::new_from_fd(fd).map_err(|e| e.to_string())?;
         Ok(Box::new(writer))
     }
@@ -112,34 +121,14 @@ impl<T: DagOpsTrait> InjectDagOpsTrait for InjectDagOps<T> {
     }
 }
 
-/// Inject function calls into the workflow DAG.
-/// Do nothing if there are no tool calls.
+/// Put tool calls in chat history by creating a write pipe and aliasing it to `.chat_messages`
 ///
 /// # Errors
 /// Promotes errors from the host.
-pub fn inject_tool_calls(
+fn put_tool_calls_in_chat_history(
     dagops: &mut impl DagOpsTrait,
     tool_calls: &[ContentItemFunction],
 ) -> Result<(), String> {
-    if tool_calls.is_empty() {
-        return Ok(());
-    }
-
-    //
-    // Don't interfere with previous model workflow:
-    //
-    // - We are going to update the chat history, by adding more to the alias ".chat_messages"
-    // - The old finished run of "user prompt to messages" depended on ".chat_messages"
-    // - If we don't detach, the dependency graph will show that the old "user prompt to messages"
-    //   run depends on the new items in ".chat_messages". It's very very confusing,
-    //   even despite the current runner implementation ignores the dependency changes
-    //   of a finished step.
-    //
-    dagops.detach_from_alias(".chat_messages")?;
-
-    //
-    // Put tool calls in chat history
-    //
     let mut tcch_lines = vec![
         serde_json::to_string(&json!([{"type":"ctl"},{"role":"assistant"}]))
             .map_err(|e| e.to_string())?,
@@ -168,15 +157,48 @@ pub fn inject_tool_calls(
             .collect::<Vec<_>>()
             .join(" - ")
     );
-    // Create value node (empty), then write to it
-    let node = dagops.value_node(&[], &explain)?;
     {
-        let mut writer = dagops.open_writer_to_value_node(node)?;
+        let fd = dagops.open_write_pipe(Some(&explain))?;
+        let mut writer = dagops.open_writer_to_pipe(fd)?;
         writer
             .write_all(tcch.as_bytes())
             .map_err(|e| e.to_string())?;
-    } // writer auto-closes here
-    dagops.alias(".chat_messages", node)?;
+        #[allow(clippy::cast_sign_loss)]
+        let fd_u32 = fd as u32;
+        dagops.alias_fd(".chat_messages", fd_u32)?
+    };
+    Ok(())
+}
+
+/// Inject function calls into the workflow DAG.
+/// Do nothing if there are no tool calls.
+///
+/// # Errors
+/// Promotes errors from the host.
+pub fn inject_tool_calls(
+    dagops: &mut impl DagOpsTrait,
+    tool_calls: &[ContentItemFunction],
+) -> Result<(), String> {
+    if tool_calls.is_empty() {
+        return Ok(());
+    }
+
+    //
+    // Don't interfere with previous model workflow:
+    //
+    // - We are going to update the chat history, by adding more to the alias ".chat_messages"
+    // - The old finished run of "user prompt to messages" depended on ".chat_messages"
+    // - If we don't detach, the dependency graph will show that the old "user prompt to messages"
+    //   run depends on the new items in ".chat_messages". It's very very confusing,
+    //   even despite the current runner implementation ignores the dependency changes
+    //   of a finished step.
+    //
+    dagops.detach_from_alias(".chat_messages")?;
+
+    //
+    // Put tool calls in chat history
+    //
+    put_tool_calls_in_chat_history(dagops, tool_calls)?;
 
     //
     // Process each tool call
@@ -186,19 +208,21 @@ pub fn inject_tool_calls(
         // Run the tool
         //
         let explain = format!("tool input - {}", tool_call.function_name);
-        // Create value node (empty), then write to it
-        let tool_input = dagops.value_node(&[], &explain)?;
+        let tool_input_fd = dagops.open_write_pipe(Some(&explain))?;
+        #[allow(clippy::cast_sign_loss)]
+        let tool_input_fd_u32 = tool_input_fd as u32;
         {
-            let mut writer = dagops.open_writer_to_value_node(tool_input)?;
+            let mut writer = dagops.open_writer_to_pipe(tool_input_fd)?;
             writer
                 .write_all(tool_call.function_arguments.as_bytes())
                 .map_err(|e| e.to_string())?;
-        } // writer auto-closes here
+            dagops.alias_fd(".tool_input", tool_input_fd_u32)?
+        };
 
         let tool_name = &tool_call.function_name;
         let tool_handle = dagops.instantiate_with_deps(
             &format!(".tool.{tool_name}"),
-            HashMap::from([(".tool_input".to_string(), tool_input)]).into_iter(),
+            HashMap::from([(".tool_input".to_string(), tool_input_fd_u32)]).into_iter(),
         )?;
 
         //
@@ -212,10 +236,11 @@ pub fn inject_tool_calls(
             "arguments": tool_call.function_arguments
         }]);
         let explain = format!("tool call spec - {}", tool_call.function_name);
-        // Create value node (empty), then write to it
-        let tool_spec_handle = dagops.value_node(&[], &explain)?;
+        let tool_spec_handle_fd = dagops.open_write_pipe(Some(&explain))?;
+        #[allow(clippy::cast_sign_loss)]
+        let tool_spec_handle_fd_u32 = tool_spec_handle_fd as u32;
         {
-            let mut writer = dagops.open_writer_to_value_node(tool_spec_handle)?;
+            let mut writer = dagops.open_writer_to_pipe(tool_spec_handle_fd)?;
             writer
                 .write_all(
                     serde_json::to_string(&tool_spec)
@@ -223,12 +248,13 @@ pub fn inject_tool_calls(
                         .as_bytes(),
                 )
                 .map_err(|e| e.to_string())?;
-        } // writer auto-closes here
+            dagops.alias_fd(".llm_tool_spec", tool_spec_handle_fd_u32)?
+        };
 
         let msg_handle = dagops.instantiate_with_deps(
             ".toolcall_to_messages",
             HashMap::from([
-                (".llm_tool_spec".to_string(), tool_spec_handle),
+                (".llm_tool_spec".to_string(), tool_spec_handle_fd_u32),
                 (".tool_output".to_string(), tool_handle),
             ])
             .into_iter(),
