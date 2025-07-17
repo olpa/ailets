@@ -65,9 +65,17 @@ class NodeDagops(INodeDagops):
             return self.handle_to_name[handle]
 
     def v2_instantiate_with_deps(self, target: str, aliases: dict[str, int]) -> int:
-        name_aliases = {
-            alias: self._resolve_alias_handle(alias, handle) for alias, handle in aliases.items()
-        }
+        # aliases: Dict[str, int] where int can be a fd or a node handle, with fd having priority
+        name_aliases = {}
+        for alias, value in aliases.items():
+            # Check if value is a file descriptor first (fd has priority)
+            node_handle = self.find_node_by_fd(value)
+            if node_handle != -1:
+                # Value is a valid fd, use the corresponding node handle
+                name_aliases[alias] = self._resolve_alias_handle(alias, node_handle)
+            else:
+                # Value is not a valid fd, treat it as a node handle
+                name_aliases[alias] = self._resolve_alias_handle(alias, value)
 
         node_name = self.instantiate_with_deps(target, name_aliases)
 
