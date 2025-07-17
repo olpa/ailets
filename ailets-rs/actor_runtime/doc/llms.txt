@@ -37,7 +37,7 @@ The `actor_runtime` crate provides a runtime interface for actor-based systems w
 - `instantiate_with_deps(workflow_name: &str, deps: impl Iterator<Item = (String, u32)>) -> Result<u32, String>`: Create workflow instance with dependencies
 - `open_write_pipe(explain: Option<&str>) -> Result<u32, String>`: Create open value node that can be written to through file descriptor
 - `depend_fd(fd: i32) -> Result<(), String>`: Establish dependency tracking for file descriptor
-- `alias_fd(fd: i32) -> Result<(), String>`: Create alias for file descriptor
+- `alias_fd(alias: &str, fd: i32) -> Result<u32, String>`: Create alias for the node associated with the file descriptor
 
 ### Types
 
@@ -119,7 +119,7 @@ let pipe_node = open_write_pipe(Some("pipe explanation"))?;
 // Establish dependency tracking for file descriptor
 depend_fd(fd)?;
 // Create alias for file descriptor
-alias_fd(fd)?;
+let fd_alias_handle = alias_fd("my_fd_alias", fd)?;
 // Instantiate workflow with dependencies
 let deps = vec![("input".to_string(), node)];
 let workflow = instantiate_with_deps("my_workflow", deps.into_iter())?;

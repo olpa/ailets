@@ -17,7 +17,6 @@ extern "C" {
     /// return: handle to the value, or -1 if error
     pub fn dag_value_node(value_ptr: *const u8, explain_ptr: *const c_char) -> c_int;
 
-
     /// `dag_alias` parameters:
     /// - `alias_ptr`: pointer to the C-string alias
     /// - `node_handle`: handle to the node
@@ -50,9 +49,10 @@ extern "C" {
     /// return: 0 if success, or -1 if error
     pub fn depend_fd(fd: c_int) -> c_int;
 
-    /// `alias_fd` parameters:
+    /// `dag_alias_fd` parameters:
+    /// - `alias_ptr`: pointer to the C-string alias
     /// - `fd`: file descriptor to create an alias for
     ///
     /// return: 0 if success, or -1 if error
-    pub fn alias_fd(fd: c_int) -> c_int;
+    pub fn dag_alias_fd(alias_ptr: *const c_char, fd: c_int) -> c_int;
 }

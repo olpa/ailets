@@ -1,11 +1,9 @@
 use crate::actor_runtime::{
-    dag_alias, dag_detach_from_alias, dag_instantiate_with_deps, dag_value_node,
-    open_write_pipe as raw_open_write_pipe, depend_fd as raw_depend_fd,
-    alias_fd as raw_alias_fd,
+    dag_alias, dag_alias_fd, dag_detach_from_alias, dag_instantiate_with_deps, dag_value_node,
+    depend_fd as raw_depend_fd, open_write_pipe as raw_open_write_pipe,
 };
 use base64::engine;
 use std::io::Write;
-use std::os::raw::c_int;
 
 /// Creates a value node in the DAG with the provided data.
 ///
@@ -120,7 +118,6 @@ pub fn instantiate_with_deps(
     u32::try_from(handle).map_err(|_| "dag_instantiate_with_deps: error".to_string())
 }
 
-
 /// Creates an open value node that can be written to through a file descriptor.
 ///
 /// # Arguments
@@ -172,25 +169,27 @@ pub fn depend_fd(fd: i32) -> Result<(), String> {
     }
 }
 
-/// Creates an alias for a file descriptor.
+/// Creates an alias for the node associated with a file descriptor.
 ///
 /// # Arguments
 ///
-/// * `fd` - The file descriptor to create an alias for
+/// * `alias` - The alias name to assign to the node associated with the file descriptor
+/// * `fd` - The file descriptor whose associated node to create an alias for
 ///
 /// # Returns
 ///
-/// Returns a `Result` indicating success or failure.
+/// Returns a `Result` containing the alias handle on success, or an error message on failure.
 ///
 /// # Errors
 ///
 /// - Invalid file descriptor
 /// - Host runtime error
-pub fn alias_fd(fd: i32) -> Result<(), String> {
-    let result = unsafe { raw_alias_fd(fd) };
-    if result == 0 {
-        Ok(())
-    } else {
-        Err("alias_fd: error".to_string())
-    }
+pub fn alias_fd(alias: &str, fd: u32) -> Result<u32, String> {
+    let alias = std::ffi::CString::new(alias).map_err(|e| e.to_string())?;
+
+    #[allow(clippy::cast_possible_wrap)]
+    let fd = fd as i32;
+
+    let handle = unsafe { dag_alias_fd(alias.as_ptr().cast::<i8>(), fd) };
+    u32::try_from(handle).map_err(|_| "dag_alias_fd: error".to_string())
 }
