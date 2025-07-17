@@ -182,10 +182,7 @@ class INodeDagops(Protocol):
     def find_node_by_fd(self, fd: int) -> int:
         raise NotImplementedError
 
-    def depend_fd(self, node_handle: int) -> int:
-        raise NotImplementedError
-
-    def alias_fd(self, node_handle: int) -> int:
+    def alias_fd(self, alias: str, fd: int) -> None:
         raise NotImplementedError
 
 

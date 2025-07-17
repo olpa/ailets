@@ -96,12 +96,9 @@ class NodeDagops(INodeDagops):
     def find_node_by_fd(self, fd: int) -> int:
         return self.fd_to_node_handle.get(fd, -1)
 
-    def depend_fd(self, node_handle: int) -> int:
-        # This is a placeholder - should implement dependency tracking
-        # The actual implementation would depend on what "depend_fd" should do
-        return 0
-
-    def alias_fd(self, node_handle: int) -> int:
-        # This is a placeholder - should implement alias functionality for file descriptors
-        # The actual implementation would depend on what "alias_fd" should do
-        return 0
+    def alias_fd(self, alias: str, fd: int) -> None:
+        node_handle = self.find_node_by_fd(fd)
+        if node_handle == -1:
+            return
+        node_name = self.handle_to_name[node_handle]
+        self.alias(alias, node_name)
