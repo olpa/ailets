@@ -1,6 +1,6 @@
 use crate::actor_runtime::{
     dag_alias, dag_alias_fd, dag_detach_from_alias, dag_instantiate_with_deps, dag_value_node,
-    depend_fd as raw_depend_fd, open_write_pipe as raw_open_write_pipe,
+    open_write_pipe as raw_open_write_pipe,
 };
 use base64::engine;
 use std::io::Write;
@@ -146,28 +146,6 @@ pub fn open_write_pipe(explain: Option<&str>) -> Result<u32, String> {
     u32::try_from(handle).map_err(|_| "open_write_pipe: error".to_string())
 }
 
-/// Establishes dependency tracking for a file descriptor, linking it to its corresponding node.
-///
-/// # Arguments
-///
-/// * `fd` - The file descriptor to establish dependency tracking for
-///
-/// # Returns
-///
-/// Returns a `Result` indicating success or failure.
-///
-/// # Errors
-///
-/// - Invalid file descriptor
-/// - Host runtime error
-pub fn depend_fd(fd: i32) -> Result<(), String> {
-    let result = unsafe { raw_depend_fd(fd) };
-    if result == 0 {
-        Ok(())
-    } else {
-        Err("depend_fd: error".to_string())
-    }
-}
 
 /// Creates an alias for the node associated with a file descriptor.
 ///

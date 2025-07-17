@@ -100,6 +100,4 @@ Based on the experience developing a tool for gpt4o, the following functions wer
 
 - `open_write_pipe(explain: Optional[str])`: Creates an open value node that can be written to through a file descriptor.
 
-- `depend_fd(fd: int)`: Establishes dependency tracking for a file descriptor, linking it to its corresponding node.
-
 - `alias_fd(fd: int)`: Creates an alias for a file descriptor.
