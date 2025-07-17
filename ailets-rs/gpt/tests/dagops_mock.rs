@@ -42,6 +42,7 @@ pub struct TrackedDagOps {
     pub aliases: Vec<String>,
     pub detached: Vec<String>,
     pub workflows: Vec<String>,
+    pub next_fd: i32,
 }
 
 impl Default for TrackedDagOps {
@@ -52,6 +53,7 @@ impl Default for TrackedDagOps {
             aliases: Vec::new(),
             detached: Vec::new(),
             workflows: Vec::new(),
+            next_fd: 10, // Start at 10 to avoid conflicts with standard fds
         }
     }
 }
@@ -97,23 +99,32 @@ impl DagOpsTrait for TrackedDagOps {
         Ok(())
     }
 
-    fn open_write_value_node(&mut self, node_handle: u32) -> Result<i32, String> {
-        let idx = node_handle as usize;
-        let current_len = self.value_nodes.len();
-        if idx >= current_len {
-            return Err("Invalid node handle".to_string());
-        }
+    fn open_write_pipe(&mut self, explain: Option<&str>) -> Result<i32, String> {
+        let handle = self.value_nodes.len();
+        let explain_str = explain.unwrap_or("pipe");
+        self.value_nodes.push(format!("{handle}:{explain_str}"));
 
-        // Use VFS to open the value file for writing
-        let fd = self.vfs.borrow().open_write_value_node(node_handle as i32);
-        if fd < 0 {
-            return Err("Failed to open value node for writing".to_string());
-        }
+        // Create file "value.N" on the VFS for the pipe
+        let filename = format!("value.{handle}");
+        self.vfs.borrow_mut().add_file(filename, Vec::new());
+
+        // Return the handle as fd for simplicity in mock
+        Ok(handle as i32)
+    }
+
+    fn alias_fd(&mut self, alias: &str, fd: u32) -> Result<u32, String> {
+        // For mock implementation, create alias directly without generating new handle
+        // The format is "{alias_handle}:{alias_name}:{node_handle}"
+        // Since we're aliasing an fd (which maps to a value node), use fd as the node_handle
+        let alias_handle = self.aliases.len() + self.value_nodes.len() + self.workflows.len();
+        self.aliases.push(format!("{alias_handle}:{alias}:{fd}"));
+        // Return the original fd
         Ok(fd)
     }
 
-    fn open_writer_to_value_node(&mut self, node_handle: u32) -> Result<Box<dyn Write>, String> {
-        let filename = format!("value.{node_handle}");
+    fn open_writer_to_pipe(&mut self, fd: i32) -> Result<Box<dyn Write>, String> {
+        // In mock, fd is the handle
+        let filename = format!("value.{fd}");
         let writer = VfsWriter::new(self.vfs.clone(), filename);
         Ok(Box::new(writer))
     }
@@ -176,6 +187,7 @@ impl Clone for TrackedDagOps {
             aliases: self.aliases.clone(),
             detached: self.detached.clone(),
             workflows: self.workflows.clone(),
+            next_fd: self.next_fd,
         }
     }
 }

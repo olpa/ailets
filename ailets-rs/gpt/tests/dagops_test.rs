@@ -223,25 +223,26 @@ fn inject_tool_calls_to_dag() {
 
     //
     // Assert: aliases
-    // - 1 for chat history
-    // - 2 for tool calls
+    // - 1 for initial chat history with tool calls
+    // - For each tool call (2): 1 for tool_input + 1 for llm_tool_spec + 1 for chat_messages
     // - 1 for model output
+    // Total: 1 + (3 * 2) + 1 = 8
     //
-    assert_eq!(tracked_dagops.aliases.len(), 4);
+    assert_eq!(tracked_dagops.aliases.len(), 8);
 
     let (_, alias_name, alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases[0]);
     assert_that!(&alias_name, is(equal_to(".chat_messages")));
     assert_that!(alias_handle, is(equal_to(handle_tcch)));
 
-    let (_, alias_name, alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases[1]);
+    let (_, alias_name, alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases[3]);
     assert_that!(&alias_name, is(equal_to(".chat_messages")));
     assert_that!(alias_handle, is(equal_to(handle_aftercall_1)));
 
-    let (_, alias_name, alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases[2]);
+    let (_, alias_name, alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases[6]);
     assert_that!(&alias_name, is(equal_to(".chat_messages")));
     assert_that!(alias_handle, is(equal_to(handle_aftercall_2)));
 
-    let (_, alias_name, alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases[3]);
+    let (_, alias_name, alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases[7]);
     assert_that!(&alias_name, is(equal_to(".output_messages")));
     assert_that!(alias_handle, is(equal_to(handle_rerun)));
 }
