@@ -214,6 +214,11 @@ class NodeRuntime:
         self.streams[fd] = None
         return 0
 
+    def open_write_pipe(self, explain: str) -> int:
+        print(f"open_write_pipe: explan: {explain}")
+        self.streams.append(io.BytesIO())
+        return len(self.streams) - 1
+
     def dag_instantiate_with_deps(self, workflow: str, deps: str) -> int:
         handle = len(workflow)
         print(
@@ -236,10 +241,14 @@ class NodeRuntime:
         print(f"dag_alias: alias: {alias}, node_handle: {node_handle} -> {handle}")
         return handle
 
+    def dag_alias_fd(self, alias: str, fd: int) -> int:
+        handle = len(alias)
+        print(f"dag_alias_fd: alias: {alias}, fd: {fd} -> {handle}")
+        return handle
+
     def dag_detach_from_alias(self, alias: str) -> int:
         print(f"dag_detach_from_alias: alias: {alias}")
         return 0
-
 
 
 class BufToStr:
@@ -292,6 +301,10 @@ def register_node_runtime(
     def get_errno() -> int:
         return -1
 
+    def open_write_pipe(explain_ptr: int) -> int:
+        explain = buf_to_str.get_string(explain_ptr)
+        return nr.open_write_pipe(explain)
+
     def dag_instantiate_with_deps(workflow: int, deps: int) -> int:
         return nr.dag_instantiate_with_deps(
             buf_to_str.get_string(workflow),
@@ -310,9 +323,14 @@ def register_node_runtime(
             node_handle,
         )
 
+    def dag_alias_fd(alias: int, fd: int) -> int:
+        return nr.dag_alias_fd(
+            buf_to_str.get_string(alias),
+            fd,
+        )
+
     def dag_detach_from_alias(alias: int) -> int:
         return nr.dag_detach_from_alias(buf_to_str.get_string(alias))
-
 
     import_object.register(
         "",
@@ -329,6 +347,8 @@ def register_node_runtime(
             "dag_value_node": wasmer.Function(store, dag_value_node),
             "dag_alias": wasmer.Function(store, dag_alias),
             "dag_detach_from_alias": wasmer.Function(store, dag_detach_from_alias),
+            "open_write_pipe": wasmer.Function(store, open_write_pipe),
+            "dag_alias_fd": wasmer.Function(store, dag_alias_fd),
         },
     )
 
