@@ -65,4 +65,3 @@ pub extern "C" fn get_errno() -> c_int {
 pub extern "C" fn dag_value_node(value_ptr: *const u8, explain_ptr: *const c_char) -> c_int {
     VFS_INSTANCE.dag_value_node(value_ptr, explain_ptr)
 }
-

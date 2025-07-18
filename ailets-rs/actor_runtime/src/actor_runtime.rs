@@ -43,7 +43,6 @@ extern "C" {
     /// return: handle to the open value node, or -1 if error
     pub fn open_write_pipe(explain_ptr: *const c_char) -> c_int;
 
-
     /// `dag_alias_fd` parameters:
     /// - `alias_ptr`: pointer to the C-string alias
     /// - `fd`: file descriptor to create an alias for

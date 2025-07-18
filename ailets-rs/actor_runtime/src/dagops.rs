@@ -146,7 +146,6 @@ pub fn open_write_pipe(explain: Option<&str>) -> Result<u32, String> {
     u32::try_from(handle).map_err(|_| "open_write_pipe: error".to_string())
 }
 
-
 /// Creates an alias for the node associated with a file descriptor.
 ///
 /// # Arguments

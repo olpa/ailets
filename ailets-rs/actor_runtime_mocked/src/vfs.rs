@@ -285,7 +285,6 @@ impl Vfs {
             -1
         })
     }
-
 }
 
 fn cstr_to_string(ptr: *const c_char) -> String {
