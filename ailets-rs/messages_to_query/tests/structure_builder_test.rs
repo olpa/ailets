@@ -1104,7 +1104,6 @@ fn mix_toolspec_and_other_content() {
     // Assert
     //
     let actual_output = writer.get_output();
-    println!("Actual output: {}", actual_output);
 
     // Get the prefix (everything before "messages") from wrap_boilerplate
     let mut prefix = wrap_boilerplate("").replace(r#""messages": []"#, "");

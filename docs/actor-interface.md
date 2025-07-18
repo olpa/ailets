@@ -97,3 +97,7 @@ Based on the experience developing a tool for gpt4o, the following functions wer
 - `alias(alias: str, node_name: Optional[str])`: Creates or updates an alias pointing to a node.
 
 - `detach_from_alias(alias: str)`: Freezes the dependencies of nodes associated with the alias, preventing them from being affected by subsequent changes to the alias.
+
+- `open_write_pipe(explain: Optional[str])`: Creates an open value node that can be written to through a file descriptor.
+
+- `alias_fd(fd: int)`: Creates an alias for a file descriptor.

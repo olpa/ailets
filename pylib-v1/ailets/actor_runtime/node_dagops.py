@@ -12,12 +12,14 @@ from ailets.atyping import (
 
 class NodeDagops(INodeDagops):
     def __init__(self, env: IEnvironment, node: INodeRuntime):
+        self.env = env
         self.nodereg = env.nodereg
         self.dagops = env.dagops
         self.piper = env.piper
         self.processes = env.processes
         self.node = node
         self.handle_to_name: List[str] = ['no-node-id-0']
+        self.fd_to_node_handle: dict[int, int] = {}
 
     def add_value_node(self, value: bytes, explain: Optional[str] = None) -> str:
         node = self.dagops.add_value_node(value, self.piper, self.processes, explain)
@@ -63,11 +65,48 @@ class NodeDagops(INodeDagops):
             return self.handle_to_name[handle]
 
     def v2_instantiate_with_deps(self, target: str, aliases: dict[str, int]) -> int:
-        name_aliases = {
-            alias: self._resolve_alias_handle(alias, handle) for alias, handle in aliases.items()
-        }
+        # aliases: Dict[str, int] where int can be a fd or a node handle, with fd having priority
+        name_aliases = {}
+        for alias, value in aliases.items():
+            # Check if value is a file descriptor first (fd has priority)
+            node_handle = self.find_node_by_fd(value)
+            if node_handle != -1:
+                # Value is a valid fd, use the corresponding node handle
+                name_aliases[alias] = self._resolve_alias_handle(alias, node_handle)
+            else:
+                # Value is not a valid fd, treat it as a node handle
+                name_aliases[alias] = self._resolve_alias_handle(alias, value)
 
         node_name = self.instantiate_with_deps(target, name_aliases)
 
         self.handle_to_name.append(node_name)
         return len(self.handle_to_name) - 1
+
+    def open_write_pipe(self, explain: Optional[str] = None) -> int:
+        node = self.dagops.add_open_value_node(
+            self.piper, 
+            self.processes, 
+            self.env.notification_queue, 
+            explain
+        )
+        self.handle_to_name.append(node.name)
+        node_handle = len(self.handle_to_name) - 1
+
+        try:
+            pipe = self.piper.get_existing_pipe(node.name, "")
+        except KeyError:
+            return -1
+        fd = self.node.private_store_writer(node.name, pipe)
+
+        self.fd_to_node_handle[fd] = node_handle
+        return fd
+
+    def find_node_by_fd(self, fd: int) -> int:
+        return self.fd_to_node_handle.get(fd, -1)
+
+    def alias_fd(self, alias: str, fd: int) -> None:
+        node_handle = self.find_node_by_fd(fd)
+        if node_handle == -1:
+            return
+        node_name = self.handle_to_name[node_handle]
+        self.alias(alias, node_name)

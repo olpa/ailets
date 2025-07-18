@@ -1,0 +1,143 @@
+# Actor Runtime Module
+
+Version: 0.2.0
+Crate type: cdylib, lib
+
+## Overview
+
+The `actor_runtime` crate provides a runtime interface for actor-based systems with WebAssembly (WASM) integration. It offers low-level I/O operations, error handling utilities, and optional DAG (Directed Acyclic Graph) operations for workflow management.
+
+## Features
+
+- **default**: No default features enabled
+- **dagops**: Enables DAG operations functionality
+
+## Dependencies
+
+- base64 (0.22.1): Base64 encoding/decoding
+- scan_json (1.1.0): JSON scanning utilities  
+- serde_json (1.0.140): JSON serialization/deserialization
+
+## Core Components
+
+### Public Exports
+
+#### Basic I/O Functions
+- `aclose(fd: c_int) -> c_int`: Close a file descriptor
+- `aread(fd: c_int, buffer_ptr: *mut u8, count: c_uint) -> c_int`: Read from file descriptor
+- `awrite(fd: c_int, buffer_ptr: *const u8, count: c_uint) -> c_int`: Write to file descriptor
+- `get_errno() -> c_int`: Get last error number
+- `open_read(name_ptr: *const c_char) -> c_int`: Open file for reading
+- `open_write(name_ptr: *const c_char) -> c_int`: Open file for writing
+
+#### DAG Operations
+- `value_node(value: &[u8], explain: &str) -> Result<u32, String>`: Create value node with binary data
+- `alias(alias: &str, node_handle: u32) -> Result<u32, String>`: Create alias for existing node
+- `detach_from_alias(alias: &str) -> Result<(), String>`: Remove alias association
+- `instantiate_with_deps(workflow_name: &str, deps: impl Iterator<Item = (String, u32)>) -> Result<u32, String>`: Create workflow instance with dependencies
+- `open_write_pipe(explain: Option<&str>) -> Result<u32, String>`: Create open value node that can be written to through file descriptor
+- `alias_fd(alias: &str, fd: i32) -> Result<u32, String>`: Create alias for the node associated with the file descriptor
+
+### Types
+
+#### StdHandle Enum
+Standard I/O handles enumeration:
+- `Stdin = 0`: Standard input
+- `Stdout = 1`: Standard output  
+- `Log = 2`: Logging output
+- `Env = 3`: Environment variables
+- `Metrics = 4`: Metrics output
+- `Trace = 5`: Tracing output
+
+### Utility Functions
+
+#### Error Handling
+- `err_to_heap_c_string(code: i32, message: &str) -> *const c_char`: Convert error to heap-allocated C-string with JSON format `{"code": code, "message": message}`
+- `extract_errno(e: &Box<dyn std::error::Error>) -> i32`: Extract errno from error, supporting std::io::Error and scan_json errors
+- `annotate_error(e: Box<dyn std::error::Error>, annotation: &str) -> Box<dyn std::error::Error>`: Add annotation to error messages
+
+## DAG Operations
+
+### Standalone Functions
+
+Direct function interface for DAG workflow operations:
+
+#### Functions
+- `value_node(value: &[u8], explain: &str) -> Result<u32, String>`: Creates a value node in the DAG with the provided binary data, base64-encoded for transmission
+- `alias(alias: &str, node_handle: u32) -> Result<u32, String>`: Creates an alias for an existing node in the DAG
+- `detach_from_alias(alias: &str) -> Result<(), String>`: Detaches a node from its alias in the DAG
+- `instantiate_with_deps(workflow_name: &str, deps: impl Iterator<Item = (String, u32)>) -> Result<u32, String>`: Instantiates a workflow with dependencies in the DAG (dependencies JSON-serialized)
+- `open_write_pipe(explain: Option<&str>) -> Result<u32, String>`: Creates an open value node that can be written to through a file descriptor
+- `alias_fd(fd: i32) -> Result<(), String>`: Creates an alias for a file descriptor
+
+### Implementation Details
+
+These functions bridge to host runtime via FFI calls:
+- Handles base64 encoding for value nodes using standard base64 encoding
+- Converts Rust strings to null-terminated C strings for FFI boundary
+- Manages JSON serialization for workflow dependencies
+- Provides comprehensive error handling with string-based error messages
+- Validates input parameters and handles type conversions safely
+
+### Host Runtime FFI Functions
+
+WASM import functions for DAG operations:
+- `dag_value_node(value_ptr: *const u8, explain_ptr: *const c_char) -> c_int`
+- `dag_alias(alias_ptr: *const c_char, node_handle: c_int) -> c_int`
+- `dag_detach_from_alias(alias_ptr: *const c_char) -> c_int`
+- `dag_instantiate_with_deps(workflow: *const c_char, deps: *const c_char) -> c_int`
+- `open_write_pipe(explain_ptr: *const c_char) -> c_int`
+- `alias_fd(fd: c_int) -> c_int`
+
+## Usage Patterns
+
+### Basic I/O
+```rust
+use actor_runtime::{open_write, awrite, aclose, StdHandle};
+
+// Open stdout for writing
+let fd = unsafe { open_write("stdout\0".as_ptr() as *const i8) };
+// Write data
+let result = unsafe { awrite(fd, data.as_ptr(), data.len() as u32) };
+// Close file descriptor  
+unsafe { aclose(fd) };
+```
+
+### DAG Operations
+```rust
+use actor_runtime::{value_node, alias, detach_from_alias, instantiate_with_deps, open_write_pipe, alias_fd};
+
+// Create value node
+let node = value_node(b"data", "explanation")?;
+// Create alias
+let alias_handle = alias("my_alias", node)?;
+// Create open value node for writing
+let pipe_node = open_write_pipe(Some("pipe explanation"))?;
+// Create alias for file descriptor
+let fd_alias_handle = alias_fd("my_fd_alias", fd)?;
+// Instantiate workflow with dependencies
+let deps = vec![("input".to_string(), node)];
+let workflow = instantiate_with_deps("my_workflow", deps.into_iter())?;
+// Remove alias when no longer needed
+detach_from_alias("my_alias")?;
+```
+
+### Error Handling
+```rust
+use actor_runtime::{err_to_heap_c_string, extract_errno, annotate_error};
+
+// Convert error to C-string for host runtime
+let c_err = err_to_heap_c_string(-1, "Operation failed");
+// Extract errno from complex error types
+let errno = extract_errno(&error_box);
+// Add context to errors
+let annotated = annotate_error(error_box, "During file operation");
+```
+
+## Architecture Notes
+
+- **WASM Integration**: Designed for WebAssembly runtime with host function imports
+- **Memory Safety**: Uses proper C string conversion and bounds checking
+- **Feature Gating**: DAG operations are optional to reduce binary size when not needed
+- **Error Propagation**: Comprehensive error handling with errno extraction and JSON formatting
+- **FFI Boundary**: Careful handling of C types and memory management across WASM boundary

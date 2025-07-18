@@ -49,6 +49,21 @@ impl AWriter {
         }
     }
 
+    /// Create a new `AWriter` instance from an existing file descriptor.
+    ///
+    /// # Errors
+    /// Returns an error if the file descriptor is invalid (negative).
+    pub fn new_from_fd(fd: c_int) -> std::io::Result<Self> {
+        if fd < 0 {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Bad handle",
+            ))
+        } else {
+            Ok(AWriter { fd: Some(fd) })
+        }
+    }
+
     /// Close the writer.
     /// Can be called multiple times.
     /// "drop" will call "close" automatically.

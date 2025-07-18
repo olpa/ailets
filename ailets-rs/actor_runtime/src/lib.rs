@@ -1,12 +1,12 @@
 use std::ffi::c_char;
 
 mod actor_runtime;
-#[cfg(feature = "dagops")]
 mod dagops;
 
 pub use actor_runtime::{aclose, aread, awrite, get_errno, open_read, open_write};
-#[cfg(feature = "dagops")]
-pub use dagops::{DagOps, DagOpsTrait};
+pub use dagops::{
+    alias, alias_fd, detach_from_alias, instantiate_with_deps, open_write_pipe, value_node,
+};
 
 /// Standard handles for I/O streams.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,0 +1,81 @@
+# actor_io Library - AI Coding Agent Summary
+
+## Overview
+`actor_io` is a Rust crate that provides I/O abstractions for an actor runtime system. It enables reading from and writing to actor streams through familiar standard library interfaces.
+
+## Core Components
+
+### AReader (`areader` module)
+- **Purpose**: Read from actor streams
+- **Key Features**:
+  - Implements `std::io::Read` trait for familiar usage patterns
+  - Supports both named streams and standard handles (stdin/stdout/stderr)
+  - Automatic resource cleanup via Drop trait
+  - Safe abstraction over C FFI actor runtime calls
+
+- **Usage Example**:
+  ```rust
+  use std::io::Read;
+  use actor_io::AReader;
+  
+  let mut reader = AReader::new(c"my_stream").unwrap();
+  let mut buffer = Vec::new();
+  reader.read_to_end(&mut buffer).unwrap();
+  ```
+
+- **Methods**:
+  - `new(filename: &CStr)` - Create reader for named stream
+  - `new_from_std(handle: StdHandle)` - Create reader for standard handle
+  - `close()` - Manually close the stream
+  - `read()` - Read data (via std::io::Read trait)
+
+### AWriter (`awriter` module)
+- **Purpose**: Write to actor streams and files
+- **Key Features**:
+  - Implements `std::io::Write` trait for standard write operations
+  - Supports both file creation and standard handles
+  - Automatic resource cleanup via Drop trait
+  - Safe abstraction over C FFI actor runtime calls
+
+- **Usage Example**:
+  ```rust
+  use std::io::Write;
+  use actor_io::AWriter;
+  
+  let mut writer = AWriter::new(c"example.txt").unwrap();
+  writer.write_all(b"Hello, world!").unwrap();
+  writer.close().unwrap();
+  ```
+
+- **Methods**:
+  - `new(filename: &CStr)` - Create writer for file
+  - `new_from_std(handle: StdHandle)` - Create writer for standard handle
+  - `new_from_fd(fd: c_int)` - Create writer from existing file descriptor
+  - `close()` - Manually close the writer
+  - `write()` - Write data (via std::io::Write trait)
+  - `flush()` - Flush output (no-op implementation)
+
+## Dependencies
+- `actor_runtime` (v0.2.0) - Core runtime system with C FFI bindings
+- `actor_runtime_mocked` (v0.1.0) - Mocked runtime for testing
+
+## Safety & Error Handling
+- Uses unsafe FFI calls internally but provides safe Rust interfaces
+- Proper error propagation using `std::io::Result`
+- Automatic cleanup prevents resource leaks
+- File descriptors are properly managed and closed
+
+## Library Configuration
+- Can be built as both library (`lib`) and C dynamic library (`cdylib`)
+- Part of a larger actor-based system workspace
+
+## For AI Coding Agents
+This library provides essential I/O primitives for actor-based systems. When working with this code:
+
+1. **Stream Operations**: Use AReader/AWriter for all actor stream I/O
+2. **Resource Management**: Always handle Result types for proper error handling
+3. **Standard Interface**: Both types implement std::io traits, so standard Rust I/O patterns apply
+4. **FFI Safety**: The library handles unsafe FFI internally - use the safe public APIs
+5. **Testing**: Use mocked runtime for unit tests to avoid system dependencies
+
+The library follows standard Rust conventions and integrates seamlessly with existing I/O code through trait implementations.

@@ -1,12 +1,15 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::rc::Rc;
 
-use actor_runtime::DagOpsTrait;
+use actor_runtime_mocked::{Vfs, VfsWriter};
+use gpt::dagops::DagOpsTrait;
 use gpt::dagops::{inject_tool_calls, InjectDagOpsTrait};
 use gpt::funcalls::ContentItemFunction;
+use std::io::Write;
 
 pub struct TrackedInjectDagOps {
-    dagops: RefCell<TrackedDagOps>,
+    dagops: Rc<RefCell<TrackedDagOps>>,
     tool_calls: Vec<ContentItemFunction>,
 }
 
@@ -15,7 +18,7 @@ impl TrackedInjectDagOps {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            dagops: RefCell::new(TrackedDagOps::default()),
+            dagops: Rc::new(RefCell::new(TrackedDagOps::default())),
             tool_calls: Vec::new(),
         }
     }
@@ -33,19 +36,37 @@ impl InjectDagOpsTrait for TrackedInjectDagOps {
     }
 }
 
-#[derive(Debug, Default, Clone)]
 pub struct TrackedDagOps {
+    pub vfs: Rc<RefCell<Vfs>>,
     pub value_nodes: Vec<String>,
     pub aliases: Vec<String>,
     pub detached: Vec<String>,
     pub workflows: Vec<String>,
+    pub next_fd: i32,
+}
+
+impl Default for TrackedDagOps {
+    fn default() -> Self {
+        Self {
+            vfs: Rc::new(RefCell::new(Vfs::new())),
+            value_nodes: Vec::new(),
+            aliases: Vec::new(),
+            detached: Vec::new(),
+            workflows: Vec::new(),
+            next_fd: 10, // Start at 10 to avoid conflicts with standard fds
+        }
+    }
 }
 
 impl DagOpsTrait for TrackedDagOps {
     fn value_node(&mut self, value: &[u8], explain: &str) -> Result<u32, String> {
-        let handle = self.value_nodes.len() + self.aliases.len() + self.workflows.len();
-        self.value_nodes
-            .push(format!("{handle}:{explain}:{value:?}"));
+        let handle = self.value_nodes.len();
+        self.value_nodes.push(format!("{handle}:{explain}"));
+
+        // Create file "value.N" on the VFS with the initial value
+        let filename = format!("value.{handle}");
+        self.vfs.borrow_mut().add_file(filename, value.to_vec());
+
         Ok(handle as u32)
     }
 
@@ -77,18 +98,53 @@ impl DagOpsTrait for TrackedDagOps {
         self.detached.push(alias.to_string());
         Ok(())
     }
+
+    fn open_write_pipe(&mut self, explain: Option<&str>) -> Result<i32, String> {
+        let handle = self.value_nodes.len();
+        let explain_str = explain.unwrap_or("pipe");
+        self.value_nodes.push(format!("{handle}:{explain_str}"));
+
+        // Create file "value.N" on the VFS for the pipe
+        let filename = format!("value.{handle}");
+        self.vfs.borrow_mut().add_file(filename, Vec::new());
+
+        // Return the handle as fd for simplicity in mock
+        Ok(handle as i32)
+    }
+
+    fn alias_fd(&mut self, alias: &str, fd: u32) -> Result<u32, String> {
+        // For mock implementation, create alias directly without generating new handle
+        // The format is "{alias_handle}:{alias_name}:{node_handle}"
+        // Since we're aliasing an fd (which maps to a value node), use fd as the node_handle
+        let alias_handle = self.aliases.len() + self.value_nodes.len() + self.workflows.len();
+        self.aliases.push(format!("{alias_handle}:{alias}:{fd}"));
+        // Return the original fd
+        Ok(fd)
+    }
+
+    fn open_writer_to_pipe(&mut self, fd: i32) -> Result<Box<dyn Write>, String> {
+        // In mock, fd is the handle
+        let filename = format!("value.{fd}");
+        let writer = VfsWriter::new(self.vfs.clone(), filename);
+        Ok(Box::new(writer))
+    }
 }
 
 impl TrackedDagOps {
     pub fn parse_value_node(&self, value_node: &str) -> (u32, String, String) {
         let parts = value_node.split(':').collect::<Vec<&str>>();
-        assert_eq!(parts.len(), 3);
+        assert_eq!(parts.len(), 2);
         let handle = parts[0].parse::<u32>().unwrap();
         let explain = parts[1].to_string();
 
-        let value = parts[2].to_string();
-        let bytes: Vec<u8> = serde_json::from_str(&value).unwrap();
-        let value = String::from_utf8(bytes).unwrap();
+        // Get content from value.N file in VFS
+        let filename = format!("value.{handle}");
+        let content = self
+            .vfs
+            .borrow()
+            .get_file(&filename)
+            .unwrap_or_else(|_| Vec::new());
+        let value = String::from_utf8(content).unwrap_or_default();
 
         (handle, explain, value)
     }
@@ -120,5 +176,18 @@ impl TrackedDagOps {
         let alias_handle = parts[2].parse::<u32>().unwrap();
 
         (node_handle, alias_name, alias_handle)
+    }
+}
+
+impl Clone for TrackedDagOps {
+    fn clone(&self) -> Self {
+        TrackedDagOps {
+            vfs: self.vfs.clone(), // Share the same VFS instance
+            value_nodes: self.value_nodes.clone(),
+            aliases: self.aliases.clone(),
+            detached: self.detached.clone(),
+            workflows: self.workflows.clone(),
+            next_fd: self.next_fd,
+        }
     }
 }

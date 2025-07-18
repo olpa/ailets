@@ -122,7 +122,7 @@ class NodeRuntime(INodeRuntime):
 
         pipe = self.piper.create_pipe(self.node_name, slot_name)
         pipe = PrintWrapper(sys.stdout, pipe)
-        real_fd = self._store_writer(slot_name, pipe)
+        real_fd = self.private_store_writer(slot_name, pipe)
         self.open_fds[fd] = self.open_fds[real_fd]
         return
     
@@ -181,12 +181,12 @@ class NodeRuntime(INodeRuntime):
     async def open_write(self, slot_name: str) -> int:
         try:
             pipe = self.piper.create_pipe(self.node_name, slot_name)
-            return self._store_writer(slot_name, pipe)
+            return self.private_store_writer(slot_name, pipe)
         except Exception as e:
             self.handle_error("open_write", e)
             return -1
 
-    def _store_writer(self, slot_name: str, pipe: IPipe) -> int:
+    def private_store_writer(self, slot_name: str, pipe: IPipe) -> int:
         fd = self.env.seqno.next_seqno()
         writer = pipe.get_writer()
         self.open_fds[fd] = OpenFd(
