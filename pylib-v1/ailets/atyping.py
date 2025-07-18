@@ -217,6 +217,9 @@ class INodeRuntime(Protocol):
     def get_next_name(self, base_name: str) -> str:
         raise NotImplementedError
 
+    def private_store_writer(self, slot_name: str, pipe: IPipe) -> int:
+        raise NotImplementedError
+
 
 @dataclass(frozen=True)
 class NodeDescFunc:

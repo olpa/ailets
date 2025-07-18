@@ -207,7 +207,6 @@ def fill_wasm_import_object(
     def sync_open_write_pipe(explain_ptr: int) -> int:
         return asyncio.run(open_write_pipe(explain_ptr))
 
-
     def sync_dag_alias_fd(alias_ptr: int, fd: int) -> int:
         return asyncio.run(dag_alias_fd(alias_ptr, fd))
 

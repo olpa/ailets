@@ -89,9 +89,17 @@ class NodeDagops(INodeDagops):
             self.env.notification_queue, 
             explain
         )
-
         self.handle_to_name.append(node.name)
-        return len(self.handle_to_name) - 1
+        node_handle = len(self.handle_to_name) - 1
+
+        try:
+            pipe = self.piper.get_existing_pipe(node.name, "")
+        except KeyError:
+            return -1
+        fd = self.node.private_store_writer(node.name, pipe)
+
+        self.fd_to_node_handle[fd] = node_handle
+        return fd
 
     def find_node_by_fd(self, fd: int) -> int:
         return self.fd_to_node_handle.get(fd, -1)
