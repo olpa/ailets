@@ -137,18 +137,6 @@ def fill_wasm_import_object(
             )
             return -1
 
-    async def alias_fd(alias_ptr: int, fd: int) -> int:
-        alias = buf_to_str.get_string(alias_ptr)
-        try:
-            runtime.dagops().alias_fd(alias, fd)
-            return 0
-        except Exception as e:
-            print(
-                f"alias_fd: Error in alias_fd for alias '{alias}' and fd {fd}: {e}",
-                file=sys.stderr,
-            )
-            return -1
-
     async def dag_alias(alias_ptr: int, node_handle: int) -> int:
         alias = buf_to_str.get_string(alias_ptr)
         try:
@@ -157,6 +145,18 @@ def fill_wasm_import_object(
         except Exception as e:
             print(
                 f"alias: Error adding alias '{alias}' to node {node_handle}: {e}",
+                file=sys.stderr,
+            )
+            return -1
+
+    async def dag_alias_fd(alias_ptr: int, fd: int) -> int:
+        alias = buf_to_str.get_string(alias_ptr)
+        try:
+            runtime.dagops().alias_fd(alias, fd)
+            return 0
+        except Exception as e:
+            print(
+                f"dag_alias_fd: Error in alias_fd for alias '{alias}' and fd {fd}: {e}",
                 file=sys.stderr,
             )
             return -1
@@ -208,8 +208,8 @@ def fill_wasm_import_object(
         return asyncio.run(open_write_pipe(explain_ptr))
 
 
-    def sync_alias_fd(alias_ptr: int, fd: int) -> int:
-        return asyncio.run(alias_fd(alias_ptr, fd))
+    def sync_dag_alias_fd(alias_ptr: int, fd: int) -> int:
+        return asyncio.run(dag_alias_fd(alias_ptr, fd))
 
     # Register functions with WASM
     import_object.register(
@@ -228,6 +228,6 @@ def fill_wasm_import_object(
             "dag_alias": wasmer.Function(store, sync_dag_alias),
             "dag_detach_from_alias": wasmer.Function(store, sync_dag_detach_from_alias),
             "open_write_pipe": wasmer.Function(store, sync_open_write_pipe),
-            "alias_fd": wasmer.Function(store, sync_alias_fd),
+            "dag_alias_fd": wasmer.Function(store, sync_dag_alias_fd),
         },
     )
