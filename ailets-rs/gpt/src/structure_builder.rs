@@ -159,6 +159,12 @@ impl<W: Write> StructureBuilder<W> {
         self.streaming_mode = true;
     }
 
+    /// Check if streaming mode is enabled
+    #[must_use]
+    pub fn is_streaming_mode(&self) -> bool {
+        self.streaming_mode
+    }
+
     /// Check if we can stream completed tool calls and output them
     /// # Errors
     /// I/O

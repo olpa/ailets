@@ -87,61 +87,70 @@ pub fn on_function_id<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
-    let result = on_function_str_field(rjiter_cell, builder_cell, "id", |funcalls, value| {
+    on_function_str_field(rjiter_cell, builder_cell, "id", |funcalls, value| {
         funcalls.delta_id(value);
-    });
-    if let StreamOp::ValueIsConsumed = result {
-        if let Err(e) = builder_cell.borrow_mut().on_tool_call_field_update() {
-            return StreamOp::Error(Box::new(e));
-        }
-    }
-    result
+    })
 }
 
 pub fn on_function_name<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
-    let result = on_function_str_field(rjiter_cell, builder_cell, "name", |funcalls, value| {
+    on_function_str_field(rjiter_cell, builder_cell, "name", |funcalls, value| {
         funcalls.delta_function_name(value);
-    });
-    if let StreamOp::ValueIsConsumed = result {
-        if let Err(e) = builder_cell.borrow_mut().on_tool_call_field_update() {
-            return StreamOp::Error(Box::new(e));
-        }
-    }
-    result
+    })
 }
 
 pub fn on_function_arguments<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
-    on_function_str_field(rjiter_cell, builder_cell, "arguments", |funcalls, value| {
-        funcalls.delta_function_arguments(value);
-    })
+    let mut rjiter = rjiter_cell.borrow_mut();
+    
+    // Check if we have a string value
+    match rjiter.peek() {
+        Ok(Peek::String) => {
+            // Use write_long_bytes for both streaming and non-streaming modes
+            let mut args_buffer = Vec::new();
+            if let Err(e) = rjiter.write_long_bytes(&mut args_buffer) {
+                let error: Box<dyn std::error::Error> = 
+                    format!("Error reading function arguments with write_long_bytes: {e:?}").into();
+                return StreamOp::Error(error);
+            }
+            
+            // Convert bytes to string and parse JSON to extract the content
+            if let Ok(json_str) = String::from_utf8(args_buffer) {
+                // Parse the JSON string to extract the actual content
+                match serde_json::from_str::<String>(&json_str) {
+                    Ok(args_content) => {
+                        builder_cell.borrow_mut().get_funcalls_mut().delta_function_arguments(&args_content);
+                    }
+                    Err(_) => {
+                        // If JSON parsing fails, use the raw string (might be partial)
+                        builder_cell.borrow_mut().get_funcalls_mut().delta_function_arguments(&json_str);
+                    }
+                }
+            } else {
+                let error: Box<dyn std::error::Error> = 
+                    "Invalid UTF-8 in function arguments".into();
+                return StreamOp::Error(error);
+            }
+            
+            StreamOp::ValueIsConsumed
+        }
+        Ok(peeked) => {
+            let error: Box<dyn std::error::Error> = 
+                format!("Expected string for function arguments, got {peeked:?}").into();
+            StreamOp::Error(error)
+        }
+        Err(e) => {
+            let error: Box<dyn std::error::Error> = 
+                format!("Error peeking function arguments: {e:?}").into();
+            StreamOp::Error(error)
+        }
+    }
 }
 
-/// Handle streaming function arguments using write_long_bytes
-pub fn on_function_arguments_streaming<W: Write>(
-    rjiter_cell: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
-) -> StreamOp {
-    let mut rjiter = rjiter_cell.borrow_mut();
-    let mut builder = builder_cell.borrow_mut();
-    
-    // Try to begin streaming if id/name are ready
-    if let Err(e) = builder.try_begin_streaming_current_tool_call() {
-        return StreamOp::Error(Box::new(e));
-    }
-    
-    // Stream the arguments chunk
-    if let Err(e) = builder.stream_tool_call_arguments_chunk(&mut *rjiter) {
-        return StreamOp::Error(Box::new(e));
-    }
-    
-    StreamOp::ValueIsConsumed
-}
 
 pub fn on_function_index<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
@@ -186,11 +195,7 @@ pub fn on_function_index<W: Write>(
 pub fn on_function_end<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    {
-        let mut builder = builder_cell.borrow_mut();
-        builder.get_funcalls_mut().end_current();
-        builder.close_streaming_tool_call()?;
-    }
+    builder_cell.borrow_mut().get_funcalls_mut().end_current();
     Ok(())
 }
 
