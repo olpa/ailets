@@ -2,6 +2,7 @@ use std::io::Write;
 
 use actor_runtime_mocked::RcWriter;
 use gpt::structure_builder::StructureBuilder;
+use gpt::funcalls::ContentItemFunction;
 
 #[test]
 fn basic_pass() {
@@ -63,5 +64,53 @@ fn can_call_end_message_multiple_times() {
 [{"type":"text"},{"text":"hello"}]
 "#
     .to_owned();
+    assert_eq!(writer.get_output(), expected);
+}
+
+#[test]
+fn output_tool_call() {
+    // Arrange
+    let writer = RcWriter::new();
+    let mut builder = StructureBuilder::new(writer.clone());
+    let tool_call = ContentItemFunction::new(
+        "call_123",
+        "get_user_name", 
+        "{}"
+    );
+
+    // Act
+    builder.begin_message();
+    builder.output_tool_call(&tool_call).unwrap();
+    builder.end_message().unwrap();
+
+    // Assert
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"tool_call"},{"id":"call_123","function_name":"get_user_name","function_arguments":"{}"}]
+"#.to_owned();
+    assert_eq!(writer.get_output(), expected);
+}
+
+#[test]
+fn inject_tool_calls() {
+    // Arrange
+    let writer = RcWriter::new();
+    let mut builder = StructureBuilder::new(writer.clone());
+    
+    // Add tool calls to the builder's funcalls
+    let funcalls = builder.get_funcalls_mut();
+    funcalls.delta_id("call_123");
+    funcalls.delta_function_name("get_user_name");
+    funcalls.delta_function_arguments("{}");
+    funcalls.end_current();
+
+    // Act
+    builder.begin_message();
+    builder.inject_tool_calls().unwrap();
+    builder.end_message().unwrap();
+
+    // Assert
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"tool_call"},{"id":"call_123","function_name":"get_user_name","function_arguments":"{}"}]
+"#.to_owned();
     assert_eq!(writer.get_output(), expected);
 }

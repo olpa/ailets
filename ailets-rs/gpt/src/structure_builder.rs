@@ -58,8 +58,8 @@ impl<W: Write> StructureBuilder<W> {
         if self.text_is_open {
             self.writer.write_all(b"\"}]")?;
             self.text_is_open = false;
+            self.writer.write_all(b"\n")?;
         }
-        self.writer.write_all(b"\n")?;
         self.message_is_closed = true;
         Ok(())
     }
@@ -105,6 +105,39 @@ impl<W: Write> StructureBuilder<W> {
             self.writer
                 .write_all(b"[{\"type\":\"text\"},{\"text\":\"")?;
             self.text_is_open = true;
+        }
+        Ok(())
+    }
+
+    /// Output a single tool call in streaming fashion
+    /// # Errors
+    /// I/O
+    pub fn output_tool_call(&mut self, tool_call: &crate::funcalls::ContentItemFunction) -> Result<(), std::io::Error> {
+        if !self.message_has_content {
+            self.begin_content()?;
+        }
+        if self.text_is_open {
+            self.writer.write_all(b"\"}]")?;
+            self.text_is_open = false;
+        }
+        
+        self.writer.write_all(b"[{\"type\":\"tool_call\"},{\"id\":\"")?;
+        self.writer.write_all(tool_call.id.as_bytes())?;
+        self.writer.write_all(b"\",\"function_name\":\"")?;
+        self.writer.write_all(tool_call.function_name.as_bytes())?;
+        self.writer.write_all(b"\",\"function_arguments\":\"")?;
+        self.writer.write_all(tool_call.function_arguments.as_bytes())?;
+        self.writer.write_all(b"\"}]\n")?;
+        Ok(())
+    }
+
+    /// Process and output all tool calls from funcalls
+    /// # Errors
+    /// I/O
+    pub fn inject_tool_calls(&mut self) -> Result<(), std::io::Error> {
+        let tool_calls = self.funcalls.get_tool_calls().clone();
+        for tool_call in &tool_calls {
+            self.output_tool_call(tool_call)?;
         }
         Ok(())
     }
