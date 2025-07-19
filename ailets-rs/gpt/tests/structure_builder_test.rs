@@ -114,3 +114,59 @@ fn inject_tool_calls() {
 "#.to_owned();
     assert_eq!(writer.get_output(), expected);
 }
+
+#[test]
+fn streaming_tool_call_completion() {
+    // Arrange
+    let writer = RcWriter::new();
+    let mut builder = StructureBuilder::new(writer.clone());
+    
+    // Act - simulate streaming tool call input exactly like the real handlers would
+    builder.begin_message();
+    
+    // First delta: index 0, id, type, name, empty arguments (like handlers do)
+    builder.on_tool_call_index(0).unwrap(); // This enables streaming and calls delta_index
+    builder.get_funcalls_mut().delta_id("call_123");
+    builder.get_funcalls_mut().delta_function_name("get_user_name");
+    builder.get_funcalls_mut().delta_function_arguments(""); // Empty at first
+    builder.on_tool_call_field_update().unwrap();
+    
+    // Second delta: complete the arguments  
+    builder.get_funcalls_mut().delta_function_arguments("{}");
+    builder.on_tool_call_field_update().unwrap();
+    
+    // End current to finalize the streaming tool call
+    builder.get_funcalls_mut().end_current();
+    builder.on_tool_call_field_update().unwrap();
+    
+    builder.end_message().unwrap();
+
+    // Assert - tool call should be output when complete
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"tool_call"},{"id":"call_123","function_name":"get_user_name","function_arguments":"{}"}]
+"#.to_owned();
+    assert_eq!(writer.get_output(), expected);
+}
+
+#[test]
+fn streaming_mode_not_enabled_without_index() {
+    // Arrange
+    let writer = RcWriter::new();
+    let mut builder = StructureBuilder::new(writer.clone());
+    
+    // Act - add tool call data without using streaming index
+    builder.begin_message();
+    builder.get_funcalls_mut().delta_id("call_123");
+    builder.get_funcalls_mut().delta_function_name("get_user_name");
+    builder.get_funcalls_mut().delta_function_arguments("{}");
+    builder.get_funcalls_mut().end_current();
+    builder.on_tool_call_field_update().unwrap(); // Should not stream
+    builder.inject_tool_calls().unwrap(); // Batch mode
+    builder.end_message().unwrap();
+
+    // Assert - should work in batch mode
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"tool_call"},{"id":"call_123","function_name":"get_user_name","function_arguments":"{}"}]
+"#.to_owned();
+    assert_eq!(writer.get_output(), expected);
+}

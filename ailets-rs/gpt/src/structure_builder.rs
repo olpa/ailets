@@ -12,6 +12,8 @@ pub struct StructureBuilder<W: Write> {
     text_is_open: bool,
     message_is_closed: bool,
     funcalls: FunCalls,
+    streaming_mode: bool,
+    last_streamed_index: Option<usize>,
 }
 
 impl<W: Write> StructureBuilder<W> {
@@ -24,6 +26,8 @@ impl<W: Write> StructureBuilder<W> {
             text_is_open: false,
             message_is_closed: false,
             funcalls: FunCalls::new(),
+            streaming_mode: false,
+            last_streamed_index: None,
         }
     }
 
@@ -46,6 +50,8 @@ impl<W: Write> StructureBuilder<W> {
         self.message_has_content = false;
         self.text_is_open = false;
         self.message_is_closed = false;
+        self.streaming_mode = false;
+        self.last_streamed_index = None;
     }
 
     /// End the current message.
@@ -140,5 +146,62 @@ impl<W: Write> StructureBuilder<W> {
             self.output_tool_call(tool_call)?;
         }
         Ok(())
+    }
+
+    /// Enable streaming mode when tool call deltas are detected
+    pub fn enable_streaming_mode(&mut self) {
+        self.streaming_mode = true;
+    }
+
+    /// Check if we can stream completed tool calls and output them
+    /// # Errors
+    /// I/O
+    pub fn try_stream_completed_tool_calls(&mut self) -> Result<(), std::io::Error> {
+        if !self.streaming_mode {
+            return Ok(());
+        }
+
+        let tool_calls = self.funcalls.get_tool_calls().clone();
+        let start_index = self.last_streamed_index.map_or(0, |i| i + 1);
+        
+        // Check for completed tool calls that can be streamed
+        for (index, tool_call) in tool_calls.iter().enumerate().skip(start_index) {
+            // A tool call is complete if all required fields are present
+            // Arguments can be empty ("") but id and function_name must be non-empty
+            if !tool_call.id.is_empty() 
+                && !tool_call.function_name.is_empty() {
+                // For streaming, we consider it complete when we have a basic structure
+                // Arguments might still be streaming in, but we can output when they're done
+                // This means arguments being non-empty OR having actual content
+                if !tool_call.function_arguments.is_empty() {
+                    self.output_tool_call(tool_call)?;
+                    self.last_streamed_index = Some(index);
+                }
+            } else {
+                // Stop at first incomplete tool call (streaming order)
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    /// Handle tool call index change - enables streaming and attempts to stream completed calls
+    /// # Errors
+    /// I/O  
+    pub fn on_tool_call_index(&mut self, index: usize) -> Result<(), std::io::Error> {
+        self.enable_streaming_mode();
+        self.funcalls.delta_index(index);
+        self.try_stream_completed_tool_calls()
+    }
+
+    /// Handle tool call field updates and attempt streaming
+    /// # Errors
+    /// I/O
+    pub fn on_tool_call_field_update(&mut self) -> Result<(), std::io::Error> {
+        if self.streaming_mode {
+            self.try_stream_completed_tool_calls()
+        } else {
+            Ok(())
+        }
     }
 }
