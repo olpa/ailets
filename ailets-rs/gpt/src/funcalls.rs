@@ -40,6 +40,10 @@ pub struct FunCalls {
     idx: Option<usize>,
     tool_calls: Vec<ContentItemFunction>,
     current_funcall: Option<ContentItemFunction>,
+    last_index: Option<usize>,
+    // Track which non-argument fields have been set for streaming validation
+    current_id_set: bool,
+    current_name_set: bool,
 }
 
 impl FunCalls {
@@ -50,6 +54,9 @@ impl FunCalls {
             idx: None,
             tool_calls: Vec::new(),
             current_funcall: None,
+            last_index: None,
+            current_id_set: false,
+            current_name_set: false,
         }
     }
 
@@ -84,13 +91,16 @@ impl FunCalls {
             }
         }
 
-        // Reset the streaming mode index
+        // Reset the streaming mode index and field flags
         self.idx = None;
+        self.current_id_set = false;
+        self.current_name_set = false;
     }
 
     /// Sets the current delta index and ensures space for the function call
     ///
     /// This method:
+    /// - Validates streaming assumptions (index increments properly)
     /// - Ensures there's enough space in the vector for the given index
     /// - Merges any existing `current_funcall` data with the vector entry at the specified index
     /// - Sets the streaming mode index
@@ -98,7 +108,28 @@ impl FunCalls {
     ///
     /// # Arguments
     /// * `index` - The index to set for the current delta position
-    pub fn delta_index(&mut self, index: usize) {
+    /// 
+    /// # Errors
+    /// Returns error if streaming assumptions are violated
+    pub fn delta_index(&mut self, index: usize) -> Result<(), String> {
+        // Validate streaming assumption: index progression
+        match self.last_index {
+            None => {
+                // First index must be 0
+                if index != 0 {
+                    return Err(format!("First tool call index must be 0, got {index}"));
+                }
+            }
+            Some(last) => {
+                // Index can stay the same or increment by exactly 1, but never decrease
+                if index < last {
+                    return Err(format!("Tool call index cannot decrease, max seen is {last}, got {index}"));
+                }
+                if index > last + 1 {
+                    return Err(format!("Tool call index cannot skip values, max seen is {last}, got {index}"));
+                }
+            }
+        }
         // Ensure we have enough space in the vector
         while self.tool_calls.len() <= index {
             self.tool_calls.push(ContentItemFunction::default());
@@ -118,19 +149,30 @@ impl FunCalls {
             }
         }
 
+        // Reset field flags when switching to a different index
+        if self.idx != Some(index) {
+            self.current_id_set = false;
+            self.current_name_set = false;
+        }
+
         // Set the streaming mode index
         self.idx = Some(index);
 
-        // Initialize current_funcall with the existing data at the specified index
-        if self.current_funcall.is_none() {
-            if let Some(existing_funcall) = self.tool_calls.get(index) {
-                self.current_funcall = Some(ContentItemFunction {
-                    id: existing_funcall.id.clone(),
-                    function_name: existing_funcall.function_name.clone(),
-                    function_arguments: existing_funcall.function_arguments.clone(),
-                });
-            }
+        // Update last_index to track the highest seen index
+        if self.last_index.map_or(true, |last| index > last) {
+            self.last_index = Some(index);
         }
+
+        // Initialize current_funcall with the updated data at the specified index
+        if let Some(existing_funcall) = self.tool_calls.get(index) {
+            self.current_funcall = Some(ContentItemFunction {
+                id: existing_funcall.id.clone(),
+                function_name: existing_funcall.function_name.clone(),
+                function_arguments: existing_funcall.function_arguments.clone(),
+            });
+        }
+        
+        Ok(())
     }
 
     /// Appends to the ID of the current function call
@@ -138,9 +180,22 @@ impl FunCalls {
     /// # Arguments
     /// * `id` - String to append to the current function call's ID
     ///
-    pub fn delta_id(&mut self, id: &str) {
+    /// # Errors
+    /// Returns error if streaming assumptions are violated (ID set multiple times in streaming mode)
+    pub fn delta_id(&mut self, id: &str) -> Result<(), String> {
+        // Check streaming assumption: in streaming mode, non-argument fields should only be set once
+        if self.idx.is_some() && self.current_id_set {
+            return Err("ID field cannot be set multiple times in streaming mode - only arguments can span deltas".to_string());
+        }
+        
         let cell = self.ensure_current();
         cell.id.push_str(id);
+        
+        if self.idx.is_some() {
+            self.current_id_set = true;
+        }
+        
+        Ok(())
     }
 
     /// Appends to the function name of the current function call
@@ -148,9 +203,22 @@ impl FunCalls {
     /// # Arguments
     /// * `function_name` - String to append to the current function call's name
     ///
-    pub fn delta_function_name(&mut self, function_name: &str) {
+    /// # Errors
+    /// Returns error if streaming assumptions are violated (name set multiple times in streaming mode)
+    pub fn delta_function_name(&mut self, function_name: &str) -> Result<(), String> {
+        // Check streaming assumption: in streaming mode, non-argument fields should only be set once
+        if self.idx.is_some() && self.current_name_set {
+            return Err("Function name field cannot be set multiple times in streaming mode - only arguments can span deltas".to_string());
+        }
+        
         let cell = self.ensure_current();
         cell.function_name.push_str(function_name);
+        
+        if self.idx.is_some() {
+            self.current_name_set = true;
+        }
+        
+        Ok(())
     }
 
     /// Appends to the function arguments of the current function call

@@ -202,7 +202,9 @@ impl<W: Write> StructureBuilder<W> {
     /// I/O  
     pub fn on_tool_call_index(&mut self, index: usize) -> Result<(), std::io::Error> {
         self.enable_streaming_mode();
-        self.funcalls.delta_index(index);
+        if let Err(e) = self.funcalls.delta_index(index) {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e));
+        }
         self.try_stream_completed_tool_calls()
     }
 

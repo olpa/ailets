@@ -148,39 +148,33 @@ fn several_elements_streaming_one_round() {
 fn several_elements_streaming_several_rounds() {
     let mut funcalls = FunCalls::new();
 
-    // Act - streaming mode with delta_index, multiple elements and multiple rounds
-    // Round 1: Start building all elements
+    // Act - streaming mode with valid index progression (only same or increment)
+    // Tool call 0: Initial data
     funcalls.delta_index(0);
     funcalls.delta_id("call_foo");
     funcalls.delta_function_name("get_foo");
     funcalls.end_current();
 
-    funcalls.delta_id("call_bar");
+    // Tool call 0: More arguments (same index)
+    funcalls.delta_index(0);
+    funcalls.delta_function_arguments("{foo_args}");
+    funcalls.end_current();
+
+    // Tool call 1: Initial data
     funcalls.delta_index(1);
+    funcalls.delta_id("call_bar");
     funcalls.delta_function_name("get_bar");
     funcalls.end_current();
 
-    funcalls.delta_id("call_baz");
-    funcalls.delta_function_name("get_baz");
-    funcalls.delta_index(2);
-    funcalls.end_current();
-
-    // Round 2: Add more to all elements (should accumulate)
-    funcalls.delta_id("_extra");
-    funcalls.delta_function_name("_plus");
-    funcalls.delta_function_arguments("{foo_args}");
-    funcalls.delta_index(0);
-    funcalls.end_current();
-
-    funcalls.delta_id("_extra");
+    // Tool call 1: More arguments (same index)
     funcalls.delta_index(1);
-    funcalls.delta_function_name("_plus");
     funcalls.delta_function_arguments("{bar_args}");
     funcalls.end_current();
 
+    // Tool call 2: Complete data
     funcalls.delta_index(2);
-    funcalls.delta_id("_extra");
-    funcalls.delta_function_name("_plus");
+    funcalls.delta_id("call_baz");
+    funcalls.delta_function_name("get_baz");
     funcalls.delta_function_arguments("{baz_args}");
     funcalls.end_current();
 
@@ -189,9 +183,9 @@ fn several_elements_streaming_several_rounds() {
     assert_eq!(
         tool_calls,
         &vec![
-            ContentItemFunction::new("call_foo_extra", "get_foo_plus", "{foo_args}"),
-            ContentItemFunction::new("call_bar_extra", "get_bar_plus", "{bar_args}"),
-            ContentItemFunction::new("call_baz_extra", "get_baz_plus", "{baz_args}"),
+            ContentItemFunction::new("call_foo", "get_foo", "{foo_args}"),
+            ContentItemFunction::new("call_bar", "get_bar", "{bar_args}"),
+            ContentItemFunction::new("call_baz", "get_baz", "{baz_args}"),
         ]
     );
 }

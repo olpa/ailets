@@ -88,7 +88,10 @@ pub fn on_function_id<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
     on_function_str_field(rjiter_cell, builder_cell, "id", |funcalls, value| {
-        funcalls.delta_id(value);
+        if let Err(e) = funcalls.delta_id(value) {
+            return Err(e);
+        }
+        Ok(())
     })
 }
 
@@ -97,7 +100,10 @@ pub fn on_function_name<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
     on_function_str_field(rjiter_cell, builder_cell, "name", |funcalls, value| {
-        funcalls.delta_function_name(value);
+        if let Err(e) = funcalls.delta_function_name(value) {
+            return Err(e);
+        }
+        Ok(())
     })
 }
 
@@ -183,10 +189,14 @@ pub fn on_function_index<W: Write>(
             }
         }
     };
-    builder_cell
+    if let Err(e) = builder_cell
         .borrow_mut()
         .get_funcalls_mut()
-        .delta_index(idx);
+        .delta_index(idx) {
+        let error: Box<dyn std::error::Error> = 
+            format!("Streaming assumption violation: {e}").into();
+        return StreamOp::Error(error);
+    }
     StreamOp::ValueIsConsumed
 }
 
@@ -206,7 +216,7 @@ fn on_function_str_field<W: Write, F>(
     apply_field: F,
 ) -> StreamOp
 where
-    F: FnOnce(&mut crate::funcalls::FunCalls, &str),
+    F: FnOnce(&mut crate::funcalls::FunCalls, &str) -> Result<(), String>,
 {
     let mut rjiter = rjiter_cell.borrow_mut();
     let value = match rjiter.next_str() {
@@ -217,6 +227,10 @@ where
             return StreamOp::Error(error);
         }
     };
-    apply_field(builder_cell.borrow_mut().get_funcalls_mut(), value);
+    if let Err(e) = apply_field(builder_cell.borrow_mut().get_funcalls_mut(), value) {
+        let error: Box<dyn std::error::Error> = 
+            format!("Streaming assumption violation in {field_name}: {e}").into();
+        return StreamOp::Error(error);
+    }
     StreamOp::ValueIsConsumed
 }
