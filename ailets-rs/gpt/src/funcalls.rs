@@ -168,4 +168,10 @@ impl FunCalls {
     pub fn get_tool_calls(&self) -> &Vec<ContentItemFunction> {
         &self.tool_calls
     }
+
+    /// Returns a reference to the current function call being built
+    #[must_use]
+    pub fn get_current_funcall(&self) -> &Option<ContentItemFunction> {
+        &self.current_funcall
+    }
 }

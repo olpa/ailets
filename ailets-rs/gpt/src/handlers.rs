@@ -87,18 +87,30 @@ pub fn on_function_id<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
-    on_function_str_field(rjiter_cell, builder_cell, "id", |funcalls, value| {
+    let result = on_function_str_field(rjiter_cell, builder_cell, "id", |funcalls, value| {
         funcalls.delta_id(value);
-    })
+    });
+    if let StreamOp::ValueIsConsumed = result {
+        if let Err(e) = builder_cell.borrow_mut().on_tool_call_field_update() {
+            return StreamOp::Error(Box::new(e));
+        }
+    }
+    result
 }
 
 pub fn on_function_name<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
-    on_function_str_field(rjiter_cell, builder_cell, "name", |funcalls, value| {
+    let result = on_function_str_field(rjiter_cell, builder_cell, "name", |funcalls, value| {
         funcalls.delta_function_name(value);
-    })
+    });
+    if let StreamOp::ValueIsConsumed = result {
+        if let Err(e) = builder_cell.borrow_mut().on_tool_call_field_update() {
+            return StreamOp::Error(Box::new(e));
+        }
+    }
+    result
 }
 
 pub fn on_function_arguments<W: Write>(
@@ -108,6 +120,27 @@ pub fn on_function_arguments<W: Write>(
     on_function_str_field(rjiter_cell, builder_cell, "arguments", |funcalls, value| {
         funcalls.delta_function_arguments(value);
     })
+}
+
+/// Handle streaming function arguments using write_long_bytes
+pub fn on_function_arguments_streaming<W: Write>(
+    rjiter_cell: &RefCell<RJiter>,
+    builder_cell: &RefCell<StructureBuilder<W>>,
+) -> StreamOp {
+    let mut rjiter = rjiter_cell.borrow_mut();
+    let mut builder = builder_cell.borrow_mut();
+    
+    // Try to begin streaming if id/name are ready
+    if let Err(e) = builder.try_begin_streaming_current_tool_call() {
+        return StreamOp::Error(Box::new(e));
+    }
+    
+    // Stream the arguments chunk
+    if let Err(e) = builder.stream_tool_call_arguments_chunk(&mut *rjiter) {
+        return StreamOp::Error(Box::new(e));
+    }
+    
+    StreamOp::ValueIsConsumed
 }
 
 pub fn on_function_index<W: Write>(
@@ -153,7 +186,11 @@ pub fn on_function_index<W: Write>(
 pub fn on_function_end<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    builder_cell.borrow_mut().get_funcalls_mut().end_current();
+    {
+        let mut builder = builder_cell.borrow_mut();
+        builder.get_funcalls_mut().end_current();
+        builder.close_streaming_tool_call()?;
+    }
     Ok(())
 }
 

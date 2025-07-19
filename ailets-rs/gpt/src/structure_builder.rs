@@ -14,6 +14,8 @@ pub struct StructureBuilder<W: Write> {
     funcalls: FunCalls,
     streaming_mode: bool,
     last_streamed_index: Option<usize>,
+    tool_call_open: bool,
+    tool_call_arguments_open: bool,
 }
 
 impl<W: Write> StructureBuilder<W> {
@@ -28,6 +30,8 @@ impl<W: Write> StructureBuilder<W> {
             funcalls: FunCalls::new(),
             streaming_mode: false,
             last_streamed_index: None,
+            tool_call_open: false,
+            tool_call_arguments_open: false,
         }
     }
 
@@ -52,6 +56,8 @@ impl<W: Write> StructureBuilder<W> {
         self.message_is_closed = false;
         self.streaming_mode = false;
         self.last_streamed_index = None;
+        self.tool_call_open = false;
+        self.tool_call_arguments_open = false;
     }
 
     /// End the current message.
@@ -199,9 +205,79 @@ impl<W: Write> StructureBuilder<W> {
     /// I/O
     pub fn on_tool_call_field_update(&mut self) -> Result<(), std::io::Error> {
         if self.streaming_mode {
+            self.try_begin_streaming_current_tool_call()?;
             self.try_stream_completed_tool_calls()
         } else {
             Ok(())
         }
+    }
+
+    /// Begin streaming output for a tool call (id and name are ready)
+    /// # Errors
+    /// I/O
+    pub fn begin_streaming_tool_call(&mut self, tool_call: &crate::funcalls::ContentItemFunction) -> Result<(), std::io::Error> {
+        if !self.message_has_content {
+            self.begin_content()?;
+        }
+        if self.text_is_open {
+            self.writer.write_all(b"\"}]")?;
+            self.text_is_open = false;
+        }
+        
+        self.writer.write_all(b"[{\"type\":\"tool_call\"},{\"id\":\"")?;
+        self.writer.write_all(tool_call.id.as_bytes())?;
+        self.writer.write_all(b"\",\"function_name\":\"")?;
+        self.writer.write_all(tool_call.function_name.as_bytes())?;
+        self.writer.write_all(b"\",\"function_arguments\":\"")?;
+        
+        self.tool_call_open = true;
+        self.tool_call_arguments_open = true;
+        Ok(())
+    }
+
+    /// Stream arguments chunk using write_long_bytes
+    /// # Errors
+    /// I/O
+    pub fn stream_tool_call_arguments_chunk(&mut self, rjiter: &mut scan_json::RJiter) -> Result<(), std::io::Error> {
+        if !self.tool_call_arguments_open {
+            return Ok(());
+        }
+        
+        // Stream the arguments directly to the output
+        if let Err(e) = rjiter.write_long_bytes(&mut self.writer) {
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, e));
+        }
+        Ok(())
+    }
+
+    /// Close the streaming tool call
+    /// # Errors
+    /// I/O  
+    pub fn close_streaming_tool_call(&mut self) -> Result<(), std::io::Error> {
+        if self.tool_call_open {
+            if self.tool_call_arguments_open {
+                self.writer.write_all(b"\"}]\n")?;
+                self.tool_call_arguments_open = false;
+            }
+            self.tool_call_open = false;
+        }
+        Ok(())
+    }
+
+    /// Check if we should start streaming a tool call (id and name available)
+    /// # Errors
+    /// I/O
+    pub fn try_begin_streaming_current_tool_call(&mut self) -> Result<(), std::io::Error> {
+        if !self.streaming_mode || self.tool_call_open {
+            return Ok(());
+        }
+
+        // Get current tool call data
+        if let Some(current_funcall) = self.funcalls.get_current_funcall().clone() {
+            if !current_funcall.id.is_empty() && !current_funcall.function_name.is_empty() {
+                self.begin_streaming_tool_call(&current_funcall)?;
+            }
+        }
+        Ok(())
     }
 }
