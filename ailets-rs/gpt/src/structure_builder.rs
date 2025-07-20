@@ -137,23 +137,11 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
-    /// Process and output all tool calls from funcalls
-    /// # Errors
-    /// I/O
-    pub fn inject_tool_calls(&mut self) -> Result<(), std::io::Error> {
-        let tool_calls = self.funcalls.get_tool_calls().clone();
-        for tool_call in &tool_calls {
-            self.output_tool_call(tool_call)?;
-        }
-        Ok(())
-    }
-
     /// Check if we can stream completed tool calls and output them
     /// # Errors
     /// I/O
     pub fn try_stream_completed_tool_calls(&mut self) -> Result<(), std::io::Error> {
-        let completed_calls = self.funcalls.get_completed_tool_calls_for_streaming();
-        for (_index, tool_call) in completed_calls {
+        if let Some(tool_call) = self.funcalls.get_completed_tool_call_for_streaming() {
             self.output_tool_call(&tool_call)?;
         }
         Ok(())

@@ -172,7 +172,10 @@ pub fn _process_gpt<W: Write>(
     builder.end_message()?;
 
     let funcalls = builder.get_funcalls();
-    dagops.inject_tool_calls(funcalls.get_tool_calls())?;
+    // Inject the current tool call if it exists
+    if let Some(current_call) = funcalls.get_current_funcall() {
+        dagops.inject_tool_calls(&[current_call.clone()])?;
+    }
     Ok(())
 }
 

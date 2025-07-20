@@ -37,7 +37,6 @@ impl ContentItemFunction {
 /// A collection of function calls with support for incremental updates
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct FunCalls {
-    tool_calls: Vec<ContentItemFunction>,
     current_funcall: Option<ContentItemFunction>,
     last_index: Option<usize>,
     // Streaming-related fields moved from StructureBuilder
@@ -52,7 +51,6 @@ impl FunCalls {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            tool_calls: Vec::new(),
             current_funcall: None,
             last_index: None,
             streaming_mode: false,
@@ -75,33 +73,16 @@ impl FunCalls {
     /// Ends the current function call and cleans up the delta state
     ///
     /// This method should be called when a function call is complete.
-    /// In direct mode (no index), it pushes the current function call.
-    /// In streaming mode (with index), it updates the function call at the current index.
     pub fn end_current(&mut self) {
-        if let Some(current_funcall) = self.current_funcall.take() {
-            if let Some(last_idx) = self.last_index {
-                // Streaming mode: replace the element at the last index
-                if let Some(tool_call) = self.tool_calls.get_mut(last_idx) {
-                    *tool_call = current_funcall;
-                } else {
-                    // This shouldn't happen in normal operation, but handle gracefully
-                    self.tool_calls.push(current_funcall);
-                }
-            } else {
-                // Direct mode: push to the vector
-                self.tool_calls.push(current_funcall);
-            }
-        }
+        self.current_funcall = None;
     }
 
-    /// Sets the current delta index and ensures space for the function call
+    /// Sets the current delta index for streaming mode
     ///
     /// This method:
     /// - Validates streaming assumptions (index increments properly)
-    /// - Ensures there's enough space in the vector for the given index
-    /// - Merges any existing `current_funcall` data with the vector entry at the specified index
     /// - Enables streaming mode and updates the last seen index
-    /// - Initializes `current_funcall` with the existing data at the specified index
+    /// - When switching to a new index, ends the current function call
     ///
     /// # Arguments
     /// * `index` - The index to set for the current delta position
@@ -129,39 +110,16 @@ impl FunCalls {
                         "Tool call index cannot skip values, max seen is {last}, got {index}"
                     ));
                 }
-            }
-        }
-        // Ensure we have enough space in the vector
-        while self.tool_calls.len() <= index {
-            self.tool_calls.push(ContentItemFunction::default());
-        }
-
-        // If we have a current function call in direct mode, merge it with the existing one at index
-        if let Some(current_funcall) = self.current_funcall.take() {
-            // Index is guaranteed to be valid after the while loop above
-            if let Some(existing_funcall) = self.tool_calls.get_mut(index) {
-                existing_funcall.id.push_str(&current_funcall.id);
-                existing_funcall
-                    .function_name
-                    .push_str(&current_funcall.function_name);
-                existing_funcall
-                    .function_arguments
-                    .push_str(&current_funcall.function_arguments);
+                // If we're moving to a new index, end the current function call
+                if index > last {
+                    self.end_current();
+                }
             }
         }
 
         // Enable streaming mode and update last_index to track the highest seen index
         self.streaming_mode = true;
         self.last_index = Some(index);
-
-        // Initialize current_funcall with the updated data at the specified index
-        if let Some(existing_funcall) = self.tool_calls.get(index) {
-            self.current_funcall = Some(ContentItemFunction {
-                id: existing_funcall.id.clone(),
-                function_name: existing_funcall.function_name.clone(),
-                function_arguments: existing_funcall.function_arguments.clone(),
-            });
-        }
 
         Ok(())
     }
@@ -222,12 +180,6 @@ impl FunCalls {
         cell.function_arguments.push_str(function_arguments);
     }
 
-    /// Returns a reference to the vector of function calls
-    #[must_use]
-    pub fn get_tool_calls(&self) -> &Vec<ContentItemFunction> {
-        &self.tool_calls
-    }
-
     /// Returns a reference to the current function call being built
     #[must_use]
     pub fn get_current_funcall(&self) -> &Option<ContentItemFunction> {
@@ -242,36 +194,35 @@ impl FunCalls {
         self.tool_call_arguments_open = false;
     }
 
-    /// Get completed tool calls that are ready to be streamed
-    /// Returns a vector of (`index`, `tool_call`) pairs for completed tool calls
-    /// that haven't been streamed yet, and updates internal streaming state
-    pub fn get_completed_tool_calls_for_streaming(&mut self) -> Vec<(usize, ContentItemFunction)> {
+    /// Get the current completed tool call if it's ready to be streamed
+    /// Returns the current tool call if it's complete and hasn't been streamed yet
+    pub fn get_completed_tool_call_for_streaming(&mut self) -> Option<ContentItemFunction> {
         if !self.streaming_mode {
-            return Vec::new();
+            return None;
         }
 
-        let mut completed_calls = Vec::new();
-        let start_index = self.last_streamed_index.map_or(0, |i| i + 1);
-
-        // Check for completed tool calls that can be streamed
-        for (index, tool_call) in self.tool_calls.iter().enumerate().skip(start_index) {
+        // Check if we have a current function call that's complete
+        if let Some(current) = &self.current_funcall {
             // A tool call is complete if all required fields are present
             // Arguments can be empty ("") but id and function_name must be non-empty
-            if !tool_call.id.is_empty() && !tool_call.function_name.is_empty() {
-                // For streaming, we consider it complete when we have a basic structure
-                // Arguments might still be streaming in, but we can output when they're done
-                // This means arguments being non-empty OR having actual content
-                if !tool_call.function_arguments.is_empty() {
-                    completed_calls.push((index, tool_call.clone()));
-                    self.last_streamed_index = Some(index);
+            if !current.id.is_empty()
+                && !current.function_name.is_empty()
+                && !current.function_arguments.is_empty()
+            {
+                // Check if this is a new completed call (hasn't been streamed yet)
+                if let Some(last_index) = self.last_index {
+                    if self
+                        .last_streamed_index
+                        .map_or(true, |streamed| last_index > streamed)
+                    {
+                        self.last_streamed_index = Some(last_index);
+                        return Some(current.clone());
+                    }
                 }
-            } else {
-                // Stop at first incomplete tool call (streaming order)
-                break;
             }
         }
 
-        completed_calls
+        None
     }
 
     /// Check if we should start streaming the current tool call (id and name are ready)
