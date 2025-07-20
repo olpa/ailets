@@ -41,9 +41,6 @@ pub struct FunCalls {
     tool_calls: Vec<ContentItemFunction>,
     current_funcall: Option<ContentItemFunction>,
     last_index: Option<usize>,
-    // Track which non-argument fields have been set for streaming validation
-    current_id_set: bool,
-    current_name_set: bool,
     // Streaming-related fields moved from StructureBuilder
     streaming_mode: bool,
     last_streamed_index: Option<usize>,
@@ -60,8 +57,6 @@ impl FunCalls {
             tool_calls: Vec::new(),
             current_funcall: None,
             last_index: None,
-            current_id_set: false,
-            current_name_set: false,
             streaming_mode: false,
             last_streamed_index: None,
             tool_call_open: false,
@@ -100,10 +95,8 @@ impl FunCalls {
             }
         }
 
-        // Reset the streaming mode index and field flags
+        // Reset the streaming mode index
         self.idx = None;
-        self.current_id_set = false;
-        self.current_name_set = false;
     }
 
     /// Sets the current delta index and ensures space for the function call
@@ -162,11 +155,6 @@ impl FunCalls {
             }
         }
 
-        // Reset field flags when switching to a different index
-        if self.idx != Some(index) {
-            self.current_id_set = false;
-            self.current_name_set = false;
-        }
 
         // Enable streaming mode and set the streaming mode index
         self.streaming_mode = true;
@@ -198,16 +186,16 @@ impl FunCalls {
     /// Returns error if streaming assumptions are violated (ID set multiple times in streaming mode)
     pub fn delta_id(&mut self, id: &str) -> Result<(), String> {
         // Check streaming assumption: in streaming mode, non-argument fields should only be set once
-        if self.idx.is_some() && self.current_id_set {
-            return Err("ID field cannot be set multiple times in streaming mode - only arguments can span deltas".to_string());
+        if self.idx.is_some() {
+            if let Some(current) = &self.current_funcall {
+                if !current.id.is_empty() {
+                    return Err("ID field cannot be set multiple times in streaming mode - only arguments can span deltas".to_string());
+                }
+            }
         }
 
         let cell = self.ensure_current();
         cell.id.push_str(id);
-
-        if self.idx.is_some() {
-            self.current_id_set = true;
-        }
 
         Ok(())
     }
@@ -221,16 +209,16 @@ impl FunCalls {
     /// Returns error if streaming assumptions are violated (name set multiple times in streaming mode)
     pub fn delta_function_name(&mut self, function_name: &str) -> Result<(), String> {
         // Check streaming assumption: in streaming mode, non-argument fields should only be set once
-        if self.idx.is_some() && self.current_name_set {
-            return Err("Function name field cannot be set multiple times in streaming mode - only arguments can span deltas".to_string());
+        if self.idx.is_some() {
+            if let Some(current) = &self.current_funcall {
+                if !current.function_name.is_empty() {
+                    return Err("Function name field cannot be set multiple times in streaming mode - only arguments can span deltas".to_string());
+                }
+            }
         }
 
         let cell = self.ensure_current();
         cell.function_name.push_str(function_name);
-
-        if self.idx.is_some() {
-            self.current_name_set = true;
-        }
 
         Ok(())
     }
