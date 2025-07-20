@@ -98,7 +98,7 @@ fn inject_tool_calls() {
     funcalls.delta_id("call_123");
     funcalls.delta_function_name("get_user_name");
     funcalls.delta_function_arguments("{}");
-    funcalls.end_current();
+    funcalls.end_current_no_write();
 
     // Act
     builder.begin_message();
@@ -128,7 +128,7 @@ fn streaming_tool_call_completion() {
         .get_funcalls_mut()
         .delta_function_name("get_user_name");
     builder.get_funcalls_mut().delta_function_arguments("{}");
-    builder.get_funcalls_mut().end_current();
+    builder.get_funcalls_mut().end_current_no_write();
 
     // Use batch mode to inject all tool calls at once
     builder.inject_tool_calls().unwrap();
@@ -155,7 +155,7 @@ fn streaming_mode_not_enabled_without_index() {
         .get_funcalls_mut()
         .delta_function_name("get_user_name");
     builder.get_funcalls_mut().delta_function_arguments("{}");
-    builder.get_funcalls_mut().end_current();
+    builder.get_funcalls_mut().end_current_no_write();
     builder.on_tool_call_field_update().unwrap(); // Should not stream
     builder.inject_tool_calls().unwrap(); // Batch mode
     builder.end_message().unwrap();

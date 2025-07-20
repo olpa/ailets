@@ -1,4 +1,4 @@
-use gpt::funcalls::{ContentItemFunction, FunCalls};
+use gpt::funcalls::FunCalls;
 
 //
 // "Happy path" style tests
