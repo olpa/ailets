@@ -42,6 +42,8 @@ pub struct FunCalls {
     last_streamed_index: Option<usize>,
     tool_call_open: bool,
     tool_call_arguments_open: bool,
+    id_streamed: bool,
+    name_streamed: bool,
 }
 
 impl FunCalls {
@@ -54,6 +56,8 @@ impl FunCalls {
             last_streamed_index: None,
             tool_call_open: false,
             tool_call_arguments_open: false,
+            id_streamed: false,
+            name_streamed: false,
         }
     }
 
@@ -72,6 +76,8 @@ impl FunCalls {
     /// This method should be called when a function call is complete.
     pub fn end_current(&mut self) {
         self.current_funcall = None;
+        self.id_streamed = false;
+        self.name_streamed = false;
     }
 
     /// Sets the current delta index for streaming mode
@@ -188,6 +194,8 @@ impl FunCalls {
         self.last_streamed_index = None;
         self.tool_call_open = false;
         self.tool_call_arguments_open = false;
+        self.id_streamed = false;
+        self.name_streamed = false;
     }
 
     /// Get the current completed tool call if it's ready to be streamed
@@ -249,5 +257,45 @@ impl FunCalls {
     pub fn close_current_streaming_tool_call(&mut self) {
         self.tool_call_open = false;
         self.tool_call_arguments_open = false;
+    }
+
+    /// Check if the ID is ready to be streamed and hasn't been streamed yet
+    pub fn should_stream_id(&mut self) -> Option<String> {
+        if self.id_streamed {
+            return None;
+        }
+
+        if let Some(current) = &self.current_funcall {
+            if !current.id.is_empty() {
+                self.id_streamed = true;
+                return Some(current.id.clone());
+            }
+        }
+        None
+    }
+
+    /// Check if the name is ready to be streamed and hasn't been streamed yet
+    pub fn should_stream_name(&mut self) -> Option<String> {
+        if self.name_streamed {
+            return None;
+        }
+
+        if let Some(current) = &self.current_funcall {
+            if !current.function_name.is_empty() {
+                self.name_streamed = true;
+                return Some(current.function_name.clone());
+            }
+        }
+        None
+    }
+
+    /// Get current arguments for streaming (returns what we have so far)
+    pub fn get_current_arguments(&self) -> Option<String> {
+        if let Some(current) = &self.current_funcall {
+            if !current.function_arguments.is_empty() {
+                return Some(current.function_arguments.clone());
+            }
+        }
+        None
     }
 }

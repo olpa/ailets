@@ -4,194 +4,128 @@ use gpt::funcalls::{ContentItemFunction, FunCalls};
 // "Happy path" style tests
 //
 
+// Terminology and differences:
+// - "Direct" funcalls: without using "index", using "end_current" to finalize
+// - "Streaming" funcalls: using "index" to indicate progress
+
 #[test]
 fn single_funcall_direct() {
+    // Arrange
+    let mut writer = Vec::new();
     let mut funcalls = FunCalls::new();
 
     // Act
-    funcalls.delta_id("call_9cFpsOXfVWMUoDz1yyyP1QXD");
-    funcalls.delta_function_name("get_user_name");
-    funcalls.delta_function_arguments("{}");
-    funcalls.end_current();
+    // Don't call "index"
+    funcalls
+        .id("call_9cFpsOXfVWMUoDz1yyyP1QXD", &mut writer)
+        .unwrap();
+    funcalls.name("get_user_name", &mut writer).unwrap();
+    funcalls.arguments_chunk("{}", &mut writer).unwrap();
+    funcalls.end_current(&mut writer).unwrap();
 
     // Assert
-    let tool_calls = funcalls.get_tool_calls();
-    assert_eq!(
-        tool_calls,
-        &vec![ContentItemFunction::new(
-            "call_9cFpsOXfVWMUoDz1yyyP1QXD",
-            "get_user_name",
-            "{}",
-        )]
-    );
+    funcalls.end(&mut writer).unwrap();
+    let output = String::from_utf8(writer).unwrap();
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"function","id":"call_9cFpsOXfVWMUoDz1yyyP1QXD","name":"get_user_name"},{"arguments":"{}"}]
+"#;
+    assert_eq!(output, expected);
 }
 
 #[test]
 fn several_funcalls_direct() {
+    // Arrange
+    let mut writer = Vec::new();
     let mut funcalls = FunCalls::new();
 
-    // First tool call with index 0
-    funcalls.delta_id("call_foo");
-    funcalls.delta_function_name("get_foo");
-    funcalls.delta_function_arguments("{foo_args}");
-    funcalls.end_current();
+    // First tool call - Don't call "index"
+    funcalls.id("call_foo", &mut writer).unwrap();
+    funcalls.name("get_foo", &mut writer).unwrap();
+    funcalls.arguments_chunk("{foo_args}", &mut writer).unwrap();
+    funcalls.end_current(&mut writer).unwrap();
 
-    // Second tool call with index 1
-    funcalls.delta_id("call_bar");
-    funcalls.delta_function_name("get_bar");
-    funcalls.delta_function_arguments("{bar_args}");
-    funcalls.end_current();
+    // Second tool call - Don't call "index"
+    funcalls.id("call_bar", &mut writer).unwrap();
+    funcalls.name("get_bar", &mut writer).unwrap();
+    funcalls.arguments_chunk("{bar_args}", &mut writer).unwrap();
+    funcalls.end_current(&mut writer).unwrap();
 
-    // Third tool call with index 2
-    funcalls.delta_id("call_baz");
-    funcalls.delta_function_name("get_baz");
-    funcalls.delta_function_arguments("{baz_args}");
-    funcalls.end_current();
+    // Third tool call - Don't call "index"
+    funcalls.id("call_baz", &mut writer).unwrap();
+    funcalls.name("get_baz", &mut writer).unwrap();
+    funcalls.arguments_chunk("{baz_args}", &mut writer).unwrap();
+    funcalls.end_current(&mut writer).unwrap();
 
     // Assert
-    let tool_calls = funcalls.get_tool_calls();
-    assert_eq!(
-        tool_calls,
-        &vec![
-            ContentItemFunction::new("call_foo", "get_foo", "{foo_args}"),
-            ContentItemFunction::new("call_bar", "get_bar", "{bar_args}"),
-            ContentItemFunction::new("call_baz", "get_baz", "{baz_args}"),
-        ]
-    );
+    funcalls.end(&mut writer).unwrap();
+    let output = String::from_utf8(writer).unwrap();
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"function","id":"call_foo","name":"get_foo"},{"arguments":"{foo_args}"}]
+[{"type":"function","id":"call_bar","name":"get_bar"},{"arguments":"{bar_args}"}]
+[{"type":"function","id":"call_baz","name":"get_baz"},{"arguments":"{baz_args}"}]
+"#;
+    assert_eq!(output, expected);
 }
 
 #[test]
-fn single_element_streaming_one_round() {
+fn single_element_streaming() {
+    // Arrange
+    let mut writer = Vec::new();
     let mut funcalls = FunCalls::new();
 
     // Act - streaming mode with delta_index
-    funcalls.delta_index(0);
-    funcalls.delta_id("call_9cFpsOXfVWMUoDz1yyyP1QXD");
-    funcalls.delta_function_name("get_user_name");
-    funcalls.delta_function_arguments("{}");
-    funcalls.end_current();
+    funcalls.index(0, &mut writer).unwrap();
+
+    funcalls
+        .id("call_9cFpsOXfVWMUoDz1yyyP1QXD", &mut writer)
+        .unwrap();
+    funcalls.name("get_user_name", &mut writer).unwrap();
+    funcalls.arguments_chunk("{}", &mut writer).unwrap();
+    funcalls.end_current(&mut writer).unwrap();
 
     // Assert
-    let tool_calls = funcalls.get_tool_calls();
-    assert_eq!(
-        tool_calls,
-        &vec![ContentItemFunction::new(
-            "call_9cFpsOXfVWMUoDz1yyyP1QXD",
-            "get_user_name",
-            "{}",
-        )]
-    );
+    funcalls.end(&mut writer).unwrap();
+    let output = String::from_utf8(writer).unwrap();
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"function","id":"call_9cFpsOXfVWMUoDz1yyyP1QXD","name":"get_user_name"},{"arguments":"{}"}]
+"#;
+    assert_eq!(output, expected);
 }
 
 #[test]
-fn single_element_streaming_several_rounds() {
-    let mut funcalls = FunCalls::new();
-
-    // Act - streaming mode with delta_index, multiple rounds
-    // Round 1: Start building the element
-    funcalls.delta_index(0);
-    funcalls.delta_id("call_9cFps");
-    funcalls.delta_function_name("get_user");
-    funcalls.end_current();
-
-    // Round 2: Continue building the same element (accumulate)
-    funcalls.delta_id("call_9cFpsOXfVWMUoDz1yyyP1QXD");
-    funcalls.delta_function_name("get_user_name");
-    funcalls.delta_index(0);
-    funcalls.delta_function_arguments("{}");
-    funcalls.end_current();
-
-    // Assert
-    let tool_calls = funcalls.get_tool_calls();
-    assert_eq!(
-        tool_calls,
-        &vec![ContentItemFunction::new(
-            "call_9cFpscall_9cFpsOXfVWMUoDz1yyyP1QXD",
-            "get_userget_user_name",
-            "{}",
-        )]
-    );
-}
-
-#[test]
-fn several_elements_streaming_one_round() {
+fn several_elements_streaming() {
+    // Arrange
+    let mut writer = Vec::new();
     let mut funcalls = FunCalls::new();
 
     // Act - streaming mode with delta_index, multiple elements in one round
-    funcalls.delta_index(0);
-    funcalls.delta_id("call_foo");
-    funcalls.delta_function_name("get_foo");
-    funcalls.delta_function_arguments("{foo_args}");
-    funcalls.end_current();
+    funcalls.index(0, &mut writer).unwrap();
 
-    funcalls.delta_id("call_bar");
-    funcalls.delta_function_name("get_bar");
-    funcalls.delta_function_arguments("{bar_args}");
-    funcalls.delta_index(1);
-    funcalls.end_current();
+    funcalls.id("call_foo", &mut writer).unwrap();
+    funcalls.name("get_foo", &mut writer).unwrap();
+    funcalls.arguments_chunk("{foo_args}", &mut writer).unwrap();
 
-    funcalls.delta_index(2);
-    funcalls.delta_id("call_baz");
-    funcalls.delta_function_name("get_baz");
-    funcalls.delta_function_arguments("{baz_args}");
-    funcalls.end_current();
+    funcalls.index(1, &mut writer).unwrap();
 
-    // Assert
-    let tool_calls = funcalls.get_tool_calls();
-    assert_eq!(
-        tool_calls,
-        &vec![
-            ContentItemFunction::new("call_foo", "get_foo", "{foo_args}"),
-            ContentItemFunction::new("call_bar", "get_bar", "{bar_args}"),
-            ContentItemFunction::new("call_baz", "get_baz", "{baz_args}"),
-        ]
-    );
-}
+    funcalls.id("call_bar", &mut writer).unwrap();
+    funcalls.name("get_bar", &mut writer).unwrap();
+    funcalls.arguments_chunk("{bar_args}", &mut writer).unwrap();
 
-#[test]
-fn several_elements_streaming_several_rounds() {
-    let mut funcalls = FunCalls::new();
+    funcalls.index(2, &mut writer).unwrap();
 
-    // Act - streaming mode with valid index progression (only same or increment)
-    // Tool call 0: Initial data
-    funcalls.delta_index(0);
-    funcalls.delta_id("call_foo");
-    funcalls.delta_function_name("get_foo");
-    funcalls.end_current();
-
-    // Tool call 0: More arguments (same index)
-    funcalls.delta_index(0);
-    funcalls.delta_function_arguments("{foo_args}");
-    funcalls.end_current();
-
-    // Tool call 1: Initial data
-    funcalls.delta_index(1);
-    funcalls.delta_id("call_bar");
-    funcalls.delta_function_name("get_bar");
-    funcalls.end_current();
-
-    // Tool call 1: More arguments (same index)
-    funcalls.delta_index(1);
-    funcalls.delta_function_arguments("{bar_args}");
-    funcalls.end_current();
-
-    // Tool call 2: Complete data
-    funcalls.delta_index(2);
-    funcalls.delta_id("call_baz");
-    funcalls.delta_function_name("get_baz");
-    funcalls.delta_function_arguments("{baz_args}");
-    funcalls.end_current();
+    funcalls.id("call_baz", &mut writer).unwrap();
+    funcalls.name("get_baz", &mut writer).unwrap();
+    funcalls.arguments_chunk("{baz_args}", &mut writer).unwrap();
 
     // Assert
-    let tool_calls = funcalls.get_tool_calls();
-    assert_eq!(
-        tool_calls,
-        &vec![
-            ContentItemFunction::new("call_foo", "get_foo", "{foo_args}"),
-            ContentItemFunction::new("call_bar", "get_bar", "{bar_args}"),
-            ContentItemFunction::new("call_baz", "get_baz", "{baz_args}"),
-        ]
-    );
+    funcalls.end(&mut writer).unwrap();
+    let output = String::from_utf8(writer).unwrap();
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"function","id":"call_foo","name":"get_foo"},{"arguments":"{foo_args}"}]
+[{"type":"function","id":"call_bar","name":"get_bar"},{"arguments":"{bar_args}"}]
+[{"type":"function","id":"call_baz","name":"get_baz"},{"arguments":"{baz_args}"}]
+"#;
+    assert_eq!(output, expected);
 }
 
 //

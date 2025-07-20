@@ -69,10 +69,9 @@ fn on_function_string_field() {
     // Assert: Verify that the function name was set in FunCalls
     let mut builder = builder_cell.borrow_mut();
     let funcalls = builder.get_funcalls_mut();
-    funcalls.end_current();
     assert_eq!(
-        funcalls.get_tool_calls(),
-        &[ContentItemFunction::new("", "test_function", "")]
+        funcalls.get_current_funcall(),
+        &Some(ContentItemFunction::new("", "test_function", ""))
     );
 }
 

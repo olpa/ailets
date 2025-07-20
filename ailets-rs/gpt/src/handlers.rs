@@ -87,20 +87,44 @@ pub fn on_function_id<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
-    on_function_str_field(rjiter_cell, builder_cell, "id", |funcalls, value| {
+    let result = on_function_str_field(rjiter_cell, builder_cell, "id", |funcalls, value| {
         funcalls.delta_id(value)?;
         Ok(())
-    })
+    });
+
+    // After updating the ID, check if we should stream it immediately
+    if let StreamOp::ValueIsConsumed = result {
+        let mut builder = builder_cell.borrow_mut();
+        if let Some(id) = builder.get_funcalls_mut().should_stream_id() {
+            if let Err(e) = builder.output_tool_call_id(&id) {
+                return StreamOp::Error(Box::new(e));
+            }
+        }
+    }
+
+    result
 }
 
 pub fn on_function_name<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
-    on_function_str_field(rjiter_cell, builder_cell, "name", |funcalls, value| {
+    let result = on_function_str_field(rjiter_cell, builder_cell, "name", |funcalls, value| {
         funcalls.delta_function_name(value)?;
         Ok(())
-    })
+    });
+
+    // After updating the name, check if we should stream it immediately
+    if let StreamOp::ValueIsConsumed = result {
+        let mut builder = builder_cell.borrow_mut();
+        if let Some(name) = builder.get_funcalls_mut().should_stream_name() {
+            if let Err(e) = builder.output_tool_call_name(&name) {
+                return StreamOp::Error(Box::new(e));
+            }
+        }
+    }
+
+    result
 }
 
 pub fn on_function_arguments<W: Write>(
@@ -125,17 +149,29 @@ pub fn on_function_arguments<W: Write>(
                 // Parse the JSON string to extract the actual content
                 match serde_json::from_str::<String>(&json_str) {
                     Ok(args_content) => {
-                        builder_cell
-                            .borrow_mut()
-                            .get_funcalls_mut()
-                            .delta_function_arguments(&args_content);
+                        // Stream the arguments immediately
+                        {
+                            let mut builder = builder_cell.borrow_mut();
+                            if let Err(e) = builder.output_tool_call_arguments_chunk(&args_content)
+                            {
+                                return StreamOp::Error(Box::new(e));
+                            }
+                            builder
+                                .get_funcalls_mut()
+                                .delta_function_arguments(&args_content);
+                        }
                     }
                     Err(_) => {
                         // If JSON parsing fails, use the raw string (might be partial)
-                        builder_cell
-                            .borrow_mut()
-                            .get_funcalls_mut()
-                            .delta_function_arguments(&json_str);
+                        {
+                            let mut builder = builder_cell.borrow_mut();
+                            if let Err(e) = builder.output_tool_call_arguments_chunk(&json_str) {
+                                return StreamOp::Error(Box::new(e));
+                            }
+                            builder
+                                .get_funcalls_mut()
+                                .delta_function_arguments(&json_str);
+                        }
                     }
                 }
             } else {
