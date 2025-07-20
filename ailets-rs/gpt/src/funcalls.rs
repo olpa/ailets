@@ -39,8 +39,6 @@ impl ContentItemFunction {
 pub struct FunCalls {
     current_funcall: Option<ContentItemFunction>,
     last_index: Option<usize>,
-    // Streaming-related fields moved from StructureBuilder
-    streaming_mode: bool,
     last_streamed_index: Option<usize>,
     tool_call_open: bool,
     tool_call_arguments_open: bool,
@@ -53,7 +51,6 @@ impl FunCalls {
         Self {
             current_funcall: None,
             last_index: None,
-            streaming_mode: false,
             last_streamed_index: None,
             tool_call_open: false,
             tool_call_arguments_open: false,
@@ -117,8 +114,7 @@ impl FunCalls {
             }
         }
 
-        // Enable streaming mode and update last_index to track the highest seen index
-        self.streaming_mode = true;
+        // Update last_index to track the highest seen index (enables streaming mode)
         self.last_index = Some(index);
 
         Ok(())
@@ -133,7 +129,7 @@ impl FunCalls {
     /// Returns error if streaming assumptions are violated (ID set multiple times in streaming mode)
     pub fn delta_id(&mut self, id: &str) -> Result<(), String> {
         // Check streaming assumption: in streaming mode, non-argument fields should only be set once
-        if self.streaming_mode {
+        if self.last_index.is_some() {
             if let Some(current) = &self.current_funcall {
                 if !current.id.is_empty() {
                     return Err("ID field cannot be set multiple times in streaming mode - only arguments can span deltas".to_string());
@@ -156,7 +152,7 @@ impl FunCalls {
     /// Returns error if streaming assumptions are violated (name set multiple times in streaming mode)
     pub fn delta_function_name(&mut self, function_name: &str) -> Result<(), String> {
         // Check streaming assumption: in streaming mode, non-argument fields should only be set once
-        if self.streaming_mode {
+        if self.last_index.is_some() {
             if let Some(current) = &self.current_funcall {
                 if !current.function_name.is_empty() {
                     return Err("Function name field cannot be set multiple times in streaming mode - only arguments can span deltas".to_string());
@@ -188,7 +184,7 @@ impl FunCalls {
 
     /// Reset streaming state (called when beginning a new message)
     pub fn reset_streaming_state(&mut self) {
-        self.streaming_mode = false;
+        self.last_index = None;
         self.last_streamed_index = None;
         self.tool_call_open = false;
         self.tool_call_arguments_open = false;
@@ -197,7 +193,7 @@ impl FunCalls {
     /// Get the current completed tool call if it's ready to be streamed
     /// Returns the current tool call if it's complete and hasn't been streamed yet
     pub fn get_completed_tool_call_for_streaming(&mut self) -> Option<ContentItemFunction> {
-        if !self.streaming_mode {
+        if self.last_index.is_none() {
             return None;
         }
 
@@ -228,7 +224,7 @@ impl FunCalls {
     /// Check if we should start streaming the current tool call (id and name are ready)
     /// Returns the current tool call if it's ready to start streaming
     pub fn get_current_tool_call_for_streaming(&mut self) -> Option<ContentItemFunction> {
-        if !self.streaming_mode || self.tool_call_open {
+        if self.last_index.is_none() || self.tool_call_open {
             return None;
         }
 
