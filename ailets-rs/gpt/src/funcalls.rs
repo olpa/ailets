@@ -37,7 +37,6 @@ impl ContentItemFunction {
 /// A collection of function calls with support for incremental updates
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct FunCalls {
-    idx: Option<usize>,
     tool_calls: Vec<ContentItemFunction>,
     current_funcall: Option<ContentItemFunction>,
     last_index: Option<usize>,
@@ -53,7 +52,6 @@ impl FunCalls {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            idx: None,
             tool_calls: Vec::new(),
             current_funcall: None,
             last_index: None,
@@ -81,9 +79,9 @@ impl FunCalls {
     /// In streaming mode (with index), it updates the function call at the current index.
     pub fn end_current(&mut self) {
         if let Some(current_funcall) = self.current_funcall.take() {
-            if let Some(idx) = self.idx {
-                // Streaming mode: replace the element at the index
-                if let Some(tool_call) = self.tool_calls.get_mut(idx) {
+            if let Some(last_idx) = self.last_index {
+                // Streaming mode: replace the element at the last index
+                if let Some(tool_call) = self.tool_calls.get_mut(last_idx) {
                     *tool_call = current_funcall;
                 } else {
                     // This shouldn't happen in normal operation, but handle gracefully
@@ -94,9 +92,6 @@ impl FunCalls {
                 self.tool_calls.push(current_funcall);
             }
         }
-
-        // Reset the streaming mode index
-        self.idx = None;
     }
 
     /// Sets the current delta index and ensures space for the function call
@@ -105,7 +100,7 @@ impl FunCalls {
     /// - Validates streaming assumptions (index increments properly)
     /// - Ensures there's enough space in the vector for the given index
     /// - Merges any existing `current_funcall` data with the vector entry at the specified index
-    /// - Sets the streaming mode index and enables streaming mode
+    /// - Enables streaming mode and updates the last seen index
     /// - Initializes `current_funcall` with the existing data at the specified index
     ///
     /// # Arguments
@@ -155,15 +150,9 @@ impl FunCalls {
             }
         }
 
-
-        // Enable streaming mode and set the streaming mode index
+        // Enable streaming mode and update last_index to track the highest seen index
         self.streaming_mode = true;
-        self.idx = Some(index);
-
-        // Update last_index to track the highest seen index
-        if self.last_index.map_or(true, |last| index > last) {
-            self.last_index = Some(index);
-        }
+        self.last_index = Some(index);
 
         // Initialize current_funcall with the updated data at the specified index
         if let Some(existing_funcall) = self.tool_calls.get(index) {
@@ -186,7 +175,7 @@ impl FunCalls {
     /// Returns error if streaming assumptions are violated (ID set multiple times in streaming mode)
     pub fn delta_id(&mut self, id: &str) -> Result<(), String> {
         // Check streaming assumption: in streaming mode, non-argument fields should only be set once
-        if self.idx.is_some() {
+        if self.streaming_mode {
             if let Some(current) = &self.current_funcall {
                 if !current.id.is_empty() {
                     return Err("ID field cannot be set multiple times in streaming mode - only arguments can span deltas".to_string());
@@ -209,7 +198,7 @@ impl FunCalls {
     /// Returns error if streaming assumptions are violated (name set multiple times in streaming mode)
     pub fn delta_function_name(&mut self, function_name: &str) -> Result<(), String> {
         // Check streaming assumption: in streaming mode, non-argument fields should only be set once
-        if self.idx.is_some() {
+        if self.streaming_mode {
             if let Some(current) = &self.current_funcall {
                 if !current.function_name.is_empty() {
                     return Err("Function name field cannot be set multiple times in streaming mode - only arguments can span deltas".to_string());
