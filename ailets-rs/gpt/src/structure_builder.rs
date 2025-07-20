@@ -12,10 +12,6 @@ pub struct StructureBuilder<W: Write> {
     text_is_open: bool,
     message_is_closed: bool,
     funcalls: FunCalls,
-    streaming_mode: bool,
-    last_streamed_index: Option<usize>,
-    tool_call_open: bool,
-    tool_call_arguments_open: bool,
 }
 
 impl<W: Write> StructureBuilder<W> {
@@ -28,10 +24,6 @@ impl<W: Write> StructureBuilder<W> {
             text_is_open: false,
             message_is_closed: false,
             funcalls: FunCalls::new(),
-            streaming_mode: false,
-            last_streamed_index: None,
-            tool_call_open: false,
-            tool_call_arguments_open: false,
         }
     }
 
@@ -54,10 +46,7 @@ impl<W: Write> StructureBuilder<W> {
         self.message_has_content = false;
         self.text_is_open = false;
         self.message_is_closed = false;
-        self.streaming_mode = false;
-        self.last_streamed_index = None;
-        self.tool_call_open = false;
-        self.tool_call_arguments_open = false;
+        self.funcalls.reset_streaming_state();
     }
 
     /// End the current message.
@@ -159,53 +148,21 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
-    /// Enable streaming mode when tool call deltas are detected
-    pub fn enable_streaming_mode(&mut self) {
-        self.streaming_mode = true;
-    }
-
-    /// Check if streaming mode is enabled
-    #[must_use]
-    pub fn is_streaming_mode(&self) -> bool {
-        self.streaming_mode
-    }
-
     /// Check if we can stream completed tool calls and output them
     /// # Errors
     /// I/O
     pub fn try_stream_completed_tool_calls(&mut self) -> Result<(), std::io::Error> {
-        if !self.streaming_mode {
-            return Ok(());
-        }
-
-        let tool_calls = self.funcalls.get_tool_calls().clone();
-        let start_index = self.last_streamed_index.map_or(0, |i| i + 1);
-
-        // Check for completed tool calls that can be streamed
-        for (index, tool_call) in tool_calls.iter().enumerate().skip(start_index) {
-            // A tool call is complete if all required fields are present
-            // Arguments can be empty ("") but id and function_name must be non-empty
-            if !tool_call.id.is_empty() && !tool_call.function_name.is_empty() {
-                // For streaming, we consider it complete when we have a basic structure
-                // Arguments might still be streaming in, but we can output when they're done
-                // This means arguments being non-empty OR having actual content
-                if !tool_call.function_arguments.is_empty() {
-                    self.output_tool_call(tool_call)?;
-                    self.last_streamed_index = Some(index);
-                }
-            } else {
-                // Stop at first incomplete tool call (streaming order)
-                break;
-            }
+        let completed_calls = self.funcalls.get_completed_tool_calls_for_streaming();
+        for (_index, tool_call) in completed_calls {
+            self.output_tool_call(&tool_call)?;
         }
         Ok(())
     }
 
-    /// Handle tool call index change - enables streaming and attempts to stream completed calls
+    /// Handle tool call index change and attempts to stream completed calls
     /// # Errors
     /// I/O  
     pub fn on_tool_call_index(&mut self, index: usize) -> Result<(), std::io::Error> {
-        self.enable_streaming_mode();
         if let Err(e) = self.funcalls.delta_index(index) {
             return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e));
         }
@@ -216,12 +173,8 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// I/O
     pub fn on_tool_call_field_update(&mut self) -> Result<(), std::io::Error> {
-        if self.streaming_mode {
-            self.try_begin_streaming_current_tool_call()?;
-            self.try_stream_completed_tool_calls()
-        } else {
-            Ok(())
-        }
+        self.try_begin_streaming_current_tool_call()?;
+        self.try_stream_completed_tool_calls()
     }
 
     /// Begin streaming output for a tool call (id and name are ready)
@@ -246,8 +199,6 @@ impl<W: Write> StructureBuilder<W> {
         self.writer.write_all(tool_call.function_name.as_bytes())?;
         self.writer.write_all(b"\",\"function_arguments\":\"")?;
 
-        self.tool_call_open = true;
-        self.tool_call_arguments_open = true;
         Ok(())
     }
 
@@ -258,7 +209,7 @@ impl<W: Write> StructureBuilder<W> {
         &mut self,
         rjiter: &mut scan_json::RJiter,
     ) -> Result<(), std::io::Error> {
-        if !self.tool_call_arguments_open {
+        if !self.funcalls.is_streaming_arguments() {
             return Ok(());
         }
 
@@ -273,12 +224,9 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// I/O  
     pub fn close_streaming_tool_call(&mut self) -> Result<(), std::io::Error> {
-        if self.tool_call_open {
-            if self.tool_call_arguments_open {
-                self.writer.write_all(b"\"}]\n")?;
-                self.tool_call_arguments_open = false;
-            }
-            self.tool_call_open = false;
+        if self.funcalls.is_streaming_arguments() {
+            self.writer.write_all(b"\"}]\n")?;
+            self.funcalls.close_current_streaming_tool_call();
         }
         Ok(())
     }
@@ -287,15 +235,8 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// I/O
     pub fn try_begin_streaming_current_tool_call(&mut self) -> Result<(), std::io::Error> {
-        if !self.streaming_mode || self.tool_call_open {
-            return Ok(());
-        }
-
-        // Get current tool call data
-        if let Some(current_funcall) = self.funcalls.get_current_funcall().clone() {
-            if !current_funcall.id.is_empty() && !current_funcall.function_name.is_empty() {
-                self.begin_streaming_tool_call(&current_funcall)?;
-            }
+        if let Some(tool_call) = self.funcalls.get_current_tool_call_for_streaming() {
+            self.begin_streaming_tool_call(&tool_call)?;
         }
         Ok(())
     }

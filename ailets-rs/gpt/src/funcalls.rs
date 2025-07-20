@@ -44,6 +44,11 @@ pub struct FunCalls {
     // Track which non-argument fields have been set for streaming validation
     current_id_set: bool,
     current_name_set: bool,
+    // Streaming-related fields moved from StructureBuilder
+    streaming_mode: bool,
+    last_streamed_index: Option<usize>,
+    tool_call_open: bool,
+    tool_call_arguments_open: bool,
 }
 
 impl FunCalls {
@@ -57,6 +62,10 @@ impl FunCalls {
             last_index: None,
             current_id_set: false,
             current_name_set: false,
+            streaming_mode: false,
+            last_streamed_index: None,
+            tool_call_open: false,
+            tool_call_arguments_open: false,
         }
     }
 
@@ -103,7 +112,7 @@ impl FunCalls {
     /// - Validates streaming assumptions (index increments properly)
     /// - Ensures there's enough space in the vector for the given index
     /// - Merges any existing `current_funcall` data with the vector entry at the specified index
-    /// - Sets the streaming mode index
+    /// - Sets the streaming mode index and enables streaming mode
     /// - Initializes `current_funcall` with the existing data at the specified index
     ///
     /// # Arguments
@@ -159,7 +168,8 @@ impl FunCalls {
             self.current_name_set = false;
         }
 
-        // Set the streaming mode index
+        // Enable streaming mode and set the streaming mode index
+        self.streaming_mode = true;
         self.idx = Some(index);
 
         // Update last_index to track the highest seen index
@@ -245,5 +255,75 @@ impl FunCalls {
     #[must_use]
     pub fn get_current_funcall(&self) -> &Option<ContentItemFunction> {
         &self.current_funcall
+    }
+
+    /// Reset streaming state (called when beginning a new message)
+    pub fn reset_streaming_state(&mut self) {
+        self.streaming_mode = false;
+        self.last_streamed_index = None;
+        self.tool_call_open = false;
+        self.tool_call_arguments_open = false;
+    }
+
+    /// Get completed tool calls that are ready to be streamed
+    /// Returns a vector of (`index`, `tool_call`) pairs for completed tool calls
+    /// that haven't been streamed yet, and updates internal streaming state
+    pub fn get_completed_tool_calls_for_streaming(&mut self) -> Vec<(usize, ContentItemFunction)> {
+        if !self.streaming_mode {
+            return Vec::new();
+        }
+
+        let mut completed_calls = Vec::new();
+        let start_index = self.last_streamed_index.map_or(0, |i| i + 1);
+
+        // Check for completed tool calls that can be streamed
+        for (index, tool_call) in self.tool_calls.iter().enumerate().skip(start_index) {
+            // A tool call is complete if all required fields are present
+            // Arguments can be empty ("") but id and function_name must be non-empty
+            if !tool_call.id.is_empty() && !tool_call.function_name.is_empty() {
+                // For streaming, we consider it complete when we have a basic structure
+                // Arguments might still be streaming in, but we can output when they're done
+                // This means arguments being non-empty OR having actual content
+                if !tool_call.function_arguments.is_empty() {
+                    completed_calls.push((index, tool_call.clone()));
+                    self.last_streamed_index = Some(index);
+                }
+            } else {
+                // Stop at first incomplete tool call (streaming order)
+                break;
+            }
+        }
+
+        completed_calls
+    }
+
+    /// Check if we should start streaming the current tool call (id and name are ready)
+    /// Returns the current tool call if it's ready to start streaming
+    pub fn get_current_tool_call_for_streaming(&mut self) -> Option<ContentItemFunction> {
+        if !self.streaming_mode || self.tool_call_open {
+            return None;
+        }
+
+        // Get current tool call data
+        if let Some(current_funcall) = &self.current_funcall {
+            if !current_funcall.id.is_empty() && !current_funcall.function_name.is_empty() {
+                self.tool_call_open = true;
+                self.tool_call_arguments_open = true;
+                return Some(current_funcall.clone());
+            }
+        }
+        None
+    }
+
+    /// Check if arguments are currently being streamed
+    #[must_use]
+    pub fn is_streaming_arguments(&self) -> bool {
+        self.tool_call_arguments_open
+    }
+
+    /// Mark the current streaming tool call as closed
+    pub fn close_current_streaming_tool_call(&mut self) {
+        self.tool_call_open = false;
+        self.tool_call_arguments_open = false;
     }
 }
