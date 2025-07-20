@@ -88,9 +88,7 @@ pub fn on_function_id<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
     on_function_str_field(rjiter_cell, builder_cell, "id", |funcalls, value| {
-        if let Err(e) = funcalls.delta_id(value) {
-            return Err(e);
-        }
+        funcalls.delta_id(value)?;
         Ok(())
     })
 }
@@ -100,9 +98,7 @@ pub fn on_function_name<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
     on_function_str_field(rjiter_cell, builder_cell, "name", |funcalls, value| {
-        if let Err(e) = funcalls.delta_function_name(value) {
-            return Err(e);
-        }
+        funcalls.delta_function_name(value)?;
         Ok(())
     })
 }
@@ -112,51 +108,56 @@ pub fn on_function_arguments<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
-    
+
     // Check if we have a string value
     match rjiter.peek() {
         Ok(Peek::String) => {
             // Use write_long_bytes for both streaming and non-streaming modes
             let mut args_buffer = Vec::new();
             if let Err(e) = rjiter.write_long_bytes(&mut args_buffer) {
-                let error: Box<dyn std::error::Error> = 
+                let error: Box<dyn std::error::Error> =
                     format!("Error reading function arguments with write_long_bytes: {e:?}").into();
                 return StreamOp::Error(error);
             }
-            
+
             // Convert bytes to string and parse JSON to extract the content
             if let Ok(json_str) = String::from_utf8(args_buffer) {
                 // Parse the JSON string to extract the actual content
                 match serde_json::from_str::<String>(&json_str) {
                     Ok(args_content) => {
-                        builder_cell.borrow_mut().get_funcalls_mut().delta_function_arguments(&args_content);
+                        builder_cell
+                            .borrow_mut()
+                            .get_funcalls_mut()
+                            .delta_function_arguments(&args_content);
                     }
                     Err(_) => {
                         // If JSON parsing fails, use the raw string (might be partial)
-                        builder_cell.borrow_mut().get_funcalls_mut().delta_function_arguments(&json_str);
+                        builder_cell
+                            .borrow_mut()
+                            .get_funcalls_mut()
+                            .delta_function_arguments(&json_str);
                     }
                 }
             } else {
-                let error: Box<dyn std::error::Error> = 
+                let error: Box<dyn std::error::Error> =
                     "Invalid UTF-8 in function arguments".into();
                 return StreamOp::Error(error);
             }
-            
+
             StreamOp::ValueIsConsumed
         }
         Ok(peeked) => {
-            let error: Box<dyn std::error::Error> = 
+            let error: Box<dyn std::error::Error> =
                 format!("Expected string for function arguments, got {peeked:?}").into();
             StreamOp::Error(error)
         }
         Err(e) => {
-            let error: Box<dyn std::error::Error> = 
+            let error: Box<dyn std::error::Error> =
                 format!("Error peeking function arguments: {e:?}").into();
             StreamOp::Error(error)
         }
     }
 }
-
 
 pub fn on_function_index<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
@@ -192,8 +193,9 @@ pub fn on_function_index<W: Write>(
     if let Err(e) = builder_cell
         .borrow_mut()
         .get_funcalls_mut()
-        .delta_index(idx) {
-        let error: Box<dyn std::error::Error> = 
+        .delta_index(idx)
+    {
+        let error: Box<dyn std::error::Error> =
             format!("Streaming assumption violation: {e}").into();
         return StreamOp::Error(error);
     }
@@ -228,7 +230,7 @@ where
         }
     };
     if let Err(e) = apply_field(builder_cell.borrow_mut().get_funcalls_mut(), value) {
-        let error: Box<dyn std::error::Error> = 
+        let error: Box<dyn std::error::Error> =
             format!("Streaming assumption violation in {field_name}: {e}").into();
         return StreamOp::Error(error);
     }

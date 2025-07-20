@@ -108,7 +108,7 @@ impl FunCalls {
     ///
     /// # Arguments
     /// * `index` - The index to set for the current delta position
-    /// 
+    ///
     /// # Errors
     /// Returns error if streaming assumptions are violated
     pub fn delta_index(&mut self, index: usize) -> Result<(), String> {
@@ -123,10 +123,14 @@ impl FunCalls {
             Some(last) => {
                 // Index can stay the same or increment by exactly 1, but never decrease
                 if index < last {
-                    return Err(format!("Tool call index cannot decrease, max seen is {last}, got {index}"));
+                    return Err(format!(
+                        "Tool call index cannot decrease, max seen is {last}, got {index}"
+                    ));
                 }
                 if index > last + 1 {
-                    return Err(format!("Tool call index cannot skip values, max seen is {last}, got {index}"));
+                    return Err(format!(
+                        "Tool call index cannot skip values, max seen is {last}, got {index}"
+                    ));
                 }
             }
         }
@@ -171,7 +175,7 @@ impl FunCalls {
                 function_arguments: existing_funcall.function_arguments.clone(),
             });
         }
-        
+
         Ok(())
     }
 
@@ -187,14 +191,14 @@ impl FunCalls {
         if self.idx.is_some() && self.current_id_set {
             return Err("ID field cannot be set multiple times in streaming mode - only arguments can span deltas".to_string());
         }
-        
+
         let cell = self.ensure_current();
         cell.id.push_str(id);
-        
+
         if self.idx.is_some() {
             self.current_id_set = true;
         }
-        
+
         Ok(())
     }
 
@@ -210,14 +214,14 @@ impl FunCalls {
         if self.idx.is_some() && self.current_name_set {
             return Err("Function name field cannot be set multiple times in streaming mode - only arguments can span deltas".to_string());
         }
-        
+
         let cell = self.ensure_current();
         cell.function_name.push_str(function_name);
-        
+
         if self.idx.is_some() {
             self.current_name_set = true;
         }
-        
+
         Ok(())
     }
 

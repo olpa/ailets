@@ -124,7 +124,10 @@ impl<W: Write> StructureBuilder<W> {
     /// Output a single tool call in streaming fashion
     /// # Errors
     /// I/O
-    pub fn output_tool_call(&mut self, tool_call: &crate::funcalls::ContentItemFunction) -> Result<(), std::io::Error> {
+    pub fn output_tool_call(
+        &mut self,
+        tool_call: &crate::funcalls::ContentItemFunction,
+    ) -> Result<(), std::io::Error> {
         if !self.message_has_content {
             self.begin_content()?;
         }
@@ -132,13 +135,15 @@ impl<W: Write> StructureBuilder<W> {
             self.writer.write_all(b"\"}]")?;
             self.text_is_open = false;
         }
-        
-        self.writer.write_all(b"[{\"type\":\"tool_call\"},{\"id\":\"")?;
+
+        self.writer
+            .write_all(b"[{\"type\":\"tool_call\"},{\"id\":\"")?;
         self.writer.write_all(tool_call.id.as_bytes())?;
         self.writer.write_all(b"\",\"function_name\":\"")?;
         self.writer.write_all(tool_call.function_name.as_bytes())?;
         self.writer.write_all(b"\",\"function_arguments\":\"")?;
-        self.writer.write_all(tool_call.function_arguments.as_bytes())?;
+        self.writer
+            .write_all(tool_call.function_arguments.as_bytes())?;
         self.writer.write_all(b"\"}]\n")?;
         Ok(())
     }
@@ -175,13 +180,12 @@ impl<W: Write> StructureBuilder<W> {
 
         let tool_calls = self.funcalls.get_tool_calls().clone();
         let start_index = self.last_streamed_index.map_or(0, |i| i + 1);
-        
+
         // Check for completed tool calls that can be streamed
         for (index, tool_call) in tool_calls.iter().enumerate().skip(start_index) {
             // A tool call is complete if all required fields are present
             // Arguments can be empty ("") but id and function_name must be non-empty
-            if !tool_call.id.is_empty() 
-                && !tool_call.function_name.is_empty() {
+            if !tool_call.id.is_empty() && !tool_call.function_name.is_empty() {
                 // For streaming, we consider it complete when we have a basic structure
                 // Arguments might still be streaming in, but we can output when they're done
                 // This means arguments being non-empty OR having actual content
@@ -223,7 +227,10 @@ impl<W: Write> StructureBuilder<W> {
     /// Begin streaming output for a tool call (id and name are ready)
     /// # Errors
     /// I/O
-    pub fn begin_streaming_tool_call(&mut self, tool_call: &crate::funcalls::ContentItemFunction) -> Result<(), std::io::Error> {
+    pub fn begin_streaming_tool_call(
+        &mut self,
+        tool_call: &crate::funcalls::ContentItemFunction,
+    ) -> Result<(), std::io::Error> {
         if !self.message_has_content {
             self.begin_content()?;
         }
@@ -231,26 +238,30 @@ impl<W: Write> StructureBuilder<W> {
             self.writer.write_all(b"\"}]")?;
             self.text_is_open = false;
         }
-        
-        self.writer.write_all(b"[{\"type\":\"tool_call\"},{\"id\":\"")?;
+
+        self.writer
+            .write_all(b"[{\"type\":\"tool_call\"},{\"id\":\"")?;
         self.writer.write_all(tool_call.id.as_bytes())?;
         self.writer.write_all(b"\",\"function_name\":\"")?;
         self.writer.write_all(tool_call.function_name.as_bytes())?;
         self.writer.write_all(b"\",\"function_arguments\":\"")?;
-        
+
         self.tool_call_open = true;
         self.tool_call_arguments_open = true;
         Ok(())
     }
 
-    /// Stream arguments chunk using write_long_bytes
+    /// Stream arguments chunk using `write_long_bytes`
     /// # Errors
     /// I/O
-    pub fn stream_tool_call_arguments_chunk(&mut self, rjiter: &mut scan_json::RJiter) -> Result<(), std::io::Error> {
+    pub fn stream_tool_call_arguments_chunk(
+        &mut self,
+        rjiter: &mut scan_json::RJiter,
+    ) -> Result<(), std::io::Error> {
         if !self.tool_call_arguments_open {
             return Ok(());
         }
-        
+
         // Stream the arguments directly to the output
         if let Err(e) = rjiter.write_long_bytes(&mut self.writer) {
             return Err(std::io::Error::new(std::io::ErrorKind::Other, e));
