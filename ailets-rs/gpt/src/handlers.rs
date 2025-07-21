@@ -243,7 +243,10 @@ pub fn on_function_index<W: Write>(
 pub fn on_function_end<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    builder_cell.borrow_mut().get_funcalls_mut().end_current_no_write();
+    builder_cell
+        .borrow_mut()
+        .get_funcalls_mut()
+        .end_current_no_write();
     Ok(())
 }
 

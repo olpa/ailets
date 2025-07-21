@@ -8,7 +8,103 @@
 //! The primary structures are:
 //! - [`ContentItemFunction`]: Represents a single function call with its metadata
 //! - [`FunCalls`]: Manages a collection of function calls with delta-based updates and direct writing
+//! - [`FunCallsWrite`]: Trait for writing function calls to different outputs
 
+/// Trait for writing function calls to different outputs
+///
+/// This trait allows different implementations of writing function calls,
+/// enabling the `FunCalls` struct to be a validation driver while
+/// delegating the actual writing to implementations of this trait.
+pub trait FunCallsWrite {
+    /// Start a new function call item
+    ///
+    /// # Arguments
+    /// * `id` - The unique identifier for the function call
+    /// * `name` - The name of the function to be called
+    ///
+    /// # Errors
+    /// Returns error if the writing operation fails
+    fn new_item(&mut self, id: String, name: String) -> Result<(), Box<dyn std::error::Error>>;
+
+    /// Add a chunk of arguments to the current function call
+    ///
+    /// # Arguments
+    /// * `ac` - The arguments chunk to add
+    ///
+    /// # Errors
+    /// Returns error if the writing operation fails
+    fn arguments_chunk(&mut self, ac: String) -> Result<(), Box<dyn std::error::Error>>;
+
+    /// Finalize the current function call item
+    ///
+    /// # Errors
+    /// Returns error if the writing operation fails
+    fn end_item(&mut self) -> Result<(), Box<dyn std::error::Error>>;
+}
+
+/// Implementation of `FunCallsWrite` that writes to a chat-style format
+///
+/// This implementation writes function calls in the format expected by chat systems,
+/// with control messages and function call data written as JSON lines.
+pub struct FunCallsToChat<W: std::io::Write> {
+    writer: W,
+    first_call: bool,
+    current_id: Option<String>,
+    current_name: Option<String>,
+    current_arguments: String,
+}
+
+impl<W: std::io::Write> FunCallsToChat<W> {
+    /// Creates a new `FunCallsToChat` instance with the given writer
+    #[must_use]
+    pub fn new(writer: W) -> Self {
+        Self {
+            writer,
+            first_call: true,
+            current_id: None,
+            current_name: None,
+            current_arguments: String::new(),
+        }
+    }
+}
+
+impl<W: std::io::Write> FunCallsWrite for FunCallsToChat<W> {
+    fn new_item(&mut self, id: String, name: String) -> Result<(), Box<dyn std::error::Error>> {
+        if self.first_call {
+            writeln!(self.writer, r#"[{{"type":"ctl"}},{{"role":"assistant"}}]"#)?;
+            self.first_call = false;
+        }
+
+        // Store the id and name for writing later
+        self.current_id = Some(id);
+        self.current_name = Some(name);
+        self.current_arguments.clear();
+        Ok(())
+    }
+
+    fn arguments_chunk(&mut self, ac: String) -> Result<(), Box<dyn std::error::Error>> {
+        // Accumulate arguments chunks
+        self.current_arguments.push_str(&ac);
+        Ok(())
+    }
+
+    fn end_item(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Write the complete function call
+        if let (Some(id), Some(name)) = (&self.current_id, &self.current_name) {
+            writeln!(
+                self.writer,
+                r#"[{{"type":"function","id":"{}","name":"{}"}},{{"arguments":"{}"}}]"#,
+                id, name, self.current_arguments
+            )?;
+        }
+
+        // Clear state for next item
+        self.current_id = None;
+        self.current_name = None;
+        self.current_arguments.clear();
+        Ok(())
+    }
+}
 
 /// Represents a single function/tool call from an AI model response
 ///
@@ -36,7 +132,7 @@ impl ContentItemFunction {
     }
 }
 
-/// A collection of function calls with support for incremental updates and direct writing
+/// A collection of function calls with support for incremental updates and validation
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct FunCalls {
     current_funcall: Option<ContentItemFunction>,
@@ -46,7 +142,6 @@ pub struct FunCalls {
     tool_call_arguments_open: bool,
     id_streamed: bool,
     name_streamed: bool,
-    first_call: bool,
 }
 
 impl FunCalls {
@@ -61,7 +156,6 @@ impl FunCalls {
             tool_call_arguments_open: false,
             id_streamed: false,
             name_streamed: false,
-            first_call: true,
         }
     }
 
@@ -85,9 +179,12 @@ impl FunCalls {
     }
 
     /// Ends the current function call and writes it to the output
-    pub fn end_current(&mut self, writer: &mut dyn std::io::Write) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(current) = &self.current_funcall {
-            self.write_function_call(current, writer)?;
+    pub fn end_current(
+        &mut self,
+        writer: &mut dyn FunCallsWrite,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(_current) = &self.current_funcall {
+            writer.end_item()?;
         }
         // Reset state for next function call
         self.current_funcall = None;
@@ -217,7 +314,6 @@ impl FunCalls {
         self.tool_call_arguments_open = false;
         self.id_streamed = false;
         self.name_streamed = false;
-        self.first_call = true;
     }
 
     /// Get the current completed tool call if it's ready to be streamed
@@ -324,64 +420,76 @@ impl FunCalls {
     // Direct writing methods for immediate output
 
     /// Sets the index and starts a new tool call if necessary
-    pub fn index(&mut self, index: usize, writer: &mut dyn std::io::Write) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn index(
+        &mut self,
+        index: usize,
+        writer: &mut dyn FunCallsWrite,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // If we have a previous function call to write and we're moving to a new index, write it
         if let Some(last_index) = self.last_index {
             if index > last_index {
                 if let Some(current) = &self.current_funcall {
                     if !current.id.is_empty() && !current.function_name.is_empty() {
-                        self.write_function_call(current, writer)?;
+                        writer.end_item()?;
                     }
                 }
                 // Don't clear current_funcall here - delta_index will handle it
             }
         }
-        
+
         self.delta_index(index)?;
         Ok(())
     }
 
-    /// Sets the ID of the current function call and writes initial output if first call
-    pub fn id(&mut self, id: &str, writer: &mut dyn std::io::Write) -> Result<(), Box<dyn std::error::Error>> {
-        if self.first_call {
-            writeln!(writer, r#"[{{"type":"ctl"}},{{"role":"assistant"}}]"#)?;
-            self.first_call = false;
-        }
-        
+    /// Sets the ID of the current function call
+    pub fn id(
+        &mut self,
+        id: &str,
+        _writer: &mut dyn FunCallsWrite,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         self.delta_id(id)?;
         Ok(())
     }
 
     /// Sets the name of the current function call
-    pub fn name(&mut self, name: &str, _writer: &mut dyn std::io::Write) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn name(
+        &mut self,
+        name: &str,
+        writer: &mut dyn FunCallsWrite,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         self.delta_function_name(name)?;
-        Ok(())
-    }
 
-    /// Adds arguments to the current function call
-    pub fn arguments_chunk(&mut self, args: &str, _writer: &mut dyn std::io::Write) -> Result<(), Box<dyn std::error::Error>> {
-        self.delta_function_arguments(args);
-        Ok(())
-    }
-
-
-    /// Finalizes all function calls
-    pub fn end(&mut self, writer: &mut dyn std::io::Write) -> Result<(), Box<dyn std::error::Error>> {
-        // Write any remaining function call
+        // Check if we now have both id and name, and if so, start a new item
         if let Some(current) = &self.current_funcall {
-            if !current.id.is_empty() {
-                self.write_function_call(current, writer)?;
+            if !current.id.is_empty() && !current.function_name.is_empty() {
+                writer.new_item(current.id.clone(), current.function_name.clone())?;
             }
         }
         Ok(())
     }
 
-    /// Helper method to write a function call to the output
-    fn write_function_call(&self, funcall: &ContentItemFunction, writer: &mut dyn std::io::Write) -> Result<(), Box<dyn std::error::Error>> {
-        writeln!(writer, 
-            r#"[{{"type":"function","id":"{}","name":"{}"}},{{"arguments":"{}"}}]"#,
-            funcall.id, funcall.function_name, funcall.function_arguments
-        )?;
+    /// Adds arguments to the current function call
+    pub fn arguments_chunk(
+        &mut self,
+        args: &str,
+        writer: &mut dyn FunCallsWrite,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.delta_function_arguments(args);
+        writer.arguments_chunk(args.to_string())?;
+        Ok(())
+    }
+
+    /// Finalizes all function calls
+    pub fn end(
+        &mut self,
+        writer: &mut dyn FunCallsWrite,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Write any remaining function call
+        if let Some(current) = &self.current_funcall {
+            if !current.id.is_empty() {
+                writer.end_item()?;
+            }
+        }
         Ok(())
     }
 }

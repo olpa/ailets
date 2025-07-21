@@ -1,4 +1,48 @@
-use gpt::funcalls::FunCalls;
+use gpt::funcalls::{FunCalls, FunCallsWrite};
+
+/// Test implementation of FunCallsWrite that stores calls for verification
+#[derive(Debug, Default)]
+struct TestFunCallsWrite {
+    items: Vec<(String, String, String)>, // (id, name, arguments)
+    current_arguments: String,
+}
+
+impl TestFunCallsWrite {
+    fn new() -> Self {
+        Self {
+            items: Vec::new(),
+            current_arguments: String::new(),
+        }
+    }
+
+    fn get_items(&self) -> &Vec<(String, String, String)> {
+        &self.items
+    }
+}
+
+impl FunCallsWrite for TestFunCallsWrite {
+    fn new_item(&mut self, id: String, name: String) -> Result<(), Box<dyn std::error::Error>> {
+        // Store the id and name, reset arguments accumulator
+        self.current_arguments.clear();
+        // We'll store the complete item in end_item()
+        self.items.push((id, name, String::new()));
+        Ok(())
+    }
+
+    fn arguments_chunk(&mut self, ac: String) -> Result<(), Box<dyn std::error::Error>> {
+        // Accumulate arguments chunks
+        self.current_arguments.push_str(&ac);
+        Ok(())
+    }
+
+    fn end_item(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Update the last item with the accumulated arguments
+        if let Some(last) = self.items.last_mut() {
+            last.2 = self.current_arguments.clone();
+        }
+        Ok(())
+    }
+}
 
 //
 // "Happy path" style tests
@@ -11,7 +55,7 @@ use gpt::funcalls::FunCalls;
 #[test]
 fn single_funcall_direct() {
     // Arrange
-    let mut writer = Vec::new();
+    let mut writer = TestFunCallsWrite::new();
     let mut funcalls = FunCalls::new();
 
     // Act
@@ -25,17 +69,22 @@ fn single_funcall_direct() {
 
     // Assert
     funcalls.end(&mut writer).unwrap();
-    let output = String::from_utf8(writer).unwrap();
-    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
-[{"type":"function","id":"call_9cFpsOXfVWMUoDz1yyyP1QXD","name":"get_user_name"},{"arguments":"{}"}]
-"#;
-    assert_eq!(output, expected);
+    let items = writer.get_items();
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0],
+        (
+            "call_9cFpsOXfVWMUoDz1yyyP1QXD".to_string(),
+            "get_user_name".to_string(),
+            "{}".to_string()
+        )
+    );
 }
 
 #[test]
 fn several_funcalls_direct() {
     // Arrange
-    let mut writer = Vec::new();
+    let mut writer = TestFunCallsWrite::new();
     let mut funcalls = FunCalls::new();
 
     // First tool call - Don't call "index"
@@ -58,19 +107,38 @@ fn several_funcalls_direct() {
 
     // Assert
     funcalls.end(&mut writer).unwrap();
-    let output = String::from_utf8(writer).unwrap();
-    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
-[{"type":"function","id":"call_foo","name":"get_foo"},{"arguments":"{foo_args}"}]
-[{"type":"function","id":"call_bar","name":"get_bar"},{"arguments":"{bar_args}"}]
-[{"type":"function","id":"call_baz","name":"get_baz"},{"arguments":"{baz_args}"}]
-"#;
-    assert_eq!(output, expected);
+    let items = writer.get_items();
+    assert_eq!(items.len(), 3);
+    assert_eq!(
+        items[0],
+        (
+            "call_foo".to_string(),
+            "get_foo".to_string(),
+            "{foo_args}".to_string()
+        )
+    );
+    assert_eq!(
+        items[1],
+        (
+            "call_bar".to_string(),
+            "get_bar".to_string(),
+            "{bar_args}".to_string()
+        )
+    );
+    assert_eq!(
+        items[2],
+        (
+            "call_baz".to_string(),
+            "get_baz".to_string(),
+            "{baz_args}".to_string()
+        )
+    );
 }
 
 #[test]
 fn single_element_streaming() {
     // Arrange
-    let mut writer = Vec::new();
+    let mut writer = TestFunCallsWrite::new();
     let mut funcalls = FunCalls::new();
 
     // Act - streaming mode with delta_index
@@ -85,17 +153,22 @@ fn single_element_streaming() {
 
     // Assert
     funcalls.end(&mut writer).unwrap();
-    let output = String::from_utf8(writer).unwrap();
-    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
-[{"type":"function","id":"call_9cFpsOXfVWMUoDz1yyyP1QXD","name":"get_user_name"},{"arguments":"{}"}]
-"#;
-    assert_eq!(output, expected);
+    let items = writer.get_items();
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0],
+        (
+            "call_9cFpsOXfVWMUoDz1yyyP1QXD".to_string(),
+            "get_user_name".to_string(),
+            "{}".to_string()
+        )
+    );
 }
 
 #[test]
 fn several_elements_streaming() {
     // Arrange
-    let mut writer = Vec::new();
+    let mut writer = TestFunCallsWrite::new();
     let mut funcalls = FunCalls::new();
 
     // Act - streaming mode with delta_index, multiple elements in one round
@@ -119,13 +192,32 @@ fn several_elements_streaming() {
 
     // Assert
     funcalls.end(&mut writer).unwrap();
-    let output = String::from_utf8(writer).unwrap();
-    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
-[{"type":"function","id":"call_foo","name":"get_foo"},{"arguments":"{foo_args}"}]
-[{"type":"function","id":"call_bar","name":"get_bar"},{"arguments":"{bar_args}"}]
-[{"type":"function","id":"call_baz","name":"get_baz"},{"arguments":"{baz_args}"}]
-"#;
-    assert_eq!(output, expected);
+    let items = writer.get_items();
+    assert_eq!(items.len(), 3);
+    assert_eq!(
+        items[0],
+        (
+            "call_foo".to_string(),
+            "get_foo".to_string(),
+            "{foo_args}".to_string()
+        )
+    );
+    assert_eq!(
+        items[1],
+        (
+            "call_bar".to_string(),
+            "get_bar".to_string(),
+            "{bar_args}".to_string()
+        )
+    );
+    assert_eq!(
+        items[2],
+        (
+            "call_baz".to_string(),
+            "get_baz".to_string(),
+            "{baz_args}".to_string()
+        )
+    );
 }
 
 //
