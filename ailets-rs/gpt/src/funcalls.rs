@@ -179,6 +179,9 @@ impl FunCalls {
     }
 
     /// Ends the current function call and writes it to the output
+    ///
+    /// # Errors
+    /// Returns error if the writing operation fails
     pub fn end_current(
         &mut self,
         writer: &mut dyn FunCallsWrite,
@@ -319,9 +322,7 @@ impl FunCalls {
     /// Get the current completed tool call if it's ready to be streamed
     /// Returns the current tool call if it's complete and hasn't been streamed yet
     pub fn get_completed_tool_call_for_streaming(&mut self) -> Option<ContentItemFunction> {
-        if self.last_index.is_none() {
-            return None;
-        }
+        self.last_index?;
 
         // Check if we have a current function call that's complete
         if let Some(current) = &self.current_funcall {
@@ -408,6 +409,7 @@ impl FunCalls {
     }
 
     /// Get current arguments for streaming (returns what we have so far)
+    #[must_use]
     pub fn get_current_arguments(&self) -> Option<String> {
         if let Some(current) = &self.current_funcall {
             if !current.function_arguments.is_empty() {
@@ -420,6 +422,9 @@ impl FunCalls {
     // Direct writing methods for immediate output
 
     /// Sets the index and starts a new tool call if necessary
+    ///
+    /// # Errors
+    /// Returns error if validation fails or writing operation fails
     pub fn index(
         &mut self,
         index: usize,
@@ -442,6 +447,9 @@ impl FunCalls {
     }
 
     /// Sets the ID of the current function call
+    ///
+    /// # Errors
+    /// Returns error if validation fails
     pub fn id(
         &mut self,
         id: &str,
@@ -452,6 +460,9 @@ impl FunCalls {
     }
 
     /// Sets the name of the current function call
+    ///
+    /// # Errors
+    /// Returns error if validation fails or writing operation fails
     pub fn name(
         &mut self,
         name: &str,
@@ -469,6 +480,9 @@ impl FunCalls {
     }
 
     /// Adds arguments to the current function call
+    ///
+    /// # Errors
+    /// Returns error if writing operation fails
     pub fn arguments_chunk(
         &mut self,
         args: &str,
@@ -480,6 +494,9 @@ impl FunCalls {
     }
 
     /// Finalizes all function calls
+    ///
+    /// # Errors
+    /// Returns error if writing operation fails
     pub fn end(
         &mut self,
         writer: &mut dyn FunCallsWrite,
