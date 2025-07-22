@@ -19,12 +19,18 @@ pub trait FunCallsWrite {
     /// Start a new function call item
     ///
     /// # Arguments
+    /// * `index` - The index of the function call
     /// * `id` - The unique identifier for the function call
     /// * `name` - The name of the function to be called
     ///
     /// # Errors
     /// Returns error if the writing operation fails
-    fn new_item(&mut self, id: String, name: String) -> Result<(), Box<dyn std::error::Error>>;
+    fn new_item(
+        &mut self,
+        index: usize,
+        id: String,
+        name: String,
+    ) -> Result<(), Box<dyn std::error::Error>>;
 
     /// Add a chunk of arguments to the current function call
     ///
@@ -69,7 +75,12 @@ impl<W: std::io::Write> FunCallsToChat<W> {
 }
 
 impl<W: std::io::Write> FunCallsWrite for FunCallsToChat<W> {
-    fn new_item(&mut self, id: String, name: String) -> Result<(), Box<dyn std::error::Error>> {
+    fn new_item(
+        &mut self,
+        _index: usize,
+        id: String,
+        name: String,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         if self.first_call {
             writeln!(self.writer, r#"[{{"type":"ctl"}},{{"role":"assistant"}}]"#)?;
             self.first_call = false;
@@ -142,6 +153,12 @@ pub struct FunCalls {
     tool_call_arguments_open: bool,
     id_streamed: bool,
     name_streamed: bool,
+    // New fields for the refactored logic
+    current_id: Option<String>,
+    current_name: Option<String>,
+    stored_arguments_chunk: Option<String>,
+    new_item_called: bool,
+    end_item_called: bool,
 }
 
 impl FunCalls {
@@ -156,6 +173,11 @@ impl FunCalls {
             tool_call_arguments_open: false,
             id_streamed: false,
             name_streamed: false,
+            current_id: None,
+            current_name: None,
+            stored_arguments_chunk: None,
+            new_item_called: false,
+            end_item_called: false,
         }
     }
 
@@ -176,6 +198,11 @@ impl FunCalls {
         self.current_funcall = None;
         self.id_streamed = false;
         self.name_streamed = false;
+        self.current_id = None;
+        self.current_name = None;
+        self.stored_arguments_chunk = None;
+        self.new_item_called = false;
+        self.end_item_called = false;
     }
 
     /// Ends the current function call and writes it to the output
@@ -190,9 +217,7 @@ impl FunCalls {
             writer.end_item()?;
         }
         // Reset state for next function call
-        self.current_funcall = None;
-        self.id_streamed = false;
-        self.name_streamed = false;
+        self.end_current_internal();
         Ok(())
     }
 
@@ -303,6 +328,28 @@ impl FunCalls {
         cell.function_arguments.push_str(function_arguments);
     }
 
+    /// Ends the current item
+    ///
+    /// # Arguments
+    /// * `writer` - The writer to use for ending the item
+    ///
+    /// # Errors
+    /// Returns error if "end_item" is called without "new_item" being called first
+    pub fn end_item(
+        &mut self,
+        writer: &mut dyn FunCallsWrite,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // If "end_item" is called without our logic called "new_item", it's an error
+        if !self.new_item_called {
+            return Err("end_item called without new_item being called first".into());
+        }
+
+        writer.end_item()?;
+        self.end_item_called = true;
+
+        Ok(())
+    }
+
     /// Returns a reference to the current function call being built
     #[must_use]
     pub fn get_current_funcall(&self) -> &Option<ContentItemFunction> {
@@ -317,6 +364,11 @@ impl FunCalls {
         self.tool_call_arguments_open = false;
         self.id_streamed = false;
         self.name_streamed = false;
+        self.current_id = None;
+        self.current_name = None;
+        self.stored_arguments_chunk = None;
+        self.new_item_called = false;
+        self.end_item_called = false;
     }
 
     /// Get the current completed tool call if it's ready to be streamed
@@ -430,19 +482,18 @@ impl FunCalls {
         index: usize,
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // If we have a previous function call to write and we're moving to a new index, write it
+        // If we're moving to a new index, call end_item if it wasn't called
         if let Some(last_index) = self.last_index {
-            if index > last_index {
-                if let Some(current) = &self.current_funcall {
-                    if !current.id.is_empty() && !current.function_name.is_empty() {
-                        writer.end_item()?;
-                    }
-                }
-                // Don't clear current_funcall here - delta_index will handle it
+            if index > last_index && !self.end_item_called && self.new_item_called {
+                writer.end_item()?;
+                self.end_item_called = true;
             }
         }
 
-        self.delta_index(index)?;
+        self.delta_index(index).map_err(|e| {
+            Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+                as Box<dyn std::error::Error>
+        })?;
         Ok(())
     }
 
@@ -453,9 +504,35 @@ impl FunCalls {
     pub fn id(
         &mut self,
         id: &str,
-        _writer: &mut dyn FunCallsWrite,
+        writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.delta_id(id)?;
+        // If "id" is already given, error
+        if self.current_id.is_some() {
+            return Err("ID is already given".into());
+        }
+
+        // Store "id"
+        self.current_id = Some(id.to_string());
+
+        // If "name" is already given
+        if let Some(name) = &self.current_name {
+            // Call "FunCallsWrite.new_item(index, id, name)"
+            let current_index = self.last_index.unwrap_or(0);
+            writer.new_item(current_index, id.to_string(), name.clone())?;
+            self.new_item_called = true;
+
+            // If arguments_chunk is stored, pass it to arguments_chunk
+            if let Some(args_chunk) = &self.stored_arguments_chunk {
+                writer.arguments_chunk(args_chunk.clone())?;
+                self.stored_arguments_chunk = None;
+            }
+        }
+
+        // Also update the delta system for backward compatibility
+        self.delta_id(id).map_err(|e| {
+            Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+                as Box<dyn std::error::Error>
+        })?;
         Ok(())
     }
 
@@ -468,14 +545,33 @@ impl FunCalls {
         name: &str,
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.delta_function_name(name)?;
+        // If "name" is already given, error
+        if self.current_name.is_some() {
+            return Err("Name is already given".into());
+        }
 
-        // Check if we now have both id and name, and if so, start a new item
-        if let Some(current) = &self.current_funcall {
-            if !current.id.is_empty() && !current.function_name.is_empty() {
-                writer.new_item(current.id.clone(), current.function_name.clone())?;
+        // Store "name"
+        self.current_name = Some(name.to_string());
+
+        // If "id" is already given
+        if let Some(id) = &self.current_id {
+            // Call "FunCallsWrite.new_item(index, id, name)"
+            let current_index = self.last_index.unwrap_or(0);
+            writer.new_item(current_index, id.clone(), name.to_string())?;
+            self.new_item_called = true;
+
+            // If arguments_chunk is stored, pass it to arguments_chunk
+            if let Some(args_chunk) = &self.stored_arguments_chunk {
+                writer.arguments_chunk(args_chunk.clone())?;
+                self.stored_arguments_chunk = None;
             }
         }
+
+        // Also update the delta system for backward compatibility
+        self.delta_function_name(name).map_err(|e| {
+            Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+                as Box<dyn std::error::Error>
+        })?;
         Ok(())
     }
 
@@ -488,8 +584,20 @@ impl FunCalls {
         args: &str,
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        // If "FunCalls.new_item" was called, call "writer.arguments_chunk"
+        if self.new_item_called {
+            writer.arguments_chunk(args.to_string())?;
+        } else {
+            // Otherwise, store it
+            if let Some(stored) = &mut self.stored_arguments_chunk {
+                stored.push_str(args);
+            } else {
+                self.stored_arguments_chunk = Some(args.to_string());
+            }
+        }
+
+        // Also update the delta system for backward compatibility
         self.delta_function_arguments(args);
-        writer.arguments_chunk(args.to_string())?;
         Ok(())
     }
 
@@ -501,11 +609,10 @@ impl FunCalls {
         &mut self,
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Write any remaining function call
-        if let Some(current) = &self.current_funcall {
-            if !current.id.is_empty() {
-                writer.end_item()?;
-            }
+        // "end" calls "end_item" if "end_item" was not called
+        if !self.end_item_called && self.new_item_called {
+            writer.end_item()?;
+            self.end_item_called = true;
         }
         Ok(())
     }
