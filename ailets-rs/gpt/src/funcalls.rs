@@ -170,8 +170,8 @@ impl FunctionCallState {
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct FunCalls {
     // Core delta/streaming state
-    current_funcall: Option<ContentItemFunction>,
-    last_index: Option<usize>,
+    pub current_funcall: Option<ContentItemFunction>,
+    pub last_index: Option<usize>,
     
     // Direct writing state
     current_call: FunctionCallState,
@@ -207,7 +207,7 @@ impl FunCalls {
     /// Returns a mutable reference to the current function call,
     /// initializing it with a default `ContentItemFunction` if it wasn't already set.
     #[must_use]
-    fn ensure_current(&mut self) -> &mut ContentItemFunction {
+    pub fn ensure_current(&mut self) -> &mut ContentItemFunction {
         self.current_funcall
             .get_or_insert_with(ContentItemFunction::default)
     }
@@ -235,6 +235,8 @@ impl FunCalls {
         }
         Ok(())
     }
+    
+    
 
     /// Ends the current function call and cleans up the delta state (internal use)
     ///
@@ -268,107 +270,9 @@ impl FunCalls {
         self.end_current_internal();
     }
 
-    /// Sets the current delta index for streaming mode
-    ///
-    /// This method:
-    /// - Validates streaming assumptions (index increments properly)
-    /// - Enables streaming mode and updates the last seen index
-    /// - When switching to a new index, ends the current function call
-    ///
-    /// # Arguments
-    /// * `index` - The index to set for the current delta position
-    ///
-    /// # Errors
-    /// Returns error if streaming assumptions are violated
-    pub fn delta_index(&mut self, index: usize) -> Result<(), String> {
-        // Validate streaming assumption: index progression
-        match self.last_index {
-            None => {
-                // First index must be 0
-                if index != 0 {
-                    return Err(format!("First tool call index must be 0, got {index}"));
-                }
-            }
-            Some(last) => {
-                // Index can stay the same or increment by exactly 1, but never decrease
-                if index < last {
-                    return Err(format!(
-                        "Tool call index cannot decrease, max seen is {last}, got {index}"
-                    ));
-                }
-                if index > last + 1 {
-                    return Err(format!(
-                        "Tool call index cannot skip values, max seen is {last}, got {index}"
-                    ));
-                }
-                // If we're moving to a new index, end the current function call
-                if index > last {
-                    self.end_current_internal();
-                }
-            }
-        }
 
-        // Update last_index to track the highest seen index (enables streaming mode)
-        self.last_index = Some(index);
 
-        Ok(())
-    }
 
-    /// Appends to the ID of the current function call
-    ///
-    /// # Arguments
-    /// * `id` - String to append to the current function call's ID
-    ///
-    /// # Errors
-    /// Returns error if streaming assumptions are violated (ID set multiple times in streaming mode)
-    pub fn delta_id(&mut self, id: &str) -> Result<(), String> {
-        // Check streaming assumption: in streaming mode, non-argument fields should only be set once
-        if self.last_index.is_some() {
-            if let Some(current) = &self.current_funcall {
-                if !current.id.is_empty() {
-                    return Err("ID field cannot be set multiple times in streaming mode - only arguments can span deltas".to_string());
-                }
-            }
-        }
-
-        let cell = self.ensure_current();
-        cell.id.push_str(id);
-
-        Ok(())
-    }
-
-    /// Appends to the function name of the current function call
-    ///
-    /// # Arguments
-    /// * `function_name` - String to append to the current function call's name
-    ///
-    /// # Errors
-    /// Returns error if streaming assumptions are violated (name set multiple times in streaming mode)
-    pub fn delta_function_name(&mut self, function_name: &str) -> Result<(), String> {
-        // Check streaming assumption: in streaming mode, non-argument fields should only be set once
-        if self.last_index.is_some() {
-            if let Some(current) = &self.current_funcall {
-                if !current.function_name.is_empty() {
-                    return Err("Function name field cannot be set multiple times in streaming mode - only arguments can span deltas".to_string());
-                }
-            }
-        }
-
-        let cell = self.ensure_current();
-        cell.function_name.push_str(function_name);
-
-        Ok(())
-    }
-
-    /// Appends to the function arguments of the current function call
-    ///
-    /// # Arguments
-    /// * `function_arguments` - String to append to the current function call's arguments
-    ///
-    pub fn delta_function_arguments(&mut self, function_arguments: &str) {
-        let cell = self.ensure_current();
-        cell.function_arguments.push_str(function_arguments);
-    }
 
     /// Ends the current item
     ///
@@ -521,18 +425,40 @@ impl FunCalls {
         index: usize,
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // If we're moving to a new index, call end_item if it wasn't called
-        if let Some(last_index) = self.last_index {
-            if index > last_index && !self.item_completed && self.current_call.writer_notified {
-                writer.end_item()?;
-                self.item_completed = true;
+        // Validate streaming assumption: index progression
+        match self.last_index {
+            None => {
+                // First index must be 0
+                if index != 0 {
+                    return Err(format!("First tool call index must be 0, got {index}").into());
+                }
+            }
+            Some(last) => {
+                // Index can stay the same or increment by exactly 1, but never decrease
+                if index < last {
+                    return Err(format!(
+                        "Tool call index cannot decrease, max seen is {last}, got {index}"
+                    ).into());
+                }
+                if index > last + 1 {
+                    return Err(format!(
+                        "Tool call index cannot skip values, max seen is {last}, got {index}"
+                    ).into());
+                }
+                
+                // If we're moving to a new index, end the current function call and call end_item if needed
+                if index > last {
+                    if !self.item_completed && self.current_call.writer_notified {
+                        writer.end_item()?;
+                        self.item_completed = true;
+                    }
+                    self.end_current_internal();
+                }
             }
         }
 
-        self.delta_index(index).map_err(|e| {
-            Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-                as Box<dyn std::error::Error>
-        })?;
+        // Update last_index to track the highest seen index (enables streaming mode)
+        self.last_index = Some(index);
         Ok(())
     }
 
@@ -545,22 +471,28 @@ impl FunCalls {
         id: &str,
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Check if ID is already set
+        // Check streaming assumption: in streaming mode, non-argument fields should only be set once
+        if self.last_index.is_some() {
+            if let Some(current) = &self.current_funcall {
+                if !current.id.is_empty() {
+                    return Err("ID field cannot be set multiple times in streaming mode - only arguments can span deltas".into());
+                }
+            }
+        }
+
+        // Check if ID is already set in direct mode
         if self.current_call.id.is_some() {
             return Err("ID is already given".into());
         }
 
-        // Store the ID
+        // Store the ID in both places
         self.current_call.id = Some(id.to_string());
+        let cell = self.ensure_current();
+        cell.id.push_str(id);
         
         // Try to notify writer if both id and name are now available
         self.try_notify_writer(writer)?;
-
-        // Also update the delta system for backward compatibility
-        self.delta_id(id).map_err(|e| {
-            Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-                as Box<dyn std::error::Error>
-        })?;
+        
         Ok(())
     }
 
@@ -573,22 +505,28 @@ impl FunCalls {
         name: &str,
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Check if name is already set
+        // Check streaming assumption: in streaming mode, non-argument fields should only be set once
+        if self.last_index.is_some() {
+            if let Some(current) = &self.current_funcall {
+                if !current.function_name.is_empty() {
+                    return Err("Function name field cannot be set multiple times in streaming mode - only arguments can span deltas".into());
+                }
+            }
+        }
+
+        // Check if name is already set in direct mode
         if self.current_call.name.is_some() {
             return Err("Name is already given".into());
         }
 
-        // Store the name
+        // Store the name in both places
         self.current_call.name = Some(name.to_string());
+        let cell = self.ensure_current();
+        cell.function_name.push_str(name);
         
         // Try to notify writer if both id and name are now available
         self.try_notify_writer(writer)?;
-
-        // Also update the delta system for backward compatibility
-        self.delta_function_name(name).map_err(|e| {
-            Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e))
-                as Box<dyn std::error::Error>
-        })?;
+        
         Ok(())
     }
 
@@ -601,17 +539,17 @@ impl FunCalls {
         args: &str,
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Always accumulate arguments in our state
+        // Always accumulate arguments in both state locations
         self.current_call.arguments.push_str(args);
+        let cell = self.ensure_current();
+        cell.function_arguments.push_str(args);
         
         // If writer has been notified, forward the chunk immediately
         if self.current_call.writer_notified {
             writer.arguments_chunk(args.to_string())?;
         }
         // Otherwise, arguments will be sent when try_notify_writer is called
-
-        // Also update the delta system for backward compatibility
-        self.delta_function_arguments(args);
+        
         Ok(())
     }
 

@@ -235,29 +235,29 @@ fn index_increment_validation() {
     let mut writer = TestFunCallsWrite::new();
 
     // First index must be 0
-    assert!(funcalls.delta_index(0).is_ok());
+    assert!(funcalls.index(0, &mut writer).is_ok());
 
     // Index can stay the same
-    assert!(funcalls.delta_index(0).is_ok());
+    assert!(funcalls.index(0, &mut writer).is_ok());
 
     // Index can increment by 1
-    assert!(funcalls.delta_index(1).is_ok());
+    assert!(funcalls.index(1, &mut writer).is_ok());
 
     // Index can stay the same
-    assert!(funcalls.delta_index(1).is_ok());
+    assert!(funcalls.index(1, &mut writer).is_ok());
 
     // Index can increment by 1
-    assert!(funcalls.delta_index(2).is_ok());
+    assert!(funcalls.index(2, &mut writer).is_ok());
 
     // Index cannot skip
-    let result = funcalls.delta_index(4);
+    let result = funcalls.index(4, &mut writer);
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("cannot skip values"));
+    assert!(result.unwrap_err().to_string().contains("cannot skip values"));
 
     // Index cannot go backwards (never decreases)
-    let result = funcalls.delta_index(1);
+    let result = funcalls.index(1, &mut writer);
     assert!(result.is_err());
-    assert!(result.unwrap_err().contains("cannot decrease"));
+    assert!(result.unwrap_err().to_string().contains("cannot decrease"));
 }
 
 #[test]
@@ -266,10 +266,11 @@ fn first_index_must_be_zero() {
     let mut writer = TestFunCallsWrite::new();
 
     // First index must be 0
-    let result = funcalls.delta_index(1);
+    let result = funcalls.index(1, &mut writer);
     assert!(result.is_err());
     assert!(result
         .unwrap_err()
+        .to_string()
         .contains("First tool call index must be 0"));
 }
 
@@ -279,7 +280,7 @@ fn arguments_span_multiple_deltas() {
     let mut writer = TestFunCallsWrite::new();
 
     // Enable streaming mode
-    assert!(funcalls.delta_index(0).is_ok());
+    assert!(funcalls.index(0, &mut writer).is_ok());
 
     // Set up id and name first so new_item gets called
     funcalls.id("call_123", &mut writer).unwrap();

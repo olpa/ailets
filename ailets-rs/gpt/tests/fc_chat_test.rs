@@ -13,6 +13,7 @@ fn single_funcall() {
     // Act
     chat_writer
         .new_item(
+            0,
             "call_9cFpsOXfVWMUoDz1yyyP1QXD".to_string(),
             "get_user_name".to_string(),
         )
@@ -36,7 +37,7 @@ fn several_funcalls() {
 
     // First tool call
     chat_writer
-        .new_item("call_foo".to_string(), "get_foo".to_string())
+        .new_item(0, "call_foo".to_string(), "get_foo".to_string())
         .unwrap();
     chat_writer
         .arguments_chunk("{foo_args}".to_string())
@@ -45,7 +46,7 @@ fn several_funcalls() {
 
     // Second tool call
     chat_writer
-        .new_item("call_bar".to_string(), "get_bar".to_string())
+        .new_item(1, "call_bar".to_string(), "get_bar".to_string())
         .unwrap();
     chat_writer
         .arguments_chunk("{bar_args}".to_string())
@@ -54,7 +55,7 @@ fn several_funcalls() {
 
     // Third tool call
     chat_writer
-        .new_item("call_baz".to_string(), "get_baz".to_string())
+        .new_item(2, "call_baz".to_string(), "get_baz".to_string())
         .unwrap();
     chat_writer
         .arguments_chunk("{baz_args}".to_string())
@@ -79,7 +80,7 @@ fn long_arguments() {
 
     // Act - arguments come in multiple chunks
     chat_writer
-        .new_item("call_123".to_string(), "test_func".to_string())
+        .new_item(0, "call_123".to_string(), "test_func".to_string())
         .unwrap();
     chat_writer
         .arguments_chunk("{\"arg1\":".to_string())
@@ -106,7 +107,7 @@ fn empty_arguments() {
 
     // Act - function call with empty arguments
     chat_writer
-        .new_item("call_empty".to_string(), "no_args_func".to_string())
+        .new_item(0, "call_empty".to_string(), "no_args_func".to_string())
         .unwrap();
     chat_writer.end_item().unwrap();
 

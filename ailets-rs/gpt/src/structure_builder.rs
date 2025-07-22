@@ -151,9 +151,43 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// I/O  
     pub fn on_tool_call_index(&mut self, index: usize) -> Result<(), std::io::Error> {
-        if let Err(e) = self.funcalls.delta_index(index) {
+        // Inline delta_index logic
+        // Validate streaming assumption: index progression
+        let validation_result = match self.funcalls.last_index {
+            None => {
+                // First index must be 0
+                if index != 0 {
+                    Err(format!("First tool call index must be 0, got {index}"))
+                } else {
+                    Ok(())
+                }
+            }
+            Some(last) => {
+                // Index can stay the same or increment by exactly 1, but never decrease
+                if index < last {
+                    Err(format!(
+                        "Tool call index cannot decrease, max seen is {last}, got {index}"
+                    ))
+                } else if index > last + 1 {
+                    Err(format!(
+                        "Tool call index cannot skip values, max seen is {last}, got {index}"
+                    ))
+                } else {
+                    // If we're moving to a new index, end the current function call
+                    if index > last {
+                        self.funcalls.end_current_internal();
+                    }
+                    Ok(())
+                }
+            }
+        };
+        
+        if let Err(e) = validation_result {
             return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e));
         }
+        
+        // Update last_index to track the highest seen index (enables streaming mode)
+        self.funcalls.last_index = Some(index);
         self.try_stream_completed_tool_calls()
     }
 

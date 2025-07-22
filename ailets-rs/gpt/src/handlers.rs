@@ -88,7 +88,17 @@ pub fn on_function_id<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
     let result = on_function_str_field(rjiter_cell, builder_cell, "id", |funcalls, value| {
-        funcalls.delta_id(value)?;
+        // Check streaming assumption: in streaming mode, non-argument fields should only be set once
+        if funcalls.last_index.is_some() {
+            if let Some(current) = &funcalls.current_funcall {
+                if !current.id.is_empty() {
+                    return Err("ID field cannot be set multiple times in streaming mode - only arguments can span deltas".to_string());
+                }
+            }
+        }
+
+        let cell = funcalls.ensure_current();
+        cell.id.push_str(value);
         Ok(())
     });
 
@@ -110,7 +120,17 @@ pub fn on_function_name<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
     let result = on_function_str_field(rjiter_cell, builder_cell, "name", |funcalls, value| {
-        funcalls.delta_function_name(value)?;
+        // Check streaming assumption: in streaming mode, non-argument fields should only be set once
+        if funcalls.last_index.is_some() {
+            if let Some(current) = &funcalls.current_funcall {
+                if !current.function_name.is_empty() {
+                    return Err("Function name field cannot be set multiple times in streaming mode - only arguments can span deltas".to_string());
+                }
+            }
+        }
+
+        let cell = funcalls.ensure_current();
+        cell.function_name.push_str(value);
         Ok(())
     });
 
@@ -156,9 +176,9 @@ pub fn on_function_arguments<W: Write>(
                             {
                                 return StreamOp::Error(Box::new(e));
                             }
-                            builder
-                                .get_funcalls_mut()
-                                .delta_function_arguments(&args_content);
+                            let funcalls = builder.get_funcalls_mut();
+                            let cell = funcalls.ensure_current();
+                            cell.function_arguments.push_str(&args_content);
                         }
                     }
                     Err(_) => {
@@ -168,9 +188,9 @@ pub fn on_function_arguments<W: Write>(
                             if let Err(e) = builder.output_tool_call_arguments_chunk(&json_str) {
                                 return StreamOp::Error(Box::new(e));
                             }
-                            builder
-                                .get_funcalls_mut()
-                                .delta_function_arguments(&json_str);
+                            let funcalls = builder.get_funcalls_mut();
+                            let cell = funcalls.ensure_current();
+                            cell.function_arguments.push_str(&json_str);
                         }
                     }
                 }
@@ -226,14 +246,49 @@ pub fn on_function_index<W: Write>(
             }
         }
     };
-    if let Err(e) = builder_cell
-        .borrow_mut()
-        .get_funcalls_mut()
-        .delta_index(idx)
+    // Inline delta_index logic
     {
-        let error: Box<dyn std::error::Error> =
-            format!("Streaming assumption violation: {e}").into();
-        return StreamOp::Error(error);
+        let mut builder = builder_cell.borrow_mut();
+        let funcalls = builder.get_funcalls_mut();
+        
+        // Validate streaming assumption: index progression
+        let validation_result = match funcalls.last_index {
+            None => {
+                // First index must be 0
+                if idx != 0 {
+                    Err(format!("First tool call index must be 0, got {idx}"))
+                } else {
+                    Ok(())
+                }
+            }
+            Some(last) => {
+                // Index can stay the same or increment by exactly 1, but never decrease
+                if idx < last {
+                    Err(format!(
+                        "Tool call index cannot decrease, max seen is {last}, got {idx}"
+                    ))
+                } else if idx > last + 1 {
+                    Err(format!(
+                        "Tool call index cannot skip values, max seen is {last}, got {idx}"
+                    ))
+                } else {
+                    // If we're moving to a new index, end the current function call
+                    if idx > last {
+                        funcalls.end_current_internal();
+                    }
+                    Ok(())
+                }
+            }
+        };
+        
+        if let Err(e) = validation_result {
+            let error: Box<dyn std::error::Error> =
+                format!("Streaming assumption violation: {e}").into();
+            return StreamOp::Error(error);
+        }
+        
+        // Update last_index to track the highest seen index (enables streaming mode)
+        funcalls.last_index = Some(idx);
     }
     StreamOp::ValueIsConsumed
 }
