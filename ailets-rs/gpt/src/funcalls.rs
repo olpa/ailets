@@ -148,17 +148,13 @@ impl ContentItemFunction {
 struct FunctionCallState {
     id: Option<String>,
     name: Option<String>,
-    arguments: String,
-    writer_notified: bool,
+    new_item_called: bool,
+    pending_arguments: String,
 }
 
 impl FunctionCallState {
     fn new() -> Self {
         Self::default()
-    }
-    
-    fn is_ready_for_writer(&self) -> bool {
-        self.id.is_some() && self.name.is_some()
     }
     
     fn reset(&mut self) {
@@ -175,7 +171,6 @@ pub struct FunCalls {
     
     // Direct writing state
     current_call: FunctionCallState,
-    item_completed: bool,
     
     // Streaming-specific state
     last_streamed_index: Option<usize>,
@@ -193,7 +188,6 @@ impl FunCalls {
             current_funcall: None,
             last_index: None,
             current_call: FunctionCallState::new(),
-            item_completed: false,
             last_streamed_index: None,
             tool_call_open: false,
             tool_call_arguments_open: false,
@@ -212,26 +206,32 @@ impl FunCalls {
             .get_or_insert_with(ContentItemFunction::default)
     }
     
-    /// Tries to notify writer with new_item if both id and name are available
-    fn try_notify_writer(
+    /// Calls new_item immediately if both id and name are now available
+    fn try_call_new_item(
         &mut self,
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if self.current_call.is_ready_for_writer() && !self.current_call.writer_notified {
+        if !self.current_call.new_item_called 
+            && self.current_call.id.is_some() 
+            && self.current_call.name.is_some() {
+            
             let current_index = self.last_index.unwrap_or(0);
             writer.new_item(
                 current_index,
                 self.current_call.id.as_ref().unwrap().clone(),
                 self.current_call.name.as_ref().unwrap().clone(),
             )?;
-            self.current_call.writer_notified = true;
+            self.current_call.new_item_called = true;
             
-            // If we have accumulated arguments, send them now
-            // Note: we send the accumulated arguments but don't clear them
-            // since they may need to be accessed by other parts of the system
-            if !self.current_call.arguments.is_empty() {
-                writer.arguments_chunk(self.current_call.arguments.clone())?;
+            // Send any pending arguments that were accumulated before new_item
+            if !self.current_call.pending_arguments.is_empty() {
+                writer.arguments_chunk(self.current_call.pending_arguments.clone())?;
+                self.current_call.pending_arguments.clear();
             }
+            
+            // Clear id and name - no longer needed after new_item
+            self.current_call.id = None;
+            self.current_call.name = None;
         }
         Ok(())
     }
@@ -246,7 +246,6 @@ impl FunCalls {
         self.id_streamed = false;
         self.name_streamed = false;
         self.current_call.reset();
-        self.item_completed = false;
     }
 
     /// Ends the current function call and writes it to the output
@@ -286,12 +285,13 @@ impl FunCalls {
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // If "end_item" is called without our logic called "new_item", it's an error
-        if !self.current_call.writer_notified {
+        if !self.current_call.new_item_called {
             return Err("end_item called without new_item being called first".into());
         }
 
         writer.end_item()?;
-        self.item_completed = true;
+        // Reset the state since this call is now complete
+        self.current_call.new_item_called = false;
 
         Ok(())
     }
@@ -311,7 +311,6 @@ impl FunCalls {
         self.id_streamed = false;
         self.name_streamed = false;
         self.current_call.reset();
-        self.item_completed = false;
     }
 
     /// Get the current completed tool call if it's ready to be streamed
@@ -448,9 +447,8 @@ impl FunCalls {
                 
                 // If we're moving to a new index, end the current function call and call end_item if needed
                 if index > last {
-                    if !self.item_completed && self.current_call.writer_notified {
+                    if self.current_call.new_item_called {
                         writer.end_item()?;
-                        self.item_completed = true;
                     }
                     self.end_current_internal();
                 }
@@ -471,27 +469,20 @@ impl FunCalls {
         id: &str,
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Check streaming assumption: in streaming mode, non-argument fields should only be set once
-        if self.last_index.is_some() {
-            if let Some(current) = &self.current_funcall {
-                if !current.id.is_empty() {
-                    return Err("ID field cannot be set multiple times in streaming mode - only arguments can span deltas".into());
-                }
-            }
-        }
-
-        // Check if ID is already set in direct mode
-        if self.current_call.id.is_some() {
+        // Check if ID is already set or new_item already called
+        if self.current_call.new_item_called || self.current_call.id.is_some() {
             return Err("ID is already given".into());
         }
 
-        // Store the ID in both places
+        // Store the ID
         self.current_call.id = Some(id.to_string());
+        
+        // Also update the streaming state for compatibility
         let cell = self.ensure_current();
         cell.id.push_str(id);
         
-        // Try to notify writer if both id and name are now available
-        self.try_notify_writer(writer)?;
+        // Call new_item immediately if both id and name are now available
+        self.try_call_new_item(writer)?;
         
         Ok(())
     }
@@ -505,27 +496,20 @@ impl FunCalls {
         name: &str,
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Check streaming assumption: in streaming mode, non-argument fields should only be set once
-        if self.last_index.is_some() {
-            if let Some(current) = &self.current_funcall {
-                if !current.function_name.is_empty() {
-                    return Err("Function name field cannot be set multiple times in streaming mode - only arguments can span deltas".into());
-                }
-            }
-        }
-
-        // Check if name is already set in direct mode
-        if self.current_call.name.is_some() {
+        // Check if name is already set or new_item already called
+        if self.current_call.new_item_called || self.current_call.name.is_some() {
             return Err("Name is already given".into());
         }
 
-        // Store the name in both places
+        // Store the name
         self.current_call.name = Some(name.to_string());
+        
+        // Also update the streaming state for compatibility
         let cell = self.ensure_current();
         cell.function_name.push_str(name);
         
-        // Try to notify writer if both id and name are now available
-        self.try_notify_writer(writer)?;
+        // Call new_item immediately if both id and name are now available
+        self.try_call_new_item(writer)?;
         
         Ok(())
     }
@@ -539,16 +523,17 @@ impl FunCalls {
         args: &str,
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Always accumulate arguments in both state locations
-        self.current_call.arguments.push_str(args);
+        // Update the streaming state for compatibility
         let cell = self.ensure_current();
         cell.function_arguments.push_str(args);
         
-        // If writer has been notified, forward the chunk immediately
-        if self.current_call.writer_notified {
+        // Pass arguments directly to writer after new_item has been called
+        if self.current_call.new_item_called {
             writer.arguments_chunk(args.to_string())?;
+        } else {
+            // Store arguments until new_item is called
+            self.current_call.pending_arguments.push_str(args);
         }
-        // Otherwise, arguments will be sent when try_notify_writer is called
         
         Ok(())
     }
@@ -562,9 +547,9 @@ impl FunCalls {
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // "end" calls "end_item" if "end_item" was not called
-        if !self.item_completed && self.current_call.writer_notified {
+        if self.current_call.new_item_called {
             writer.end_item()?;
-            self.item_completed = true;
+            self.current_call.new_item_called = false;
         }
         Ok(())
     }
