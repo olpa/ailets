@@ -98,16 +98,10 @@ pub fn on_function_id<W: Write>(
     };
     
     let mut builder = builder_cell.borrow_mut();
-    let mut no_op_writer = crate::funcalls::NoOpFunCallsWrite;
-    if let Err(e) = builder.get_funcalls_mut().id(value, &mut no_op_writer) {
+    if let Err(e) = builder.tool_call_id(value) {
         let error: Box<dyn std::error::Error> =
             format!("Streaming assumption violation in id: {e}").into();
         return StreamOp::Error(error);
-    }
-
-    // Stream the ID immediately
-    if let Err(e) = builder.output_tool_call_id(value) {
-        return StreamOp::Error(Box::new(e));
     }
 
     StreamOp::ValueIsConsumed
@@ -128,16 +122,10 @@ pub fn on_function_name<W: Write>(
     };
     
     let mut builder = builder_cell.borrow_mut();
-    let mut no_op_writer = crate::funcalls::NoOpFunCallsWrite;
-    if let Err(e) = builder.get_funcalls_mut().name(value, &mut no_op_writer) {
+    if let Err(e) = builder.tool_call_name(value) {
         let error: Box<dyn std::error::Error> =
             format!("Streaming assumption violation in name: {e}").into();
         return StreamOp::Error(error);
-    }
-
-    // Stream the name immediately
-    if let Err(e) = builder.output_tool_call_name(value) {
-        return StreamOp::Error(Box::new(e));
     }
 
     StreamOp::ValueIsConsumed
@@ -165,28 +153,21 @@ pub fn on_function_arguments<W: Write>(
                 // Parse the JSON string to extract the actual content
                 match serde_json::from_str::<String>(&json_str) {
                     Ok(args_content) => {
-                        // Stream the arguments immediately
+                        // Stream the arguments immediately using builder interface
                         {
                             let mut builder = builder_cell.borrow_mut();
-                            if let Err(e) = builder.output_tool_call_arguments_chunk(&args_content)
-                            {
-                                return StreamOp::Error(Box::new(e));
+                            if let Err(e) = builder.tool_call_arguments_chunk(&args_content) {
+                                return StreamOp::Error(e);
                             }
-                            let funcalls = builder.get_funcalls_mut();
-                            let mut no_op_writer = crate::funcalls::NoOpFunCallsWrite;
-                            let _ = funcalls.arguments_chunk(&args_content, &mut no_op_writer);
                         }
                     }
                     Err(_) => {
                         // If JSON parsing fails, use the raw string (might be partial)
                         {
                             let mut builder = builder_cell.borrow_mut();
-                            if let Err(e) = builder.output_tool_call_arguments_chunk(&json_str) {
-                                return StreamOp::Error(Box::new(e));
+                            if let Err(e) = builder.tool_call_arguments_chunk(&json_str) {
+                                return StreamOp::Error(e);
                             }
-                            let funcalls = builder.get_funcalls_mut();
-                            let mut no_op_writer = crate::funcalls::NoOpFunCallsWrite;
-                            let _ = funcalls.arguments_chunk(&json_str, &mut no_op_writer);
                         }
                     }
                 }
