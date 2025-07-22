@@ -87,48 +87,60 @@ pub fn on_function_id<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
-    let result = on_function_str_field(rjiter_cell, builder_cell, "id", |funcalls, value| {
-        let mut no_op_writer = crate::funcalls::NoOpFunCallsWrite;
-        funcalls
-            .id(value, &mut no_op_writer)
-            .map_err(|e| e.to_string())
-    });
-
-    // After updating the ID, stream it immediately
-    if let StreamOp::ValueIsConsumed = result {
-        let mut builder = builder_cell.borrow_mut();
-        if let Some(id) = builder.get_funcalls_mut().should_output_id() {
-            if let Err(e) = builder.output_tool_call_id(&id) {
-                return StreamOp::Error(Box::new(e));
-            }
+    let mut rjiter = rjiter_cell.borrow_mut();
+    let value = match rjiter.next_str() {
+        Ok(value) => value,
+        Err(e) => {
+            let error: Box<dyn std::error::Error> =
+                format!("Expected string as the function id, got {e:?}").into();
+            return StreamOp::Error(error);
         }
+    };
+    
+    let mut builder = builder_cell.borrow_mut();
+    let mut no_op_writer = crate::funcalls::NoOpFunCallsWrite;
+    if let Err(e) = builder.get_funcalls_mut().id(value, &mut no_op_writer) {
+        let error: Box<dyn std::error::Error> =
+            format!("Streaming assumption violation in id: {e}").into();
+        return StreamOp::Error(error);
     }
 
-    result
+    // Stream the ID immediately
+    if let Err(e) = builder.output_tool_call_id(value) {
+        return StreamOp::Error(Box::new(e));
+    }
+
+    StreamOp::ValueIsConsumed
 }
 
 pub fn on_function_name<W: Write>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
-    let result = on_function_str_field(rjiter_cell, builder_cell, "name", |funcalls, value| {
-        let mut no_op_writer = crate::funcalls::NoOpFunCallsWrite;
-        funcalls
-            .name(value, &mut no_op_writer)
-            .map_err(|e| e.to_string())
-    });
-
-    // After updating the name, stream it immediately
-    if let StreamOp::ValueIsConsumed = result {
-        let mut builder = builder_cell.borrow_mut();
-        if let Some(name) = builder.get_funcalls_mut().should_output_name() {
-            if let Err(e) = builder.output_tool_call_name(&name) {
-                return StreamOp::Error(Box::new(e));
-            }
+    let mut rjiter = rjiter_cell.borrow_mut();
+    let value = match rjiter.next_str() {
+        Ok(value) => value,
+        Err(e) => {
+            let error: Box<dyn std::error::Error> =
+                format!("Expected string as the function name, got {e:?}").into();
+            return StreamOp::Error(error);
         }
+    };
+    
+    let mut builder = builder_cell.borrow_mut();
+    let mut no_op_writer = crate::funcalls::NoOpFunCallsWrite;
+    if let Err(e) = builder.get_funcalls_mut().name(value, &mut no_op_writer) {
+        let error: Box<dyn std::error::Error> =
+            format!("Streaming assumption violation in name: {e}").into();
+        return StreamOp::Error(error);
     }
 
-    result
+    // Stream the name immediately
+    if let Err(e) = builder.output_tool_call_name(value) {
+        return StreamOp::Error(Box::new(e));
+    }
+
+    StreamOp::ValueIsConsumed
 }
 
 pub fn on_function_arguments<W: Write>(
@@ -289,28 +301,3 @@ pub fn on_function_end<W: Write>(
     Ok(())
 }
 
-fn on_function_str_field<W: Write, F>(
-    rjiter_cell: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
-    field_name: &str,
-    apply_field: F,
-) -> StreamOp
-where
-    F: FnOnce(&mut crate::funcalls::FunCalls, &str) -> Result<(), String>,
-{
-    let mut rjiter = rjiter_cell.borrow_mut();
-    let value = match rjiter.next_str() {
-        Ok(value) => value,
-        Err(e) => {
-            let error: Box<dyn std::error::Error> =
-                format!("Expected string as the function {field_name}, got {e:?}").into();
-            return StreamOp::Error(error);
-        }
-    };
-    if let Err(e) = apply_field(builder_cell.borrow_mut().get_funcalls_mut(), value) {
-        let error: Box<dyn std::error::Error> =
-            format!("Streaming assumption violation in {field_name}: {e}").into();
-        return StreamOp::Error(error);
-    }
-    StreamOp::ValueIsConsumed
-}

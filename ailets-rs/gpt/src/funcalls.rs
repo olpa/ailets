@@ -331,52 +331,7 @@ impl FunCalls {
         self.current_call.reset();
     }
 
-    /// Get the current completed tool call if it's ready to be streamed
-    /// Returns the current tool call if it's complete and hasn't been streamed yet
-    pub fn get_completed_tool_call_for_streaming(&mut self) -> Option<ContentItemFunction> {
-        self.last_index?;
 
-        // Check if we have a current function call that's complete
-        if let Some(current) = &self.current_funcall {
-            // A tool call is complete if all required fields are present
-            // Arguments can be empty ("") but id and function_name must be non-empty
-            if !current.id.is_empty()
-                && !current.function_name.is_empty()
-                && !current.function_arguments.is_empty()
-            {
-                // Check if this is a new completed call (hasn't been streamed yet)
-                if let Some(last_index) = self.last_index {
-                    if self
-                        .last_streamed_index
-                        .map_or(true, |streamed| last_index > streamed)
-                    {
-                        self.last_streamed_index = Some(last_index);
-                        return Some(current.clone());
-                    }
-                }
-            }
-        }
-
-        None
-    }
-
-    /// Check if we should start streaming the current tool call (id and name are ready)
-    /// Returns the current tool call if it's ready to start streaming
-    pub fn get_current_tool_call_for_streaming(&mut self) -> Option<ContentItemFunction> {
-        if self.last_index.is_none() || self.tool_call_open {
-            return None;
-        }
-
-        // Get current tool call data
-        if let Some(current_funcall) = &self.current_funcall {
-            if !current_funcall.id.is_empty() && !current_funcall.function_name.is_empty() {
-                self.tool_call_open = true;
-                self.tool_call_arguments_open = true;
-                return Some(current_funcall.clone());
-            }
-        }
-        None
-    }
 
     /// Check if arguments are currently being streamed
     #[must_use]
@@ -401,31 +356,6 @@ impl FunCalls {
         None
     }
 
-    /// Check if ID should be streamed (not yet streamed and available)
-    pub fn should_output_id(&mut self) -> Option<String> {
-        if !self.id_streamed {
-            if let Some(current) = &self.current_funcall {
-                if !current.id.is_empty() {
-                    self.id_streamed = true;
-                    return Some(current.id.clone());
-                }
-            }
-        }
-        None
-    }
-
-    /// Check if name should be streamed (not yet streamed and available)
-    pub fn should_output_name(&mut self) -> Option<String> {
-        if !self.name_streamed {
-            if let Some(current) = &self.current_funcall {
-                if !current.function_name.is_empty() {
-                    self.name_streamed = true;
-                    return Some(current.function_name.clone());
-                }
-            }
-        }
-        None
-    }
 
     // Direct writing methods for immediate output
 
