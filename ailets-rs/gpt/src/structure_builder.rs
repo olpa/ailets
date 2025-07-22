@@ -141,8 +141,14 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// I/O
     pub fn try_stream_completed_tool_calls(&mut self) -> Result<(), std::io::Error> {
-        if let Some(tool_call) = self.funcalls.get_completed_tool_call_for_streaming() {
-            self.output_tool_call(&tool_call)?;
+        // Check if we have a completed tool call to stream
+        if let Some(current) = self.funcalls.current_funcall.clone() {
+            if !current.id.is_empty()
+                && !current.function_name.is_empty()
+                && !current.function_arguments.is_empty()
+            {
+                self.output_tool_call(&current)?;
+            }
         }
         Ok(())
     }
@@ -181,11 +187,11 @@ impl<W: Write> StructureBuilder<W> {
                 }
             }
         };
-        
+
         if let Err(e) = validation_result {
             return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, e));
         }
-        
+
         // Update last_index to track the highest seen index (enables streaming mode)
         self.funcalls.last_index = Some(index);
         self.try_stream_completed_tool_calls()
@@ -257,8 +263,11 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// I/O
     pub fn try_begin_streaming_current_tool_call(&mut self) -> Result<(), std::io::Error> {
-        if let Some(tool_call) = self.funcalls.get_current_tool_call_for_streaming() {
-            self.begin_streaming_tool_call(&tool_call)?;
+        // Check if we should start streaming (id and name available)
+        if let Some(current) = self.funcalls.current_funcall.clone() {
+            if !current.id.is_empty() && !current.function_name.is_empty() {
+                self.begin_streaming_tool_call(&current)?;
+            }
         }
         Ok(())
     }

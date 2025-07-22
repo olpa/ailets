@@ -252,7 +252,10 @@ fn index_increment_validation() {
     // Index cannot skip
     let result = funcalls.index(4, &mut writer);
     assert!(result.is_err());
-    assert!(result.unwrap_err().to_string().contains("cannot skip values"));
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("cannot skip values"));
 
     // Index cannot go backwards (never decreases)
     let result = funcalls.index(1, &mut writer);

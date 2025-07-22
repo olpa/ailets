@@ -48,6 +48,30 @@ pub trait FunCallsWrite {
     fn end_item(&mut self) -> Result<(), Box<dyn std::error::Error>>;
 }
 
+/// No-op implementation of `FunCallsWrite` for parsing/streaming mode
+/// This writer does nothing - it's used when we only want to update FunCalls state
+/// without actually writing anything.
+pub struct NoOpFunCallsWrite;
+
+impl FunCallsWrite for NoOpFunCallsWrite {
+    fn new_item(
+        &mut self,
+        _index: usize,
+        _id: String,
+        _name: String,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(()) // Do nothing
+    }
+
+    fn arguments_chunk(&mut self, _ac: String) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(()) // Do nothing
+    }
+
+    fn end_item(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(()) // Do nothing
+    }
+}
+
 /// Implementation of `FunCallsWrite` that writes to a chat-style format
 ///
 /// This implementation writes function calls in the format expected by chat systems,
@@ -156,7 +180,7 @@ impl FunctionCallState {
     fn new() -> Self {
         Self::default()
     }
-    
+
     fn reset(&mut self) {
         *self = Self::new();
     }
@@ -168,10 +192,10 @@ pub struct FunCalls {
     // Core delta/streaming state
     pub current_funcall: Option<ContentItemFunction>,
     pub last_index: Option<usize>,
-    
+
     // Direct writing state
     current_call: FunctionCallState,
-    
+
     // Streaming-specific state
     last_streamed_index: Option<usize>,
     tool_call_open: bool,
@@ -205,16 +229,16 @@ impl FunCalls {
         self.current_funcall
             .get_or_insert_with(ContentItemFunction::default)
     }
-    
+
     /// Calls new_item immediately if both id and name are now available
     fn try_call_new_item(
         &mut self,
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if !self.current_call.new_item_called 
-            && self.current_call.id.is_some() 
-            && self.current_call.name.is_some() {
-            
+        if !self.current_call.new_item_called
+            && self.current_call.id.is_some()
+            && self.current_call.name.is_some()
+        {
             let current_index = self.last_index.unwrap_or(0);
             writer.new_item(
                 current_index,
@@ -222,21 +246,19 @@ impl FunCalls {
                 self.current_call.name.as_ref().unwrap().clone(),
             )?;
             self.current_call.new_item_called = true;
-            
+
             // Send any pending arguments that were accumulated before new_item
             if !self.current_call.pending_arguments.is_empty() {
                 writer.arguments_chunk(self.current_call.pending_arguments.clone())?;
                 self.current_call.pending_arguments.clear();
             }
-            
+
             // Clear id and name - no longer needed after new_item
             self.current_call.id = None;
             self.current_call.name = None;
         }
         Ok(())
     }
-    
-    
 
     /// Ends the current function call and cleans up the delta state (internal use)
     ///
@@ -268,10 +290,6 @@ impl FunCalls {
     pub fn end_current_no_write(&mut self) {
         self.end_current_internal();
     }
-
-
-
-
 
     /// Ends the current item
     ///
@@ -372,42 +390,38 @@ impl FunCalls {
         self.tool_call_arguments_open = false;
     }
 
-    /// Check if the ID is ready to be streamed and hasn't been streamed yet
-    pub fn should_stream_id(&mut self) -> Option<String> {
-        if self.id_streamed {
-            return None;
-        }
-
-        if let Some(current) = &self.current_funcall {
-            if !current.id.is_empty() {
-                self.id_streamed = true;
-                return Some(current.id.clone());
-            }
-        }
-        None
-    }
-
-    /// Check if the name is ready to be streamed and hasn't been streamed yet
-    pub fn should_stream_name(&mut self) -> Option<String> {
-        if self.name_streamed {
-            return None;
-        }
-
-        if let Some(current) = &self.current_funcall {
-            if !current.function_name.is_empty() {
-                self.name_streamed = true;
-                return Some(current.function_name.clone());
-            }
-        }
-        None
-    }
-
     /// Get current arguments for streaming (returns what we have so far)
     #[must_use]
     pub fn get_current_arguments(&self) -> Option<String> {
         if let Some(current) = &self.current_funcall {
             if !current.function_arguments.is_empty() {
                 return Some(current.function_arguments.clone());
+            }
+        }
+        None
+    }
+
+    /// Check if ID should be streamed (not yet streamed and available)
+    pub fn should_output_id(&mut self) -> Option<String> {
+        if !self.id_streamed {
+            if let Some(current) = &self.current_funcall {
+                if !current.id.is_empty() {
+                    self.id_streamed = true;
+                    return Some(current.id.clone());
+                }
+            }
+        }
+        None
+    }
+
+    /// Check if name should be streamed (not yet streamed and available)
+    pub fn should_output_name(&mut self) -> Option<String> {
+        if !self.name_streamed {
+            if let Some(current) = &self.current_funcall {
+                if !current.function_name.is_empty() {
+                    self.name_streamed = true;
+                    return Some(current.function_name.clone());
+                }
             }
         }
         None
@@ -437,14 +451,16 @@ impl FunCalls {
                 if index < last {
                     return Err(format!(
                         "Tool call index cannot decrease, max seen is {last}, got {index}"
-                    ).into());
+                    )
+                    .into());
                 }
                 if index > last + 1 {
                     return Err(format!(
                         "Tool call index cannot skip values, max seen is {last}, got {index}"
-                    ).into());
+                    )
+                    .into());
                 }
-                
+
                 // If we're moving to a new index, end the current function call and call end_item if needed
                 if index > last {
                     if self.current_call.new_item_called {
@@ -476,14 +492,14 @@ impl FunCalls {
 
         // Store the ID
         self.current_call.id = Some(id.to_string());
-        
+
         // Also update the streaming state for compatibility
         let cell = self.ensure_current();
         cell.id.push_str(id);
-        
+
         // Call new_item immediately if both id and name are now available
         self.try_call_new_item(writer)?;
-        
+
         Ok(())
     }
 
@@ -503,14 +519,14 @@ impl FunCalls {
 
         // Store the name
         self.current_call.name = Some(name.to_string());
-        
+
         // Also update the streaming state for compatibility
         let cell = self.ensure_current();
         cell.function_name.push_str(name);
-        
+
         // Call new_item immediately if both id and name are now available
         self.try_call_new_item(writer)?;
-        
+
         Ok(())
     }
 
@@ -526,7 +542,7 @@ impl FunCalls {
         // Update the streaming state for compatibility
         let cell = self.ensure_current();
         cell.function_arguments.push_str(args);
-        
+
         // Pass arguments directly to writer after new_item has been called
         if self.current_call.new_item_called {
             writer.arguments_chunk(args.to_string())?;
@@ -534,7 +550,7 @@ impl FunCalls {
             // Store arguments until new_item is called
             self.current_call.pending_arguments.push_str(args);
         }
-        
+
         Ok(())
     }
 
