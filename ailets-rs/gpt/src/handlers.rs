@@ -88,24 +88,16 @@ pub fn on_function_id<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
     let result = on_function_str_field(rjiter_cell, builder_cell, "id", |funcalls, value| {
-        // Check streaming assumption: in streaming mode, non-argument fields should only be set once
-        if funcalls.last_index.is_some() {
-            if let Some(current) = &funcalls.current_funcall {
-                if !current.id.is_empty() {
-                    return Err("ID field cannot be set multiple times in streaming mode - only arguments can span deltas".to_string());
-                }
-            }
-        }
-
-        let cell = funcalls.ensure_current();
-        cell.id.push_str(value);
-        Ok(())
+        let mut no_op_writer = crate::funcalls::NoOpFunCallsWrite;
+        funcalls
+            .id(value, &mut no_op_writer)
+            .map_err(|e| e.to_string())
     });
 
-    // After updating the ID, check if we should stream it immediately
+    // After updating the ID, stream it immediately
     if let StreamOp::ValueIsConsumed = result {
         let mut builder = builder_cell.borrow_mut();
-        if let Some(id) = builder.get_funcalls_mut().should_stream_id() {
+        if let Some(id) = builder.get_funcalls_mut().should_output_id() {
             if let Err(e) = builder.output_tool_call_id(&id) {
                 return StreamOp::Error(Box::new(e));
             }
@@ -120,24 +112,16 @@ pub fn on_function_name<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
     let result = on_function_str_field(rjiter_cell, builder_cell, "name", |funcalls, value| {
-        // Check streaming assumption: in streaming mode, non-argument fields should only be set once
-        if funcalls.last_index.is_some() {
-            if let Some(current) = &funcalls.current_funcall {
-                if !current.function_name.is_empty() {
-                    return Err("Function name field cannot be set multiple times in streaming mode - only arguments can span deltas".to_string());
-                }
-            }
-        }
-
-        let cell = funcalls.ensure_current();
-        cell.function_name.push_str(value);
-        Ok(())
+        let mut no_op_writer = crate::funcalls::NoOpFunCallsWrite;
+        funcalls
+            .name(value, &mut no_op_writer)
+            .map_err(|e| e.to_string())
     });
 
-    // After updating the name, check if we should stream it immediately
+    // After updating the name, stream it immediately
     if let StreamOp::ValueIsConsumed = result {
         let mut builder = builder_cell.borrow_mut();
-        if let Some(name) = builder.get_funcalls_mut().should_stream_name() {
+        if let Some(name) = builder.get_funcalls_mut().should_output_name() {
             if let Err(e) = builder.output_tool_call_name(&name) {
                 return StreamOp::Error(Box::new(e));
             }
@@ -177,8 +161,8 @@ pub fn on_function_arguments<W: Write>(
                                 return StreamOp::Error(Box::new(e));
                             }
                             let funcalls = builder.get_funcalls_mut();
-                            let cell = funcalls.ensure_current();
-                            cell.function_arguments.push_str(&args_content);
+                            let mut no_op_writer = crate::funcalls::NoOpFunCallsWrite;
+                            let _ = funcalls.arguments_chunk(&args_content, &mut no_op_writer);
                         }
                     }
                     Err(_) => {
@@ -189,8 +173,8 @@ pub fn on_function_arguments<W: Write>(
                                 return StreamOp::Error(Box::new(e));
                             }
                             let funcalls = builder.get_funcalls_mut();
-                            let cell = funcalls.ensure_current();
-                            cell.function_arguments.push_str(&json_str);
+                            let mut no_op_writer = crate::funcalls::NoOpFunCallsWrite;
+                            let _ = funcalls.arguments_chunk(&json_str, &mut no_op_writer);
                         }
                     }
                 }
@@ -250,7 +234,7 @@ pub fn on_function_index<W: Write>(
     {
         let mut builder = builder_cell.borrow_mut();
         let funcalls = builder.get_funcalls_mut();
-        
+
         // Validate streaming assumption: index progression
         let validation_result = match funcalls.last_index {
             None => {
@@ -280,13 +264,13 @@ pub fn on_function_index<W: Write>(
                 }
             }
         };
-        
+
         if let Err(e) = validation_result {
             let error: Box<dyn std::error::Error> =
                 format!("Streaming assumption violation: {e}").into();
             return StreamOp::Error(error);
         }
-        
+
         // Update last_index to track the highest seen index (enables streaming mode)
         funcalls.last_index = Some(idx);
     }
