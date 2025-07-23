@@ -96,6 +96,19 @@ impl<W: std::io::Write> FunCallsToChat<W> {
             current_arguments: String::new(),
         }
     }
+
+    /// Creates a new `FunCallsToChat` instance that won't write the control message
+    /// (assumes the control message was already written)
+    #[must_use]
+    pub fn new_no_ctl(writer: W) -> Self {
+        Self {
+            writer,
+            first_call: false,
+            current_id: None,
+            current_name: None,
+            current_arguments: String::new(),
+        }
+    }
 }
 
 impl<W: std::io::Write> FunCallsWrite for FunCallsToChat<W> {
@@ -128,7 +141,7 @@ impl<W: std::io::Write> FunCallsWrite for FunCallsToChat<W> {
         if let (Some(id), Some(name)) = (&self.current_id, &self.current_name) {
             writeln!(
                 self.writer,
-                r#"[{{"type":"function","id":"{}","name":"{}"}},{{"arguments":"{}"}}]"#,
+                r#"[{{"type":"tool_call"}},{{"id":"{}","function_name":"{}","function_arguments":"{}"}}]"#,
                 id, name, self.current_arguments
             )?;
         }
@@ -331,8 +344,6 @@ impl FunCalls {
         self.current_call.reset();
     }
 
-
-
     /// Check if arguments are currently being streamed
     #[must_use]
     pub fn is_streaming_arguments(&self) -> bool {
@@ -355,7 +366,6 @@ impl FunCalls {
         }
         None
     }
-
 
     // Direct writing methods for immediate output
 

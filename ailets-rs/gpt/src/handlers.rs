@@ -96,7 +96,7 @@ pub fn on_function_id<W: Write>(
             return StreamOp::Error(error);
         }
     };
-    
+
     let mut builder = builder_cell.borrow_mut();
     if let Err(e) = builder.tool_call_id(value) {
         let error: Box<dyn std::error::Error> =
@@ -120,7 +120,7 @@ pub fn on_function_name<W: Write>(
             return StreamOp::Error(error);
         }
     };
-    
+
     let mut builder = builder_cell.borrow_mut();
     if let Err(e) = builder.tool_call_name(value) {
         let error: Box<dyn std::error::Error> =
@@ -281,4 +281,3 @@ pub fn on_function_end<W: Write>(
         .end_current_no_write();
     Ok(())
 }
-
