@@ -1,13 +1,15 @@
 use std::io::Write;
 
 use actor_runtime_mocked::RcWriter;
+use gpt::funcalls::FunCalls;
 use gpt::structure_builder::StructureBuilder;
 
 #[test]
 fn basic_pass() {
     // Arrange
     let mut writer = RcWriter::new();
-    let mut builder = StructureBuilder::new(writer.clone());
+    let funcalls = FunCalls::new();
+    let mut builder = StructureBuilder::new(writer.clone(), funcalls);
 
     // Act
     builder.begin_message();
@@ -28,7 +30,8 @@ fn basic_pass() {
 fn create_message_without_input_role() {
     // Arrange
     let mut writer = RcWriter::new();
-    let mut builder = StructureBuilder::new(writer.clone());
+    let funcalls = FunCalls::new();
+    let mut builder = StructureBuilder::new(writer.clone(), funcalls);
 
     // Act without "builder.role()"
     builder.begin_message();
@@ -48,7 +51,8 @@ fn create_message_without_input_role() {
 fn can_call_end_message_multiple_times() {
     // Arrange
     let mut writer = RcWriter::new();
-    let mut builder = StructureBuilder::new(writer.clone());
+    let funcalls = FunCalls::new();
+    let mut builder = StructureBuilder::new(writer.clone(), funcalls);
 
     // Act
     builder.begin_message();
@@ -70,7 +74,8 @@ fn can_call_end_message_multiple_times() {
 fn output_direct_tool_call() {
     // Arrange
     let writer = RcWriter::new();
-    let mut builder = StructureBuilder::new(writer.clone());
+    let funcalls = FunCalls::new();
+    let mut builder = StructureBuilder::new(writer.clone(), funcalls);
 
     // Act
     builder.begin_message();
@@ -92,7 +97,8 @@ fn output_direct_tool_call() {
 fn output_streaming_tool_call() {
     // Arrange
     let writer = RcWriter::new();
-    let mut builder = StructureBuilder::new(writer.clone());
+    let funcalls = FunCalls::new();
+    let mut builder = StructureBuilder::new(writer.clone(), funcalls);
 
     // Act
     builder.begin_message();

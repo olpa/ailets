@@ -16,14 +16,14 @@ pub struct StructureBuilder<W: Write> {
 
 impl<W: Write> StructureBuilder<W> {
     #[must_use]
-    pub fn new(writer: W) -> Self {
+    pub fn new(writer: W, funcalls: FunCalls) -> Self {
         StructureBuilder {
             writer,
             role: None,
             message_has_content: false,
             text_is_open: false,
             message_is_closed: false,
-            funcalls: FunCalls::new(),
+            funcalls,
         }
     }
 
@@ -62,22 +62,35 @@ impl<W: Write> StructureBuilder<W> {
             self.writer.write_all(b"\n")?;
         }
 
-        // Finalize any pending tool calls
-        if let Some(current) = self.funcalls.get_current_funcall() {
-            let formatted_args = if current.function_arguments.starts_with('{')
-                && current.function_arguments.ends_with('}')
-            {
-                current.function_arguments.clone()
-            } else {
-                format!("{{{}}}", current.function_arguments)
-            };
-            writeln!(
-                self.writer,
-                r#"[{{"type":"tool_call"}},{{"id":"{}","function_name":"{}","function_arguments":"{}"}}]"#,
-                current.id, current.function_name, formatted_args
-            )?;
+        // If there's a pending tool call in streaming mode, write it
+        if self.funcalls.last_index.is_some() {
+            if let Some(current) = self.funcalls.get_current_funcall().as_ref().cloned() {
+                // Ensure content header is written for streaming output
+                if !self.message_has_content {
+                    self.begin_content()?;
+                }
+                if self.text_is_open {
+                    self.writer.write_all(b"\"}]")?;
+                    self.text_is_open = false;
+                    self.writer.write_all(b"\n")?;
+                }
+
+                let formatted_args = if current.function_arguments.starts_with('{')
+                    && current.function_arguments.ends_with('}')
+                {
+                    current.function_arguments.clone()
+                } else {
+                    format!("{{{}}}", current.function_arguments)
+                };
+                writeln!(
+                    self.writer,
+                    r#"[{{"type":"tool_call"}},{{"id":"{}","function_name":"{}","function_arguments":"{}"}}]"#,
+                    current.id, current.function_name, formatted_args
+                )?;
+
+                self.funcalls.end_current_no_write();
+            }
         }
-        self.funcalls.end_current_no_write();
 
         self.message_is_closed = true;
         Ok(())
@@ -195,20 +208,8 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_id(&mut self, id: &str) -> Result<(), Box<dyn std::error::Error>> {
-        // Handle StructureBuilder-specific logic for switching item types
-        if !self.message_has_content {
-            self.begin_content()
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
-        }
-        if self.text_is_open {
-            self.writer
-                .write_all(b"\"}]")
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
-            self.text_is_open = false;
-        }
-
         // Create FunCallsToChat writer and forward to funcalls
-        let mut chat_writer = FunCallsToChat::new_no_ctl(&mut self.writer);
+        let mut chat_writer = FunCallsToChat::new(&mut self.writer);
         self.funcalls.id(id, &mut chat_writer)?;
 
         Ok(())
@@ -218,20 +219,8 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_name(&mut self, name: &str) -> Result<(), Box<dyn std::error::Error>> {
-        // Handle StructureBuilder-specific logic for switching item types
-        if !self.message_has_content {
-            self.begin_content()
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
-        }
-        if self.text_is_open {
-            self.writer
-                .write_all(b"\"}]")
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
-            self.text_is_open = false;
-        }
-
         // Create FunCallsToChat writer and forward to funcalls
-        let mut chat_writer = FunCallsToChat::new_no_ctl(&mut self.writer);
+        let mut chat_writer = FunCallsToChat::new(&mut self.writer);
         self.funcalls.name(name, &mut chat_writer)?;
 
         Ok(())
@@ -244,20 +233,8 @@ impl<W: Write> StructureBuilder<W> {
         &mut self,
         args: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Handle StructureBuilder-specific logic for switching item types
-        if !self.message_has_content {
-            self.begin_content()
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
-        }
-        if self.text_is_open {
-            self.writer
-                .write_all(b"\"}]")
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
-            self.text_is_open = false;
-        }
-
         // Create FunCallsToChat writer and forward to funcalls
-        let mut chat_writer = FunCallsToChat::new_no_ctl(&mut self.writer);
+        let mut chat_writer = FunCallsToChat::new(&mut self.writer);
         self.funcalls.arguments_chunk(args, &mut chat_writer)?;
 
         Ok(())
@@ -267,37 +244,41 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_index(&mut self, index: usize) -> Result<(), Box<dyn std::error::Error>> {
-        // Handle StructureBuilder-specific logic for switching item types
-        if !self.message_has_content {
-            self.begin_content()
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
-        }
-        if self.text_is_open {
-            self.writer
-                .write_all(b"\"}]")
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
-            self.text_is_open = false;
-        }
-
-        // If index is changing and we have a current tool call, write it before starting the new one
-        if let (Some(last_index), Some(current)) = (
-            self.funcalls.last_index,
-            self.funcalls.get_current_funcall(),
-        ) {
+        // Check if we need to finalize the previous tool call when index increases
+        if let Some(last_index) = self.funcalls.last_index {
             if index > last_index {
-                let formatted_args = if current.function_arguments.starts_with('{')
-                    && current.function_arguments.ends_with('}')
-                {
-                    current.function_arguments.clone()
-                } else {
-                    format!("{{{}}}", current.function_arguments)
-                };
-                writeln!(
-                    self.writer,
-                    r#"[{{"type":"tool_call"}},{{"id":"{}","function_name":"{}","function_arguments":"{}"}}]"#,
-                    current.id, current.function_name, formatted_args
-                ).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
-                self.funcalls.end_current_no_write();
+                // Write the previous tool call before starting the new one
+                if let Some(current) = self.funcalls.get_current_funcall().as_ref().cloned() {
+                    // Ensure content header is written for streaming output
+                    if !self.message_has_content {
+                        self.begin_content()
+                            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+                    }
+                    if self.text_is_open {
+                        self.writer
+                            .write_all(b"\"}]")
+                            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+                        self.text_is_open = false;
+                        self.writer
+                            .write_all(b"\n")
+                            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+                    }
+
+                    let formatted_args = if current.function_arguments.starts_with('{')
+                        && current.function_arguments.ends_with('}')
+                    {
+                        current.function_arguments.clone()
+                    } else {
+                        format!("{{{}}}", current.function_arguments)
+                    };
+                    writeln!(
+                        self.writer,
+                        r#"[{{"type":"tool_call"}},{{"id":"{}","function_name":"{}","function_arguments":"{}"}}]"#,
+                        current.id, current.function_name, formatted_args
+                    ).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+
+                    self.funcalls.end_current_no_write();
+                }
             }
         }
 
@@ -311,8 +292,23 @@ impl<W: Write> StructureBuilder<W> {
     /// # Errors
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_end_direct(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Ensure content header is written
+        if !self.message_has_content {
+            self.begin_content()
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+        }
+        if self.text_is_open {
+            self.writer
+                .write_all(b"\"}]")
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+            self.text_is_open = false;
+            self.writer
+                .write_all(b"\n")
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+        }
+
         // Write the tool call directly using the data stored in funcalls
-        if let Some(current) = self.funcalls.get_current_funcall() {
+        if let Some(current) = self.funcalls.get_current_funcall().as_ref().cloned() {
             let formatted_args = if current.function_arguments.starts_with('{')
                 && current.function_arguments.ends_with('}')
             {

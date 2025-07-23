@@ -6,6 +6,7 @@ pub mod structure_builder;
 use actor_io::{AReader, AWriter};
 use actor_runtime::{err_to_heap_c_string, extract_errno, StdHandle};
 use dagops::{DagOps, InjectDagOps, InjectDagOpsTrait};
+use funcalls::FunCalls;
 use handlers::{
     on_begin_message, on_content, on_end_message, on_function_arguments, on_function_end,
     on_function_id, on_function_index, on_function_name, on_role,
@@ -135,7 +136,8 @@ pub fn _process_gpt<W: Write>(
     writer: W,
     dagops: &mut impl InjectDagOpsTrait,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let builder = StructureBuilder::new(writer);
+    let funcalls = FunCalls::new();
+    let builder = StructureBuilder::new(writer, funcalls);
     let builder_cell = RefCell::new(builder);
 
     let mut buffer = vec![0u8; BUFFER_SIZE as usize];

@@ -75,10 +75,9 @@ impl FunCallsWrite for NoOpFunCallsWrite {
 /// Implementation of `FunCallsWrite` that writes to a chat-style format
 ///
 /// This implementation writes function calls in the format expected by chat systems,
-/// with control messages and function call data written as JSON lines.
+/// with function call data written as JSON lines.
 pub struct FunCallsToChat<W: std::io::Write> {
     writer: W,
-    first_call: bool,
     current_id: Option<String>,
     current_name: Option<String>,
     current_arguments: String,
@@ -90,20 +89,6 @@ impl<W: std::io::Write> FunCallsToChat<W> {
     pub fn new(writer: W) -> Self {
         Self {
             writer,
-            first_call: true,
-            current_id: None,
-            current_name: None,
-            current_arguments: String::new(),
-        }
-    }
-
-    /// Creates a new `FunCallsToChat` instance that won't write the control message
-    /// (assumes the control message was already written)
-    #[must_use]
-    pub fn new_no_ctl(writer: W) -> Self {
-        Self {
-            writer,
-            first_call: false,
             current_id: None,
             current_name: None,
             current_arguments: String::new(),
@@ -118,11 +103,6 @@ impl<W: std::io::Write> FunCallsWrite for FunCallsToChat<W> {
         id: String,
         name: String,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if self.first_call {
-            writeln!(self.writer, r#"[{{"type":"ctl"}},{{"role":"assistant"}}]"#)?;
-            self.first_call = false;
-        }
-
         // Store the id and name for writing later
         self.current_id = Some(id);
         self.current_name = Some(name);
