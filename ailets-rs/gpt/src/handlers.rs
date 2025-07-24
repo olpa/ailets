@@ -99,8 +99,7 @@ pub fn on_function_id<W: Write>(
 
     let mut builder = builder_cell.borrow_mut();
     if let Err(e) = builder.tool_call_id(value) {
-        let error: Box<dyn std::error::Error> =
-            format!("Streaming assumption violation in id: {e}").into();
+        let error: Box<dyn std::error::Error> = format!("Error handling function id: {e}").into();
         return StreamOp::Error(error);
     }
 
@@ -123,8 +122,7 @@ pub fn on_function_name<W: Write>(
 
     let mut builder = builder_cell.borrow_mut();
     if let Err(e) = builder.tool_call_name(value) {
-        let error: Box<dyn std::error::Error> =
-            format!("Streaming assumption violation in name: {e}").into();
+        let error: Box<dyn std::error::Error> = format!("Error handling function name: {e}").into();
         return StreamOp::Error(error);
     }
 
@@ -207,7 +205,7 @@ pub fn on_function_index<W: Write>(
     };
     let idx = rjiter.current_index();
     let pos = rjiter.error_position(idx);
-    let idx: usize = match value {
+    let call_idx: usize = match value {
         NumberInt::BigInt(_) => {
             let error: Box<dyn std::error::Error> =
                 format!("Can't convert the function index to usize, got {value:?} at index {idx}, position {pos}").into();
@@ -223,50 +221,14 @@ pub fn on_function_index<W: Write>(
             }
         }
     };
-    // Inline delta_index logic
-    {
-        let mut builder = builder_cell.borrow_mut();
-        let funcalls = builder.get_funcalls_mut();
 
-        // Validate streaming assumption: index progression
-        let validation_result = match funcalls.last_index {
-            None => {
-                // First index must be 0
-                if idx != 0 {
-                    Err(format!("First tool call index must be 0, got {idx}"))
-                } else {
-                    Ok(())
-                }
-            }
-            Some(last) => {
-                // Index can stay the same or increment by exactly 1, but never decrease
-                if idx < last {
-                    Err(format!(
-                        "Tool call index cannot decrease, max seen is {last}, got {idx}"
-                    ))
-                } else if idx > last + 1 {
-                    Err(format!(
-                        "Tool call index cannot skip values, max seen is {last}, got {idx}"
-                    ))
-                } else {
-                    // If we're moving to a new index, end the current function call
-                    if idx > last {
-                        funcalls.end_current_internal();
-                    }
-                    Ok(())
-                }
-            }
-        };
-
-        if let Err(e) = validation_result {
-            let error: Box<dyn std::error::Error> =
-                format!("Streaming assumption violation: {e}").into();
-            return StreamOp::Error(error);
-        }
-
-        // Update last_index to track the highest seen index (enables streaming mode)
-        funcalls.last_index = Some(idx);
+    let mut builder = builder_cell.borrow_mut();
+    if let Err(e) = builder.tool_call_index(call_idx) {
+        let error: Box<dyn std::error::Error> =
+            format!("Error handling function call index {call_idx}: {e}").into();
+        return StreamOp::Error(error);
     }
+
     StreamOp::ValueIsConsumed
 }
 
@@ -275,9 +237,6 @@ pub fn on_function_index<W: Write>(
 pub fn on_function_end<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    builder_cell
-        .borrow_mut()
-        .get_funcalls_mut()
-        .end_current_no_write();
+    builder_cell.borrow_mut().tool_call_end_direct()?;
     Ok(())
 }
