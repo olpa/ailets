@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use actor_runtime_mocked::{Vfs, VfsWriter};
-use gpt::dagops::DagOpsTrait;
+use gpt::dagops::{DagOpsTrait, DagOpsWrite};
 use gpt::dagops::{inject_tool_calls, InjectDagOpsTrait};
-use gpt::funcalls::ContentItemFunction;
+use gpt::funcalls::{ContentItemFunction, FunCallsWrite};
 use std::io::Write;
 
 pub struct TrackedInjectDagOps {

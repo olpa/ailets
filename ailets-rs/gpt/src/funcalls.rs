@@ -46,6 +46,12 @@ pub trait FunCallsWrite {
     /// # Errors
     /// Returns error if the writing operation fails
     fn end_item(&mut self) -> Result<(), Box<dyn std::error::Error>>;
+
+    /// Finalize all function call processing
+    ///
+    /// # Errors
+    /// Returns error if the writing operation fails
+    fn end(&mut self) -> Result<(), Box<dyn std::error::Error>>;
 }
 
 /// No-op implementation of `FunCallsWrite` for parsing/streaming mode
@@ -68,6 +74,10 @@ impl FunCallsWrite for NoOpFunCallsWrite {
     }
 
     fn end_item(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        Ok(()) // Do nothing
+    }
+
+    fn end(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         Ok(()) // Do nothing
     }
 }
@@ -130,6 +140,11 @@ impl<W: std::io::Write> FunCallsWrite for FunCallsToChat<W> {
         self.current_id = None;
         self.current_name = None;
         self.current_arguments.clear();
+        Ok(())
+    }
+
+    fn end(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // FunCallsToChat doesn't need to do anything special on end
         Ok(())
     }
 }
@@ -487,6 +502,53 @@ impl FunCalls {
             writer.end_item()?;
             self.current_call.new_item_called = false;
         }
+        Ok(())
+    }
+}
+
+/// FunCallsGpt forwards function call events to both FunCallsToChat and DagOpsWrite
+pub struct FunCallsGpt<'a, W: std::io::Write, T: crate::dagops::DagOpsTrait> {
+    chat_writer: crate::funcalls::FunCallsToChat<W>,
+    dag_writer: crate::dagops::DagOpsWrite<'a, T>,
+}
+
+impl<'a, W: std::io::Write, T: crate::dagops::DagOpsTrait> FunCallsGpt<'a, W, T> {
+    /// Create a new FunCallsGpt instance
+    pub fn new(writer: W, dagops: &'a mut T) -> Self {
+        Self {
+            chat_writer: crate::funcalls::FunCallsToChat::new(writer),
+            dag_writer: crate::dagops::DagOpsWrite::new(dagops),
+        }
+    }
+}
+
+impl<'a, W: std::io::Write, T: crate::dagops::DagOpsTrait> FunCallsWrite for FunCallsGpt<'a, W, T> {
+    fn new_item(
+        &mut self,
+        index: usize,
+        id: String,
+        name: String,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.chat_writer.new_item(index, id.clone(), name.clone())?;
+        self.dag_writer.new_item(index, id, name)?;
+        Ok(())
+    }
+
+    fn arguments_chunk(&mut self, args: String) -> Result<(), Box<dyn std::error::Error>> {
+        self.chat_writer.arguments_chunk(args.clone())?;
+        self.dag_writer.arguments_chunk(args)?;
+        Ok(())
+    }
+
+    fn end_item(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.chat_writer.end_item()?;
+        self.dag_writer.end_item()?;
+        Ok(())
+    }
+
+    fn end(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.chat_writer.end()?;
+        self.dag_writer.end()?;
         Ok(())
     }
 }
