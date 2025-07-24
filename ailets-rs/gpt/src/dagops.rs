@@ -261,7 +261,6 @@ pub struct DagOpsWrite<'a, T: DagOpsTrait> {
     detached: bool,
     current_tool_call: Option<ContentItemFunction>,
     processed_tool_calls: Vec<ContentItemFunction>,
-    toolcall_to_messages_handles: Vec<u32>,
 }
 
 impl<'a, T: DagOpsTrait> DagOpsWrite<'a, T> {
@@ -272,7 +271,6 @@ impl<'a, T: DagOpsTrait> DagOpsWrite<'a, T> {
             detached: false,
             current_tool_call: None,
             processed_tool_calls: Vec::new(),
-            toolcall_to_messages_handles: Vec::new(),
         }
     }
 }
@@ -373,19 +371,14 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for DagOpsWrite<'a, T> {
                 ])
                 .into_iter(),
             )?;
-            // Remember the handle to create alias in end() method
-            self.toolcall_to_messages_handles.push(msg_handle);
+
+            self.dagops.alias(".chat_messages", msg_handle)?;
         }
 
         Ok(())
     }
 
     fn end(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Create all .chat_messages aliases for toolcall_to_messages handles
-        for handle in &self.toolcall_to_messages_handles {
-            self.dagops.alias(".chat_messages", *handle)?;
-        }
-
         // Rerun model if we processed any tool calls
         if !self.processed_tool_calls.is_empty() {
             let rerun_handle = self.dagops.instantiate_with_deps(
