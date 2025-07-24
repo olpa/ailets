@@ -6,7 +6,6 @@
 //! - Writing function call data directly to output writers
 //!
 //! The primary structures are:
-//! - [`ContentItemFunction`]: Represents a single function call with its metadata
 //! - [`FunCalls`]: Manages a collection of function calls with delta-based updates and direct writing
 //! - [`FunCallsWrite`]: Trait for writing function calls to different outputs
 
@@ -149,31 +148,6 @@ impl<W: std::io::Write> FunCallsWrite for FunCallsToChat<W> {
     }
 }
 
-/// Represents a single function/tool call from an AI model response
-///
-/// Contains the essential metadata for a function call:
-/// - A unique identifier
-/// - The name of the function to be called
-/// - The arguments to pass to the function (as a JSON string)
-#[derive(Debug, Default, PartialEq, Eq, Clone)]
-pub struct ContentItemFunction {
-    // type: "function",
-    pub id: String,
-    pub function_name: String,
-    pub function_arguments: String,
-}
-
-impl ContentItemFunction {
-    /// Creates a new function call
-    #[must_use]
-    pub fn new(id: &str, function_name: &str, function_arguments: &str) -> Self {
-        Self {
-            id: id.to_string(),
-            function_name: function_name.to_string(),
-            function_arguments: function_arguments.to_string(),
-        }
-    }
-}
 
 /// State of a function call being built
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
@@ -198,7 +172,6 @@ impl FunctionCallState {
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 pub struct FunCalls {
     // Core delta/streaming state
-    pub current_funcall: Option<ContentItemFunction>,
     pub last_index: Option<usize>,
 
     // Direct writing state
@@ -217,7 +190,6 @@ impl FunCalls {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            current_funcall: None,
             last_index: None,
             current_call: FunctionCallState::new(),
             last_streamed_index: None,
@@ -228,15 +200,6 @@ impl FunCalls {
         }
     }
 
-    /// Ensures the current function call is initialized
-    ///
-    /// Returns a mutable reference to the current function call,
-    /// initializing it with a default `ContentItemFunction` if it wasn't already set.
-    #[must_use]
-    pub fn ensure_current(&mut self) -> &mut ContentItemFunction {
-        self.current_funcall
-            .get_or_insert_with(ContentItemFunction::default)
-    }
 
     /// Calls new_item immediately if both id and name are now available
     fn try_call_new_item(
@@ -272,7 +235,7 @@ impl FunCalls {
     ///
     /// This method should be called when a function call is complete.
     pub fn end_current_internal(&mut self) {
-        self.current_funcall = None;
+        // current_funcall field has been removed
         self.id_streamed = false;
         self.name_streamed = false;
         self.current_call.reset();
@@ -286,9 +249,8 @@ impl FunCalls {
         &mut self,
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some(_current) = &self.current_funcall {
-            writer.end_item()?;
-        }
+        // Always call end_item since we track state differently now
+        writer.end_item()?;
         // Reset state for next function call
         self.end_current_internal();
         Ok(())
@@ -322,11 +284,6 @@ impl FunCalls {
         Ok(())
     }
 
-    /// Returns a reference to the current function call being built
-    #[must_use]
-    pub fn get_current_funcall(&self) -> &Option<ContentItemFunction> {
-        &self.current_funcall
-    }
 
     /// Reset streaming state (called when beginning a new message)
     pub fn reset_streaming_state(&mut self) {
@@ -354,12 +311,11 @@ impl FunCalls {
     /// Get current arguments for streaming (returns what we have so far)
     #[must_use]
     pub fn get_current_arguments(&self) -> Option<String> {
-        if let Some(current) = &self.current_funcall {
-            if !current.function_arguments.is_empty() {
-                return Some(current.function_arguments.clone());
-            }
+        if !self.current_call.pending_arguments.is_empty() {
+            Some(self.current_call.pending_arguments.clone())
+        } else {
+            None
         }
-        None
     }
 
     // Direct writing methods for immediate output
@@ -428,9 +384,7 @@ impl FunCalls {
         // Store the ID
         self.current_call.id = Some(id.to_string());
 
-        // Also update the streaming state for compatibility
-        let cell = self.ensure_current();
-        cell.id.push_str(id);
+        // ID is now stored only in current_call
 
         // Call new_item immediately if both id and name are now available
         self.try_call_new_item(writer)?;
@@ -455,9 +409,7 @@ impl FunCalls {
         // Store the name
         self.current_call.name = Some(name.to_string());
 
-        // Also update the streaming state for compatibility
-        let cell = self.ensure_current();
-        cell.function_name.push_str(name);
+        // Name is now stored only in current_call
 
         // Call new_item immediately if both id and name are now available
         self.try_call_new_item(writer)?;
@@ -474,9 +426,7 @@ impl FunCalls {
         args: &str,
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Update the streaming state for compatibility
-        let cell = self.ensure_current();
-        cell.function_arguments.push_str(args);
+        // Arguments are now stored only in current_call
 
         // Pass arguments directly to writer after new_item has been called
         if self.current_call.new_item_called {

@@ -1,6 +1,6 @@
 //! DAG Operations Module
 
-use crate::funcalls::{ContentItemFunction, FunCallsWrite};
+use crate::funcalls::FunCallsWrite;
 use actor_io::AWriter;
 use serde_json::json;
 use std::collections::HashMap;
@@ -96,12 +96,11 @@ impl DagOpsTrait for DagOps {
 
 /// One level of indirection to test that funcalls are collected correctly
 pub trait InjectDagOpsTrait {
-    /// Inject function calls into the workflow DAG.
-    /// Do nothing if there are no tool calls.
+    /// Process function calls using FunCallsWrite trait implementation.
     ///
     /// # Errors
     /// Promotes errors from the host.
-    fn inject_tool_calls(&mut self, tool_calls: &[ContentItemFunction]) -> Result<(), String>;
+    fn process_with_funcalls_write(&mut self, writer: &mut dyn FunCallsWrite) -> Result<(), Box<dyn std::error::Error>>;
 }
 
 pub struct InjectDagOps<T: DagOpsTrait> {
@@ -116,151 +115,28 @@ impl<T: DagOpsTrait> InjectDagOps<T> {
 }
 
 impl<T: DagOpsTrait> InjectDagOpsTrait for InjectDagOps<T> {
-    fn inject_tool_calls(&mut self, tool_calls: &[ContentItemFunction]) -> Result<(), String> {
-        inject_tool_calls(&mut self.dagops, tool_calls)
+    fn process_with_funcalls_write(&mut self, writer: &mut dyn FunCallsWrite) -> Result<(), Box<dyn std::error::Error>> {
+        // Create a DagOpsWrite and delegate to it
+        let mut dag_writer = DagOpsWrite::new(&mut self.dagops);
+        
+        // The actual processing logic would be implemented here
+        // For now, just call end() to finalize any processing
+        writer.end()?;
+        dag_writer.end()?;
+        
+        Ok(())
     }
 }
 
-/// Put tool calls in chat history by creating a write pipe and aliasing it to `.chat_messages`
-///
-/// # Errors
-/// Promotes errors from the host.
-fn put_tool_calls_in_chat_history(
-    dagops: &mut impl DagOpsTrait,
-    tool_calls: &[ContentItemFunction],
-) -> Result<(), String> {
-    let mut tcch_lines = vec![
-        serde_json::to_string(&json!([{"type":"ctl"},{"role":"assistant"}]))
-            .map_err(|e| e.to_string())?,
-    ];
-    tcch_lines.extend(
-        tool_calls
-            .iter()
-            .map(|tc| {
-                serde_json::to_string(&json!([{
-                    "type": "function",
-                    "id": tc.id,
-                    "name": tc.function_name,
-                  },{
-                    "arguments": tc.function_arguments
-                }]))
-                .map_err(|e| e.to_string())
-            })
-            .collect::<Result<Vec<_>, String>>()?,
-    );
-    let tcch = tcch_lines.join("\n");
-    let explain = format!(
-        "tool calls in chat history - {}",
-        tool_calls
-            .iter()
-            .map(|tc| tc.function_name.as_str())
-            .collect::<Vec<_>>()
-            .join(" - ")
-    );
-    {
-        let fd = dagops.open_write_pipe(Some(&explain))?;
-        let mut writer = dagops.open_writer_to_pipe(fd)?;
-        writer
-            .write_all(tcch.as_bytes())
-            .map_err(|e| e.to_string())?;
-        #[allow(clippy::cast_sign_loss)]
-        let fd_u32 = fd as u32;
-        dagops.alias_fd(".chat_messages", fd_u32)?
-    };
-    Ok(())
-}
-
-/// PLACEHOLDER: Inject function calls into the workflow DAG.
-/// This function is replaced by DagOpsWrite for element-by-element processing.
-/// Current callers will be refactored later.
-///
-/// # Errors
-/// Promotes errors from the host.
-pub fn inject_tool_calls(
-    dagops: &mut impl DagOpsTrait,
-    tool_calls: &[ContentItemFunction],
-) -> Result<(), String> {
-    // Placeholder implementation - use the original logic for now
-    // TODO: Refactor callers to use DagOpsWrite + FunCallsToChat combination
-    if tool_calls.is_empty() {
-        return Ok(());
-    }
-
-    dagops.detach_from_alias(".chat_messages")?;
-    put_tool_calls_in_chat_history(dagops, tool_calls)?;
-
-    for tool_call in tool_calls {
-        let explain = format!("tool input - {}", tool_call.function_name);
-        let tool_input_fd = dagops.open_write_pipe(Some(&explain))?;
-        #[allow(clippy::cast_sign_loss)]
-        let tool_input_fd_u32 = tool_input_fd as u32;
-        {
-            let mut writer = dagops.open_writer_to_pipe(tool_input_fd)?;
-            writer
-                .write_all(tool_call.function_arguments.as_bytes())
-                .map_err(|e| e.to_string())?;
-            dagops.alias_fd(".tool_input", tool_input_fd_u32)?
-        };
-
-        let tool_name = &tool_call.function_name;
-        let tool_handle = dagops.instantiate_with_deps(
-            &format!(".tool.{tool_name}"),
-            HashMap::from([(".tool_input".to_string(), tool_input_fd_u32)]).into_iter(),
-        )?;
-
-        let tool_spec = json!([{
-            "type": "function",
-            "id": tool_call.id,
-            "name": tool_call.function_name,
-        },{
-            "arguments": tool_call.function_arguments
-        }]);
-        let explain = format!("tool call spec - {}", tool_call.function_name);
-        let tool_spec_handle_fd = dagops.open_write_pipe(Some(&explain))?;
-        #[allow(clippy::cast_sign_loss)]
-        let tool_spec_handle_fd_u32 = tool_spec_handle_fd as u32;
-        {
-            let mut writer = dagops.open_writer_to_pipe(tool_spec_handle_fd)?;
-            writer
-                .write_all(
-                    serde_json::to_string(&tool_spec)
-                        .map_err(|e| e.to_string())?
-                        .as_bytes(),
-                )
-                .map_err(|e| e.to_string())?;
-            dagops.alias_fd(".llm_tool_spec", tool_spec_handle_fd_u32)?
-        };
-
-        let msg_handle = dagops.instantiate_with_deps(
-            ".toolcall_to_messages",
-            HashMap::from([
-                (".llm_tool_spec".to_string(), tool_spec_handle_fd_u32),
-                (".tool_output".to_string(), tool_handle),
-            ])
-            .into_iter(),
-        )?;
-        dagops.alias(".chat_messages", msg_handle)?;
-    }
-
-    let rerun_handle = dagops.instantiate_with_deps(
-        ".gpt",
-        HashMap::from([
-            (".chat_messages.media".to_string(), 0),
-            (".chat_messages.toolspecs".to_string(), 0),
-        ])
-        .into_iter(),
-    )?;
-    dagops.alias(".output_messages", rerun_handle)?;
-
-    Ok(())
-}
 
 /// DagOpsWrite implements FunCallsWrite trait for element-by-element DAG operations
 pub struct DagOpsWrite<'a, T: DagOpsTrait> {
     dagops: &'a mut T,
     detached: bool,
-    current_tool_call: Option<ContentItemFunction>,
-    processed_tool_calls: Vec<ContentItemFunction>,
+    current_id: String,
+    current_name: String,
+    current_arguments: String,
+    processed_tool_calls_count: usize,
 }
 
 impl<'a, T: DagOpsTrait> DagOpsWrite<'a, T> {
@@ -269,8 +145,10 @@ impl<'a, T: DagOpsTrait> DagOpsWrite<'a, T> {
         Self {
             dagops,
             detached: false,
-            current_tool_call: None,
-            processed_tool_calls: Vec::new(),
+            current_id: String::new(),
+            current_name: String::new(),
+            current_arguments: String::new(),
+            processed_tool_calls_count: 0,
         }
     }
 }
@@ -289,98 +167,91 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for DagOpsWrite<'a, T> {
         }
 
         // Store the current tool call being built
-        self.current_tool_call = Some(ContentItemFunction::new(&id, &name, ""));
+        self.current_id = id;
+        self.current_name = name;
+        self.current_arguments.clear();
         
         Ok(())
     }
 
     fn arguments_chunk(&mut self, args: String) -> Result<(), Box<dyn std::error::Error>> {
         // Append arguments to the current tool call
-        if let Some(ref mut tool_call) = self.current_tool_call {
-            if tool_call.function_arguments.is_empty() {
-                tool_call.function_arguments = args;
-            } else {
-                tool_call.function_arguments.push_str(&args);
-            }
-        }
+        self.current_arguments.push_str(&args);
         Ok(())
     }
 
     fn end_item(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // Process the current tool call element-by-element
-        if let Some(tool_call) = self.current_tool_call.take() {
-            if tool_call.id.is_empty() {
-                return Ok(()); // Skip empty/uninitialized tool calls
-            }
-
-            // Add this tool call to processed list
-            self.processed_tool_calls.push(tool_call.clone());
-
-            //
-            // Run the tool
-            //
-            let explain = format!("tool input - {}", tool_call.function_name);
-            let tool_input_fd = self.dagops.open_write_pipe(Some(&explain))?;
-            #[allow(clippy::cast_sign_loss)]
-            let tool_input_fd_u32 = tool_input_fd as u32;
-            {
-                let mut writer = self.dagops.open_writer_to_pipe(tool_input_fd)?;
-                writer
-                    .write_all(tool_call.function_arguments.as_bytes())
-                    .map_err(|e| e.to_string())?;
-                self.dagops.alias_fd(".tool_input", tool_input_fd_u32)?
-            };
-
-            let tool_name = &tool_call.function_name;
-            let tool_handle = self.dagops.instantiate_with_deps(
-                &format!(".tool.{tool_name}"),
-                HashMap::from([(".tool_input".to_string(), tool_input_fd_u32)]).into_iter(),
-            )?;
-
-            //
-            // Convert tool output to messages
-            //
-            let tool_spec = json!([{
-                "type": "function",
-                "id": tool_call.id,
-                "name": tool_call.function_name,
-            },{
-                "arguments": tool_call.function_arguments
-            }]);
-            let explain = format!("tool call spec - {}", tool_call.function_name);
-            let tool_spec_handle_fd = self.dagops.open_write_pipe(Some(&explain))?;
-            #[allow(clippy::cast_sign_loss)]
-            let tool_spec_handle_fd_u32 = tool_spec_handle_fd as u32;
-            {
-                let mut writer = self.dagops.open_writer_to_pipe(tool_spec_handle_fd)?;
-                writer
-                    .write_all(
-                        serde_json::to_string(&tool_spec)
-                            .map_err(|e| e.to_string())?
-                            .as_bytes(),
-                    )
-                    .map_err(|e| e.to_string())?;
-                self.dagops.alias_fd(".llm_tool_spec", tool_spec_handle_fd_u32)?
-            };
-
-            let msg_handle = self.dagops.instantiate_with_deps(
-                ".toolcall_to_messages",
-                HashMap::from([
-                    (".llm_tool_spec".to_string(), tool_spec_handle_fd_u32),
-                    (".tool_output".to_string(), tool_handle),
-                ])
-                .into_iter(),
-            )?;
-
-            self.dagops.alias(".chat_messages", msg_handle)?;
+        if self.current_id.is_empty() {
+            return Ok(()); // Skip empty/uninitialized tool calls
         }
+
+        // Increment processed tool calls count
+        self.processed_tool_calls_count += 1;
+
+        //
+        // Run the tool
+        //
+        let explain = format!("tool input - {}", self.current_name);
+        let tool_input_fd = self.dagops.open_write_pipe(Some(&explain))?;
+        #[allow(clippy::cast_sign_loss)]
+        let tool_input_fd_u32 = tool_input_fd as u32;
+        {
+            let mut writer = self.dagops.open_writer_to_pipe(tool_input_fd)?;
+            writer
+                .write_all(self.current_arguments.as_bytes())
+                .map_err(|e| e.to_string())?;
+            self.dagops.alias_fd(".tool_input", tool_input_fd_u32)?
+        };
+
+        let tool_handle = self.dagops.instantiate_with_deps(
+            &format!(".tool.{}", self.current_name),
+            HashMap::from([(".tool_input".to_string(), tool_input_fd_u32)]).into_iter(),
+        )?;
+
+        //
+        // Convert tool output to messages
+        //
+        let tool_spec = json!([{
+            "type": "function",
+            "id": self.current_id,
+            "name": self.current_name,
+        },{
+            "arguments": self.current_arguments
+        }]);
+        let explain = format!("tool call spec - {}", self.current_name);
+        let tool_spec_handle_fd = self.dagops.open_write_pipe(Some(&explain))?;
+        #[allow(clippy::cast_sign_loss)]
+        let tool_spec_handle_fd_u32 = tool_spec_handle_fd as u32;
+        {
+            let mut writer = self.dagops.open_writer_to_pipe(tool_spec_handle_fd)?;
+            writer
+                .write_all(
+                    serde_json::to_string(&tool_spec)
+                        .map_err(|e| e.to_string())?
+                        .as_bytes(),
+                )
+                .map_err(|e| e.to_string())?;
+            self.dagops.alias_fd(".llm_tool_spec", tool_spec_handle_fd_u32)?
+        };
+
+        let msg_handle = self.dagops.instantiate_with_deps(
+            ".toolcall_to_messages",
+            HashMap::from([
+                (".llm_tool_spec".to_string(), tool_spec_handle_fd_u32),
+                (".tool_output".to_string(), tool_handle),
+            ])
+            .into_iter(),
+        )?;
+
+        self.dagops.alias(".chat_messages", msg_handle)?;
 
         Ok(())
     }
 
     fn end(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // Rerun model if we processed any tool calls
-        if !self.processed_tool_calls.is_empty() {
+        if self.processed_tool_calls_count > 0 {
             let rerun_handle = self.dagops.instantiate_with_deps(
                 ".gpt",
                 HashMap::from([

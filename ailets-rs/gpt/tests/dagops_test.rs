@@ -2,7 +2,7 @@
 #[macro_use]
 extern crate hamcrest;
 use crate::dagops_mock::TrackedDagOps;
-use gpt::funcalls::{ContentItemFunction, FunCallsWrite, FunCallsGpt};
+use gpt::funcalls::{FunCallsWrite, FunCallsGpt};
 use hamcrest::prelude::*;
 use serde_json::json;
 use std::collections::HashMap;

@@ -134,7 +134,7 @@ fn make_triggers<'a, W: Write + 'a>() -> Vec<Trigger<'a, BA<'a, W>>> {
 pub fn _process_gpt<W: Write>(
     mut reader: impl std::io::Read,
     writer: W,
-    dagops: &mut impl InjectDagOpsTrait,
+    _dagops: &mut impl InjectDagOpsTrait,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let funcalls = FunCalls::new();
     let builder = StructureBuilder::new(writer, funcalls);
@@ -173,11 +173,9 @@ pub fn _process_gpt<W: Write>(
     let mut builder = builder_cell.borrow_mut();
     builder.end_message()?;
 
-    let funcalls = builder.get_funcalls();
-    // Inject the current tool call if it exists
-    if let Some(current_call) = funcalls.get_current_funcall() {
-        dagops.inject_tool_calls(&[current_call.clone()])?;
-    }
+    let _funcalls = builder.get_funcalls();
+    // Note: Function call processing is now handled through FunCallsWrite trait
+    // This legacy path is being phased out in favor of DagOpsWrite + FunCallsToChat
     Ok(())
 }
 

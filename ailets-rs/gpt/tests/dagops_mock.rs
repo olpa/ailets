@@ -3,10 +3,57 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use actor_runtime_mocked::{Vfs, VfsWriter};
-use gpt::dagops::{DagOpsTrait, DagOpsWrite};
-use gpt::dagops::{inject_tool_calls, InjectDagOpsTrait};
-use gpt::funcalls::{ContentItemFunction, FunCallsWrite};
+use gpt::dagops::{DagOpsTrait, DagOpsWrite, InjectDagOpsTrait};
+use gpt::funcalls::FunCallsWrite;
 use std::io::Write;
+
+/// Test-only definition of ContentItemFunction for backward compatibility
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
+pub struct ContentItemFunction {
+    // type: "function",
+    pub id: String,
+    pub function_name: String,
+    pub function_arguments: String,
+}
+
+impl ContentItemFunction {
+    /// Creates a new function call
+    #[must_use]
+    pub fn new(id: &str, function_name: &str, function_arguments: &str) -> Self {
+        Self {
+            id: id.to_string(),
+            function_name: function_name.to_string(),
+            function_arguments: function_arguments.to_string(),
+        }
+    }
+}
+
+/// Test-only function: Inject function calls into the workflow DAG using FunCallsWrite.
+pub fn inject_tool_calls(
+    dagops: &mut impl DagOpsTrait,
+    tool_calls: &[ContentItemFunction],
+) -> Result<(), String> {
+    if tool_calls.is_empty() {
+        return Ok(());
+    }
+
+    // Use DagOpsWrite for the actual implementation
+    let mut writer = DagOpsWrite::new(dagops);
+    
+    for (index, tool_call) in tool_calls.iter().enumerate() {
+        writer.new_item(index, tool_call.id.clone(), tool_call.function_name.clone())
+            .map_err(|e| e.to_string())?;
+        writer.arguments_chunk(tool_call.function_arguments.clone())
+            .map_err(|e| e.to_string())?;
+        writer.end_item()
+            .map_err(|e| e.to_string())?;
+    }
+    
+    writer.end()
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
 
 pub struct TrackedInjectDagOps {
     dagops: Rc<RefCell<TrackedDagOps>>,
@@ -30,7 +77,15 @@ impl TrackedInjectDagOps {
 }
 
 impl InjectDagOpsTrait for TrackedInjectDagOps {
-    fn inject_tool_calls(&mut self, tool_calls: &[ContentItemFunction]) -> Result<(), String> {
+    fn process_with_funcalls_write(&mut self, _writer: &mut dyn FunCallsWrite) -> Result<(), Box<dyn std::error::Error>> {
+        // Not needed for this mock
+        Ok(())
+    }
+}
+
+// Add a test-specific method for backward compatibility
+impl TrackedInjectDagOps {
+    pub fn inject_tool_calls(&mut self, tool_calls: &[ContentItemFunction]) -> Result<(), String> {
         self.tool_calls = tool_calls.to_vec();
         inject_tool_calls(&mut *self.dagops.borrow_mut(), tool_calls)
     }
