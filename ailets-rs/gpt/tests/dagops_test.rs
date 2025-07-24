@@ -30,6 +30,8 @@ fn inject_tool_calls_to_dag() {
         dagops_writer.new_item(1, "call_2".to_string(), "get_forecast".to_string()).unwrap();
         dagops_writer.arguments_chunk("{\"days\":5}".to_string()).unwrap();
         dagops_writer.end_item().unwrap();
+        
+        dagops_writer.end().unwrap();
     } // dagops_writer is dropped here, releasing the borrow
 
     //
@@ -43,7 +45,6 @@ fn inject_tool_calls_to_dag() {
     assert_that!(&tracked_dagops.detached, is(equal_to(&expected_detached)));
 
     // Assert that the value nodes are created:
-    // With element-by-element processing, we expect:
     // - 2 for tool calls input (one per tool call)
     // - 2 for tool call specs (one per tool call)
     let value_nodes = &tracked_dagops.value_nodes;
@@ -128,7 +129,6 @@ fn inject_tool_calls_to_dag() {
     );
 
     // Assert that the workflows are created:
-    // With element-by-element processing:
     // - 2 for tools themselves
     // - 2 for output to chat history
     // - 1 to re-run the model
@@ -206,7 +206,6 @@ fn inject_tool_calls_to_dag() {
 
     //
     // Assert: aliases
-    // With element-by-element processing:
     // - For each tool call (2): 1 for tool_input + 1 for llm_tool_spec + 1 for chat_messages
     // - 1 for model output
     // Total: (3 * 2) + 1 = 7

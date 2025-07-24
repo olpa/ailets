@@ -47,6 +47,11 @@ impl FunCallsWrite for TestFunCallsWrite {
         }
         Ok(())
     }
+
+    fn end(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // No special handling needed for this test implementation
+        Ok(())
+    }
 }
 
 //
