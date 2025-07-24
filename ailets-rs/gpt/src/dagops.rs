@@ -286,7 +286,7 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for DagOpsWrite<'a, T> {
     ) -> Result<(), Box<dyn std::error::Error>> {
         // On first item, detach (similar to inject_tool_calls)
         if !self.detached {
-            self.setup_loop_iteration_in_dag();
+            self.setup_loop_iteration_in_dag()?;
             self.detached = true;
         }
 
@@ -294,21 +294,6 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for DagOpsWrite<'a, T> {
         self.current_tool_call = Some(ContentItemFunction::new(&id, &name, ""));
         
         Ok(())
-    }
-
-    fn setup_loop_iteration_in_dag() {
-            //
-        // Don't interfere with previous model workflow:
-        //
-        // - We are going to update the chat history, by adding more to the alias ".chat_messages"
-        // - The old finished run of "user prompt to messages" depended on ".chat_messages"
-        // - If we don't detach, the dependency graph will show that the old "user prompt to messages"
-        //   run depends on the new items in ".chat_messages". It's very very confusing,
-        //   even despite the current runner implementation ignores the dependency changes
-        //   of a finished step.
-        //
-        self.dagops.detach_from_alias(".chat_messages")?;
-
     }
 
     fn arguments_chunk(&mut self, args: String) -> Result<(), Box<dyn std::error::Error>> {
@@ -414,6 +399,23 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for DagOpsWrite<'a, T> {
             self.dagops.alias(".output_messages", rerun_handle)?;
         }
 
+        Ok(())
+    }
+}
+
+impl<'a, T: DagOpsTrait> DagOpsWrite<'a, T> {
+    fn setup_loop_iteration_in_dag(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        //
+        // Don't interfere with previous model workflow:
+        //
+        // - We are going to update the chat history, by adding more to the alias ".chat_messages"
+        // - The old finished run of "user prompt to messages" depended on ".chat_messages"
+        // - If we don't detach, the dependency graph will show that the old "user prompt to messages"
+        //   run depends on the new items in ".chat_messages". It's very very confusing,
+        //   even despite the current runner implementation ignores the dependency changes
+        //   of a finished step.
+        //
+        self.dagops.detach_from_alias(".chat_messages")?;
         Ok(())
     }
 }
