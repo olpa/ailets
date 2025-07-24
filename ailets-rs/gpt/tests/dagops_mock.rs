@@ -39,18 +39,18 @@ pub fn inject_tool_calls(
 
     // Use DagOpsWrite for the actual implementation
     let mut writer = DagOpsWrite::new(dagops);
-    
+
     for (index, tool_call) in tool_calls.iter().enumerate() {
-        writer.new_item(index, tool_call.id.clone(), tool_call.function_name.clone())
+        writer
+            .new_item(index, tool_call.id.clone(), tool_call.function_name.clone())
             .map_err(|e| e.to_string())?;
-        writer.arguments_chunk(tool_call.function_arguments.clone())
+        writer
+            .arguments_chunk(tool_call.function_arguments.clone())
             .map_err(|e| e.to_string())?;
-        writer.end_item()
-            .map_err(|e| e.to_string())?;
+        writer.end_item().map_err(|e| e.to_string())?;
     }
-    
-    writer.end()
-        .map_err(|e| e.to_string())?;
+
+    writer.end().map_err(|e| e.to_string())?;
 
     Ok(())
 }
@@ -77,7 +77,10 @@ impl TrackedInjectDagOps {
 }
 
 impl InjectDagOpsTrait for TrackedInjectDagOps {
-    fn process_with_funcalls_write(&mut self, _writer: &mut dyn FunCallsWrite) -> Result<(), Box<dyn std::error::Error>> {
+    fn process_with_funcalls_write(
+        &mut self,
+        _writer: &mut dyn FunCallsWrite,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // Not needed for this mock
         Ok(())
     }

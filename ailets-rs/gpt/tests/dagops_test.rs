@@ -2,11 +2,11 @@
 #[macro_use]
 extern crate hamcrest;
 use crate::dagops_mock::TrackedDagOps;
-use gpt::funcalls::{FunCallsWrite, FunCallsGpt};
+use actor_runtime_mocked::RcWriter;
+use gpt::funcalls::{FunCallsGpt, FunCallsWrite};
 use hamcrest::prelude::*;
 use serde_json::json;
 use std::collections::HashMap;
-use actor_runtime_mocked::RcWriter;
 pub mod dagops_mock;
 
 #[test]
@@ -16,21 +16,29 @@ fn inject_tool_calls_to_dag() {
     //
     let mut tracked_dagops = TrackedDagOps::default();
     let writer = RcWriter::new();
-    
+
     //
     // Act
     //
     {
         let mut dagops_writer = FunCallsGpt::new(writer.clone(), &mut tracked_dagops);
 
-        dagops_writer.new_item(0, "call_1".to_string(), "get_weather".to_string()).unwrap();
-        dagops_writer.arguments_chunk("{\"city\":\"London\"}".to_string()).unwrap();
+        dagops_writer
+            .new_item(0, "call_1".to_string(), "get_weather".to_string())
+            .unwrap();
+        dagops_writer
+            .arguments_chunk("{\"city\":\"London\"}".to_string())
+            .unwrap();
         dagops_writer.end_item().unwrap();
 
-        dagops_writer.new_item(1, "call_2".to_string(), "get_forecast".to_string()).unwrap();
-        dagops_writer.arguments_chunk("{\"days\":5}".to_string()).unwrap();
+        dagops_writer
+            .new_item(1, "call_2".to_string(), "get_forecast".to_string())
+            .unwrap();
+        dagops_writer
+            .arguments_chunk("{\"days\":5}".to_string())
+            .unwrap();
         dagops_writer.end_item().unwrap();
-        
+
         dagops_writer.end().unwrap();
     } // dagops_writer is dropped here, releasing the borrow
 
@@ -246,7 +254,7 @@ fn inject_empty_tool_calls_to_dag() {
     // Arrange
     let mut tracked_dagops = TrackedDagOps::default();
     let writer = RcWriter::new();
-    
+
     {
         let _dagops_writer = FunCallsGpt::new(writer.clone(), &mut tracked_dagops);
 

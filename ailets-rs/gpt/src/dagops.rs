@@ -96,11 +96,14 @@ impl DagOpsTrait for DagOps {
 
 /// One level of indirection to test that funcalls are collected correctly
 pub trait InjectDagOpsTrait {
-    /// Process function calls using FunCallsWrite trait implementation.
+    /// Process function calls using `FunCallsWrite` trait implementation.
     ///
     /// # Errors
     /// Promotes errors from the host.
-    fn process_with_funcalls_write(&mut self, writer: &mut dyn FunCallsWrite) -> Result<(), Box<dyn std::error::Error>>;
+    fn process_with_funcalls_write(
+        &mut self,
+        writer: &mut dyn FunCallsWrite,
+    ) -> Result<(), Box<dyn std::error::Error>>;
 }
 
 pub struct InjectDagOps<T: DagOpsTrait> {
@@ -115,21 +118,23 @@ impl<T: DagOpsTrait> InjectDagOps<T> {
 }
 
 impl<T: DagOpsTrait> InjectDagOpsTrait for InjectDagOps<T> {
-    fn process_with_funcalls_write(&mut self, writer: &mut dyn FunCallsWrite) -> Result<(), Box<dyn std::error::Error>> {
+    fn process_with_funcalls_write(
+        &mut self,
+        writer: &mut dyn FunCallsWrite,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // Create a DagOpsWrite and delegate to it
         let mut dag_writer = DagOpsWrite::new(&mut self.dagops);
-        
+
         // The actual processing logic would be implemented here
         // For now, just call end() to finalize any processing
         writer.end()?;
         dag_writer.end()?;
-        
+
         Ok(())
     }
 }
 
-
-/// DagOpsWrite implements FunCallsWrite trait for element-by-element DAG operations
+/// `DagOpsWrite` implements `FunCallsWrite` trait for element-by-element DAG operations
 pub struct DagOpsWrite<'a, T: DagOpsTrait> {
     dagops: &'a mut T,
     detached: bool,
@@ -170,7 +175,7 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for DagOpsWrite<'a, T> {
         self.current_id = id;
         self.current_name = name;
         self.current_arguments.clear();
-        
+
         Ok(())
     }
 
@@ -232,7 +237,8 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for DagOpsWrite<'a, T> {
                         .as_bytes(),
                 )
                 .map_err(|e| e.to_string())?;
-            self.dagops.alias_fd(".llm_tool_spec", tool_spec_handle_fd_u32)?
+            self.dagops
+                .alias_fd(".llm_tool_spec", tool_spec_handle_fd_u32)?
         };
 
         let msg_handle = self.dagops.instantiate_with_deps(
@@ -283,4 +289,3 @@ impl<'a, T: DagOpsTrait> DagOpsWrite<'a, T> {
         Ok(())
     }
 }
-

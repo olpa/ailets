@@ -54,7 +54,7 @@ pub trait FunCallsWrite {
 }
 
 /// No-op implementation of `FunCallsWrite` for parsing/streaming mode
-/// This writer does nothing - it's used when we only want to update FunCalls state
+/// This writer does nothing - it's used when we only want to update `FunCalls` state
 /// without actually writing anything.
 pub struct NoOpFunCallsWrite;
 
@@ -148,7 +148,6 @@ impl<W: std::io::Write> FunCallsWrite for FunCallsToChat<W> {
     }
 }
 
-
 /// State of a function call being built
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 struct FunctionCallState {
@@ -170,6 +169,7 @@ impl FunctionCallState {
 
 /// A collection of function calls with support for incremental updates and validation
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct FunCalls {
     // Core delta/streaming state
     pub last_index: Option<usize>,
@@ -200,33 +200,27 @@ impl FunCalls {
         }
     }
 
-
-    /// Calls new_item immediately if both id and name are now available
+    /// Calls `new_item` immediately if both id and name are now available
     fn try_call_new_item(
         &mut self,
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if !self.current_call.new_item_called
-            && self.current_call.id.is_some()
-            && self.current_call.name.is_some()
-        {
-            let current_index = self.last_index.unwrap_or(0);
-            writer.new_item(
-                current_index,
-                self.current_call.id.as_ref().unwrap().clone(),
-                self.current_call.name.as_ref().unwrap().clone(),
-            )?;
-            self.current_call.new_item_called = true;
+        if !self.current_call.new_item_called {
+            if let (Some(id), Some(name)) = (&self.current_call.id, &self.current_call.name) {
+                let current_index = self.last_index.unwrap_or(0);
+                writer.new_item(current_index, id.clone(), name.clone())?;
+                self.current_call.new_item_called = true;
 
-            // Send any pending arguments that were accumulated before new_item
-            if !self.current_call.pending_arguments.is_empty() {
-                writer.arguments_chunk(self.current_call.pending_arguments.clone())?;
-                self.current_call.pending_arguments.clear();
+                // Send any pending arguments that were accumulated before new_item
+                if !self.current_call.pending_arguments.is_empty() {
+                    writer.arguments_chunk(self.current_call.pending_arguments.clone())?;
+                    self.current_call.pending_arguments.clear();
+                }
+
+                // Clear id and name - no longer needed after new_item
+                self.current_call.id = None;
+                self.current_call.name = None;
             }
-
-            // Clear id and name - no longer needed after new_item
-            self.current_call.id = None;
-            self.current_call.name = None;
         }
         Ok(())
     }
@@ -267,7 +261,7 @@ impl FunCalls {
     /// * `writer` - The writer to use for ending the item
     ///
     /// # Errors
-    /// Returns error if "end_item" is called without "new_item" being called first
+    /// Returns error if "`end_item`" is called without "`new_item`" being called first
     pub fn end_item(
         &mut self,
         writer: &mut dyn FunCallsWrite,
@@ -283,7 +277,6 @@ impl FunCalls {
 
         Ok(())
     }
-
 
     /// Reset streaming state (called when beginning a new message)
     pub fn reset_streaming_state(&mut self) {
@@ -311,10 +304,10 @@ impl FunCalls {
     /// Get current arguments for streaming (returns what we have so far)
     #[must_use]
     pub fn get_current_arguments(&self) -> Option<String> {
-        if !self.current_call.pending_arguments.is_empty() {
-            Some(self.current_call.pending_arguments.clone())
-        } else {
+        if self.current_call.pending_arguments.is_empty() {
             None
+        } else {
+            Some(self.current_call.pending_arguments.clone())
         }
     }
 
@@ -456,14 +449,14 @@ impl FunCalls {
     }
 }
 
-/// FunCallsGpt forwards function call events to both FunCallsToChat and DagOpsWrite
+/// `FunCallsGpt` forwards function call events to both `FunCallsToChat` and `DagOpsWrite`
 pub struct FunCallsGpt<'a, W: std::io::Write, T: crate::dagops::DagOpsTrait> {
     chat_writer: crate::funcalls::FunCallsToChat<W>,
     dag_writer: crate::dagops::DagOpsWrite<'a, T>,
 }
 
 impl<'a, W: std::io::Write, T: crate::dagops::DagOpsTrait> FunCallsGpt<'a, W, T> {
-    /// Create a new FunCallsGpt instance
+    /// Create a new `FunCallsGpt` instance
     pub fn new(writer: W, dagops: &'a mut T) -> Self {
         Self {
             chat_writer: crate::funcalls::FunCallsToChat::new(writer),

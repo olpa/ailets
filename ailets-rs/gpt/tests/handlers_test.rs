@@ -1,5 +1,5 @@
 use actor_runtime_mocked::RcWriter;
-use gpt::funcalls::{ContentItemFunction, FunCalls};
+use gpt::funcalls::FunCalls;
 use gpt::handlers::{on_content, on_function_index, on_function_name};
 use gpt::structure_builder::StructureBuilder;
 use scan_json::{RJiter, StreamOp};
@@ -48,34 +48,6 @@ fn content_can_be_null() {
     // Assert
     assert!(matches!(result, StreamOp::ValueIsConsumed));
     assert_eq!(writer.get_output(), "");
-}
-
-#[test]
-fn on_function_string_field() {
-    // Arrange
-    let mut buffer = Cursor::new(Vec::new());
-    let funcalls = FunCalls::new();
-    let builder = StructureBuilder::new(&mut buffer, funcalls);
-    let builder_cell = RefCell::new(builder);
-
-    // Arrange: Create RJiter with a test string
-    let json = r#""test_function""#;
-    let mut json_reader = Cursor::new(json);
-    let mut buffer = [0u8; 32];
-    let rjiter = RJiter::new(&mut json_reader, &mut buffer);
-    let rjiter_cell = RefCell::new(rjiter);
-
-    // Act
-    let result = on_function_name(&rjiter_cell, &builder_cell);
-    assert!(matches!(result, StreamOp::ValueIsConsumed));
-
-    // Assert: Verify that the function name was set in FunCalls
-    let mut builder = builder_cell.borrow_mut();
-    let funcalls = builder.get_funcalls_mut();
-    assert_eq!(
-        funcalls.get_current_funcall(),
-        &Some(ContentItemFunction::new("", "test_function", ""))
-    );
 }
 
 #[test]
