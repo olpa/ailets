@@ -6,7 +6,7 @@ pub mod structure_builder;
 use actor_io::{AReader, AWriter};
 use actor_runtime::{err_to_heap_c_string, extract_errno, StdHandle};
 use dagops::{DagOps, InjectDagOps, InjectDagOpsTrait};
-use funcalls::FunCalls;
+
 use handlers::{
     on_begin_message, on_content, on_end_message, on_function_arguments, on_function_end,
     on_function_id, on_function_index, on_function_name, on_role,
@@ -134,10 +134,9 @@ fn make_triggers<'a, W: Write + 'a>() -> Vec<Trigger<'a, BA<'a, W>>> {
 pub fn _process_gpt<W: Write>(
     mut reader: impl std::io::Read,
     writer: W,
-    _dagops: &mut impl InjectDagOpsTrait,
+    dagops: &mut impl InjectDagOpsTrait,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let funcalls = FunCalls::new();
-    let builder = StructureBuilder::new(writer, funcalls);
+    let builder = StructureBuilder::new(writer);
     let builder_cell = RefCell::new(builder);
 
     let mut buffer = vec![0u8; BUFFER_SIZE as usize];
@@ -173,9 +172,6 @@ pub fn _process_gpt<W: Write>(
     let mut builder = builder_cell.borrow_mut();
     builder.end_message()?;
 
-    let _funcalls = builder.get_funcalls();
-    // Note: Function call processing is now handled through FunCallsWrite trait
-    // This legacy path is being phased out in favor of DagOpsWrite + FunCallsToChat
     Ok(())
 }
 

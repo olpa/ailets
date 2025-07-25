@@ -8,8 +8,7 @@ use gpt::structure_builder::StructureBuilder;
 fn basic_pass() {
     // Arrange
     let mut writer = RcWriter::new();
-    let funcalls = FunCalls::new();
-    let mut builder = StructureBuilder::new(writer.clone(), funcalls);
+    let mut builder = StructureBuilder::new(writer.clone());
 
     // Act
     builder.begin_message();
@@ -30,8 +29,7 @@ fn basic_pass() {
 fn create_message_without_input_role() {
     // Arrange
     let mut writer = RcWriter::new();
-    let funcalls = FunCalls::new();
-    let mut builder = StructureBuilder::new(writer.clone(), funcalls);
+    let mut builder = StructureBuilder::new(writer.clone());
 
     // Act without "builder.role()"
     builder.begin_message();
@@ -51,8 +49,7 @@ fn create_message_without_input_role() {
 fn can_call_end_message_multiple_times() {
     // Arrange
     let mut writer = RcWriter::new();
-    let funcalls = FunCalls::new();
-    let mut builder = StructureBuilder::new(writer.clone(), funcalls);
+    let mut builder = StructureBuilder::new(writer.clone());
 
     // Act
     builder.begin_message();
@@ -74,8 +71,7 @@ fn can_call_end_message_multiple_times() {
 fn output_direct_tool_call() {
     // Arrange
     let writer = RcWriter::new();
-    let funcalls = FunCalls::new();
-    let mut builder = StructureBuilder::new(writer.clone(), funcalls);
+    let mut builder = StructureBuilder::new(writer.clone());
 
     // Act
     builder.begin_message();
@@ -97,8 +93,7 @@ fn output_direct_tool_call() {
 fn output_streaming_tool_call() {
     // Arrange
     let writer = RcWriter::new();
-    let funcalls = FunCalls::new();
-    let mut builder = StructureBuilder::new(writer.clone(), funcalls);
+    let mut builder = StructureBuilder::new(writer.clone());
 
     // Act
     builder.begin_message();

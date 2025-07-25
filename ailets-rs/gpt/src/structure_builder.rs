@@ -16,14 +16,14 @@ pub struct StructureBuilder<W: Write> {
 
 impl<W: Write> StructureBuilder<W> {
     #[must_use]
-    pub fn new(writer: W, funcalls: FunCalls) -> Self {
+    pub fn new(writer: W) -> Self {
         StructureBuilder {
             writer,
             role: None,
             message_has_content: false,
             text_is_open: false,
             message_is_closed: false,
-            funcalls,
+            funcalls: FunCalls::new(),
         }
     }
 
