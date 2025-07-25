@@ -22,11 +22,7 @@ impl TestFunCallsWrite {
 }
 
 impl FunCallsWrite for TestFunCallsWrite {
-    fn new_item(
-        &mut self,
-        id: String,
-        name: String,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn new_item(&mut self, id: String, name: String) -> Result<(), Box<dyn std::error::Error>> {
         // Store the id and name, reset arguments accumulator
         self.current_arguments.clear();
         // We'll store the complete item in end_item()
