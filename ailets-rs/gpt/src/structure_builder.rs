@@ -116,69 +116,6 @@ impl<W: Write> StructureBuilder<W> {
         Ok(())
     }
 
-    /// Output just the tool call ID as soon as it's available
-    /// # Errors
-    /// I/O
-    pub fn output_tool_call_id(&mut self, id: &str) -> Result<(), std::io::Error> {
-        if !self.message_has_content {
-            self.begin_content()?;
-        }
-        if self.text_is_open {
-            self.writer.write_all(b"\"}]")?;
-            self.text_is_open = false;
-        }
-
-        self.writer
-            .write_all(b"[{\"type\":\"tool_call_id\"},{\"id\":\"")?;
-        self.writer.write_all(id.as_bytes())?;
-        self.writer.write_all(b"\"}]\n")?;
-        Ok(())
-    }
-
-    /// Output just the tool call name as soon as it's available
-    /// # Errors
-    /// I/O
-    pub fn output_tool_call_name(&mut self, name: &str) -> Result<(), std::io::Error> {
-        if !self.message_has_content {
-            self.begin_content()?;
-        }
-        if self.text_is_open {
-            self.writer.write_all(b"\"}]")?;
-            self.text_is_open = false;
-        }
-
-        self.writer
-            .write_all(b"[{\"type\":\"tool_call_name\"},{\"function_name\":\"")?;
-        self.writer.write_all(name.as_bytes())?;
-        self.writer.write_all(b"\"}]\n")?;
-        Ok(())
-    }
-
-    /// Output tool call arguments chunk as it becomes available
-    /// # Errors
-    /// I/O
-    pub fn output_tool_call_arguments_chunk(
-        &mut self,
-        args_chunk: &str,
-    ) -> Result<(), std::io::Error> {
-        if !self.message_has_content {
-            self.begin_content()?;
-        }
-        if self.text_is_open {
-            self.writer.write_all(b"\"}]")?;
-            self.text_is_open = false;
-        }
-
-        // Escape the JSON string content for embedding in JSON
-        let escaped_args = args_chunk.replace('\\', "\\\\").replace('"', "\\\"");
-
-        self.writer
-            .write_all(b"[{\"type\":\"tool_call_arguments\"},{\"function_arguments\":\"")?;
-        self.writer.write_all(escaped_args.as_bytes())?;
-        self.writer.write_all(b"\"}]\n")?;
-        Ok(())
-    }
-
     /// Public interface for setting tool call ID - forwards to funcalls and handles streaming
     /// # Errors
     /// Returns error if validation fails or I/O error occurs
