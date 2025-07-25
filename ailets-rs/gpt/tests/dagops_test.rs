@@ -3,7 +3,7 @@
 extern crate hamcrest;
 use crate::dagops_mock::TrackedDagOps;
 use actor_runtime_mocked::RcWriter;
-use gpt::funcalls::{FunCallsGpt, FunCallsWrite};
+use gpt::funcalls_write::{FunCallsGpt, FunCallsWrite};
 use hamcrest::prelude::*;
 use serde_json::json;
 use std::collections::HashMap;

@@ -1,5 +1,6 @@
 pub mod dagops;
 pub mod funcalls;
+pub mod funcalls_write;
 pub mod handlers;
 pub mod structure_builder;
 

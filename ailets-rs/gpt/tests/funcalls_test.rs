@@ -1,4 +1,5 @@
-use gpt::funcalls::{FunCalls, FunCallsWrite};
+use gpt::funcalls::FunCalls;
+use gpt::funcalls_write::FunCallsWrite;
 
 /// Test implementation of FunCallsWrite that stores calls for verification
 #[derive(Debug, Default)]

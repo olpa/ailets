@@ -1,4 +1,4 @@
-use gpt::funcalls::{FunCallsToChat, FunCallsWrite};
+use gpt::funcalls_write::{FunCallsToChat, FunCallsWrite};
 
 //
 // Tests for FunCallsToChat implementation

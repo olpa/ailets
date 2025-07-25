@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use actor_runtime_mocked::{Vfs, VfsWriter};
 use gpt::dagops::{DagOpsTrait, DagOpsWrite, InjectDagOpsTrait};
-use gpt::funcalls::FunCallsWrite;
+use gpt::funcalls_write::FunCallsWrite;
 use std::io::Write;
 
 /// Test-only definition of ContentItemFunction for backward compatibility

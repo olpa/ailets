@@ -2,7 +2,8 @@
 //!
 //! Collects function calls from the JSON stream and stores them in a `FunCalls` struct.
 
-use crate::funcalls::{FunCalls, FunCallsToChat};
+use crate::funcalls::FunCalls;
+use crate::funcalls_write::FunCallsToChat;
 use std::io::Write;
 
 pub struct StructureBuilder<W: Write> {

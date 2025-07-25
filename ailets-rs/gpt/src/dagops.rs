@@ -1,6 +1,6 @@
 //! DAG Operations Module
 
-use crate::funcalls::FunCallsWrite;
+use crate::funcalls_write::FunCallsWrite;
 use actor_io::AWriter;
 use serde_json::json;
 use std::collections::HashMap;
