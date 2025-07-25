@@ -159,12 +159,7 @@ impl<'a, T: DagOpsTrait> DagOpsWrite<'a, T> {
 }
 
 impl<'a, T: DagOpsTrait> FunCallsWrite for DagOpsWrite<'a, T> {
-    fn new_item(
-        &mut self,
-        _index: usize,
-        id: String,
-        name: String,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn new_item(&mut self, id: String, name: String) -> Result<(), Box<dyn std::error::Error>> {
         // On first item, detach (similar to inject_tool_calls)
         if !self.detached {
             self.setup_loop_iteration_in_dag()?;

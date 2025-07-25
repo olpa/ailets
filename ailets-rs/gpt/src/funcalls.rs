@@ -18,18 +18,12 @@ pub trait FunCallsWrite {
     /// Start a new function call item
     ///
     /// # Arguments
-    /// * `index` - The index of the function call
     /// * `id` - The unique identifier for the function call
     /// * `name` - The name of the function to be called
     ///
     /// # Errors
     /// Returns error if the writing operation fails
-    fn new_item(
-        &mut self,
-        index: usize,
-        id: String,
-        name: String,
-    ) -> Result<(), Box<dyn std::error::Error>>;
+    fn new_item(&mut self, id: String, name: String) -> Result<(), Box<dyn std::error::Error>>;
 
     /// Add a chunk of arguments to the current function call
     ///
@@ -59,12 +53,7 @@ pub trait FunCallsWrite {
 pub struct NoOpFunCallsWrite;
 
 impl FunCallsWrite for NoOpFunCallsWrite {
-    fn new_item(
-        &mut self,
-        _index: usize,
-        _id: String,
-        _name: String,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn new_item(&mut self, _id: String, _name: String) -> Result<(), Box<dyn std::error::Error>> {
         Ok(()) // Do nothing
     }
 
@@ -106,12 +95,7 @@ impl<W: std::io::Write> FunCallsToChat<W> {
 }
 
 impl<W: std::io::Write> FunCallsWrite for FunCallsToChat<W> {
-    fn new_item(
-        &mut self,
-        _index: usize,
-        id: String,
-        name: String,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn new_item(&mut self, id: String, name: String) -> Result<(), Box<dyn std::error::Error>> {
         // Store the id and name for writing later
         self.current_id = Some(id);
         self.current_name = Some(name);
@@ -207,8 +191,7 @@ impl FunCalls {
     ) -> Result<(), Box<dyn std::error::Error>> {
         if !self.current_call.new_item_called {
             if let (Some(id), Some(name)) = (&self.current_call.id, &self.current_call.name) {
-                let current_index = self.last_index.unwrap_or(0);
-                writer.new_item(current_index, id.clone(), name.clone())?;
+                writer.new_item(id.clone(), name.clone())?;
                 self.current_call.new_item_called = true;
 
                 // Send any pending arguments that were accumulated before new_item
@@ -466,14 +449,9 @@ impl<'a, W: std::io::Write, T: crate::dagops::DagOpsTrait> FunCallsGpt<'a, W, T>
 }
 
 impl<'a, W: std::io::Write, T: crate::dagops::DagOpsTrait> FunCallsWrite for FunCallsGpt<'a, W, T> {
-    fn new_item(
-        &mut self,
-        index: usize,
-        id: String,
-        name: String,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        self.chat_writer.new_item(index, id.clone(), name.clone())?;
-        self.dag_writer.new_item(index, id, name)?;
+    fn new_item(&mut self, id: String, name: String) -> Result<(), Box<dyn std::error::Error>> {
+        self.chat_writer.new_item(id.clone(), name.clone())?;
+        self.dag_writer.new_item(id, name)?;
         Ok(())
     }
 

@@ -42,7 +42,7 @@ pub fn inject_tool_calls(
 
     for (index, tool_call) in tool_calls.iter().enumerate() {
         writer
-            .new_item(index, tool_call.id.clone(), tool_call.function_name.clone())
+            .new_item(tool_call.id.clone(), tool_call.function_name.clone())
             .map_err(|e| e.to_string())?;
         writer
             .arguments_chunk(tool_call.function_arguments.clone())

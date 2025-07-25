@@ -24,7 +24,7 @@ fn inject_tool_calls_to_dag() {
         let mut dagops_writer = FunCallsGpt::new(writer.clone(), &mut tracked_dagops);
 
         dagops_writer
-            .new_item(0, "call_1".to_string(), "get_weather".to_string())
+            .new_item("call_1".to_string(), "get_weather".to_string())
             .unwrap();
         dagops_writer
             .arguments_chunk("{\"city\":\"London\"}".to_string())
@@ -32,7 +32,7 @@ fn inject_tool_calls_to_dag() {
         dagops_writer.end_item().unwrap();
 
         dagops_writer
-            .new_item(1, "call_2".to_string(), "get_forecast".to_string())
+            .new_item("call_2".to_string(), "get_forecast".to_string())
             .unwrap();
         dagops_writer
             .arguments_chunk("{\"days\":5}".to_string())
