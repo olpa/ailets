@@ -47,29 +47,6 @@ pub trait FunCallsWrite {
     fn end(&mut self) -> Result<(), Box<dyn std::error::Error>>;
 }
 
-/// No-op implementation of `FunCallsWrite` for parsing/streaming mode
-/// This writer does nothing - it's used when we only want to update `FunCalls` state
-/// without actually writing anything.
-pub struct NoOpFunCallsWrite;
-
-impl FunCallsWrite for NoOpFunCallsWrite {
-    fn new_item(&mut self, _id: String, _name: String) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(()) // Do nothing
-    }
-
-    fn arguments_chunk(&mut self, _ac: String) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(()) // Do nothing
-    }
-
-    fn end_item(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(()) // Do nothing
-    }
-
-    fn end(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        Ok(()) // Do nothing
-    }
-}
-
 /// Implementation of `FunCallsWrite` that writes to a chat-style format
 ///
 /// This implementation writes function calls in the format expected by chat systems,
@@ -132,24 +109,6 @@ impl<W: std::io::Write> FunCallsWrite for FunCallsToChat<W> {
     }
 }
 
-/// State of a function call being built
-#[derive(Debug, Default, PartialEq, Eq, Clone)]
-struct FunctionCallState {
-    id: Option<String>,
-    name: Option<String>,
-    new_item_called: bool,
-    pending_arguments: String,
-}
-
-impl FunctionCallState {
-    fn new() -> Self {
-        Self::default()
-    }
-
-    fn reset(&mut self) {
-        *self = Self::new();
-    }
-}
 
 /// A collection of function calls with support for incremental updates and validation
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
@@ -159,14 +118,11 @@ pub struct FunCalls {
     pub last_index: Option<usize>,
 
     // Direct writing state
-    current_call: FunctionCallState,
+    current_id: Option<String>,
+    current_name: Option<String>,
+    new_item_called: bool,
+    pending_arguments: String,
 
-    // Streaming-specific state
-    last_streamed_index: Option<usize>,
-    tool_call_open: bool,
-    tool_call_arguments_open: bool,
-    id_streamed: bool,
-    name_streamed: bool,
 }
 
 impl FunCalls {
@@ -175,12 +131,10 @@ impl FunCalls {
     pub fn new() -> Self {
         Self {
             last_index: None,
-            current_call: FunctionCallState::new(),
-            last_streamed_index: None,
-            tool_call_open: false,
-            tool_call_arguments_open: false,
-            id_streamed: false,
-            name_streamed: false,
+            current_id: None,
+            current_name: None,
+            new_item_called: false,
+            pending_arguments: String::new(),
         }
     }
 
@@ -189,33 +143,23 @@ impl FunCalls {
         &mut self,
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if !self.current_call.new_item_called {
-            if let (Some(id), Some(name)) = (&self.current_call.id, &self.current_call.name) {
+        if !self.new_item_called {
+            if let (Some(id), Some(name)) = (&self.current_id, &self.current_name) {
                 writer.new_item(id.clone(), name.clone())?;
-                self.current_call.new_item_called = true;
+                self.new_item_called = true;
 
                 // Send any pending arguments that were accumulated before new_item
-                if !self.current_call.pending_arguments.is_empty() {
-                    writer.arguments_chunk(self.current_call.pending_arguments.clone())?;
-                    self.current_call.pending_arguments.clear();
+                if !self.pending_arguments.is_empty() {
+                    writer.arguments_chunk(self.pending_arguments.clone())?;
+                    self.pending_arguments.clear();
                 }
 
                 // Clear id and name - no longer needed after new_item
-                self.current_call.id = None;
-                self.current_call.name = None;
+                self.current_id = None;
+                self.current_name = None;
             }
         }
         Ok(())
-    }
-
-    /// Ends the current function call and cleans up the delta state (internal use)
-    ///
-    /// This method should be called when a function call is complete.
-    pub fn end_current_internal(&mut self) {
-        // current_funcall field has been removed
-        self.id_streamed = false;
-        self.name_streamed = false;
-        self.current_call.reset();
     }
 
     /// Ends the current function call and writes it to the output
@@ -229,14 +173,13 @@ impl FunCalls {
         // Always call end_item since we track state differently now
         writer.end_item()?;
         // Reset state for next function call
-        self.end_current_internal();
+        self.current_id = None;
+        self.current_name = None;
+        self.new_item_called = false;
+        self.pending_arguments.clear();
         Ok(())
     }
 
-    /// Ends the current function call without writing (for delta mode)
-    pub fn end_current_no_write(&mut self) {
-        self.end_current_internal();
-    }
 
     /// Ends the current item
     ///
@@ -250,13 +193,13 @@ impl FunCalls {
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // If "end_item" is called without our logic called "new_item", it's an error
-        if !self.current_call.new_item_called {
+        if !self.new_item_called {
             return Err("end_item called without new_item being called first".into());
         }
 
         writer.end_item()?;
         // Reset the state since this call is now complete
-        self.current_call.new_item_called = false;
+        self.new_item_called = false;
 
         Ok(())
     }
@@ -264,34 +207,10 @@ impl FunCalls {
     /// Reset streaming state (called when beginning a new message)
     pub fn reset_streaming_state(&mut self) {
         self.last_index = None;
-        self.last_streamed_index = None;
-        self.tool_call_open = false;
-        self.tool_call_arguments_open = false;
-        self.id_streamed = false;
-        self.name_streamed = false;
-        self.current_call.reset();
-    }
-
-    /// Check if arguments are currently being streamed
-    #[must_use]
-    pub fn is_streaming_arguments(&self) -> bool {
-        self.tool_call_arguments_open
-    }
-
-    /// Mark the current streaming tool call as closed
-    pub fn close_current_streaming_tool_call(&mut self) {
-        self.tool_call_open = false;
-        self.tool_call_arguments_open = false;
-    }
-
-    /// Get current arguments for streaming (returns what we have so far)
-    #[must_use]
-    pub fn get_current_arguments(&self) -> Option<String> {
-        if self.current_call.pending_arguments.is_empty() {
-            None
-        } else {
-            Some(self.current_call.pending_arguments.clone())
-        }
+        self.current_id = None;
+        self.current_name = None;
+        self.new_item_called = false;
+        self.pending_arguments.clear();
     }
 
     // Direct writing methods for immediate output
@@ -330,10 +249,13 @@ impl FunCalls {
 
                 // If we're moving to a new index, end the current function call and call end_item if needed
                 if index > last {
-                    if self.current_call.new_item_called {
+                    if self.new_item_called {
                         writer.end_item()?;
                     }
-                    self.end_current_internal();
+                    self.current_id = None;
+        self.current_name = None;
+        self.new_item_called = false;
+        self.pending_arguments.clear();
                 }
             }
         }
@@ -353,12 +275,12 @@ impl FunCalls {
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Check if ID is already set or new_item already called
-        if self.current_call.new_item_called || self.current_call.id.is_some() {
+        if self.new_item_called || self.current_id.is_some() {
             return Err("ID is already given".into());
         }
 
         // Store the ID
-        self.current_call.id = Some(id.to_string());
+        self.current_id = Some(id.to_string());
 
         // ID is now stored only in current_call
 
@@ -378,12 +300,12 @@ impl FunCalls {
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Check if name is already set or new_item already called
-        if self.current_call.new_item_called || self.current_call.name.is_some() {
+        if self.new_item_called || self.current_name.is_some() {
             return Err("Name is already given".into());
         }
 
         // Store the name
-        self.current_call.name = Some(name.to_string());
+        self.current_name = Some(name.to_string());
 
         // Name is now stored only in current_call
 
@@ -405,11 +327,11 @@ impl FunCalls {
         // Arguments are now stored only in current_call
 
         // Pass arguments directly to writer after new_item has been called
-        if self.current_call.new_item_called {
+        if self.new_item_called {
             writer.arguments_chunk(args.to_string())?;
         } else {
             // Store arguments until new_item is called
-            self.current_call.pending_arguments.push_str(args);
+            self.pending_arguments.push_str(args);
         }
 
         Ok(())
@@ -424,9 +346,9 @@ impl FunCalls {
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // "end" calls "end_item" if "end_item" was not called
-        if self.current_call.new_item_called {
+        if self.new_item_called {
             writer.end_item()?;
-            self.current_call.new_item_called = false;
+            self.new_item_called = false;
         }
         Ok(())
     }
