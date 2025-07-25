@@ -109,20 +109,14 @@ impl<W: std::io::Write> FunCallsWrite for FunCallsToChat<W> {
     }
 }
 
-
-/// A collection of function calls with support for incremental updates and validation
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct FunCalls {
-    // Core delta/streaming state
-    pub last_index: Option<usize>,
-
-    // Direct writing state
+    last_index: Option<usize>,
     current_id: Option<String>,
     current_name: Option<String>,
+    pending_arguments: Option<String>,
     new_item_called: bool,
-    pending_arguments: String,
-
 }
 
 impl FunCalls {
@@ -133,8 +127,8 @@ impl FunCalls {
             last_index: None,
             current_id: None,
             current_name: None,
+            pending_arguments: None,
             new_item_called: false,
-            pending_arguments: String::new(),
         }
     }
 
@@ -149,9 +143,9 @@ impl FunCalls {
                 self.new_item_called = true;
 
                 // Send any pending arguments that were accumulated before new_item
-                if !self.pending_arguments.is_empty() {
-                    writer.arguments_chunk(self.pending_arguments.clone())?;
-                    self.pending_arguments.clear();
+                if let Some(ref args) = self.pending_arguments {
+                    writer.arguments_chunk(args.clone())?;
+                    self.pending_arguments = None;
                 }
 
                 // Clear id and name - no longer needed after new_item
@@ -176,10 +170,9 @@ impl FunCalls {
         self.current_id = None;
         self.current_name = None;
         self.new_item_called = false;
-        self.pending_arguments.clear();
+        self.pending_arguments = None;
         Ok(())
     }
-
 
     /// Ends the current item
     ///
@@ -192,28 +185,15 @@ impl FunCalls {
         &mut self,
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // If "end_item" is called without our logic called "new_item", it's an error
         if !self.new_item_called {
             return Err("end_item called without new_item being called first".into());
         }
 
         writer.end_item()?;
-        // Reset the state since this call is now complete
         self.new_item_called = false;
 
         Ok(())
     }
-
-    /// Reset streaming state (called when beginning a new message)
-    pub fn reset_streaming_state(&mut self) {
-        self.last_index = None;
-        self.current_id = None;
-        self.current_name = None;
-        self.new_item_called = false;
-        self.pending_arguments.clear();
-    }
-
-    // Direct writing methods for immediate output
 
     /// Sets the index and starts a new tool call if necessary
     ///
@@ -253,9 +233,9 @@ impl FunCalls {
                         writer.end_item()?;
                     }
                     self.current_id = None;
-        self.current_name = None;
-        self.new_item_called = false;
-        self.pending_arguments.clear();
+                    self.current_name = None;
+                    self.new_item_called = false;
+                    self.pending_arguments = None;
                 }
             }
         }
@@ -331,7 +311,10 @@ impl FunCalls {
             writer.arguments_chunk(args.to_string())?;
         } else {
             // Store arguments until new_item is called
-            self.pending_arguments.push_str(args);
+            match &mut self.pending_arguments {
+                Some(existing) => existing.push_str(args),
+                None => self.pending_arguments = Some(args.to_string()),
+            }
         }
 
         Ok(())

@@ -46,7 +46,6 @@ impl<W: Write> StructureBuilder<W> {
         self.message_has_content = false;
         self.text_is_open = false;
         self.message_is_closed = false;
-        self.funcalls.reset_streaming_state();
     }
 
     /// End the current message.
