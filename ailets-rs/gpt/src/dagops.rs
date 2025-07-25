@@ -2,7 +2,6 @@
 
 use crate::funcalls_write::FunCallsWrite;
 use actor_io::AWriter;
-use serde_json::json;
 use std::collections::HashMap;
 use std::io::Write;
 
@@ -138,10 +137,15 @@ impl<T: DagOpsTrait> InjectDagOpsTrait for InjectDagOps<T> {
 pub struct DagOpsWrite<'a, T: DagOpsTrait> {
     dagops: &'a mut T,
     detached: bool,
-    current_id: String,
-    current_name: String,
-    current_arguments: String,
-    processed_tool_calls_count: usize,
+    // Writers for current tool call
+    tool_input_writer: Option<Box<dyn Write>>,
+    tool_spec_writer: Option<Box<dyn Write>>,
+    // Handles for current tool call
+    tool_input_fd_u32: Option<u32>,
+    tool_spec_handle_fd_u32: Option<u32>,
+    // Workflow handles created in new_item
+    tool_handle: Option<u32>,
+    msg_handle: Option<u32>,
 }
 
 impl<'a, T: DagOpsTrait> DagOpsWrite<'a, T> {
@@ -150,10 +154,12 @@ impl<'a, T: DagOpsTrait> DagOpsWrite<'a, T> {
         Self {
             dagops,
             detached: false,
-            current_id: String::new(),
-            current_name: String::new(),
-            current_arguments: String::new(),
-            processed_tool_calls_count: 0,
+            tool_input_writer: None,
+            tool_spec_writer: None,
+            tool_input_fd_u32: None,
+            tool_spec_handle_fd_u32: None,
+            tool_handle: None,
+            msg_handle: None,
         }
     }
 }
@@ -166,76 +172,45 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for DagOpsWrite<'a, T> {
             self.detached = true;
         }
 
-        // Store the current tool call being built
-        self.current_id = id;
-        self.current_name = name;
-        self.current_arguments.clear();
 
-        Ok(())
-    }
-
-    fn arguments_chunk(&mut self, args: String) -> Result<(), Box<dyn std::error::Error>> {
-        // Append arguments to the current tool call
-        self.current_arguments.push_str(&args);
-        Ok(())
-    }
-
-    fn end_item(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Process the current tool call element-by-element
-        if self.current_id.is_empty() {
-            return Ok(()); // Skip empty/uninitialized tool calls
-        }
-
-        // Increment processed tool calls count
-        self.processed_tool_calls_count += 1;
-
-        //
-        // Run the tool
-        //
-        let explain = format!("tool input - {}", self.current_name);
+        // Create the tool input pipe and writer
+        let explain = format!("tool input - {}", name);
         let tool_input_fd = self.dagops.open_write_pipe(Some(&explain))?;
         #[allow(clippy::cast_sign_loss)]
         let tool_input_fd_u32 = tool_input_fd as u32;
-        {
-            let mut writer = self.dagops.open_writer_to_pipe(tool_input_fd)?;
-            writer
-                .write_all(self.current_arguments.as_bytes())
-                .map_err(|e| e.to_string())?;
-            self.dagops.alias_fd(".tool_input", tool_input_fd_u32)?
-        };
+        let tool_input_writer = self.dagops.open_writer_to_pipe(tool_input_fd)?;
+        
+        self.tool_input_writer = Some(tool_input_writer);
+        self.tool_input_fd_u32 = Some(tool_input_fd_u32);
 
-        let tool_handle = self.dagops.instantiate_with_deps(
-            &format!(".tool.{}", self.current_name),
-            HashMap::from([(".tool_input".to_string(), tool_input_fd_u32)]).into_iter(),
-        )?;
-
-        //
-        // Convert tool output to messages
-        //
-        let tool_spec = json!([{
-            "type": "function",
-            "id": self.current_id,
-            "name": self.current_name,
-        },{
-            "arguments": self.current_arguments
-        }]);
-        let explain = format!("tool call spec - {}", self.current_name);
+        // Create the tool spec pipe and writer  
+        let explain = format!("tool call spec - {}", name);
         let tool_spec_handle_fd = self.dagops.open_write_pipe(Some(&explain))?;
         #[allow(clippy::cast_sign_loss)]
         let tool_spec_handle_fd_u32 = tool_spec_handle_fd as u32;
-        {
-            let mut writer = self.dagops.open_writer_to_pipe(tool_spec_handle_fd)?;
-            writer
-                .write_all(
-                    serde_json::to_string(&tool_spec)
-                        .map_err(|e| e.to_string())?
-                        .as_bytes(),
-                )
-                .map_err(|e| e.to_string())?;
-            self.dagops
-                .alias_fd(".llm_tool_spec", tool_spec_handle_fd_u32)?
-        };
+        let mut tool_spec_writer = self.dagops.open_writer_to_pipe(tool_spec_handle_fd)?;
+        
+        // Write the beginning of the tool spec JSON structure up to the arguments value
+        let json_start = format!(
+            r#"[{{"type":"function","id":"{}","name":"{}"}},{{"arguments":""#,
+            id, name
+        );
+        tool_spec_writer.write_all(json_start.as_bytes()).map_err(|e| e.to_string())?;
+        
+        self.tool_spec_writer = Some(tool_spec_writer);
+        self.tool_spec_handle_fd_u32 = Some(tool_spec_handle_fd_u32);
 
+        // Create aliases for the pipes
+        self.dagops.alias_fd(".tool_input", tool_input_fd_u32)?;
+        self.dagops.alias_fd(".llm_tool_spec", tool_spec_handle_fd_u32)?;
+
+        // Run the tool
+        let tool_handle = self.dagops.instantiate_with_deps(
+            &format!(".tool.{}", name),
+            HashMap::from([(".tool_input".to_string(), tool_input_fd_u32)]).into_iter(),
+        )?;
+
+        // Convert tool output to messages
         let msg_handle = self.dagops.instantiate_with_deps(
             ".toolcall_to_messages",
             HashMap::from([
@@ -245,14 +220,57 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for DagOpsWrite<'a, T> {
             .into_iter(),
         )?;
 
-        self.dagops.alias(".chat_messages", msg_handle)?;
+        // Store handles for use in end_item
+        self.tool_handle = Some(tool_handle);
+        self.msg_handle = Some(msg_handle);
+
+        Ok(())
+    }
+
+    fn arguments_chunk(&mut self, args: String) -> Result<(), Box<dyn std::error::Error>> {
+        // Write to tool input writer
+        if let Some(ref mut writer) = self.tool_input_writer {
+            writer.write_all(args.as_bytes()).map_err(|e| e.to_string())?;
+        }
+        
+        // Write to tool spec writer (as part of the arguments JSON string value)
+        // Need to escape JSON special characters when writing to the tool spec
+        if let Some(ref mut writer) = self.tool_spec_writer {
+            let escaped_args = args.replace('\\', "\\\\").replace('"', "\\\"");
+            writer.write_all(escaped_args.as_bytes()).map_err(|e| e.to_string())?;
+        }
+        
+        Ok(())
+    }
+
+    fn end_item(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Drop/finalize the tool input writer
+        drop(self.tool_input_writer.take());
+        
+        // Finalize the tool spec JSON by writing the closing structure
+        if let Some(mut writer) = self.tool_spec_writer.take() {
+            // Close the arguments string and the JSON array
+            let json_end = r#""}]"#;
+            writer.write_all(json_end.as_bytes()).map_err(|e| e.to_string())?;
+            drop(writer);
+        }
+
+        // Create the final alias using the message handle stored in new_item
+        if let Some(msg_handle) = self.msg_handle.take() {
+            self.dagops.alias(".chat_messages", msg_handle)?;
+        }
+
+        // Clear handles for next item
+        self.tool_input_fd_u32 = None;
+        self.tool_spec_handle_fd_u32 = None;
+        self.tool_handle = None;
 
         Ok(())
     }
 
     fn end(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Rerun model if we processed any tool calls
-        if self.processed_tool_calls_count > 0 {
+        // Rerun model if we processed any tool calls (indicated by detached flag)
+        if self.detached {
             let rerun_handle = self.dagops.instantiate_with_deps(
                 ".gpt",
                 HashMap::from([

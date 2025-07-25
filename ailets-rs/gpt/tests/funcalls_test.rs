@@ -24,7 +24,6 @@ impl TestFunCallsWrite {
 impl FunCallsWrite for TestFunCallsWrite {
     fn new_item(
         &mut self,
-        _index: usize,
         id: String,
         name: String,
     ) -> Result<(), Box<dyn std::error::Error>> {
