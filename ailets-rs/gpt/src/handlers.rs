@@ -134,60 +134,23 @@ pub fn on_function_arguments<W: Write>(
     builder_cell: &RefCell<StructureBuilder<W>>,
 ) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
-
-    // Check if we have a string value
-    match rjiter.peek() {
-        Ok(Peek::String) => {
-            // Use write_long_bytes for both streaming and non-streaming modes
-            let mut args_buffer = Vec::new();
-            if let Err(e) = rjiter.write_long_bytes(&mut args_buffer) {
-                let error: Box<dyn std::error::Error> =
-                    format!("Error reading function arguments with write_long_bytes: {e:?}").into();
-                return StreamOp::Error(error);
-            }
-
-            // Convert bytes to string and parse JSON to extract the content
-            if let Ok(json_str) = String::from_utf8(args_buffer) {
-                // Parse the JSON string to extract the actual content
-                match serde_json::from_str::<String>(&json_str) {
-                    Ok(args_content) => {
-                        // Stream the arguments immediately using builder interface
-                        {
-                            let mut builder = builder_cell.borrow_mut();
-                            if let Err(e) = builder.tool_call_arguments_chunk(&args_content) {
-                                return StreamOp::Error(e);
-                            }
-                        }
-                    }
-                    Err(_) => {
-                        // If JSON parsing fails, use the raw string (might be partial)
-                        {
-                            let mut builder = builder_cell.borrow_mut();
-                            if let Err(e) = builder.tool_call_arguments_chunk(&json_str) {
-                                return StreamOp::Error(e);
-                            }
-                        }
-                    }
-                }
-            } else {
-                let error: Box<dyn std::error::Error> =
-                    "Invalid UTF-8 in function arguments".into();
-                return StreamOp::Error(error);
-            }
-
-            StreamOp::ValueIsConsumed
-        }
-        Ok(peeked) => {
-            let error: Box<dyn std::error::Error> =
-                format!("Expected string for function arguments, got {peeked:?}").into();
-            StreamOp::Error(error)
-        }
+    let value = match rjiter.next_str() {
+        Ok(value) => value,
         Err(e) => {
             let error: Box<dyn std::error::Error> =
-                format!("Error peeking function arguments: {e:?}").into();
-            StreamOp::Error(error)
+                format!("Expected string as the function arguments, got {e:?}").into();
+            return StreamOp::Error(error);
         }
+    };
+
+    let mut builder = builder_cell.borrow_mut();
+    if let Err(e) = builder.tool_call_arguments_chunk(value) {
+        let error: Box<dyn std::error::Error> =
+            format!("Error handling function arguments: {e}").into();
+        return StreamOp::Error(error);
     }
+
+    StreamOp::ValueIsConsumed
 }
 
 pub fn on_function_index<W: Write>(
