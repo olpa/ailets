@@ -267,3 +267,88 @@ fn inject_empty_tool_calls_to_dag() {
     assert_that!(tracked_dagops.aliases.len(), is(equal_to(0)));
     assert_that!(tracked_dagops.detached.len(), is(equal_to(0)));
 }
+
+#[test]
+fn multiple_arguments_chunks() {
+    //
+    // Arrange
+    //
+    let mut tracked_dagops = TrackedDagOps::default();
+    let writer = RcWriter::new();
+
+    //
+    // Act
+    //
+    {
+        let mut dagops_writer = FunCallsGpt::new(writer.clone(), &mut tracked_dagops);
+
+        dagops_writer
+            .new_item("call_1".to_string(), "get_weather".to_string())
+            .unwrap();
+
+        // Call arguments_chunk multiple times with different chunks
+        dagops_writer
+            .arguments_chunk("{\"city\":".to_string())
+            .unwrap();
+        dagops_writer
+            .arguments_chunk("\"London\",".to_string())
+            .unwrap();
+        dagops_writer
+            .arguments_chunk("\"country\":\"UK\"}".to_string())
+            .unwrap();
+
+        dagops_writer.end_item().unwrap();
+        dagops_writer.end().unwrap();
+    } // dagops_writer is dropped here, releasing the borrow
+
+    //
+    // Assert
+    //
+
+    // Expected complete arguments after all chunks
+    let expected_complete_args = r#"{"city":"London","country":"UK"}"#;
+
+    //
+    // Assert: chat output contains complete arguments
+    //
+    let expected_chat_output = format!(
+        "[{{\"type\":\"tool_call\"}},{{\"id\":\"call_1\",\"function_name\":\"get_weather\",\"function_arguments\":\"{}\"}}]\n",
+        expected_complete_args
+    );
+    assert_eq!(writer.get_output(), expected_chat_output);
+
+    // Assert that we have the expected value nodes (tool input and tool spec)
+    let value_nodes = &tracked_dagops.value_nodes;
+    assert_that!(value_nodes.len(), is(equal_to(2)));
+
+    //
+    // Assert: tool input contains complete arguments
+    //
+    let (_, _, tool_input_value) = tracked_dagops.parse_value_node(&value_nodes[0]);
+    let tool_input_json: serde_json::Value = serde_json::from_str(&tool_input_value).expect(
+        &format!("Failed to parse tool input JSON: {tool_input_value}"),
+    );
+    let expected_input_json: serde_json::Value =
+        serde_json::from_str(expected_complete_args).expect("Failed to parse expected input JSON");
+    assert_that!(tool_input_json, is(equal_to(expected_input_json)));
+
+    //
+    // Assert: tool spec contains complete arguments
+    //
+    let (_, _, tool_spec_value) = tracked_dagops.parse_value_node(&value_nodes[1]);
+    let tool_spec_json: serde_json::Value = serde_json::from_str(&tool_spec_value).expect(
+        &format!("Failed to parse tool spec JSON: {tool_spec_value}"),
+    );
+
+    let expected_tool_spec = serde_json::json!([
+        {
+            "type": "function",
+            "id": "call_1",
+            "name": "get_weather",
+        },
+        {
+            "arguments": expected_complete_args
+        }
+    ]);
+    assert_that!(tool_spec_json, is(equal_to(expected_tool_spec)));
+}
