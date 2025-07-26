@@ -132,3 +132,45 @@ fn json_escaping_in_arguments() {
 "#;
     assert_eq!(output, expected);
 }
+
+#[test]
+fn json_escaping_in_id_name_and_arguments() {
+    // Arrange
+    let mut writer = Vec::new();
+    let mut chat_writer = FunCallsToChat::new(&mut writer);
+
+    // Act - id, name, and arguments all contain JSON special characters that need escaping
+    chat_writer
+        .new_item("call_\"quote\"", "test_\"name\"")
+        .unwrap();
+    chat_writer
+        .arguments_chunk("{\"key\":\"value with \\\"quotes\\\"\"}")
+        .unwrap();
+    chat_writer.end_item().unwrap();
+
+    // Assert - all JSON special characters should be properly escaped
+    let output = String::from_utf8(writer).unwrap();
+    let expected = r#"[{"type":"function","id":"call_\"quote\"","name":"test_\"name\""},{"arguments":"{\"key\":\"value with \\\"quotes\\\"\"}"}]
+"#;
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn json_escaping_backslashes() {
+    // Arrange
+    let mut writer = Vec::new();
+    let mut chat_writer = FunCallsToChat::new(&mut writer);
+
+    // Act - test backslash escaping in id, name, and arguments
+    chat_writer.new_item("call\\id", "test\\name").unwrap();
+    chat_writer
+        .arguments_chunk("{\"path\":\"C:\\\\Program Files\\\\\"}")
+        .unwrap();
+    chat_writer.end_item().unwrap();
+
+    // Assert - backslashes should be properly escaped
+    let output = String::from_utf8(writer).unwrap();
+    let expected = r#"[{"type":"function","id":"call\\id","name":"test\\name"},{"arguments":"{\"path\":\"C:\\\\Program Files\\\\\"}"}]
+"#;
+    assert_eq!(output, expected);
+}

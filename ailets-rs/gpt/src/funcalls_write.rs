@@ -8,6 +8,11 @@ use std::io::Write;
 /// Result type for function call writing operations
 type FunCallResult = Result<(), Box<dyn std::error::Error>>;
 
+/// Escapes a string for safe inclusion in JSON
+fn escape_json_string(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
 /// Trait for writing function call data in a streaming manner
 ///
 /// This trait supports streaming output by breaking function calls into discrete phases:
@@ -77,19 +82,19 @@ impl<W: Write> FunCallsToChat<W> {
 
 impl<W: Write> FunCallsWrite for FunCallsToChat<W> {
     fn new_item(&mut self, id: &str, name: &str) -> FunCallResult {
-        // Start writing the function call JSON structure
+        // Start writing the function call JSON structure with properly escaped values
         write!(
             self.writer,
             r#"[{{"type":"function","id":"{}","name":"{}"}},{{"arguments":""#,
-            id, name
+            escape_json_string(id),
+            escape_json_string(name)
         )?;
         Ok(())
     }
 
     fn arguments_chunk(&mut self, chunk: &str) -> FunCallResult {
         // Escape the chunk as a JSON string value when embedding in JSON
-        let escaped_chunk = chunk.replace('\\', "\\\\").replace('"', "\\\"");
-        write!(self.writer, "{}", escaped_chunk)?;
+        write!(self.writer, "{}", escape_json_string(chunk))?;
         Ok(())
     }
 

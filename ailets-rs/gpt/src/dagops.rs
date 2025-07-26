@@ -5,6 +5,11 @@ use actor_io::AWriter;
 use std::collections::HashMap;
 use std::io::Write;
 
+/// Escapes a string for safe inclusion in JSON
+fn escape_json_string(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
 pub trait DagOpsTrait {
     /// # Errors
     /// From the host
@@ -180,7 +185,8 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for DagOpsWrite<'a, T> {
         // Write the beginning of the tool spec JSON structure up to the arguments value
         let json_start = format!(
             r#"[{{"type":"function","id":"{}","name":"{}"}},{{"arguments":""#,
-            id, name
+            escape_json_string(id),
+            escape_json_string(name)
         );
         tool_spec_writer
             .write_all(json_start.as_bytes())
@@ -226,9 +232,8 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for DagOpsWrite<'a, T> {
         // Write to tool spec writer (as part of the arguments JSON string value)
         // Need to escape JSON special characters when writing to the tool spec
         if let Some(ref mut writer) = self.tool_spec_writer {
-            let escaped_args = args.replace('\\', "\\\\").replace('"', "\\\"");
             writer
-                .write_all(escaped_args.as_bytes())
+                .write_all(escape_json_string(args).as_bytes())
                 .map_err(|e| e.to_string())?;
         }
 
