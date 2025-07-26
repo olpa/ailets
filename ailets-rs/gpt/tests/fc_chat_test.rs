@@ -74,6 +74,29 @@ fn long_arguments() {
 }
 
 #[test]
+fn multiple_arguments_chunks() {
+    // Arrange
+    let mut writer = Vec::new();
+    let mut chat_writer = FunCallsToChat::new(&mut writer);
+
+    // Act - multiple calls to arguments_chunk join values to one arguments attribute
+    chat_writer.new_item("call_multi", "foo").unwrap();
+    chat_writer.arguments_chunk("{\"first\":").unwrap();
+    chat_writer.arguments_chunk("\"chunk1\",").unwrap();
+    chat_writer.arguments_chunk("\"second\":").unwrap();
+    chat_writer.arguments_chunk("\"chunk2\",").unwrap();
+    chat_writer
+        .arguments_chunk("\"third\":\"chunk3\"}")
+        .unwrap();
+    chat_writer.end_item().unwrap();
+
+    // Assert
+    let output = String::from_utf8(writer).unwrap();
+    let expected = "[{\"type\":\"function\",\"id\":\"call_multi\",\"name\":\"foo\"},{\"arguments\":\"{\"first\":\"chunk1\",\"second\":\"chunk2\",\"third\":\"chunk3\"}\"}]\n";
+    assert_eq!(output, expected);
+}
+
+#[test]
 fn empty_arguments() {
     // Arrange
     let mut writer = Vec::new();
