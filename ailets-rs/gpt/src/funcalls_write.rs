@@ -37,53 +37,36 @@ pub trait FunCallsWrite {
 /// with function call data written as JSON lines.
 pub struct FunCallsToChat<W: std::io::Write> {
     writer: W,
-    current_id: Option<String>,
-    current_name: Option<String>,
-    current_arguments: String,
 }
 
 impl<W: std::io::Write> FunCallsToChat<W> {
     /// Creates a new `FunCallsToChat` instance with the given writer
     #[must_use]
     pub fn new(writer: W) -> Self {
-        Self {
-            writer,
-            current_id: None,
-            current_name: None,
-            current_arguments: String::new(),
-        }
+        Self { writer }
     }
 }
 
 impl<W: std::io::Write> FunCallsWrite for FunCallsToChat<W> {
     fn new_item(&mut self, id: &str, name: &str) -> Result<(), Box<dyn std::error::Error>> {
-        // Store the id and name for writing later
-        self.current_id = Some(id.to_string());
-        self.current_name = Some(name.to_string());
-        self.current_arguments.clear();
+        // Start writing the function call JSON structure
+        write!(
+            self.writer,
+            r#"[{{"type":"function","id":"{}","name":"{}"}},{{"arguments":""#,
+            id, name
+        )?;
         Ok(())
     }
 
     fn arguments_chunk(&mut self, ac: &str) -> Result<(), Box<dyn std::error::Error>> {
-        // Accumulate arguments chunks
-        self.current_arguments.push_str(ac);
+        // Write arguments chunk directly to output
+        write!(self.writer, "{}", ac)?;
         Ok(())
     }
 
     fn end_item(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Write the complete function call
-        if let (Some(id), Some(name)) = (&self.current_id, &self.current_name) {
-            writeln!(
-                self.writer,
-                r#"[{{"type":"function","id":"{}","name":"{}"}},{{"arguments":"{}"}}]"#,
-                id, name, self.current_arguments
-            )?;
-        }
-
-        // Clear state for next item
-        self.current_id = None;
-        self.current_name = None;
-        self.current_arguments.clear();
+        // Close the JSON structure and write newline
+        writeln!(self.writer, "\"}}]")?;
         Ok(())
     }
 
