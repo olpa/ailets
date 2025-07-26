@@ -69,7 +69,7 @@ fn long_arguments() {
 
     // Assert
     let output = String::from_utf8(writer).unwrap();
-    let expected = "[{\"type\":\"function\",\"id\":\"call_123\",\"name\":\"test_func\"},{\"arguments\":\"{\"arg1\":\"value1\",\"arg2\":\"value2\"}\"}]\n";
+    let expected = "[{\"type\":\"function\",\"id\":\"call_123\",\"name\":\"test_func\"},{\"arguments\":\"{\\\"arg1\\\":\\\"value1\\\",\\\"arg2\\\":\\\"value2\\\"}\"}]\n";
     assert_eq!(output, expected);
 }
 
@@ -92,7 +92,7 @@ fn multiple_arguments_chunks() {
 
     // Assert
     let output = String::from_utf8(writer).unwrap();
-    let expected = "[{\"type\":\"function\",\"id\":\"call_multi\",\"name\":\"foo\"},{\"arguments\":\"{\"first\":\"chunk1\",\"second\":\"chunk2\",\"third\":\"chunk3\"}\"}]\n";
+    let expected = "[{\"type\":\"function\",\"id\":\"call_multi\",\"name\":\"foo\"},{\"arguments\":\"{\\\"first\\\":\\\"chunk1\\\",\\\"second\\\":\\\"chunk2\\\",\\\"third\\\":\\\"chunk3\\\"}\"}]\n";
     assert_eq!(output, expected);
 }
 
@@ -109,6 +109,26 @@ fn empty_arguments() {
     // Assert
     let output = String::from_utf8(writer).unwrap();
     let expected = r#"[{"type":"function","id":"call_empty","name":"no_args_func"},{"arguments":""}]
+"#;
+    assert_eq!(output, expected);
+}
+
+#[test]
+fn json_escaping_in_arguments() {
+    // Arrange
+    let mut writer = Vec::new();
+    let mut chat_writer = FunCallsToChat::new(&mut writer);
+
+    // Act - arguments contain JSON that needs escaping
+    chat_writer.new_item("call_escape", "test_escape").unwrap();
+    chat_writer
+        .arguments_chunk("{\"city\":\"London\"}")
+        .unwrap();
+    chat_writer.end_item().unwrap();
+
+    // Assert - the JSON quotes should be escaped in the arguments field
+    let output = String::from_utf8(writer).unwrap();
+    let expected = r#"[{"type":"function","id":"call_escape","name":"test_escape"},{"arguments":"{\"city\":\"London\"}"}]
 "#;
     assert_eq!(output, expected);
 }

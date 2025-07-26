@@ -55,7 +55,9 @@ fn inject_tool_calls_to_dag() {
     //
     // Assert: tool calls are in the chat history (written by FunCallsToChat)
     //
-    let expected_chat_output = "[{\"type\":\"tool_call\"},{\"id\":\"call_1\",\"function_name\":\"get_weather\",\"function_arguments\":\"{\"city\":\"London\"}\"}]\n[{\"type\":\"tool_call\"},{\"id\":\"call_2\",\"function_name\":\"get_forecast\",\"function_arguments\":\"{\"days\":5}\"}]\n";
+    let expected_chat_output = r#"[{"type":"function","id":"call_1","name":"get_weather"},{"arguments":"{\"city\":\"London\"}"}]
+[{"type":"function","id":"call_2","name":"get_forecast"},{"arguments":"{\"days\":5}"}]
+"#;
     assert_eq!(writer.get_output(), expected_chat_output);
 
     //
@@ -295,13 +297,14 @@ fn multiple_arguments_chunks() {
 
     // Expected complete arguments after all chunks
     let expected_complete_args = r#"{"city":"London","country":"UK"}"#;
+    let expected_complete_args_escaped = r#"{\"city\":\"London\",\"country\":\"UK\"}"#;
 
     //
     // Assert: chat output contains complete arguments
     //
     let expected_chat_output = format!(
-        "[{{\"type\":\"tool_call\"}},{{\"id\":\"call_1\",\"function_name\":\"get_weather\",\"function_arguments\":\"{}\"}}]\n",
-        expected_complete_args
+        "[{{\"type\":\"function\",\"id\":\"call_1\",\"name\":\"get_weather\"}},{{\"arguments\":\"{}\"}}]\n",
+        expected_complete_args_escaped
     );
     assert_eq!(writer.get_output(), expected_chat_output);
 

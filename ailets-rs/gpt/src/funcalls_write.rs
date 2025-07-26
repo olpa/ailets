@@ -87,7 +87,9 @@ impl<W: Write> FunCallsWrite for FunCallsToChat<W> {
     }
 
     fn arguments_chunk(&mut self, chunk: &str) -> FunCallResult {
-        write!(self.writer, "{}", chunk)?;
+        // Escape the chunk as a JSON string value when embedding in JSON
+        let escaped_chunk = chunk.replace('\\', "\\\\").replace('"', "\\\"");
+        write!(self.writer, "{}", escaped_chunk)?;
         Ok(())
     }
 
