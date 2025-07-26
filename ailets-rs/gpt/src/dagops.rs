@@ -1,54 +1,145 @@
 //! DAG Operations Module
+//!
+//! This module provides abstractions for integrating function calls with 
+//! Directed Acyclic Graph (DAG) operations. It enables function calls to be
+//! processed as part of a larger workflow system with dependency tracking,
+//! pipe management, and alias creation.
 
 use crate::funcalls_write::FunCallsWrite;
 use actor_io::AWriter;
 use std::collections::HashMap;
 use std::io::Write;
 
-/// Escapes a string for safe inclusion in JSON
+// =============================================================================
+// Utilities
+// =============================================================================
+
+/// Escapes a string for safe inclusion in JSON by escaping backslashes and quotes
+/// 
+/// # Arguments
+/// * `s` - The string to escape
+/// 
+/// # Returns
+/// A new string with `\` escaped as `\\` and `"` escaped as `\"`
 fn escape_json_string(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+// =============================================================================
+// Core DAG Operations Trait
+// =============================================================================
+
+/// Trait defining the core DAG operations interface
+///
+/// This trait abstracts the low-level DAG operations required for workflow
+/// management, including node creation, aliasing, pipe management, and
+/// workflow instantiation.
 pub trait DagOpsTrait {
+    /// Creates a value node in the DAG with the given data and explanation
+    /// 
+    /// # Arguments
+    /// * `value` - The data to store in the node
+    /// * `explain` - Human-readable explanation of the node's purpose
+    /// 
+    /// # Returns
+    /// Handle to the created node
+    /// 
     /// # Errors
-    /// From the host
+    /// Returns error from the underlying host system
     fn value_node(&mut self, value: &[u8], explain: &str) -> Result<u32, String>;
 
+    /// Creates an alias pointing to the specified node
+    /// 
+    /// # Arguments
+    /// * `alias` - The alias name
+    /// * `node_handle` - Handle to the node to alias
+    /// 
+    /// # Returns
+    /// Handle to the alias
+    /// 
     /// # Errors
-    /// From the host
+    /// Returns error from the underlying host system
     fn alias(&mut self, alias: &str, node_handle: u32) -> Result<u32, String>;
 
+    /// Detaches an alias, breaking its connection to the underlying node
+    /// 
+    /// # Arguments
+    /// * `alias` - The alias name to detach
+    /// 
     /// # Errors
-    /// From the host
+    /// Returns error from the underlying host system
     fn detach_from_alias(&mut self, alias: &str) -> Result<(), String>;
 
+    /// Instantiates a workflow with the given dependencies
+    /// 
+    /// # Arguments
+    /// * `workflow_name` - Name of the workflow to instantiate
+    /// * `deps` - Iterator of (dependency_name, node_handle) pairs
+    /// 
+    /// # Returns
+    /// Handle to the instantiated workflow
+    /// 
     /// # Errors
-    /// From the host
+    /// Returns error from the underlying host system
     fn instantiate_with_deps(
         &mut self,
         workflow_name: &str,
         deps: impl Iterator<Item = (String, u32)>,
     ) -> Result<u32, String>;
 
+    /// Opens a write pipe for streaming data
+    /// 
+    /// # Arguments
+    /// * `explain` - Optional explanation of the pipe's purpose
+    /// 
+    /// # Returns
+    /// File descriptor for the write pipe
+    /// 
     /// # Errors
-    /// From the host
+    /// Returns error from the underlying host system
     fn open_write_pipe(&mut self, explain: Option<&str>) -> Result<i32, String>;
 
+    /// Creates an alias for a file descriptor
+    /// 
+    /// # Arguments
+    /// * `alias` - The alias name
+    /// * `fd` - The file descriptor to alias
+    /// 
+    /// # Returns
+    /// Handle to the alias
+    /// 
     /// # Errors
-    /// From the host
+    /// Returns error from the underlying host system
     fn alias_fd(&mut self, alias: &str, fd: u32) -> Result<u32, String>;
 
-    /// Open a writer to a write pipe.
-    /// Returns a writer that can be used to write data incrementally.
+    /// Opens a writer for the specified write pipe
+    /// 
+    /// # Arguments
+    /// * `fd` - File descriptor of the write pipe
+    /// 
+    /// # Returns
+    /// A writer that can be used to write data incrementally
+    /// 
     /// # Errors
-    /// From the host or I/O operations
+    /// Returns error from the underlying host system or I/O operations
     fn open_writer_to_pipe(&mut self, fd: i32) -> Result<Box<dyn Write>, String>;
 }
 
+// =============================================================================
+// Concrete DAG Operations Implementation
+// =============================================================================
+
+/// Concrete implementation of DAG operations using the actor runtime
+///
+/// This struct provides the actual implementation of DAG operations by
+/// delegating to the actor runtime system.
 pub struct DagOps;
 
 impl DagOps {
+    /// Creates a new DAG operations instance
+    /// 
+    /// # Returns
+    /// A new `DagOps` instance ready to perform DAG operations
     #[must_use]
     pub fn new() -> Self {
         Self
@@ -98,23 +189,47 @@ impl DagOpsTrait for DagOps {
     }
 }
 
-/// One level of indirection to test that funcalls are collected correctly
+// =============================================================================
+// Injection Abstraction
+// =============================================================================
+
+/// Abstraction layer for injecting DAG operations into function call processing
+///
+/// This trait provides one level of indirection to enable testing that function
+/// calls are collected and processed correctly within the DAG system.
 pub trait InjectDagOpsTrait {
-    /// Process function calls using `FunCallsWrite` trait implementation.
+    /// Process function calls using the `FunCallsWrite` trait implementation
+    ///
+    /// This method integrates function call processing with DAG operations,
+    /// allowing function calls to participate in the larger workflow system.
+    ///
+    /// # Arguments
+    /// * `writer` - The function call writer to process calls with
     ///
     /// # Errors
-    /// Promotes errors from the host.
+    /// Promotes errors from the underlying host system and I/O operations
     fn process_with_funcalls_write(
         &mut self,
         writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>>;
 }
 
+/// Concrete implementation of the injection abstraction
+///
+/// This struct wraps a `DagOpsTrait` implementation and provides the
+/// injection functionality for integrating with function call processing.
 pub struct InjectDagOps<T: DagOpsTrait> {
     dagops: T,
 }
 
 impl<T: DagOpsTrait> InjectDagOps<T> {
+    /// Creates a new DAG operations injector
+    /// 
+    /// # Arguments
+    /// * `dagops` - The DAG operations implementation to wrap
+    /// 
+    /// # Returns
+    /// A new injector that can integrate DAG operations with function calls
     #[must_use]
     pub fn new(dagops: T) -> Self {
         Self { dagops }
@@ -138,16 +253,34 @@ impl<T: DagOpsTrait> InjectDagOpsTrait for InjectDagOps<T> {
     }
 }
 
-/// `DagOpsWrite` implements `FunCallsWrite` trait for element-by-element DAG operations
+// =============================================================================
+// DAG-Integrated Function Call Writer
+// =============================================================================
+
+/// Function call writer that integrates with DAG operations
+///
+/// This writer implements the `FunCallsWrite` trait while simultaneously
+/// creating DAG nodes, workflows, and pipes for each function call. It
+/// enables function calls to participate in the larger workflow system.
 pub struct DagOpsWrite<'a, T: DagOpsTrait> {
+    /// Reference to the DAG operations implementation
     dagops: &'a mut T,
+    /// Whether we've detached from the chat messages alias
     detached: bool,
-    // Writers for current tool call
+    /// Writer for the current tool's input data
     tool_input_writer: Option<Box<dyn Write>>,
+    /// Writer for the current tool's specification (JSON)
     tool_spec_writer: Option<Box<dyn Write>>,
 }
 
 impl<'a, T: DagOpsTrait> DagOpsWrite<'a, T> {
+    /// Creates a new DAG-integrated function call writer
+    /// 
+    /// # Arguments
+    /// * `dagops` - Mutable reference to the DAG operations implementation
+    /// 
+    /// # Returns
+    /// A new writer that will create DAG operations for each function call
     #[must_use]
     pub fn new(dagops: &'a mut T) -> Self {
         Self {
@@ -276,17 +409,22 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for DagOpsWrite<'a, T> {
 }
 
 impl<'a, T: DagOpsTrait> DagOpsWrite<'a, T> {
+    // =========================================================================
+    // Private Helper Methods
+    // =========================================================================
+
+    /// Sets up the DAG for a new iteration by detaching from previous workflows
+    ///
+    /// This method ensures that new function calls don't interfere with
+    /// previous model workflows by detaching from the chat messages alias.
+    /// This prevents confusing dependency relationships in the DAG.
+    ///
+    /// # Errors
+    /// Returns error if the detach operation fails
     fn setup_loop_iteration_in_dag(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        //
-        // Don't interfere with previous model workflow:
-        //
-        // - We are going to update the chat history, by adding more to the alias ".chat_messages"
-        // - The old finished run of "user prompt to messages" depended on ".chat_messages"
-        // - If we don't detach, the dependency graph will show that the old "user prompt to messages"
-        //   run depends on the new items in ".chat_messages". It's very very confusing,
-        //   even despite the current runner implementation ignores the dependency changes
-        //   of a finished step.
-        //
+        // Detach from previous chat messages to avoid dependency confusion
+        // This prevents the old "user prompt to messages" workflow from
+        // appearing to depend on new chat messages we're about to create
         self.dagops.detach_from_alias(".chat_messages")?;
         Ok(())
     }

@@ -1,17 +1,45 @@
+//! Function call state management for streaming processing
+//!
+//! This module provides state management for function calls during streaming
+//! processing, ensuring proper sequencing and validation of function call data.
+
 use crate::funcalls_write::FunCallsWrite;
 
+// =============================================================================
+// State Management Structure
+// =============================================================================
+
+/// State manager for streaming function call processing
+///
+/// Manages function call state during streaming processing, ensuring:
+/// - Proper sequencing of function calls by index
+/// - Correct pairing of ID and name before processing
+/// - Buffering of arguments until the function call is ready
+/// - State transitions follow the expected protocol
 #[derive(Debug)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct FunCalls {
+    /// The highest function call index seen so far (enables streaming mode)
     pub last_index: Option<usize>,
+    /// Current function call ID (waiting for name to complete setup)
     current_id: Option<String>,
+    /// Current function call name (waiting for ID to complete setup)
     current_name: Option<String>,
+    /// Arguments accumulated before new_item was called
     pending_arguments: Option<String>,
+    /// Whether new_item has been called for the current function call
     new_item_called: bool,
 }
 
+// =============================================================================
+// Implementation
+// =============================================================================
+
 impl FunCalls {
-    /// Creates a new empty collection of function calls
+    /// Creates a new function call state manager
+    /// 
+    /// # Returns
+    /// A new `FunCalls` instance ready to process streaming function calls
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -23,7 +51,20 @@ impl FunCalls {
         }
     }
 
-    /// Calls `new_item` immediately if both id and name are now available
+    // =========================================================================
+    // Private Helper Methods
+    // =========================================================================
+
+    /// Attempts to call `new_item` if both ID and name are available
+    ///
+    /// This method handles the coordination between ID and name arrival,
+    /// calling the writer's `new_item` method when both are present.
+    ///
+    /// # Arguments
+    /// * `writer` - The writer to call new_item on
+    ///
+    /// # Errors
+    /// Returns an error if the writer's new_item or arguments_chunk methods fail
     fn try_call_new_item(
         &mut self,
         writer: &mut dyn FunCallsWrite,
@@ -47,7 +88,17 @@ impl FunCalls {
         Ok(())
     }
 
+    // =========================================================================
+    // Public Interface Methods
+    // =========================================================================
+
     /// Ends the current function call and writes it to the output
+    ///
+    /// This method finalizes the current function call and resets state
+    /// for the next function call.
+    ///
+    /// # Arguments
+    /// * `writer` - The writer to finalize the function call with
     ///
     /// # Errors
     /// Returns error if the writing operation fails
@@ -118,15 +169,12 @@ impl FunCalls {
                     .into());
                 }
 
-                // If we're moving to a new index, end the current function call and call end_item if needed
+                // If we're moving to a new index, end the current function call
                 if index > last {
                     if self.new_item_called {
                         writer.end_item()?;
                     }
-                    self.current_id = None;
-                    self.current_name = None;
-                    self.new_item_called = false;
-                    self.pending_arguments = None;
+                    self.reset_current_call_state();
                 }
             }
         }
@@ -225,5 +273,27 @@ impl FunCalls {
             self.new_item_called = false;
         }
         Ok(())
+    }
+
+    // =========================================================================
+    // Private Utility Methods
+    // =========================================================================
+
+    /// Resets the state for the current function call
+    fn reset_current_call_state(&mut self) {
+        self.current_id = None;
+        self.current_name = None;
+        self.new_item_called = false;
+        self.pending_arguments = None;
+    }
+}
+
+// =============================================================================
+// Default Implementation
+// =============================================================================
+
+impl Default for FunCalls {
+    fn default() -> Self {
+        Self::new()
     }
 }
