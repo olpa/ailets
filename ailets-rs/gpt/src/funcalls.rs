@@ -1,6 +1,6 @@
 use crate::funcalls_write::FunCallsWrite;
 
-#[derive(Debug, Default, PartialEq, Eq, Clone)]
+#[derive(Debug)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct FunCalls {
     pub last_index: Option<usize>,
@@ -30,12 +30,12 @@ impl FunCalls {
     ) -> Result<(), Box<dyn std::error::Error>> {
         if !self.new_item_called {
             if let (Some(id), Some(name)) = (&self.current_id, &self.current_name) {
-                writer.new_item(id.clone(), name.clone())?;
+                writer.new_item(id, name)?;
                 self.new_item_called = true;
 
                 // Send any pending arguments that were accumulated before new_item
                 if let Some(ref args) = self.pending_arguments {
-                    writer.arguments_chunk(args.clone())?;
+                    writer.arguments_chunk(args)?;
                     self.pending_arguments = None;
                 }
 
@@ -199,7 +199,7 @@ impl FunCalls {
 
         // Pass arguments directly to writer after new_item has been called
         if self.new_item_called {
-            writer.arguments_chunk(args.to_string())?;
+            writer.arguments_chunk(args)?;
         } else {
             // Store arguments until new_item is called
             match &mut self.pending_arguments {

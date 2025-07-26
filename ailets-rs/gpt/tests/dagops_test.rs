@@ -23,20 +23,14 @@ fn inject_tool_calls_to_dag() {
     {
         let mut dagops_writer = FunCallsGpt::new(writer.clone(), &mut tracked_dagops);
 
+        dagops_writer.new_item("call_1", "get_weather").unwrap();
         dagops_writer
-            .new_item("call_1".to_string(), "get_weather".to_string())
-            .unwrap();
-        dagops_writer
-            .arguments_chunk("{\"city\":\"London\"}".to_string())
+            .arguments_chunk("{\"city\":\"London\"}")
             .unwrap();
         dagops_writer.end_item().unwrap();
 
-        dagops_writer
-            .new_item("call_2".to_string(), "get_forecast".to_string())
-            .unwrap();
-        dagops_writer
-            .arguments_chunk("{\"days\":5}".to_string())
-            .unwrap();
+        dagops_writer.new_item("call_2", "get_forecast").unwrap();
+        dagops_writer.arguments_chunk("{\"days\":5}").unwrap();
         dagops_writer.end_item().unwrap();
 
         dagops_writer.end().unwrap();
@@ -282,19 +276,13 @@ fn multiple_arguments_chunks() {
     {
         let mut dagops_writer = FunCallsGpt::new(writer.clone(), &mut tracked_dagops);
 
-        dagops_writer
-            .new_item("call_1".to_string(), "get_weather".to_string())
-            .unwrap();
+        dagops_writer.new_item("call_1", "get_weather").unwrap();
 
         // Call arguments_chunk multiple times with different chunks
+        dagops_writer.arguments_chunk("{\"city\":").unwrap();
+        dagops_writer.arguments_chunk("\"London\",").unwrap();
         dagops_writer
-            .arguments_chunk("{\"city\":".to_string())
-            .unwrap();
-        dagops_writer
-            .arguments_chunk("\"London\",".to_string())
-            .unwrap();
-        dagops_writer
-            .arguments_chunk("\"country\":\"UK\"}".to_string())
+            .arguments_chunk("\"country\":\"UK\"}")
             .unwrap();
 
         dagops_writer.end_item().unwrap();

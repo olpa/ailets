@@ -155,7 +155,7 @@ impl<'a, T: DagOpsTrait> DagOpsWrite<'a, T> {
 }
 
 impl<'a, T: DagOpsTrait> FunCallsWrite for DagOpsWrite<'a, T> {
-    fn new_item(&mut self, id: String, name: String) -> Result<(), Box<dyn std::error::Error>> {
+    fn new_item(&mut self, id: &str, name: &str) -> Result<(), Box<dyn std::error::Error>> {
         if !self.detached {
             self.setup_loop_iteration_in_dag()?;
             self.detached = true;
@@ -215,7 +215,7 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for DagOpsWrite<'a, T> {
         Ok(())
     }
 
-    fn arguments_chunk(&mut self, args: String) -> Result<(), Box<dyn std::error::Error>> {
+    fn arguments_chunk(&mut self, args: &str) -> Result<(), Box<dyn std::error::Error>> {
         // Write to tool input writer
         if let Some(ref mut writer) = self.tool_input_writer {
             writer

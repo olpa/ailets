@@ -7,7 +7,7 @@ pub trait FunCallsWrite {
     ///
     /// # Errors
     /// Returns error if the writing operation fails
-    fn new_item(&mut self, id: String, name: String) -> Result<(), Box<dyn std::error::Error>>;
+    fn new_item(&mut self, id: &str, name: &str) -> Result<(), Box<dyn std::error::Error>>;
 
     /// Add a chunk of arguments to the current function call
     ///
@@ -16,7 +16,7 @@ pub trait FunCallsWrite {
     ///
     /// # Errors
     /// Returns error if the writing operation fails
-    fn arguments_chunk(&mut self, ac: String) -> Result<(), Box<dyn std::error::Error>>;
+    fn arguments_chunk(&mut self, ac: &str) -> Result<(), Box<dyn std::error::Error>>;
 
     /// Finalize the current function call item
     ///
@@ -56,17 +56,17 @@ impl<W: std::io::Write> FunCallsToChat<W> {
 }
 
 impl<W: std::io::Write> FunCallsWrite for FunCallsToChat<W> {
-    fn new_item(&mut self, id: String, name: String) -> Result<(), Box<dyn std::error::Error>> {
+    fn new_item(&mut self, id: &str, name: &str) -> Result<(), Box<dyn std::error::Error>> {
         // Store the id and name for writing later
-        self.current_id = Some(id);
-        self.current_name = Some(name);
+        self.current_id = Some(id.to_string());
+        self.current_name = Some(name.to_string());
         self.current_arguments.clear();
         Ok(())
     }
 
-    fn arguments_chunk(&mut self, ac: String) -> Result<(), Box<dyn std::error::Error>> {
+    fn arguments_chunk(&mut self, ac: &str) -> Result<(), Box<dyn std::error::Error>> {
         // Accumulate arguments chunks
-        self.current_arguments.push_str(&ac);
+        self.current_arguments.push_str(ac);
         Ok(())
     }
 
@@ -110,14 +110,14 @@ impl<'a, W: std::io::Write, T: crate::dagops::DagOpsTrait> FunCallsGpt<'a, W, T>
 }
 
 impl<'a, W: std::io::Write, T: crate::dagops::DagOpsTrait> FunCallsWrite for FunCallsGpt<'a, W, T> {
-    fn new_item(&mut self, id: String, name: String) -> Result<(), Box<dyn std::error::Error>> {
-        self.chat_writer.new_item(id.clone(), name.clone())?;
+    fn new_item(&mut self, id: &str, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+        self.chat_writer.new_item(id, name)?;
         self.dag_writer.new_item(id, name)?;
         Ok(())
     }
 
-    fn arguments_chunk(&mut self, args: String) -> Result<(), Box<dyn std::error::Error>> {
-        self.chat_writer.arguments_chunk(args.clone())?;
+    fn arguments_chunk(&mut self, args: &str) -> Result<(), Box<dyn std::error::Error>> {
+        self.chat_writer.arguments_chunk(args)?;
         self.dag_writer.arguments_chunk(args)?;
         Ok(())
     }

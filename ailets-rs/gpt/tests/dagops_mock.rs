@@ -42,10 +42,10 @@ pub fn inject_tool_calls(
 
     for (index, tool_call) in tool_calls.iter().enumerate() {
         writer
-            .new_item(tool_call.id.clone(), tool_call.function_name.clone())
+            .new_item(&tool_call.id, &tool_call.function_name)
             .map_err(|e| e.to_string())?;
         writer
-            .arguments_chunk(tool_call.function_arguments.clone())
+            .arguments_chunk(&tool_call.function_arguments)
             .map_err(|e| e.to_string())?;
         writer.end_item().map_err(|e| e.to_string())?;
     }

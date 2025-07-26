@@ -12,13 +12,9 @@ fn single_funcall() {
 
     // Act
     chat_writer
-        .new_item(
-            0,
-            "call_9cFpsOXfVWMUoDz1yyyP1QXD".to_string(),
-            "get_user_name".to_string(),
-        )
+        .new_item("call_9cFpsOXfVWMUoDz1yyyP1QXD", "get_user_name")
         .unwrap();
-    chat_writer.arguments_chunk("{}".to_string()).unwrap();
+    chat_writer.arguments_chunk("{}").unwrap();
     chat_writer.end_item().unwrap();
 
     // Assert
@@ -36,30 +32,18 @@ fn several_funcalls() {
     let mut chat_writer = FunCallsToChat::new(&mut writer);
 
     // First tool call
-    chat_writer
-        .new_item("call_foo".to_string(), "get_foo".to_string())
-        .unwrap();
-    chat_writer
-        .arguments_chunk("{foo_args}".to_string())
-        .unwrap();
+    chat_writer.new_item("call_foo", "get_foo").unwrap();
+    chat_writer.arguments_chunk("{foo_args}").unwrap();
     chat_writer.end_item().unwrap();
 
     // Second tool call
-    chat_writer
-        .new_item("call_bar".to_string(), "get_bar".to_string())
-        .unwrap();
-    chat_writer
-        .arguments_chunk("{bar_args}".to_string())
-        .unwrap();
+    chat_writer.new_item("call_bar", "get_bar").unwrap();
+    chat_writer.arguments_chunk("{bar_args}").unwrap();
     chat_writer.end_item().unwrap();
 
     // Third tool call
-    chat_writer
-        .new_item("call_baz".to_string(), "get_baz".to_string())
-        .unwrap();
-    chat_writer
-        .arguments_chunk("{baz_args}".to_string())
-        .unwrap();
+    chat_writer.new_item("call_baz", "get_baz").unwrap();
+    chat_writer.arguments_chunk("{baz_args}").unwrap();
     chat_writer.end_item().unwrap();
 
     // Assert
@@ -79,18 +63,10 @@ fn long_arguments() {
     let mut chat_writer = FunCallsToChat::new(&mut writer);
 
     // Act - arguments come in multiple chunks
-    chat_writer
-        .new_item("call_123".to_string(), "test_func".to_string())
-        .unwrap();
-    chat_writer
-        .arguments_chunk("{\"arg1\":".to_string())
-        .unwrap();
-    chat_writer
-        .arguments_chunk("\"value1\",".to_string())
-        .unwrap();
-    chat_writer
-        .arguments_chunk("\"arg2\":\"value2\"}".to_string())
-        .unwrap();
+    chat_writer.new_item("call_123", "test_func").unwrap();
+    chat_writer.arguments_chunk("{\"arg1\":").unwrap();
+    chat_writer.arguments_chunk("\"value1\",").unwrap();
+    chat_writer.arguments_chunk("\"arg2\":\"value2\"}").unwrap();
     chat_writer.end_item().unwrap();
 
     // Assert
@@ -106,9 +82,7 @@ fn empty_arguments() {
     let mut chat_writer = FunCallsToChat::new(&mut writer);
 
     // Act - function call with empty arguments
-    chat_writer
-        .new_item("call_empty".to_string(), "no_args_func".to_string())
-        .unwrap();
+    chat_writer.new_item("call_empty", "no_args_func").unwrap();
     chat_writer.end_item().unwrap();
 
     // Assert
