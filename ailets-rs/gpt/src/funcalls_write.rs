@@ -1,54 +1,82 @@
+//! Function call writing abstractions for streaming output
+//!
+//! This module provides traits and implementations for writing function call data
+//! in a streaming fashion, allowing for efficient processing of large function calls.
+
+use std::io::Write;
+
+/// Result type for function call writing operations
+type FunCallResult = Result<(), Box<dyn std::error::Error>>;
+
+/// Trait for writing function call data in a streaming manner
+///
+/// This trait supports streaming output by breaking function calls into discrete phases:
+/// 1. `new_item` - Initialize a new function call
+/// 2. `arguments_chunk` - Stream argument data in chunks (can be called multiple times)
+/// 3. `end_item` - Finalize the function call
+/// 4. `end` - Complete all processing
+///
+/// # Example
+/// ```rust,ignore
+/// let mut writer = FunCallsToChat::new(output);
+/// writer.new_item("call_123", "my_function")?;
+/// writer.arguments_chunk("{\"param1\":")?;
+/// writer.arguments_chunk("\"value1\"}")?;
+/// writer.end_item()?;
+/// ```
 pub trait FunCallsWrite {
-    /// Start a new function call item
+    /// Initialize a new function call
     ///
     /// # Arguments
-    /// * `id` - The unique identifier for the function call
-    /// * `name` - The name of the function to be called
-    ///
-    /// # Errors
-    /// Returns error if the writing operation fails
-    fn new_item(&mut self, id: &str, name: &str) -> Result<(), Box<dyn std::error::Error>>;
+    /// * `id` - Unique identifier for the function call
+    /// * `name` - Name of the function to be called
+    fn new_item(&mut self, id: &str, name: &str) -> FunCallResult;
 
     /// Add a chunk of arguments to the current function call
     ///
-    /// # Arguments
-    /// * `ac` - The arguments chunk to add
+    /// This method can be called multiple times to stream large arguments.
+    /// All chunks will be concatenated in the final output.
     ///
-    /// # Errors
-    /// Returns error if the writing operation fails
-    fn arguments_chunk(&mut self, ac: &str) -> Result<(), Box<dyn std::error::Error>>;
+    /// # Arguments
+    /// * `chunk` - The arguments chunk to append
+    fn arguments_chunk(&mut self, chunk: &str) -> FunCallResult;
 
     /// Finalize the current function call item
     ///
-    /// # Errors
-    /// Returns error if the writing operation fails
-    fn end_item(&mut self) -> Result<(), Box<dyn std::error::Error>>;
+    /// This must be called after all argument chunks have been written.
+    fn end_item(&mut self) -> FunCallResult;
 
-    /// Finalize all function call processing
+    /// Complete all function call processing
     ///
-    /// # Errors
-    /// Returns error if the writing operation fails
-    fn end(&mut self) -> Result<(), Box<dyn std::error::Error>>;
+    /// This is called once at the end of all function call processing.
+    fn end(&mut self) -> FunCallResult;
 }
 
-/// Implementation of `FunCallsWrite` that writes to a chat-style format
+/// Chat-style function call writer
 ///
-/// This implementation writes function calls in the format expected by chat systems,
-/// with function call data written as JSON lines.
-pub struct FunCallsToChat<W: std::io::Write> {
+/// Writes function calls in JSON format suitable for chat systems.
+/// Each function call is written as a single JSON line in the format:
+/// `[{"type":"function","id":"...","name":"..."},{"arguments":"..."}]`
+///
+/// # Type Parameters
+/// * `W` - Any type implementing `std::io::Write`
+pub struct FunCallsToChat<W: Write> {
     writer: W,
 }
 
-impl<W: std::io::Write> FunCallsToChat<W> {
-    /// Creates a new `FunCallsToChat` instance with the given writer
+impl<W: Write> FunCallsToChat<W> {
+    /// Creates a new chat-style function call writer
+    ///
+    /// # Arguments
+    /// * `writer` - The underlying writer for output
     #[must_use]
-    pub fn new(writer: W) -> Self {
+    pub const fn new(writer: W) -> Self {
         Self { writer }
     }
 }
 
-impl<W: std::io::Write> FunCallsWrite for FunCallsToChat<W> {
-    fn new_item(&mut self, id: &str, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+impl<W: Write> FunCallsWrite for FunCallsToChat<W> {
+    fn new_item(&mut self, id: &str, name: &str) -> FunCallResult {
         // Start writing the function call JSON structure
         write!(
             self.writer,
@@ -58,32 +86,41 @@ impl<W: std::io::Write> FunCallsWrite for FunCallsToChat<W> {
         Ok(())
     }
 
-    fn arguments_chunk(&mut self, ac: &str) -> Result<(), Box<dyn std::error::Error>> {
-        // Write arguments chunk directly to output
-        write!(self.writer, "{}", ac)?;
+    fn arguments_chunk(&mut self, chunk: &str) -> FunCallResult {
+        write!(self.writer, "{}", chunk)?;
         Ok(())
     }
 
-    fn end_item(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Close the JSON structure and write newline
+    fn end_item(&mut self) -> FunCallResult {
         writeln!(self.writer, "\"}}]")?;
         Ok(())
     }
 
-    fn end(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // FunCallsToChat doesn't need to do anything special on end
+    fn end(&mut self) -> FunCallResult {
+        // No special cleanup needed for chat format
         Ok(())
     }
 }
 
-/// `FunCallsGpt` forwards function call events to both `FunCallsToChat` and `DagOpsWrite`
-pub struct FunCallsGpt<'a, W: std::io::Write, T: crate::dagops::DagOpsTrait> {
+/// Composite writer that forwards function calls to multiple destinations
+///
+/// This writer combines chat-style output with DAG operations, allowing
+/// function calls to be processed for both chat display and internal DAG tracking.
+///
+/// # Type Parameters
+/// * `W` - Writer type for chat output
+/// * `T` - DAG operations trait implementation
+pub struct FunCallsGpt<'a, W: Write, T: crate::dagops::DagOpsTrait> {
     chat_writer: FunCallsToChat<W>,
     dag_writer: crate::dagops::DagOpsWrite<'a, T>,
 }
 
-impl<'a, W: std::io::Write, T: crate::dagops::DagOpsTrait> FunCallsGpt<'a, W, T> {
-    /// Create a new `FunCallsGpt` instance
+impl<'a, W: Write, T: crate::dagops::DagOpsTrait> FunCallsGpt<'a, W, T> {
+    /// Create a new composite function call writer
+    ///
+    /// # Arguments
+    /// * `writer` - Output writer for chat-style formatting
+    /// * `dagops` - Mutable reference to DAG operations handler
     pub fn new(writer: W, dagops: &'a mut T) -> Self {
         Self {
             chat_writer: FunCallsToChat::new(writer),
@@ -92,26 +129,27 @@ impl<'a, W: std::io::Write, T: crate::dagops::DagOpsTrait> FunCallsGpt<'a, W, T>
     }
 }
 
-impl<'a, W: std::io::Write, T: crate::dagops::DagOpsTrait> FunCallsWrite for FunCallsGpt<'a, W, T> {
-    fn new_item(&mut self, id: &str, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+impl<'a, W: Write, T: crate::dagops::DagOpsTrait> FunCallsWrite for FunCallsGpt<'a, W, T> {
+    fn new_item(&mut self, id: &str, name: &str) -> FunCallResult {
+        // Forward to both writers, failing fast on any error
         self.chat_writer.new_item(id, name)?;
         self.dag_writer.new_item(id, name)?;
         Ok(())
     }
 
-    fn arguments_chunk(&mut self, args: &str) -> Result<(), Box<dyn std::error::Error>> {
-        self.chat_writer.arguments_chunk(args)?;
-        self.dag_writer.arguments_chunk(args)?;
+    fn arguments_chunk(&mut self, chunk: &str) -> FunCallResult {
+        self.chat_writer.arguments_chunk(chunk)?;
+        self.dag_writer.arguments_chunk(chunk)?;
         Ok(())
     }
 
-    fn end_item(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn end_item(&mut self) -> FunCallResult {
         self.chat_writer.end_item()?;
         self.dag_writer.end_item()?;
         Ok(())
     }
 
-    fn end(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn end(&mut self) -> FunCallResult {
         self.chat_writer.end()?;
         self.dag_writer.end()?;
         Ok(())
