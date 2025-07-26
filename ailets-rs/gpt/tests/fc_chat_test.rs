@@ -19,8 +19,7 @@ fn single_funcall() {
 
     // Assert
     let output = String::from_utf8(writer).unwrap();
-    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
-[{"type":"function","id":"call_9cFpsOXfVWMUoDz1yyyP1QXD","name":"get_user_name"},{"arguments":"{}"}]
+    let expected = r#"[{"type":"function","id":"call_9cFpsOXfVWMUoDz1yyyP1QXD","name":"get_user_name"},{"arguments":"{}"}]
 "#;
     assert_eq!(output, expected);
 }
@@ -48,8 +47,7 @@ fn several_funcalls() {
 
     // Assert
     let output = String::from_utf8(writer).unwrap();
-    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
-[{"type":"function","id":"call_foo","name":"get_foo"},{"arguments":"{foo_args}"}]
+    let expected = r#"[{"type":"function","id":"call_foo","name":"get_foo"},{"arguments":"{foo_args}"}]
 [{"type":"function","id":"call_bar","name":"get_bar"},{"arguments":"{bar_args}"}]
 [{"type":"function","id":"call_baz","name":"get_baz"},{"arguments":"{baz_args}"}]
 "#;
@@ -71,7 +69,7 @@ fn long_arguments() {
 
     // Assert
     let output = String::from_utf8(writer).unwrap();
-    let expected = "[{\"type\":\"ctl\"},{\"role\":\"assistant\"}]\n[{\"type\":\"function\",\"id\":\"call_123\",\"name\":\"test_func\"},{\"arguments\":\"{\"arg1\":\"value1\",\"arg2\":\"value2\"}\"}]\n";
+    let expected = "[{\"type\":\"function\",\"id\":\"call_123\",\"name\":\"test_func\"},{\"arguments\":\"{\"arg1\":\"value1\",\"arg2\":\"value2\"}\"}]\n";
     assert_eq!(output, expected);
 }
 
@@ -87,8 +85,7 @@ fn empty_arguments() {
 
     // Assert
     let output = String::from_utf8(writer).unwrap();
-    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
-[{"type":"function","id":"call_empty","name":"no_args_func"},{"arguments":""}]
+    let expected = r#"[{"type":"function","id":"call_empty","name":"no_args_func"},{"arguments":""}]
 "#;
     assert_eq!(output, expected);
 }

@@ -75,7 +75,7 @@ impl<W: std::io::Write> FunCallsWrite for FunCallsToChat<W> {
         if let (Some(id), Some(name)) = (&self.current_id, &self.current_name) {
             writeln!(
                 self.writer,
-                r#"[{{"type":"tool_call"}},{{"id":"{}","function_name":"{}","function_arguments":"{}"}}]"#,
+                r#"[{{"type":"function","id":"{}","name":"{}"}},{{"arguments":"{}"}}]"#,
                 id, name, self.current_arguments
             )?;
         }
