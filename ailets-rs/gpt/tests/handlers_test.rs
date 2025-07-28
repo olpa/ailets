@@ -1,5 +1,5 @@
 use actor_runtime_mocked::RcWriter;
-use gpt::funcalls::FunCalls;
+use gpt::funcalls_builder::FunCallsBuilder;
 use gpt::handlers::{on_content, on_function_index, on_function_name};
 use gpt::structure_builder::StructureBuilder;
 use scan_json::{RJiter, StreamOp};

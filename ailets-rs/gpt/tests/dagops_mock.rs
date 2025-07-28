@@ -3,8 +3,9 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use actor_runtime_mocked::{Vfs, VfsWriter};
-use gpt::dagops::{DagOpsTrait, DagOpsWrite, InjectDagOpsTrait};
-use gpt::funcalls_write::FunCallsWrite;
+use gpt::dagops::{DagOpsTrait, InjectDagOpsTrait};
+use gpt::fcw_dag::FunCallsToDag;
+use gpt::fcw_trait::FunCallsWrite;
 use std::io::Write;
 
 /// Test-only definition of ContentItemFunction for backward compatibility
@@ -37,8 +38,8 @@ pub fn inject_tool_calls(
         return Ok(());
     }
 
-    // Use DagOpsWrite for the actual implementation
-    let mut writer = DagOpsWrite::new(dagops);
+    // Use FunCallsToDag for the actual implementation
+    let mut writer = FunCallsToDag::new(dagops);
 
     for (index, tool_call) in tool_calls.iter().enumerate() {
         writer

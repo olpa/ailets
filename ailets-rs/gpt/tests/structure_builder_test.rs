@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use actor_runtime_mocked::RcWriter;
-use gpt::funcalls::FunCalls;
+use gpt::funcalls_builder::FunCallsBuilder;
 use gpt::structure_builder::StructureBuilder;
 
 #[test]

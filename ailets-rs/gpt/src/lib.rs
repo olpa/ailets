@@ -1,6 +1,9 @@
 pub mod dagops;
-pub mod funcalls;
-pub mod funcalls_write;
+pub mod fcw_chat;
+pub mod fcw_dag;
+pub mod fcw_fork;
+pub mod fcw_trait;
+pub mod funcalls_builder;
 pub mod handlers;
 pub mod structure_builder;
 
@@ -135,7 +138,7 @@ fn make_triggers<'a, W: Write + 'a>() -> Vec<Trigger<'a, BA<'a, W>>> {
 pub fn _process_gpt<W: Write>(
     mut reader: impl std::io::Read,
     writer: W,
-    dagops: &mut impl InjectDagOpsTrait,
+    _dagops: &mut impl InjectDagOpsTrait,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let builder = StructureBuilder::new(writer);
     let builder_cell = RefCell::new(builder);

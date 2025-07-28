@@ -1,5 +1,5 @@
-use gpt::funcalls::FunCalls;
-use gpt::funcalls_write::FunCallsWrite;
+use gpt::fcw_trait::FunCallsWrite;
+use gpt::funcalls_builder::FunCallsBuilder;
 
 /// Test implementation of FunCallsWrite that stores calls for verification
 #[derive(Debug, Default)]
@@ -63,7 +63,7 @@ impl FunCallsWrite for TestFunCallsWrite {
 fn single_funcall_direct() {
     // Arrange
     let mut writer = TestFunCallsWrite::new();
-    let mut funcalls = FunCalls::new();
+    let mut funcalls = FunCallsBuilder::new();
 
     // Act
     // Don't call "index"
@@ -92,7 +92,7 @@ fn single_funcall_direct() {
 fn several_funcalls_direct() {
     // Arrange
     let mut writer = TestFunCallsWrite::new();
-    let mut funcalls = FunCalls::new();
+    let mut funcalls = FunCallsBuilder::new();
 
     // First tool call - Don't call "index"
     funcalls.id("call_foo", &mut writer).unwrap();
@@ -146,7 +146,7 @@ fn several_funcalls_direct() {
 fn single_element_streaming() {
     // Arrange
     let mut writer = TestFunCallsWrite::new();
-    let mut funcalls = FunCalls::new();
+    let mut funcalls = FunCallsBuilder::new();
 
     // Act - streaming mode with delta_index
     funcalls.index(0, &mut writer).unwrap();
@@ -176,7 +176,7 @@ fn single_element_streaming() {
 fn several_elements_streaming() {
     // Arrange
     let mut writer = TestFunCallsWrite::new();
-    let mut funcalls = FunCalls::new();
+    let mut funcalls = FunCallsBuilder::new();
 
     // Act - streaming mode with delta_index, multiple elements in one round
     funcalls.index(0, &mut writer).unwrap();
@@ -233,7 +233,7 @@ fn several_elements_streaming() {
 
 #[test]
 fn index_increment_validation() {
-    let mut funcalls = FunCalls::new();
+    let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
 
     // First index must be 0
@@ -267,7 +267,7 @@ fn index_increment_validation() {
 
 #[test]
 fn first_index_must_be_zero() {
-    let mut funcalls = FunCalls::new();
+    let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
 
     // First index must be 0
@@ -281,7 +281,7 @@ fn first_index_must_be_zero() {
 
 #[test]
 fn arguments_span_multiple_deltas() {
-    let mut funcalls = FunCalls::new();
+    let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
 
     // Enable streaming mode
@@ -309,7 +309,7 @@ fn arguments_span_multiple_deltas() {
 
 #[test]
 fn test_id_already_given_error() {
-    let mut funcalls = FunCalls::new();
+    let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
 
     // First ID should work
@@ -326,7 +326,7 @@ fn test_id_already_given_error() {
 
 #[test]
 fn test_name_already_given_error() {
-    let mut funcalls = FunCalls::new();
+    let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
 
     // First name should work
@@ -343,7 +343,7 @@ fn test_name_already_given_error() {
 
 #[test]
 fn test_id_then_name_calls_new_item() {
-    let mut funcalls = FunCalls::new();
+    let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
 
     // Set id first, then name
@@ -359,7 +359,7 @@ fn test_id_then_name_calls_new_item() {
 
 #[test]
 fn test_name_then_id_calls_new_item() {
-    let mut funcalls = FunCalls::new();
+    let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
 
     // Set name first, then id
@@ -375,7 +375,7 @@ fn test_name_then_id_calls_new_item() {
 
 #[test]
 fn test_arguments_chunk_without_new_item_stores() {
-    let mut funcalls = FunCalls::new();
+    let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
 
     // Add arguments without calling new_item first
@@ -398,7 +398,7 @@ fn test_arguments_chunk_without_new_item_stores() {
 
 #[test]
 fn test_arguments_chunk_with_new_item_forwards() {
-    let mut funcalls = FunCalls::new();
+    let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
 
     // Set id and name to trigger new_item
@@ -418,7 +418,7 @@ fn test_arguments_chunk_with_new_item_forwards() {
 
 #[test]
 fn test_end_item_without_new_item_error() {
-    let mut funcalls = FunCalls::new();
+    let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
 
     // Call end_item without new_item should error
@@ -432,7 +432,7 @@ fn test_end_item_without_new_item_error() {
 
 #[test]
 fn test_index_increment_calls_end_item_if_not_called() {
-    let mut funcalls = FunCalls::new();
+    let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
 
     // Start with index 0
@@ -459,7 +459,7 @@ fn test_index_increment_calls_end_item_if_not_called() {
 
 #[test]
 fn test_end_calls_end_item_if_not_called() {
-    let mut funcalls = FunCalls::new();
+    let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
 
     // Set up a function call
@@ -485,7 +485,7 @@ fn test_end_calls_end_item_if_not_called() {
 
 #[test]
 fn test_multiple_arguments_chunks_accumulated() {
-    let mut funcalls = FunCalls::new();
+    let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
 
     // Add multiple argument chunks before new_item

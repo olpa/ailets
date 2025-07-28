@@ -3,11 +3,15 @@
 extern crate hamcrest;
 use crate::dagops_mock::TrackedDagOps;
 use actor_runtime_mocked::RcWriter;
-use gpt::funcalls_write::{FunCallsGpt, FunCallsWrite};
+use gpt::fcw_fork::FunCallsFork as FunCallsGpt;
+use gpt::fcw_trait::FunCallsWrite;
 use hamcrest::prelude::*;
 use serde_json::json;
 use std::collections::HashMap;
 pub mod dagops_mock;
+
+// Testing not only "fcw_dag" but also the complete functionality,
+// including the chat history and tool calls.
 
 #[test]
 fn inject_tool_calls_to_dag() {

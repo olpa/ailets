@@ -3,11 +3,7 @@
 //! This module provides state management for function calls during streaming
 //! processing, ensuring proper sequencing and validation of function call data.
 
-use crate::funcalls_write::FunCallsWrite;
-
-// =============================================================================
-// State Management Structure
-// =============================================================================
+use crate::fcw_trait::FunCallsWrite;
 
 /// State manager for streaming function call processing
 ///
@@ -18,7 +14,7 @@ use crate::funcalls_write::FunCallsWrite;
 /// - State transitions follow the expected protocol
 #[derive(Debug)]
 #[allow(clippy::struct_excessive_bools)]
-pub struct FunCalls {
+pub struct FunCallsBuilder {
     /// The highest function call index seen so far (enables streaming mode)
     pub last_index: Option<usize>,
     /// Current function call ID (waiting for name to complete setup)
@@ -31,15 +27,11 @@ pub struct FunCalls {
     new_item_called: bool,
 }
 
-// =============================================================================
-// Implementation
-// =============================================================================
-
-impl FunCalls {
+impl FunCallsBuilder {
     /// Creates a new function call state manager
-    /// 
+    ///
     /// # Returns
-    /// A new `FunCalls` instance ready to process streaming function calls
+    /// A new `FunCallsBuilder` instance ready to process streaming function calls
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -288,11 +280,7 @@ impl FunCalls {
     }
 }
 
-// =============================================================================
-// Default Implementation
-// =============================================================================
-
-impl Default for FunCalls {
+impl Default for FunCallsBuilder {
     fn default() -> Self {
         Self::new()
     }

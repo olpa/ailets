@@ -2,8 +2,8 @@
 //!
 //! Collects function calls from the JSON stream and stores them in a `FunCalls` struct.
 
-use crate::funcalls::FunCalls;
-use crate::funcalls_write::FunCallsToChat;
+use crate::fcw_chat::FunCallsToChat;
+use crate::funcalls_builder::FunCallsBuilder;
 use std::io::Write;
 
 pub struct StructureBuilder<W: Write> {
@@ -12,7 +12,7 @@ pub struct StructureBuilder<W: Write> {
     message_has_content: bool,
     text_is_open: bool,
     message_is_closed: bool,
-    funcalls: FunCalls,
+    funcalls: FunCallsBuilder,
 }
 
 impl<W: Write> StructureBuilder<W> {
@@ -24,7 +24,7 @@ impl<W: Write> StructureBuilder<W> {
             message_has_content: false,
             text_is_open: false,
             message_is_closed: false,
-            funcalls: FunCalls::new(),
+            funcalls: FunCallsBuilder::new(),
         }
     }
 
@@ -34,11 +34,11 @@ impl<W: Write> StructureBuilder<W> {
     }
 
     #[must_use]
-    pub fn get_funcalls(&self) -> &FunCalls {
+    pub fn get_funcalls(&self) -> &FunCallsBuilder {
         &self.funcalls
     }
 
-    pub fn get_funcalls_mut(&mut self) -> &mut FunCalls {
+    pub fn get_funcalls_mut(&mut self) -> &mut FunCallsBuilder {
         &mut self.funcalls
     }
 
