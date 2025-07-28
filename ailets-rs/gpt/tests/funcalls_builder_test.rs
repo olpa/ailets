@@ -63,19 +63,28 @@ impl FunCallsWrite for TestFunCallsWrite {
 fn single_funcall_direct() {
     // Arrange
     let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
     let mut funcalls = FunCallsBuilder::new();
 
     // Act
     // Don't call "index"
     funcalls
-        .id("call_9cFpsOXfVWMUoDz1yyyP1QXD", &mut writer)
+        .id(
+            "call_9cFpsOXfVWMUoDz1yyyP1QXD",
+            &mut writer,
+            &mut dag_writer,
+        )
         .unwrap();
-    funcalls.name("get_user_name", &mut writer).unwrap();
-    funcalls.arguments_chunk("{}", &mut writer).unwrap();
-    funcalls.end_current(&mut writer).unwrap();
+    funcalls
+        .name("get_user_name", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .arguments_chunk("{}", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls.end_current(&mut writer, &mut dag_writer).unwrap();
 
     // Assert
-    funcalls.end(&mut writer).unwrap();
+    funcalls.end(&mut writer, &mut dag_writer).unwrap();
     let items = writer.get_items();
     assert_eq!(items.len(), 1);
     assert_eq!(
@@ -92,28 +101,47 @@ fn single_funcall_direct() {
 fn several_funcalls_direct() {
     // Arrange
     let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
     let mut funcalls = FunCallsBuilder::new();
 
     // First tool call - Don't call "index"
-    funcalls.id("call_foo", &mut writer).unwrap();
-    funcalls.name("get_foo", &mut writer).unwrap();
-    funcalls.arguments_chunk("{foo_args}", &mut writer).unwrap();
-    funcalls.end_current(&mut writer).unwrap();
+    funcalls
+        .id("call_foo", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .name("get_foo", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .arguments_chunk("{foo_args}", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls.end_current(&mut writer, &mut dag_writer).unwrap();
 
     // Second tool call - Don't call "index"
-    funcalls.id("call_bar", &mut writer).unwrap();
-    funcalls.name("get_bar", &mut writer).unwrap();
-    funcalls.arguments_chunk("{bar_args}", &mut writer).unwrap();
-    funcalls.end_current(&mut writer).unwrap();
+    funcalls
+        .id("call_bar", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .name("get_bar", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .arguments_chunk("{bar_args}", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls.end_current(&mut writer, &mut dag_writer).unwrap();
 
     // Third tool call - Don't call "index"
-    funcalls.id("call_baz", &mut writer).unwrap();
-    funcalls.name("get_baz", &mut writer).unwrap();
-    funcalls.arguments_chunk("{baz_args}", &mut writer).unwrap();
-    funcalls.end_current(&mut writer).unwrap();
+    funcalls
+        .id("call_baz", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .name("get_baz", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .arguments_chunk("{baz_args}", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls.end_current(&mut writer, &mut dag_writer).unwrap();
 
     // Assert
-    funcalls.end(&mut writer).unwrap();
+    funcalls.end(&mut writer, &mut dag_writer).unwrap();
     let items = writer.get_items();
     assert_eq!(items.len(), 3);
     assert_eq!(
@@ -146,20 +174,29 @@ fn several_funcalls_direct() {
 fn single_element_streaming() {
     // Arrange
     let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
     let mut funcalls = FunCallsBuilder::new();
 
     // Act - streaming mode with delta_index
-    funcalls.index(0, &mut writer).unwrap();
+    funcalls.index(0, &mut writer, &mut dag_writer).unwrap();
 
     funcalls
-        .id("call_9cFpsOXfVWMUoDz1yyyP1QXD", &mut writer)
+        .id(
+            "call_9cFpsOXfVWMUoDz1yyyP1QXD",
+            &mut writer,
+            &mut dag_writer,
+        )
         .unwrap();
-    funcalls.name("get_user_name", &mut writer).unwrap();
-    funcalls.arguments_chunk("{}", &mut writer).unwrap();
-    funcalls.end_current(&mut writer).unwrap();
+    funcalls
+        .name("get_user_name", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .arguments_chunk("{}", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls.end_current(&mut writer, &mut dag_writer).unwrap();
 
     // Assert
-    funcalls.end(&mut writer).unwrap();
+    funcalls.end(&mut writer, &mut dag_writer).unwrap();
     let items = writer.get_items();
     assert_eq!(items.len(), 1);
     assert_eq!(
@@ -176,29 +213,48 @@ fn single_element_streaming() {
 fn several_elements_streaming() {
     // Arrange
     let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
     let mut funcalls = FunCallsBuilder::new();
 
     // Act - streaming mode with delta_index, multiple elements in one round
-    funcalls.index(0, &mut writer).unwrap();
+    funcalls.index(0, &mut writer, &mut dag_writer).unwrap();
 
-    funcalls.id("call_foo", &mut writer).unwrap();
-    funcalls.name("get_foo", &mut writer).unwrap();
-    funcalls.arguments_chunk("{foo_args}", &mut writer).unwrap();
+    funcalls
+        .id("call_foo", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .name("get_foo", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .arguments_chunk("{foo_args}", &mut writer, &mut dag_writer)
+        .unwrap();
 
-    funcalls.index(1, &mut writer).unwrap();
+    funcalls.index(1, &mut writer, &mut dag_writer).unwrap();
 
-    funcalls.id("call_bar", &mut writer).unwrap();
-    funcalls.name("get_bar", &mut writer).unwrap();
-    funcalls.arguments_chunk("{bar_args}", &mut writer).unwrap();
+    funcalls
+        .id("call_bar", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .name("get_bar", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .arguments_chunk("{bar_args}", &mut writer, &mut dag_writer)
+        .unwrap();
 
-    funcalls.index(2, &mut writer).unwrap();
+    funcalls.index(2, &mut writer, &mut dag_writer).unwrap();
 
-    funcalls.id("call_baz", &mut writer).unwrap();
-    funcalls.name("get_baz", &mut writer).unwrap();
-    funcalls.arguments_chunk("{baz_args}", &mut writer).unwrap();
+    funcalls
+        .id("call_baz", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .name("get_baz", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .arguments_chunk("{baz_args}", &mut writer, &mut dag_writer)
+        .unwrap();
 
     // Assert
-    funcalls.end(&mut writer).unwrap();
+    funcalls.end(&mut writer, &mut dag_writer).unwrap();
     let items = writer.get_items();
     assert_eq!(items.len(), 3);
     assert_eq!(
@@ -235,24 +291,25 @@ fn several_elements_streaming() {
 fn index_increment_validation() {
     let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
 
     // First index must be 0
-    assert!(funcalls.index(0, &mut writer).is_ok());
+    assert!(funcalls.index(0, &mut writer, &mut dag_writer).is_ok());
 
     // Index can stay the same
-    assert!(funcalls.index(0, &mut writer).is_ok());
+    assert!(funcalls.index(0, &mut writer, &mut dag_writer).is_ok());
 
     // Index can increment by 1
-    assert!(funcalls.index(1, &mut writer).is_ok());
+    assert!(funcalls.index(1, &mut writer, &mut dag_writer).is_ok());
 
     // Index can stay the same
-    assert!(funcalls.index(1, &mut writer).is_ok());
+    assert!(funcalls.index(1, &mut writer, &mut dag_writer).is_ok());
 
     // Index can increment by 1
-    assert!(funcalls.index(2, &mut writer).is_ok());
+    assert!(funcalls.index(2, &mut writer, &mut dag_writer).is_ok());
 
     // Index cannot skip
-    let result = funcalls.index(4, &mut writer);
+    let result = funcalls.index(4, &mut writer, &mut dag_writer);
     assert!(result.is_err());
     assert!(result
         .unwrap_err()
@@ -260,7 +317,7 @@ fn index_increment_validation() {
         .contains("cannot skip values"));
 
     // Index cannot go backwards (never decreases)
-    let result = funcalls.index(1, &mut writer);
+    let result = funcalls.index(1, &mut writer, &mut dag_writer);
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("cannot decrease"));
 }
@@ -269,9 +326,10 @@ fn index_increment_validation() {
 fn first_index_must_be_zero() {
     let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
 
     // First index must be 0
-    let result = funcalls.index(1, &mut writer);
+    let result = funcalls.index(1, &mut writer, &mut dag_writer);
     assert!(result.is_err());
     assert!(result
         .unwrap_err()
@@ -283,23 +341,32 @@ fn first_index_must_be_zero() {
 fn arguments_span_multiple_deltas() {
     let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
 
     // Enable streaming mode
-    assert!(funcalls.index(0, &mut writer).is_ok());
+    assert!(funcalls.index(0, &mut writer, &mut dag_writer).is_ok());
 
     // Set up id and name first so new_item gets called
-    funcalls.id("call_123", &mut writer).unwrap();
-    funcalls.name("get_user", &mut writer).unwrap();
+    funcalls
+        .id("call_123", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .name("get_user", &mut writer, &mut dag_writer)
+        .unwrap();
 
     // Arguments can be set multiple times - this should work
-    funcalls.arguments_chunk("{", &mut writer).unwrap();
     funcalls
-        .arguments_chunk("\"arg\": \"value\"", &mut writer)
+        .arguments_chunk("{", &mut writer, &mut dag_writer)
         .unwrap();
-    funcalls.arguments_chunk("}", &mut writer).unwrap();
+    funcalls
+        .arguments_chunk("\"arg\": \"value\"", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .arguments_chunk("}", &mut writer, &mut dag_writer)
+        .unwrap();
 
     // End the item
-    funcalls.end_item(&mut writer).unwrap();
+    funcalls.end_item(&mut writer, &mut dag_writer).unwrap();
 
     // No error should occur - arguments are allowed to span deltas
     let items = writer.get_items();
@@ -311,12 +378,15 @@ fn arguments_span_multiple_deltas() {
 fn test_id_already_given_error() {
     let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
 
     // First ID should work
-    funcalls.id("call_123", &mut writer).unwrap();
+    funcalls
+        .id("call_123", &mut writer, &mut dag_writer)
+        .unwrap();
 
     // Second ID should error
-    let result = funcalls.id("call_456", &mut writer);
+    let result = funcalls.id("call_456", &mut writer, &mut dag_writer);
     assert!(result.is_err());
     assert!(result
         .unwrap_err()
@@ -328,12 +398,15 @@ fn test_id_already_given_error() {
 fn test_name_already_given_error() {
     let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
 
     // First name should work
-    funcalls.name("get_user", &mut writer).unwrap();
+    funcalls
+        .name("get_user", &mut writer, &mut dag_writer)
+        .unwrap();
 
     // Second name should error
-    let result = funcalls.name("get_data", &mut writer);
+    let result = funcalls.name("get_data", &mut writer, &mut dag_writer);
     assert!(result.is_err());
     assert!(result
         .unwrap_err()
@@ -345,10 +418,15 @@ fn test_name_already_given_error() {
 fn test_id_then_name_calls_new_item() {
     let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
 
     // Set id first, then name
-    funcalls.id("call_123", &mut writer).unwrap();
-    funcalls.name("get_user", &mut writer).unwrap();
+    funcalls
+        .id("call_123", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .name("get_user", &mut writer, &mut dag_writer)
+        .unwrap();
 
     // Should have called new_item with both values
     let items = writer.get_items();
@@ -361,10 +439,15 @@ fn test_id_then_name_calls_new_item() {
 fn test_name_then_id_calls_new_item() {
     let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
 
     // Set name first, then id
-    funcalls.name("get_user", &mut writer).unwrap();
-    funcalls.id("call_123", &mut writer).unwrap();
+    funcalls
+        .name("get_user", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .id("call_123", &mut writer, &mut dag_writer)
+        .unwrap();
 
     // Should have called new_item with both values
     let items = writer.get_items();
@@ -377,19 +460,24 @@ fn test_name_then_id_calls_new_item() {
 fn test_arguments_chunk_without_new_item_stores() {
     let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
 
     // Add arguments without calling new_item first
     funcalls
-        .arguments_chunk("{\"arg\": \"value\"}", &mut writer)
+        .arguments_chunk("{\"arg\": \"value\"}", &mut writer, &mut dag_writer)
         .unwrap();
 
     // Should not have called writer.arguments_chunk yet
     // Now set id and name to trigger new_item
-    funcalls.id("call_123", &mut writer).unwrap();
-    funcalls.name("get_user", &mut writer).unwrap();
+    funcalls
+        .id("call_123", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .name("get_user", &mut writer, &mut dag_writer)
+        .unwrap();
 
     // Now end the item
-    funcalls.end_item(&mut writer).unwrap();
+    funcalls.end_item(&mut writer, &mut dag_writer).unwrap();
 
     let items = writer.get_items();
     assert_eq!(items.len(), 1);
@@ -400,16 +488,21 @@ fn test_arguments_chunk_without_new_item_stores() {
 fn test_arguments_chunk_with_new_item_forwards() {
     let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
 
     // Set id and name to trigger new_item
-    funcalls.id("call_123", &mut writer).unwrap();
-    funcalls.name("get_user", &mut writer).unwrap();
+    funcalls
+        .id("call_123", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .name("get_user", &mut writer, &mut dag_writer)
+        .unwrap();
 
     // Now add arguments - should forward directly to writer
     funcalls
-        .arguments_chunk("{\"arg\": \"value\"}", &mut writer)
+        .arguments_chunk("{\"arg\": \"value\"}", &mut writer, &mut dag_writer)
         .unwrap();
-    funcalls.end_item(&mut writer).unwrap();
+    funcalls.end_item(&mut writer, &mut dag_writer).unwrap();
 
     let items = writer.get_items();
     assert_eq!(items.len(), 1);
@@ -420,9 +513,10 @@ fn test_arguments_chunk_with_new_item_forwards() {
 fn test_end_item_without_new_item_error() {
     let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
 
     // Call end_item without new_item should error
-    let result = funcalls.end_item(&mut writer);
+    let result = funcalls.end_item(&mut writer, &mut dag_writer);
     assert!(result.is_err());
     assert!(result
         .unwrap_err()
@@ -434,15 +528,22 @@ fn test_end_item_without_new_item_error() {
 fn test_index_increment_calls_end_item_if_not_called() {
     let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
 
     // Start with index 0
-    funcalls.index(0, &mut writer).unwrap();
-    funcalls.id("call_123", &mut writer).unwrap();
-    funcalls.name("get_user", &mut writer).unwrap();
-    funcalls.arguments_chunk("{}", &mut writer).unwrap();
+    funcalls.index(0, &mut writer, &mut dag_writer).unwrap();
+    funcalls
+        .id("call_123", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .name("get_user", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .arguments_chunk("{}", &mut writer, &mut dag_writer)
+        .unwrap();
 
     // Move to index 1 without calling end_item - should auto-call it
-    funcalls.index(1, &mut writer).unwrap();
+    funcalls.index(1, &mut writer, &mut dag_writer).unwrap();
 
     // The first item should be completed
     let items = writer.get_items();
@@ -461,14 +562,21 @@ fn test_index_increment_calls_end_item_if_not_called() {
 fn test_end_calls_end_item_if_not_called() {
     let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
 
     // Set up a function call
-    funcalls.id("call_123", &mut writer).unwrap();
-    funcalls.name("get_user", &mut writer).unwrap();
-    funcalls.arguments_chunk("{}", &mut writer).unwrap();
+    funcalls
+        .id("call_123", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .name("get_user", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .arguments_chunk("{}", &mut writer, &mut dag_writer)
+        .unwrap();
 
     // Call end without calling end_item first
-    funcalls.end(&mut writer).unwrap();
+    funcalls.end(&mut writer, &mut dag_writer).unwrap();
 
     // Should have auto-called end_item
     let items = writer.get_items();
@@ -487,17 +595,30 @@ fn test_end_calls_end_item_if_not_called() {
 fn test_multiple_arguments_chunks_accumulated() {
     let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
 
     // Add multiple argument chunks before new_item
-    funcalls.arguments_chunk("{", &mut writer).unwrap();
-    funcalls.arguments_chunk("\"key\":", &mut writer).unwrap();
-    funcalls.arguments_chunk("\"value\"", &mut writer).unwrap();
-    funcalls.arguments_chunk("}", &mut writer).unwrap();
+    funcalls
+        .arguments_chunk("{", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .arguments_chunk("\"key\":", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .arguments_chunk("\"value\"", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .arguments_chunk("}", &mut writer, &mut dag_writer)
+        .unwrap();
 
     // Set id and name to trigger new_item
-    funcalls.id("call_123", &mut writer).unwrap();
-    funcalls.name("get_user", &mut writer).unwrap();
-    funcalls.end_item(&mut writer).unwrap();
+    funcalls
+        .id("call_123", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .name("get_user", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls.end_item(&mut writer, &mut dag_writer).unwrap();
 
     let items = writer.get_items();
     assert_eq!(items.len(), 1);

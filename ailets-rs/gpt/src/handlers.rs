@@ -12,9 +12,9 @@ use scan_json::rjiter::jiter::{NumberInt, Peek};
 use scan_json::RJiter;
 use scan_json::StreamOp;
 
-pub fn on_begin_message<W: Write>(
+pub fn on_begin_message<W1: Write, W2: Write>(
     _rjiter: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
+    builder_cell: &RefCell<StructureBuilder<W1, W2>>,
 ) -> StreamOp {
     builder_cell.borrow_mut().begin_message();
     StreamOp::None
@@ -22,16 +22,16 @@ pub fn on_begin_message<W: Write>(
 
 /// # Errors
 /// If anything goes wrong.
-pub fn on_end_message<W: Write>(
-    builder_cell: &RefCell<StructureBuilder<W>>,
+pub fn on_end_message<W1: Write, W2: Write>(
+    builder_cell: &RefCell<StructureBuilder<W1, W2>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     builder_cell.borrow_mut().end_message()?;
     Ok(())
 }
 
-pub fn on_role<W: Write>(
+pub fn on_role<W1: Write, W2: Write>(
     rjiter_cell: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
+    builder_cell: &RefCell<StructureBuilder<W1, W2>>,
 ) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
     let role = match rjiter.next_str() {
@@ -48,9 +48,9 @@ pub fn on_role<W: Write>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_content<W: Write>(
+pub fn on_content<W1: Write, W2: Write>(
     rjiter_cell: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
+    builder_cell: &RefCell<StructureBuilder<W1, W2>>,
 ) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
     let peeked = match rjiter.peek() {
@@ -83,9 +83,9 @@ pub fn on_content<W: Write>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_function_id<W: Write>(
+pub fn on_function_id<W1: Write, W2: Write>(
     rjiter_cell: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
+    builder_cell: &RefCell<StructureBuilder<W1, W2>>,
 ) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
     let value = match rjiter.next_str() {
@@ -106,9 +106,9 @@ pub fn on_function_id<W: Write>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_function_name<W: Write>(
+pub fn on_function_name<W1: Write, W2: Write>(
     rjiter_cell: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
+    builder_cell: &RefCell<StructureBuilder<W1, W2>>,
 ) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
     let value = match rjiter.next_str() {
@@ -129,9 +129,9 @@ pub fn on_function_name<W: Write>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_function_arguments<W: Write>(
+pub fn on_function_arguments<W1: Write, W2: Write>(
     rjiter_cell: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
+    builder_cell: &RefCell<StructureBuilder<W1, W2>>,
 ) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
     let value = match rjiter.next_str() {
@@ -153,9 +153,9 @@ pub fn on_function_arguments<W: Write>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_function_index<W: Write>(
+pub fn on_function_index<W1: Write, W2: Write>(
     rjiter_cell: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
+    builder_cell: &RefCell<StructureBuilder<W1, W2>>,
 ) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
     let value = match rjiter.next_int() {
@@ -197,8 +197,8 @@ pub fn on_function_index<W: Write>(
 
 /// # Errors
 /// Should never happen.
-pub fn on_function_end<W: Write>(
-    builder_cell: &RefCell<StructureBuilder<W>>,
+pub fn on_function_end<W1: Write, W2: Write>(
+    builder_cell: &RefCell<StructureBuilder<W1, W2>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     builder_cell.borrow_mut().tool_call_end_direct()?;
     Ok(())

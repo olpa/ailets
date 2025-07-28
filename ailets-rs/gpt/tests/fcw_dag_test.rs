@@ -3,7 +3,8 @@
 extern crate hamcrest;
 use crate::dagops_mock::TrackedDagOps;
 use actor_runtime_mocked::RcWriter;
-use gpt::fcw_fork::FunCallsFork as FunCallsGpt;
+use gpt::fcw_chat::FunCallsToChat;
+use gpt::fcw_dag::FunCallsToDag;
 use gpt::fcw_trait::FunCallsWrite;
 use hamcrest::prelude::*;
 use serde_json::json;
@@ -25,20 +26,35 @@ fn inject_tool_calls_to_dag() {
     // Act
     //
     {
-        let mut dagops_writer = FunCallsGpt::new(writer.clone(), &mut tracked_dagops);
+        let mut chat_writer = FunCallsToChat::new(writer.clone());
+        let mut dagops_writer = FunCallsToDag::new(&mut tracked_dagops);
 
+        // Write to both chat and DAG
+        chat_writer.new_item("call_1", "get_weather").unwrap();
         dagops_writer.new_item("call_1", "get_weather").unwrap();
+
+        chat_writer
+            .arguments_chunk("{\"city\":\"London\"}")
+            .unwrap();
         dagops_writer
             .arguments_chunk("{\"city\":\"London\"}")
             .unwrap();
+
+        chat_writer.end_item().unwrap();
         dagops_writer.end_item().unwrap();
 
+        chat_writer.new_item("call_2", "get_forecast").unwrap();
         dagops_writer.new_item("call_2", "get_forecast").unwrap();
+
+        chat_writer.arguments_chunk("{\"days\":5}").unwrap();
         dagops_writer.arguments_chunk("{\"days\":5}").unwrap();
+
+        chat_writer.end_item().unwrap();
         dagops_writer.end_item().unwrap();
 
+        chat_writer.end().unwrap();
         dagops_writer.end().unwrap();
-    } // dagops_writer is dropped here, releasing the borrow
+    } // writers are dropped here, releasing the borrow
 
     //
     // Assert
@@ -256,7 +272,7 @@ fn inject_empty_tool_calls_to_dag() {
     let writer = RcWriter::new();
 
     {
-        let _dagops_writer = FunCallsGpt::new(writer.clone(), &mut tracked_dagops);
+        let _dagops_writer = FunCallsToDag::new(&mut tracked_dagops);
 
         // Act - Don't call any methods on the writer (equivalent to empty tool calls)
     } // dagops_writer is dropped here, releasing the borrow
@@ -280,20 +296,31 @@ fn multiple_arguments_chunks() {
     // Act
     //
     {
-        let mut dagops_writer = FunCallsGpt::new(writer.clone(), &mut tracked_dagops);
+        let mut chat_writer = FunCallsToChat::new(writer.clone());
+        let mut dagops_writer = FunCallsToDag::new(&mut tracked_dagops);
 
+        // Write to both chat and DAG
+        chat_writer.new_item("call_1", "get_weather").unwrap();
         dagops_writer.new_item("call_1", "get_weather").unwrap();
 
         // Call arguments_chunk multiple times with different chunks
+        chat_writer.arguments_chunk("{\"city\":").unwrap();
         dagops_writer.arguments_chunk("{\"city\":").unwrap();
+
+        chat_writer.arguments_chunk("\"London\",").unwrap();
         dagops_writer.arguments_chunk("\"London\",").unwrap();
+
+        chat_writer.arguments_chunk("\"country\":\"UK\"}").unwrap();
         dagops_writer
             .arguments_chunk("\"country\":\"UK\"}")
             .unwrap();
 
+        chat_writer.end_item().unwrap();
         dagops_writer.end_item().unwrap();
+
+        chat_writer.end().unwrap();
         dagops_writer.end().unwrap();
-    } // dagops_writer is dropped here, releasing the borrow
+    } // writers are dropped here, releasing the borrow
 
     //
     // Assert

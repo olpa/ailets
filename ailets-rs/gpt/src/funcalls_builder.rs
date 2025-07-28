@@ -50,25 +50,29 @@ impl FunCallsBuilder {
     /// Attempts to call `new_item` if both ID and name are available
     ///
     /// This method handles the coordination between ID and name arrival,
-    /// calling the writer's `new_item` method when both are present.
+    /// calling the writers' `new_item` methods when both are present.
     ///
     /// # Arguments
-    /// * `writer` - The writer to call new_item on
+    /// * `chat_writer` - The chat writer to call new_item on
+    /// * `dag_writer` - The dag writer to call new_item on
     ///
     /// # Errors
-    /// Returns an error if the writer's new_item or arguments_chunk methods fail
+    /// Returns an error if the writers' new_item or arguments_chunk methods fail
     fn try_call_new_item(
         &mut self,
-        writer: &mut dyn FunCallsWrite,
+        chat_writer: &mut dyn FunCallsWrite,
+        dag_writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if !self.new_item_called {
             if let (Some(id), Some(name)) = (&self.current_id, &self.current_name) {
-                writer.new_item(id, name)?;
+                chat_writer.new_item(id, name)?;
+                dag_writer.new_item(id, name)?;
                 self.new_item_called = true;
 
                 // Send any pending arguments that were accumulated before new_item
                 if let Some(ref args) = self.pending_arguments {
-                    writer.arguments_chunk(args)?;
+                    chat_writer.arguments_chunk(args)?;
+                    dag_writer.arguments_chunk(args)?;
                     self.pending_arguments = None;
                 }
 
@@ -90,16 +94,19 @@ impl FunCallsBuilder {
     /// for the next function call.
     ///
     /// # Arguments
-    /// * `writer` - The writer to finalize the function call with
+    /// * `chat_writer` - The chat writer to finalize the function call with
+    /// * `dag_writer` - The dag writer to finalize the function call with
     ///
     /// # Errors
     /// Returns error if the writing operation fails
     pub fn end_current(
         &mut self,
-        writer: &mut dyn FunCallsWrite,
+        chat_writer: &mut dyn FunCallsWrite,
+        dag_writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Always call end_item since we track state differently now
-        writer.end_item()?;
+        chat_writer.end_item()?;
+        dag_writer.end_item()?;
         // Reset state for next function call
         self.current_id = None;
         self.current_name = None;
@@ -111,19 +118,22 @@ impl FunCallsBuilder {
     /// Ends the current item
     ///
     /// # Arguments
-    /// * `writer` - The writer to use for ending the item
+    /// * `chat_writer` - The chat writer to use for ending the item
+    /// * `dag_writer` - The dag writer to use for ending the item
     ///
     /// # Errors
     /// Returns error if "`end_item`" is called without "`new_item`" being called first
     pub fn end_item(
         &mut self,
-        writer: &mut dyn FunCallsWrite,
+        chat_writer: &mut dyn FunCallsWrite,
+        dag_writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if !self.new_item_called {
             return Err("end_item called without new_item being called first".into());
         }
 
-        writer.end_item()?;
+        chat_writer.end_item()?;
+        dag_writer.end_item()?;
         self.new_item_called = false;
 
         Ok(())
@@ -136,7 +146,8 @@ impl FunCallsBuilder {
     pub fn index(
         &mut self,
         index: usize,
-        writer: &mut dyn FunCallsWrite,
+        chat_writer: &mut dyn FunCallsWrite,
+        dag_writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Validate streaming assumption: index progression
         match self.last_index {
@@ -164,7 +175,8 @@ impl FunCallsBuilder {
                 // If we're moving to a new index, end the current function call
                 if index > last {
                     if self.new_item_called {
-                        writer.end_item()?;
+                        chat_writer.end_item()?;
+                        dag_writer.end_item()?;
                     }
                     self.reset_current_call_state();
                 }
@@ -183,7 +195,8 @@ impl FunCallsBuilder {
     pub fn id(
         &mut self,
         id: &str,
-        writer: &mut dyn FunCallsWrite,
+        chat_writer: &mut dyn FunCallsWrite,
+        dag_writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Check if ID is already set or new_item already called
         if self.new_item_called || self.current_id.is_some() {
@@ -196,7 +209,7 @@ impl FunCallsBuilder {
         // ID is now stored only in current_call
 
         // Call new_item immediately if both id and name are now available
-        self.try_call_new_item(writer)?;
+        self.try_call_new_item(chat_writer, dag_writer)?;
 
         Ok(())
     }
@@ -208,7 +221,8 @@ impl FunCallsBuilder {
     pub fn name(
         &mut self,
         name: &str,
-        writer: &mut dyn FunCallsWrite,
+        chat_writer: &mut dyn FunCallsWrite,
+        dag_writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Check if name is already set or new_item already called
         if self.new_item_called || self.current_name.is_some() {
@@ -221,7 +235,7 @@ impl FunCallsBuilder {
         // Name is now stored only in current_call
 
         // Call new_item immediately if both id and name are now available
-        self.try_call_new_item(writer)?;
+        self.try_call_new_item(chat_writer, dag_writer)?;
 
         Ok(())
     }
@@ -233,13 +247,15 @@ impl FunCallsBuilder {
     pub fn arguments_chunk(
         &mut self,
         args: &str,
-        writer: &mut dyn FunCallsWrite,
+        chat_writer: &mut dyn FunCallsWrite,
+        dag_writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Arguments are now stored only in current_call
 
-        // Pass arguments directly to writer after new_item has been called
+        // Pass arguments directly to writers after new_item has been called
         if self.new_item_called {
-            writer.arguments_chunk(args)?;
+            chat_writer.arguments_chunk(args)?;
+            dag_writer.arguments_chunk(args)?;
         } else {
             // Store arguments until new_item is called
             match &mut self.pending_arguments {
@@ -257,11 +273,13 @@ impl FunCallsBuilder {
     /// Returns error if writing operation fails
     pub fn end(
         &mut self,
-        writer: &mut dyn FunCallsWrite,
+        chat_writer: &mut dyn FunCallsWrite,
+        dag_writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // "end" calls "end_item" if "end_item" was not called
         if self.new_item_called {
-            writer.end_item()?;
+            chat_writer.end_item()?;
+            dag_writer.end_item()?;
             self.new_item_called = false;
         }
         Ok(())

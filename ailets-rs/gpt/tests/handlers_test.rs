@@ -10,7 +10,8 @@ use std::io::Cursor;
 fn content_writes_to_builder() {
     // Arrange
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone());
+    let dag_writer = Vec::new();
+    let builder = StructureBuilder::new(writer.clone(), dag_writer);
     let builder_cell = RefCell::new(builder);
 
     let mut json_reader = Cursor::new(r#""hello world""#);
@@ -32,7 +33,8 @@ fn content_writes_to_builder() {
 fn content_can_be_null() {
     // Arrange
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone());
+    let dag_writer = Vec::new();
+    let builder = StructureBuilder::new(writer.clone(), dag_writer);
     let builder_cell = RefCell::new(builder);
 
     let mut json_reader = Cursor::new(r#"null"#);
@@ -52,7 +54,8 @@ fn content_can_be_null() {
 fn on_function_string_field_invalid_value_type() {
     // Arrange
     let mut buffer = Cursor::new(Vec::new());
-    let builder = StructureBuilder::new(&mut buffer);
+    let mut dag_writer = Vec::new();
+    let builder = StructureBuilder::new(&mut buffer, &mut dag_writer);
     let builder_cell = RefCell::new(builder);
 
     // Arrange: Setup with invalid JSON (number instead of string)
@@ -73,7 +76,8 @@ fn on_function_string_field_invalid_value_type() {
 fn on_function_index_invalid_value_type() {
     // Arrange: Setup with invalid JSON (float instead of integer)
     let mut buffer = Cursor::new(Vec::new());
-    let builder = StructureBuilder::new(&mut buffer);
+    let mut dag_writer = Vec::new();
+    let builder = StructureBuilder::new(&mut buffer, &mut dag_writer);
     let builder_cell = RefCell::new(builder);
 
     let json = r#"3.14"#; // Invalid - should be an integer

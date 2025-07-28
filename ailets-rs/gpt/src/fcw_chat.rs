@@ -47,6 +47,16 @@ impl<W: Write> FunCallsToChat<W> {
     }
 }
 
+impl<W: Write> Write for FunCallsToChat<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.writer.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.writer.flush()
+    }
+}
+
 impl<W: Write> FunCallsWrite for FunCallsToChat<W> {
     fn new_item(&mut self, id: &str, name: &str) -> FunCallResult {
         // Write the JSON structure opening with escaped id and name
