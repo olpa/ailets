@@ -47,6 +47,15 @@ impl<W: Write> FunCallsToChat<W> {
     }
 }
 
+impl<W: Write> std::io::Write for FunCallsToChat<W> {
+    fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
+        self.writer.write_all(buf)
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.writer.flush()
+    }
+}
+
 impl<W: Write> Write for FunCallsToChat<W> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         self.writer.write(buf)

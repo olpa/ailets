@@ -3,45 +3,11 @@
 //! Collects function calls from the JSON stream and stores them in a `FunCalls` struct.
 
 use crate::fcw_chat::FunCallsToChat;
-use crate::fcw_trait::{FunCallResult, FunCallsWrite};
+use crate::fcw_trait::{FunCallsWrite};
 use crate::funcalls_builder::FunCallsBuilder;
-use std::io::Write;
 
-/// Simple wrapper to make any Write type implement FunCallsWrite
-/// This is used for the DAG writer when we don't have actual DAG operations
-struct WriterToFunCallsWrite<W: Write> {
-    writer: W,
-}
 
-impl<W: Write> WriterToFunCallsWrite<W> {
-    fn new(writer: W) -> Self {
-        Self { writer }
-    }
-}
-
-impl<W: Write> FunCallsWrite for WriterToFunCallsWrite<W> {
-    fn new_item(&mut self, _id: &str, _name: &str) -> FunCallResult {
-        // For now, just ignore DAG operations
-        Ok(())
-    }
-
-    fn arguments_chunk(&mut self, _chunk: &str) -> FunCallResult {
-        // For now, just ignore DAG operations
-        Ok(())
-    }
-
-    fn end_item(&mut self) -> FunCallResult {
-        // For now, just ignore DAG operations
-        Ok(())
-    }
-
-    fn end(&mut self) -> FunCallResult {
-        // For now, just ignore DAG operations
-        Ok(())
-    }
-}
-
-pub struct StructureBuilder<W1: Write, W2: Write> {
+pub struct StructureBuilder<W1: FunCallsWrite+std::io::Write, W2: FunCallsWrite> {
     role: Option<String>,
     message_has_content: bool,
     text_is_open: bool,
@@ -50,7 +16,7 @@ pub struct StructureBuilder<W1: Write, W2: Write> {
     dag_writer: W2,
 }
 
-impl<W1: Write, W2: Write> StructureBuilder<W1, W2> {
+impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     #[must_use]
     pub fn new(stdout_writer: W1, dag_writer: W2) -> Self {
         StructureBuilder {
@@ -86,34 +52,6 @@ impl<W1: Write, W2: Write> StructureBuilder<W1, W2> {
         self.role = None;
         self.message_has_content = false;
         self.text_is_open = false;
-    }
-
-    /// End the current message.
-    /// # Errors
-    /// I/O
-    pub fn end_message(&mut self) -> Result<(), std::io::Error> {
-        if !self.message_has_content {
-            return Ok(());
-        }
-        if self.text_is_open {
-            self.chat_writer.write_all(b"\"}]")?;
-            self.text_is_open = false;
-            self.chat_writer.write_all(b"\n")?;
-        }
-
-        // If there's a pending tool call in streaming mode, write it
-        if let Some(funcalls) = &mut self.funcalls {
-            // Create a temporary DAG writer for now - we'll fix the architecture later
-            let mut temp_dag = Vec::new();
-            funcalls
-                .end(
-                    &mut self.chat_writer,
-                    &mut WriterToFunCallsWrite::new(&mut temp_dag),
-                )
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-        }
-
-        Ok(())
     }
 
     /// Add a role to the current message.
@@ -187,13 +125,9 @@ impl<W1: Write, W2: Write> StructureBuilder<W1, W2> {
         }
 
         if let Some(funcalls) = &mut self.funcalls {
-            // Create a temporary DAG writer for now - we'll fix the architecture later
-            let mut temp_dag = Vec::new();
-            funcalls.id(
-                id,
-                &mut self.chat_writer,
-                &mut WriterToFunCallsWrite::new(&mut temp_dag),
-            )?;
+            // Use dependency injection
+            self.dag_writer
+                .with_dag_writer(|dag_writer| funcalls.id(id, &mut self.chat_writer, dag_writer))?;
         }
 
         Ok(())
@@ -209,13 +143,10 @@ impl<W1: Write, W2: Write> StructureBuilder<W1, W2> {
         }
 
         if let Some(funcalls) = &mut self.funcalls {
-            // Create a temporary DAG writer for now - we'll fix the architecture later
-            let mut temp_dag = Vec::new();
-            funcalls.name(
-                name,
-                &mut self.chat_writer,
-                &mut WriterToFunCallsWrite::new(&mut temp_dag),
-            )?;
+            // Use dependency injection
+            self.dag_writer.with_dag_writer(|dag_writer| {
+                funcalls.name(name, &mut self.chat_writer, dag_writer)
+            })?;
         }
 
         Ok(())
@@ -234,13 +165,10 @@ impl<W1: Write, W2: Write> StructureBuilder<W1, W2> {
         }
 
         if let Some(funcalls) = &mut self.funcalls {
-            // Create a temporary DAG writer for now - we'll fix the architecture later
-            let mut temp_dag = Vec::new();
-            funcalls.arguments_chunk(
-                args,
-                &mut self.chat_writer,
-                &mut WriterToFunCallsWrite::new(&mut temp_dag),
-            )?;
+            // Use dependency injection
+            self.dag_writer.with_dag_writer(|dag_writer| {
+                funcalls.arguments_chunk(args, &mut self.chat_writer, dag_writer)
+            })?;
         }
 
         Ok(())
@@ -256,13 +184,10 @@ impl<W1: Write, W2: Write> StructureBuilder<W1, W2> {
         }
 
         if let Some(funcalls) = &mut self.funcalls {
-            // Create a temporary DAG writer for now - we'll fix the architecture later
-            let mut temp_dag = Vec::new();
-            funcalls.index(
-                index,
-                &mut self.chat_writer,
-                &mut WriterToFunCallsWrite::new(&mut temp_dag),
-            )?;
+            // Use dependency injection
+            self.dag_writer.with_dag_writer(|dag_writer| {
+                funcalls.index(index, &mut self.chat_writer, dag_writer)
+            })?;
         }
 
         Ok(())
@@ -274,12 +199,34 @@ impl<W1: Write, W2: Write> StructureBuilder<W1, W2> {
     pub fn tool_call_end_direct(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // End the current direct function call (only if funcalls exists)
         if let Some(funcalls) = &mut self.funcalls {
-            // Create a temporary DAG writer for now - we'll fix the architecture later
-            let mut temp_dag = Vec::new();
-            funcalls.end_current(
-                &mut self.chat_writer,
-                &mut WriterToFunCallsWrite::new(&mut temp_dag),
-            )?;
+            // Use dependency injection
+            self.dag_writer.with_dag_writer(|dag_writer| {
+                funcalls.end_current(&mut self.chat_writer, dag_writer)
+            })?;
+        }
+
+        Ok(())
+    }
+
+    /// End the current message.
+    /// # Errors
+    /// I/O
+    pub fn end_message(&mut self) -> Result<(), std::io::Error> {
+        if !self.message_has_content {
+            return Ok(());
+        }
+        if self.text_is_open {
+            self.chat_writer.write_all(b"\"}]")?;
+            self.text_is_open = false;
+            self.chat_writer.write_all(b"\n")?;
+        }
+
+        // If there's a pending tool call in streaming mode, write it
+        if let Some(funcalls) = &mut self.funcalls {
+            // Use dependency injection
+            self.dag_writer
+                .with_dag_writer(|dag_writer| funcalls.end(&mut self.chat_writer, dag_writer))
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
         }
 
         Ok(())

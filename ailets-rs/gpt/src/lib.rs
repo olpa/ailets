@@ -1,7 +1,6 @@
 pub mod dagops;
 pub mod fcw_chat;
 pub mod fcw_dag;
-// pub mod fcw_fork;
 pub mod fcw_trait;
 pub mod funcalls_builder;
 pub mod handlers;
@@ -9,7 +8,9 @@ pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
 use actor_runtime::{err_to_heap_c_string, extract_errno, StdHandle};
-use dagops::{DagOps, InjectDagOps, InjectDagOpsTrait};
+use dagops::{DagOps, DagOpsTrait};
+use fcw_chat::FunCallsToChat;
+use fcw_dag::FunCallsToDag;
 
 use handlers::{
     on_begin_message, on_content, on_end_message, on_function_arguments, on_function_end,
@@ -27,7 +28,8 @@ use structure_builder::StructureBuilder;
 
 const BUFFER_SIZE: u32 = 1024;
 
-type BA<'a, W1, W2> = BoxedAction<'a, StructureBuilder<W1, W2>>;
+type BA<'a> = BoxedAction<'a, StructureBuilder<FunCallsToChat<Box<dyn Write>>, FunCallsToDag<'a, DagOps>>>;
+type EA<'a> = BoxedEndAction<'a, StructureBuilder<FunCallsToChat<Box<dyn Write>>, FunCallsToDag<'a, DagOps>>>;
 
 #[derive(Debug)]
 struct MatchInToolCall {
@@ -61,10 +63,10 @@ impl scan_json::Matcher for MatchInToolCall {
     }
 }
 
-fn make_triggers<'a, W1: Write + 'a, W2: Write + 'a>() -> Vec<Trigger<'a, BA<'a, W1, W2>>> {
+fn make_triggers<'a>() -> Vec<Trigger<'a, BA<'a>>> {
     let begin_message = Trigger::new(
         Box::new(Name::new("message".to_string())),
-        Box::new(on_begin_message) as BA<'a, W1, W2>,
+        Box::new(on_begin_message) as BA<'a>,
     );
 
     let message_role = Trigger::new(
@@ -72,50 +74,50 @@ fn make_triggers<'a, W1: Write + 'a, W2: Write + 'a>() -> Vec<Trigger<'a, BA<'a,
             "message".to_string(),
             "role".to_string(),
         )),
-        Box::new(on_role) as BA<'a, W1, W2>,
+        Box::new(on_role) as BA<'a>,
     );
     let delta_role = Trigger::new(
         Box::new(ParentAndName::new("delta".to_string(), "role".to_string())),
-        Box::new(on_role) as BA<'a, W1, W2>,
+        Box::new(on_role) as BA<'a>,
     );
     let message_content = Trigger::new(
         Box::new(ParentAndName::new(
             "message".to_string(),
             "content".to_string(),
         )),
-        Box::new(on_content) as BA<'a, W1, W2>,
+        Box::new(on_content) as BA<'a>,
     );
     let delta_content = Trigger::new(
         Box::new(ParentAndName::new(
             "delta".to_string(),
             "content".to_string(),
         )),
-        Box::new(on_content) as BA<'a, W1, W2>,
+        Box::new(on_content) as BA<'a>,
     );
 
     let function_id = Trigger::new(
         Box::new(MatchInToolCall {
             field: "id".to_string(),
         }),
-        Box::new(on_function_id) as BA<'a, W1, W2>,
+        Box::new(on_function_id) as BA<'a>,
     );
     let function_name = Trigger::new(
         Box::new(MatchInToolCall {
             field: "name".to_string(),
         }),
-        Box::new(on_function_name) as BA<'a, W1, W2>,
+        Box::new(on_function_name) as BA<'a>,
     );
     let function_arguments = Trigger::new(
         Box::new(MatchInToolCall {
             field: "arguments".to_string(),
         }),
-        Box::new(on_function_arguments) as BA<'a, W1, W2>,
+        Box::new(on_function_arguments) as BA<'a>,
     );
     let function_index = Trigger::new(
         Box::new(MatchInToolCall {
             field: "index".to_string(),
         }),
-        Box::new(on_function_index) as BA<'a, W1, W2>,
+        Box::new(on_function_index) as BA<'a>,
     );
 
     let triggers = vec![
@@ -137,11 +139,11 @@ fn make_triggers<'a, W1: Write + 'a, W2: Write + 'a>() -> Vec<Trigger<'a, BA<'a,
 /// If anything goes wrong.
 pub fn _process_gpt<W: Write>(
     mut reader: impl std::io::Read,
-    writer: W,
-    _dagops: &mut impl InjectDagOpsTrait,
+    stdout_writer: W,
+    dagops: &mut impl DagOpsTrait,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let dag_writer = Vec::new();
-    let builder = StructureBuilder::new(writer, dag_writer);
+    let dag_writer = FunCallsToDag::new(dagops);
+    let builder = StructureBuilder::new(stdout_writer, dag_writer);
     let builder_cell = RefCell::new(builder);
 
     let mut buffer = vec![0u8; BUFFER_SIZE as usize];
@@ -150,7 +152,7 @@ pub fn _process_gpt<W: Write>(
 
     let end_message = Trigger::new(
         Box::new(Name::new("message".to_string())),
-        Box::new(on_end_message) as BoxedEndAction<StructureBuilder<W, Vec<u8>>>,
+        Box::new(on_end_message) as EA,
     );
     let end_tool_call = Trigger::new(
         Box::new(ParentParentAndName::new(
@@ -158,7 +160,7 @@ pub fn _process_gpt<W: Write>(
             "#array".to_string(),
             "#object".to_string(),
         )),
-        Box::new(on_function_end) as BoxedEndAction<StructureBuilder<W, Vec<u8>>>,
+        Box::new(on_function_end) as EA,
     );
     let triggers = make_triggers::<W, Vec<u8>>();
     let triggers_end = vec![end_message, end_tool_call];
@@ -187,7 +189,7 @@ pub extern "C" fn process_gpt() -> *const c_char {
     let reader = AReader::new_from_std(StdHandle::Stdin);
     let writer = AWriter::new_from_std(StdHandle::Stdout);
 
-    let mut dagops = InjectDagOps::new(DagOps::new());
+    let mut dagops = DagOps::new();
     if let Err(e) = _process_gpt(reader, writer, &mut dagops) {
         return err_to_heap_c_string(extract_errno(&e), &format!("Failed to process GPT: {e}"));
     }

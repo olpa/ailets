@@ -1,8 +1,12 @@
 use std::io::Write;
 
 use actor_runtime_mocked::RcWriter;
-use gpt::funcalls_builder::FunCallsBuilder;
-use gpt::structure_builder::StructureBuilder;
+use dagops_mock::TrackedDagOps;
+use gpt::fcw_dag::FunCallsToDag;
+use gpt::fcw_trait::{FunCallResult, FunCallsWrite};
+use gpt::structure_builder::{DagWriterProvider, StructureBuilder};
+
+pub mod dagops_mock;
 
 #[test]
 fn basic_pass() {
@@ -70,37 +74,142 @@ fn can_call_end_message_multiple_times() {
     assert_eq!(writer.get_output(), expected);
 }
 
+/// Simple wrapper to make Vec<u8> implement FunCallsWrite for basic tests
+struct DummyDagWriter(Vec<u8>);
+
+impl DummyDagWriter {
+    fn new() -> Self {
+        Self(Vec::new())
+    }
+}
+
+impl Write for DummyDagWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.flush()
+    }
+}
+
+impl FunCallsWrite for DummyDagWriter {
+    fn new_item(&mut self, _id: &str, _name: &str) -> FunCallResult {
+        Ok(())
+    }
+
+    fn arguments_chunk(&mut self, _chunk: &str) -> FunCallResult {
+        Ok(())
+    }
+
+    fn end_item(&mut self) -> FunCallResult {
+        Ok(())
+    }
+
+    fn end(&mut self) -> FunCallResult {
+        Ok(())
+    }
+}
+
+/// Test DAG writer that only implements Write trait
+/// The FunCallsWrite functionality will be injected through dependency injection
+struct TestDagWriter {
+    tracked_dagops: TrackedDagOps,
+}
+
+impl TestDagWriter {
+    fn new() -> Self {
+        Self {
+            tracked_dagops: TrackedDagOps::default(),
+        }
+    }
+
+    fn get_tracked_dagops(&self) -> &TrackedDagOps {
+        &self.tracked_dagops
+    }
+
+    fn get_tracked_dagops_mut(&mut self) -> &mut TrackedDagOps {
+        &mut self.tracked_dagops
+    }
+}
+
+impl Write for TestDagWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        // For Write implementation, just pretend to write
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl DagWriterProvider for TestDagWriter {
+    fn with_dag_writer<F, R>(&mut self, f: F) -> R
+    where
+        F: FnOnce(&mut dyn FunCallsWrite) -> R,
+    {
+        // Create a FunCallsToDag using our tracked DAG operations
+        let mut dag_writer = FunCallsToDag::new(&mut self.tracked_dagops);
+        f(&mut dag_writer)
+    }
+}
+
 #[test]
 fn output_direct_tool_call() {
     // Arrange
     let writer = RcWriter::new();
-    let mut dag_writer = Vec::new();
-    let mut builder = StructureBuilder::new(writer.clone(), dag_writer);
+    let test_dag_writer = TestDagWriter::new();
+    let mut builder = StructureBuilder::new(writer.clone(), test_dag_writer);
 
     // Act
-    builder.begin_message();
-    builder.tool_call_id("call_123").unwrap();
-    builder.tool_call_name("get_user_name").unwrap();
-    builder.tool_call_arguments_chunk("{}").unwrap();
-    builder.tool_call_end_direct().unwrap();
-    builder.end_message().unwrap();
+    {
+        builder.begin_message();
+        builder.tool_call_id("call_123").unwrap();
+        builder.tool_call_name("get_user_name").unwrap();
+        builder.tool_call_arguments_chunk("{}").unwrap();
+        builder.tool_call_end_direct().unwrap();
+        builder.end_message().unwrap();
+    } // Ensure writers are dropped before assertions
 
-    // Assert
+    // Assert chat output
     let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
 [{"type":"function","id":"call_123","name":"get_user_name"},{"arguments":"{}"}]
 "#
     .to_owned();
     assert_eq!(writer.get_output(), expected);
+
+    // Get DAG writer back to check operations
+    let dag_writer = builder.get_dag_writer();
+    let tracked_dagops = dag_writer.get_tracked_dagops();
+
+    // Assert DAG operations - should have 2 value nodes (tool input and tool spec)
+    assert_eq!(tracked_dagops.value_nodes.len(), 2);
+
+    // Assert tool input value node
+    let (_, explain_tool_input, value_tool_input) =
+        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[0]);
+    assert!(explain_tool_input.contains("tool input - get_user_name"));
+    assert_eq!(value_tool_input, "{}");
+
+    // Assert tool spec value node
+    let (_, explain_tool_spec, value_tool_spec) =
+        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[1]);
+    assert!(explain_tool_spec.contains("tool call spec - get_user_name"));
+    let expected_tool_spec =
+        r#"[{"type":"function","id":"call_123","name":"get_user_name"},{"arguments":"{}"}]"#;
+    assert_eq!(value_tool_spec, expected_tool_spec);
 }
 
 #[test]
 fn output_streaming_tool_call() {
     // Arrange
     let writer = RcWriter::new();
-    let mut dag_writer = Vec::new();
-    let mut builder = StructureBuilder::new(writer.clone(), dag_writer);
+    let test_dag_writer = TestDagWriter::new();
+    let mut builder = StructureBuilder::new(writer.clone(), test_dag_writer);
 
     // Act
+
     builder.begin_message();
     builder.tool_call_index(0).unwrap();
     builder.tool_call_id("call_123").unwrap();
@@ -115,11 +224,46 @@ fn output_streaming_tool_call() {
     builder.tool_call_arguments_chunk("args").unwrap();
     builder.end_message().unwrap();
 
-    // Assert
+    // Assert chat output
     let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
 [{"type":"function","id":"call_123","name":"foo"},{"arguments":"foo args"}]
 [{"type":"function","id":"call_456","name":"bar"},{"arguments":"bar args"}]
 "#
     .to_owned();
     assert_eq!(writer.get_output(), expected);
+
+    // Get DAG writer back to check operations
+    let dag_writer = builder.get_dag_writer();
+    let tracked_dagops = dag_writer.get_tracked_dagops();
+
+    // Assert DAG operations - should have 4 value nodes (tool input and tool spec for each of 2 tools)
+    assert_eq!(tracked_dagops.value_nodes.len(), 4);
+
+    // Assert first tool (foo) input value node
+    let (_, explain_tool_input1, value_tool_input1) =
+        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[0]);
+    assert!(explain_tool_input1.contains("tool input - foo"));
+    assert_eq!(value_tool_input1, "foo args");
+
+    // Assert first tool (foo) spec value node
+    let (_, explain_tool_spec1, value_tool_spec1) =
+        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[1]);
+    assert!(explain_tool_spec1.contains("tool call spec - foo"));
+    let expected_tool_spec1 =
+        r#"[{"type":"function","id":"call_123","name":"foo"},{"arguments":"foo args"}]"#;
+    assert_eq!(value_tool_spec1, expected_tool_spec1);
+
+    // Assert second tool (bar) input value node
+    let (_, explain_tool_input2, value_tool_input2) =
+        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[2]);
+    assert!(explain_tool_input2.contains("tool input - bar"));
+    assert_eq!(value_tool_input2, "bar args");
+
+    // Assert second tool (bar) spec value node
+    let (_, explain_tool_spec2, value_tool_spec2) =
+        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[3]);
+    assert!(explain_tool_spec2.contains("tool call spec - bar"));
+    let expected_tool_spec2 =
+        r#"[{"type":"function","id":"call_456","name":"bar"},{"arguments":"bar args"}]"#;
+    assert_eq!(value_tool_spec2, expected_tool_spec2);
 }
