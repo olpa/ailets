@@ -7,12 +7,13 @@
 use std::cell::RefCell;
 use std::io::Write;
 
+use crate::fcw_trait::FunCallsWrite;
 use crate::structure_builder::StructureBuilder;
 use scan_json::rjiter::jiter::{NumberInt, Peek};
 use scan_json::RJiter;
 use scan_json::StreamOp;
 
-pub fn on_begin_message<W1: Write, W2: Write>(
+pub fn on_begin_message<W1: FunCallsWrite + Write, W2: FunCallsWrite>(
     _rjiter: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W1, W2>>,
 ) -> StreamOp {
@@ -22,14 +23,14 @@ pub fn on_begin_message<W1: Write, W2: Write>(
 
 /// # Errors
 /// If anything goes wrong.
-pub fn on_end_message<W1: Write, W2: Write>(
+pub fn on_end_message<W1: FunCallsWrite + Write, W2: FunCallsWrite>(
     builder_cell: &RefCell<StructureBuilder<W1, W2>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     builder_cell.borrow_mut().end_message()?;
     Ok(())
 }
 
-pub fn on_role<W1: Write, W2: Write>(
+pub fn on_role<W1: FunCallsWrite + Write, W2: FunCallsWrite>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W1, W2>>,
 ) -> StreamOp {
@@ -48,7 +49,7 @@ pub fn on_role<W1: Write, W2: Write>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_content<W1: Write, W2: Write>(
+pub fn on_content<W1: FunCallsWrite + Write, W2: FunCallsWrite>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W1, W2>>,
 ) -> StreamOp {
@@ -83,7 +84,7 @@ pub fn on_content<W1: Write, W2: Write>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_function_id<W1: Write, W2: Write>(
+pub fn on_function_id<W1: FunCallsWrite + Write, W2: FunCallsWrite>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W1, W2>>,
 ) -> StreamOp {
@@ -106,7 +107,7 @@ pub fn on_function_id<W1: Write, W2: Write>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_function_name<W1: Write, W2: Write>(
+pub fn on_function_name<W1: FunCallsWrite + Write, W2: FunCallsWrite>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W1, W2>>,
 ) -> StreamOp {
@@ -129,7 +130,7 @@ pub fn on_function_name<W1: Write, W2: Write>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_function_arguments<W1: Write, W2: Write>(
+pub fn on_function_arguments<W1: FunCallsWrite + Write, W2: FunCallsWrite>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W1, W2>>,
 ) -> StreamOp {
@@ -153,7 +154,7 @@ pub fn on_function_arguments<W1: Write, W2: Write>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_function_index<W1: Write, W2: Write>(
+pub fn on_function_index<W1: FunCallsWrite + Write, W2: FunCallsWrite>(
     rjiter_cell: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W1, W2>>,
 ) -> StreamOp {
@@ -197,7 +198,7 @@ pub fn on_function_index<W1: Write, W2: Write>(
 
 /// # Errors
 /// Should never happen.
-pub fn on_function_end<W1: Write, W2: Write>(
+pub fn on_function_end<W1: FunCallsWrite + Write, W2: FunCallsWrite>(
     builder_cell: &RefCell<StructureBuilder<W1, W2>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     builder_cell.borrow_mut().tool_call_end_direct()?;

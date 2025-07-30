@@ -16,7 +16,7 @@ pub struct StructureBuilder<W1: FunCallsWrite+std::io::Write, W2: FunCallsWrite>
     dag_writer: W2,
 }
 
-impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
+impl<W1: FunCallsWrite + std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     #[must_use]
     pub fn new(stdout_writer: W1, dag_writer: W2) -> Self {
         StructureBuilder {

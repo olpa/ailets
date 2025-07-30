@@ -143,7 +143,8 @@ pub fn _process_gpt<W: Write>(
     dagops: &mut impl DagOpsTrait,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let dag_writer = FunCallsToDag::new(dagops);
-    let builder = StructureBuilder::new(stdout_writer, dag_writer);
+    let chat_writer = FunCallsToChat::new(stdout_writer);
+    let builder = StructureBuilder::new(chat_writer, dag_writer);
     let builder_cell = RefCell::new(builder);
 
     let mut buffer = vec![0u8; BUFFER_SIZE as usize];
@@ -162,7 +163,7 @@ pub fn _process_gpt<W: Write>(
         )),
         Box::new(on_function_end) as EA,
     );
-    let triggers = make_triggers::<W, Vec<u8>>();
+    let triggers = make_triggers();
     let triggers_end = vec![end_message, end_tool_call];
     let sse_tokens = vec![String::from("data:"), String::from("DONE")];
 

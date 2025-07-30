@@ -5,7 +5,6 @@
 //! processed as part of a larger workflow system with dependency tracking,
 //! pipe management, and alias creation.
 
-use crate::fcw_trait::FunCallsWrite;
 use actor_io::AWriter;
 use std::io::Write;
 

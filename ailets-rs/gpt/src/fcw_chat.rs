@@ -5,7 +5,6 @@
 //! injection attacks and ensure valid JSON output.
 
 use crate::fcw_trait::{FunCallResult, FunCallsWrite};
-use std::io::Write;
 
 /// Escapes a string for safe inclusion in JSON by escaping backslashes and quotes
 ///
@@ -29,11 +28,11 @@ fn escape_json_string(s: &str) -> String {
 ///
 /// # Type Parameters
 /// * `W` - Any type implementing `std::io::Write`
-pub struct FunCallsToChat<W: Write> {
+pub struct FunCallsToChat<W: std::io::Write> {
     writer: W,
 }
 
-impl<W: Write> FunCallsToChat<W> {
+impl<W: std::io::Write> FunCallsToChat<W> {
     /// Creates a new chat-style function call writer
     ///
     /// # Arguments
@@ -47,7 +46,10 @@ impl<W: Write> FunCallsToChat<W> {
     }
 }
 
-impl<W: Write> std::io::Write for FunCallsToChat<W> {
+impl<W: std::io::Write> std::io::Write for FunCallsToChat<W> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.writer.write(buf)
+    }
     fn write_all(&mut self, buf: &[u8]) -> std::io::Result<()> {
         self.writer.write_all(buf)
     }
@@ -56,17 +58,7 @@ impl<W: Write> std::io::Write for FunCallsToChat<W> {
     }
 }
 
-impl<W: Write> Write for FunCallsToChat<W> {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.writer.write(buf)
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.writer.flush()
-    }
-}
-
-impl<W: Write> FunCallsWrite for FunCallsToChat<W> {
+impl<W: std::io::Write> FunCallsWrite for FunCallsToChat<W> {
     fn new_item(&mut self, id: &str, name: &str) -> FunCallResult {
         // Write the JSON structure opening with escaped id and name
         write!(
