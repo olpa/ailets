@@ -1,4 +1,6 @@
 use std::io::Write;
+use std::rc::Rc;
+use std::cell::RefCell;
 
 use actor_runtime_mocked::RcWriter;
 use dagops_mock::TrackedDagOps;
@@ -12,7 +14,7 @@ pub mod dagops_mock;
 fn basic_pass() {
     // Arrange
     let mut writer = RcWriter::new();
-    let mut dag_writer = Vec::new();
+    let dag_writer = DummyDagWriter::new();
     let mut builder = StructureBuilder::new(writer.clone(), dag_writer);
 
     // Act
@@ -34,7 +36,7 @@ fn basic_pass() {
 fn create_message_without_input_role() {
     // Arrange
     let mut writer = RcWriter::new();
-    let mut dag_writer = Vec::new();
+    let dag_writer = DummyDagWriter::new();
     let mut builder = StructureBuilder::new(writer.clone(), dag_writer);
 
     // Act without "builder.role()"
@@ -55,7 +57,7 @@ fn create_message_without_input_role() {
 fn can_call_end_message_multiple_times() {
     // Arrange
     let mut writer = RcWriter::new();
-    let mut dag_writer = Vec::new();
+    let dag_writer = DummyDagWriter::new();
     let mut builder = StructureBuilder::new(writer.clone(), dag_writer);
 
     // Act
@@ -114,22 +116,14 @@ impl FunCallsWrite for DummyDagWriter {
 /// Test DAG writer that only implements Write trait
 /// The FunCallsWrite functionality will be injected through dependency injection
 struct TestDagWriter {
-    tracked_dagops: TrackedDagOps,
+    tracked_dagops: Rc<RefCell<TrackedDagOps>>,
 }
 
 impl TestDagWriter {
-    fn new() -> Self {
+    fn new_with_shared(tracked_dagops: Rc<RefCell<TrackedDagOps>>) -> Self {
         Self {
-            tracked_dagops: TrackedDagOps::default(),
+            tracked_dagops,
         }
-    }
-
-    fn get_tracked_dagops(&self) -> &TrackedDagOps {
-        &self.tracked_dagops
-    }
-
-    fn get_tracked_dagops_mut(&mut self) -> &mut TrackedDagOps {
-        &mut self.tracked_dagops
     }
 }
 
@@ -147,25 +141,29 @@ impl Write for TestDagWriter {
 impl FunCallsWrite for TestDagWriter {
     fn new_item(&mut self, id: &str, name: &str) -> FunCallResult {
         // Create a FunCallsToDag using our tracked DAG operations
-        let mut dag_writer = FunCallsToDag::new(&mut self.tracked_dagops);
+        let mut binding = self.tracked_dagops.borrow_mut();
+        let mut dag_writer = FunCallsToDag::new(&mut *binding);
         dag_writer.new_item(id, name)
     }
 
     fn arguments_chunk(&mut self, chunk: &str) -> FunCallResult {
         // Create a FunCallsToDag using our tracked DAG operations
-        let mut dag_writer = FunCallsToDag::new(&mut self.tracked_dagops);
+        let mut binding = self.tracked_dagops.borrow_mut();
+        let mut dag_writer = FunCallsToDag::new(&mut *binding);
         dag_writer.arguments_chunk(chunk)
     }
 
     fn end_item(&mut self) -> FunCallResult {
         // Create a FunCallsToDag using our tracked DAG operations
-        let mut dag_writer = FunCallsToDag::new(&mut self.tracked_dagops);
+        let mut binding = self.tracked_dagops.borrow_mut();
+        let mut dag_writer = FunCallsToDag::new(&mut *binding);
         dag_writer.end_item()
     }
 
     fn end(&mut self) -> FunCallResult {
         // Create a FunCallsToDag using our tracked DAG operations
-        let mut dag_writer = FunCallsToDag::new(&mut self.tracked_dagops);
+        let mut binding = self.tracked_dagops.borrow_mut();
+        let mut dag_writer = FunCallsToDag::new(&mut *binding);
         dag_writer.end()
     }
 }
@@ -174,7 +172,8 @@ impl FunCallsWrite for TestDagWriter {
 fn output_direct_tool_call() {
     // Arrange
     let writer = RcWriter::new();
-    let test_dag_writer = TestDagWriter::new();
+    let tracked_dagops = Rc::new(RefCell::new(TrackedDagOps::default()));
+    let test_dag_writer = TestDagWriter::new_with_shared(tracked_dagops.clone());
     let mut builder = StructureBuilder::new(writer.clone(), test_dag_writer);
 
     // Act
@@ -195,21 +194,20 @@ fn output_direct_tool_call() {
     assert_eq!(writer.get_output(), expected);
 
     // Get DAG writer back to check operations
-    let dag_writer = builder.get_dag_writer();
-    let tracked_dagops = dag_writer.get_tracked_dagops();
+    let tracked_dagops_ref = tracked_dagops.borrow();
 
     // Assert DAG operations - should have 2 value nodes (tool input and tool spec)
-    assert_eq!(tracked_dagops.value_nodes.len(), 2);
+    assert_eq!(tracked_dagops_ref.value_nodes.len(), 2);
 
     // Assert tool input value node
     let (_, explain_tool_input, value_tool_input) =
-        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[0]);
+        tracked_dagops_ref.parse_value_node(&tracked_dagops_ref.value_nodes[0]);
     assert!(explain_tool_input.contains("tool input - get_user_name"));
     assert_eq!(value_tool_input, "{}");
 
     // Assert tool spec value node
     let (_, explain_tool_spec, value_tool_spec) =
-        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[1]);
+        tracked_dagops_ref.parse_value_node(&tracked_dagops_ref.value_nodes[1]);
     assert!(explain_tool_spec.contains("tool call spec - get_user_name"));
     let expected_tool_spec =
         r#"[{"type":"function","id":"call_123","name":"get_user_name"},{"arguments":"{}"}]"#;
@@ -220,7 +218,8 @@ fn output_direct_tool_call() {
 fn output_streaming_tool_call() {
     // Arrange
     let writer = RcWriter::new();
-    let test_dag_writer = TestDagWriter::new();
+    let tracked_dagops = Rc::new(RefCell::new(TrackedDagOps::default()));
+    let test_dag_writer = TestDagWriter::new_with_shared(tracked_dagops.clone());
     let mut builder = StructureBuilder::new(writer.clone(), test_dag_writer);
 
     // Act
@@ -248,21 +247,20 @@ fn output_streaming_tool_call() {
     assert_eq!(writer.get_output(), expected);
 
     // Get DAG writer back to check operations
-    let dag_writer = builder.get_dag_writer();
-    let tracked_dagops = dag_writer.get_tracked_dagops();
+    let tracked_dagops_ref = tracked_dagops.borrow();
 
     // Assert DAG operations - should have 4 value nodes (tool input and tool spec for each of 2 tools)
-    assert_eq!(tracked_dagops.value_nodes.len(), 4);
+    assert_eq!(tracked_dagops_ref.value_nodes.len(), 4);
 
     // Assert first tool (foo) input value node
     let (_, explain_tool_input1, value_tool_input1) =
-        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[0]);
+        tracked_dagops_ref.parse_value_node(&tracked_dagops_ref.value_nodes[0]);
     assert!(explain_tool_input1.contains("tool input - foo"));
     assert_eq!(value_tool_input1, "foo args");
 
     // Assert first tool (foo) spec value node
     let (_, explain_tool_spec1, value_tool_spec1) =
-        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[1]);
+        tracked_dagops_ref.parse_value_node(&tracked_dagops_ref.value_nodes[1]);
     assert!(explain_tool_spec1.contains("tool call spec - foo"));
     let expected_tool_spec1 =
         r#"[{"type":"function","id":"call_123","name":"foo"},{"arguments":"foo args"}]"#;
@@ -270,13 +268,13 @@ fn output_streaming_tool_call() {
 
     // Assert second tool (bar) input value node
     let (_, explain_tool_input2, value_tool_input2) =
-        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[2]);
+        tracked_dagops_ref.parse_value_node(&tracked_dagops_ref.value_nodes[2]);
     assert!(explain_tool_input2.contains("tool input - bar"));
     assert_eq!(value_tool_input2, "bar args");
 
     // Assert second tool (bar) spec value node
     let (_, explain_tool_spec2, value_tool_spec2) =
-        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes[3]);
+        tracked_dagops_ref.parse_value_node(&tracked_dagops_ref.value_nodes[3]);
     assert!(explain_tool_spec2.contains("tool call spec - bar"));
     let expected_tool_spec2 =
         r#"[{"type":"function","id":"call_456","name":"bar"},{"arguments":"bar args"}]"#;
