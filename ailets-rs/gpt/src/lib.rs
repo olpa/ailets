@@ -28,8 +28,8 @@ use structure_builder::StructureBuilder;
 
 const BUFFER_SIZE: u32 = 1024;
 
-type BA<'a> = BoxedAction<'a, StructureBuilder<FunCallsToChat<Box<dyn Write>>, FunCallsToDag<'a, DagOps>>>;
-type EA<'a> = BoxedEndAction<'a, StructureBuilder<FunCallsToChat<Box<dyn Write>>, FunCallsToDag<'a, DagOps>>>;
+type BA<'a, W, D> = BoxedAction<'a, StructureBuilder<FunCallsToChat<W>, FunCallsToDag<'a, D>>>;
+type EA<'a, W, D> = BoxedEndAction<'a, StructureBuilder<FunCallsToChat<W>, FunCallsToDag<'a, D>>>;
 
 #[derive(Debug)]
 struct MatchInToolCall {
@@ -63,10 +63,10 @@ impl scan_json::Matcher for MatchInToolCall {
     }
 }
 
-fn make_triggers<'a>() -> Vec<Trigger<'a, BA<'a>>> {
+fn make_triggers<'a, W: Write + 'a, D: DagOpsTrait>() -> Vec<Trigger<'a, BA<'a, W, D>>> {
     let begin_message = Trigger::new(
         Box::new(Name::new("message".to_string())),
-        Box::new(on_begin_message) as BA<'a>,
+        Box::new(on_begin_message) as BA<'a, W, D>,
     );
 
     let message_role = Trigger::new(
@@ -74,50 +74,50 @@ fn make_triggers<'a>() -> Vec<Trigger<'a, BA<'a>>> {
             "message".to_string(),
             "role".to_string(),
         )),
-        Box::new(on_role) as BA<'a>,
+        Box::new(on_role) as BA<'a, W, D>,
     );
     let delta_role = Trigger::new(
         Box::new(ParentAndName::new("delta".to_string(), "role".to_string())),
-        Box::new(on_role) as BA<'a>,
+        Box::new(on_role) as BA<'a, W, D>,
     );
     let message_content = Trigger::new(
         Box::new(ParentAndName::new(
             "message".to_string(),
             "content".to_string(),
         )),
-        Box::new(on_content) as BA<'a>,
+        Box::new(on_content) as BA<'a, W, D>,
     );
     let delta_content = Trigger::new(
         Box::new(ParentAndName::new(
             "delta".to_string(),
             "content".to_string(),
         )),
-        Box::new(on_content) as BA<'a>,
+        Box::new(on_content) as BA<'a, W, D>,
     );
 
     let function_id = Trigger::new(
         Box::new(MatchInToolCall {
             field: "id".to_string(),
         }),
-        Box::new(on_function_id) as BA<'a>,
+        Box::new(on_function_id) as BA<'a, W, D>,
     );
     let function_name = Trigger::new(
         Box::new(MatchInToolCall {
             field: "name".to_string(),
         }),
-        Box::new(on_function_name) as BA<'a>,
+        Box::new(on_function_name) as BA<'a, W, D>,
     );
     let function_arguments = Trigger::new(
         Box::new(MatchInToolCall {
             field: "arguments".to_string(),
         }),
-        Box::new(on_function_arguments) as BA<'a>,
+        Box::new(on_function_arguments) as BA<'a, W, D>,
     );
     let function_index = Trigger::new(
         Box::new(MatchInToolCall {
             field: "index".to_string(),
         }),
-        Box::new(on_function_index) as BA<'a>,
+        Box::new(on_function_index) as BA<'a, W, D>,
     );
 
     let triggers = vec![
@@ -137,10 +137,10 @@ fn make_triggers<'a>() -> Vec<Trigger<'a, BA<'a>>> {
 
 /// # Errors
 /// If anything goes wrong.
-pub fn _process_gpt<W: Write>(
+pub fn _process_gpt<W: Write + 'static, D: DagOpsTrait>(
     mut reader: impl std::io::Read,
     stdout_writer: W,
-    dagops: &mut impl DagOpsTrait,
+    dagops: &mut D,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let dag_writer = FunCallsToDag::new(dagops);
     let chat_writer = FunCallsToChat::new(stdout_writer);
@@ -153,7 +153,7 @@ pub fn _process_gpt<W: Write>(
 
     let end_message = Trigger::new(
         Box::new(Name::new("message".to_string())),
-        Box::new(on_end_message) as EA,
+        Box::new(on_end_message) as EA<W, D>,
     );
     let end_tool_call = Trigger::new(
         Box::new(ParentParentAndName::new(
@@ -161,9 +161,9 @@ pub fn _process_gpt<W: Write>(
             "#array".to_string(),
             "#object".to_string(),
         )),
-        Box::new(on_function_end) as EA,
+        Box::new(on_function_end) as EA<W, D>,
     );
-    let triggers = make_triggers();
+    let triggers = make_triggers::<W, D>();
     let triggers_end = vec![end_message, end_tool_call];
     let sse_tokens = vec![String::from("data:"), String::from("DONE")];
 
