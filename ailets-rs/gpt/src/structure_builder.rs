@@ -35,20 +35,6 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
         &mut self.chat_writer
     }
 
-    #[must_use]
-    pub fn get_dag_writer(&mut self) -> &mut W2 {
-        &mut self.dag_writer
-    }
-
-    #[must_use]
-    pub fn get_funcalls(&self) -> Option<&FunCallsBuilder> {
-        self.funcalls.as_ref()
-    }
-
-    pub fn get_funcalls_mut(&mut self) -> Option<&mut FunCallsBuilder> {
-        self.funcalls.as_mut()
-    }
-
     pub fn begin_message(&mut self) {
         self.role = None;
         self.message_has_content = false;
