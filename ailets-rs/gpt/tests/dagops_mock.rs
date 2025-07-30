@@ -4,9 +4,82 @@ use std::rc::Rc;
 
 use actor_runtime_mocked::{Vfs, VfsWriter};
 use gpt::dagops::DagOpsTrait;
-use gpt::fcw_dag::FunCallsToDag;
-use gpt::fcw_trait::FunCallsWrite;
 use std::io::Write;
+
+/// Writer that intercepts tool spec writes to extract tool call information
+struct ToolSpecTrackingWriter {
+    inner: Box<dyn Write>,
+    dagops_ref: *mut TrackedDagOps,
+    buffer: String,
+}
+
+impl ToolSpecTrackingWriter {
+    fn new(inner: Box<dyn Write>, dagops_ref: *mut TrackedDagOps) -> Self {
+        Self { 
+            inner, 
+            dagops_ref, 
+            buffer: String::new() 
+        }
+    }
+}
+
+impl Write for ToolSpecTrackingWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        let data = String::from_utf8_lossy(buf);
+        self.buffer.push_str(&data);
+        
+        // Try to parse the complete JSON when we see the closing pattern
+        if self.buffer.contains(r#"}]"#) && self.buffer.starts_with(r#"[{"type":"function","id":"#) {
+            // Extract ID and name from the JSON
+            if let Some(id_start) = self.buffer.find(r#""id":""#) {
+                let id_start = id_start + 6;  // Skip `"id":"`
+                if let Some(id_end) = self.buffer[id_start..].find('"') {
+                    let id = &self.buffer[id_start..id_start + id_end];
+                    
+                    if let Some(name_start) = self.buffer.find(r#""name":""#) {
+                        let name_start = name_start + 8;  // Skip `"name":"`
+                        if let Some(name_end) = self.buffer[name_start..].find('"') {
+                            let name = &self.buffer[name_start..name_start + name_end];
+                            
+                            // Extract arguments - they're between `"arguments":"` and `"}]`
+                            let mut arguments = String::new();
+                            if let Some(args_start) = self.buffer.find(r#""arguments":""#) {
+                                let args_start = args_start + 13;  // Skip `"arguments":"`
+                                if let Some(args_end) = self.buffer[args_start..].find(r#""}"#) {
+                                    arguments = self.buffer[args_start..args_start + args_end].to_string();
+                                }
+                            }
+                            
+                            // Safely update the TrackedDagOps
+                            unsafe {
+                                let dagops = &mut *self.dagops_ref;
+                                if let Some(mut current_call) = dagops.current_tool_call.take() {
+                                    current_call.id = id.to_string();
+                                    current_call.function_name = name.to_string();
+                                    current_call.function_arguments = arguments;
+                                    dagops.current_tool_call = Some(current_call);
+                                } else {
+                                    let new_call = ContentItemFunction {
+                                        id: id.to_string(),
+                                        function_name: name.to_string(),
+                                        function_arguments: arguments,
+                                    };
+                                    dagops.current_tool_call = Some(new_call);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        self.inner.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.inner.flush()
+    }
+}
 
 /// Test-only definition of ContentItemFunction for backward compatibility
 #[derive(Debug, Default, PartialEq, Eq, Clone)]
@@ -30,61 +103,7 @@ impl ContentItemFunction {
 }
 
 /// Test-only function: Inject function calls into the workflow DAG using FunCallsWrite.
-pub fn inject_tool_calls(
-    dagops: &mut impl DagOpsTrait,
-    tool_calls: &[ContentItemFunction],
-) -> Result<(), String> {
-    if tool_calls.is_empty() {
-        return Ok(());
-    }
 
-    // Use FunCallsToDag for the actual implementation
-    let mut writer = FunCallsToDag::new(dagops);
-
-    for (index, tool_call) in tool_calls.iter().enumerate() {
-        writer
-            .new_item(&tool_call.id, &tool_call.function_name)
-            .map_err(|e| e.to_string())?;
-        writer
-            .arguments_chunk(&tool_call.function_arguments)
-            .map_err(|e| e.to_string())?;
-        writer.end_item().map_err(|e| e.to_string())?;
-    }
-
-    writer.end().map_err(|e| e.to_string())?;
-
-    Ok(())
-}
-
-pub struct TrackedInjectDagOps {
-    dagops: Rc<RefCell<TrackedDagOps>>,
-    tool_calls: Vec<ContentItemFunction>,
-}
-
-impl TrackedInjectDagOps {
-    #[allow(clippy::new_without_default)]
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            dagops: Rc::new(RefCell::new(TrackedDagOps::default())),
-            tool_calls: Vec::new(),
-        }
-    }
-
-    #[must_use]
-    pub fn get_tool_calls(&self) -> &Vec<ContentItemFunction> {
-        &self.tool_calls
-    }
-}
-
-
-// Add a test-specific method for backward compatibility
-impl TrackedInjectDagOps {
-    pub fn inject_tool_calls(&mut self, tool_calls: &[ContentItemFunction]) -> Result<(), String> {
-        self.tool_calls = tool_calls.to_vec();
-        inject_tool_calls(&mut *self.dagops.borrow_mut(), tool_calls)
-    }
-}
 
 pub struct TrackedDagOps {
     pub vfs: Rc<RefCell<Vfs>>,
@@ -93,6 +112,9 @@ pub struct TrackedDagOps {
     pub detached: Vec<String>,
     pub workflows: Vec<String>,
     pub next_fd: i32,
+    pub tool_calls: Vec<ContentItemFunction>,
+    current_tool_call: Option<ContentItemFunction>,
+    tool_spec_fd: Option<i32>,
 }
 
 impl Default for TrackedDagOps {
@@ -104,6 +126,9 @@ impl Default for TrackedDagOps {
             detached: Vec::new(),
             workflows: Vec::new(),
             next_fd: 10, // Start at 10 to avoid conflicts with standard fds
+            tool_calls: Vec::new(),
+            current_tool_call: None,
+            tool_spec_fd: None,
         }
     }
 }
@@ -132,12 +157,35 @@ impl DagOpsTrait for TrackedDagOps {
         deps: impl Iterator<Item = (String, u32)>,
     ) -> Result<u32, String> {
         let mut deps_str = String::new();
-        for (key, value) in deps {
+        let deps_vec: Vec<_> = deps.collect();
+        for (key, value) in &deps_vec {
             deps_str.push_str(key.as_str());
             deps_str.push(',');
             deps_str.push_str(&value.to_string());
             deps_str.push(',');
         }
+        
+        // Track tool instantiation
+        if workflow_name.starts_with(".tool.") {
+            let tool_name = &workflow_name[6..]; // Remove ".tool." prefix
+            if let Some(mut current_call) = self.current_tool_call.take() {
+                current_call.function_name = tool_name.to_string();
+                self.current_tool_call = Some(current_call);
+            } else {
+                // Create a new tool call if we don't have one
+                let mut new_call = ContentItemFunction::default();
+                new_call.function_name = tool_name.to_string();
+                self.current_tool_call = Some(new_call);
+            }
+        }
+        
+        // Finalize tool call when toolcall_to_messages is instantiated
+        if workflow_name == ".toolcall_to_messages" {
+            if let Some(current_call) = self.current_tool_call.take() {
+                self.tool_calls.push(current_call);
+            }
+        }
+        
         let handle = self.workflows.len() + self.aliases.len() + self.value_nodes.len();
         self.workflows
             .push(format!("{handle}:{workflow_name}:{deps_str}"));
@@ -163,6 +211,11 @@ impl DagOpsTrait for TrackedDagOps {
     }
 
     fn alias_fd(&mut self, alias: &str, fd: u32) -> Result<u32, String> {
+        // Track tool spec fd for later use
+        if alias == ".llm_tool_spec" {
+            self.tool_spec_fd = Some(fd as i32);
+        }
+        
         // For mock implementation, create alias directly without generating new handle
         // The format is "{alias_handle}:{alias_name}:{node_handle}"
         // Since we're aliasing an fd (which maps to a value node), use fd as the node_handle
@@ -176,7 +229,17 @@ impl DagOpsTrait for TrackedDagOps {
         // In mock, fd is the handle
         let filename = format!("value.{fd}");
         let writer = VfsWriter::new(self.vfs.clone(), filename);
-        Ok(Box::new(writer))
+        
+        // If this is the tool spec fd, wrap it with tracking
+        if Some(fd) == self.tool_spec_fd {
+            let tracking_writer = ToolSpecTrackingWriter::new(
+                Box::new(writer),
+                self as *mut TrackedDagOps
+            );
+            Ok(Box::new(tracking_writer))
+        } else {
+            Ok(Box::new(writer))
+        }
     }
 }
 
@@ -238,6 +301,18 @@ impl Clone for TrackedDagOps {
             detached: self.detached.clone(),
             workflows: self.workflows.clone(),
             next_fd: self.next_fd,
+            tool_calls: self.tool_calls.clone(),
+            current_tool_call: self.current_tool_call.clone(),
+            tool_spec_fd: self.tool_spec_fd,
         }
     }
 }
+
+impl TrackedDagOps {
+    #[must_use]
+    pub fn get_tool_calls(&self) -> &Vec<ContentItemFunction> {
+        &self.tool_calls
+    }
+
+}
+

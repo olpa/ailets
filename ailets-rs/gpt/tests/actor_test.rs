@@ -1,7 +1,7 @@
 use actor_runtime_mocked::RcWriter;
 use gpt::_process_gpt;
 pub mod dagops_mock;
-use dagops_mock::{ContentItemFunction, TrackedInjectDagOps};
+use dagops_mock::{ContentItemFunction, TrackedDagOps};
 use std::io::Cursor;
 
 fn get_expected_basic_message() -> String {
@@ -16,7 +16,7 @@ fn test_basic_processing() {
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
 
-    _process_gpt(reader, writer.clone(), &mut TrackedInjectDagOps::new()).unwrap();
+    _process_gpt(reader, writer.clone(), &mut TrackedDagOps::default()).unwrap();
 
     assert_eq!(writer.get_output(), get_expected_basic_message());
 }
@@ -28,7 +28,7 @@ fn test_streaming() {
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
 
-    _process_gpt(reader, writer.clone(), &mut TrackedInjectDagOps::new()).unwrap();
+    _process_gpt(reader, writer.clone(), &mut TrackedDagOps::default()).unwrap();
 
     assert_eq!(writer.get_output(), get_expected_basic_message());
 }
@@ -39,7 +39,7 @@ fn funcall_response() {
         .expect("Failed to read fixture file 'funcall_response.txt'");
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
-    let mut dagops = TrackedInjectDagOps::new();
+    let mut dagops = TrackedDagOps::default();
 
     _process_gpt(reader, writer.clone(), &mut dagops).unwrap();
 
@@ -60,7 +60,7 @@ fn funcall_streaming() {
         .expect("Failed to read fixture file 'funcall_streaming.txt'");
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
-    let mut dagops = TrackedInjectDagOps::new();
+    let mut dagops = TrackedDagOps::default();
 
     _process_gpt(reader, writer.clone(), &mut dagops).unwrap();
 
@@ -81,7 +81,7 @@ fn delta_index_regress() {
         .expect("Failed to read fixture file 'delta_index_regress.txt'");
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
-    let mut dagops = TrackedInjectDagOps::new();
+    let mut dagops = TrackedDagOps::default();
 
     _process_gpt(reader, writer.clone(), &mut dagops).unwrap();
 
