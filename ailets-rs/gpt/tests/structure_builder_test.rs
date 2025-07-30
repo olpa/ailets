@@ -4,7 +4,7 @@ use actor_runtime_mocked::RcWriter;
 use dagops_mock::TrackedDagOps;
 use gpt::fcw_dag::FunCallsToDag;
 use gpt::fcw_trait::{FunCallResult, FunCallsWrite};
-use gpt::structure_builder::{DagWriterProvider, StructureBuilder};
+use gpt::structure_builder::StructureBuilder;
 
 pub mod dagops_mock;
 
@@ -144,14 +144,29 @@ impl Write for TestDagWriter {
     }
 }
 
-impl DagWriterProvider for TestDagWriter {
-    fn with_dag_writer<F, R>(&mut self, f: F) -> R
-    where
-        F: FnOnce(&mut dyn FunCallsWrite) -> R,
-    {
+impl FunCallsWrite for TestDagWriter {
+    fn new_item(&mut self, id: &str, name: &str) -> FunCallResult {
         // Create a FunCallsToDag using our tracked DAG operations
         let mut dag_writer = FunCallsToDag::new(&mut self.tracked_dagops);
-        f(&mut dag_writer)
+        dag_writer.new_item(id, name)
+    }
+
+    fn arguments_chunk(&mut self, chunk: &str) -> FunCallResult {
+        // Create a FunCallsToDag using our tracked DAG operations
+        let mut dag_writer = FunCallsToDag::new(&mut self.tracked_dagops);
+        dag_writer.arguments_chunk(chunk)
+    }
+
+    fn end_item(&mut self) -> FunCallResult {
+        // Create a FunCallsToDag using our tracked DAG operations
+        let mut dag_writer = FunCallsToDag::new(&mut self.tracked_dagops);
+        dag_writer.end_item()
+    }
+
+    fn end(&mut self) -> FunCallResult {
+        // Create a FunCallsToDag using our tracked DAG operations
+        let mut dag_writer = FunCallsToDag::new(&mut self.tracked_dagops);
+        dag_writer.end()
     }
 }
 

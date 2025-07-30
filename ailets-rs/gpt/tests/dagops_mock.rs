@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use actor_runtime_mocked::{Vfs, VfsWriter};
-use gpt::dagops::{DagOpsTrait, InjectDagOpsTrait};
+use gpt::dagops::DagOpsTrait;
 use gpt::fcw_dag::FunCallsToDag;
 use gpt::fcw_trait::FunCallsWrite;
 use std::io::Write;
@@ -77,15 +77,6 @@ impl TrackedInjectDagOps {
     }
 }
 
-impl InjectDagOpsTrait for TrackedInjectDagOps {
-    fn process_with_funcalls_write(
-        &mut self,
-        _writer: &mut dyn FunCallsWrite,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        // Not needed for this mock
-        Ok(())
-    }
-}
 
 // Add a test-specific method for backward compatibility
 impl TrackedInjectDagOps {

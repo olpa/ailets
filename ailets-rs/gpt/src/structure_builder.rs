@@ -5,9 +5,10 @@
 use crate::fcw_chat::FunCallsToChat;
 use crate::fcw_trait::{FunCallsWrite};
 use crate::funcalls_builder::FunCallsBuilder;
+use std::io::Write;
 
 
-pub struct StructureBuilder<W1: FunCallsWrite+std::io::Write, W2: FunCallsWrite> {
+pub struct StructureBuilder<W1: std::io::Write, W2: FunCallsWrite> {
     role: Option<String>,
     message_has_content: bool,
     text_is_open: bool,
@@ -16,7 +17,7 @@ pub struct StructureBuilder<W1: FunCallsWrite+std::io::Write, W2: FunCallsWrite>
     dag_writer: W2,
 }
 
-impl<W1: FunCallsWrite + std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
+impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     #[must_use]
     pub fn new(stdout_writer: W1, dag_writer: W2) -> Self {
         StructureBuilder {
@@ -125,9 +126,7 @@ impl<W1: FunCallsWrite + std::io::Write, W2: FunCallsWrite> StructureBuilder<W1,
         }
 
         if let Some(funcalls) = &mut self.funcalls {
-            // Use dependency injection
-            self.dag_writer
-                .with_dag_writer(|dag_writer| funcalls.id(id, &mut self.chat_writer, dag_writer))?;
+            funcalls.id(id, &mut self.chat_writer, &mut self.dag_writer)?;
         }
 
         Ok(())
@@ -143,10 +142,7 @@ impl<W1: FunCallsWrite + std::io::Write, W2: FunCallsWrite> StructureBuilder<W1,
         }
 
         if let Some(funcalls) = &mut self.funcalls {
-            // Use dependency injection
-            self.dag_writer.with_dag_writer(|dag_writer| {
-                funcalls.name(name, &mut self.chat_writer, dag_writer)
-            })?;
+            funcalls.name(name, &mut self.chat_writer, &mut self.dag_writer)?;
         }
 
         Ok(())
@@ -165,10 +161,7 @@ impl<W1: FunCallsWrite + std::io::Write, W2: FunCallsWrite> StructureBuilder<W1,
         }
 
         if let Some(funcalls) = &mut self.funcalls {
-            // Use dependency injection
-            self.dag_writer.with_dag_writer(|dag_writer| {
-                funcalls.arguments_chunk(args, &mut self.chat_writer, dag_writer)
-            })?;
+            funcalls.arguments_chunk(args, &mut self.chat_writer, &mut self.dag_writer)?;
         }
 
         Ok(())
@@ -184,10 +177,7 @@ impl<W1: FunCallsWrite + std::io::Write, W2: FunCallsWrite> StructureBuilder<W1,
         }
 
         if let Some(funcalls) = &mut self.funcalls {
-            // Use dependency injection
-            self.dag_writer.with_dag_writer(|dag_writer| {
-                funcalls.index(index, &mut self.chat_writer, dag_writer)
-            })?;
+            funcalls.index(index, &mut self.chat_writer, &mut self.dag_writer)?;
         }
 
         Ok(())
@@ -199,10 +189,7 @@ impl<W1: FunCallsWrite + std::io::Write, W2: FunCallsWrite> StructureBuilder<W1,
     pub fn tool_call_end_direct(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // End the current direct function call (only if funcalls exists)
         if let Some(funcalls) = &mut self.funcalls {
-            // Use dependency injection
-            self.dag_writer.with_dag_writer(|dag_writer| {
-                funcalls.end_current(&mut self.chat_writer, dag_writer)
-            })?;
+            funcalls.end_current(&mut self.chat_writer, &mut self.dag_writer)?;
         }
 
         Ok(())
@@ -223,9 +210,7 @@ impl<W1: FunCallsWrite + std::io::Write, W2: FunCallsWrite> StructureBuilder<W1,
 
         // If there's a pending tool call in streaming mode, write it
         if let Some(funcalls) = &mut self.funcalls {
-            // Use dependency injection
-            self.dag_writer
-                .with_dag_writer(|dag_writer| funcalls.end(&mut self.chat_writer, dag_writer))
+            funcalls.end(&mut self.chat_writer, &mut self.dag_writer)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
         }
 
