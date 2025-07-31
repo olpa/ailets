@@ -113,16 +113,30 @@ impl FunCallsWrite for DummyDagWriter {
     }
 }
 
-/// Test DAG writer that only implements Write trait
-/// The FunCallsWrite functionality will be injected through dependency injection
+/// Test DAG writer that maintains a single FunCallsToDag instance
 struct TestDagWriter {
     tracked_dagops: Rc<RefCell<TrackedDagOps>>,
+    dag_writer: Option<FunCallsToDag<'static, TrackedDagOps>>,
 }
 
 impl TestDagWriter {
     fn new_with_shared(tracked_dagops: Rc<RefCell<TrackedDagOps>>) -> Self {
         Self {
             tracked_dagops,
+            dag_writer: None,
+        }
+    }
+    
+    fn ensure_dag_writer(&mut self) {
+        if self.dag_writer.is_none() {
+            // SAFETY: We know the TrackedDagOps will live as long as the TestDagWriter
+            // because they're both owned by the test. The 'static lifetime is a lie but
+            // necessary to work around Rust's lifetime system.
+            let dagops_ptr = self.tracked_dagops.as_ptr();
+            let dag_writer = unsafe {
+                FunCallsToDag::new(&mut *dagops_ptr)
+            };
+            self.dag_writer = Some(dag_writer);
         }
     }
 }
@@ -140,31 +154,23 @@ impl Write for TestDagWriter {
 
 impl FunCallsWrite for TestDagWriter {
     fn new_item(&mut self, id: &str, name: &str) -> FunCallResult {
-        // Create a FunCallsToDag using our tracked DAG operations
-        let mut binding = self.tracked_dagops.borrow_mut();
-        let mut dag_writer = FunCallsToDag::new(&mut *binding);
-        dag_writer.new_item(id, name)
+        self.ensure_dag_writer();
+        self.dag_writer.as_mut().unwrap().new_item(id, name)
     }
 
     fn arguments_chunk(&mut self, chunk: &str) -> FunCallResult {
-        // Create a FunCallsToDag using our tracked DAG operations
-        let mut binding = self.tracked_dagops.borrow_mut();
-        let mut dag_writer = FunCallsToDag::new(&mut *binding);
-        dag_writer.arguments_chunk(chunk)
+        self.ensure_dag_writer();
+        self.dag_writer.as_mut().unwrap().arguments_chunk(chunk)
     }
 
     fn end_item(&mut self) -> FunCallResult {
-        // Create a FunCallsToDag using our tracked DAG operations
-        let mut binding = self.tracked_dagops.borrow_mut();
-        let mut dag_writer = FunCallsToDag::new(&mut *binding);
-        dag_writer.end_item()
+        self.ensure_dag_writer();
+        self.dag_writer.as_mut().unwrap().end_item()
     }
 
     fn end(&mut self) -> FunCallResult {
-        // Create a FunCallsToDag using our tracked DAG operations
-        let mut binding = self.tracked_dagops.borrow_mut();
-        let mut dag_writer = FunCallsToDag::new(&mut *binding);
-        dag_writer.end()
+        self.ensure_dag_writer();
+        self.dag_writer.as_mut().unwrap().end()
     }
 }
 
