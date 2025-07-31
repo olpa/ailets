@@ -203,17 +203,17 @@ fn output_direct_tool_call() {
     let tracked_dagops_ref = tracked_dagops.borrow();
 
     // Assert DAG operations - should have 2 value nodes (tool input and tool spec)
-    assert_eq!(tracked_dagops_ref.value_nodes.len(), 2);
+    assert_eq!(tracked_dagops_ref.value_nodes().len(), 2);
 
     // Assert tool input value node
     let (_, explain_tool_input, value_tool_input) =
-        tracked_dagops_ref.parse_value_node(&tracked_dagops_ref.value_nodes[0]);
+        tracked_dagops_ref.parse_value_node(&tracked_dagops_ref.value_nodes()[0]);
     assert!(explain_tool_input.contains("tool input - get_user_name"));
     assert_eq!(value_tool_input, "{}");
 
     // Assert tool spec value node
     let (_, explain_tool_spec, value_tool_spec) =
-        tracked_dagops_ref.parse_value_node(&tracked_dagops_ref.value_nodes[1]);
+        tracked_dagops_ref.parse_value_node(&tracked_dagops_ref.value_nodes()[1]);
     assert!(explain_tool_spec.contains("tool call spec - get_user_name"));
     let expected_tool_spec =
         r#"[{"type":"function","id":"call_123","name":"get_user_name"},{"arguments":"{}"}]"#;
@@ -256,17 +256,17 @@ fn output_streaming_tool_call() {
     let tracked_dagops_ref = tracked_dagops.borrow();
 
     // Assert DAG operations - should have 4 value nodes (tool input and tool spec for each of 2 tools)
-    assert_eq!(tracked_dagops_ref.value_nodes.len(), 4);
+    assert_eq!(tracked_dagops_ref.value_nodes().len(), 4);
 
     // Assert first tool (foo) input value node
     let (_, explain_tool_input1, value_tool_input1) =
-        tracked_dagops_ref.parse_value_node(&tracked_dagops_ref.value_nodes[0]);
+        tracked_dagops_ref.parse_value_node(&tracked_dagops_ref.value_nodes()[0]);
     assert!(explain_tool_input1.contains("tool input - foo"));
     assert_eq!(value_tool_input1, "foo args");
 
     // Assert first tool (foo) spec value node
     let (_, explain_tool_spec1, value_tool_spec1) =
-        tracked_dagops_ref.parse_value_node(&tracked_dagops_ref.value_nodes[1]);
+        tracked_dagops_ref.parse_value_node(&tracked_dagops_ref.value_nodes()[1]);
     assert!(explain_tool_spec1.contains("tool call spec - foo"));
     let expected_tool_spec1 =
         r#"[{"type":"function","id":"call_123","name":"foo"},{"arguments":"foo args"}]"#;
@@ -274,13 +274,13 @@ fn output_streaming_tool_call() {
 
     // Assert second tool (bar) input value node
     let (_, explain_tool_input2, value_tool_input2) =
-        tracked_dagops_ref.parse_value_node(&tracked_dagops_ref.value_nodes[2]);
+        tracked_dagops_ref.parse_value_node(&tracked_dagops_ref.value_nodes()[2]);
     assert!(explain_tool_input2.contains("tool input - bar"));
     assert_eq!(value_tool_input2, "bar args");
 
     // Assert second tool (bar) spec value node
     let (_, explain_tool_spec2, value_tool_spec2) =
-        tracked_dagops_ref.parse_value_node(&tracked_dagops_ref.value_nodes[3]);
+        tracked_dagops_ref.parse_value_node(&tracked_dagops_ref.value_nodes()[3]);
     assert!(explain_tool_spec2.contains("tool call spec - bar"));
     let expected_tool_spec2 =
         r#"[{"type":"function","id":"call_456","name":"bar"},{"arguments":"bar args"}]"#;

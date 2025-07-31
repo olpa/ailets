@@ -7,12 +7,12 @@ use gpt::dagops::DagOpsTrait;
 use std::io::Write;
 
 pub struct TrackedDagOps {
-    pub vfs: Rc<RefCell<Vfs>>,
-    pub value_nodes: Vec<String>,
-    pub aliases: Vec<String>,
-    pub detached: Vec<String>,
-    pub workflows: Vec<String>,
-    pub next_fd: i32,
+    vfs: Rc<RefCell<Vfs>>,
+    value_nodes: Vec<String>,
+    aliases: Vec<String>,
+    detached: Vec<String>,
+    workflows: Vec<String>,
+    next_fd: i32,
 }
 
 impl Default for TrackedDagOps {
@@ -101,6 +101,22 @@ impl DagOpsTrait for TrackedDagOps {
 }
 
 impl TrackedDagOps {
+    pub fn value_nodes(&self) -> &Vec<String> {
+        &self.value_nodes
+    }
+
+    pub fn aliases(&self) -> &Vec<String> {
+        &self.aliases
+    }
+
+    pub fn detached(&self) -> &Vec<String> {
+        &self.detached
+    }
+
+    pub fn workflows(&self) -> &Vec<String> {
+        &self.workflows
+    }
+
     pub fn parse_value_node(&self, value_node: &str) -> (u32, String, String) {
         let parts = value_node.split(':').collect::<Vec<&str>>();
         assert_eq!(parts.len(), 2);
@@ -149,15 +165,3 @@ impl TrackedDagOps {
     }
 }
 
-impl Clone for TrackedDagOps {
-    fn clone(&self) -> Self {
-        TrackedDagOps {
-            vfs: self.vfs.clone(), // Share the same VFS instance
-            value_nodes: self.value_nodes.clone(),
-            aliases: self.aliases.clone(),
-            detached: self.detached.clone(),
-            workflows: self.workflows.clone(),
-            next_fd: self.next_fd,
-        }
-    }
-}

@@ -64,12 +64,12 @@ fn inject_tool_calls_to_dag() {
     // Detached old nodes
     //
     let expected_detached = vec![".chat_messages".to_string()];
-    assert_that!(&tracked_dagops.detached, is(equal_to(&expected_detached)));
+    assert_that!(tracked_dagops.detached(), is(equal_to(&expected_detached)));
 
     // Assert that the value nodes are created:
     // - 2 for tool calls input (one per tool call)
     // - 2 for tool call specs (one per tool call)
-    let value_nodes = &tracked_dagops.value_nodes;
+    let value_nodes = tracked_dagops.value_nodes();
     assert_that!(value_nodes.len(), is(equal_to(4)));
 
     //
@@ -156,7 +156,7 @@ fn inject_tool_calls_to_dag() {
     // - 2 for tools themselves
     // - 2 for output to chat history
     // - 1 to re-run the model
-    let workflows = &tracked_dagops.workflows;
+    let workflows = tracked_dagops.workflows();
     assert_eq!(workflows.len(), 5);
 
     //
@@ -234,34 +234,34 @@ fn inject_tool_calls_to_dag() {
     // - 1 for model output
     // Total: (3 * 2) + 1 = 7
     //
-    assert_eq!(tracked_dagops.aliases.len(), 7);
+    assert_eq!(tracked_dagops.aliases().len(), 7);
 
     // Aliases for first tool call
-    let (_, alias_name, alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases[0]);
+    let (_, alias_name, alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases()[0]);
     assert_that!(&alias_name, is(equal_to(".tool_input")));
     assert_that!(alias_handle, is(equal_to(handle_tool_input1)));
 
-    let (_, alias_name, alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases[1]);
+    let (_, alias_name, alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases()[1]);
     assert_that!(&alias_name, is(equal_to(".llm_tool_spec")));
     assert_that!(alias_handle, is(equal_to(handle_toolspec_input1)));
 
-    let (_, alias_name, _alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases[2]);
+    let (_, alias_name, _alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases()[2]);
     assert_that!(&alias_name, is(equal_to(".chat_messages")));
 
     // Aliases for second tool call
-    let (_, alias_name, alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases[3]);
+    let (_, alias_name, alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases()[3]);
     assert_that!(&alias_name, is(equal_to(".tool_input")));
     assert_that!(alias_handle, is(equal_to(handle_tool_input2)));
 
-    let (_, alias_name, alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases[4]);
+    let (_, alias_name, alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases()[4]);
     assert_that!(&alias_name, is(equal_to(".llm_tool_spec")));
     assert_that!(alias_handle, is(equal_to(handle_toolspec_input2)));
 
-    let (_, alias_name, _alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases[5]);
+    let (_, alias_name, _alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases()[5]);
     assert_that!(&alias_name, is(equal_to(".chat_messages")));
 
     // Final alias for model output
-    let (_, alias_name, _alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases[6]);
+    let (_, alias_name, _alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases()[6]);
     assert_that!(&alias_name, is(equal_to(".output_messages")));
 }
 
@@ -278,10 +278,10 @@ fn inject_empty_tool_calls_to_dag() {
     } // dagops_writer is dropped here, releasing the borrow
 
     // Assert no operations were performed
-    assert_that!(tracked_dagops.value_nodes.len(), is(equal_to(0)));
-    assert_that!(tracked_dagops.workflows.len(), is(equal_to(0)));
-    assert_that!(tracked_dagops.aliases.len(), is(equal_to(0)));
-    assert_that!(tracked_dagops.detached.len(), is(equal_to(0)));
+    assert_that!(tracked_dagops.value_nodes().len(), is(equal_to(0)));
+    assert_that!(tracked_dagops.workflows().len(), is(equal_to(0)));
+    assert_that!(tracked_dagops.aliases().len(), is(equal_to(0)));
+    assert_that!(tracked_dagops.detached().len(), is(equal_to(0)));
 }
 
 #[test]
@@ -340,7 +340,7 @@ fn multiple_arguments_chunks() {
     assert_eq!(writer.get_output(), expected_chat_output);
 
     // Assert that we have the expected value nodes (tool input and tool spec)
-    let value_nodes = &tracked_dagops.value_nodes;
+    let value_nodes = tracked_dagops.value_nodes();
     assert_that!(value_nodes.len(), is(equal_to(2)));
 
     //
