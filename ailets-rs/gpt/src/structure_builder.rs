@@ -68,15 +68,17 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// # Errors
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_id(&mut self, id: &str) -> Result<(), Box<dyn std::error::Error>> {
-        // Ensure funcalls exists
-        if self.funcalls.is_none() {
-            self.funcalls = Some(FunCallsBuilder::new());
+        match &mut self.funcalls {
+            Some(funcalls) => {
+                funcalls.id(id, &mut self.chat_writer, &mut self.dag_writer)?;
+            }
+            None => {
+                self.funcalls = Some(FunCallsBuilder::new());
+                if let Some(funcalls) = &mut self.funcalls {
+                    funcalls.id(id, &mut self.chat_writer, &mut self.dag_writer)?;
+                }
+            }
         }
-
-        if let Some(funcalls) = &mut self.funcalls {
-            funcalls.id(id, &mut self.chat_writer, &mut self.dag_writer)?;
-        }
-
         Ok(())
     }
 
@@ -84,15 +86,12 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// # Errors
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_name(&mut self, name: &str) -> Result<(), Box<dyn std::error::Error>> {
-        // Ensure funcalls exists
-        if self.funcalls.is_none() {
-            self.funcalls = Some(FunCallsBuilder::new());
+        match &mut self.funcalls {
+            Some(funcalls) => {
+                funcalls.name(name, &mut self.chat_writer, &mut self.dag_writer)?;
+            }
+            None => return Err("tool_call_name called without initializing funcalls".into())
         }
-
-        if let Some(funcalls) = &mut self.funcalls {
-            funcalls.name(name, &mut self.chat_writer, &mut self.dag_writer)?;
-        }
-
         Ok(())
     }
 
@@ -103,15 +102,12 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
         &mut self,
         args: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Arguments don't need the full setup, just ensure funcalls exists
-        if self.funcalls.is_none() {
-            self.funcalls = Some(FunCallsBuilder::new());
+        match &mut self.funcalls {
+            Some(funcalls) => {
+                funcalls.arguments_chunk(args, &mut self.chat_writer, &mut self.dag_writer)?;
+            }
+            None => return Err("tool_call_arguments_chunk called without initializing funcalls".into())
         }
-
-        if let Some(funcalls) = &mut self.funcalls {
-            funcalls.arguments_chunk(args, &mut self.chat_writer, &mut self.dag_writer)?;
-        }
-
         Ok(())
     }
 
@@ -119,15 +115,17 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// # Errors
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_index(&mut self, index: usize) -> Result<(), Box<dyn std::error::Error>> {
-        // Ensure funcalls exists
-        if self.funcalls.is_none() {
-            self.funcalls = Some(FunCallsBuilder::new());
+        match &mut self.funcalls {
+            Some(funcalls) => {
+                funcalls.index(index, &mut self.chat_writer, &mut self.dag_writer)?;
+            }
+            None => {
+                self.funcalls = Some(FunCallsBuilder::new());
+                if let Some(funcalls) = &mut self.funcalls {
+                    funcalls.index(index, &mut self.chat_writer, &mut self.dag_writer)?;
+                }
+            }
         }
-
-        if let Some(funcalls) = &mut self.funcalls {
-            funcalls.index(index, &mut self.chat_writer, &mut self.dag_writer)?;
-        }
-
         Ok(())
     }
 
@@ -135,11 +133,12 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// # Errors
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_end_direct(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // End the current direct function call (only if funcalls exists)
-        if let Some(funcalls) = &mut self.funcalls {
-            funcalls.end_current(&mut self.chat_writer, &mut self.dag_writer)?;
+        match &mut self.funcalls {
+            Some(funcalls) => {
+                funcalls.end_current(&mut self.chat_writer, &mut self.dag_writer)?;
+            }
+            None => return Err("tool_call_end_direct called without initializing funcalls".into())
         }
-
         Ok(())
     }
 
