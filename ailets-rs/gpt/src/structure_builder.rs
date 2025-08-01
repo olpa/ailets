@@ -9,9 +9,6 @@ use std::io::Write;
 
 
 pub struct StructureBuilder<W1: std::io::Write, W2: FunCallsWrite> {
-    role: Option<String>,
-    message_has_content: bool,
-    text_is_open: bool,
     funcalls: Option<FunCallsBuilder>,
     chat_writer: FunCallsToChat<W1>,
     dag_writer: W2,
@@ -21,9 +18,6 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     #[must_use]
     pub fn new(stdout_writer: W1, dag_writer: W2) -> Self {
         StructureBuilder {
-            role: None,
-            message_has_content: false,
-            text_is_open: false,
             funcalls: None,
             chat_writer: FunCallsToChat::new(stdout_writer),
             dag_writer,
@@ -35,55 +29,38 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
         &mut self.chat_writer
     }
 
-    pub fn begin_message(&mut self) {
-        self.role = None;
-        self.message_has_content = false;
-        self.text_is_open = false;
+    /// Does nothing, just a placeholder for starting a message.
+    /// This is useful for maintaining a consistent interface, to pair with `end_message`.
+    pub fn begin_message(&mut self) -> Result<(), std::io::Error> {
+        Ok(())
     }
 
-    /// Add a role to the current message.
+
     /// # Errors
     /// I/O
     pub fn role(&mut self, role: &str) -> Result<(), std::io::Error> {
-        if self.role.is_some() {
-            return Ok(());
-        }
-        self.role = Some(role.to_owned());
-        Ok(())
-    }
-
-    /// Write a message boilerplate with "role" (completed) and "content" (open) keys
-    /// # Errors
-    /// I/O
-    pub fn begin_content(&mut self) -> Result<(), std::io::Error> {
-        if self.message_has_content {
-            return Ok(());
-        }
         self.chat_writer
             .write_all(b"[{\"type\":\"ctl\"},{\"role\":\"")?;
-        if let Some(role) = &self.role {
-            self.chat_writer.write_all(role.as_bytes())?;
-        } else {
-            self.chat_writer.write_all(b"assistant")?;
-        }
+        self.chat_writer.write_all(role.as_bytes())?;
         self.chat_writer.write_all(b"\"}]\n")?;
-        self.message_has_content = true;
-        self.text_is_open = false;
         Ok(())
     }
 
-    /// Add a text chunk to the current message.
+    /// Start a text chunk
     /// # Errors
     /// I/O
     pub fn begin_text_chunk(&mut self) -> Result<(), std::io::Error> {
-        if !self.message_has_content {
-            self.begin_content()?;
-        }
-        if !self.text_is_open {
-            self.chat_writer
-                .write_all(b"[{\"type\":\"text\"},{\"text\":\"")?;
-            self.text_is_open = true;
-        }
+        self.chat_writer
+            .write_all(b"[{\"type\":\"text\"},{\"text\":\"")?;
+        Ok(())
+    }
+
+    /// End a text chunk
+    /// # Errors
+    /// I/O
+    pub fn end_text_chunk(&mut self) -> Result<(), std::io::Error> {
+        self.chat_writer
+            .write_all(b"\"}]\n")?;
         Ok(())
     }
 
@@ -94,21 +71,6 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
         // Ensure funcalls exists
         if self.funcalls.is_none() {
             self.funcalls = Some(FunCallsBuilder::new());
-        }
-
-        // First ensure content header is written
-        if !self.message_has_content {
-            self.begin_content()
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
-        }
-        if self.text_is_open {
-            self.chat_writer
-                .write_all(b"\"}]")
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
-            self.text_is_open = false;
-            self.chat_writer
-                .write_all(b"\n")
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
         }
 
         if let Some(funcalls) = &mut self.funcalls {
@@ -185,15 +147,6 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// # Errors
     /// I/O
     pub fn end_message(&mut self) -> Result<(), std::io::Error> {
-        if !self.message_has_content {
-            return Ok(());
-        }
-        if self.text_is_open {
-            self.chat_writer.write_all(b"\"}]")?;
-            self.text_is_open = false;
-            self.chat_writer.write_all(b"\n")?;
-        }
-
         // If there's a pending tool call in streaming mode, write it
         if let Some(funcalls) = &mut self.funcalls {
             funcalls.end(&mut self.chat_writer, &mut self.dag_writer)

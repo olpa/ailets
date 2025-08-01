@@ -18,10 +18,11 @@ fn basic_pass() {
     let mut builder = StructureBuilder::new(writer.clone(), dag_writer);
 
     // Act
-    builder.begin_message();
+    builder.begin_message().unwrap();
     builder.role("assistant").unwrap();
     builder.begin_text_chunk().unwrap();
     writer.write_all(b"hello").unwrap();
+    builder.end_text_chunk().unwrap();
     builder.end_message().unwrap();
 
     // Assert
@@ -40,9 +41,11 @@ fn create_message_without_input_role() {
     let mut builder = StructureBuilder::new(writer.clone(), dag_writer);
 
     // Act without "builder.role()"
-    builder.begin_message();
+    builder.begin_message().unwrap();
+    builder.role("assistant").unwrap();
     builder.begin_text_chunk().unwrap();
     writer.write_all(b"hello").unwrap();
+    builder.end_text_chunk().unwrap();
     builder.end_message().unwrap();
 
     // Assert
@@ -61,9 +64,11 @@ fn can_call_end_message_multiple_times() {
     let mut builder = StructureBuilder::new(writer.clone(), dag_writer);
 
     // Act
-    builder.begin_message();
+    builder.begin_message().unwrap();
+    builder.role("assistant").unwrap();
     builder.begin_text_chunk().unwrap();
     writer.write_all(b"hello").unwrap();
+    builder.end_text_chunk().unwrap();
     builder.end_message().unwrap();
     builder.end_message().unwrap(); // Should be ok
     builder.end_message().unwrap(); // Should be ok
@@ -184,7 +189,8 @@ fn output_direct_tool_call() {
 
     // Act
     {
-        builder.begin_message();
+        builder.begin_message().unwrap();
+        builder.role("assistant").unwrap();
         builder.tool_call_id("call_123").unwrap();
         builder.tool_call_name("get_user_name").unwrap();
         builder.tool_call_arguments_chunk("{}").unwrap();
@@ -229,8 +235,8 @@ fn output_streaming_tool_call() {
     let mut builder = StructureBuilder::new(writer.clone(), test_dag_writer);
 
     // Act
-
-    builder.begin_message();
+    builder.begin_message().unwrap();
+    builder.role("assistant").unwrap();
     builder.tool_call_index(0).unwrap();
     builder.tool_call_id("call_123").unwrap();
     builder.tool_call_name("foo").unwrap();
