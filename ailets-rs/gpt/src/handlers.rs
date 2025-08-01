@@ -135,22 +135,24 @@ pub fn on_function_arguments<W1: Write, W2: FunCallsWrite>(
     builder_cell: &RefCell<StructureBuilder<W1, W2>>,
 ) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
-    let value = match rjiter.next_str() {
-        Ok(value) => value,
-        Err(e) => {
-            let error: Box<dyn std::error::Error> =
-                format!("Expected string as the function arguments, got {e:?}").into();
-            return StreamOp::Error(error);
-        }
+    let peeked = match rjiter.peek() {
+        Ok(p) => p,
+        Err(e) => return StreamOp::Error(Box::new(e)),
     };
-
-    let mut builder = builder_cell.borrow_mut();
-    if let Err(e) = builder.tool_call_arguments_chunk(value) {
-        let error: Box<dyn std::error::Error> =
-            format!("Error handling function arguments: {e}").into();
+    if peeked != Peek::String {
+        let idx = rjiter.current_index();
+        let pos = rjiter.error_position(idx);
+        let error: Box<dyn std::error::Error> = format!(
+            "Expected string for 'arguments' value, got {peeked:?}, at index {idx}, position {pos}"
+        )
+        .into();
         return StreamOp::Error(error);
     }
-
+    let mut builder = builder_cell.borrow_mut();
+    let mut writer = builder.get_arguments_chunk_writer();
+    if let Err(e) = rjiter.write_long_bytes(&mut writer) {
+        return StreamOp::Error(Box::new(e));
+    }
     StreamOp::ValueIsConsumed
 }
 

@@ -125,11 +125,10 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for FunCallsToDag<'a, T> {
                 .map_err(|e| e.to_string())?;
         }
 
-        // Write to tool spec writer (as part of the arguments JSON string value)
-        // Need to escape JSON special characters when writing to the tool spec
+        // Write to tool spec writer (arguments are already correctly escaped JSON)
         if let Some(ref mut writer) = self.tool_spec_writer {
             writer
-                .write_all(escape_json_string(args).as_bytes())
+                .write_all(args.as_bytes())
                 .map_err(|e| e.to_string())?;
         }
 

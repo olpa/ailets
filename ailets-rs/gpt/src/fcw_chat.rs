@@ -71,8 +71,8 @@ impl<W: std::io::Write> FunCallsWrite for FunCallsToChat<W> {
     }
 
     fn arguments_chunk(&mut self, chunk: &str) -> FunCallResult {
-        // Write the escaped argument chunk directly into the JSON string
-        write!(self.writer, "{}", escape_json_string(chunk))?;
+        // Write the argument chunk directly (it's already correctly escaped JSON)
+        write!(self.writer, "{}", chunk)?;
         Ok(())
     }
 

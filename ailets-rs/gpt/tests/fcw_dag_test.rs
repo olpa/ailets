@@ -34,7 +34,7 @@ fn inject_tool_calls_to_dag() {
         dagops_writer.new_item("call_1", "get_weather").unwrap();
 
         chat_writer
-            .arguments_chunk("{\"city\":\"London\"}")
+            .arguments_chunk("{\\\"city\\\":\\\"London\\\"}")
             .unwrap();
         dagops_writer
             .arguments_chunk("{\"city\":\"London\"}")
@@ -46,7 +46,7 @@ fn inject_tool_calls_to_dag() {
         chat_writer.new_item("call_2", "get_forecast").unwrap();
         dagops_writer.new_item("call_2", "get_forecast").unwrap();
 
-        chat_writer.arguments_chunk("{\"days\":5}").unwrap();
+        chat_writer.arguments_chunk("{\\\"days\\\":5}").unwrap();
         dagops_writer.arguments_chunk("{\"days\":5}").unwrap();
 
         chat_writer.end_item().unwrap();
@@ -304,13 +304,13 @@ fn multiple_arguments_chunks() {
         dagops_writer.new_item("call_1", "get_weather").unwrap();
 
         // Call arguments_chunk multiple times with different chunks
-        chat_writer.arguments_chunk("{\"city\":").unwrap();
+        chat_writer.arguments_chunk("{\\\"city\\\":").unwrap();
         dagops_writer.arguments_chunk("{\"city\":").unwrap();
 
-        chat_writer.arguments_chunk("\"London\",").unwrap();
+        chat_writer.arguments_chunk("\\\"London\\\",").unwrap();
         dagops_writer.arguments_chunk("\"London\",").unwrap();
 
-        chat_writer.arguments_chunk("\"country\":\"UK\"}").unwrap();
+        chat_writer.arguments_chunk("\\\"country\\\":\\\"UK\\\"}").unwrap();
         dagops_writer
             .arguments_chunk("\"country\":\"UK\"}")
             .unwrap();

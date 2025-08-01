@@ -63,9 +63,9 @@ fn long_arguments() {
 
     // Act - arguments come in multiple chunks
     chat_writer.new_item("call_123", "test_func").unwrap();
-    chat_writer.arguments_chunk("{\"arg1\":").unwrap();
-    chat_writer.arguments_chunk("\"value1\",").unwrap();
-    chat_writer.arguments_chunk("\"arg2\":\"value2\"}").unwrap();
+    chat_writer.arguments_chunk("{\\\"arg1\\\":").unwrap();
+    chat_writer.arguments_chunk("\\\"value1\\\",").unwrap();
+    chat_writer.arguments_chunk("\\\"arg2\\\":\\\"value2\\\"}").unwrap();
     chat_writer.end_item().unwrap();
 
     // Assert
@@ -82,12 +82,12 @@ fn multiple_arguments_chunks() {
 
     // Act - multiple calls to arguments_chunk join values to one arguments attribute
     chat_writer.new_item("call_multi", "foo").unwrap();
-    chat_writer.arguments_chunk("{\"first\":").unwrap();
-    chat_writer.arguments_chunk("\"chunk1\",").unwrap();
-    chat_writer.arguments_chunk("\"second\":").unwrap();
-    chat_writer.arguments_chunk("\"chunk2\",").unwrap();
+    chat_writer.arguments_chunk("{\\\"first\\\":").unwrap();
+    chat_writer.arguments_chunk("\\\"chunk1\\\",").unwrap();
+    chat_writer.arguments_chunk("\\\"second\\\":").unwrap();
+    chat_writer.arguments_chunk("\\\"chunk2\\\",").unwrap();
     chat_writer
-        .arguments_chunk("\"third\":\"chunk3\"}")
+        .arguments_chunk("\\\"third\\\":\\\"chunk3\\\"}")
         .unwrap();
     chat_writer.end_item().unwrap();
 
@@ -114,62 +114,43 @@ fn empty_arguments() {
     assert_eq!(output, expected);
 }
 
+
 #[test]
-fn json_escaping_in_arguments() {
+fn json_escaping_in_id_and_name() {
     // Arrange
     let mut writer = Vec::new();
     let mut chat_writer = FunCallsToChat::new(&mut writer);
 
-    // Act - arguments contain JSON that needs escaping
-    chat_writer.new_item("call_escape", "test_escape").unwrap();
-    chat_writer
-        .arguments_chunk("{\"city\":\"London\"}")
-        .unwrap();
-    chat_writer.end_item().unwrap();
-
-    // Assert - the JSON quotes should be escaped in the arguments field
-    let output = String::from_utf8(writer).unwrap();
-    let expected = r#"[{"type":"function","id":"call_escape","name":"test_escape"},{"arguments":"{\"city\":\"London\"}"}]
-"#;
-    assert_eq!(output, expected);
-}
-
-#[test]
-fn json_escaping_in_id_name_and_arguments() {
-    // Arrange
-    let mut writer = Vec::new();
-    let mut chat_writer = FunCallsToChat::new(&mut writer);
-
-    // Act - id, name, and arguments all contain JSON special characters that need escaping
+    // Act - id and name contain JSON special characters that need escaping
     chat_writer
         .new_item("call_\"quote\"", "test_\"name\"")
         .unwrap();
     chat_writer
-        .arguments_chunk("{\"key\":\"value with \\\"quotes\\\"\"}")
+        .arguments_chunk("{\\\"key\\\":\\\"value\\\"}")
         .unwrap();
     chat_writer.end_item().unwrap();
 
-    // Assert - all JSON special characters should be properly escaped
+    // Assert - id and name JSON special characters should be properly escaped
     let output = String::from_utf8(writer).unwrap();
-    let expected = r#"[{"type":"function","id":"call_\"quote\"","name":"test_\"name\""},{"arguments":"{\"key\":\"value with \\\"quotes\\\"\"}"}]
+    let expected = r#"[{"type":"function","id":"call_\"quote\"","name":"test_\"name\""},{"arguments":"{\"key\":\"value\"}"}]
 "#;
     assert_eq!(output, expected);
 }
 
 #[test]
-fn json_escaping_backslashes() {
+fn json_escaping_backslashes_in_id_and_name() {
     // Arrange
     let mut writer = Vec::new();
     let mut chat_writer = FunCallsToChat::new(&mut writer);
 
-    // Act - test backslash escaping in id, name, and arguments
+    // Act - test backslash escaping in id and name
     chat_writer.new_item("call\\id", "test\\name").unwrap();
     chat_writer
-        .arguments_chunk("{\"path\":\"C:\\\\Program Files\\\\\"}")
+        .arguments_chunk("{\\\"path\\\":\\\"C:\\\\\\\\Program Files\\\\\\\\\\\"}")
         .unwrap();
     chat_writer.end_item().unwrap();
 
-    // Assert - backslashes should be properly escaped
+    // Assert - backslashes in id and name should be properly escaped
     let output = String::from_utf8(writer).unwrap();
     let expected = r#"[{"type":"function","id":"call\\id","name":"test\\name"},{"arguments":"{\"path\":\"C:\\\\Program Files\\\\\"}"}]
 "#;

@@ -97,7 +97,10 @@ fn output_direct_tool_call() {
         builder.role("assistant").unwrap();
         builder.tool_call_id("call_123").unwrap();
         builder.tool_call_name("get_user_name").unwrap();
-        builder.tool_call_arguments_chunk("{}").unwrap();
+        {
+            let mut writer = builder.get_arguments_chunk_writer();
+            writer.write_all(b"{}").unwrap();
+        }
         builder.tool_call_end_direct().unwrap();
         builder.end_message().unwrap();
     } // Ensure writers are dropped before assertions
@@ -141,14 +144,20 @@ fn output_streaming_tool_call() {
     builder.tool_call_index(0).unwrap();
     builder.tool_call_id("call_123").unwrap();
     builder.tool_call_name("foo").unwrap();
-    builder.tool_call_arguments_chunk("foo ").unwrap();
-    builder.tool_call_arguments_chunk("args").unwrap();
+    {
+        let mut writer = builder.get_arguments_chunk_writer();
+        writer.write_all(b"foo ").unwrap();
+        writer.write_all(b"args").unwrap();
+    }
 
     builder.tool_call_index(1).unwrap();
     builder.tool_call_id("call_456").unwrap();
     builder.tool_call_name("bar").unwrap();
-    builder.tool_call_arguments_chunk("bar ").unwrap();
-    builder.tool_call_arguments_chunk("args").unwrap();
+    {
+        let mut writer = builder.get_arguments_chunk_writer();
+        writer.write_all(b"bar ").unwrap();
+        writer.write_all(b"args").unwrap();
+    }
     builder.end_message().unwrap();
 
     // Assert chat output
