@@ -1,16 +1,53 @@
 use actor_runtime_mocked::RcWriter;
-use gpt::funcalls_builder::FunCallsBuilder;
 use gpt::handlers::{on_content, on_function_index, on_function_name};
 use gpt::structure_builder::StructureBuilder;
 use scan_json::{RJiter, StreamOp};
 use std::cell::RefCell;
-use std::io::Cursor;
+use std::io::{Cursor, Write};
+use gpt::fcw_trait::{FunCallResult, FunCallsWrite};
+
+/// Simple wrapper to make Vec<u8> implement FunCallsWrite for basic tests
+struct DummyDagWriter(Vec<u8>);
+
+impl DummyDagWriter {
+    fn new() -> Self {
+        Self(Vec::new())
+    }
+}
+
+impl Write for DummyDagWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.write(buf)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.0.flush()
+    }
+}
+
+impl FunCallsWrite for DummyDagWriter {
+    fn new_item(&mut self, _id: &str, _name: &str) -> FunCallResult {
+        Ok(())
+    }
+
+    fn arguments_chunk(&mut self, _chunk: &str) -> FunCallResult {
+        Ok(())
+    }
+
+    fn end_item(&mut self) -> FunCallResult {
+        Ok(())
+    }
+
+    fn end(&mut self) -> FunCallResult {
+        Ok(())
+    }
+}
 
 #[test]
 fn content_writes_to_builder() {
     // Arrange
     let writer = RcWriter::new();
-    let dag_writer = Vec::new();
+    let dag_writer = DummyDagWriter::new();
     let builder = StructureBuilder::new(writer.clone(), dag_writer);
     let builder_cell = RefCell::new(builder);
 
@@ -33,7 +70,7 @@ fn content_writes_to_builder() {
 fn content_can_be_null() {
     // Arrange
     let writer = RcWriter::new();
-    let dag_writer = Vec::new();
+    let dag_writer = DummyDagWriter::new();
     let builder = StructureBuilder::new(writer.clone(), dag_writer);
     let builder_cell = RefCell::new(builder);
 
@@ -54,8 +91,8 @@ fn content_can_be_null() {
 fn on_function_string_field_invalid_value_type() {
     // Arrange
     let mut buffer = Cursor::new(Vec::new());
-    let mut dag_writer = Vec::new();
-    let builder = StructureBuilder::new(&mut buffer, &mut dag_writer);
+    let dag_writer = DummyDagWriter::new();
+    let builder = StructureBuilder::new(&mut buffer, dag_writer);
     let builder_cell = RefCell::new(builder);
 
     // Arrange: Setup with invalid JSON (number instead of string)
@@ -76,8 +113,8 @@ fn on_function_string_field_invalid_value_type() {
 fn on_function_index_invalid_value_type() {
     // Arrange: Setup with invalid JSON (float instead of integer)
     let mut buffer = Cursor::new(Vec::new());
-    let mut dag_writer = Vec::new();
-    let builder = StructureBuilder::new(&mut buffer, &mut dag_writer);
+    let dag_writer = DummyDagWriter::new();
+    let builder = StructureBuilder::new(&mut buffer, dag_writer);
     let builder_cell = RefCell::new(builder);
 
     let json = r#"3.14"#; // Invalid - should be an integer
