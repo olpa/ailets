@@ -22,7 +22,7 @@ pub struct FunCallsBuilder {
     /// Current function call name (waiting for ID to complete setup)
     current_name: Option<String>,
     /// Arguments accumulated before new_item was called
-    pending_arguments: Option<String>,
+    pending_arguments: Option<Vec<u8>>,
     /// Whether new_item has been called for the current function call
     new_item_called: bool,
 }
@@ -71,8 +71,8 @@ impl FunCallsBuilder {
 
                 // Send any pending arguments that were accumulated before new_item
                 if let Some(ref args) = self.pending_arguments {
-                    chat_writer.arguments_chunk(args.as_bytes())?;
-                    dag_writer.arguments_chunk(args.as_bytes())?;
+                    chat_writer.arguments_chunk(args)?;
+                    dag_writer.arguments_chunk(args)?;
                     self.pending_arguments = None;
                 }
 
@@ -258,10 +258,9 @@ impl FunCallsBuilder {
             dag_writer.arguments_chunk(args)?;
         } else {
             // Store arguments until new_item is called
-            let args_str = std::str::from_utf8(args).map_err(|e| format!("Invalid UTF-8: {}", e))?;
             match &mut self.pending_arguments {
-                Some(existing) => existing.push_str(args_str),
-                None => self.pending_arguments = Some(args_str.to_string()),
+                Some(existing) => existing.extend_from_slice(args),
+                None => self.pending_arguments = Some(args.to_vec()),
             }
         }
 
