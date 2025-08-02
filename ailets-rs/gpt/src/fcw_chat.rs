@@ -70,9 +70,9 @@ impl<W: std::io::Write> FunCallsWrite for FunCallsToChat<W> {
         Ok(())
     }
 
-    fn arguments_chunk(&mut self, chunk: &str) -> FunCallResult {
+    fn arguments_chunk(&mut self, chunk: &[u8]) -> FunCallResult {
         // Write the argument chunk directly (it's already correctly escaped JSON)
-        write!(self.writer, "{}", chunk)?;
+        self.writer.write_all(chunk)?;
         Ok(())
     }
 

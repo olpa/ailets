@@ -71,8 +71,8 @@ impl FunCallsBuilder {
 
                 // Send any pending arguments that were accumulated before new_item
                 if let Some(ref args) = self.pending_arguments {
-                    chat_writer.arguments_chunk(args)?;
-                    dag_writer.arguments_chunk(args)?;
+                    chat_writer.arguments_chunk(args.as_bytes())?;
+                    dag_writer.arguments_chunk(args.as_bytes())?;
                     self.pending_arguments = None;
                 }
 
@@ -246,7 +246,7 @@ impl FunCallsBuilder {
     /// Returns error if writing operation fails
     pub fn arguments_chunk(
         &mut self,
-        args: &str,
+        args: &[u8],
         chat_writer: &mut dyn FunCallsWrite,
         dag_writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -258,9 +258,10 @@ impl FunCallsBuilder {
             dag_writer.arguments_chunk(args)?;
         } else {
             // Store arguments until new_item is called
+            let args_str = std::str::from_utf8(args).map_err(|e| format!("Invalid UTF-8: {}", e))?;
             match &mut self.pending_arguments {
-                Some(existing) => existing.push_str(args),
-                None => self.pending_arguments = Some(args.to_string()),
+                Some(existing) => existing.push_str(args_str),
+                None => self.pending_arguments = Some(args_str.to_string()),
             }
         }
 

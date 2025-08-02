@@ -134,7 +134,7 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     ) -> Result<(), Box<dyn std::error::Error>> {
         match &mut self.funcalls {
             Some(funcalls) => {
-                funcalls.arguments_chunk(args, &mut self.chat_writer, &mut self.dag_writer)?;
+                funcalls.arguments_chunk(args.as_bytes(), &mut self.chat_writer, &mut self.dag_writer)?;
             }
             None => return Err("tool_call_arguments_chunk called without initializing funcalls".into())
         }

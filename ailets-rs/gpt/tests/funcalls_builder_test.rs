@@ -31,9 +31,10 @@ impl FunCallsWrite for TestFunCallsWrite {
         Ok(())
     }
 
-    fn arguments_chunk(&mut self, ac: &str) -> Result<(), Box<dyn std::error::Error>> {
+    fn arguments_chunk(&mut self, ac: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
         // Accumulate arguments chunks
-        self.current_arguments.push_str(ac);
+        let ac_str = std::str::from_utf8(ac).map_err(|e| format!("Invalid UTF-8: {}", e))?;
+        self.current_arguments.push_str(ac_str);
         Ok(())
     }
 
@@ -79,7 +80,7 @@ fn single_funcall_direct() {
         .name("get_user_name", &mut writer, &mut dag_writer)
         .unwrap();
     funcalls
-        .arguments_chunk("{}", &mut writer, &mut dag_writer)
+        .arguments_chunk(b"{}", &mut writer, &mut dag_writer)
         .unwrap();
     funcalls.end_current(&mut writer, &mut dag_writer).unwrap();
 
@@ -112,7 +113,7 @@ fn several_funcalls_direct() {
         .name("get_foo", &mut writer, &mut dag_writer)
         .unwrap();
     funcalls
-        .arguments_chunk("{foo_args}", &mut writer, &mut dag_writer)
+        .arguments_chunk(b"{foo_args}", &mut writer, &mut dag_writer)
         .unwrap();
     funcalls.end_current(&mut writer, &mut dag_writer).unwrap();
 
@@ -124,7 +125,7 @@ fn several_funcalls_direct() {
         .name("get_bar", &mut writer, &mut dag_writer)
         .unwrap();
     funcalls
-        .arguments_chunk("{bar_args}", &mut writer, &mut dag_writer)
+        .arguments_chunk(b"{bar_args}", &mut writer, &mut dag_writer)
         .unwrap();
     funcalls.end_current(&mut writer, &mut dag_writer).unwrap();
 
@@ -136,7 +137,7 @@ fn several_funcalls_direct() {
         .name("get_baz", &mut writer, &mut dag_writer)
         .unwrap();
     funcalls
-        .arguments_chunk("{baz_args}", &mut writer, &mut dag_writer)
+        .arguments_chunk(b"{baz_args}", &mut writer, &mut dag_writer)
         .unwrap();
     funcalls.end_current(&mut writer, &mut dag_writer).unwrap();
 
@@ -191,7 +192,7 @@ fn single_element_streaming() {
         .name("get_user_name", &mut writer, &mut dag_writer)
         .unwrap();
     funcalls
-        .arguments_chunk("{}", &mut writer, &mut dag_writer)
+        .arguments_chunk(b"{}", &mut writer, &mut dag_writer)
         .unwrap();
     funcalls.end_current(&mut writer, &mut dag_writer).unwrap();
 
@@ -226,7 +227,7 @@ fn several_elements_streaming() {
         .name("get_foo", &mut writer, &mut dag_writer)
         .unwrap();
     funcalls
-        .arguments_chunk("{foo_args}", &mut writer, &mut dag_writer)
+        .arguments_chunk(b"{foo_args}", &mut writer, &mut dag_writer)
         .unwrap();
 
     funcalls.index(1, &mut writer, &mut dag_writer).unwrap();
@@ -238,7 +239,7 @@ fn several_elements_streaming() {
         .name("get_bar", &mut writer, &mut dag_writer)
         .unwrap();
     funcalls
-        .arguments_chunk("{bar_args}", &mut writer, &mut dag_writer)
+        .arguments_chunk(b"{bar_args}", &mut writer, &mut dag_writer)
         .unwrap();
 
     funcalls.index(2, &mut writer, &mut dag_writer).unwrap();
@@ -250,7 +251,7 @@ fn several_elements_streaming() {
         .name("get_baz", &mut writer, &mut dag_writer)
         .unwrap();
     funcalls
-        .arguments_chunk("{baz_args}", &mut writer, &mut dag_writer)
+        .arguments_chunk(b"{baz_args}", &mut writer, &mut dag_writer)
         .unwrap();
 
     // Assert
@@ -356,13 +357,13 @@ fn arguments_span_multiple_deltas() {
 
     // Arguments can be set multiple times - this should work
     funcalls
-        .arguments_chunk("{", &mut writer, &mut dag_writer)
+        .arguments_chunk(b"{", &mut writer, &mut dag_writer)
         .unwrap();
     funcalls
-        .arguments_chunk("\"arg\": \"value\"", &mut writer, &mut dag_writer)
+        .arguments_chunk(b"\"arg\": \"value\"", &mut writer, &mut dag_writer)
         .unwrap();
     funcalls
-        .arguments_chunk("}", &mut writer, &mut dag_writer)
+        .arguments_chunk(b"}", &mut writer, &mut dag_writer)
         .unwrap();
 
     // End the item
@@ -464,7 +465,7 @@ fn test_arguments_chunk_without_new_item_stores() {
 
     // Add arguments without calling new_item first
     funcalls
-        .arguments_chunk("{\"arg\": \"value\"}", &mut writer, &mut dag_writer)
+        .arguments_chunk(b"{\"arg\": \"value\"}", &mut writer, &mut dag_writer)
         .unwrap();
 
     // Should not have called writer.arguments_chunk yet
@@ -500,7 +501,7 @@ fn test_arguments_chunk_with_new_item_forwards() {
 
     // Now add arguments - should forward directly to writer
     funcalls
-        .arguments_chunk("{\"arg\": \"value\"}", &mut writer, &mut dag_writer)
+        .arguments_chunk(b"{\"arg\": \"value\"}", &mut writer, &mut dag_writer)
         .unwrap();
     funcalls.end_item(&mut writer, &mut dag_writer).unwrap();
 
@@ -539,7 +540,7 @@ fn test_index_increment_calls_end_item_if_not_called() {
         .name("get_user", &mut writer, &mut dag_writer)
         .unwrap();
     funcalls
-        .arguments_chunk("{}", &mut writer, &mut dag_writer)
+        .arguments_chunk(b"{}", &mut writer, &mut dag_writer)
         .unwrap();
 
     // Move to index 1 without calling end_item - should auto-call it
@@ -572,7 +573,7 @@ fn test_end_calls_end_item_if_not_called() {
         .name("get_user", &mut writer, &mut dag_writer)
         .unwrap();
     funcalls
-        .arguments_chunk("{}", &mut writer, &mut dag_writer)
+        .arguments_chunk(b"{}", &mut writer, &mut dag_writer)
         .unwrap();
 
     // Call end without calling end_item first
@@ -599,16 +600,16 @@ fn test_multiple_arguments_chunks_accumulated() {
 
     // Add multiple argument chunks before new_item
     funcalls
-        .arguments_chunk("{", &mut writer, &mut dag_writer)
+        .arguments_chunk(b"{", &mut writer, &mut dag_writer)
         .unwrap();
     funcalls
-        .arguments_chunk("\"key\":", &mut writer, &mut dag_writer)
+        .arguments_chunk(b"\"key\":", &mut writer, &mut dag_writer)
         .unwrap();
     funcalls
-        .arguments_chunk("\"value\"", &mut writer, &mut dag_writer)
+        .arguments_chunk(b"\"value\"", &mut writer, &mut dag_writer)
         .unwrap();
     funcalls
-        .arguments_chunk("}", &mut writer, &mut dag_writer)
+        .arguments_chunk(b"}", &mut writer, &mut dag_writer)
         .unwrap();
 
     // Set id and name to trigger new_item

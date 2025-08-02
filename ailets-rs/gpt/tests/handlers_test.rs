@@ -30,7 +30,7 @@ impl FunCallsWrite for DummyDagWriter {
         Ok(())
     }
 
-    fn arguments_chunk(&mut self, _chunk: &str) -> FunCallResult {
+    fn arguments_chunk(&mut self, _chunk: &[u8]) -> FunCallResult {
         Ok(())
     }
 

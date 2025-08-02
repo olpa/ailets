@@ -117,18 +117,29 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for FunCallsToDag<'a, T> {
         Ok(())
     }
 
-    fn arguments_chunk(&mut self, args: &str) -> Result<(), Box<dyn std::error::Error>> {
-        // Write to tool input writer
+    fn arguments_chunk(&mut self, args: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+        // Write to tool input writer - unescape the JSON string first
         if let Some(ref mut writer) = self.tool_input_writer {
+            // Create a new slice with quotes around the content to make it a valid JSON string
+            let mut quoted_args = Vec::with_capacity(args.len() + 2);
+            quoted_args.push(b'"');
+            quoted_args.extend_from_slice(args);
+            quoted_args.push(b'"');
+            
+            // Create a new Jiter and call known_str to unescape
+            let mut jiter = scan_json::rjiter::jiter::Jiter::new(&quoted_args);
+            let unescaped_str = jiter.known_str()
+                .map_err(|e| format!("Failed to unescape JSON string: {}", e))?;
+            
             writer
-                .write_all(args.as_bytes())
+                .write_all(unescaped_str.as_bytes())
                 .map_err(|e| e.to_string())?;
         }
 
         // Write to tool spec writer (arguments are already correctly escaped JSON)
         if let Some(ref mut writer) = self.tool_spec_writer {
             writer
-                .write_all(args.as_bytes())
+                .write_all(args)
                 .map_err(|e| e.to_string())?;
         }
 

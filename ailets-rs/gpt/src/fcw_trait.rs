@@ -22,8 +22,8 @@ pub type FunCallResult = Result<(), Box<dyn std::error::Error>>;
 /// ```rust,ignore
 /// let mut writer = FunCallsToChat::new(output);
 /// writer.new_item("call_123", "my_function")?;
-/// writer.arguments_chunk("{\"param1\":")?;
-/// writer.arguments_chunk("\"value1\"}")?;
+/// writer.arguments_chunk(b"{\"param1\":")?;
+/// writer.arguments_chunk(b"\"value1\"}")?;
 /// writer.end_item()?;
 /// writer.end()?;
 /// ```
@@ -48,7 +48,7 @@ pub trait FunCallsWrite {
     ///
     /// # Errors
     /// Returns an error if the underlying writer fails
-    fn arguments_chunk(&mut self, chunk: &str) -> FunCallResult;
+    fn arguments_chunk(&mut self, chunk: &[u8]) -> FunCallResult;
 
     /// Finalize the current function call item
     ///

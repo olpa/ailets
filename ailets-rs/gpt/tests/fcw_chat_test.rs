@@ -15,7 +15,7 @@ fn single_funcall() {
     chat_writer
         .new_item("call_9cFpsOXfVWMUoDz1yyyP1QXD", "get_user_name")
         .unwrap();
-    chat_writer.arguments_chunk("{}").unwrap();
+    chat_writer.arguments_chunk(b"{}").unwrap();
     chat_writer.end_item().unwrap();
 
     // Assert
@@ -33,17 +33,17 @@ fn several_funcalls() {
 
     // First tool call
     chat_writer.new_item("call_foo", "get_foo").unwrap();
-    chat_writer.arguments_chunk("{foo_args}").unwrap();
+    chat_writer.arguments_chunk(b"{foo_args}").unwrap();
     chat_writer.end_item().unwrap();
 
     // Second tool call
     chat_writer.new_item("call_bar", "get_bar").unwrap();
-    chat_writer.arguments_chunk("{bar_args}").unwrap();
+    chat_writer.arguments_chunk(b"{bar_args}").unwrap();
     chat_writer.end_item().unwrap();
 
     // Third tool call
     chat_writer.new_item("call_baz", "get_baz").unwrap();
-    chat_writer.arguments_chunk("{baz_args}").unwrap();
+    chat_writer.arguments_chunk(b"{baz_args}").unwrap();
     chat_writer.end_item().unwrap();
 
     // Assert
@@ -63,9 +63,9 @@ fn long_arguments() {
 
     // Act - arguments come in multiple chunks
     chat_writer.new_item("call_123", "test_func").unwrap();
-    chat_writer.arguments_chunk("{\\\"arg1\\\":").unwrap();
-    chat_writer.arguments_chunk("\\\"value1\\\",").unwrap();
-    chat_writer.arguments_chunk("\\\"arg2\\\":\\\"value2\\\"}").unwrap();
+    chat_writer.arguments_chunk(b"{\\\"arg1\\\":").unwrap();
+    chat_writer.arguments_chunk(b"\\\"value1\\\",").unwrap();
+    chat_writer.arguments_chunk(b"\\\"arg2\\\":\\\"value2\\\"}").unwrap();
     chat_writer.end_item().unwrap();
 
     // Assert
@@ -82,12 +82,12 @@ fn multiple_arguments_chunks() {
 
     // Act - multiple calls to arguments_chunk join values to one arguments attribute
     chat_writer.new_item("call_multi", "foo").unwrap();
-    chat_writer.arguments_chunk("{\\\"first\\\":").unwrap();
-    chat_writer.arguments_chunk("\\\"chunk1\\\",").unwrap();
-    chat_writer.arguments_chunk("\\\"second\\\":").unwrap();
-    chat_writer.arguments_chunk("\\\"chunk2\\\",").unwrap();
+    chat_writer.arguments_chunk(b"{\\\"first\\\":").unwrap();
+    chat_writer.arguments_chunk(b"\\\"chunk1\\\",").unwrap();
+    chat_writer.arguments_chunk(b"\\\"second\\\":").unwrap();
+    chat_writer.arguments_chunk(b"\\\"chunk2\\\",").unwrap();
     chat_writer
-        .arguments_chunk("\\\"third\\\":\\\"chunk3\\\"}")
+        .arguments_chunk(b"\\\"third\\\":\\\"chunk3\\\"}")
         .unwrap();
     chat_writer.end_item().unwrap();
 
@@ -126,7 +126,7 @@ fn json_escaping_in_id_and_name() {
         .new_item("call_\"quote\"", "test_\"name\"")
         .unwrap();
     chat_writer
-        .arguments_chunk("{\\\"key\\\":\\\"value\\\"}")
+        .arguments_chunk(b"{\\\"key\\\":\\\"value\\\"}")
         .unwrap();
     chat_writer.end_item().unwrap();
 
@@ -146,7 +146,7 @@ fn json_escaping_backslashes_in_id_and_name() {
     // Act - test backslash escaping in id and name
     chat_writer.new_item("call\\id", "test\\name").unwrap();
     chat_writer
-        .arguments_chunk("{\\\"path\\\":\\\"C:\\\\\\\\Program Files\\\\\\\\\\\"}")
+        .arguments_chunk(b"{\\\"path\\\":\\\"C:\\\\\\\\Program Files\\\\\\\\\\\"}")
         .unwrap();
     chat_writer.end_item().unwrap();
 
