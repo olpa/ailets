@@ -472,3 +472,45 @@ fn autoclose_mix_text_and_toolcall() {
     assert_eq!(writer.get_output(), expected);
     
 }
+
+#[test]
+fn tool_call_without_arguments_chunk_has_empty_arguments() {
+    // Arrange
+    let writer = RcWriter::new();
+    let mut tracked_dagops = TrackedDagOps::default();
+    let dag_writer = FunCallsToDag::new(&mut tracked_dagops);
+    let mut builder = StructureBuilder::new(writer.clone(), dag_writer);
+
+    // Act - create tool call but never call tool_arguments_chunk
+    builder.begin_message().unwrap();
+    builder.role("assistant").unwrap();
+    builder.tool_call_id("call_123").unwrap();
+    builder.tool_call_name("get_user_name").unwrap();
+    // Intentionally NOT calling get_arguments_chunk_writer() or writing any arguments
+    builder.tool_call_end_direct().unwrap();
+    builder.end_message().unwrap();
+
+    // Assert - output should contain "arguments" field with empty string value
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"function","id":"call_123","name":"get_user_name"},{"arguments":""}]
+"#
+    .to_owned();
+    assert_eq!(writer.get_output(), expected);
+
+    // Assert DAG operations - should have 2 value nodes (tool input and tool spec)
+    assert_eq!(tracked_dagops.value_nodes().len(), 2);
+
+    // Assert tool input value node has empty string
+    let (_, explain_tool_input, value_tool_input) =
+        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes()[0]);
+    assert!(explain_tool_input.contains("tool input - get_user_name"));
+    assert_eq!(value_tool_input, "");
+
+    // Assert tool spec value node has empty arguments
+    let (_, explain_tool_spec, value_tool_spec) =
+        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes()[1]);
+    assert!(explain_tool_spec.contains("tool call spec - get_user_name"));
+    let expected_tool_spec =
+        r#"[{"type":"function","id":"call_123","name":"get_user_name"},{"arguments":""}]"#;
+    assert_eq!(value_tool_spec, expected_tool_spec);
+}
