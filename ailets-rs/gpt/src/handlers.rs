@@ -81,9 +81,6 @@ pub fn on_content<W1: Write, W2: FunCallsWrite>(
     if let Err(e) = rjiter.write_long_bytes(writer) {
         return StreamOp::Error(Box::new(e));
     }
-    if let Err(e) = builder.end_text_chunk() {
-        return StreamOp::Error(Box::new(e));
-    }
     StreamOp::ValueIsConsumed
 }
 
