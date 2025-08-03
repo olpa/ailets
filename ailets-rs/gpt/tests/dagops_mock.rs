@@ -27,7 +27,7 @@ impl Default for TrackedDagOps {
 }
 
 impl DagOpsTrait for TrackedDagOps {
-    fn value_node(&mut self, value: &[u8], explain: &str) -> Result<u32, String> {
+    fn value_node(&mut self, value: &[u8], explain: &str) -> Result<i32, String> {
         let handle = self.value_nodes.len();
         self.value_nodes.push(format!("{handle}:{explain}"));
 
@@ -35,20 +35,20 @@ impl DagOpsTrait for TrackedDagOps {
         let filename = format!("value.{handle}");
         self.vfs.borrow_mut().add_file(filename, value.to_vec());
 
-        Ok(handle as u32)
+        Ok(handle as i32)
     }
 
-    fn alias(&mut self, alias: &str, node_handle: u32) -> Result<u32, String> {
+    fn alias(&mut self, alias: &str, node_handle: i32) -> Result<i32, String> {
         let handle = self.aliases.len() + self.value_nodes.len() + self.workflows.len();
         self.aliases.push(format!("{handle}:{alias}:{node_handle}"));
-        Ok(handle as u32)
+        Ok(handle as i32)
     }
 
     fn instantiate_with_deps(
         &mut self,
         workflow_name: &str,
-        deps: impl Iterator<Item = (String, u32)>,
-    ) -> Result<u32, String> {
+        deps: impl Iterator<Item = (String, i32)>,
+    ) -> Result<i32, String> {
         let mut deps_str = String::new();
         for (key, value) in deps {
             deps_str.push_str(key.as_str());
@@ -59,7 +59,7 @@ impl DagOpsTrait for TrackedDagOps {
         let handle = self.workflows.len() + self.aliases.len() + self.value_nodes.len();
         self.workflows
             .push(format!("{handle}:{workflow_name}:{deps_str}"));
-        Ok(handle as u32)
+        Ok(handle as i32)
     }
 
     fn detach_from_alias(&mut self, alias: &str) -> Result<(), String> {
@@ -80,7 +80,7 @@ impl DagOpsTrait for TrackedDagOps {
         Ok(handle as i32)
     }
 
-    fn alias_fd(&mut self, alias: &str, fd: u32) -> Result<u32, String> {
+    fn alias_fd(&mut self, alias: &str, fd: i32) -> Result<i32, String> {
         // For mock implementation, create alias directly without generating new handle
         // The format is "{alias_handle}:{alias_name}:{node_handle}"
         // Since we're aliasing an fd (which maps to a value node), use fd as the node_handle
@@ -115,10 +115,10 @@ impl TrackedDagOps {
         &self.workflows
     }
 
-    pub fn parse_value_node(&self, value_node: &str) -> (u32, String, String) {
+    pub fn parse_value_node(&self, value_node: &str) -> (i32, String, String) {
         let parts = value_node.split(':').collect::<Vec<&str>>();
         assert_eq!(parts.len(), 2);
-        let handle = parts[0].parse::<u32>().unwrap();
+        let handle = parts[0].parse::<i32>().unwrap();
         let explain = parts[1].to_string();
 
         // Get content from value.N file in VFS
@@ -133,17 +133,17 @@ impl TrackedDagOps {
         (handle, explain, value)
     }
 
-    pub fn parse_workflow(&self, workflow: &str) -> (u32, String, HashMap<String, u32>) {
+    pub fn parse_workflow(&self, workflow: &str) -> (i32, String, HashMap<String, i32>) {
         let parts = workflow.split(':').collect::<Vec<&str>>();
         assert_eq!(parts.len(), 3);
-        let handle = parts[0].parse::<u32>().unwrap();
+        let handle = parts[0].parse::<i32>().unwrap();
         let explain = parts[1].to_string();
 
         let mut deps = HashMap::new();
         let deps_parts: Vec<&str> = parts[2].split(',').filter(|s| !s.is_empty()).collect();
         for chunk in deps_parts.chunks(2) {
             if chunk.len() == 2 {
-                if let Ok(value) = chunk[1].parse::<u32>() {
+                if let Ok(value) = chunk[1].parse::<i32>() {
                     deps.insert(chunk[0].to_string(), value);
                 }
             }
@@ -152,12 +152,12 @@ impl TrackedDagOps {
         (handle, explain, deps)
     }
 
-    pub fn parse_alias(&self, alias: &str) -> (u32, String, u32) {
+    pub fn parse_alias(&self, alias: &str) -> (i32, String, i32) {
         let parts = alias.split(':').collect::<Vec<&str>>();
         assert_eq!(parts.len(), 3);
-        let node_handle = parts[0].parse::<u32>().unwrap();
+        let node_handle = parts[0].parse::<i32>().unwrap();
         let alias_name = parts[1].to_string();
-        let alias_handle = parts[2].parse::<u32>().unwrap();
+        let alias_handle = parts[2].parse::<i32>().unwrap();
 
         (node_handle, alias_name, alias_handle)
     }

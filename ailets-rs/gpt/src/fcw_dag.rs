@@ -65,8 +65,6 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for FunCallsToDag<'a, T> {
         // Create the tool input pipe and writer
         let explain = format!("tool input - {name}");
         let tool_input_fd = self.dagops.open_write_pipe(Some(&explain))?;
-        #[allow(clippy::cast_sign_loss)]
-        let tool_input_fd_u32 = tool_input_fd as u32;
         let tool_input_writer = self.dagops.open_writer_to_pipe(tool_input_fd)?;
 
         self.tool_input_writer = Some(tool_input_writer);
@@ -74,8 +72,6 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for FunCallsToDag<'a, T> {
         // Create the tool spec pipe and writer
         let explain = format!("tool call spec - {name}");
         let tool_spec_handle_fd = self.dagops.open_write_pipe(Some(&explain))?;
-        #[allow(clippy::cast_sign_loss)]
-        let tool_spec_handle_fd_u32 = tool_spec_handle_fd as u32;
         let mut tool_spec_writer = self.dagops.open_writer_to_pipe(tool_spec_handle_fd)?;
 
         // Write the beginning of the tool spec JSON structure up to the arguments value
@@ -91,21 +87,21 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for FunCallsToDag<'a, T> {
         self.tool_spec_writer = Some(tool_spec_writer);
 
         // Create aliases for the pipes
-        self.dagops.alias_fd(".tool_input", tool_input_fd_u32)?;
+        self.dagops.alias_fd(".tool_input", tool_input_fd)?;
         self.dagops
-            .alias_fd(".llm_tool_spec", tool_spec_handle_fd_u32)?;
+            .alias_fd(".llm_tool_spec", tool_spec_handle_fd)?;
 
         // Run the tool
         let tool_handle = self.dagops.instantiate_with_deps(
             &format!(".tool.{name}"),
-            HashMap::from([(".tool_input".to_string(), tool_input_fd_u32)]).into_iter(),
+            HashMap::from([(".tool_input".to_string(), tool_input_fd)]).into_iter(),
         )?;
 
         // Convert tool output to messages
         let msg_handle = self.dagops.instantiate_with_deps(
             ".toolcall_to_messages",
             HashMap::from([
-                (".llm_tool_spec".to_string(), tool_spec_handle_fd_u32),
+                (".llm_tool_spec".to_string(), tool_spec_handle_fd),
                 (".tool_output".to_string(), tool_handle),
             ])
             .into_iter(),

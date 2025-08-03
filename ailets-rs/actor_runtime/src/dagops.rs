@@ -19,7 +19,7 @@ use std::io::Write;
 /// # Errors
 ///
 /// - Normally, should never fail.
-pub fn value_node(value: &[u8], explain: &str) -> Result<u32, String> {
+pub fn value_node(value: &[u8], explain: &str) -> Result<i32, String> {
     let mut value_base64 = Vec::new();
     let mut enc =
         base64::write::EncoderWriter::new(&mut value_base64, &engine::general_purpose::STANDARD);
@@ -31,7 +31,7 @@ pub fn value_node(value: &[u8], explain: &str) -> Result<u32, String> {
     let explain = std::ffi::CString::new(explain).map_err(|e| e.to_string())?;
 
     let handle = unsafe { dag_value_node(value_base64.as_ptr(), explain.as_ptr().cast::<i8>()) };
-    u32::try_from(handle).map_err(|_| "dag_value_node: error".to_string())
+    Ok(handle)
 }
 
 /// Creates an alias for an existing node in the DAG.
@@ -48,14 +48,11 @@ pub fn value_node(value: &[u8], explain: &str) -> Result<u32, String> {
 /// # Errors
 ///
 /// - Wrong handle.
-pub fn alias(alias: &str, node_handle: u32) -> Result<u32, String> {
+pub fn alias(alias: &str, node_handle: i32) -> Result<i32, String> {
     let alias = std::ffi::CString::new(alias).map_err(|e| e.to_string())?;
 
-    #[allow(clippy::cast_possible_wrap)]
-    let node_handle = node_handle as i32;
-
     let handle = unsafe { dag_alias(alias.as_ptr().cast::<i8>(), node_handle) };
-    u32::try_from(handle).map_err(|_| "dag_alias: error".to_string())
+    Ok(handle)
 }
 
 /// Detaches a node from its alias in the DAG.
@@ -98,8 +95,8 @@ pub fn detach_from_alias(alias: &str) -> Result<(), String> {
 /// - The host can fail
 pub fn instantiate_with_deps(
     workflow_name: &str,
-    deps: impl Iterator<Item = (String, u32)>,
-) -> Result<u32, String> {
+    deps: impl Iterator<Item = (String, i32)>,
+) -> Result<i32, String> {
     let workflow_name = std::ffi::CString::new(workflow_name).map_err(|e| e.to_string())?;
 
     let mut deps_json = serde_json::Map::new();
@@ -115,7 +112,7 @@ pub fn instantiate_with_deps(
             deps_str.as_ptr().cast::<i8>(),
         )
     };
-    u32::try_from(handle).map_err(|_| "dag_instantiate_with_deps: error".to_string())
+    Ok(handle)
 }
 
 /// Creates an open value node that can be written to through a file descriptor.
@@ -131,7 +128,7 @@ pub fn instantiate_with_deps(
 /// # Errors
 ///
 /// - Host runtime error
-pub fn open_write_pipe(explain: Option<&str>) -> Result<u32, String> {
+pub fn open_write_pipe(explain: Option<&str>) -> Result<i32, String> {
     let explain_cstr = if let Some(explain) = explain {
         Some(std::ffi::CString::new(explain).map_err(|e| e.to_string())?)
     } else {
@@ -143,7 +140,7 @@ pub fn open_write_pipe(explain: Option<&str>) -> Result<u32, String> {
         .map_or(std::ptr::null(), |s| s.as_ptr().cast::<i8>());
 
     let handle = unsafe { raw_open_write_pipe(explain_ptr) };
-    u32::try_from(handle).map_err(|_| "open_write_pipe: error".to_string())
+    Ok(handle)
 }
 
 /// Creates an alias for the node associated with a file descriptor.
@@ -161,12 +158,9 @@ pub fn open_write_pipe(explain: Option<&str>) -> Result<u32, String> {
 ///
 /// - Invalid file descriptor
 /// - Host runtime error
-pub fn alias_fd(alias: &str, fd: u32) -> Result<u32, String> {
+pub fn alias_fd(alias: &str, fd: i32) -> Result<i32, String> {
     let alias = std::ffi::CString::new(alias).map_err(|e| e.to_string())?;
 
-    #[allow(clippy::cast_possible_wrap)]
-    let fd = fd as i32;
-
     let handle = unsafe { dag_alias_fd(alias.as_ptr().cast::<i8>(), fd) };
-    u32::try_from(handle).map_err(|_| "dag_alias_fd: error".to_string())
+    Ok(handle)
 }

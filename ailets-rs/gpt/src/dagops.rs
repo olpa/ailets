@@ -29,7 +29,7 @@ pub trait DagOpsTrait {
     ///
     /// # Errors
     /// Returns error from the underlying host system
-    fn value_node(&mut self, value: &[u8], explain: &str) -> Result<u32, String>;
+    fn value_node(&mut self, value: &[u8], explain: &str) -> Result<i32, String>;
 
     /// Creates an alias pointing to the specified node
     ///
@@ -42,7 +42,7 @@ pub trait DagOpsTrait {
     ///
     /// # Errors
     /// Returns error from the underlying host system
-    fn alias(&mut self, alias: &str, node_handle: u32) -> Result<u32, String>;
+    fn alias(&mut self, alias: &str, node_handle: i32) -> Result<i32, String>;
 
     /// Detaches an alias, breaking its connection to the underlying node
     ///
@@ -67,8 +67,8 @@ pub trait DagOpsTrait {
     fn instantiate_with_deps(
         &mut self,
         workflow_name: &str,
-        deps: impl Iterator<Item = (String, u32)>,
-    ) -> Result<u32, String>;
+        deps: impl Iterator<Item = (String, i32)>,
+    ) -> Result<i32, String>;
 
     /// Opens a write pipe for streaming data
     ///
@@ -93,7 +93,7 @@ pub trait DagOpsTrait {
     ///
     /// # Errors
     /// Returns error from the underlying host system
-    fn alias_fd(&mut self, alias: &str, fd: u32) -> Result<u32, String>;
+    fn alias_fd(&mut self, alias: &str, fd: i32) -> Result<i32, String>;
 
     /// Opens a writer for the specified write pipe
     ///
@@ -136,11 +136,11 @@ impl Default for DagOps {
 }
 
 impl DagOpsTrait for DagOps {
-    fn value_node(&mut self, value: &[u8], explain: &str) -> Result<u32, String> {
+    fn value_node(&mut self, value: &[u8], explain: &str) -> Result<i32, String> {
         actor_runtime::value_node(value, explain)
     }
 
-    fn alias(&mut self, alias: &str, node_handle: u32) -> Result<u32, String> {
+    fn alias(&mut self, alias: &str, node_handle: i32) -> Result<i32, String> {
         actor_runtime::alias(alias, node_handle)
     }
 
@@ -151,18 +151,16 @@ impl DagOpsTrait for DagOps {
     fn instantiate_with_deps(
         &mut self,
         workflow_name: &str,
-        deps: impl Iterator<Item = (String, u32)>,
-    ) -> Result<u32, String> {
+        deps: impl Iterator<Item = (String, i32)>,
+    ) -> Result<i32, String> {
         actor_runtime::instantiate_with_deps(workflow_name, deps)
     }
 
     fn open_write_pipe(&mut self, explain: Option<&str>) -> Result<i32, String> {
-        #[allow(clippy::cast_possible_wrap)]
-        let result = actor_runtime::open_write_pipe(explain).map(|handle| handle as i32);
-        result
+        actor_runtime::open_write_pipe(explain)
     }
 
-    fn alias_fd(&mut self, alias: &str, fd: u32) -> Result<u32, String> {
+    fn alias_fd(&mut self, alias: &str, fd: i32) -> Result<i32, String> {
         actor_runtime::alias_fd(alias, fd)
     }
 

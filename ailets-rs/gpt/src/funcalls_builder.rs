@@ -13,7 +13,6 @@ use crate::fcw_trait::FunCallsWrite;
 /// - Buffering of arguments until the function call is ready
 /// - State transitions follow the expected protocol
 #[derive(Debug)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct FunCallsBuilder {
     /// The highest function call index seen so far (enables streaming mode)
     pub last_index: Option<usize>,
