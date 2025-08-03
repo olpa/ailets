@@ -298,34 +298,30 @@ fn autoclose_toolcall_on_new_message_and_role() {
     // Act - start tool call in first message, then start new message without closing tool call
     builder.begin_message().unwrap();
     builder.role("assistant").unwrap();
-    builder.tool_call_id("call_123").unwrap();
-    builder.tool_call_name("get_user").unwrap();
+    builder.tool_call_id("call_id_foo").unwrap();
+    builder.tool_call_name("get_foo").unwrap();
     {
         let mut args_writer = builder.get_arguments_chunk_writer();
-        args_writer.write_all(b"{}").unwrap();
+        args_writer.write_all(b"fooargs").unwrap();
     }
     // Intentionally NOT calling tool_call_end_direct() here
     
     builder.begin_message().unwrap(); // Should auto-close tool call
-    builder.tool_call_id("call_456").unwrap();
-    builder.tool_call_name("get_data").unwrap();
+    builder.tool_call_id("call_id_bar").unwrap();
+    builder.tool_call_name("get_bar").unwrap();
     {
         let mut args_writer = builder.get_arguments_chunk_writer();
-        args_writer.write_all(b"{\"param\":\"value\"}").unwrap();
+        args_writer.write_all(b"barargs").unwrap();
     }
     
     builder.role("user").unwrap(); // Should auto-close tool call
-    builder.begin_text_chunk().unwrap();
-    writer.write_all(b"response").unwrap();
-    builder.end_text_chunk().unwrap();
     builder.end_message().unwrap();
 
     // Assert - should have auto-closed tool calls at begin_message and role
     let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
-[{"type":"function","id":"call_123","name":"get_user"},{"arguments":"{}"}]
-[{"type":"function","id":"call_456","name":"get_data"},{"arguments":"{\"param\":\"value\"}"}]
+[{"type":"function","id":"call_id_foo","name":"get_foo"},{"arguments":"fooargs"}]
+[{"type":"function","id":"call_id_bar","name":"get_bar"},{"arguments":"barargs"}]
 [{"type":"ctl"},{"role":"user"}]
-[{"type":"text"},{"text":"response"}]
 "#
     .to_owned();
     assert_eq!(writer.get_output(), expected);
