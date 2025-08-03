@@ -81,8 +81,6 @@ fn can_call_end_message_multiple_times() {
     assert_eq!(writer.get_output(), expected);
 }
 
-
-
 #[test]
 fn output_direct_tool_call() {
     // Arrange
@@ -238,11 +236,11 @@ fn autoclose_text_on_new_message_and_role() {
     builder.begin_text_chunk().unwrap();
     writer.write_all(b"hello").unwrap();
     // Intentionally NOT calling end_text_chunk() here
-    
+
     builder.begin_message().unwrap(); // Should auto-close
     builder.begin_text_chunk().unwrap(); // Should auto-close on begin_message, so this should work
     writer.write_all(b"from").unwrap();
-    
+
     builder.role("user").unwrap(); // Should auto-close
     builder.begin_text_chunk().unwrap();
     writer.write_all(b"world").unwrap();
@@ -262,7 +260,7 @@ fn autoclose_text_on_new_message_and_role() {
 #[test]
 fn autoclose_toolcall_on_end_message() {
     // Arrange
-    let mut writer = RcWriter::new();
+    let writer = RcWriter::new();
     let mut tracked_dagops = TrackedDagOps::default();
     let dag_writer = FunCallsToDag::new(&mut tracked_dagops);
     let mut builder = StructureBuilder::new(writer.clone(), dag_writer);
@@ -290,7 +288,7 @@ fn autoclose_toolcall_on_end_message() {
 #[test]
 fn autoclose_toolcall_on_new_message_and_role() {
     // Arrange
-    let mut writer = RcWriter::new();
+    let writer = RcWriter::new();
     let mut tracked_dagops = TrackedDagOps::default();
     let dag_writer = FunCallsToDag::new(&mut tracked_dagops);
     let mut builder = StructureBuilder::new(writer.clone(), dag_writer);
@@ -305,7 +303,7 @@ fn autoclose_toolcall_on_new_message_and_role() {
         args_writer.write_all(b"fooargs").unwrap();
     }
     // Intentionally NOT calling tool_call_end_direct() here
-    
+
     builder.begin_message().unwrap(); // Should auto-close tool call
     builder.tool_call_id("call_id_bar").unwrap();
     builder.tool_call_name("get_bar").unwrap();
@@ -313,7 +311,7 @@ fn autoclose_toolcall_on_new_message_and_role() {
         let mut args_writer = builder.get_arguments_chunk_writer();
         args_writer.write_all(b"barargs").unwrap();
     }
-    
+
     builder.role("user").unwrap(); // Should auto-close tool call
     builder.end_message().unwrap();
 
@@ -344,12 +342,12 @@ fn autoclose_mix_text_and_toolcall() {
     // Act - autoclose text because of tool_id
     //
     builder.tool_call_id("call_123").unwrap(); // Should auto-close text
-    
+
     // Assert: text is auto-closed
     let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
 "#;
     assert_eq!(writer.get_output(), expected);
-    
+
     // Complete the tool to avoid errors
     builder.tool_call_name("get_user").unwrap();
 
@@ -367,21 +365,21 @@ fn autoclose_mix_text_and_toolcall() {
     //
     writer.write_all(b"Before tool index").unwrap();
     builder.tool_call_index(0).unwrap(); // Should auto-close text
-    
+
     // Assert: text is auto-closed
     let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
 [{"type":"function","id":"call_123","name":"get_user"},{"arguments":""}]
 [{"type":"text"},{"text":"Before tool index"}]
 "#;
     assert_eq!(writer.get_output(), expected);
-    
+
     // Complete the tool to avoid errors
     builder.tool_call_id("call_456").unwrap();
     builder.tool_call_name("get_data").unwrap();
-    
+
     // Act: autoclose tool because of text
     builder.begin_text_chunk().unwrap();
-    
+
     // Assert: autoclose tool because of text
     let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
 [{"type":"function","id":"call_123","name":"get_user"},{"arguments":""}]
@@ -389,13 +387,13 @@ fn autoclose_mix_text_and_toolcall() {
 [{"type":"function","id":"call_456","name":"get_data"},{"arguments":""}]
 [{"type":"text"},{"text":""#;
     assert_eq!(writer.get_output(), expected);
-    
+
     //
     // Act: autoclose text because of tool_name
     //
     writer.write_all(b"Before tool name").unwrap();
     builder.tool_call_name("another_tool").unwrap(); // Should auto-close text
-    
+
     // Assert: text is auto-closed
     let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
 [{"type":"function","id":"call_123","name":"get_user"},{"arguments":""}]
@@ -404,13 +402,13 @@ fn autoclose_mix_text_and_toolcall() {
 [{"type":"text"},{"text":"Before tool name"}]
 "#;
     assert_eq!(writer.get_output(), expected);
-    
+
     // Complete the tool to avoid errors
     builder.tool_call_id("call_789").unwrap();
-    
+
     // Act: autoclose tool because of text
     builder.begin_text_chunk().unwrap();
-    
+
     // Assert: autoclose tool because of text
     let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
 [{"type":"function","id":"call_123","name":"get_user"},{"arguments":""}]
@@ -420,14 +418,14 @@ fn autoclose_mix_text_and_toolcall() {
 [{"type":"function","id":"call_789","name":"another_tool"},{"arguments":""}]
 [{"type":"text"},{"text":""#;
     assert_eq!(writer.get_output(), expected);
-    
+
     // Act: autoclose text because of tool_arguments_chunk
     writer.write_all(b"Before args").unwrap();
     {
         let mut args_writer = builder.get_arguments_chunk_writer(); // Should auto-close text
         args_writer.write_all(b"some_args").unwrap();
     }
-    
+
     // Assert: text is auto-closed
     let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
 [{"type":"function","id":"call_123","name":"get_user"},{"arguments":""}]
@@ -438,15 +436,15 @@ fn autoclose_mix_text_and_toolcall() {
 [{"type":"text"},{"text":"Before args"}]
 "#;
     assert_eq!(writer.get_output(), expected);
-    
+
     // Complete the tool to avoid errors
     builder.tool_call_name("final_tool").unwrap();
     builder.tool_call_id("call_final").unwrap();
-    
+
     // Act: autoclose tool because of text
     builder.begin_text_chunk().unwrap();
     writer.write_all(b"After args").unwrap();
-    
+
     // Assert: autoclose tool because of text
     builder.end_message().unwrap();
     let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
@@ -460,7 +458,6 @@ fn autoclose_mix_text_and_toolcall() {
 [{"type":"text"},{"text":"After args"}]
 "#;
     assert_eq!(writer.get_output(), expected);
-    
 }
 
 #[test]
@@ -518,7 +515,7 @@ fn begin_text_chunk_no_prefix_when_already_open() {
     builder.role("assistant").unwrap();
     builder.begin_text_chunk().unwrap();
     writer.write_all(b"first part").unwrap();
-    
+
     // This should not write the prefix since text is already open
     builder.begin_text_chunk().unwrap();
     writer.write_all(b" second part").unwrap();

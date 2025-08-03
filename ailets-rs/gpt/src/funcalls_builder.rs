@@ -21,9 +21,9 @@ pub struct FunCallsBuilder {
     current_id: Option<String>,
     /// Current function call name (waiting for ID to complete setup)
     current_name: Option<String>,
-    /// Arguments accumulated before new_item was called
+    /// Arguments accumulated before `new_item` was called
     pending_arguments: Option<Vec<u8>>,
-    /// Whether new_item has been called for the current function call
+    /// Whether `new_item` has been called for the current function call
     new_item_called: bool,
 }
 
@@ -53,11 +53,11 @@ impl FunCallsBuilder {
     /// calling the writers' `new_item` methods when both are present.
     ///
     /// # Arguments
-    /// * `chat_writer` - The chat writer to call new_item on
-    /// * `dag_writer` - The dag writer to call new_item on
+    /// * `chat_writer` - The chat writer to call `new_item` on
+    /// * `dag_writer` - The dag writer to call `new_item` on
     ///
     /// # Errors
-    /// Returns an error if the writers' new_item or arguments_chunk methods fail
+    /// Returns an error if the writers' `new_item` or `arguments_chunk` methods fail
     fn try_call_new_item(
         &mut self,
         chat_writer: &mut dyn FunCallsWrite,

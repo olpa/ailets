@@ -63,7 +63,7 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for FunCallsToDag<'a, T> {
         }
 
         // Create the tool input pipe and writer
-        let explain = format!("tool input - {}", name);
+        let explain = format!("tool input - {name}");
         let tool_input_fd = self.dagops.open_write_pipe(Some(&explain))?;
         #[allow(clippy::cast_sign_loss)]
         let tool_input_fd_u32 = tool_input_fd as u32;
@@ -72,7 +72,7 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for FunCallsToDag<'a, T> {
         self.tool_input_writer = Some(tool_input_writer);
 
         // Create the tool spec pipe and writer
-        let explain = format!("tool call spec - {}", name);
+        let explain = format!("tool call spec - {name}");
         let tool_spec_handle_fd = self.dagops.open_write_pipe(Some(&explain))?;
         #[allow(clippy::cast_sign_loss)]
         let tool_spec_handle_fd_u32 = tool_spec_handle_fd as u32;
@@ -97,7 +97,7 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for FunCallsToDag<'a, T> {
 
         // Run the tool
         let tool_handle = self.dagops.instantiate_with_deps(
-            &format!(".tool.{}", name),
+            &format!(".tool.{name}"),
             HashMap::from([(".tool_input".to_string(), tool_input_fd_u32)]).into_iter(),
         )?;
 
@@ -125,12 +125,13 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for FunCallsToDag<'a, T> {
             quoted_args.push(b'"');
             quoted_args.extend_from_slice(args);
             quoted_args.push(b'"');
-            
+
             // Create a new Jiter and call known_str to unescape
             let mut jiter = scan_json::rjiter::jiter::Jiter::new(&quoted_args);
-            let unescaped_str = jiter.known_str()
-                .map_err(|e| format!("Failed to unescape JSON string: {}", e))?;
-            
+            let unescaped_str = jiter
+                .known_str()
+                .map_err(|e| format!("Failed to unescape JSON string: {e}"))?;
+
             writer
                 .write_all(unescaped_str.as_bytes())
                 .map_err(|e| e.to_string())?;
@@ -138,9 +139,7 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for FunCallsToDag<'a, T> {
 
         // Write to tool spec writer (arguments are already correctly escaped JSON)
         if let Some(ref mut writer) = self.tool_spec_writer {
-            writer
-                .write_all(args)
-                .map_err(|e| e.to_string())?;
+            writer.write_all(args).map_err(|e| e.to_string())?;
         }
 
         Ok(())

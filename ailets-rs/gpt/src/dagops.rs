@@ -57,7 +57,7 @@ pub trait DagOpsTrait {
     ///
     /// # Arguments
     /// * `workflow_name` - Name of the workflow to instantiate
-    /// * `deps` - Iterator of (dependency_name, node_handle) pairs
+    /// * `deps` - Iterator of (`dependency_name`, `node_handle`) pairs
     ///
     /// # Returns
     /// Handle to the instantiated workflow

@@ -18,15 +18,6 @@ pub type FunCallResult = Result<(), Box<dyn std::error::Error>>;
 /// The streaming approach allows for efficient processing of large function calls
 /// without requiring the entire payload to be loaded into memory at once.
 ///
-/// # Example
-/// ```rust,ignore
-/// let mut writer = FunCallsToChat::new(output);
-/// writer.new_item("call_123", "my_function")?;
-/// writer.arguments_chunk(b"{\"param1\":")?;
-/// writer.arguments_chunk(b"\"value1\"}")?;
-/// writer.end_item()?;
-/// writer.end()?;
-/// ```
 pub trait FunCallsWrite {
     /// Initialize a new function call with the given ID and name
     ///

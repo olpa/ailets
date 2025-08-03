@@ -65,7 +65,9 @@ fn long_arguments() {
     chat_writer.new_item("call_123", "test_func").unwrap();
     chat_writer.arguments_chunk(b"{\\\"arg1\\\":").unwrap();
     chat_writer.arguments_chunk(b"\\\"value1\\\",").unwrap();
-    chat_writer.arguments_chunk(b"\\\"arg2\\\":\\\"value2\\\"}").unwrap();
+    chat_writer
+        .arguments_chunk(b"\\\"arg2\\\":\\\"value2\\\"}")
+        .unwrap();
     chat_writer.end_item().unwrap();
 
     // Assert
@@ -113,7 +115,6 @@ fn empty_arguments() {
 "#;
     assert_eq!(output, expected);
 }
-
 
 #[test]
 fn json_escaping_in_id_and_name() {

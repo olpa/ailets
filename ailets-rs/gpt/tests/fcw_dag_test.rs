@@ -269,7 +269,6 @@ fn inject_tool_calls_to_dag() {
 fn inject_empty_tool_calls_to_dag() {
     // Arrange
     let mut tracked_dagops = TrackedDagOps::default();
-    let writer = RcWriter::new();
 
     {
         let _dagops_writer = FunCallsToDag::new(&mut tracked_dagops);
@@ -310,7 +309,9 @@ fn multiple_arguments_chunks() {
         chat_writer.arguments_chunk(b"\\\"London\\\",").unwrap();
         dagops_writer.arguments_chunk(b"\\\"London\\\",").unwrap();
 
-        chat_writer.arguments_chunk(b"\\\"country\\\":\\\"UK\\\"}").unwrap();
+        chat_writer
+            .arguments_chunk(b"\\\"country\\\":\\\"UK\\\"}")
+            .unwrap();
         dagops_writer
             .arguments_chunk(b"\\\"country\\\":\\\"UK\\\"}")
             .unwrap();

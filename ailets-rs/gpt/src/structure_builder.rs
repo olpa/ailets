@@ -3,7 +3,7 @@
 //! Collects function calls from the JSON stream and stores them in a `FunCalls` struct.
 
 use crate::fcw_chat::FunCallsToChat;
-use crate::fcw_trait::{FunCallsWrite};
+use crate::fcw_trait::FunCallsWrite;
 use crate::funcalls_builder::FunCallsBuilder;
 use std::io::Write;
 
@@ -31,7 +31,6 @@ impl<'a, W1: Write, W2: FunCallsWrite> Write for ArgumentsChunkWriter<'a, W1, W2
         Ok(())
     }
 }
-
 
 pub struct StructureBuilder<W1: std::io::Write, W2: FunCallsWrite> {
     funcalls: Option<FunCallsBuilder>,
@@ -76,7 +75,8 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     fn auto_close_tool_if_open(&mut self) -> Result<(), std::io::Error> {
         if self.tool_is_open {
             if let Some(funcalls) = &mut self.funcalls {
-                funcalls.end(&mut self.chat_writer, &mut self.dag_writer)
+                funcalls
+                    .end(&mut self.chat_writer, &mut self.dag_writer)
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
             }
             self.tool_is_open = false;
@@ -86,12 +86,14 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
 
     /// Does nothing, just a placeholder for starting a message.
     /// This is useful for maintaining a consistent interface, to pair with `end_message`.
+    ///
+    /// # Errors
+    /// Returns an error if auto-closing text or tool operations fail.
     pub fn begin_message(&mut self) -> Result<(), std::io::Error> {
         self.auto_close_text_if_open()?;
         self.auto_close_tool_if_open()?;
         Ok(())
     }
-
 
     /// # Errors
     /// I/O
@@ -122,8 +124,7 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// # Errors
     /// I/O
     pub fn end_text_chunk(&mut self) -> Result<(), std::io::Error> {
-        self.chat_writer
-            .write_all(b"\"}]\n")?;
+        self.chat_writer.write_all(b"\"}]\n")?;
         self.text_is_open = false;
         Ok(())
     }
@@ -157,7 +158,7 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
             Some(funcalls) => {
                 funcalls.name(name, &mut self.chat_writer, &mut self.dag_writer)?;
             }
-            None => return Err("tool_call_name called without initializing funcalls".into())
+            None => return Err("tool_call_name called without initializing funcalls".into()),
         }
         Ok(())
     }
@@ -165,16 +166,19 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// Private interface for adding tool call arguments chunk - forwards to funcalls and handles streaming
     /// # Errors
     /// Returns error if I/O error occurs
-    fn _tool_call_arguments_chunk(
-        &mut self,
-        args: &str,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn _tool_call_arguments_chunk(&mut self, args: &str) -> Result<(), Box<dyn std::error::Error>> {
         self.auto_close_text_if_open()?;
         match &mut self.funcalls {
             Some(funcalls) => {
-                funcalls.arguments_chunk(args.as_bytes(), &mut self.chat_writer, &mut self.dag_writer)?;
+                funcalls.arguments_chunk(
+                    args.as_bytes(),
+                    &mut self.chat_writer,
+                    &mut self.dag_writer,
+                )?;
             }
-            None => return Err("tool_call_arguments_chunk called without initializing funcalls".into())
+            None => {
+                return Err("tool_call_arguments_chunk called without initializing funcalls".into())
+            }
         }
         Ok(())
     }
@@ -207,7 +211,7 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
             Some(funcalls) => {
                 funcalls.end_current(&mut self.chat_writer, &mut self.dag_writer)?;
             }
-            None => return Err("tool_call_end_direct called without initializing funcalls".into())
+            None => return Err("tool_call_end_direct called without initializing funcalls".into()),
         }
         self.tool_is_open = false;
         Ok(())
@@ -219,7 +223,7 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     pub fn end_message(&mut self) -> Result<(), std::io::Error> {
         self.auto_close_text_if_open()?;
         self.auto_close_tool_if_open()?;
-        
+
         Ok(())
     }
 }

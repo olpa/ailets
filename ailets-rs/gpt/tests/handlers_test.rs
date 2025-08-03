@@ -1,10 +1,10 @@
 use actor_runtime_mocked::RcWriter;
+use gpt::fcw_trait::{FunCallResult, FunCallsWrite};
 use gpt::handlers::{on_content, on_function_index, on_function_name};
 use gpt::structure_builder::StructureBuilder;
 use scan_json::{RJiter, StreamOp};
 use std::cell::RefCell;
 use std::io::{Cursor, Write};
-use gpt::fcw_trait::{FunCallResult, FunCallsWrite};
 
 /// Simple wrapper to make Vec<u8> implement FunCallsWrite for basic tests
 struct DummyDagWriter(Vec<u8>);

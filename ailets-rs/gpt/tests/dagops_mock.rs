@@ -12,7 +12,6 @@ pub struct TrackedDagOps {
     aliases: Vec<String>,
     detached: Vec<String>,
     workflows: Vec<String>,
-    next_fd: i32,
 }
 
 impl Default for TrackedDagOps {
@@ -23,7 +22,6 @@ impl Default for TrackedDagOps {
             aliases: Vec::new(),
             detached: Vec::new(),
             workflows: Vec::new(),
-            next_fd: 10, // Start at 10 to avoid conflicts with standard fds
         }
     }
 }
@@ -164,4 +162,3 @@ impl TrackedDagOps {
         (node_handle, alias_name, alias_handle)
     }
 }
-

@@ -17,7 +17,9 @@ pub fn on_begin_message<W1: Write, W2: FunCallsWrite>(
     _rjiter: &RefCell<RJiter>,
     builder_cell: &RefCell<StructureBuilder<W1, W2>>,
 ) -> StreamOp {
-    builder_cell.borrow_mut().begin_message();
+    if let Err(e) = builder_cell.borrow_mut().begin_message() {
+        return StreamOp::Error(Box::new(e));
+    }
     StreamOp::None
 }
 
