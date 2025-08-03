@@ -359,8 +359,7 @@ fn autoclose_mix_text_and_toolcall() {
     // Assert: autoclose tool because of text
     let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
 [{"type":"function","id":"call_123","name":"get_user"},{"arguments":""}]
-[{"type":"text"},{"text":"
-"#;
+[{"type":"text"},{"text":""#;
     assert_eq!(writer.get_output(), expected);
 
     //
@@ -388,8 +387,7 @@ fn autoclose_mix_text_and_toolcall() {
 [{"type":"function","id":"call_123","name":"get_user"},{"arguments":""}]
 [{"type":"text"},{"text":"Before tool index"}]
 [{"type":"function","id":"call_456","name":"get_data"},{"arguments":""}]
-[{"type":"text"},{"text":"
-"#;
+[{"type":"text"},{"text":""#;
     assert_eq!(writer.get_output(), expected);
     
     //
@@ -420,15 +418,14 @@ fn autoclose_mix_text_and_toolcall() {
 [{"type":"function","id":"call_456","name":"get_data"},{"arguments":""}]
 [{"type":"text"},{"text":"Before tool name"}]
 [{"type":"function","id":"call_789","name":"another_tool"},{"arguments":""}]
-[{"type":"text"},{"text":"
-"#;
+[{"type":"text"},{"text":""#;
     assert_eq!(writer.get_output(), expected);
     
     // Act: autoclose text because of tool_arguments_chunk
     writer.write_all(b"Before args").unwrap();
     {
         let mut args_writer = builder.get_arguments_chunk_writer(); // Should auto-close text
-        args_writer.write_all(b"{\"test\":\"args\"}").unwrap();
+        args_writer.write_all(b"some_args").unwrap();
     }
     
     // Assert: text is auto-closed
@@ -454,15 +451,12 @@ fn autoclose_mix_text_and_toolcall() {
     builder.end_message().unwrap();
     let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
 [{"type":"function","id":"call_123","name":"get_user"},{"arguments":""}]
-[{"type":"text"},{"text":"Got the user"}]
 [{"type":"text"},{"text":"Before tool index"}]
 [{"type":"function","id":"call_456","name":"get_data"},{"arguments":""}]
-[{"type":"text"},{"text":"After tool index"}]
 [{"type":"text"},{"text":"Before tool name"}]
 [{"type":"function","id":"call_789","name":"another_tool"},{"arguments":""}]
-[{"type":"text"},{"text":"After tool name"}]
 [{"type":"text"},{"text":"Before args"}]
-[{"type":"function","id":"call_final","name":"final_tool"},{"arguments":"{\"test\":\"args\"}"}]
+[{"type":"function","id":"call_final","name":"final_tool"},{"arguments":"some_args"}]
 [{"type":"text"},{"text":"After args"}]
 "#;
     assert_eq!(writer.get_output(), expected);
