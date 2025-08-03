@@ -38,6 +38,7 @@ pub struct StructureBuilder<W1: std::io::Write, W2: FunCallsWrite> {
     chat_writer: FunCallsToChat<W1>,
     dag_writer: W2,
     text_is_open: bool,
+    tool_is_open: bool,
 }
 
 impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
@@ -48,6 +49,7 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
             chat_writer: FunCallsToChat::new(stdout_writer),
             dag_writer,
             text_is_open: false,
+            tool_is_open: false,
         }
     }
 
@@ -70,10 +72,23 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
         Ok(())
     }
 
+    /// Auto-close tool if it's open
+    fn auto_close_tool_if_open(&mut self) -> Result<(), std::io::Error> {
+        if self.tool_is_open {
+            if let Some(funcalls) = &mut self.funcalls {
+                funcalls.end(&mut self.chat_writer, &mut self.dag_writer)
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+            }
+            self.tool_is_open = false;
+        }
+        Ok(())
+    }
+
     /// Does nothing, just a placeholder for starting a message.
     /// This is useful for maintaining a consistent interface, to pair with `end_message`.
     pub fn begin_message(&mut self) -> Result<(), std::io::Error> {
         self.auto_close_text_if_open()?;
+        self.auto_close_tool_if_open()?;
         Ok(())
     }
 
@@ -82,6 +97,7 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// I/O
     pub fn role(&mut self, role: &str) -> Result<(), std::io::Error> {
         self.auto_close_text_if_open()?;
+        self.auto_close_tool_if_open()?;
         self.chat_writer
             .write_all(b"[{\"type\":\"ctl\"},{\"role\":\"")?;
         self.chat_writer.write_all(role.as_bytes())?;
@@ -93,6 +109,7 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// # Errors
     /// I/O
     pub fn begin_text_chunk(&mut self) -> Result<(), std::io::Error> {
+        self.auto_close_tool_if_open()?;
         self.chat_writer
             .write_all(b"[{\"type\":\"text\"},{\"text\":\"")?;
         self.text_is_open = true;
@@ -125,6 +142,7 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
                 }
             }
         }
+        self.tool_is_open = true;
         Ok(())
     }
 
@@ -149,6 +167,7 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
         &mut self,
         args: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        self.auto_close_text_if_open()?;
         match &mut self.funcalls {
             Some(funcalls) => {
                 funcalls.arguments_chunk(args.as_bytes(), &mut self.chat_writer, &mut self.dag_writer)?;
@@ -174,6 +193,7 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
                 }
             }
         }
+        self.tool_is_open = true;
         Ok(())
     }
 
@@ -187,6 +207,7 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
             }
             None => return Err("tool_call_end_direct called without initializing funcalls".into())
         }
+        self.tool_is_open = false;
         Ok(())
     }
 
@@ -195,13 +216,8 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// I/O
     pub fn end_message(&mut self) -> Result<(), std::io::Error> {
         self.auto_close_text_if_open()?;
+        self.auto_close_tool_if_open()?;
         
-        // If there's a pending tool call in streaming mode, write it
-        if let Some(funcalls) = &mut self.funcalls {
-            funcalls.end(&mut self.chat_writer, &mut self.dag_writer)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-        }
-
         Ok(())
     }
 }
