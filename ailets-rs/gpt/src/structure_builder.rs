@@ -110,9 +110,11 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// I/O
     pub fn begin_text_chunk(&mut self) -> Result<(), std::io::Error> {
         self.auto_close_tool_if_open()?;
-        self.chat_writer
-            .write_all(b"[{\"type\":\"text\"},{\"text\":\"")?;
-        self.text_is_open = true;
+        if !self.text_is_open {
+            self.chat_writer
+                .write_all(b"[{\"type\":\"text\"},{\"text\":\"")?;
+            self.text_is_open = true;
+        }
         Ok(())
     }
 

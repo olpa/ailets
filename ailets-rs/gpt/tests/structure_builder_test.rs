@@ -504,3 +504,31 @@ fn tool_call_without_arguments_chunk_has_empty_arguments() {
         r#"[{"type":"function","id":"call_123","name":"get_user_name"},{"arguments":""}]"#;
     assert_eq!(value_tool_spec, expected_tool_spec);
 }
+
+#[test]
+fn begin_text_chunk_no_prefix_when_already_open() {
+    // Arrange
+    let mut writer = RcWriter::new();
+    let mut tracked_dagops = TrackedDagOps::default();
+    let dag_writer = FunCallsToDag::new(&mut tracked_dagops);
+    let mut builder = StructureBuilder::new(writer.clone(), dag_writer);
+
+    // Act - begin text chunk, write some text, then begin text chunk again without closing
+    builder.begin_message().unwrap();
+    builder.role("assistant").unwrap();
+    builder.begin_text_chunk().unwrap();
+    writer.write_all(b"first part").unwrap();
+    
+    // This should not write the prefix since text is already open
+    builder.begin_text_chunk().unwrap();
+    writer.write_all(b" second part").unwrap();
+    builder.end_text_chunk().unwrap();
+    builder.end_message().unwrap();
+
+    // Assert - should only have one text prefix, content should be concatenated
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"text"},{"text":"first part second part"}]
+"#
+    .to_owned();
+    assert_eq!(writer.get_output(), expected);
+}
