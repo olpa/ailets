@@ -199,3 +199,276 @@ fn output_streaming_tool_call() {
         r#"[{"type":"function","id":"call_456","name":"bar"},{"arguments":"bar args"}]"#;
     assert_eq!(value_tool_spec2, expected_tool_spec2);
 }
+
+#[test]
+fn autoclose_text_on_end_message() {
+    // Arrange
+    let mut writer = RcWriter::new();
+    let mut tracked_dagops = TrackedDagOps::default();
+    let dag_writer = FunCallsToDag::new(&mut tracked_dagops);
+    let mut builder = StructureBuilder::new(writer.clone(), dag_writer);
+
+    // Act - start text but don't explicitly close it
+    builder.begin_message().unwrap();
+    builder.role("assistant").unwrap();
+    builder.begin_text_chunk().unwrap();
+    writer.write_all(b"hello").unwrap();
+    // Intentionally NOT calling end_text_chunk() here
+    builder.end_message().unwrap(); // Should auto-close text
+
+    // Assert - should have auto-closed the text chunk
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"text"},{"text":"hello"}]
+"#
+    .to_owned();
+    assert_eq!(writer.get_output(), expected);
+}
+
+#[test]
+fn autoclose_text_on_new_message_and_role() {
+    // Arrange
+    let mut writer = RcWriter::new();
+    let mut tracked_dagops = TrackedDagOps::default();
+    let dag_writer = FunCallsToDag::new(&mut tracked_dagops);
+    let mut builder = StructureBuilder::new(writer.clone(), dag_writer);
+
+    // Act - start text in first message, then start new message without closing text
+    builder.begin_message().unwrap();
+    builder.role("assistant").unwrap();
+    builder.begin_text_chunk().unwrap();
+    writer.write_all(b"hello").unwrap();
+    // Intentionally NOT calling end_text_chunk() here
+    
+    builder.begin_message().unwrap(); // Should auto-close
+    builder.begin_text_chunk().unwrap(); // Should auto-close on begin_message, so this should work
+    writer.write_all(b"from").unwrap();
+    
+    builder.role("user").unwrap(); // Should auto-close
+    builder.begin_text_chunk().unwrap();
+    writer.write_all(b"world").unwrap();
+    builder.end_message().unwrap();
+
+    // Assert - should have auto-closed the first text chunk on begin_message
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"text"},{"text":"hello"}]
+[{"type":"text"},{"text":"from"}]
+[{"type":"ctl"},{"role":"user"}]
+[{"type":"text"},{"text":"world"}]
+"#
+    .to_owned();
+    assert_eq!(writer.get_output(), expected);
+}
+
+#[test]
+fn autoclose_toolcall_on_end_message() {
+    // Arrange
+    let mut writer = RcWriter::new();
+    let mut tracked_dagops = TrackedDagOps::default();
+    let dag_writer = FunCallsToDag::new(&mut tracked_dagops);
+    let mut builder = StructureBuilder::new(writer.clone(), dag_writer);
+
+    // Act - start tool call but don't explicitly end it
+    builder.begin_message().unwrap();
+    builder.role("assistant").unwrap();
+    builder.tool_call_id("call_123").unwrap();
+    builder.tool_call_name("get_user").unwrap();
+    {
+        let mut args_writer = builder.get_arguments_chunk_writer();
+        args_writer.write_all(b"{}").unwrap();
+    }
+    // Intentionally NOT calling tool_call_end_direct() here
+    builder.end_message().unwrap(); // Should auto-close tool call
+
+    // Assert - should have auto-closed the tool call
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"function","id":"call_123","name":"get_user"},{"arguments":"{}"}]
+"#
+    .to_owned();
+    assert_eq!(writer.get_output(), expected);
+}
+
+#[test]
+fn autoclose_toolcall_on_new_message_and_role() {
+    // Arrange
+    let mut writer = RcWriter::new();
+    let mut tracked_dagops = TrackedDagOps::default();
+    let dag_writer = FunCallsToDag::new(&mut tracked_dagops);
+    let mut builder = StructureBuilder::new(writer.clone(), dag_writer);
+
+    // Act - start tool call in first message, then start new message without closing tool call
+    builder.begin_message().unwrap();
+    builder.role("assistant").unwrap();
+    builder.tool_call_id("call_123").unwrap();
+    builder.tool_call_name("get_user").unwrap();
+    {
+        let mut args_writer = builder.get_arguments_chunk_writer();
+        args_writer.write_all(b"{}").unwrap();
+    }
+    // Intentionally NOT calling tool_call_end_direct() here
+    
+    builder.begin_message().unwrap(); // Should auto-close tool call
+    builder.tool_call_id("call_456").unwrap();
+    builder.tool_call_name("get_data").unwrap();
+    {
+        let mut args_writer = builder.get_arguments_chunk_writer();
+        args_writer.write_all(b"{\"param\":\"value\"}").unwrap();
+    }
+    
+    builder.role("user").unwrap(); // Should auto-close tool call
+    builder.begin_text_chunk().unwrap();
+    writer.write_all(b"response").unwrap();
+    builder.end_text_chunk().unwrap();
+    builder.end_message().unwrap();
+
+    // Assert - should have auto-closed tool calls at begin_message and role
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"function","id":"call_123","name":"get_user"},{"arguments":"{}"}]
+[{"type":"function","id":"call_456","name":"get_data"},{"arguments":"{\"param\":\"value\"}"}]
+[{"type":"ctl"},{"role":"user"}]
+[{"type":"text"},{"text":"response"}]
+"#
+    .to_owned();
+    assert_eq!(writer.get_output(), expected);
+}
+
+#[test]
+fn autoclose_mix_text_and_toolcall() {
+    // Arrange
+    let mut writer = RcWriter::new();
+    let mut tracked_dagops = TrackedDagOps::default();
+    let dag_writer = FunCallsToDag::new(&mut tracked_dagops);
+    let mut builder = StructureBuilder::new(writer.clone(), dag_writer);
+
+    // Arrange - autoclose text because of tool_id
+    builder.begin_message().unwrap();
+    builder.begin_text_chunk().unwrap();
+    writer.write_all(b"I'll help you").unwrap();
+
+    //
+    // Act - autoclose text because of tool_id
+    //
+    builder.tool_call_id("call_123").unwrap(); // Should auto-close text
+    
+    // Assert: text is auto-closed
+    let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
+"#;
+    assert_eq!(writer.get_output(), expected);
+    
+    // Complete the tool to avoid errors
+    builder.tool_call_name("get_user").unwrap();
+
+    // Act: autoclose tool because of text
+    builder.begin_text_chunk().unwrap();
+
+    // Assert: autoclose tool because of text
+    let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
+[{"type":"function","id":"call_123","name":"get_user"},{"arguments":""}]
+[{"type":"text"},{"text":"
+"#;
+    assert_eq!(writer.get_output(), expected);
+
+    //
+    // Act: autoclose text because of tool_index
+    //
+    writer.write_all(b"Before tool index").unwrap();
+    builder.tool_call_index(0).unwrap(); // Should auto-close text
+    
+    // Assert: text is auto-closed
+    let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
+[{"type":"function","id":"call_123","name":"get_user"},{"arguments":""}]
+[{"type":"text"},{"text":"Before tool index"}]
+"#;
+    assert_eq!(writer.get_output(), expected);
+    
+    // Complete the tool to avoid errors
+    builder.tool_call_id("call_456").unwrap();
+    builder.tool_call_name("get_data").unwrap();
+    
+    // Act: autoclose tool because of text
+    builder.begin_text_chunk().unwrap();
+    
+    // Assert: autoclose tool because of text
+    let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
+[{"type":"function","id":"call_123","name":"get_user"},{"arguments":""}]
+[{"type":"text"},{"text":"Before tool index"}]
+[{"type":"function","id":"call_456","name":"get_data"},{"arguments":""}]
+[{"type":"text"},{"text":"
+"#;
+    assert_eq!(writer.get_output(), expected);
+    
+    //
+    // Act: autoclose text because of tool_name
+    //
+    writer.write_all(b"Before tool name").unwrap();
+    builder.tool_call_name("another_tool").unwrap(); // Should auto-close text
+    
+    // Assert: text is auto-closed
+    let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
+[{"type":"function","id":"call_123","name":"get_user"},{"arguments":""}]
+[{"type":"text"},{"text":"Before tool index"}]
+[{"type":"function","id":"call_456","name":"get_data"},{"arguments":""}]
+[{"type":"text"},{"text":"Before tool name"}]
+"#;
+    assert_eq!(writer.get_output(), expected);
+    
+    // Complete the tool to avoid errors
+    builder.tool_call_id("call_789").unwrap();
+    
+    // Act: autoclose tool because of text
+    builder.begin_text_chunk().unwrap();
+    
+    // Assert: autoclose tool because of text
+    let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
+[{"type":"function","id":"call_123","name":"get_user"},{"arguments":""}]
+[{"type":"text"},{"text":"Before tool index"}]
+[{"type":"function","id":"call_456","name":"get_data"},{"arguments":""}]
+[{"type":"text"},{"text":"Before tool name"}]
+[{"type":"function","id":"call_789","name":"another_tool"},{"arguments":""}]
+[{"type":"text"},{"text":"
+"#;
+    assert_eq!(writer.get_output(), expected);
+    
+    // Act: autoclose text because of tool_arguments_chunk
+    writer.write_all(b"Before args").unwrap();
+    {
+        let mut args_writer = builder.get_arguments_chunk_writer(); // Should auto-close text
+        args_writer.write_all(b"{\"test\":\"args\"}").unwrap();
+    }
+    
+    // Assert: text is auto-closed
+    let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
+[{"type":"function","id":"call_123","name":"get_user"},{"arguments":""}]
+[{"type":"text"},{"text":"Before tool index"}]
+[{"type":"function","id":"call_456","name":"get_data"},{"arguments":""}]
+[{"type":"text"},{"text":"Before tool name"}]
+[{"type":"function","id":"call_789","name":"another_tool"},{"arguments":""}]
+[{"type":"text"},{"text":"Before args"}]
+"#;
+    assert_eq!(writer.get_output(), expected);
+    
+    // Complete the tool to avoid errors
+    builder.tool_call_name("final_tool").unwrap();
+    builder.tool_call_id("call_final").unwrap();
+    
+    // Act: autoclose tool because of text
+    builder.begin_text_chunk().unwrap();
+    writer.write_all(b"After args").unwrap();
+    
+    // Assert: autoclose tool because of text
+    builder.end_message().unwrap();
+    let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
+[{"type":"function","id":"call_123","name":"get_user"},{"arguments":""}]
+[{"type":"text"},{"text":"Got the user"}]
+[{"type":"text"},{"text":"Before tool index"}]
+[{"type":"function","id":"call_456","name":"get_data"},{"arguments":""}]
+[{"type":"text"},{"text":"After tool index"}]
+[{"type":"text"},{"text":"Before tool name"}]
+[{"type":"function","id":"call_789","name":"another_tool"},{"arguments":""}]
+[{"type":"text"},{"text":"After tool name"}]
+[{"type":"text"},{"text":"Before args"}]
+[{"type":"function","id":"call_final","name":"final_tool"},{"arguments":"{\"test\":\"args\"}"}]
+[{"type":"text"},{"text":"After args"}]
+"#;
+    assert_eq!(writer.get_output(), expected);
+    
+}
