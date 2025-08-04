@@ -134,16 +134,9 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_id(&mut self, id: &str) -> Result<(), Box<dyn std::error::Error>> {
         self.auto_close_text_if_open()?;
-        match &mut self.funcalls {
-            Some(funcalls) => {
-                funcalls.id(id, &mut self.chat_writer, &mut self.dag_writer)?;
-            }
-            None => {
-                self.funcalls = Some(FunCallsBuilder::new());
-                if let Some(funcalls) = &mut self.funcalls {
-                    funcalls.id(id, &mut self.chat_writer, &mut self.dag_writer)?;
-                }
-            }
+        self.ensure_funcalls();
+        if let Some(funcalls) = &mut self.funcalls {
+            funcalls.id(id, &mut self.chat_writer, &mut self.dag_writer)?;
         }
         self.tool_is_open = true;
         Ok(())
@@ -154,11 +147,9 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_name(&mut self, name: &str) -> Result<(), Box<dyn std::error::Error>> {
         self.auto_close_text_if_open()?;
-        match &mut self.funcalls {
-            Some(funcalls) => {
-                funcalls.name(name, &mut self.chat_writer, &mut self.dag_writer)?;
-            }
-            None => return Err("tool_call_name called without initializing funcalls".into()),
+        self.ensure_funcalls();
+        if let Some(funcalls) = &mut self.funcalls {
+            funcalls.name(name, &mut self.chat_writer, &mut self.dag_writer)?;
         }
         Ok(())
     }
@@ -168,17 +159,13 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// Returns error if I/O error occurs
     fn _tool_call_arguments_chunk(&mut self, args: &str) -> Result<(), Box<dyn std::error::Error>> {
         self.auto_close_text_if_open()?;
-        match &mut self.funcalls {
-            Some(funcalls) => {
-                funcalls.arguments_chunk(
-                    args.as_bytes(),
-                    &mut self.chat_writer,
-                    &mut self.dag_writer,
-                )?;
-            }
-            None => {
-                return Err("tool_call_arguments_chunk called without initializing funcalls".into())
-            }
+        self.ensure_funcalls();
+        if let Some(funcalls) = &mut self.funcalls {
+            funcalls.arguments_chunk(
+                args.as_bytes(),
+                &mut self.chat_writer,
+                &mut self.dag_writer,
+            )?;
         }
         Ok(())
     }
@@ -188,16 +175,9 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_index(&mut self, index: usize) -> Result<(), Box<dyn std::error::Error>> {
         self.auto_close_text_if_open()?;
-        match &mut self.funcalls {
-            Some(funcalls) => {
-                funcalls.index(index, &mut self.chat_writer, &mut self.dag_writer)?;
-            }
-            None => {
-                self.funcalls = Some(FunCallsBuilder::new());
-                if let Some(funcalls) = &mut self.funcalls {
-                    funcalls.index(index, &mut self.chat_writer, &mut self.dag_writer)?;
-                }
-            }
+        self.ensure_funcalls();
+        if let Some(funcalls) = &mut self.funcalls {
+            funcalls.index(index, &mut self.chat_writer, &mut self.dag_writer)?;
         }
         self.tool_is_open = true;
         Ok(())
@@ -207,14 +187,19 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// # Errors
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_end_direct(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        match &mut self.funcalls {
-            Some(funcalls) => {
-                funcalls.end_current(&mut self.chat_writer, &mut self.dag_writer)?;
-            }
-            None => return Err("tool_call_end_direct called without initializing funcalls".into()),
+        self.ensure_funcalls();
+        if let Some(funcalls) = &mut self.funcalls {
+            funcalls.end_current(&mut self.chat_writer, &mut self.dag_writer)?;
         }
         self.tool_is_open = false;
         Ok(())
+    }
+
+    /// Ensures that a FunCallsBuilder instance exists, creating one if necessary
+    fn ensure_funcalls(&mut self) {
+        if self.funcalls.is_none() {
+            self.funcalls = Some(FunCallsBuilder::new());
+        }
     }
 
     /// End the current message.
