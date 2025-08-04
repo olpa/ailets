@@ -87,7 +87,10 @@ impl FunCallsBuilder {
     // Public Interface Methods
     // =========================================================================
 
-    /// Ends the current item
+    /// Ends the current item if in direct mode
+    ///
+    /// In direct mode (when `index` has not been called), this method ends the item.
+    /// In streaming mode (when `index` has been called), this method does nothing.
     ///
     /// # Arguments
     /// * `chat_writer` - The chat writer to use for ending the item
@@ -104,13 +107,13 @@ impl FunCallsBuilder {
             return Err("end_item_if_direct called without new_item being called first".into());
         }
 
-        chat_writer.end_item()?;
-        dag_writer.end_item()?;
-        // Reset state for next function call
-        self.current_id = None;
-        self.current_name = None;
-        self.new_item_called = false;
-        self.pending_arguments = None;
+        // Only end the item if we're in direct mode (not streaming mode)
+        if !self.is_streaming_mode() {
+            chat_writer.end_item()?;
+            dag_writer.end_item()?;
+            // Reset state for next function call
+            self.reset_current_call_state();
+        }
 
         Ok(())
     }
@@ -264,6 +267,16 @@ impl FunCallsBuilder {
     // =========================================================================
     // Private Utility Methods
     // =========================================================================
+
+    /// Checks if we are in streaming mode
+    ///
+    /// Streaming mode is enabled when the `index` method has been called at least once.
+    ///
+    /// # Returns
+    /// `true` if streaming mode is enabled, `false` for direct mode
+    fn is_streaming_mode(&self) -> bool {
+        self.last_index.is_some()
+    }
 
     /// Resets the state for the current function call
     fn reset_current_call_state(&mut self) {

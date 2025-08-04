@@ -195,7 +195,7 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
         Ok(())
     }
 
-    /// Ensures that a FunCallsBuilder instance exists, creating one if necessary
+    /// Ensures that a `FunCallsBuilder` instance exists, creating one if necessary
     fn ensure_funcalls(&mut self) {
         if self.funcalls.is_none() {
             self.funcalls = Some(FunCallsBuilder::new());

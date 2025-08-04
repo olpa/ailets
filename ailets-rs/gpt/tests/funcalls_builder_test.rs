@@ -82,7 +82,9 @@ fn single_funcall_direct() {
     funcalls
         .arguments_chunk(b"{}", &mut writer, &mut dag_writer)
         .unwrap();
-    funcalls.end_item_if_direct(&mut writer, &mut dag_writer).unwrap();
+    funcalls
+        .end_item_if_direct(&mut writer, &mut dag_writer)
+        .unwrap();
 
     // Assert
     funcalls.end(&mut writer, &mut dag_writer).unwrap();
@@ -115,7 +117,9 @@ fn several_funcalls_direct() {
     funcalls
         .arguments_chunk(b"{foo_args}", &mut writer, &mut dag_writer)
         .unwrap();
-    funcalls.end_item_if_direct(&mut writer, &mut dag_writer).unwrap();
+    funcalls
+        .end_item_if_direct(&mut writer, &mut dag_writer)
+        .unwrap();
 
     // Second tool call - Don't call "index"
     funcalls
@@ -127,7 +131,9 @@ fn several_funcalls_direct() {
     funcalls
         .arguments_chunk(b"{bar_args}", &mut writer, &mut dag_writer)
         .unwrap();
-    funcalls.end_item_if_direct(&mut writer, &mut dag_writer).unwrap();
+    funcalls
+        .end_item_if_direct(&mut writer, &mut dag_writer)
+        .unwrap();
 
     // Third tool call - Don't call "index"
     funcalls
@@ -139,7 +145,9 @@ fn several_funcalls_direct() {
     funcalls
         .arguments_chunk(b"{baz_args}", &mut writer, &mut dag_writer)
         .unwrap();
-    funcalls.end_item_if_direct(&mut writer, &mut dag_writer).unwrap();
+    funcalls
+        .end_item_if_direct(&mut writer, &mut dag_writer)
+        .unwrap();
 
     // Assert
     funcalls.end(&mut writer, &mut dag_writer).unwrap();
@@ -194,7 +202,9 @@ fn single_element_streaming() {
     funcalls
         .arguments_chunk(b"{}", &mut writer, &mut dag_writer)
         .unwrap();
-    funcalls.end_item_if_direct(&mut writer, &mut dag_writer).unwrap();
+    funcalls
+        .end_item_if_direct(&mut writer, &mut dag_writer)
+        .unwrap();
 
     // Assert
     funcalls.end(&mut writer, &mut dag_writer).unwrap();
@@ -366,8 +376,8 @@ fn arguments_span_multiple_deltas() {
         .arguments_chunk(b"}", &mut writer, &mut dag_writer)
         .unwrap();
 
-    // End the item
-    funcalls.end_item_if_direct(&mut writer, &mut dag_writer).unwrap();
+    // End the item (use end() for streaming mode)
+    funcalls.end(&mut writer, &mut dag_writer).unwrap();
 
     // No error should occur - arguments are allowed to span deltas
     let items = writer.get_items();
@@ -478,7 +488,9 @@ fn test_arguments_chunk_without_new_item_stores() {
         .unwrap();
 
     // Now end the item
-    funcalls.end_item_if_direct(&mut writer, &mut dag_writer).unwrap();
+    funcalls
+        .end_item_if_direct(&mut writer, &mut dag_writer)
+        .unwrap();
 
     let items = writer.get_items();
     assert_eq!(items.len(), 1);
@@ -503,7 +515,9 @@ fn test_arguments_chunk_with_new_item_forwards() {
     funcalls
         .arguments_chunk(b"{\"arg\": \"value\"}", &mut writer, &mut dag_writer)
         .unwrap();
-    funcalls.end_item_if_direct(&mut writer, &mut dag_writer).unwrap();
+    funcalls
+        .end_item_if_direct(&mut writer, &mut dag_writer)
+        .unwrap();
 
     let items = writer.get_items();
     assert_eq!(items.len(), 1);
@@ -619,9 +633,83 @@ fn test_multiple_arguments_chunks_accumulated() {
     funcalls
         .name("get_user", &mut writer, &mut dag_writer)
         .unwrap();
-    funcalls.end_item_if_direct(&mut writer, &mut dag_writer).unwrap();
+    funcalls
+        .end_item_if_direct(&mut writer, &mut dag_writer)
+        .unwrap();
 
     let items = writer.get_items();
     assert_eq!(items.len(), 1);
     assert_eq!(items[0].2, "{\"key\":\"value\"}");
+}
+
+#[test]
+fn test_end_item_if_direct_ends_item_in_direct_mode() {
+    let mut funcalls = FunCallsBuilder::new();
+    let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
+
+    // Direct mode - no call to index()
+    funcalls
+        .id("call_123", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .name("get_user", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .arguments_chunk(b"{\"arg\": \"value\"}", &mut writer, &mut dag_writer)
+        .unwrap();
+
+    // Call end_item_if_direct - should end the item in direct mode
+    funcalls
+        .end_item_if_direct(&mut writer, &mut dag_writer)
+        .unwrap();
+
+    // The item should be completed immediately
+    let items = writer.get_items();
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0],
+        (
+            "call_123".to_string(),
+            "get_user".to_string(),
+            "{\"arg\": \"value\"}".to_string()
+        )
+    );
+}
+
+#[test]
+fn test_end_item_if_direct_does_not_end_item_in_streaming_mode() {
+    let mut funcalls = FunCallsBuilder::new();
+    let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
+
+    // Streaming mode - call index() to enable streaming
+    funcalls.index(0, &mut writer, &mut dag_writer).unwrap();
+
+    funcalls
+        .id("call_123", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .name("get_user", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .arguments_chunk(b"{\"arg\": \"value\"}", &mut writer, &mut dag_writer)
+        .unwrap();
+
+    // Call end_item_if_direct - should NOT end the item in streaming mode
+    funcalls
+        .end_item_if_direct(&mut writer, &mut dag_writer)
+        .unwrap();
+
+    // The item should NOT be completed yet (empty arguments in the stored item)
+    let items = writer.get_items();
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0],
+        (
+            "call_123".to_string(),
+            "get_user".to_string(),
+            "".to_string() // Empty because end_item was not called on the writers
+        )
+    );
 }
