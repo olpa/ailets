@@ -87,33 +87,6 @@ impl FunCallsBuilder {
     // Public Interface Methods
     // =========================================================================
 
-    /// Ends the current function call and writes it to the output
-    ///
-    /// This method finalizes the current function call and resets state
-    /// for the next function call.
-    ///
-    /// # Arguments
-    /// * `chat_writer` - The chat writer to finalize the function call with
-    /// * `dag_writer` - The dag writer to finalize the function call with
-    ///
-    /// # Errors
-    /// Returns error if the writing operation fails
-    pub fn end_current(
-        &mut self,
-        chat_writer: &mut dyn FunCallsWrite,
-        dag_writer: &mut dyn FunCallsWrite,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        // Always call end_item since we track state differently now
-        chat_writer.end_item()?;
-        dag_writer.end_item()?;
-        // Reset state for next function call
-        self.current_id = None;
-        self.current_name = None;
-        self.new_item_called = false;
-        self.pending_arguments = None;
-        Ok(())
-    }
-
     /// Ends the current item
     ///
     /// # Arguments
@@ -121,19 +94,23 @@ impl FunCallsBuilder {
     /// * `dag_writer` - The dag writer to use for ending the item
     ///
     /// # Errors
-    /// Returns error if "`end_item`" is called without "`new_item`" being called first
-    pub fn end_item(
+    /// Returns error if "`end_item_if_direct`" is called without "`new_item`" being called first
+    pub fn end_item_if_direct(
         &mut self,
         chat_writer: &mut dyn FunCallsWrite,
         dag_writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if !self.new_item_called {
-            return Err("end_item called without new_item being called first".into());
+            return Err("end_item_if_direct called without new_item being called first".into());
         }
 
         chat_writer.end_item()?;
         dag_writer.end_item()?;
+        // Reset state for next function call
+        self.current_id = None;
+        self.current_name = None;
         self.new_item_called = false;
+        self.pending_arguments = None;
 
         Ok(())
     }
@@ -275,7 +252,7 @@ impl FunCallsBuilder {
         chat_writer: &mut dyn FunCallsWrite,
         dag_writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // "end" calls "end_item" if "end_item" was not called
+        // "end" calls "end_item" if "end_item_if_direct" was not called
         if self.new_item_called {
             chat_writer.end_item()?;
             dag_writer.end_item()?;

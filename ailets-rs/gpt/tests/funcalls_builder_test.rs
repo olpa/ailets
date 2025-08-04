@@ -57,7 +57,7 @@ impl FunCallsWrite for TestFunCallsWrite {
 //
 
 // Terminology and differences:
-// - "Direct" funcalls: without using "index", using "end_current" to finalize
+// - "Direct" funcalls: without using "index", using "end_item_if_direct" to finalize
 // - "Streaming" funcalls: using "index" to indicate progress
 
 #[test]
@@ -82,7 +82,7 @@ fn single_funcall_direct() {
     funcalls
         .arguments_chunk(b"{}", &mut writer, &mut dag_writer)
         .unwrap();
-    funcalls.end_current(&mut writer, &mut dag_writer).unwrap();
+    funcalls.end_item_if_direct(&mut writer, &mut dag_writer).unwrap();
 
     // Assert
     funcalls.end(&mut writer, &mut dag_writer).unwrap();
@@ -115,7 +115,7 @@ fn several_funcalls_direct() {
     funcalls
         .arguments_chunk(b"{foo_args}", &mut writer, &mut dag_writer)
         .unwrap();
-    funcalls.end_current(&mut writer, &mut dag_writer).unwrap();
+    funcalls.end_item_if_direct(&mut writer, &mut dag_writer).unwrap();
 
     // Second tool call - Don't call "index"
     funcalls
@@ -127,7 +127,7 @@ fn several_funcalls_direct() {
     funcalls
         .arguments_chunk(b"{bar_args}", &mut writer, &mut dag_writer)
         .unwrap();
-    funcalls.end_current(&mut writer, &mut dag_writer).unwrap();
+    funcalls.end_item_if_direct(&mut writer, &mut dag_writer).unwrap();
 
     // Third tool call - Don't call "index"
     funcalls
@@ -139,7 +139,7 @@ fn several_funcalls_direct() {
     funcalls
         .arguments_chunk(b"{baz_args}", &mut writer, &mut dag_writer)
         .unwrap();
-    funcalls.end_current(&mut writer, &mut dag_writer).unwrap();
+    funcalls.end_item_if_direct(&mut writer, &mut dag_writer).unwrap();
 
     // Assert
     funcalls.end(&mut writer, &mut dag_writer).unwrap();
@@ -194,7 +194,7 @@ fn single_element_streaming() {
     funcalls
         .arguments_chunk(b"{}", &mut writer, &mut dag_writer)
         .unwrap();
-    funcalls.end_current(&mut writer, &mut dag_writer).unwrap();
+    funcalls.end_item_if_direct(&mut writer, &mut dag_writer).unwrap();
 
     // Assert
     funcalls.end(&mut writer, &mut dag_writer).unwrap();
@@ -367,7 +367,7 @@ fn arguments_span_multiple_deltas() {
         .unwrap();
 
     // End the item
-    funcalls.end_item(&mut writer, &mut dag_writer).unwrap();
+    funcalls.end_item_if_direct(&mut writer, &mut dag_writer).unwrap();
 
     // No error should occur - arguments are allowed to span deltas
     let items = writer.get_items();
@@ -478,7 +478,7 @@ fn test_arguments_chunk_without_new_item_stores() {
         .unwrap();
 
     // Now end the item
-    funcalls.end_item(&mut writer, &mut dag_writer).unwrap();
+    funcalls.end_item_if_direct(&mut writer, &mut dag_writer).unwrap();
 
     let items = writer.get_items();
     assert_eq!(items.len(), 1);
@@ -503,7 +503,7 @@ fn test_arguments_chunk_with_new_item_forwards() {
     funcalls
         .arguments_chunk(b"{\"arg\": \"value\"}", &mut writer, &mut dag_writer)
         .unwrap();
-    funcalls.end_item(&mut writer, &mut dag_writer).unwrap();
+    funcalls.end_item_if_direct(&mut writer, &mut dag_writer).unwrap();
 
     let items = writer.get_items();
     assert_eq!(items.len(), 1);
@@ -511,18 +511,18 @@ fn test_arguments_chunk_with_new_item_forwards() {
 }
 
 #[test]
-fn test_end_item_without_new_item_error() {
+fn test_end_item_if_direct_without_new_item_error() {
     let mut funcalls = FunCallsBuilder::new();
     let mut writer = TestFunCallsWrite::new();
     let mut dag_writer = TestFunCallsWrite::new();
 
-    // Call end_item without new_item should error
-    let result = funcalls.end_item(&mut writer, &mut dag_writer);
+    // Call end_item_if_direct without new_item should error
+    let result = funcalls.end_item_if_direct(&mut writer, &mut dag_writer);
     assert!(result.is_err());
     assert!(result
         .unwrap_err()
         .to_string()
-        .contains("end_item called without new_item being called first"));
+        .contains("end_item_if_direct called without new_item being called first"));
 }
 
 #[test]
@@ -543,7 +543,7 @@ fn test_index_increment_calls_end_item_if_not_called() {
         .arguments_chunk(b"{}", &mut writer, &mut dag_writer)
         .unwrap();
 
-    // Move to index 1 without calling end_item - should auto-call it
+    // Move to index 1 without calling end_item_if_direct - should auto-call it
     funcalls.index(1, &mut writer, &mut dag_writer).unwrap();
 
     // The first item should be completed
@@ -576,10 +576,10 @@ fn test_end_calls_end_item_if_not_called() {
         .arguments_chunk(b"{}", &mut writer, &mut dag_writer)
         .unwrap();
 
-    // Call end without calling end_item first
+    // Call end without calling end_item_if_direct first
     funcalls.end(&mut writer, &mut dag_writer).unwrap();
 
-    // Should have auto-called end_item
+    // Should have auto-called end_item_if_direct
     let items = writer.get_items();
     assert_eq!(items.len(), 1);
     assert_eq!(
@@ -619,7 +619,7 @@ fn test_multiple_arguments_chunks_accumulated() {
     funcalls
         .name("get_user", &mut writer, &mut dag_writer)
         .unwrap();
-    funcalls.end_item(&mut writer, &mut dag_writer).unwrap();
+    funcalls.end_item_if_direct(&mut writer, &mut dag_writer).unwrap();
 
     let items = writer.get_items();
     assert_eq!(items.len(), 1);

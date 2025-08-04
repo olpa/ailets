@@ -99,7 +99,7 @@ fn output_direct_tool_call() {
             let mut writer = builder.get_arguments_chunk_writer();
             writer.write_all(b"{}").unwrap();
         }
-        builder.tool_call_end_direct().unwrap();
+        builder.tool_call_end_if_direct().unwrap();
         builder.end_message().unwrap();
     } // Ensure writers are dropped before assertions
 
@@ -274,7 +274,7 @@ fn autoclose_toolcall_on_end_message() {
         let mut args_writer = builder.get_arguments_chunk_writer();
         args_writer.write_all(b"{}").unwrap();
     }
-    // Intentionally NOT calling tool_call_end_direct() here
+    // Intentionally NOT calling tool_call_end_if_direct() here
     builder.end_message().unwrap(); // Should auto-close tool call
 
     // Assert - should have auto-closed the tool call
@@ -302,7 +302,7 @@ fn autoclose_toolcall_on_new_message_and_role() {
         let mut args_writer = builder.get_arguments_chunk_writer();
         args_writer.write_all(b"fooargs").unwrap();
     }
-    // Intentionally NOT calling tool_call_end_direct() here
+    // Intentionally NOT calling tool_call_end_if_direct() here
 
     builder.begin_message().unwrap(); // Should auto-close tool call
     builder.tool_call_id("call_id_bar").unwrap();
@@ -474,7 +474,7 @@ fn tool_call_without_arguments_chunk_has_empty_arguments() {
     builder.tool_call_id("call_123").unwrap();
     builder.tool_call_name("get_user_name").unwrap();
     // Intentionally NOT calling get_arguments_chunk_writer() or writing any arguments
-    builder.tool_call_end_direct().unwrap();
+    builder.tool_call_end_if_direct().unwrap();
     builder.end_message().unwrap();
 
     // Assert - output should contain "arguments" field with empty string value

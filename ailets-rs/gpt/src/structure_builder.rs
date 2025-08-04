@@ -186,10 +186,10 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// Public interface for ending a direct tool call - forwards to funcalls and handles streaming
     /// # Errors
     /// Returns error if validation fails or I/O error occurs
-    pub fn tool_call_end_direct(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn tool_call_end_if_direct(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.ensure_funcalls();
         if let Some(funcalls) = &mut self.funcalls {
-            funcalls.end_current(&mut self.chat_writer, &mut self.dag_writer)?;
+            funcalls.end_item_if_direct(&mut self.chat_writer, &mut self.dag_writer)?;
         }
         self.tool_is_open = false;
         Ok(())
