@@ -1,5 +1,7 @@
 use actor_runtime_mocked::RcWriter;
 use gpt::_process_gpt;
+use gpt::fcw_trait::FunCallsWrite;
+use gpt::funcalls_builder::FunCallsBuilder;
 pub mod dagops_mock;
 use dagops_mock::TrackedDagOps;
 use std::io::Cursor;
@@ -145,4 +147,34 @@ fn delta_index_regress() {
     assert!(explain_tool_spec2.contains("tool call spec - get_user_name"));
     let expected_tool_spec2 = r#"[{"type":"function","id":"call_5fx8xXsKGpAhCNDTZsYoWWUx","name":"get_user_name"},{"arguments":""}]"#;
     assert_eq!(value_tool_spec2, expected_tool_spec2);
+}
+
+#[test]
+fn duplicate_tool_call_id_error() {
+    let fixture_content = std::fs::read_to_string("tests/fixture/funcall_duplicate_name.txt")
+        .expect("Failed to read fixture file 'funcall_duplicate_name.txt'");
+    let reader = Cursor::new(fixture_content);
+    let writer = RcWriter::new();
+    let mut dagops = TrackedDagOps::default();
+
+    let result = _process_gpt(reader, writer.clone(), &mut dagops);
+
+    assert!(result.is_err());
+    let error_message = result.unwrap_err().to_string();
+    assert!(error_message.contains("ID is already given"));
+}
+
+#[test]
+fn nonincremental_index_error() {
+    let fixture_content = std::fs::read_to_string("tests/fixture/funcall_nonincremental_index.txt")
+        .expect("Failed to read fixture file 'funcall_nonincremental_index.txt'");
+    let reader = Cursor::new(fixture_content);
+    let writer = RcWriter::new();
+    let mut dagops = TrackedDagOps::default();
+
+    let result = _process_gpt(reader, writer.clone(), &mut dagops);
+
+    assert!(result.is_err());
+    let error_message = result.unwrap_err().to_string();
+    assert!(error_message.contains("Tool call index cannot decrease"));
 }
