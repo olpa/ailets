@@ -109,11 +109,39 @@ impl FunCallsBuilder {
 
         // Only end the item if we're in direct mode (not streaming mode)
         if !self.is_streaming_mode() {
-            chat_writer.end_item()?;
-            dag_writer.end_item()?;
-            // Reset state for next function call
-            self.reset_current_call_state();
+            self.enforce_end_item(chat_writer, dag_writer)?;
         }
+
+        Ok(())
+    }
+
+    /// Ends the current item regardless of mode
+    ///
+    /// This method always ends the item, whether in direct or streaming mode.
+    /// It is needed for cases where the streaming processor needs to forcefully
+    /// close items at the end of processing, even when in streaming mode.
+    /// This ensures proper JSON structure completion in streaming scenarios.
+    ///
+    /// # Arguments
+    /// * `chat_writer` - The chat writer to use for ending the item
+    /// * `dag_writer` - The dag writer to use for ending the item
+    ///
+    /// # Errors
+    /// Returns error if "`enforce_end_item`" is called without "`new_item`" being called first
+    pub fn enforce_end_item(
+        &mut self,
+        chat_writer: &mut dyn FunCallsWrite,
+        dag_writer: &mut dyn FunCallsWrite,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if !self.new_item_called {
+            return Err("enforce_end_item called without new_item being called first".into());
+        }
+
+        // Always end the item, regardless of mode
+        chat_writer.end_item()?;
+        dag_writer.end_item()?;
+        // Reset state for next function call
+        self.reset_current_call_state();
 
         Ok(())
     }

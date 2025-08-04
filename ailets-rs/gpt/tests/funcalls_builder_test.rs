@@ -713,3 +713,90 @@ fn test_end_item_if_direct_does_not_end_item_in_streaming_mode() {
         )
     );
 }
+
+#[test]
+fn test_enforce_end_item_works_in_direct_mode() {
+    let mut funcalls = FunCallsBuilder::new();
+    let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
+
+    // Direct mode - no call to index()
+    funcalls
+        .id("call_123", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .name("get_user", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .arguments_chunk(b"{\"arg\": \"value\"}", &mut writer, &mut dag_writer)
+        .unwrap();
+
+    // Call enforce_end_item - should end the item in direct mode
+    funcalls
+        .enforce_end_item(&mut writer, &mut dag_writer)
+        .unwrap();
+
+    // The item should be completed immediately
+    let items = writer.get_items();
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0],
+        (
+            "call_123".to_string(),
+            "get_user".to_string(),
+            "{\"arg\": \"value\"}".to_string()
+        )
+    );
+}
+
+#[test]
+fn test_enforce_end_item_works_in_streaming_mode() {
+    let mut funcalls = FunCallsBuilder::new();
+    let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
+
+    // Streaming mode - call index() to enable streaming
+    funcalls.index(0, &mut writer, &mut dag_writer).unwrap();
+
+    funcalls
+        .id("call_123", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .name("get_user", &mut writer, &mut dag_writer)
+        .unwrap();
+    funcalls
+        .arguments_chunk(b"{\"arg\": \"value\"}", &mut writer, &mut dag_writer)
+        .unwrap();
+
+    // Call enforce_end_item - should end the item even in streaming mode
+    funcalls
+        .enforce_end_item(&mut writer, &mut dag_writer)
+        .unwrap();
+
+    // The item should be completed (unlike end_item_if_direct which does nothing in streaming mode)
+    let items = writer.get_items();
+    assert_eq!(items.len(), 1);
+    assert_eq!(
+        items[0],
+        (
+            "call_123".to_string(),
+            "get_user".to_string(),
+            "{\"arg\": \"value\"}".to_string()
+        )
+    );
+}
+
+#[test]
+fn test_enforce_end_item_without_new_item_error() {
+    let mut funcalls = FunCallsBuilder::new();
+    let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
+
+    // Call enforce_end_item without new_item should error
+    let result = funcalls.enforce_end_item(&mut writer, &mut dag_writer);
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("enforce_end_item called without new_item being called first"));
+}
