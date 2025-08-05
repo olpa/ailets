@@ -1,7 +1,5 @@
 use actor_runtime_mocked::RcWriter;
 use gpt::_process_gpt;
-use gpt::fcw_trait::FunCallsWrite;
-use gpt::funcalls_builder::FunCallsBuilder;
 pub mod dagops_mock;
 use dagops_mock::TrackedDagOps;
 use std::io::Cursor;
@@ -79,8 +77,7 @@ fn funcall_streaming() {
 
     // Assert chat output
     let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
-[{"type":"function","id":"call_9cFpsOXfVWMUoDz1yyyP1QXD","name":"get_user_name"},{"arguments":""}]
-"}]
+[{"type":"function","id":"call_9cFpsOXfVWMUoDz1yyyP1QXD","name":"get_user_name"},{"arguments":"{}"}]
 "#;
     assert_eq!(writer.get_output(), expected);
 
@@ -91,12 +88,12 @@ fn funcall_streaming() {
     let (_, explain_tool_input, value_tool_input) =
         dagops.parse_value_node(&dagops.value_nodes()[0]);
     assert!(explain_tool_input.contains("tool input - get_user_name"));
-    assert_eq!(value_tool_input, "");
+    assert_eq!(value_tool_input, "{}");
 
     // Assert tool spec value node
     let (_, explain_tool_spec, value_tool_spec) = dagops.parse_value_node(&dagops.value_nodes()[1]);
     assert!(explain_tool_spec.contains("tool call spec - get_user_name"));
-    let expected_tool_spec = r#"[{"type":"function","id":"call_9cFpsOXfVWMUoDz1yyyP1QXD","name":"get_user_name"},{"arguments":""}]"#;
+    let expected_tool_spec = r#"[{"type":"function","id":"call_9cFpsOXfVWMUoDz1yyyP1QXD","name":"get_user_name"},{"arguments":"{}"}]"#;
     assert_eq!(value_tool_spec, expected_tool_spec);
 }
 
@@ -112,10 +109,8 @@ fn delta_index_regress() {
 
     // Assert chat output - should have 2 function calls
     let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
-[{"type":"function","id":"call_O8vJyvRJrH6ST1ssD97c3jPI","name":"get_user_name"},{"arguments":""}]
-"}]
-[{"type":"function","id":"call_5fx8xXsKGpAhCNDTZsYoWWUx","name":"get_user_name"},{"arguments":""}]
-"}]
+[{"type":"function","id":"call_O8vJyvRJrH6ST1ssD97c3jPI","name":"get_user_name"},{"arguments":"{}"}]
+[{"type":"function","id":"call_5fx8xXsKGpAhCNDTZsYoWWUx","name":"get_user_name"},{"arguments":"{}"}]
 "#;
     assert_eq!(writer.get_output(), expected);
 
@@ -126,26 +121,26 @@ fn delta_index_regress() {
     let (_, explain_tool_input1, value_tool_input1) =
         dagops.parse_value_node(&dagops.value_nodes()[0]);
     assert!(explain_tool_input1.contains("tool input - get_user_name"));
-    assert_eq!(value_tool_input1, "");
+    assert_eq!(value_tool_input1, "{}");
 
     // Assert first tool spec value node
     let (_, explain_tool_spec1, value_tool_spec1) =
         dagops.parse_value_node(&dagops.value_nodes()[1]);
     assert!(explain_tool_spec1.contains("tool call spec - get_user_name"));
-    let expected_tool_spec1 = r#"[{"type":"function","id":"call_O8vJyvRJrH6ST1ssD97c3jPI","name":"get_user_name"},{"arguments":""}]"#;
+    let expected_tool_spec1 = r#"[{"type":"function","id":"call_O8vJyvRJrH6ST1ssD97c3jPI","name":"get_user_name"},{"arguments":"{}"}]"#;
     assert_eq!(value_tool_spec1, expected_tool_spec1);
 
     // Assert second tool input value node
     let (_, explain_tool_input2, value_tool_input2) =
         dagops.parse_value_node(&dagops.value_nodes()[2]);
     assert!(explain_tool_input2.contains("tool input - get_user_name"));
-    assert_eq!(value_tool_input2, "");
+    assert_eq!(value_tool_input2, "{}");
 
     // Assert second tool spec value node
     let (_, explain_tool_spec2, value_tool_spec2) =
         dagops.parse_value_node(&dagops.value_nodes()[3]);
     assert!(explain_tool_spec2.contains("tool call spec - get_user_name"));
-    let expected_tool_spec2 = r#"[{"type":"function","id":"call_5fx8xXsKGpAhCNDTZsYoWWUx","name":"get_user_name"},{"arguments":""}]"#;
+    let expected_tool_spec2 = r#"[{"type":"function","id":"call_5fx8xXsKGpAhCNDTZsYoWWUx","name":"get_user_name"},{"arguments":"{}"}]"#;
     assert_eq!(value_tool_spec2, expected_tool_spec2);
 }
 
