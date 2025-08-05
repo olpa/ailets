@@ -112,8 +112,7 @@ impl FunCallsBuilder {
                 (Some(_), Some(_)) => "unknown reason", // Should not happen
             };
             return Err(format!(
-                "At the end of a 'tool_calls' item, {} should be already given",
-                missing_parts
+                "At the end of a 'tool_calls' item, {missing_parts} should be already given"
             )
             .into());
         }
