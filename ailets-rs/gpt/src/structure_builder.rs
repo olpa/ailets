@@ -37,7 +37,7 @@ pub struct StructureBuilder<W1: std::io::Write, W2: FunCallsWrite> {
     chat_writer: FunCallsToChat<W1>,
     dag_writer: W2,
     text_is_open: bool,
-    tool_is_open: bool,
+    is_tool_section_open: bool,
 }
 
 impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
@@ -48,7 +48,7 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
             chat_writer: FunCallsToChat::new(stdout_writer),
             dag_writer,
             text_is_open: false,
-            tool_is_open: false,
+            is_tool_section_open: false,
         }
     }
 
@@ -71,15 +71,15 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
         Ok(())
     }
 
-    /// Auto-close tool if it's open
-    fn auto_close_tool_if_open(&mut self) -> Result<(), std::io::Error> {
-        if self.tool_is_open {
+    /// Auto-close tool section if it's open
+    fn auto_close_tool_section_if_open(&mut self) -> Result<(), std::io::Error> {
+        if self.is_tool_section_open {
             if let Some(funcalls) = &mut self.funcalls {
                 funcalls
                     .end(&mut self.chat_writer, &mut self.dag_writer)
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
             }
-            self.tool_is_open = false;
+            self.is_tool_section_open = false;
         }
         Ok(())
     }
@@ -91,7 +91,7 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// Returns an error if auto-closing text or tool operations fail.
     pub fn begin_message(&mut self) -> Result<(), std::io::Error> {
         self.auto_close_text_if_open()?;
-        self.auto_close_tool_if_open()?;
+        self.auto_close_tool_section_if_open()?;
         Ok(())
     }
 
@@ -99,7 +99,7 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// I/O
     pub fn role(&mut self, role: &str) -> Result<(), std::io::Error> {
         self.auto_close_text_if_open()?;
-        self.auto_close_tool_if_open()?;
+        self.auto_close_tool_section_if_open()?;
         self.chat_writer
             .write_all(b"[{\"type\":\"ctl\"},{\"role\":\"")?;
         self.chat_writer.write_all(role.as_bytes())?;
@@ -111,7 +111,7 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// # Errors
     /// I/O
     pub fn begin_text_chunk(&mut self) -> Result<(), std::io::Error> {
-        self.auto_close_tool_if_open()?;
+        self.auto_close_tool_section_if_open()?;
         if !self.text_is_open {
             self.chat_writer
                 .write_all(b"[{\"type\":\"text\"},{\"text\":\"")?;
@@ -138,7 +138,6 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
         if let Some(funcalls) = &mut self.funcalls {
             funcalls.id(id, &mut self.chat_writer, &mut self.dag_writer)?;
         }
-        self.tool_is_open = true;
         Ok(())
     }
 
@@ -179,7 +178,6 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
         if let Some(funcalls) = &mut self.funcalls {
             funcalls.index(index, &mut self.chat_writer, &mut self.dag_writer)?;
         }
-        self.tool_is_open = true;
         Ok(())
     }
 
@@ -187,11 +185,11 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// # Errors
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_end_if_direct(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.ensure_funcalls();
+        // Don't call ensure_funcalls - silently exit if there's no funcalls
         if let Some(funcalls) = &mut self.funcalls {
             funcalls.end_item_if_direct(&mut self.chat_writer, &mut self.dag_writer)?;
         }
-        self.tool_is_open = false;
+        // Don't modify is_tool_section_open - this is not a section-level operation
         Ok(())
     }
 
@@ -200,6 +198,8 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
         if self.funcalls.is_none() {
             self.funcalls = Some(FunCallsBuilder::new());
         }
+        // Always mark the tool section as open when we're working with funcalls
+        self.is_tool_section_open = true;
     }
 
     /// End the current message.
@@ -207,7 +207,7 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// I/O
     pub fn end_message(&mut self) -> Result<(), std::io::Error> {
         self.auto_close_text_if_open()?;
-        self.auto_close_tool_if_open()?;
+        self.auto_close_tool_section_if_open()?;
 
         Ok(())
     }

@@ -201,7 +201,6 @@ pub fn on_function_index<W1: Write, W2: FunCallsWrite>(
 }
 
 /// # Errors
-/// Should never happen.
 pub fn on_function_end<W1: Write, W2: FunCallsWrite>(
     builder_cell: &RefCell<StructureBuilder<W1, W2>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
