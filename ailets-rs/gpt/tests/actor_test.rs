@@ -173,3 +173,35 @@ fn nonincremental_index_error() {
     let error_message = result.unwrap_err().to_string();
     assert!(error_message.contains("Tool call index cannot decrease"));
 }
+
+#[test]
+fn arguments_before_name_retained() {
+    let fixture_content = std::fs::read_to_string("tests/fixture/arguments_before_name.txt")
+        .expect("Failed to read fixture file 'arguments_before_name.txt'");
+    let reader = Cursor::new(fixture_content);
+    let writer = RcWriter::new();
+    let mut dagops = TrackedDagOps::default();
+
+    _process_gpt(reader, writer.clone(), &mut dagops).unwrap();
+
+    // Assert chat output - arguments before name should be retained
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"function","id":"call_test123","name":"test_function"},{"arguments":"{\"param\": true, \"value\": 42}"}]
+"#;
+    assert_eq!(writer.get_output(), expected);
+
+    // Assert DAG operations - should have 2 value nodes (tool input and tool spec)
+    assert_eq!(dagops.value_nodes().len(), 2);
+
+    // Assert tool input value node
+    let (_, explain_tool_input, value_tool_input) =
+        dagops.parse_value_node(&dagops.value_nodes()[0]);
+    assert!(explain_tool_input.contains("tool input - test_function"));
+    assert_eq!(value_tool_input, r#"{"param": true, "value": 42}"#);
+
+    // Assert tool spec value node
+    let (_, explain_tool_spec, value_tool_spec) = dagops.parse_value_node(&dagops.value_nodes()[1]);
+    assert!(explain_tool_spec.contains("tool call spec - test_function"));
+    let expected_tool_spec = r#"[{"type":"function","id":"call_test123","name":"test_function"},{"arguments":"{\"param\": true, \"value\": 42}"}]"#;
+    assert_eq!(value_tool_spec, expected_tool_spec);
+}
