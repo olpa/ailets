@@ -533,10 +533,49 @@ fn test_end_item_if_direct_without_new_item_error() {
     // Call end_item_if_direct without new_item should error
     let result = funcalls.end_item_if_direct(&mut writer, &mut dag_writer);
     assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains(
+        "At the end of a 'tool_calls' item, both 'id' and 'name' should be already given"
+    ));
+}
+
+#[test]
+fn test_end_item_if_direct_missing_name_error() {
+    let mut funcalls = FunCallsBuilder::new();
+    let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
+
+    // Set only id, but not name
+    funcalls
+        .id("call_123", &mut writer, &mut dag_writer)
+        .unwrap();
+
+    // Call end_item_if_direct without name should error
+    let result = funcalls.end_item_if_direct(&mut writer, &mut dag_writer);
+    assert!(result.is_err());
     assert!(result
         .unwrap_err()
         .to_string()
-        .contains("end_item_if_direct called without new_item being called first"));
+        .contains("At the end of a 'tool_calls' item, 'name' should be already given"));
+}
+
+#[test]
+fn test_end_item_if_direct_missing_id_error() {
+    let mut funcalls = FunCallsBuilder::new();
+    let mut writer = TestFunCallsWrite::new();
+    let mut dag_writer = TestFunCallsWrite::new();
+
+    // Set only name, but not id
+    funcalls
+        .name("test_function", &mut writer, &mut dag_writer)
+        .unwrap();
+
+    // Call end_item_if_direct without id should error
+    let result = funcalls.end_item_if_direct(&mut writer, &mut dag_writer);
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("At the end of a 'tool_calls' item, 'id' should be already given"));
 }
 
 #[test]

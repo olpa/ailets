@@ -104,7 +104,18 @@ impl FunCallsBuilder {
         dag_writer: &mut dyn FunCallsWrite,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if !self.new_item_called {
-            return Err("end_item_if_direct called without new_item being called first".into());
+            // Provide a more descriptive error message based on what's missing
+            let missing_parts = match (&self.current_id, &self.current_name) {
+                (None, None) => "both 'id' and 'name'",
+                (None, Some(_)) => "'id'",
+                (Some(_), None) => "'name'",
+                (Some(_), Some(_)) => "unknown reason", // Should not happen
+            };
+            return Err(format!(
+                "At the end of a 'tool_calls' item, {} should be already given",
+                missing_parts
+            )
+            .into());
         }
 
         // Only end the item if we're in direct mode (not streaming mode)
