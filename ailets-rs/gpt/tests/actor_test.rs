@@ -63,6 +63,17 @@ fn funcall_response() {
     assert!(explain_tool_spec.contains("tool call spec - get_user_name"));
     let expected_tool_spec = r#"[{"type":"function","id":"call_9br5e3keEQrjl49h7lteRxW4","name":"get_user_name"},{"arguments":"{}"}]"#;
     assert_eq!(value_tool_spec, expected_tool_spec);
+
+    // Assert that the workflows include .gpt workflow
+    let workflows = dagops.workflows();
+    let gpt_workflow_exists = workflows.iter().any(|workflow| {
+        let (_, workflow_name, _) = dagops.parse_workflow(workflow);
+        workflow_name == ".gpt"
+    });
+    assert!(
+        gpt_workflow_exists,
+        "Expected .gpt workflow to be added to DAG"
+    );
 }
 
 #[test]
@@ -95,6 +106,17 @@ fn funcall_streaming() {
     assert!(explain_tool_spec.contains("tool call spec - get_user_name"));
     let expected_tool_spec = r#"[{"type":"function","id":"call_9cFpsOXfVWMUoDz1yyyP1QXD","name":"get_user_name"},{"arguments":"{}"}]"#;
     assert_eq!(value_tool_spec, expected_tool_spec);
+
+    // Assert that the workflows include .gpt workflow
+    let workflows = dagops.workflows();
+    let gpt_workflow_exists = workflows.iter().any(|workflow| {
+        let (_, workflow_name, _) = dagops.parse_workflow(workflow);
+        workflow_name == ".gpt"
+    });
+    assert!(
+        gpt_workflow_exists,
+        "Expected .gpt workflow to be added to DAG"
+    );
 }
 
 #[test]
@@ -142,6 +164,17 @@ fn delta_index_regress() {
     assert!(explain_tool_spec2.contains("tool call spec - get_user_name"));
     let expected_tool_spec2 = r#"[{"type":"function","id":"call_5fx8xXsKGpAhCNDTZsYoWWUx","name":"get_user_name"},{"arguments":"{}"}]"#;
     assert_eq!(value_tool_spec2, expected_tool_spec2);
+
+    // Assert that the workflows include .gpt workflow
+    let workflows = dagops.workflows();
+    let gpt_workflow_exists = workflows.iter().any(|workflow| {
+        let (_, workflow_name, _) = dagops.parse_workflow(workflow);
+        workflow_name == ".gpt"
+    });
+    assert!(
+        gpt_workflow_exists,
+        "Expected .gpt workflow to be added to DAG"
+    );
 }
 
 #[test]
@@ -204,4 +237,15 @@ fn arguments_before_name_retained() {
     assert!(explain_tool_spec.contains("tool call spec - test_function"));
     let expected_tool_spec = r#"[{"type":"function","id":"call_test123","name":"test_function"},{"arguments":"{\"param\": true, \"value\": 42}"}]"#;
     assert_eq!(value_tool_spec, expected_tool_spec);
+
+    // Assert that the workflows include .gpt workflow
+    let workflows = dagops.workflows();
+    let gpt_workflow_exists = workflows.iter().any(|workflow| {
+        let (_, workflow_name, _) = dagops.parse_workflow(workflow);
+        workflow_name == ".gpt"
+    });
+    assert!(
+        gpt_workflow_exists,
+        "Expected .gpt workflow to be added to DAG"
+    );
 }

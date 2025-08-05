@@ -211,4 +211,13 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
 
         Ok(())
     }
+
+    /// End processing and finalize all writers.
+    /// # Errors
+    /// I/O or other errors from the underlying writers
+    pub fn end(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.chat_writer.end()?;
+        self.dag_writer.end()?;
+        Ok(())
+    }
 }

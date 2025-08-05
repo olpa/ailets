@@ -101,6 +101,7 @@ fn output_direct_tool_call() {
         }
         builder.tool_call_end_if_direct().unwrap();
         builder.end_message().unwrap();
+        builder.end().unwrap();
     } // Ensure writers are dropped before assertions
 
     // Assert chat output
@@ -126,6 +127,17 @@ fn output_direct_tool_call() {
     let expected_tool_spec =
         r#"[{"type":"function","id":"call_123","name":"get_user_name"},{"arguments":"{}"}]"#;
     assert_eq!(value_tool_spec, expected_tool_spec);
+
+    // Assert that the workflows include .gpt workflow
+    let workflows = tracked_dagops.workflows();
+    let gpt_workflow_exists = workflows.iter().any(|workflow| {
+        let (_, workflow_name, _) = tracked_dagops.parse_workflow(workflow);
+        workflow_name == ".gpt"
+    });
+    assert!(
+        gpt_workflow_exists,
+        "Expected .gpt workflow to be added to DAG"
+    );
 }
 
 #[test]
@@ -157,6 +169,7 @@ fn output_streaming_tool_call() {
         writer.write_all(b"args").unwrap();
     }
     builder.end_message().unwrap();
+    builder.end().unwrap();
 
     // Assert chat output
     let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
@@ -196,6 +209,17 @@ fn output_streaming_tool_call() {
     let expected_tool_spec2 =
         r#"[{"type":"function","id":"call_456","name":"bar"},{"arguments":"bar args"}]"#;
     assert_eq!(value_tool_spec2, expected_tool_spec2);
+
+    // Assert that the workflows include .gpt workflow
+    let workflows = tracked_dagops.workflows();
+    let gpt_workflow_exists = workflows.iter().any(|workflow| {
+        let (_, workflow_name, _) = tracked_dagops.parse_workflow(workflow);
+        workflow_name == ".gpt"
+    });
+    assert!(
+        gpt_workflow_exists,
+        "Expected .gpt workflow to be added to DAG"
+    );
 }
 
 #[test]

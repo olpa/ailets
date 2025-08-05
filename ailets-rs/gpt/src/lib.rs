@@ -179,6 +179,7 @@ pub fn _process_gpt<W: Write + 'static, D: DagOpsTrait>(
     )?;
     let mut builder = builder_cell.borrow_mut();
     builder.end_message()?;
+    builder.end()?;
 
     Ok(())
 }
