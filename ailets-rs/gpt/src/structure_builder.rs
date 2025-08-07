@@ -2,22 +2,24 @@
 //!
 //! Collects function calls from the JSON stream and stores them in a `FunCalls` struct.
 
+use crate::dagops::DagOpsTrait;
 use crate::fcw_chat::FunCallsToChat;
+use crate::fcw_dag::FunCallsToDag;
 use crate::fcw_trait::FunCallsWrite;
 use crate::funcalls_builder::FunCallsBuilder;
 use std::io::Write;
 
-pub struct ArgumentsChunkWriter<'a, W1: Write, W2: FunCallsWrite> {
-    builder: &'a mut StructureBuilder<W1, W2>,
+pub struct ArgumentsChunkWriter<'a, W1: Write, D: DagOpsTrait> {
+    builder: &'a mut StructureBuilder<W1, D>,
 }
 
-impl<'a, W1: Write, W2: FunCallsWrite> ArgumentsChunkWriter<'a, W1, W2> {
-    fn new(builder: &'a mut StructureBuilder<W1, W2>) -> Self {
+impl<'a, W1: Write, D: DagOpsTrait> ArgumentsChunkWriter<'a, W1, D> {
+    fn new(builder: &'a mut StructureBuilder<W1, D>) -> Self {
         Self { builder }
     }
 }
 
-impl<'a, W1: Write, W2: FunCallsWrite> Write for ArgumentsChunkWriter<'a, W1, W2> {
+impl<'a, W1: Write + 'static, D: DagOpsTrait> Write for ArgumentsChunkWriter<'a, W1, D> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let s = std::str::from_utf8(buf)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -32,19 +34,19 @@ impl<'a, W1: Write, W2: FunCallsWrite> Write for ArgumentsChunkWriter<'a, W1, W2
     }
 }
 
-pub struct StructureBuilder<W1: std::io::Write, W2: FunCallsWrite> {
-    funcalls: Option<FunCallsBuilder>,
+pub struct StructureBuilder<W1: std::io::Write, D: DagOpsTrait> {
+    funcalls: FunCallsBuilder<D>,
     chat_writer: FunCallsToChat<W1>,
-    dag_writer: W2,
+    dag_writer: FunCallsToDag,
     text_is_open: bool,
     is_tool_section_open: bool,
 }
 
-impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
+impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
     #[must_use]
-    pub fn new(stdout_writer: W1, dag_writer: W2) -> Self {
+    pub fn new(stdout_writer: W1, dag_writer: FunCallsToDag, dagops: D) -> Self {
         StructureBuilder {
-            funcalls: None,
+            funcalls: FunCallsBuilder::new(dagops),
             chat_writer: FunCallsToChat::new(stdout_writer),
             dag_writer,
             text_is_open: false,
@@ -58,7 +60,7 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     }
 
     #[must_use]
-    pub fn get_arguments_chunk_writer(&mut self) -> ArgumentsChunkWriter<W1, W2> {
+    pub fn get_arguments_chunk_writer(&mut self) -> ArgumentsChunkWriter<'_, W1, D> {
         ArgumentsChunkWriter::new(self)
     }
 
@@ -74,11 +76,9 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// Auto-close tool section if it's open
     fn auto_close_tool_section_if_open(&mut self) -> Result<(), std::io::Error> {
         if self.is_tool_section_open {
-            if let Some(funcalls) = &mut self.funcalls {
-                funcalls
-                    .end(&mut self.chat_writer, &mut self.dag_writer)
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
-            }
+            self.funcalls
+                .end(&mut self.chat_writer, &mut self.dag_writer)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
             self.is_tool_section_open = false;
         }
         Ok(())
@@ -134,10 +134,8 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_id(&mut self, id: &str) -> Result<(), Box<dyn std::error::Error>> {
         self.auto_close_text_if_open()?;
-        self.ensure_funcalls();
-        if let Some(funcalls) = &mut self.funcalls {
-            funcalls.id(id, &mut self.chat_writer, &mut self.dag_writer)?;
-        }
+        self.funcalls.id(id, &mut self.chat_writer, &mut self.dag_writer)?;
+        self.is_tool_section_open = true;
         Ok(())
     }
 
@@ -146,10 +144,8 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_name(&mut self, name: &str) -> Result<(), Box<dyn std::error::Error>> {
         self.auto_close_text_if_open()?;
-        self.ensure_funcalls();
-        if let Some(funcalls) = &mut self.funcalls {
-            funcalls.name(name, &mut self.chat_writer, &mut self.dag_writer)?;
-        }
+        self.funcalls.name(name, &mut self.chat_writer, &mut self.dag_writer)?;
+        self.is_tool_section_open = true;
         Ok(())
     }
 
@@ -158,14 +154,12 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// Returns error if I/O error occurs
     fn _tool_call_arguments_chunk(&mut self, args: &str) -> Result<(), Box<dyn std::error::Error>> {
         self.auto_close_text_if_open()?;
-        self.ensure_funcalls();
-        if let Some(funcalls) = &mut self.funcalls {
-            funcalls.arguments_chunk(
-                args.as_bytes(),
-                &mut self.chat_writer,
-                &mut self.dag_writer,
-            )?;
-        }
+        self.funcalls.arguments_chunk(
+            args.as_bytes(),
+            &mut self.chat_writer,
+            &mut self.dag_writer,
+        )?;
+        self.is_tool_section_open = true;
         Ok(())
     }
 
@@ -174,10 +168,8 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_index(&mut self, index: usize) -> Result<(), Box<dyn std::error::Error>> {
         self.auto_close_text_if_open()?;
-        self.ensure_funcalls();
-        if let Some(funcalls) = &mut self.funcalls {
-            funcalls.index(index, &mut self.chat_writer, &mut self.dag_writer)?;
-        }
+        self.funcalls.index(index, &mut self.chat_writer, &mut self.dag_writer)?;
+        self.is_tool_section_open = true;
         Ok(())
     }
 
@@ -185,21 +177,9 @@ impl<W1: std::io::Write, W2: FunCallsWrite> StructureBuilder<W1, W2> {
     /// # Errors
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_end_if_direct(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Don't call ensure_funcalls - silently exit if there's no funcalls
-        if let Some(funcalls) = &mut self.funcalls {
-            funcalls.end_item_if_direct(&mut self.chat_writer, &mut self.dag_writer)?;
-        }
+        self.funcalls.end_item_if_direct(&mut self.chat_writer, &mut self.dag_writer)?;
         // Don't modify is_tool_section_open - this is not a section-level operation
         Ok(())
-    }
-
-    /// Ensures that a `FunCallsBuilder` instance exists, creating one if necessary
-    fn ensure_funcalls(&mut self) {
-        if self.funcalls.is_none() {
-            self.funcalls = Some(FunCallsBuilder::new());
-        }
-        // Always mark the tool section as open when we're working with funcalls
-        self.is_tool_section_open = true;
     }
 
     /// End the current message.

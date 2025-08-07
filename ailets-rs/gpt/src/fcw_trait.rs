@@ -18,16 +18,17 @@ pub type FunCallResult = Result<(), Box<dyn std::error::Error>>;
 /// The streaming approach allows for efficient processing of large function calls
 /// without requiring the entire payload to be loaded into memory at once.
 ///
-pub trait FunCallsWrite {
+pub trait FunCallsWrite: std::any::Any {
     /// Initialize a new function call with the given ID and name
     ///
     /// # Arguments
     /// * `id` - Unique identifier for the function call (will be JSON-escaped)
     /// * `name` - Name of the function to be called (will be JSON-escaped)
+    /// * `dagops` - Mutable reference to DAG operations implementation
     ///
     /// # Errors
     /// Returns an error if the underlying writer fails
-    fn new_item(&mut self, id: &str, name: &str) -> FunCallResult;
+    fn new_item<T: crate::dagops::DagOpsTrait>(&mut self, id: &str, name: &str, dagops: &mut T) -> FunCallResult;
 
     /// Add a chunk of arguments to the current function call
     ///

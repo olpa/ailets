@@ -25,54 +25,40 @@ fn escape_json_string(s: &str) -> String {
 /// This writer implements the `FunCallsWrite` trait while simultaneously
 /// creating DAG nodes, workflows, and pipes for each function call. It
 /// enables function calls to participate in the larger workflow system.
-pub struct FunCallsToDag<'a, T: DagOpsTrait> {
-    /// Reference to the DAG operations implementation
-    dagops: &'a mut T,
-    /// Whether we've detached from the chat messages alias
-    detached: bool,
+pub struct FunCallsToDag {
     /// Writer for the current tool's input data
     tool_input_writer: Option<Box<dyn Write>>,
     /// Writer for the current tool's specification (JSON)
     tool_spec_writer: Option<Box<dyn Write>>,
 }
 
-impl<'a, T: DagOpsTrait> FunCallsToDag<'a, T> {
+impl FunCallsToDag {
     /// Creates a new DAG-integrated function call writer
-    ///
-    /// # Arguments
-    /// * `dagops` - Mutable reference to the DAG operations implementation
     ///
     /// # Returns
     /// A new writer that will create DAG operations for each function call
     #[must_use]
-    pub fn new(dagops: &'a mut T) -> Self {
+    pub fn new() -> Self {
         Self {
-            dagops,
-            detached: false,
             tool_input_writer: None,
             tool_spec_writer: None,
         }
     }
 }
 
-impl<'a, T: DagOpsTrait> FunCallsWrite for FunCallsToDag<'a, T> {
-    fn new_item(&mut self, id: &str, name: &str) -> Result<(), Box<dyn std::error::Error>> {
-        if !self.detached {
-            self.setup_loop_iteration_in_dag()?;
-            self.detached = true;
-        }
-
+impl FunCallsWrite for FunCallsToDag {
+    fn new_item<T: DagOpsTrait>(&mut self, id: &str, name: &str, dagops: &mut T) -> Result<(), Box<dyn std::error::Error>> {
         // Create the tool input pipe and writer
         let explain = format!("tool input - {name}");
-        let tool_input_fd = self.dagops.open_write_pipe(Some(&explain))?;
-        let tool_input_writer = self.dagops.open_writer_to_pipe(tool_input_fd)?;
+        let tool_input_fd = dagops.open_write_pipe(Some(&explain))?;
+        let tool_input_writer = dagops.open_writer_to_pipe(tool_input_fd)?;
 
         self.tool_input_writer = Some(tool_input_writer);
 
         // Create the tool spec pipe and writer
         let explain = format!("tool call spec - {name}");
-        let tool_spec_handle_fd = self.dagops.open_write_pipe(Some(&explain))?;
-        let mut tool_spec_writer = self.dagops.open_writer_to_pipe(tool_spec_handle_fd)?;
+        let tool_spec_handle_fd = dagops.open_write_pipe(Some(&explain))?;
+        let mut tool_spec_writer = dagops.open_writer_to_pipe(tool_spec_handle_fd)?;
 
         // Write the beginning of the tool spec JSON structure up to the arguments value
         let json_start = format!(
@@ -87,18 +73,18 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for FunCallsToDag<'a, T> {
         self.tool_spec_writer = Some(tool_spec_writer);
 
         // Create aliases for the pipes
-        self.dagops.alias_fd(".tool_input", tool_input_fd)?;
-        self.dagops
+        dagops.alias_fd(".tool_input", tool_input_fd)?;
+        dagops
             .alias_fd(".llm_tool_spec", tool_spec_handle_fd)?;
 
         // Run the tool
-        let tool_handle = self.dagops.instantiate_with_deps(
+        let tool_handle = dagops.instantiate_with_deps(
             &format!(".tool.{name}"),
             HashMap::from([(".tool_input".to_string(), tool_input_fd)]).into_iter(),
         )?;
 
         // Convert tool output to messages
-        let msg_handle = self.dagops.instantiate_with_deps(
+        let msg_handle = dagops.instantiate_with_deps(
             ".toolcall_to_messages",
             HashMap::from([
                 (".llm_tool_spec".to_string(), tool_spec_handle_fd),
@@ -108,7 +94,7 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for FunCallsToDag<'a, T> {
         )?;
 
         // Create the chat messages alias immediately
-        self.dagops.alias(".chat_messages", msg_handle)?;
+        dagops.alias(".chat_messages", msg_handle)?;
 
         Ok(())
     }
@@ -159,41 +145,14 @@ impl<'a, T: DagOpsTrait> FunCallsWrite for FunCallsToDag<'a, T> {
     }
 
     fn end(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Rerun model if we processed any tool calls (indicated by detached flag)
-        if self.detached {
-            let rerun_handle = self.dagops.instantiate_with_deps(
-                ".gpt",
-                HashMap::from([
-                    (".chat_messages.media".to_string(), 0),
-                    (".chat_messages.toolspecs".to_string(), 0),
-                ])
-                .into_iter(),
-            )?;
-            self.dagops.alias(".output_messages", rerun_handle)?;
-        }
-
+        // Placeholder - actual DAG workflow ending is handled by FunCallsBuilder
         Ok(())
     }
 }
 
-impl<'a, T: DagOpsTrait> FunCallsToDag<'a, T> {
-    // =========================================================================
-    // Private Helper Methods
-    // =========================================================================
-
-    /// Sets up the DAG for a new iteration by detaching from previous workflows
-    ///
-    /// This method ensures that new function calls don't interfere with
-    /// previous model workflows by detaching from the chat messages alias.
-    /// This prevents confusing dependency relationships in the DAG.
-    ///
-    /// # Errors
-    /// Returns error if the detach operation fails
-    fn setup_loop_iteration_in_dag(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Detach from previous chat messages to avoid dependency confusion
-        // This prevents the old "user prompt to messages" workflow from
-        // appearing to depend on new chat messages we're about to create
-        self.dagops.detach_from_alias(".chat_messages")?;
-        Ok(())
+impl Default for FunCallsToDag {
+    fn default() -> Self {
+        Self::new()
     }
 }
+

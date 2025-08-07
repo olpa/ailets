@@ -4,6 +4,10 @@
 //! processing, ensuring proper sequencing and validation of function call data.
 
 use crate::fcw_trait::FunCallsWrite;
+use crate::dagops::DagOpsTrait;
+use crate::fcw_chat::FunCallsToChat;
+use crate::fcw_dag::FunCallsToDag;
+use std::io::Write;
 
 /// State manager for streaming function call processing
 ///
@@ -13,7 +17,7 @@ use crate::fcw_trait::FunCallsWrite;
 /// - Buffering of arguments until the function call is ready
 /// - State transitions follow the expected protocol
 #[derive(Debug)]
-pub struct FunCallsBuilder {
+pub struct FunCallsBuilder<D: DagOpsTrait> {
     /// The highest function call index seen so far (enables streaming mode)
     pub last_index: Option<usize>,
     /// Current function call ID (waiting for name to complete setup)
@@ -24,21 +28,30 @@ pub struct FunCallsBuilder {
     pending_arguments: Option<Vec<u8>>,
     /// Whether `new_item` has been called for the current function call
     new_item_called: bool,
+    /// Whether we've detached from the chat messages alias
+    detached: bool,
+    /// DAG operations implementation
+    dagops: D,
 }
 
-impl FunCallsBuilder {
+impl<D: DagOpsTrait> FunCallsBuilder<D> {
     /// Creates a new function call state manager
+    ///
+    /// # Arguments
+    /// * `dagops` - DAG operations implementation
     ///
     /// # Returns
     /// A new `FunCallsBuilder` instance ready to process streaming function calls
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(dagops: D) -> Self {
         Self {
             last_index: None,
             current_id: None,
             current_name: None,
             pending_arguments: None,
             new_item_called: false,
+            detached: false,
+            dagops,
         }
     }
 
@@ -57,15 +70,21 @@ impl FunCallsBuilder {
     ///
     /// # Errors
     /// Returns an error if the writers' `new_item` or `arguments_chunk` methods fail
-    fn try_call_new_item(
+    fn try_call_new_item<W: Write + 'static>(
         &mut self,
-        chat_writer: &mut dyn FunCallsWrite,
-        dag_writer: &mut dyn FunCallsWrite,
+        chat_writer: &mut FunCallsToChat<W>,
+        dag_writer: &mut FunCallsToDag,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if !self.new_item_called {
+            // Handle DAG detachment before calling writers
+            if !self.detached {
+                self.setup_loop_iteration_in_dag()?;
+                self.detached = true;
+            }
+
             if let (Some(id), Some(name)) = (&self.current_id, &self.current_name) {
-                chat_writer.new_item(id, name)?;
-                dag_writer.new_item(id, name)?;
+                chat_writer.new_item(id, name, &mut self.dagops)?;
+                dag_writer.new_item(id, name, &mut self.dagops)?;
                 self.new_item_called = true;
 
                 // Send any pending arguments that were accumulated before new_item
@@ -98,10 +117,10 @@ impl FunCallsBuilder {
     ///
     /// # Errors
     /// Returns error if "`end_item_if_direct`" is called without "`new_item`" being called first
-    pub fn end_item_if_direct(
+    pub fn end_item_if_direct<W: Write + 'static>(
         &mut self,
-        chat_writer: &mut dyn FunCallsWrite,
-        dag_writer: &mut dyn FunCallsWrite,
+        chat_writer: &mut FunCallsToChat<W>,
+        dag_writer: &mut FunCallsToDag,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if !self.new_item_called {
             // Provide a more descriptive error message based on what's missing
@@ -138,10 +157,10 @@ impl FunCallsBuilder {
     ///
     /// # Errors
     /// Returns error if "`enforce_end_item`" is called without "`new_item`" being called first
-    pub fn enforce_end_item(
+    pub fn enforce_end_item<W: Write + 'static>(
         &mut self,
-        chat_writer: &mut dyn FunCallsWrite,
-        dag_writer: &mut dyn FunCallsWrite,
+        chat_writer: &mut FunCallsToChat<W>,
+        dag_writer: &mut FunCallsToDag,
     ) -> Result<(), Box<dyn std::error::Error>> {
         if !self.new_item_called {
             return Err("enforce_end_item called without new_item being called first".into());
@@ -158,13 +177,18 @@ impl FunCallsBuilder {
 
     /// Sets the index and starts a new tool call if necessary
     ///
+    /// # Arguments
+    /// * `index` - The function call index
+    /// * `chat_writer` - The chat writer to use
+    /// * `dag_writer` - The dag writer to use
+    ///
     /// # Errors
     /// Returns error if validation fails or writing operation fails
-    pub fn index(
+    pub fn index<W: Write + 'static>(
         &mut self,
         index: usize,
-        chat_writer: &mut dyn FunCallsWrite,
-        dag_writer: &mut dyn FunCallsWrite,
+        chat_writer: &mut FunCallsToChat<W>,
+        dag_writer: &mut FunCallsToDag,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Validate streaming assumption: index progression
         match self.last_index {
@@ -207,13 +231,18 @@ impl FunCallsBuilder {
 
     /// Sets the ID of the current function call
     ///
+    /// # Arguments
+    /// * `id` - The function call ID
+    /// * `chat_writer` - The chat writer to use
+    /// * `dag_writer` - The dag writer to use
+    ///
     /// # Errors
     /// Returns error if validation fails
-    pub fn id(
+    pub fn id<W: Write + 'static>(
         &mut self,
         id: &str,
-        chat_writer: &mut dyn FunCallsWrite,
-        dag_writer: &mut dyn FunCallsWrite,
+        chat_writer: &mut FunCallsToChat<W>,
+        dag_writer: &mut FunCallsToDag,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Check if ID is already set or new_item already called
         if self.new_item_called || self.current_id.is_some() {
@@ -233,13 +262,18 @@ impl FunCallsBuilder {
 
     /// Sets the name of the current function call
     ///
+    /// # Arguments
+    /// * `name` - The function call name
+    /// * `chat_writer` - The chat writer to use
+    /// * `dag_writer` - The dag writer to use
+    ///
     /// # Errors
     /// Returns error if validation fails or writing operation fails
-    pub fn name(
+    pub fn name<W: Write + 'static>(
         &mut self,
         name: &str,
-        chat_writer: &mut dyn FunCallsWrite,
-        dag_writer: &mut dyn FunCallsWrite,
+        chat_writer: &mut FunCallsToChat<W>,
+        dag_writer: &mut FunCallsToDag,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Check if name is already set or new_item already called
         if self.new_item_called || self.current_name.is_some() {
@@ -261,11 +295,11 @@ impl FunCallsBuilder {
     ///
     /// # Errors
     /// Returns error if writing operation fails
-    pub fn arguments_chunk(
+    pub fn arguments_chunk<W: Write + 'static>(
         &mut self,
         args: &[u8],
-        chat_writer: &mut dyn FunCallsWrite,
-        dag_writer: &mut dyn FunCallsWrite,
+        chat_writer: &mut FunCallsToChat<W>,
+        dag_writer: &mut FunCallsToDag,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // Arguments are now stored only in current_call
 
@@ -286,12 +320,16 @@ impl FunCallsBuilder {
 
     /// Finalizes all function calls
     ///
+    /// # Arguments
+    /// * `chat_writer` - The chat writer to use
+    /// * `dag_writer` - The dag writer to use
+    ///
     /// # Errors
     /// Returns error if writing operation fails
-    pub fn end(
+    pub fn end<W: Write + 'static>(
         &mut self,
-        chat_writer: &mut dyn FunCallsWrite,
-        dag_writer: &mut dyn FunCallsWrite,
+        chat_writer: &mut FunCallsToChat<W>,
+        dag_writer: &mut FunCallsToDag,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // "end" calls "end_item" if "end_item_if_direct" was not called
         if self.new_item_called {
@@ -299,6 +337,14 @@ impl FunCallsBuilder {
             dag_writer.end_item()?;
             self.new_item_called = false;
         }
+        
+        // Call end on writers (no dagops needed anymore)
+        chat_writer.end()?;
+        dag_writer.end()?;
+        
+        // Handle final DAG workflow processing
+        self.end_workflow()?;
+        
         Ok(())
     }
 
@@ -323,10 +369,53 @@ impl FunCallsBuilder {
         self.new_item_called = false;
         self.pending_arguments = None;
     }
-}
 
-impl Default for FunCallsBuilder {
-    fn default() -> Self {
-        Self::new()
+
+    /// Handles final DAG workflow processing
+    ///
+    /// This method handles the final DAG workflow setup when all function calls are complete,
+    /// including rerunning the model if any tool calls were processed.
+    ///
+    /// # Errors
+    /// Returns error if DAG operations fail
+    pub fn end_workflow(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Rerun model if we processed any tool calls (indicated by detached flag)
+        if self.detached {
+            let rerun_handle = self.dagops.instantiate_with_deps(
+                ".gpt",
+                std::collections::HashMap::from([
+                    (".chat_messages.media".to_string(), 0),
+                    (".chat_messages.toolspecs".to_string(), 0),
+                ])
+                .into_iter(),
+            )?;
+            self.dagops.alias(".output_messages", rerun_handle)?;
+        }
+
+        Ok(())
     }
+
+    // =========================================================================
+    // Utility Methods for DAG Operations
+    // =========================================================================
+
+    /// Sets up the DAG for a new iteration by detaching from previous workflows
+    ///
+    /// This method ensures that new function calls don't interfere with
+    /// previous model workflows by detaching from the chat messages alias.
+    /// This prevents confusing dependency relationships in the DAG.
+    ///
+    /// # Arguments
+    /// * `dagops` - Mutable reference to the DAG operations implementation
+    ///
+    /// # Errors
+    /// Returns error if the detach operation fails
+    fn setup_loop_iteration_in_dag(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Detach from previous chat messages to avoid dependency confusion
+        // This prevents the old "user prompt to messages" workflow from
+        // appearing to depend on new chat messages we're about to create
+        self.dagops.detach_from_alias(".chat_messages")?;
+        Ok(())
+    }
+
 }

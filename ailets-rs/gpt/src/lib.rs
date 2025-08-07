@@ -9,7 +9,6 @@ pub mod structure_builder;
 use actor_io::{AReader, AWriter};
 use actor_runtime::{err_to_heap_c_string, extract_errno, StdHandle};
 use dagops::{DagOps, DagOpsTrait};
-use fcw_chat::FunCallsToChat;
 use fcw_dag::FunCallsToDag;
 
 use handlers::{
@@ -28,8 +27,8 @@ use structure_builder::StructureBuilder;
 
 const BUFFER_SIZE: u32 = 1024;
 
-type BA<'a, W, D> = BoxedAction<'a, StructureBuilder<FunCallsToChat<W>, FunCallsToDag<'a, D>>>;
-type EA<'a, W, D> = BoxedEndAction<'a, StructureBuilder<FunCallsToChat<W>, FunCallsToDag<'a, D>>>;
+type BA<'a, W, D> = BoxedAction<'a, StructureBuilder<W, D>>;
+type EA<'a, W, D> = BoxedEndAction<'a, StructureBuilder<W, D>>;
 
 #[derive(Debug)]
 struct MatchInToolCall {
@@ -63,7 +62,7 @@ impl scan_json::Matcher for MatchInToolCall {
     }
 }
 
-fn make_triggers<'a, W: Write + 'a, D: DagOpsTrait>() -> Vec<Trigger<'a, BA<'a, W, D>>> {
+fn make_triggers<'a, W: Write + 'a + 'static, D: DagOpsTrait + 'a>() -> Vec<Trigger<'a, BA<'a, W, D>>> {
     let begin_message = Trigger::new(
         Box::new(Name::new("message".to_string())),
         Box::new(on_begin_message) as BA<'a, W, D>,
@@ -140,11 +139,10 @@ fn make_triggers<'a, W: Write + 'a, D: DagOpsTrait>() -> Vec<Trigger<'a, BA<'a, 
 pub fn _process_gpt<W: Write + 'static, D: DagOpsTrait>(
     mut reader: impl std::io::Read,
     stdout_writer: W,
-    dagops: &mut D,
+    dagops: D,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let dag_writer = FunCallsToDag::new(dagops);
-    let chat_writer = FunCallsToChat::new(stdout_writer);
-    let builder = StructureBuilder::new(chat_writer, dag_writer);
+    let dag_writer = FunCallsToDag::new();
+    let builder = StructureBuilder::new(stdout_writer, dag_writer, dagops);
     let builder_cell = RefCell::new(builder);
 
     let mut buffer = vec![0u8; BUFFER_SIZE as usize];
@@ -191,8 +189,8 @@ pub extern "C" fn process_gpt() -> *const c_char {
     let reader = AReader::new_from_std(StdHandle::Stdin);
     let writer = AWriter::new_from_std(StdHandle::Stdout);
 
-    let mut dagops = DagOps::new();
-    if let Err(e) = _process_gpt(reader, writer, &mut dagops) {
+    let dagops = DagOps::new();
+    if let Err(e) = _process_gpt(reader, writer, dagops) {
         return err_to_heap_c_string(extract_errno(&e), &format!("Failed to process GPT: {e}"));
     }
     std::ptr::null()

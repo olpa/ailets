@@ -7,15 +7,15 @@
 use std::cell::RefCell;
 use std::io::Write;
 
-use crate::fcw_trait::FunCallsWrite;
+use crate::dagops::DagOpsTrait;
 use crate::structure_builder::StructureBuilder;
 use scan_json::rjiter::jiter::{NumberInt, Peek};
 use scan_json::RJiter;
 use scan_json::StreamOp;
 
-pub fn on_begin_message<W1: Write, W2: FunCallsWrite>(
+pub fn on_begin_message<W1: Write + 'static, D: DagOpsTrait>(
     _rjiter: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder<W1, W2>>,
+    builder_cell: &RefCell<StructureBuilder<W1, D>>,
 ) -> StreamOp {
     if let Err(e) = builder_cell.borrow_mut().begin_message() {
         return StreamOp::Error(Box::new(e));
@@ -25,16 +25,16 @@ pub fn on_begin_message<W1: Write, W2: FunCallsWrite>(
 
 /// # Errors
 /// If anything goes wrong.
-pub fn on_end_message<W1: Write, W2: FunCallsWrite>(
-    builder_cell: &RefCell<StructureBuilder<W1, W2>>,
+pub fn on_end_message<W1: Write + 'static, D: DagOpsTrait>(
+    builder_cell: &RefCell<StructureBuilder<W1, D>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     builder_cell.borrow_mut().end_message()?;
     Ok(())
 }
 
-pub fn on_role<W1: Write, W2: FunCallsWrite>(
+pub fn on_role<W1: Write + 'static, D: DagOpsTrait>(
     rjiter_cell: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder<W1, W2>>,
+    builder_cell: &RefCell<StructureBuilder<W1, D>>,
 ) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
     let role = match rjiter.next_str() {
@@ -51,9 +51,9 @@ pub fn on_role<W1: Write, W2: FunCallsWrite>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_content<W1: Write, W2: FunCallsWrite>(
+pub fn on_content<W1: Write + 'static, D: DagOpsTrait>(
     rjiter_cell: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder<W1, W2>>,
+    builder_cell: &RefCell<StructureBuilder<W1, D>>,
 ) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
     let peeked = match rjiter.peek() {
@@ -86,9 +86,9 @@ pub fn on_content<W1: Write, W2: FunCallsWrite>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_function_id<W1: Write, W2: FunCallsWrite>(
+pub fn on_function_id<W1: Write + 'static, D: DagOpsTrait>(
     rjiter_cell: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder<W1, W2>>,
+    builder_cell: &RefCell<StructureBuilder<W1, D>>,
 ) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
     let value = match rjiter.next_str() {
@@ -109,9 +109,9 @@ pub fn on_function_id<W1: Write, W2: FunCallsWrite>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_function_name<W1: Write, W2: FunCallsWrite>(
+pub fn on_function_name<W1: Write + 'static, D: DagOpsTrait>(
     rjiter_cell: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder<W1, W2>>,
+    builder_cell: &RefCell<StructureBuilder<W1, D>>,
 ) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
     let value = match rjiter.next_str() {
@@ -132,9 +132,9 @@ pub fn on_function_name<W1: Write, W2: FunCallsWrite>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_function_arguments<W1: Write, W2: FunCallsWrite>(
+pub fn on_function_arguments<W1: Write + 'static, D: DagOpsTrait>(
     rjiter_cell: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder<W1, W2>>,
+    builder_cell: &RefCell<StructureBuilder<W1, D>>,
 ) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
     let peeked = match rjiter.peek() {
@@ -158,9 +158,9 @@ pub fn on_function_arguments<W1: Write, W2: FunCallsWrite>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_function_index<W1: Write, W2: FunCallsWrite>(
+pub fn on_function_index<W1: Write + 'static, D: DagOpsTrait>(
     rjiter_cell: &RefCell<RJiter>,
-    builder_cell: &RefCell<StructureBuilder<W1, W2>>,
+    builder_cell: &RefCell<StructureBuilder<W1, D>>,
 ) -> StreamOp {
     let mut rjiter = rjiter_cell.borrow_mut();
     let value = match rjiter.next_int() {
@@ -201,8 +201,8 @@ pub fn on_function_index<W1: Write, W2: FunCallsWrite>(
 }
 
 /// # Errors
-pub fn on_function_end<W1: Write, W2: FunCallsWrite>(
-    builder_cell: &RefCell<StructureBuilder<W1, W2>>,
+pub fn on_function_end<W1: Write + 'static, D: DagOpsTrait>(
+    builder_cell: &RefCell<StructureBuilder<W1, D>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     builder_cell.borrow_mut().tool_call_end_if_direct()?;
     Ok(())
