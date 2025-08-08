@@ -31,10 +31,10 @@ pub struct FunCallsBuilder<D: DagOpsTrait> {
     detached: bool,
     /// DAG operations implementation
     dagops: D,
-    /// Chat writer for function calls
-    chat_writer: FunCallsToChat<AWriter>,
-    /// Tools writer for function calls
-    tools_writer: FunCallsToTools,
+    /// Chat writer for function calls (lazily initialized)
+    chat_writer: Option<FunCallsToChat<AWriter>>,
+    /// Tools writer for function calls (lazily initialized)
+    tools_writer: Option<FunCallsToTools>,
 }
 
 impl<D: DagOpsTrait> FunCallsBuilder<D> {
@@ -47,7 +47,6 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     /// A new `FunCallsBuilder` instance ready to process streaming function calls
     #[must_use]
     pub fn new(dagops: D) -> Self {
-        let chat_awriter = AWriter::new_from_fd(777).expect("Failed to create writer from fd 777");
         Self {
             last_index: None,
             current_id: None,
@@ -56,14 +55,29 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
             new_item_called: false,
             detached: false,
             dagops,
-            chat_writer: FunCallsToChat::new(chat_awriter),
-            tools_writer: FunCallsToTools::new(),
+            chat_writer: None,
+            tools_writer: None,
         }
     }
 
     // =========================================================================
     // Private Helper Methods
     // =========================================================================
+
+    /// Creates chat and tools writers lazily when needed
+    ///
+    /// This method initializes the writers only when they are first needed,
+    /// which happens when we enter the detached state for function call processing.
+    fn create_writers(&mut self) {
+        if self.chat_writer.is_none() {
+            let chat_awriter = AWriter::new_from_fd(777).expect("Failed to create writer from fd 777");
+            self.chat_writer = Some(FunCallsToChat::new(chat_awriter));
+        }
+        if self.tools_writer.is_none() {
+            self.tools_writer = Some(FunCallsToTools::new());
+        }
+    }
+
 
     /// Attempts to call `new_item` if both ID and name are available
     ///
@@ -76,25 +90,29 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
         if !self.new_item_called {
             // Handle DAG detachment before calling writers
             if !self.detached {
+                self.create_writers();
                 self.setup_loop_iteration_in_dag()?;
                 self.detached = true;
             }
 
             if let (Some(id), Some(name)) = (&self.current_id, &self.current_name) {
-                self.chat_writer.new_item(id, name, &mut self.dagops)?;
-                self.tools_writer.new_item(id, name, &mut self.dagops)?;
-                self.new_item_called = true;
+                if let (Some(ref mut chat_writer), Some(ref mut tools_writer)) = 
+                    (&mut self.chat_writer, &mut self.tools_writer) {
+                    chat_writer.new_item(id, name, &mut self.dagops)?;
+                    tools_writer.new_item(id, name, &mut self.dagops)?;
+                    self.new_item_called = true;
 
-                // Send any pending arguments that were accumulated before new_item
-                if let Some(ref args) = self.pending_arguments {
-                    self.chat_writer.arguments_chunk(args)?;
-                    self.tools_writer.arguments_chunk(args)?;
-                    self.pending_arguments = None;
+                    // Send any pending arguments that were accumulated before new_item
+                    if let Some(ref args) = self.pending_arguments {
+                        chat_writer.arguments_chunk(args)?;
+                        tools_writer.arguments_chunk(args)?;
+                        self.pending_arguments = None;
+                    }
+
+                    // Clear id and name - no longer needed after new_item
+                    self.current_id = None;
+                    self.current_name = None;
                 }
-
-                // Clear id and name - no longer needed after new_item
-                self.current_id = None;
-                self.current_name = None;
             }
         }
         Ok(())
@@ -149,8 +167,11 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
         }
 
         // Always end the item, regardless of mode
-        self.chat_writer.end_item()?;
-        self.tools_writer.end_item()?;
+        if let (Some(ref mut chat_writer), Some(ref mut tools_writer)) = 
+            (&mut self.chat_writer, &mut self.tools_writer) {
+            chat_writer.end_item()?;
+            tools_writer.end_item()?;
+        }
         // Reset state for next function call
         self.reset_current_call_state();
 
@@ -191,8 +212,11 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
                 // If we're moving to a new index, end the current function call
                 if index > last {
                     if self.new_item_called {
-                        self.chat_writer.end_item()?;
-                        self.tools_writer.end_item()?;
+                        if let (Some(ref mut chat_writer), Some(ref mut tools_writer)) = 
+                            (&mut self.chat_writer, &mut self.tools_writer) {
+                            chat_writer.end_item()?;
+                            tools_writer.end_item()?;
+                        }
                     }
                     self.reset_current_call_state();
                 }
@@ -261,8 +285,11 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
 
         // Pass arguments directly to writers after new_item has been called
         if self.new_item_called {
-            self.chat_writer.arguments_chunk(args)?;
-            self.tools_writer.arguments_chunk(args)?;
+            if let (Some(ref mut chat_writer), Some(ref mut tools_writer)) = 
+                (&mut self.chat_writer, &mut self.tools_writer) {
+                chat_writer.arguments_chunk(args)?;
+                tools_writer.arguments_chunk(args)?;
+            }
         } else {
             // Store arguments until new_item is called
             match &mut self.pending_arguments {
@@ -281,14 +308,21 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     pub fn end(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // "end" calls "end_item" if "end_item_if_direct" was not called
         if self.new_item_called {
-            self.chat_writer.end_item()?;
-            self.tools_writer.end_item()?;
+            if let (Some(ref mut chat_writer), Some(ref mut tools_writer)) = 
+                (&mut self.chat_writer, &mut self.tools_writer) {
+                chat_writer.end_item()?;
+                tools_writer.end_item()?;
+            }
             self.new_item_called = false;
         }
 
         // Call end on writers (no dagops needed anymore)
-        self.chat_writer.end()?;
-        self.tools_writer.end()?;
+        if let Some(ref mut chat_writer) = self.chat_writer {
+            chat_writer.end()?;
+        }
+        if let Some(ref mut tools_writer) = self.tools_writer {
+            tools_writer.end()?;
+        }
 
         // Handle final DAG workflow processing
         self.end_workflow()?;
