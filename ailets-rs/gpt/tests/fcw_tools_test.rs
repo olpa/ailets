@@ -4,18 +4,18 @@ extern crate hamcrest;
 use crate::dagops_mock::TrackedDagOps;
 use actor_runtime_mocked::RcWriter;
 use gpt::fcw_chat::FunCallsToChat;
-use gpt::fcw_dag::FunCallsToDag;
+use gpt::fcw_tools::FunCallsToTools;
 use gpt::fcw_trait::FunCallsWrite;
 use hamcrest::prelude::*;
 use serde_json::json;
 use std::collections::HashMap;
 pub mod dagops_mock;
 
-// Testing not only "fcw_dag" but also the complete functionality,
+// Testing not only "fcw_tools" but also the complete functionality,
 // including the chat history and tool calls.
 
 #[test]
-fn inject_tool_calls_to_dag() {
+fn inject_tool_calls_to_tools() {
     //
     // Arrange
     //
@@ -27,9 +27,9 @@ fn inject_tool_calls_to_dag() {
     //
     {
         let mut chat_writer = FunCallsToChat::new(writer.clone());
-        let mut dagops_writer = FunCallsToDag::new();
+        let mut dagops_writer = FunCallsToTools::new();
 
-        // Write to both chat and DAG
+        // Write to both chat and tools
         chat_writer
             .new_item("call_1", "get_weather", &mut tracked_dagops)
             .unwrap();
@@ -248,12 +248,12 @@ fn inject_tool_calls_to_dag() {
 }
 
 #[test]
-fn inject_empty_tool_calls_to_dag() {
+fn inject_empty_tool_calls_to_tools() {
     // Arrange
     let tracked_dagops = TrackedDagOps::default();
 
     {
-        let _dagops_writer = FunCallsToDag::new();
+        let _dagops_writer = FunCallsToTools::new();
 
         // Act - Don't call any methods on the writer (equivalent to empty tool calls)
     } // dagops_writer is dropped here, releasing the borrow
@@ -278,9 +278,9 @@ fn multiple_arguments_chunks() {
     //
     {
         let mut chat_writer = FunCallsToChat::new(writer.clone());
-        let mut dagops_writer = FunCallsToDag::new();
+        let mut dagops_writer = FunCallsToTools::new();
 
-        // Write to both chat and DAG
+        // Write to both chat and tools
         chat_writer
             .new_item("call_1", "get_weather", &mut tracked_dagops)
             .unwrap();

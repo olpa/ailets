@@ -1,7 +1,7 @@
-//! Function call writer that integrates with DAG operations
+//! Function call writer that integrates with tool operations
 //!
 //! This module provides a function call writer implementation that creates
-//! DAG nodes, workflows, and pipes for each function call, enabling function
+//! tool nodes, workflows, and pipes for each function call, enabling function
 //! calls to participate in the larger workflow system.
 
 use crate::dagops::DagOpsTrait;
@@ -20,23 +20,23 @@ fn escape_json_string(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-/// Function call writer that integrates with DAG operations
+/// Function call writer that integrates with tool operations
 ///
 /// This writer implements the `FunCallsWrite` trait while simultaneously
-/// creating DAG nodes, workflows, and pipes for each function call. It
+/// creating tool nodes, workflows, and pipes for each function call. It
 /// enables function calls to participate in the larger workflow system.
-pub struct FunCallsToDag {
+pub struct FunCallsToTools {
     /// Writer for the current tool's input data
     tool_input_writer: Option<Box<dyn Write>>,
     /// Writer for the current tool's specification (JSON)
     tool_spec_writer: Option<Box<dyn Write>>,
 }
 
-impl FunCallsToDag {
-    /// Creates a new DAG-integrated function call writer
+impl FunCallsToTools {
+    /// Creates a new tool-integrated function call writer
     ///
     /// # Returns
-    /// A new writer that will create DAG operations for each function call
+    /// A new writer that will create tool operations for each function call
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -46,7 +46,7 @@ impl FunCallsToDag {
     }
 }
 
-impl FunCallsWrite for FunCallsToDag {
+impl FunCallsWrite for FunCallsToTools {
     fn new_item<T: DagOpsTrait>(
         &mut self,
         id: &str,
@@ -154,7 +154,7 @@ impl FunCallsWrite for FunCallsToDag {
     }
 }
 
-impl Default for FunCallsToDag {
+impl Default for FunCallsToTools {
     fn default() -> Self {
         Self::new()
     }

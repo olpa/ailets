@@ -2,7 +2,7 @@ use std::io::Write;
 
 use actor_runtime_mocked::RcWriter;
 use dagops_mock::TrackedDagOps;
-use gpt::fcw_dag::FunCallsToDag;
+use gpt::fcw_tools::FunCallsToTools;
 use gpt::structure_builder::StructureBuilder;
 
 pub mod dagops_mock;
@@ -12,8 +12,8 @@ fn basic_pass() {
     // Arrange
     let mut writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
-    let dag_writer = FunCallsToDag::new();
-    let mut builder = StructureBuilder::new(writer.clone(), dag_writer, tracked_dagops.clone());
+    let tools_writer = FunCallsToTools::new();
+    let mut builder = StructureBuilder::new(writer.clone(), tools_writer, tracked_dagops.clone());
 
     // Act
     builder.begin_message().unwrap();
@@ -36,8 +36,8 @@ fn create_message_without_input_role() {
     // Arrange
     let mut writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
-    let dag_writer = FunCallsToDag::new();
-    let mut builder = StructureBuilder::new(writer.clone(), dag_writer, tracked_dagops.clone());
+    let tools_writer = FunCallsToTools::new();
+    let mut builder = StructureBuilder::new(writer.clone(), tools_writer, tracked_dagops.clone());
 
     // Act without "builder.role()"
     builder.begin_message().unwrap();
@@ -60,8 +60,8 @@ fn can_call_end_message_multiple_times() {
     // Arrange
     let mut writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
-    let dag_writer = FunCallsToDag::new();
-    let mut builder = StructureBuilder::new(writer.clone(), dag_writer, tracked_dagops.clone());
+    let tools_writer = FunCallsToTools::new();
+    let mut builder = StructureBuilder::new(writer.clone(), tools_writer, tracked_dagops.clone());
 
     // Act
     builder.begin_message().unwrap();
@@ -86,8 +86,8 @@ fn output_direct_tool_call() {
     // Arrange
     let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
-    let dag_writer = FunCallsToDag::new();
-    let mut builder = StructureBuilder::new(writer.clone(), dag_writer, tracked_dagops.clone());
+    let tools_writer = FunCallsToTools::new();
+    let mut builder = StructureBuilder::new(writer.clone(), tools_writer, tracked_dagops.clone());
 
     // Act
     {
@@ -145,8 +145,8 @@ fn output_streaming_tool_call() {
     // Arrange
     let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
-    let dag_writer = FunCallsToDag::new();
-    let mut builder = StructureBuilder::new(writer.clone(), dag_writer, tracked_dagops.clone());
+    let tools_writer = FunCallsToTools::new();
+    let mut builder = StructureBuilder::new(writer.clone(), tools_writer, tracked_dagops.clone());
 
     // Act
     builder.begin_message().unwrap();
@@ -227,8 +227,8 @@ fn autoclose_text_on_end_message() {
     // Arrange
     let mut writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
-    let dag_writer = FunCallsToDag::new();
-    let mut builder = StructureBuilder::new(writer.clone(), dag_writer, tracked_dagops.clone());
+    let tools_writer = FunCallsToTools::new();
+    let mut builder = StructureBuilder::new(writer.clone(), tools_writer, tracked_dagops.clone());
 
     // Act - start text but don't explicitly close it
     builder.begin_message().unwrap();
@@ -251,8 +251,8 @@ fn autoclose_text_on_new_message_and_role() {
     // Arrange
     let mut writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
-    let dag_writer = FunCallsToDag::new();
-    let mut builder = StructureBuilder::new(writer.clone(), dag_writer, tracked_dagops.clone());
+    let tools_writer = FunCallsToTools::new();
+    let mut builder = StructureBuilder::new(writer.clone(), tools_writer, tracked_dagops.clone());
 
     // Act - start text in first message, then start new message without closing text
     builder.begin_message().unwrap();
@@ -286,8 +286,8 @@ fn autoclose_toolcall_on_end_message() {
     // Arrange
     let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
-    let dag_writer = FunCallsToDag::new();
-    let mut builder = StructureBuilder::new(writer.clone(), dag_writer, tracked_dagops.clone());
+    let tools_writer = FunCallsToTools::new();
+    let mut builder = StructureBuilder::new(writer.clone(), tools_writer, tracked_dagops.clone());
 
     // Act - start tool call but don't explicitly end it
     builder.begin_message().unwrap();
@@ -314,8 +314,8 @@ fn autoclose_toolcall_on_new_message_and_role() {
     // Arrange
     let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
-    let dag_writer = FunCallsToDag::new();
-    let mut builder = StructureBuilder::new(writer.clone(), dag_writer, tracked_dagops.clone());
+    let tools_writer = FunCallsToTools::new();
+    let mut builder = StructureBuilder::new(writer.clone(), tools_writer, tracked_dagops.clone());
 
     // Act - start tool call in first message, then start new message without closing tool call
     builder.begin_message().unwrap();
@@ -354,8 +354,8 @@ fn autoclose_mix_text_and_toolcall() {
     // Arrange
     let mut writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
-    let dag_writer = FunCallsToDag::new();
-    let mut builder = StructureBuilder::new(writer.clone(), dag_writer, tracked_dagops.clone());
+    let tools_writer = FunCallsToTools::new();
+    let mut builder = StructureBuilder::new(writer.clone(), tools_writer, tracked_dagops.clone());
 
     // Arrange - autoclose text because of tool_id
     builder.begin_message().unwrap();
@@ -489,8 +489,8 @@ fn tool_call_without_arguments_chunk_has_empty_arguments() {
     // Arrange
     let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
-    let dag_writer = FunCallsToDag::new();
-    let mut builder = StructureBuilder::new(writer.clone(), dag_writer, tracked_dagops.clone());
+    let tools_writer = FunCallsToTools::new();
+    let mut builder = StructureBuilder::new(writer.clone(), tools_writer, tracked_dagops.clone());
 
     // Act - create tool call but never call tool_arguments_chunk
     builder.begin_message().unwrap();
@@ -531,8 +531,8 @@ fn begin_text_chunk_no_prefix_when_already_open() {
     // Arrange
     let mut writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
-    let dag_writer = FunCallsToDag::new();
-    let mut builder = StructureBuilder::new(writer.clone(), dag_writer, tracked_dagops.clone());
+    let tools_writer = FunCallsToTools::new();
+    let mut builder = StructureBuilder::new(writer.clone(), tools_writer, tracked_dagops.clone());
 
     // Act - begin text chunk, write some text, then begin text chunk again without closing
     builder.begin_message().unwrap();

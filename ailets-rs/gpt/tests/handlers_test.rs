@@ -1,6 +1,6 @@
 use actor_runtime_mocked::RcWriter;
 use dagops_mock::TrackedDagOps;
-use gpt::fcw_dag::FunCallsToDag;
+use gpt::fcw_tools::FunCallsToTools;
 use gpt::handlers::{on_content, on_function_index, on_function_name};
 use gpt::structure_builder::StructureBuilder;
 
@@ -14,8 +14,8 @@ fn content_writes_to_builder() {
     // Arrange
     let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
-    let dag_writer = FunCallsToDag::new();
-    let builder = StructureBuilder::new(writer.clone(), dag_writer, tracked_dagops);
+    let tools_writer = FunCallsToTools::new();
+    let builder = StructureBuilder::new(writer.clone(), tools_writer, tracked_dagops);
     let builder_cell = RefCell::new(builder);
 
     let mut json_reader = Cursor::new(r#""hello world""#);
@@ -37,8 +37,8 @@ fn content_can_be_null() {
     // Arrange
     let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
-    let dag_writer = FunCallsToDag::new();
-    let builder = StructureBuilder::new(writer.clone(), dag_writer, tracked_dagops);
+    let tools_writer = FunCallsToTools::new();
+    let builder = StructureBuilder::new(writer.clone(), tools_writer, tracked_dagops);
     let builder_cell = RefCell::new(builder);
 
     let mut json_reader = Cursor::new(r#"null"#);
@@ -59,8 +59,8 @@ fn on_function_string_field_invalid_value_type() {
     // Arrange
     let buffer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
-    let dag_writer = FunCallsToDag::new();
-    let builder = StructureBuilder::new(buffer.clone(), dag_writer, tracked_dagops);
+    let tools_writer = FunCallsToTools::new();
+    let builder = StructureBuilder::new(buffer.clone(), tools_writer, tracked_dagops);
     let builder_cell = RefCell::new(builder);
 
     // Arrange: Setup with invalid JSON (number instead of string)
@@ -82,8 +82,8 @@ fn on_function_index_invalid_value_type() {
     // Arrange: Setup with invalid JSON (float instead of integer)
     let buffer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
-    let dag_writer = FunCallsToDag::new();
-    let builder = StructureBuilder::new(buffer.clone(), dag_writer, tracked_dagops);
+    let tools_writer = FunCallsToTools::new();
+    let builder = StructureBuilder::new(buffer.clone(), tools_writer, tracked_dagops);
     let builder_cell = RefCell::new(builder);
 
     let json = r#"3.14"#; // Invalid - should be an integer

@@ -4,7 +4,7 @@
 
 use crate::dagops::DagOpsTrait;
 use crate::fcw_chat::FunCallsToChat;
-use crate::fcw_dag::FunCallsToDag;
+use crate::fcw_tools::FunCallsToTools;
 use crate::fcw_trait::FunCallsWrite;
 use crate::funcalls_builder::FunCallsBuilder;
 use std::io::Write;
@@ -37,18 +37,18 @@ impl<'a, W1: Write + 'static, D: DagOpsTrait> Write for ArgumentsChunkWriter<'a,
 pub struct StructureBuilder<W1: std::io::Write, D: DagOpsTrait> {
     funcalls: FunCallsBuilder<D>,
     chat_writer: FunCallsToChat<W1>,
-    dag_writer: FunCallsToDag,
+    tools_writer: FunCallsToTools,
     text_is_open: bool,
     is_tool_section_open: bool,
 }
 
 impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
     #[must_use]
-    pub fn new(stdout_writer: W1, dag_writer: FunCallsToDag, dagops: D) -> Self {
+    pub fn new(stdout_writer: W1, tools_writer: FunCallsToTools, dagops: D) -> Self {
         StructureBuilder {
             funcalls: FunCallsBuilder::new(dagops),
             chat_writer: FunCallsToChat::new(stdout_writer),
-            dag_writer,
+            tools_writer,
             text_is_open: false,
             is_tool_section_open: false,
         }
@@ -77,7 +77,7 @@ impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
     fn auto_close_tool_section_if_open(&mut self) -> Result<(), std::io::Error> {
         if self.is_tool_section_open {
             self.funcalls
-                .end(&mut self.chat_writer, &mut self.dag_writer)
+                .end(&mut self.chat_writer, &mut self.tools_writer)
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
             self.is_tool_section_open = false;
         }
@@ -135,7 +135,7 @@ impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
     pub fn tool_call_id(&mut self, id: &str) -> Result<(), Box<dyn std::error::Error>> {
         self.auto_close_text_if_open()?;
         self.funcalls
-            .id(id, &mut self.chat_writer, &mut self.dag_writer)?;
+            .id(id, &mut self.chat_writer, &mut self.tools_writer)?;
         self.is_tool_section_open = true;
         Ok(())
     }
@@ -146,7 +146,7 @@ impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
     pub fn tool_call_name(&mut self, name: &str) -> Result<(), Box<dyn std::error::Error>> {
         self.auto_close_text_if_open()?;
         self.funcalls
-            .name(name, &mut self.chat_writer, &mut self.dag_writer)?;
+            .name(name, &mut self.chat_writer, &mut self.tools_writer)?;
         self.is_tool_section_open = true;
         Ok(())
     }
@@ -159,7 +159,7 @@ impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
         self.funcalls.arguments_chunk(
             args.as_bytes(),
             &mut self.chat_writer,
-            &mut self.dag_writer,
+            &mut self.tools_writer,
         )?;
         self.is_tool_section_open = true;
         Ok(())
@@ -171,7 +171,7 @@ impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
     pub fn tool_call_index(&mut self, index: usize) -> Result<(), Box<dyn std::error::Error>> {
         self.auto_close_text_if_open()?;
         self.funcalls
-            .index(index, &mut self.chat_writer, &mut self.dag_writer)?;
+            .index(index, &mut self.chat_writer, &mut self.tools_writer)?;
         self.is_tool_section_open = true;
         Ok(())
     }
@@ -181,7 +181,7 @@ impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_end_if_direct(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.funcalls
-            .end_item_if_direct(&mut self.chat_writer, &mut self.dag_writer)?;
+            .end_item_if_direct(&mut self.chat_writer, &mut self.tools_writer)?;
         // Don't modify is_tool_section_open - this is not a section-level operation
         Ok(())
     }
@@ -201,7 +201,7 @@ impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
     /// I/O or other errors from the underlying writers
     pub fn end(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         self.chat_writer.end()?;
-        self.dag_writer.end()?;
+        self.tools_writer.end()?;
         Ok(())
     }
 }

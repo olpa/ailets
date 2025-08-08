@@ -1,6 +1,6 @@
 pub mod dagops;
 pub mod fcw_chat;
-pub mod fcw_dag;
+pub mod fcw_tools;
 pub mod fcw_trait;
 pub mod funcalls_builder;
 pub mod handlers;
@@ -9,7 +9,7 @@ pub mod structure_builder;
 use actor_io::{AReader, AWriter};
 use actor_runtime::{err_to_heap_c_string, extract_errno, StdHandle};
 use dagops::{DagOps, DagOpsTrait};
-use fcw_dag::FunCallsToDag;
+use fcw_tools::FunCallsToTools;
 
 use handlers::{
     on_begin_message, on_content, on_end_message, on_function_arguments, on_function_end,
@@ -142,8 +142,8 @@ pub fn _process_gpt<W: Write + 'static, D: DagOpsTrait>(
     stdout_writer: W,
     dagops: D,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let dag_writer = FunCallsToDag::new();
-    let builder = StructureBuilder::new(stdout_writer, dag_writer, dagops);
+    let tools_writer = FunCallsToTools::new();
+    let builder = StructureBuilder::new(stdout_writer, tools_writer, dagops);
     let builder_cell = RefCell::new(builder);
 
     let mut buffer = vec![0u8; BUFFER_SIZE as usize];
