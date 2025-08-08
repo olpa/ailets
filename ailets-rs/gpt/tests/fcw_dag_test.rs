@@ -27,11 +27,11 @@ fn inject_tool_calls_to_dag() {
     //
     {
         let mut chat_writer = FunCallsToChat::new(writer.clone());
-        let mut dagops_writer = FunCallsToDag::new(&mut tracked_dagops);
+        let mut dagops_writer = FunCallsToDag::new();
 
         // Write to both chat and DAG
-        chat_writer.new_item("call_1", "get_weather").unwrap();
-        dagops_writer.new_item("call_1", "get_weather").unwrap();
+        chat_writer.new_item("call_1", "get_weather", &mut tracked_dagops).unwrap();
+        dagops_writer.new_item("call_1", "get_weather", &mut tracked_dagops).unwrap();
 
         chat_writer
             .arguments_chunk(b"{\\\"city\\\":\\\"London\\\"}")
@@ -43,8 +43,8 @@ fn inject_tool_calls_to_dag() {
         chat_writer.end_item().unwrap();
         dagops_writer.end_item().unwrap();
 
-        chat_writer.new_item("call_2", "get_forecast").unwrap();
-        dagops_writer.new_item("call_2", "get_forecast").unwrap();
+        chat_writer.new_item("call_2", "get_forecast", &mut tracked_dagops).unwrap();
+        dagops_writer.new_item("call_2", "get_forecast", &mut tracked_dagops).unwrap();
 
         chat_writer.arguments_chunk(b"{\\\"days\\\":5}").unwrap();
         dagops_writer.arguments_chunk(b"{\\\"days\\\":5}").unwrap();
@@ -59,12 +59,6 @@ fn inject_tool_calls_to_dag() {
     //
     // Assert
     //
-
-    //
-    // Detached old nodes
-    //
-    let expected_detached = vec![".chat_messages".to_string()];
-    assert_that!(tracked_dagops.detached(), is(equal_to(&expected_detached)));
 
     // Assert that the value nodes are created:
     // - 2 for tool calls input (one per tool call)
@@ -155,9 +149,8 @@ fn inject_tool_calls_to_dag() {
     // Assert that the workflows are created:
     // - 2 for tools themselves
     // - 2 for output to chat history
-    // - 1 to re-run the model
     let workflows = tracked_dagops.workflows();
-    assert_eq!(workflows.len(), 5);
+    assert_eq!(workflows.len(), 4);
 
     //
     // Assert: call tools
@@ -216,25 +209,10 @@ fn inject_tool_calls_to_dag() {
     );
 
     //
-    // Assert: re-run the model
-    //
-    let (_handle_rerun, rerun_workflow, deps_rerun) = tracked_dagops.parse_workflow(&workflows[4]);
-    assert_that!(rerun_workflow, is(equal_to(format!(".gpt"))));
-    assert_that!(
-        deps_rerun,
-        is(equal_to(HashMap::from([
-            (".chat_messages.media".to_string(), 0),
-            (".chat_messages.toolspecs".to_string(), 0),
-        ])))
-    );
-
-    //
     // Assert: aliases
-    // - For each tool call (2): 1 for tool_input + 1 for llm_tool_spec + 1 for chat_messages
-    // - 1 for model output
-    // Total: (3 * 2) + 1 = 7
+    // - For each tool call: 1 for tool_input + 1 for llm_tool_spec + 1 for chat_messages
     //
-    assert_eq!(tracked_dagops.aliases().len(), 7);
+    assert_eq!(tracked_dagops.aliases().len(), 6);
 
     // Aliases for first tool call
     let (_, alias_name, alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases()[0]);
@@ -259,19 +237,15 @@ fn inject_tool_calls_to_dag() {
 
     let (_, alias_name, _alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases()[5]);
     assert_that!(&alias_name, is(equal_to(".chat_messages")));
-
-    // Final alias for model output
-    let (_, alias_name, _alias_handle) = tracked_dagops.parse_alias(&tracked_dagops.aliases()[6]);
-    assert_that!(&alias_name, is(equal_to(".output_messages")));
 }
 
 #[test]
 fn inject_empty_tool_calls_to_dag() {
     // Arrange
-    let mut tracked_dagops = TrackedDagOps::default();
+    let tracked_dagops = TrackedDagOps::default();
 
     {
-        let _dagops_writer = FunCallsToDag::new(&mut tracked_dagops);
+        let _dagops_writer = FunCallsToDag::new();
 
         // Act - Don't call any methods on the writer (equivalent to empty tool calls)
     } // dagops_writer is dropped here, releasing the borrow
@@ -296,11 +270,11 @@ fn multiple_arguments_chunks() {
     //
     {
         let mut chat_writer = FunCallsToChat::new(writer.clone());
-        let mut dagops_writer = FunCallsToDag::new(&mut tracked_dagops);
+        let mut dagops_writer = FunCallsToDag::new();
 
         // Write to both chat and DAG
-        chat_writer.new_item("call_1", "get_weather").unwrap();
-        dagops_writer.new_item("call_1", "get_weather").unwrap();
+        chat_writer.new_item("call_1", "get_weather", &mut tracked_dagops).unwrap();
+        dagops_writer.new_item("call_1", "get_weather", &mut tracked_dagops).unwrap();
 
         // Call arguments_chunk multiple times with different chunks
         chat_writer.arguments_chunk(b"{\\\"city\\\":").unwrap();

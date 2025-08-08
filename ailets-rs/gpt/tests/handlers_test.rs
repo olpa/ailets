@@ -1,54 +1,22 @@
 use actor_runtime_mocked::RcWriter;
-use gpt::fcw_trait::{FunCallResult, FunCallsWrite};
 use gpt::handlers::{on_content, on_function_index, on_function_name};
 use gpt::structure_builder::StructureBuilder;
+use gpt::fcw_dag::FunCallsToDag;
+use dagops_mock::TrackedDagOps;
+
+pub mod dagops_mock;
 use scan_json::{RJiter, StreamOp};
 use std::cell::RefCell;
-use std::io::{Cursor, Write};
+use std::io::Cursor;
 
-/// Simple wrapper to make Vec<u8> implement FunCallsWrite for basic tests
-struct DummyDagWriter(Vec<u8>);
-
-impl DummyDagWriter {
-    fn new() -> Self {
-        Self(Vec::new())
-    }
-}
-
-impl Write for DummyDagWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.write(buf)
-    }
-
-    fn flush(&mut self) -> std::io::Result<()> {
-        self.0.flush()
-    }
-}
-
-impl FunCallsWrite for DummyDagWriter {
-    fn new_item(&mut self, _id: &str, _name: &str) -> FunCallResult {
-        Ok(())
-    }
-
-    fn arguments_chunk(&mut self, _chunk: &[u8]) -> FunCallResult {
-        Ok(())
-    }
-
-    fn end_item(&mut self) -> FunCallResult {
-        Ok(())
-    }
-
-    fn end(&mut self) -> FunCallResult {
-        Ok(())
-    }
-}
 
 #[test]
 fn content_writes_to_builder() {
     // Arrange
     let writer = RcWriter::new();
-    let dag_writer = DummyDagWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), dag_writer);
+    let tracked_dagops = TrackedDagOps::default();
+    let dag_writer = FunCallsToDag::new();
+    let builder = StructureBuilder::new(writer.clone(), dag_writer, tracked_dagops);
     let builder_cell = RefCell::new(builder);
 
     let mut json_reader = Cursor::new(r#""hello world""#);
@@ -69,8 +37,9 @@ fn content_writes_to_builder() {
 fn content_can_be_null() {
     // Arrange
     let writer = RcWriter::new();
-    let dag_writer = DummyDagWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), dag_writer);
+    let tracked_dagops = TrackedDagOps::default();
+    let dag_writer = FunCallsToDag::new();
+    let builder = StructureBuilder::new(writer.clone(), dag_writer, tracked_dagops);
     let builder_cell = RefCell::new(builder);
 
     let mut json_reader = Cursor::new(r#"null"#);
@@ -89,9 +58,10 @@ fn content_can_be_null() {
 #[test]
 fn on_function_string_field_invalid_value_type() {
     // Arrange
-    let mut buffer = Cursor::new(Vec::new());
-    let dag_writer = DummyDagWriter::new();
-    let builder = StructureBuilder::new(&mut buffer, dag_writer);
+    let buffer = RcWriter::new();
+    let tracked_dagops = TrackedDagOps::default();
+    let dag_writer = FunCallsToDag::new();
+    let builder = StructureBuilder::new(buffer.clone(), dag_writer, tracked_dagops);
     let builder_cell = RefCell::new(builder);
 
     // Arrange: Setup with invalid JSON (number instead of string)
@@ -111,9 +81,10 @@ fn on_function_string_field_invalid_value_type() {
 #[test]
 fn on_function_index_invalid_value_type() {
     // Arrange: Setup with invalid JSON (float instead of integer)
-    let mut buffer = Cursor::new(Vec::new());
-    let dag_writer = DummyDagWriter::new();
-    let builder = StructureBuilder::new(&mut buffer, dag_writer);
+    let buffer = RcWriter::new();
+    let tracked_dagops = TrackedDagOps::default();
+    let dag_writer = FunCallsToDag::new();
+    let builder = StructureBuilder::new(buffer.clone(), dag_writer, tracked_dagops);
     let builder_cell = RefCell::new(builder);
 
     let json = r#"3.14"#; // Invalid - should be an integer

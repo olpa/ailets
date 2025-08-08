@@ -1,5 +1,9 @@
 use gpt::fcw_chat::FunCallsToChat;
 use gpt::fcw_trait::FunCallsWrite;
+use actor_runtime_mocked::RcWriter;
+
+pub mod dagops_mock;
+use dagops_mock::TrackedDagOps;
 
 //
 // Tests for FunCallsToChat implementation
@@ -8,18 +12,19 @@ use gpt::fcw_trait::FunCallsWrite;
 #[test]
 fn single_funcall() {
     // Arrange
-    let mut writer = Vec::new();
-    let mut chat_writer = FunCallsToChat::new(&mut writer);
+    let writer = RcWriter::new();
+    let mut chat_writer = FunCallsToChat::new(writer.clone());
+    let mut dagops = TrackedDagOps::default();
 
     // Act
     chat_writer
-        .new_item("call_9cFpsOXfVWMUoDz1yyyP1QXD", "get_user_name")
+        .new_item("call_9cFpsOXfVWMUoDz1yyyP1QXD", "get_user_name", &mut dagops)
         .unwrap();
     chat_writer.arguments_chunk(b"{}").unwrap();
     chat_writer.end_item().unwrap();
 
     // Assert
-    let output = String::from_utf8(writer).unwrap();
+    let output = writer.get_output();
     let expected = r#"[{"type":"function","id":"call_9cFpsOXfVWMUoDz1yyyP1QXD","name":"get_user_name"},{"arguments":"{}"}]
 "#;
     assert_eq!(output, expected);
@@ -28,26 +33,27 @@ fn single_funcall() {
 #[test]
 fn several_funcalls() {
     // Arrange
-    let mut writer = Vec::new();
-    let mut chat_writer = FunCallsToChat::new(&mut writer);
+    let writer = RcWriter::new();
+    let mut chat_writer = FunCallsToChat::new(writer.clone());
+    let mut dagops = TrackedDagOps::default();
 
     // First tool call
-    chat_writer.new_item("call_foo", "get_foo").unwrap();
+    chat_writer.new_item("call_foo", "get_foo", &mut dagops).unwrap();
     chat_writer.arguments_chunk(b"{foo_args}").unwrap();
     chat_writer.end_item().unwrap();
 
     // Second tool call
-    chat_writer.new_item("call_bar", "get_bar").unwrap();
+    chat_writer.new_item("call_bar", "get_bar", &mut dagops).unwrap();
     chat_writer.arguments_chunk(b"{bar_args}").unwrap();
     chat_writer.end_item().unwrap();
 
     // Third tool call
-    chat_writer.new_item("call_baz", "get_baz").unwrap();
+    chat_writer.new_item("call_baz", "get_baz", &mut dagops).unwrap();
     chat_writer.arguments_chunk(b"{baz_args}").unwrap();
     chat_writer.end_item().unwrap();
 
     // Assert
-    let output = String::from_utf8(writer).unwrap();
+    let output = writer.get_output();
     let expected = r#"[{"type":"function","id":"call_foo","name":"get_foo"},{"arguments":"{foo_args}"}]
 [{"type":"function","id":"call_bar","name":"get_bar"},{"arguments":"{bar_args}"}]
 [{"type":"function","id":"call_baz","name":"get_baz"},{"arguments":"{baz_args}"}]
@@ -58,11 +64,12 @@ fn several_funcalls() {
 #[test]
 fn long_arguments() {
     // Arrange
-    let mut writer = Vec::new();
-    let mut chat_writer = FunCallsToChat::new(&mut writer);
+    let writer = RcWriter::new();
+    let mut chat_writer = FunCallsToChat::new(writer.clone());
+    let mut dagops = TrackedDagOps::default();
 
     // Act - arguments come in multiple chunks
-    chat_writer.new_item("call_123", "test_func").unwrap();
+    chat_writer.new_item("call_123", "test_func", &mut dagops).unwrap();
     chat_writer.arguments_chunk(b"{\\\"arg1\\\":").unwrap();
     chat_writer.arguments_chunk(b"\\\"value1\\\",").unwrap();
     chat_writer
@@ -71,7 +78,7 @@ fn long_arguments() {
     chat_writer.end_item().unwrap();
 
     // Assert
-    let output = String::from_utf8(writer).unwrap();
+    let output = writer.get_output();
     let expected = "[{\"type\":\"function\",\"id\":\"call_123\",\"name\":\"test_func\"},{\"arguments\":\"{\\\"arg1\\\":\\\"value1\\\",\\\"arg2\\\":\\\"value2\\\"}\"}]\n";
     assert_eq!(output, expected);
 }
@@ -79,11 +86,12 @@ fn long_arguments() {
 #[test]
 fn multiple_arguments_chunks() {
     // Arrange
-    let mut writer = Vec::new();
-    let mut chat_writer = FunCallsToChat::new(&mut writer);
+    let writer = RcWriter::new();
+    let mut chat_writer = FunCallsToChat::new(writer.clone());
+    let mut dagops = TrackedDagOps::default();
 
     // Act - multiple calls to arguments_chunk join values to one arguments attribute
-    chat_writer.new_item("call_multi", "foo").unwrap();
+    chat_writer.new_item("call_multi", "foo", &mut dagops).unwrap();
     chat_writer.arguments_chunk(b"{\\\"first\\\":").unwrap();
     chat_writer.arguments_chunk(b"\\\"chunk1\\\",").unwrap();
     chat_writer.arguments_chunk(b"\\\"second\\\":").unwrap();
@@ -94,7 +102,7 @@ fn multiple_arguments_chunks() {
     chat_writer.end_item().unwrap();
 
     // Assert
-    let output = String::from_utf8(writer).unwrap();
+    let output = writer.get_output();
     let expected = "[{\"type\":\"function\",\"id\":\"call_multi\",\"name\":\"foo\"},{\"arguments\":\"{\\\"first\\\":\\\"chunk1\\\",\\\"second\\\":\\\"chunk2\\\",\\\"third\\\":\\\"chunk3\\\"}\"}]\n";
     assert_eq!(output, expected);
 }
@@ -102,15 +110,16 @@ fn multiple_arguments_chunks() {
 #[test]
 fn empty_arguments() {
     // Arrange
-    let mut writer = Vec::new();
-    let mut chat_writer = FunCallsToChat::new(&mut writer);
+    let writer = RcWriter::new();
+    let mut chat_writer = FunCallsToChat::new(writer.clone());
+    let mut dagops = TrackedDagOps::default();
 
     // Act - function call with empty arguments
-    chat_writer.new_item("call_empty", "no_args_func").unwrap();
+    chat_writer.new_item("call_empty", "no_args_func", &mut dagops).unwrap();
     chat_writer.end_item().unwrap();
 
     // Assert
-    let output = String::from_utf8(writer).unwrap();
+    let output = writer.get_output();
     let expected = r#"[{"type":"function","id":"call_empty","name":"no_args_func"},{"arguments":""}]
 "#;
     assert_eq!(output, expected);
@@ -119,12 +128,13 @@ fn empty_arguments() {
 #[test]
 fn json_escaping_in_id_and_name() {
     // Arrange
-    let mut writer = Vec::new();
-    let mut chat_writer = FunCallsToChat::new(&mut writer);
+    let writer = RcWriter::new();
+    let mut chat_writer = FunCallsToChat::new(writer.clone());
+    let mut dagops = TrackedDagOps::default();
 
     // Act - id and name contain JSON special characters that need escaping
     chat_writer
-        .new_item("call_\"quote\"", "test_\"name\"")
+        .new_item("call_\"quote\"", "test_\"name\"", &mut dagops)
         .unwrap();
     chat_writer
         .arguments_chunk(b"{\\\"key\\\":\\\"value\\\"}")
@@ -132,7 +142,7 @@ fn json_escaping_in_id_and_name() {
     chat_writer.end_item().unwrap();
 
     // Assert - id and name JSON special characters should be properly escaped
-    let output = String::from_utf8(writer).unwrap();
+    let output = writer.get_output();
     let expected = r#"[{"type":"function","id":"call_\"quote\"","name":"test_\"name\""},{"arguments":"{\"key\":\"value\"}"}]
 "#;
     assert_eq!(output, expected);
@@ -141,18 +151,19 @@ fn json_escaping_in_id_and_name() {
 #[test]
 fn json_escaping_backslashes_in_id_and_name() {
     // Arrange
-    let mut writer = Vec::new();
-    let mut chat_writer = FunCallsToChat::new(&mut writer);
+    let writer = RcWriter::new();
+    let mut chat_writer = FunCallsToChat::new(writer.clone());
+    let mut dagops = TrackedDagOps::default();
 
     // Act - test backslash escaping in id and name
-    chat_writer.new_item("call\\id", "test\\name").unwrap();
+    chat_writer.new_item("call\\id", "test\\name", &mut dagops).unwrap();
     chat_writer
         .arguments_chunk(b"{\\\"path\\\":\\\"C:\\\\\\\\Program Files\\\\\\\\\\\"}")
         .unwrap();
     chat_writer.end_item().unwrap();
 
     // Assert - backslashes in id and name should be properly escaped
-    let output = String::from_utf8(writer).unwrap();
+    let output = writer.get_output();
     let expected = r#"[{"type":"function","id":"call\\id","name":"test\\name"},{"arguments":"{\"path\":\"C:\\\\Program Files\\\\\"}"}]
 "#;
     assert_eq!(output, expected);

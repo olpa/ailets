@@ -16,7 +16,7 @@ fn test_basic_processing() {
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
 
-    _process_gpt(reader, writer.clone(), &mut TrackedDagOps::default()).unwrap();
+    _process_gpt(reader, writer.clone(), TrackedDagOps::default()).unwrap();
 
     assert_eq!(writer.get_output(), get_expected_basic_message());
 }
@@ -28,7 +28,7 @@ fn test_streaming() {
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
 
-    _process_gpt(reader, writer.clone(), &mut TrackedDagOps::default()).unwrap();
+    _process_gpt(reader, writer.clone(), TrackedDagOps::default()).unwrap();
 
     assert_eq!(writer.get_output(), get_expected_basic_message());
 }
@@ -41,7 +41,7 @@ fn funcall_response() {
     let writer = RcWriter::new();
     let mut dagops = TrackedDagOps::default();
 
-    _process_gpt(reader, writer.clone(), &mut dagops).unwrap();
+    _process_gpt(reader, writer.clone(), dagops.clone()).unwrap();
 
     // Assert chat output
     let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
@@ -84,7 +84,7 @@ fn funcall_streaming() {
     let writer = RcWriter::new();
     let mut dagops = TrackedDagOps::default();
 
-    _process_gpt(reader, writer.clone(), &mut dagops).unwrap();
+    _process_gpt(reader, writer.clone(), dagops.clone()).unwrap();
 
     // Assert chat output
     let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
@@ -127,7 +127,7 @@ fn delta_index_regress() {
     let writer = RcWriter::new();
     let mut dagops = TrackedDagOps::default();
 
-    _process_gpt(reader, writer.clone(), &mut dagops).unwrap();
+    _process_gpt(reader, writer.clone(), dagops.clone()).unwrap();
 
     // Assert chat output - should have 2 function calls
     let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
@@ -185,7 +185,7 @@ fn duplicate_tool_call_id_error() {
     let writer = RcWriter::new();
     let mut dagops = TrackedDagOps::default();
 
-    let result = _process_gpt(reader, writer.clone(), &mut dagops);
+    let result = _process_gpt(reader, writer.clone(), dagops.clone());
 
     assert!(result.is_err());
     let error_message = result.unwrap_err().to_string();
@@ -200,7 +200,7 @@ fn nonincremental_index_error() {
     let writer = RcWriter::new();
     let mut dagops = TrackedDagOps::default();
 
-    let result = _process_gpt(reader, writer.clone(), &mut dagops);
+    let result = _process_gpt(reader, writer.clone(), dagops.clone());
 
     assert!(result.is_err());
     let error_message = result.unwrap_err().to_string();
@@ -215,7 +215,7 @@ fn arguments_before_name_retained() {
     let writer = RcWriter::new();
     let mut dagops = TrackedDagOps::default();
 
-    _process_gpt(reader, writer.clone(), &mut dagops).unwrap();
+    _process_gpt(reader, writer.clone(), dagops.clone()).unwrap();
 
     // Assert chat output - arguments before name should be retained
     let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
