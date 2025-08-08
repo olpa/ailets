@@ -7,6 +7,7 @@ use crate::fcw_chat::FunCallsToChat;
 use crate::fcw_tools::FunCallsToTools;
 use crate::fcw_trait::FunCallsWrite;
 use crate::funcalls_builder::FunCallsBuilder;
+use actor_io::AWriter;
 use std::io::Write;
 
 pub struct ArgumentsChunkWriter<'a, W1: Write, D: DagOpsTrait> {
@@ -36,7 +37,8 @@ impl<'a, W1: Write + 'static, D: DagOpsTrait> Write for ArgumentsChunkWriter<'a,
 
 pub struct StructureBuilder<W1: std::io::Write, D: DagOpsTrait> {
     funcalls: FunCallsBuilder<D>,
-    chat_writer: FunCallsToChat<W1>,
+    stdout: W1,
+    chat_writer: FunCallsToChat<AWriter>,
     tools_writer: FunCallsToTools,
     text_is_open: bool,
     is_tool_section_open: bool,
@@ -45,9 +47,11 @@ pub struct StructureBuilder<W1: std::io::Write, D: DagOpsTrait> {
 impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
     #[must_use]
     pub fn new(stdout_writer: W1, dagops: D) -> Self {
+        let chat_awriter = AWriter::new_from_fd(777).expect("Failed to create writer from fd 777");
         StructureBuilder {
             funcalls: FunCallsBuilder::new(dagops),
-            chat_writer: FunCallsToChat::new(stdout_writer),
+            stdout: stdout_writer,
+            chat_writer: FunCallsToChat::new(chat_awriter),
             tools_writer: FunCallsToTools::new(),
             text_is_open: false,
             is_tool_section_open: false,
@@ -55,8 +59,8 @@ impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
     }
 
     #[must_use]
-    pub fn get_writer(&mut self) -> &mut FunCallsToChat<W1> {
-        &mut self.chat_writer
+    pub fn get_writer(&mut self) -> &mut W1 {
+        &mut self.stdout
     }
 
     #[must_use]
@@ -67,7 +71,7 @@ impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
     /// Auto-close text if it's open
     fn auto_close_text_if_open(&mut self) -> Result<(), std::io::Error> {
         if self.text_is_open {
-            self.chat_writer.write_all(b"\"}]\n")?;
+            self.stdout.write_all(b"\"}]\n")?;
             self.text_is_open = false;
         }
         Ok(())
@@ -102,8 +106,8 @@ impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
         self.auto_close_tool_section_if_open()?;
         self.chat_writer
             .write_all(b"[{\"type\":\"ctl\"},{\"role\":\"")?;
-        self.chat_writer.write_all(role.as_bytes())?;
-        self.chat_writer.write_all(b"\"}]\n")?;
+        self.stdout.write_all(role.as_bytes())?;
+        self.stdout.write_all(b"\"}]\n")?;
         Ok(())
     }
 
@@ -124,7 +128,7 @@ impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
     /// # Errors
     /// I/O
     pub fn end_text_chunk(&mut self) -> Result<(), std::io::Error> {
-        self.chat_writer.write_all(b"\"}]\n")?;
+        self.stdout.write_all(b"\"}]\n")?;
         self.text_is_open = false;
         Ok(())
     }
