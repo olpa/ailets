@@ -44,11 +44,11 @@ pub struct StructureBuilder<W1: std::io::Write, D: DagOpsTrait> {
 
 impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
     #[must_use]
-    pub fn new(stdout_writer: W1, tools_writer: FunCallsToTools, dagops: D) -> Self {
+    pub fn new(stdout_writer: W1, dagops: D) -> Self {
         StructureBuilder {
             funcalls: FunCallsBuilder::new(dagops),
             chat_writer: FunCallsToChat::new(stdout_writer),
-            tools_writer,
+            tools_writer: FunCallsToTools::new(),
             text_is_open: false,
             is_tool_section_open: false,
         }
