@@ -7,7 +7,7 @@ use crate::dagops::DagOpsTrait;
 use crate::fcw_chat::FunCallsToChat;
 use crate::fcw_tools::FunCallsToTools;
 use crate::fcw_trait::FunCallsWrite;
-use std::io::Write;
+use actor_io::AWriter;
 
 /// State manager for streaming function call processing
 ///
@@ -16,7 +16,6 @@ use std::io::Write;
 /// - Correct pairing of ID and name before processing
 /// - Buffering of arguments until the function call is ready
 /// - State transitions follow the expected protocol
-#[derive(Debug)]
 pub struct FunCallsBuilder<D: DagOpsTrait> {
     /// The highest function call index seen so far (enables streaming mode)
     pub last_index: Option<usize>,
@@ -32,6 +31,10 @@ pub struct FunCallsBuilder<D: DagOpsTrait> {
     detached: bool,
     /// DAG operations implementation
     dagops: D,
+    /// Chat writer for function calls
+    chat_writer: FunCallsToChat<AWriter>,
+    /// Tools writer for function calls
+    tools_writer: FunCallsToTools,
 }
 
 impl<D: DagOpsTrait> FunCallsBuilder<D> {
@@ -44,6 +47,7 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     /// A new `FunCallsBuilder` instance ready to process streaming function calls
     #[must_use]
     pub fn new(dagops: D) -> Self {
+        let chat_awriter = AWriter::new_from_fd(777).expect("Failed to create writer from fd 777");
         Self {
             last_index: None,
             current_id: None,
@@ -52,6 +56,8 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
             new_item_called: false,
             detached: false,
             dagops,
+            chat_writer: FunCallsToChat::new(chat_awriter),
+            tools_writer: FunCallsToTools::new(),
         }
     }
 
@@ -64,17 +70,9 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     /// This method handles the coordination between ID and name arrival,
     /// calling the writers' `new_item` methods when both are present.
     ///
-    /// # Arguments
-    /// * `chat_writer` - The chat writer to call `new_item` on
-    /// * `tools_writer` - The dag writer to call `new_item` on
-    ///
     /// # Errors
     /// Returns an error if the writers' `new_item` or `arguments_chunk` methods fail
-    fn try_call_new_item<W: Write + 'static>(
-        &mut self,
-        chat_writer: &mut FunCallsToChat<W>,
-        tools_writer: &mut FunCallsToTools,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    fn try_call_new_item(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if !self.new_item_called {
             // Handle DAG detachment before calling writers
             if !self.detached {
@@ -83,14 +81,14 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
             }
 
             if let (Some(id), Some(name)) = (&self.current_id, &self.current_name) {
-                chat_writer.new_item(id, name, &mut self.dagops)?;
-                tools_writer.new_item(id, name, &mut self.dagops)?;
+                self.chat_writer.new_item(id, name, &mut self.dagops)?;
+                self.tools_writer.new_item(id, name, &mut self.dagops)?;
                 self.new_item_called = true;
 
                 // Send any pending arguments that were accumulated before new_item
                 if let Some(ref args) = self.pending_arguments {
-                    chat_writer.arguments_chunk(args)?;
-                    tools_writer.arguments_chunk(args)?;
+                    self.chat_writer.arguments_chunk(args)?;
+                    self.tools_writer.arguments_chunk(args)?;
                     self.pending_arguments = None;
                 }
 
@@ -111,17 +109,9 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     /// In direct mode (when `index` has not been called), this method ends the item.
     /// In streaming mode (when `index` has been called), this method does nothing.
     ///
-    /// # Arguments
-    /// * `chat_writer` - The chat writer to use for ending the item
-    /// * `tools_writer` - The dag writer to use for ending the item
-    ///
     /// # Errors
     /// Returns error if "`end_item_if_direct`" is called without "`new_item`" being called first
-    pub fn end_item_if_direct<W: Write + 'static>(
-        &mut self,
-        chat_writer: &mut FunCallsToChat<W>,
-        tools_writer: &mut FunCallsToTools,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn end_item_if_direct(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if !self.new_item_called {
             // Provide a more descriptive error message based on what's missing
             let missing_parts = match (&self.current_id, &self.current_name) {
@@ -138,7 +128,7 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
 
         // Only end the item if we're in direct mode (not streaming mode)
         if !self.is_streaming_mode() {
-            self.enforce_end_item(chat_writer, tools_writer)?;
+            self.enforce_end_item()?;
         }
 
         Ok(())
@@ -151,24 +141,16 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     /// close items at the end of processing, even when in streaming mode.
     /// This ensures proper JSON structure completion in streaming scenarios.
     ///
-    /// # Arguments
-    /// * `chat_writer` - The chat writer to use for ending the item
-    /// * `tools_writer` - The dag writer to use for ending the item
-    ///
     /// # Errors
     /// Returns error if "`enforce_end_item`" is called without "`new_item`" being called first
-    pub fn enforce_end_item<W: Write + 'static>(
-        &mut self,
-        chat_writer: &mut FunCallsToChat<W>,
-        tools_writer: &mut FunCallsToTools,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn enforce_end_item(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if !self.new_item_called {
             return Err("enforce_end_item called without new_item being called first".into());
         }
 
         // Always end the item, regardless of mode
-        chat_writer.end_item()?;
-        tools_writer.end_item()?;
+        self.chat_writer.end_item()?;
+        self.tools_writer.end_item()?;
         // Reset state for next function call
         self.reset_current_call_state();
 
@@ -179,17 +161,10 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     ///
     /// # Arguments
     /// * `index` - The function call index
-    /// * `chat_writer` - The chat writer to use
-    /// * `tools_writer` - The dag writer to use
     ///
     /// # Errors
     /// Returns error if validation fails or writing operation fails
-    pub fn index<W: Write + 'static>(
-        &mut self,
-        index: usize,
-        chat_writer: &mut FunCallsToChat<W>,
-        tools_writer: &mut FunCallsToTools,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn index(&mut self, index: usize) -> Result<(), Box<dyn std::error::Error>> {
         // Validate streaming assumption: index progression
         match self.last_index {
             None => {
@@ -216,8 +191,8 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
                 // If we're moving to a new index, end the current function call
                 if index > last {
                     if self.new_item_called {
-                        chat_writer.end_item()?;
-                        tools_writer.end_item()?;
+                        self.chat_writer.end_item()?;
+                        self.tools_writer.end_item()?;
                     }
                     self.reset_current_call_state();
                 }
@@ -233,17 +208,10 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     ///
     /// # Arguments
     /// * `id` - The function call ID
-    /// * `chat_writer` - The chat writer to use
-    /// * `tools_writer` - The dag writer to use
     ///
     /// # Errors
     /// Returns error if validation fails
-    pub fn id<W: Write + 'static>(
-        &mut self,
-        id: &str,
-        chat_writer: &mut FunCallsToChat<W>,
-        tools_writer: &mut FunCallsToTools,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn id(&mut self, id: &str) -> Result<(), Box<dyn std::error::Error>> {
         // Check if ID is already set or new_item already called
         if self.new_item_called || self.current_id.is_some() {
             return Err("ID is already given".into());
@@ -255,7 +223,7 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
         // ID is now stored only in current_call
 
         // Call new_item immediately if both id and name are now available
-        self.try_call_new_item(chat_writer, tools_writer)?;
+        self.try_call_new_item()?;
 
         Ok(())
     }
@@ -264,17 +232,10 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     ///
     /// # Arguments
     /// * `name` - The function call name
-    /// * `chat_writer` - The chat writer to use
-    /// * `tools_writer` - The dag writer to use
     ///
     /// # Errors
     /// Returns error if validation fails or writing operation fails
-    pub fn name<W: Write + 'static>(
-        &mut self,
-        name: &str,
-        chat_writer: &mut FunCallsToChat<W>,
-        tools_writer: &mut FunCallsToTools,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn name(&mut self, name: &str) -> Result<(), Box<dyn std::error::Error>> {
         // Check if name is already set or new_item already called
         if self.new_item_called || self.current_name.is_some() {
             return Err("Name is already given".into());
@@ -286,7 +247,7 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
         // Name is now stored only in current_call
 
         // Call new_item immediately if both id and name are now available
-        self.try_call_new_item(chat_writer, tools_writer)?;
+        self.try_call_new_item()?;
 
         Ok(())
     }
@@ -295,18 +256,13 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     ///
     /// # Errors
     /// Returns error if writing operation fails
-    pub fn arguments_chunk<W: Write + 'static>(
-        &mut self,
-        args: &[u8],
-        chat_writer: &mut FunCallsToChat<W>,
-        tools_writer: &mut FunCallsToTools,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn arguments_chunk(&mut self, args: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
         // Arguments are now stored only in current_call
 
         // Pass arguments directly to writers after new_item has been called
         if self.new_item_called {
-            chat_writer.arguments_chunk(args)?;
-            tools_writer.arguments_chunk(args)?;
+            self.chat_writer.arguments_chunk(args)?;
+            self.tools_writer.arguments_chunk(args)?;
         } else {
             // Store arguments until new_item is called
             match &mut self.pending_arguments {
@@ -320,27 +276,19 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
 
     /// Finalizes all function calls
     ///
-    /// # Arguments
-    /// * `chat_writer` - The chat writer to use
-    /// * `tools_writer` - The dag writer to use
-    ///
     /// # Errors
     /// Returns error if writing operation fails
-    pub fn end<W: Write + 'static>(
-        &mut self,
-        chat_writer: &mut FunCallsToChat<W>,
-        tools_writer: &mut FunCallsToTools,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn end(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // "end" calls "end_item" if "end_item_if_direct" was not called
         if self.new_item_called {
-            chat_writer.end_item()?;
-            tools_writer.end_item()?;
+            self.chat_writer.end_item()?;
+            self.tools_writer.end_item()?;
             self.new_item_called = false;
         }
 
         // Call end on writers (no dagops needed anymore)
-        chat_writer.end()?;
-        tools_writer.end()?;
+        self.chat_writer.end()?;
+        self.tools_writer.end()?;
 
         // Handle final DAG workflow processing
         self.end_workflow()?;

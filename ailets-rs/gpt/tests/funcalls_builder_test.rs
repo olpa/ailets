@@ -70,32 +70,26 @@ fn assert_own_dagops(tracked_dagops: &TrackedDagOps, n_tools: usize) {
 fn single_funcall_direct() {
     // Arrange
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Act
     // Don't call "index"
     funcalls
-        .id(
-            "call_9cFpsOXfVWMUoDz1yyyP1QXD",
-            &mut chat_writer,
-            &mut tools_writer,
-        )
+        .id("call_9cFpsOXfVWMUoDz1yyyP1QXD")
         .unwrap();
     funcalls
-        .name("get_user_name", &mut chat_writer, &mut tools_writer)
+        .name("get_user_name")
         .unwrap();
     funcalls
-        .arguments_chunk(b"{}", &mut chat_writer, &mut tools_writer)
+        .arguments_chunk(b"{}")
         .unwrap();
     funcalls
-        .end_item_if_direct(&mut chat_writer, &mut tools_writer)
+        .end_item_if_direct()
         .unwrap();
 
     // Assert output
-    funcalls.end(&mut chat_writer, &mut tools_writer).unwrap();
+    funcalls.end().unwrap();
     assert_writers(
         &writer,
         &tracked_dagops,
@@ -110,55 +104,53 @@ fn single_funcall_direct() {
 fn several_funcalls_direct() {
     // Arrange
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // First tool call - Don't call "index"
     funcalls
-        .id("call_foo", &mut chat_writer, &mut tools_writer)
+        .id("call_foo")
         .unwrap();
     funcalls
-        .name("get_foo", &mut chat_writer, &mut tools_writer)
+        .name("get_foo")
         .unwrap();
     funcalls
-        .arguments_chunk(b"{foo_args}", &mut chat_writer, &mut tools_writer)
+        .arguments_chunk(b"{foo_args}")
         .unwrap();
     funcalls
-        .end_item_if_direct(&mut chat_writer, &mut tools_writer)
+        .end_item_if_direct()
         .unwrap();
 
     // Second tool call - Don't call "index"
     funcalls
-        .id("call_bar", &mut chat_writer, &mut tools_writer)
+        .id("call_bar")
         .unwrap();
     funcalls
-        .name("get_bar", &mut chat_writer, &mut tools_writer)
+        .name("get_bar")
         .unwrap();
     funcalls
-        .arguments_chunk(b"{bar_args}", &mut chat_writer, &mut tools_writer)
+        .arguments_chunk(b"{bar_args}")
         .unwrap();
     funcalls
-        .end_item_if_direct(&mut chat_writer, &mut tools_writer)
+        .end_item_if_direct()
         .unwrap();
 
     // Third tool call - Don't call "index"
     funcalls
-        .id("call_baz", &mut chat_writer, &mut tools_writer)
+        .id("call_baz")
         .unwrap();
     funcalls
-        .name("get_baz", &mut chat_writer, &mut tools_writer)
+        .name("get_baz")
         .unwrap();
     funcalls
-        .arguments_chunk(b"{baz_args}", &mut chat_writer, &mut tools_writer)
+        .arguments_chunk(b"{baz_args}")
         .unwrap();
     funcalls
-        .end_item_if_direct(&mut chat_writer, &mut tools_writer)
+        .end_item_if_direct()
         .unwrap();
 
     // Assert
-    funcalls.end(&mut chat_writer, &mut tools_writer).unwrap();
+    funcalls.end().unwrap();
     assert_writers(
         &writer,
         &tracked_dagops,
@@ -187,31 +179,25 @@ fn several_funcalls_direct() {
 fn single_element_streaming() {
     // Arrange
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Act - streaming mode with delta_index
     funcalls
-        .index(0, &mut chat_writer, &mut tools_writer)
+        .index(0)
         .unwrap();
     funcalls
-        .id(
-            "call_9cFpsOXfVWMUoDz1yyyP1QXD",
-            &mut chat_writer,
-            &mut tools_writer,
-        )
+        .id("call_9cFpsOXfVWMUoDz1yyyP1QXD")
         .unwrap();
     funcalls
-        .name("get_user_name", &mut chat_writer, &mut tools_writer)
+        .name("get_user_name")
         .unwrap();
     funcalls
-        .arguments_chunk(b"{}", &mut chat_writer, &mut tools_writer)
+        .arguments_chunk(b"{}")
         .unwrap();
 
     // Assert - streaming should auto-call end_item_if_direct
-    funcalls.end(&mut chat_writer, &mut tools_writer).unwrap();
+    funcalls.end().unwrap();
     assert_writers(
         &writer,
         &tracked_dagops,
@@ -226,56 +212,54 @@ fn single_element_streaming() {
 fn several_elements_streaming() {
     // Arrange
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Act - streaming mode with delta_index, multiple elements in one round
     funcalls
-        .index(0, &mut chat_writer, &mut tools_writer)
+        .index(0)
         .unwrap();
 
     funcalls
-        .id("call_foo", &mut chat_writer, &mut tools_writer)
+        .id("call_foo")
         .unwrap();
     funcalls
-        .name("get_foo", &mut chat_writer, &mut tools_writer)
+        .name("get_foo")
         .unwrap();
     funcalls
-        .arguments_chunk(b"{foo_args}", &mut chat_writer, &mut tools_writer)
-        .unwrap();
-
-    funcalls
-        .index(1, &mut chat_writer, &mut tools_writer)
+        .arguments_chunk(b"{foo_args}")
         .unwrap();
 
     funcalls
-        .id("call_bar", &mut chat_writer, &mut tools_writer)
-        .unwrap();
-    funcalls
-        .name("get_bar", &mut chat_writer, &mut tools_writer)
-        .unwrap();
-    funcalls
-        .arguments_chunk(b"{bar_args}", &mut chat_writer, &mut tools_writer)
+        .index(1)
         .unwrap();
 
     funcalls
-        .index(2, &mut chat_writer, &mut tools_writer)
+        .id("call_bar")
+        .unwrap();
+    funcalls
+        .name("get_bar")
+        .unwrap();
+    funcalls
+        .arguments_chunk(b"{bar_args}")
         .unwrap();
 
     funcalls
-        .id("call_baz", &mut chat_writer, &mut tools_writer)
+        .index(2)
+        .unwrap();
+
+    funcalls
+        .id("call_baz")
         .unwrap();
     funcalls
-        .name("get_baz", &mut chat_writer, &mut tools_writer)
+        .name("get_baz")
         .unwrap();
     funcalls
-        .arguments_chunk(b"{baz_args}", &mut chat_writer, &mut tools_writer)
+        .arguments_chunk(b"{baz_args}")
         .unwrap();
 
     // Assert
-    funcalls.end(&mut chat_writer, &mut tools_writer).unwrap();
+    funcalls.end().unwrap();
     assert_writers(
         &writer,
         &tracked_dagops,
@@ -307,38 +291,36 @@ fn several_elements_streaming() {
 #[test]
 fn index_increment_validation() {
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // First index must be 0
     assert!(funcalls
-        .index(0, &mut chat_writer, &mut tools_writer)
+        .index(0)
         .is_ok());
 
     // Index can stay the same
     assert!(funcalls
-        .index(0, &mut chat_writer, &mut tools_writer)
+        .index(0)
         .is_ok());
 
     // Index can increment by 1
     assert!(funcalls
-        .index(1, &mut chat_writer, &mut tools_writer)
+        .index(1)
         .is_ok());
 
     // Index can stay the same
     assert!(funcalls
-        .index(1, &mut chat_writer, &mut tools_writer)
+        .index(1)
         .is_ok());
 
     // Index can increment by 1
     assert!(funcalls
-        .index(2, &mut chat_writer, &mut tools_writer)
+        .index(2)
         .is_ok());
 
     // Index cannot skip
-    let result = funcalls.index(4, &mut chat_writer, &mut tools_writer);
+    let result = funcalls.index(4);
     assert!(result.is_err());
     assert!(result
         .unwrap_err()
@@ -346,7 +328,7 @@ fn index_increment_validation() {
         .contains("cannot skip values"));
 
     // Index cannot go backwards (never decreases)
-    let result = funcalls.index(1, &mut chat_writer, &mut tools_writer);
+    let result = funcalls.index(1);
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("cannot decrease"));
 }
@@ -354,13 +336,11 @@ fn index_increment_validation() {
 #[test]
 fn first_index_must_be_zero() {
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // First index must be 0
-    let result = funcalls.index(1, &mut chat_writer, &mut tools_writer);
+    let result = funcalls.index(1);
     assert!(result.is_err());
     assert!(result
         .unwrap_err()
@@ -371,37 +351,35 @@ fn first_index_must_be_zero() {
 #[test]
 fn arguments_span_multiple_deltas() {
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Enable streaming mode
     assert!(funcalls
-        .index(0, &mut chat_writer, &mut tools_writer)
+        .index(0)
         .is_ok());
 
     // Set up id and name first so new_item gets called
     funcalls
-        .id("call_123", &mut chat_writer, &mut tools_writer)
+        .id("call_123")
         .unwrap();
     funcalls
-        .name("get_user", &mut chat_writer, &mut tools_writer)
+        .name("get_user")
         .unwrap();
 
     // Arguments can be set multiple times - this should work
     funcalls
-        .arguments_chunk(b"{", &mut chat_writer, &mut tools_writer)
+        .arguments_chunk(b"{")
         .unwrap();
     funcalls
-        .arguments_chunk(b"\"arg\": \"value\"", &mut chat_writer, &mut tools_writer)
+        .arguments_chunk(b"\"arg\": \"value\"")
         .unwrap();
     funcalls
-        .arguments_chunk(b"}", &mut chat_writer, &mut tools_writer)
+        .arguments_chunk(b"}")
         .unwrap();
 
     // End the item (use end() for streaming mode)
-    funcalls.end(&mut chat_writer, &mut tools_writer).unwrap();
+    funcalls.end().unwrap();
 
     // No error should occur - arguments are allowed to span deltas
     assert_writers(
@@ -417,18 +395,16 @@ fn arguments_span_multiple_deltas() {
 #[test]
 fn test_id_already_given_error_streaming() {
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // First ID should work
     funcalls
-        .id("call_123", &mut chat_writer, &mut tools_writer)
+        .id("call_123")
         .unwrap();
 
     // Second ID should error
-    let result = funcalls.id("call_456", &mut chat_writer, &mut tools_writer);
+    let result = funcalls.id("call_456");
     assert!(result.is_err());
     assert!(result
         .unwrap_err()
@@ -439,18 +415,16 @@ fn test_id_already_given_error_streaming() {
 #[test]
 fn test_name_already_given_error() {
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // First name should work
     funcalls
-        .name("get_user", &mut chat_writer, &mut tools_writer)
+        .name("get_user")
         .unwrap();
 
     // Second name should error
-    let result = funcalls.name("get_data", &mut chat_writer, &mut tools_writer);
+    let result = funcalls.name("get_data");
     assert!(result.is_err());
     assert!(result
         .unwrap_err()
@@ -461,17 +435,15 @@ fn test_name_already_given_error() {
 #[test]
 fn test_id_then_name_calls_new_item() {
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Set id first, then name
     funcalls
-        .id("call_123", &mut chat_writer, &mut tools_writer)
+        .id("call_123")
         .unwrap();
     funcalls
-        .name("get_user", &mut chat_writer, &mut tools_writer)
+        .name("get_user")
         .unwrap();
 
     // Should have started outputting (partial output expected since we haven't called end_item)
@@ -483,17 +455,15 @@ fn test_id_then_name_calls_new_item() {
 #[test]
 fn test_name_then_id_calls_new_item() {
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Set name first, then id
     funcalls
-        .name("get_user", &mut chat_writer, &mut tools_writer)
+        .name("get_user")
         .unwrap();
     funcalls
-        .id("call_123", &mut chat_writer, &mut tools_writer)
+        .id("call_123")
         .unwrap();
 
     // Should have started outputting (partial output expected since we haven't called end_item)
@@ -505,28 +475,26 @@ fn test_name_then_id_calls_new_item() {
 #[test]
 fn test_arguments_chunk_without_new_item_stores() {
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Add arguments without calling new_item first
     funcalls
-        .arguments_chunk(b"{\"arg\": \"value\"}", &mut chat_writer, &mut tools_writer)
+        .arguments_chunk(b"{\"arg\": \"value\"}")
         .unwrap();
 
     // Should not have written anything yet
     // Now set id and name to trigger new_item
     funcalls
-        .id("call_123", &mut chat_writer, &mut tools_writer)
+        .id("call_123")
         .unwrap();
     funcalls
-        .name("get_user", &mut chat_writer, &mut tools_writer)
+        .name("get_user")
         .unwrap();
 
     // Now end the item
     funcalls
-        .end_item_if_direct(&mut chat_writer, &mut tools_writer)
+        .end_item_if_direct()
         .unwrap();
 
     assert_writers(
@@ -541,25 +509,23 @@ fn test_arguments_chunk_without_new_item_stores() {
 #[test]
 fn test_arguments_chunk_with_new_item_forwards() {
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Set id and name to trigger new_item
     funcalls
-        .id("call_123", &mut chat_writer, &mut tools_writer)
+        .id("call_123")
         .unwrap();
     funcalls
-        .name("get_user", &mut chat_writer, &mut tools_writer)
+        .name("get_user")
         .unwrap();
 
     // Now add arguments - should forward directly to writer
     funcalls
-        .arguments_chunk(b"{\"arg\": \"value\"}", &mut chat_writer, &mut tools_writer)
+        .arguments_chunk(b"{\"arg\": \"value\"}")
         .unwrap();
     funcalls
-        .end_item_if_direct(&mut chat_writer, &mut tools_writer)
+        .end_item_if_direct()
         .unwrap();
 
     assert_writers(
@@ -574,13 +540,11 @@ fn test_arguments_chunk_with_new_item_forwards() {
 #[test]
 fn test_end_item_if_direct_without_new_item_error() {
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Call end_item_if_direct without new_item should error
-    let result = funcalls.end_item_if_direct(&mut chat_writer, &mut tools_writer);
+    let result = funcalls.end_item_if_direct();
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains(
         "At the end of a 'tool_calls' item, both 'id' and 'name' should be already given"
@@ -590,18 +554,16 @@ fn test_end_item_if_direct_without_new_item_error() {
 #[test]
 fn test_end_item_if_direct_missing_name_error() {
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Set only id, but not name
     funcalls
-        .id("call_123", &mut chat_writer, &mut tools_writer)
+        .id("call_123")
         .unwrap();
 
     // Call end_item_if_direct without name should error
-    let result = funcalls.end_item_if_direct(&mut chat_writer, &mut tools_writer);
+    let result = funcalls.end_item_if_direct();
     assert!(result.is_err());
     assert!(result
         .unwrap_err()
@@ -612,18 +574,16 @@ fn test_end_item_if_direct_missing_name_error() {
 #[test]
 fn test_end_item_if_direct_missing_id_error() {
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Set only name, but not id
     funcalls
-        .name("test_function", &mut chat_writer, &mut tools_writer)
+        .name("test_function")
         .unwrap();
 
     // Call end_item_if_direct without id should error
-    let result = funcalls.end_item_if_direct(&mut chat_writer, &mut tools_writer);
+    let result = funcalls.end_item_if_direct();
     assert!(result.is_err());
     assert!(result
         .unwrap_err()
@@ -634,28 +594,26 @@ fn test_end_item_if_direct_missing_id_error() {
 #[test]
 fn test_index_increment_calls_end_item_if_not_called() {
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Start with index 0
     funcalls
-        .index(0, &mut chat_writer, &mut tools_writer)
+        .index(0)
         .unwrap();
     funcalls
-        .id("call_123", &mut chat_writer, &mut tools_writer)
+        .id("call_123")
         .unwrap();
     funcalls
-        .name("get_user", &mut chat_writer, &mut tools_writer)
+        .name("get_user")
         .unwrap();
     funcalls
-        .arguments_chunk(b"{}", &mut chat_writer, &mut tools_writer)
+        .arguments_chunk(b"{}")
         .unwrap();
 
     // Move to index 1 without calling end_item_if_direct - should auto-call it
     funcalls
-        .index(1, &mut chat_writer, &mut tools_writer)
+        .index(1)
         .unwrap();
 
     // The first item should be completed
@@ -668,24 +626,22 @@ fn test_index_increment_calls_end_item_if_not_called() {
 #[test]
 fn test_end_calls_end_item_if_not_called() {
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Set up a function call
     funcalls
-        .id("call_123", &mut chat_writer, &mut tools_writer)
+        .id("call_123")
         .unwrap();
     funcalls
-        .name("get_user", &mut chat_writer, &mut tools_writer)
+        .name("get_user")
         .unwrap();
     funcalls
-        .arguments_chunk(b"{}", &mut chat_writer, &mut tools_writer)
+        .arguments_chunk(b"{}")
         .unwrap();
 
     // Call end without calling end_item_if_direct first
-    funcalls.end(&mut chat_writer, &mut tools_writer).unwrap();
+    funcalls.end().unwrap();
 
     // Should have auto-called end_item_if_direct
     assert_writers(&writer, &tracked_dagops, "call_123", "get_user", "{}");
@@ -695,34 +651,32 @@ fn test_end_calls_end_item_if_not_called() {
 #[test]
 fn test_multiple_arguments_chunks_accumulated() {
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Add multiple argument chunks before new_item
     funcalls
-        .arguments_chunk(b"{", &mut chat_writer, &mut tools_writer)
+        .arguments_chunk(b"{")
         .unwrap();
     funcalls
-        .arguments_chunk(b"\"key\":", &mut chat_writer, &mut tools_writer)
+        .arguments_chunk(b"\"key\":")
         .unwrap();
     funcalls
-        .arguments_chunk(b"\"value\"", &mut chat_writer, &mut tools_writer)
+        .arguments_chunk(b"\"value\"")
         .unwrap();
     funcalls
-        .arguments_chunk(b"}", &mut chat_writer, &mut tools_writer)
+        .arguments_chunk(b"}")
         .unwrap();
 
     // Set id and name to trigger new_item
     funcalls
-        .id("call_123", &mut chat_writer, &mut tools_writer)
+        .id("call_123")
         .unwrap();
     funcalls
-        .name("get_user", &mut chat_writer, &mut tools_writer)
+        .name("get_user")
         .unwrap();
     funcalls
-        .end_item_if_direct(&mut chat_writer, &mut tools_writer)
+        .end_item_if_direct()
         .unwrap();
 
     assert_writers(
@@ -737,25 +691,23 @@ fn test_multiple_arguments_chunks_accumulated() {
 #[test]
 fn test_end_item_if_direct_ends_item_in_direct_mode() {
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Direct mode - no call to index()
     funcalls
-        .id("call_123", &mut chat_writer, &mut tools_writer)
+        .id("call_123")
         .unwrap();
     funcalls
-        .name("get_user", &mut chat_writer, &mut tools_writer)
+        .name("get_user")
         .unwrap();
     funcalls
-        .arguments_chunk(b"{\"arg\": \"value\"}", &mut chat_writer, &mut tools_writer)
+        .arguments_chunk(b"{\"arg\": \"value\"}")
         .unwrap();
 
     // Call end_item_if_direct - should end the item in direct mode
     funcalls
-        .end_item_if_direct(&mut chat_writer, &mut tools_writer)
+        .end_item_if_direct()
         .unwrap();
 
     // The item should be completed immediately
@@ -771,29 +723,27 @@ fn test_end_item_if_direct_ends_item_in_direct_mode() {
 #[test]
 fn test_end_item_if_direct_does_not_end_item_in_streaming_mode() {
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Streaming mode - call index() to enable streaming
     funcalls
-        .index(0, &mut chat_writer, &mut tools_writer)
+        .index(0)
         .unwrap();
 
     funcalls
-        .id("call_123", &mut chat_writer, &mut tools_writer)
+        .id("call_123")
         .unwrap();
     funcalls
-        .name("get_user", &mut chat_writer, &mut tools_writer)
+        .name("get_user")
         .unwrap();
     funcalls
-        .arguments_chunk(b"{\"arg\": \"value\"}", &mut chat_writer, &mut tools_writer)
+        .arguments_chunk(b"{\"arg\": \"value\"}")
         .unwrap();
 
     // Call end_item_if_direct - should NOT end the item in streaming mode
     funcalls
-        .end_item_if_direct(&mut chat_writer, &mut tools_writer)
+        .end_item_if_direct()
         .unwrap();
 
     // The item should NOT be completed yet - streaming mode doesn't end until index changes or end() is called
@@ -808,25 +758,23 @@ fn test_end_item_if_direct_does_not_end_item_in_streaming_mode() {
 #[test]
 fn test_enforce_end_item_works_in_direct_mode() {
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Direct mode - no call to index()
     funcalls
-        .id("call_123", &mut chat_writer, &mut tools_writer)
+        .id("call_123")
         .unwrap();
     funcalls
-        .name("get_user", &mut chat_writer, &mut tools_writer)
+        .name("get_user")
         .unwrap();
     funcalls
-        .arguments_chunk(b"{\"arg\": \"value\"}", &mut chat_writer, &mut tools_writer)
+        .arguments_chunk(b"{\"arg\": \"value\"}")
         .unwrap();
 
     // Call enforce_end_item - should end the item in direct mode
     funcalls
-        .enforce_end_item(&mut chat_writer, &mut tools_writer)
+        .enforce_end_item()
         .unwrap();
 
     // The item should be completed immediately
@@ -842,29 +790,27 @@ fn test_enforce_end_item_works_in_direct_mode() {
 #[test]
 fn test_enforce_end_item_works_in_streaming_mode() {
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Streaming mode - call index() to enable streaming
     funcalls
-        .index(0, &mut chat_writer, &mut tools_writer)
+        .index(0)
         .unwrap();
 
     funcalls
-        .id("call_123", &mut chat_writer, &mut tools_writer)
+        .id("call_123")
         .unwrap();
     funcalls
-        .name("get_user", &mut chat_writer, &mut tools_writer)
+        .name("get_user")
         .unwrap();
     funcalls
-        .arguments_chunk(b"{\"arg\": \"value\"}", &mut chat_writer, &mut tools_writer)
+        .arguments_chunk(b"{\"arg\": \"value\"}")
         .unwrap();
 
     // Call enforce_end_item - should end the item even in streaming mode
     funcalls
-        .enforce_end_item(&mut chat_writer, &mut tools_writer)
+        .enforce_end_item()
         .unwrap();
 
     // The item should be completed (unlike end_item_if_direct which does nothing in streaming mode)
@@ -880,13 +826,11 @@ fn test_enforce_end_item_works_in_streaming_mode() {
 #[test]
 fn test_enforce_end_item_without_new_item_error() {
     let writer = RcWriter::new();
-    let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut tools_writer = FunCallsToTools::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Call enforce_end_item without new_item should error
-    let result = funcalls.enforce_end_item(&mut chat_writer, &mut tools_writer);
+    let result = funcalls.enforce_end_item();
     assert!(result.is_err());
     assert!(result
         .unwrap_err()

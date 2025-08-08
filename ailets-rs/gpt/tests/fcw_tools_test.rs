@@ -21,12 +21,12 @@ fn inject_tool_calls_to_tools() {
     //
     let mut tracked_dagops = TrackedDagOps::default();
     let writer = RcWriter::new();
+    let mut chat_writer = FunCallsToChat::new(writer.clone());
 
     //
     // Act
     //
     {
-        let mut chat_writer = FunCallsToChat::new(writer.clone());
         let mut dagops_writer = FunCallsToTools::new();
 
         // Write to both chat and tools
@@ -272,12 +272,12 @@ fn multiple_arguments_chunks() {
     //
     let mut tracked_dagops = TrackedDagOps::default();
     let writer = RcWriter::new();
+    let mut chat_writer = FunCallsToChat::new(writer.clone());
 
     //
     // Act
     //
     {
-        let mut chat_writer = FunCallsToChat::new(writer.clone());
         let mut dagops_writer = FunCallsToTools::new();
 
         // Write to both chat and tools
