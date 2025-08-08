@@ -62,7 +62,8 @@ impl scan_json::Matcher for MatchInToolCall {
     }
 }
 
-fn make_triggers<'a, W: Write + 'a + 'static, D: DagOpsTrait + 'a>() -> Vec<Trigger<'a, BA<'a, W, D>>> {
+fn make_triggers<'a, W: Write + 'a + 'static, D: DagOpsTrait + 'a>(
+) -> Vec<Trigger<'a, BA<'a, W, D>>> {
     let begin_message = Trigger::new(
         Box::new(Name::new("message".to_string())),
         Box::new(on_begin_message) as BA<'a, W, D>,

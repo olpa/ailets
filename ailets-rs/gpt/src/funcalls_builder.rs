@@ -3,10 +3,10 @@
 //! This module provides state management for function calls during streaming
 //! processing, ensuring proper sequencing and validation of function call data.
 
-use crate::fcw_trait::FunCallsWrite;
 use crate::dagops::DagOpsTrait;
 use crate::fcw_chat::FunCallsToChat;
 use crate::fcw_dag::FunCallsToDag;
+use crate::fcw_trait::FunCallsWrite;
 use std::io::Write;
 
 /// State manager for streaming function call processing
@@ -337,14 +337,14 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
             dag_writer.end_item()?;
             self.new_item_called = false;
         }
-        
+
         // Call end on writers (no dagops needed anymore)
         chat_writer.end()?;
         dag_writer.end()?;
-        
+
         // Handle final DAG workflow processing
         self.end_workflow()?;
-        
+
         Ok(())
     }
 
@@ -369,7 +369,6 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
         self.new_item_called = false;
         self.pending_arguments = None;
     }
-
 
     /// Handles final DAG workflow processing
     ///
@@ -417,5 +416,4 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
         self.dagops.detach_from_alias(".chat_messages")?;
         Ok(())
     }
-
 }

@@ -28,7 +28,12 @@ pub trait FunCallsWrite: std::any::Any {
     ///
     /// # Errors
     /// Returns an error if the underlying writer fails
-    fn new_item<T: crate::dagops::DagOpsTrait>(&mut self, id: &str, name: &str, dagops: &mut T) -> FunCallResult;
+    fn new_item<T: crate::dagops::DagOpsTrait>(
+        &mut self,
+        id: &str,
+        name: &str,
+        dagops: &mut T,
+    ) -> FunCallResult;
 
     /// Add a chunk of arguments to the current function call
     ///

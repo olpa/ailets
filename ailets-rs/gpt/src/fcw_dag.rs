@@ -47,7 +47,12 @@ impl FunCallsToDag {
 }
 
 impl FunCallsWrite for FunCallsToDag {
-    fn new_item<T: DagOpsTrait>(&mut self, id: &str, name: &str, dagops: &mut T) -> Result<(), Box<dyn std::error::Error>> {
+    fn new_item<T: DagOpsTrait>(
+        &mut self,
+        id: &str,
+        name: &str,
+        dagops: &mut T,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // Create the tool input pipe and writer
         let explain = format!("tool input - {name}");
         let tool_input_fd = dagops.open_write_pipe(Some(&explain))?;
@@ -74,8 +79,7 @@ impl FunCallsWrite for FunCallsToDag {
 
         // Create aliases for the pipes
         dagops.alias_fd(".tool_input", tool_input_fd)?;
-        dagops
-            .alias_fd(".llm_tool_spec", tool_spec_handle_fd)?;
+        dagops.alias_fd(".llm_tool_spec", tool_spec_handle_fd)?;
 
         // Run the tool
         let tool_handle = dagops.instantiate_with_deps(
@@ -155,4 +159,3 @@ impl Default for FunCallsToDag {
         Self::new()
     }
 }
-

@@ -134,7 +134,8 @@ impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_id(&mut self, id: &str) -> Result<(), Box<dyn std::error::Error>> {
         self.auto_close_text_if_open()?;
-        self.funcalls.id(id, &mut self.chat_writer, &mut self.dag_writer)?;
+        self.funcalls
+            .id(id, &mut self.chat_writer, &mut self.dag_writer)?;
         self.is_tool_section_open = true;
         Ok(())
     }
@@ -144,7 +145,8 @@ impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_name(&mut self, name: &str) -> Result<(), Box<dyn std::error::Error>> {
         self.auto_close_text_if_open()?;
-        self.funcalls.name(name, &mut self.chat_writer, &mut self.dag_writer)?;
+        self.funcalls
+            .name(name, &mut self.chat_writer, &mut self.dag_writer)?;
         self.is_tool_section_open = true;
         Ok(())
     }
@@ -168,7 +170,8 @@ impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_index(&mut self, index: usize) -> Result<(), Box<dyn std::error::Error>> {
         self.auto_close_text_if_open()?;
-        self.funcalls.index(index, &mut self.chat_writer, &mut self.dag_writer)?;
+        self.funcalls
+            .index(index, &mut self.chat_writer, &mut self.dag_writer)?;
         self.is_tool_section_open = true;
         Ok(())
     }
@@ -177,7 +180,8 @@ impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
     /// # Errors
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_end_if_direct(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        self.funcalls.end_item_if_direct(&mut self.chat_writer, &mut self.dag_writer)?;
+        self.funcalls
+            .end_item_if_direct(&mut self.chat_writer, &mut self.dag_writer)?;
         // Don't modify is_tool_section_open - this is not a section-level operation
         Ok(())
     }

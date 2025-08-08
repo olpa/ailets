@@ -59,7 +59,12 @@ impl<W: std::io::Write> std::io::Write for FunCallsToChat<W> {
 }
 
 impl<W: std::io::Write + 'static> FunCallsWrite for FunCallsToChat<W> {
-    fn new_item<T: crate::dagops::DagOpsTrait>(&mut self, id: &str, name: &str, _dagops: &mut T) -> FunCallResult {
+    fn new_item<T: crate::dagops::DagOpsTrait>(
+        &mut self,
+        id: &str,
+        name: &str,
+        _dagops: &mut T,
+    ) -> FunCallResult {
         // Write the JSON structure opening with escaped id and name
         write!(
             self.writer,

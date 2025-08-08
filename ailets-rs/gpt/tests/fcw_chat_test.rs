@@ -1,6 +1,6 @@
+use actor_runtime_mocked::RcWriter;
 use gpt::fcw_chat::FunCallsToChat;
 use gpt::fcw_trait::FunCallsWrite;
-use actor_runtime_mocked::RcWriter;
 
 pub mod dagops_mock;
 use dagops_mock::TrackedDagOps;
@@ -18,7 +18,11 @@ fn single_funcall() {
 
     // Act
     chat_writer
-        .new_item("call_9cFpsOXfVWMUoDz1yyyP1QXD", "get_user_name", &mut dagops)
+        .new_item(
+            "call_9cFpsOXfVWMUoDz1yyyP1QXD",
+            "get_user_name",
+            &mut dagops,
+        )
         .unwrap();
     chat_writer.arguments_chunk(b"{}").unwrap();
     chat_writer.end_item().unwrap();
@@ -38,17 +42,23 @@ fn several_funcalls() {
     let mut dagops = TrackedDagOps::default();
 
     // First tool call
-    chat_writer.new_item("call_foo", "get_foo", &mut dagops).unwrap();
+    chat_writer
+        .new_item("call_foo", "get_foo", &mut dagops)
+        .unwrap();
     chat_writer.arguments_chunk(b"{foo_args}").unwrap();
     chat_writer.end_item().unwrap();
 
     // Second tool call
-    chat_writer.new_item("call_bar", "get_bar", &mut dagops).unwrap();
+    chat_writer
+        .new_item("call_bar", "get_bar", &mut dagops)
+        .unwrap();
     chat_writer.arguments_chunk(b"{bar_args}").unwrap();
     chat_writer.end_item().unwrap();
 
     // Third tool call
-    chat_writer.new_item("call_baz", "get_baz", &mut dagops).unwrap();
+    chat_writer
+        .new_item("call_baz", "get_baz", &mut dagops)
+        .unwrap();
     chat_writer.arguments_chunk(b"{baz_args}").unwrap();
     chat_writer.end_item().unwrap();
 
@@ -69,7 +79,9 @@ fn long_arguments() {
     let mut dagops = TrackedDagOps::default();
 
     // Act - arguments come in multiple chunks
-    chat_writer.new_item("call_123", "test_func", &mut dagops).unwrap();
+    chat_writer
+        .new_item("call_123", "test_func", &mut dagops)
+        .unwrap();
     chat_writer.arguments_chunk(b"{\\\"arg1\\\":").unwrap();
     chat_writer.arguments_chunk(b"\\\"value1\\\",").unwrap();
     chat_writer
@@ -91,7 +103,9 @@ fn multiple_arguments_chunks() {
     let mut dagops = TrackedDagOps::default();
 
     // Act - multiple calls to arguments_chunk join values to one arguments attribute
-    chat_writer.new_item("call_multi", "foo", &mut dagops).unwrap();
+    chat_writer
+        .new_item("call_multi", "foo", &mut dagops)
+        .unwrap();
     chat_writer.arguments_chunk(b"{\\\"first\\\":").unwrap();
     chat_writer.arguments_chunk(b"\\\"chunk1\\\",").unwrap();
     chat_writer.arguments_chunk(b"\\\"second\\\":").unwrap();
@@ -115,7 +129,9 @@ fn empty_arguments() {
     let mut dagops = TrackedDagOps::default();
 
     // Act - function call with empty arguments
-    chat_writer.new_item("call_empty", "no_args_func", &mut dagops).unwrap();
+    chat_writer
+        .new_item("call_empty", "no_args_func", &mut dagops)
+        .unwrap();
     chat_writer.end_item().unwrap();
 
     // Assert
@@ -156,7 +172,9 @@ fn json_escaping_backslashes_in_id_and_name() {
     let mut dagops = TrackedDagOps::default();
 
     // Act - test backslash escaping in id and name
-    chat_writer.new_item("call\\id", "test\\name", &mut dagops).unwrap();
+    chat_writer
+        .new_item("call\\id", "test\\name", &mut dagops)
+        .unwrap();
     chat_writer
         .arguments_chunk(b"{\\\"path\\\":\\\"C:\\\\\\\\Program Files\\\\\\\\\\\"}")
         .unwrap();

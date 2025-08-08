@@ -30,8 +30,12 @@ fn inject_tool_calls_to_dag() {
         let mut dagops_writer = FunCallsToDag::new();
 
         // Write to both chat and DAG
-        chat_writer.new_item("call_1", "get_weather", &mut tracked_dagops).unwrap();
-        dagops_writer.new_item("call_1", "get_weather", &mut tracked_dagops).unwrap();
+        chat_writer
+            .new_item("call_1", "get_weather", &mut tracked_dagops)
+            .unwrap();
+        dagops_writer
+            .new_item("call_1", "get_weather", &mut tracked_dagops)
+            .unwrap();
 
         chat_writer
             .arguments_chunk(b"{\\\"city\\\":\\\"London\\\"}")
@@ -43,8 +47,12 @@ fn inject_tool_calls_to_dag() {
         chat_writer.end_item().unwrap();
         dagops_writer.end_item().unwrap();
 
-        chat_writer.new_item("call_2", "get_forecast", &mut tracked_dagops).unwrap();
-        dagops_writer.new_item("call_2", "get_forecast", &mut tracked_dagops).unwrap();
+        chat_writer
+            .new_item("call_2", "get_forecast", &mut tracked_dagops)
+            .unwrap();
+        dagops_writer
+            .new_item("call_2", "get_forecast", &mut tracked_dagops)
+            .unwrap();
 
         chat_writer.arguments_chunk(b"{\\\"days\\\":5}").unwrap();
         dagops_writer.arguments_chunk(b"{\\\"days\\\":5}").unwrap();
@@ -273,8 +281,12 @@ fn multiple_arguments_chunks() {
         let mut dagops_writer = FunCallsToDag::new();
 
         // Write to both chat and DAG
-        chat_writer.new_item("call_1", "get_weather", &mut tracked_dagops).unwrap();
-        dagops_writer.new_item("call_1", "get_weather", &mut tracked_dagops).unwrap();
+        chat_writer
+            .new_item("call_1", "get_weather", &mut tracked_dagops)
+            .unwrap();
+        dagops_writer
+            .new_item("call_1", "get_weather", &mut tracked_dagops)
+            .unwrap();
 
         // Call arguments_chunk multiple times with different chunks
         chat_writer.arguments_chunk(b"{\\\"city\\\":").unwrap();

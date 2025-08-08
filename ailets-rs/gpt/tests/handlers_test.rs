@@ -1,14 +1,13 @@
 use actor_runtime_mocked::RcWriter;
+use dagops_mock::TrackedDagOps;
+use gpt::fcw_dag::FunCallsToDag;
 use gpt::handlers::{on_content, on_function_index, on_function_name};
 use gpt::structure_builder::StructureBuilder;
-use gpt::fcw_dag::FunCallsToDag;
-use dagops_mock::TrackedDagOps;
 
 pub mod dagops_mock;
 use scan_json::{RJiter, StreamOp};
 use std::cell::RefCell;
 use std::io::Cursor;
-
 
 #[test]
 fn content_writes_to_builder() {

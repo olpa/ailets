@@ -30,7 +30,9 @@ impl Default for TrackedDagOps {
 impl DagOpsTrait for TrackedDagOps {
     fn value_node(&mut self, value: &[u8], explain: &str) -> Result<i32, String> {
         let handle = self.value_nodes.borrow().len();
-        self.value_nodes.borrow_mut().push(format!("{handle}:{explain}"));
+        self.value_nodes
+            .borrow_mut()
+            .push(format!("{handle}:{explain}"));
 
         // Create file "value.N" on the VFS with the initial value
         let filename = format!("value.{handle}");
@@ -40,8 +42,12 @@ impl DagOpsTrait for TrackedDagOps {
     }
 
     fn alias(&mut self, alias: &str, node_handle: i32) -> Result<i32, String> {
-        let handle = self.aliases.borrow().len() + self.value_nodes.borrow().len() + self.workflows.borrow().len();
-        self.aliases.borrow_mut().push(format!("{handle}:{alias}:{node_handle}"));
+        let handle = self.aliases.borrow().len()
+            + self.value_nodes.borrow().len()
+            + self.workflows.borrow().len();
+        self.aliases
+            .borrow_mut()
+            .push(format!("{handle}:{alias}:{node_handle}"));
         Ok(handle as i32)
     }
 
@@ -57,7 +63,9 @@ impl DagOpsTrait for TrackedDagOps {
             deps_str.push_str(&value.to_string());
             deps_str.push(',');
         }
-        let handle = self.workflows.borrow().len() + self.aliases.borrow().len() + self.value_nodes.borrow().len();
+        let handle = self.workflows.borrow().len()
+            + self.aliases.borrow().len()
+            + self.value_nodes.borrow().len();
         self.workflows
             .borrow_mut()
             .push(format!("{handle}:{workflow_name}:{deps_str}"));
@@ -73,7 +81,9 @@ impl DagOpsTrait for TrackedDagOps {
     fn open_write_pipe(&mut self, explain: Option<&str>) -> Result<i32, String> {
         let handle = self.value_nodes.borrow().len();
         let explain_str = explain.unwrap_or("pipe");
-        self.value_nodes.borrow_mut().push(format!("{handle}:{explain_str}"));
+        self.value_nodes
+            .borrow_mut()
+            .push(format!("{handle}:{explain_str}"));
 
         // Create file "value.N" on the VFS for the pipe
         let filename = format!("value.{handle}");
@@ -87,8 +97,12 @@ impl DagOpsTrait for TrackedDagOps {
         // For mock implementation, create alias directly without generating new handle
         // The format is "{alias_handle}:{alias_name}:{node_handle}"
         // Since we're aliasing an fd (which maps to a value node), use fd as the node_handle
-        let alias_handle = self.aliases.borrow().len() + self.value_nodes.borrow().len() + self.workflows.borrow().len();
-        self.aliases.borrow_mut().push(format!("{alias_handle}:{alias}:{fd}"));
+        let alias_handle = self.aliases.borrow().len()
+            + self.value_nodes.borrow().len()
+            + self.workflows.borrow().len();
+        self.aliases
+            .borrow_mut()
+            .push(format!("{alias_handle}:{alias}:{fd}"));
         // Return the original fd
         Ok(fd)
     }
