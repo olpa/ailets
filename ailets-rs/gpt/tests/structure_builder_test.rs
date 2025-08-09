@@ -108,10 +108,8 @@ fn output_direct_tool_call() {
         builder.end().unwrap();
     } // Ensure writers are dropped before assertions
 
-    // Assert ctl message is written to writer
-    let expected_ctl = r#"[{"type":"ctl"},{"role":"assistant"}]
-"#;
-    assert_eq!(writer.get_output(), expected_ctl);
+    // Assert stdout is empty since there was no text output
+    assert_eq!(writer.get_output(), "");
     
     // Assert chat output (including function call) is in DAG value nodes
     let chat_output = get_chat_output(&tracked_dagops);
@@ -179,10 +177,8 @@ fn output_streaming_tool_call() {
     builder.end_message().unwrap();
     builder.end().unwrap();
 
-    // Assert ctl message is written to writer
-    let expected_ctl = r#"[{"type":"ctl"},{"role":"assistant"}]
-"#;
-    assert_eq!(writer.get_output(), expected_ctl);
+    // Assert stdout is empty since there was no text output
+    assert_eq!(writer.get_output(), "");
     
     // Assert chat output (including function calls) is in DAG value nodes
     let chat_output = get_chat_output(&tracked_dagops);
@@ -325,10 +321,8 @@ fn tool_call_without_arguments_chunk_has_empty_arguments() {
     builder.tool_call_end_if_direct().unwrap();
     builder.end_message().unwrap();
 
-    // Assert ctl message is written to writer
-    let expected_ctl = r#"[{"type":"ctl"},{"role":"assistant"}]
-"#;
-    assert_eq!(writer.get_output(), expected_ctl);
+    // Assert stdout is empty since there was no text output
+    assert_eq!(writer.get_output(), "");
     
     // Assert chat output (including function call) is in DAG value nodes
     let chat_output = get_chat_output(&tracked_dagops);
@@ -404,6 +398,37 @@ fn mixing_text_and_functions_separate_outputs() {
     assert!(chat_output.contains("call_123"), "Chat output should contain function call ID");
     assert!(chat_output.contains("get_user_info"), "Chat output should contain function name");
     assert!(chat_output.contains("{\"user_id\": 42}"), "Chat output should contain function arguments");
+}
+
+#[test]
+fn function_calls_only_empty_stdout() {
+    // Arrange
+    let writer = RcWriter::new();
+    let tracked_dagops = TrackedDagOps::default();
+    let mut builder = StructureBuilder::new(writer.clone(), tracked_dagops.clone());
+
+    // Act - only function calls, no text
+    builder.begin_message().unwrap();
+    builder.role("assistant").unwrap();
+    
+    // Add function call
+    builder.tool_call_id("call_456").unwrap();
+    builder.tool_call_name("fetch_data").unwrap();
+    {
+        let mut args_writer = builder.get_arguments_chunk_writer();
+        args_writer.write_all(b"{\"query\": \"test\"}").unwrap();
+    }
+    builder.tool_call_end_if_direct().unwrap();
+    
+    builder.end_message().unwrap();
+    builder.end().unwrap();
+
+    // Assert stdout is completely empty (no ctl header written)
+    assert_eq!(writer.get_output(), "");
+    
+    // Verify DAG still gets the function call (minimal check)
+    let value_nodes = tracked_dagops.value_nodes();
+    assert!(!value_nodes.is_empty(), "Expected DAG to have function call data");
 }
 
 #[test]

@@ -35,6 +35,7 @@ pub struct StructureBuilder<W1: std::io::Write, D: DagOpsTrait> {
     funcalls: FunCallsBuilder<D>,
     stdout: W1,
     text_is_open: bool,
+    pending_role: Option<String>,
 }
 
 impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
@@ -44,6 +45,7 @@ impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
             funcalls: FunCallsBuilder::new(dagops),
             stdout: stdout_writer,
             text_is_open: false,
+            pending_role: None,
         }
     }
 
@@ -74,6 +76,8 @@ impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
     /// Returns an error if auto-closing text operations fail.
     pub fn begin_message(&mut self) -> Result<(), std::io::Error> {
         self.auto_close_text_if_open()?;
+        // Clear any pending role from previous message
+        self.pending_role = None;
         Ok(())
     }
 
@@ -81,10 +85,8 @@ impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
     /// I/O
     pub fn role(&mut self, role: &str) -> Result<(), std::io::Error> {
         self.auto_close_text_if_open()?;
-        self.stdout
-            .write_all(b"[{\"type\":\"ctl\"},{\"role\":\"")?;
-        self.stdout.write_all(role.as_bytes())?;
-        self.stdout.write_all(b"\"}]\n")?;
+        // Store the role to write later only if text is actually written
+        self.pending_role = Some(role.to_string());
         Ok(())
     }
 
@@ -92,6 +94,15 @@ impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
     /// # Errors
     /// I/O
     pub fn begin_text_chunk(&mut self) -> Result<(), std::io::Error> {
+        // Write pending role header if this is the first text
+        if let Some(role) = &self.pending_role {
+            self.stdout
+                .write_all(b"[{\"type\":\"ctl\"},{\"role\":\"")?;
+            self.stdout.write_all(role.as_bytes())?;
+            self.stdout.write_all(b"\"}]\n")?;
+            self.pending_role = None;
+        }
+        
         if !self.text_is_open {
             self.stdout
                 .write_all(b"[{\"type\":\"text\"},{\"text\":\"")?;
