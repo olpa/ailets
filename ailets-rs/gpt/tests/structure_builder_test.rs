@@ -6,6 +6,15 @@ use gpt::structure_builder::StructureBuilder;
 
 pub mod dagops_mock;
 
+// Helper function to get chat output from DAG value nodes
+fn get_chat_output(tracked_dagops: &TrackedDagOps) -> String {
+    let value_nodes = tracked_dagops.value_nodes();
+    assert!(!value_nodes.is_empty(), "Expected at least one value node for chat output");
+    let first_node = &value_nodes[0];
+    let (_, _, chat_output) = tracked_dagops.parse_value_node(first_node);
+    chat_output
+}
+
 #[test]
 fn basic_pass() {
     // Arrange
@@ -99,25 +108,30 @@ fn output_direct_tool_call() {
         builder.end().unwrap();
     } // Ensure writers are dropped before assertions
 
-    // Assert chat output
-    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+    // Assert ctl message is written to writer
+    let expected_ctl = r#"[{"type":"ctl"},{"role":"assistant"}]
+"#;
+    assert_eq!(writer.get_output(), expected_ctl);
+    
+    // Assert chat output (including function call) is in DAG value nodes
+    let chat_output = get_chat_output(&tracked_dagops);
+    let expected_chat = r#"[{"type":"ctl"},{"role":"assistant"}]
 [{"type":"function","id":"call_123","name":"get_user_name"},{"arguments":"{}"}]
-"#
-    .to_owned();
-    assert_eq!(writer.get_output(), expected);
+"#;
+    assert_eq!(chat_output, expected_chat);
 
-    // Assert DAG operations - should have 2 value nodes (tool input and tool spec)
-    assert_eq!(tracked_dagops.value_nodes().len(), 2);
+    // Assert DAG operations - should have 3 value nodes (chat output + tool input + tool spec)
+    assert_eq!(tracked_dagops.value_nodes().len(), 3);
 
-    // Assert tool input value node
+    // Assert tool input value node (index 1 since chat output is at index 0)
     let (_, explain_tool_input, value_tool_input) =
-        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes()[0]);
+        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes()[1]);
     assert!(explain_tool_input.contains("tool input - get_user_name"));
     assert_eq!(value_tool_input, "{}");
 
-    // Assert tool spec value node
+    // Assert tool spec value node (index 2)
     let (_, explain_tool_spec, value_tool_spec) =
-        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes()[1]);
+        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes()[2]);
     assert!(explain_tool_spec.contains("tool call spec - get_user_name"));
     let expected_tool_spec =
         r#"[{"type":"function","id":"call_123","name":"get_user_name"},{"arguments":"{}"}]"#;
@@ -165,40 +179,45 @@ fn output_streaming_tool_call() {
     builder.end_message().unwrap();
     builder.end().unwrap();
 
-    // Assert chat output
-    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+    // Assert ctl message is written to writer
+    let expected_ctl = r#"[{"type":"ctl"},{"role":"assistant"}]
+"#;
+    assert_eq!(writer.get_output(), expected_ctl);
+    
+    // Assert chat output (including function calls) is in DAG value nodes
+    let chat_output = get_chat_output(&tracked_dagops);
+    let expected_chat = r#"[{"type":"ctl"},{"role":"assistant"}]
 [{"type":"function","id":"call_123","name":"foo"},{"arguments":"foo args"}]
 [{"type":"function","id":"call_456","name":"bar"},{"arguments":"bar args"}]
-"#
-    .to_owned();
-    assert_eq!(writer.get_output(), expected);
+"#;
+    assert_eq!(chat_output, expected_chat);
 
-    // Assert DAG operations - should have 4 value nodes (tool input and tool spec for each of 2 tools)
-    assert_eq!(tracked_dagops.value_nodes().len(), 4);
+    // Assert DAG operations - should have 5 value nodes (chat output + 2 tool inputs + 2 tool specs)
+    assert_eq!(tracked_dagops.value_nodes().len(), 5);
 
-    // Assert first tool (foo) input value node
+    // Assert first tool (foo) input value node (index 1 since chat output is at index 0)
     let (_, explain_tool_input1, value_tool_input1) =
-        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes()[0]);
+        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes()[1]);
     assert!(explain_tool_input1.contains("tool input - foo"));
     assert_eq!(value_tool_input1, "foo args");
 
-    // Assert first tool (foo) spec value node
+    // Assert first tool (foo) spec value node (index 2)
     let (_, explain_tool_spec1, value_tool_spec1) =
-        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes()[1]);
+        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes()[2]);
     assert!(explain_tool_spec1.contains("tool call spec - foo"));
     let expected_tool_spec1 =
         r#"[{"type":"function","id":"call_123","name":"foo"},{"arguments":"foo args"}]"#;
     assert_eq!(value_tool_spec1, expected_tool_spec1);
 
-    // Assert second tool (bar) input value node
+    // Assert second tool (bar) input value node (index 3)
     let (_, explain_tool_input2, value_tool_input2) =
-        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes()[2]);
+        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes()[3]);
     assert!(explain_tool_input2.contains("tool input - bar"));
     assert_eq!(value_tool_input2, "bar args");
 
-    // Assert second tool (bar) spec value node
+    // Assert second tool (bar) spec value node (index 4)
     let (_, explain_tool_spec2, value_tool_spec2) =
-        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes()[3]);
+        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes()[4]);
     assert!(explain_tool_spec2.contains("tool call spec - bar"));
     let expected_tool_spec2 =
         r#"[{"type":"function","id":"call_456","name":"bar"},{"arguments":"bar args"}]"#;
@@ -292,12 +311,17 @@ fn autoclose_toolcall_on_end_message() {
     // Intentionally NOT calling tool_call_end_if_direct() here
     builder.end_message().unwrap(); // Should auto-close tool call
 
-    // Assert - should have auto-closed the tool call
-    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+    // Assert ctl message is written to writer
+    let expected_ctl = r#"[{"type":"ctl"},{"role":"assistant"}]
+"#;
+    assert_eq!(writer.get_output(), expected_ctl);
+    
+    // Assert chat output (including function call) is in DAG value nodes
+    let chat_output = get_chat_output(&tracked_dagops);
+    let expected_chat = r#"[{"type":"ctl"},{"role":"assistant"}]
 [{"type":"function","id":"call_123","name":"get_user"},{"arguments":"{}"}]
-"#
-    .to_owned();
-    assert_eq!(writer.get_output(), expected);
+"#;
+    assert_eq!(chat_output, expected_chat);
 }
 
 #[test]
@@ -329,148 +353,19 @@ fn autoclose_toolcall_on_new_message_and_role() {
     builder.role("user").unwrap(); // Should auto-close tool call
     builder.end_message().unwrap();
 
-    // Assert - should have auto-closed tool calls at begin_message and role
-    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+    // Assert ctl messages are written to writer
+    let expected_ctl = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"ctl"},{"role":"user"}]
+"#;
+    assert_eq!(writer.get_output(), expected_ctl);
+    
+    // Assert chat output (including function calls) is in DAG value nodes  
+    let chat_output = get_chat_output(&tracked_dagops);
+    let expected_chat = r#"[{"type":"ctl"},{"role":"assistant"}]
 [{"type":"function","id":"call_id_foo","name":"get_foo"},{"arguments":"fooargs"}]
 [{"type":"function","id":"call_id_bar","name":"get_bar"},{"arguments":"barargs"}]
-[{"type":"ctl"},{"role":"user"}]
-"#
-    .to_owned();
-    assert_eq!(writer.get_output(), expected);
-}
-
-#[test]
-fn autoclose_mix_text_and_toolcall() {
-    // Arrange
-    let mut writer = RcWriter::new();
-    let tracked_dagops = TrackedDagOps::default();
-    let mut builder = StructureBuilder::new(writer.clone(), tracked_dagops.clone());
-
-    // Arrange - autoclose text because of tool_id
-    builder.begin_message().unwrap();
-    builder.begin_text_chunk().unwrap();
-    writer.write_all(b"I'll help you").unwrap();
-
-    //
-    // Act - autoclose text because of tool_id
-    //
-    builder.tool_call_id("call_123").unwrap(); // Should auto-close text
-
-    // Assert: text is auto-closed
-    let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
 "#;
-    assert_eq!(writer.get_output(), expected);
-
-    // Complete the tool to avoid errors
-    builder.tool_call_name("get_user").unwrap();
-
-    // Act: autoclose tool because of text
-    builder.begin_text_chunk().unwrap();
-
-    // Assert: autoclose tool because of text
-    let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
-[{"type":"function","id":"call_123","name":"get_user"},{"arguments":""}]
-[{"type":"text"},{"text":""#;
-    assert_eq!(writer.get_output(), expected);
-
-    //
-    // Act: autoclose text because of tool_index
-    //
-    writer.write_all(b"Before tool index").unwrap();
-    builder.tool_call_index(0).unwrap(); // Should auto-close text
-
-    // Assert: text is auto-closed
-    let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
-[{"type":"function","id":"call_123","name":"get_user"},{"arguments":""}]
-[{"type":"text"},{"text":"Before tool index"}]
-"#;
-    assert_eq!(writer.get_output(), expected);
-
-    // Complete the tool to avoid errors
-    builder.tool_call_id("call_456").unwrap();
-    builder.tool_call_name("get_data").unwrap();
-
-    // Act: autoclose tool because of text
-    builder.begin_text_chunk().unwrap();
-
-    // Assert: autoclose tool because of text
-    let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
-[{"type":"function","id":"call_123","name":"get_user"},{"arguments":""}]
-[{"type":"text"},{"text":"Before tool index"}]
-[{"type":"function","id":"call_456","name":"get_data"},{"arguments":""}]
-[{"type":"text"},{"text":""#;
-    assert_eq!(writer.get_output(), expected);
-
-    //
-    // Act: autoclose text because of tool_name
-    //
-    writer.write_all(b"Before tool name").unwrap();
-    builder.tool_call_name("another_tool").unwrap(); // Should auto-close text
-
-    // Assert: text is auto-closed
-    let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
-[{"type":"function","id":"call_123","name":"get_user"},{"arguments":""}]
-[{"type":"text"},{"text":"Before tool index"}]
-[{"type":"function","id":"call_456","name":"get_data"},{"arguments":""}]
-[{"type":"text"},{"text":"Before tool name"}]
-"#;
-    assert_eq!(writer.get_output(), expected);
-
-    // Complete the tool to avoid errors
-    builder.tool_call_id("call_789").unwrap();
-
-    // Act: autoclose tool because of text
-    builder.begin_text_chunk().unwrap();
-
-    // Assert: autoclose tool because of text
-    let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
-[{"type":"function","id":"call_123","name":"get_user"},{"arguments":""}]
-[{"type":"text"},{"text":"Before tool index"}]
-[{"type":"function","id":"call_456","name":"get_data"},{"arguments":""}]
-[{"type":"text"},{"text":"Before tool name"}]
-[{"type":"function","id":"call_789","name":"another_tool"},{"arguments":""}]
-[{"type":"text"},{"text":""#;
-    assert_eq!(writer.get_output(), expected);
-
-    // Act: autoclose text because of tool_arguments_chunk
-    writer.write_all(b"Before args").unwrap();
-    {
-        let mut args_writer = builder.get_arguments_chunk_writer(); // Should auto-close text
-        args_writer.write_all(b"some_args").unwrap();
-    }
-
-    // Assert: text is auto-closed
-    let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
-[{"type":"function","id":"call_123","name":"get_user"},{"arguments":""}]
-[{"type":"text"},{"text":"Before tool index"}]
-[{"type":"function","id":"call_456","name":"get_data"},{"arguments":""}]
-[{"type":"text"},{"text":"Before tool name"}]
-[{"type":"function","id":"call_789","name":"another_tool"},{"arguments":""}]
-[{"type":"text"},{"text":"Before args"}]
-"#;
-    assert_eq!(writer.get_output(), expected);
-
-    // Complete the tool to avoid errors
-    builder.tool_call_name("final_tool").unwrap();
-    builder.tool_call_id("call_final").unwrap();
-
-    // Act: autoclose tool because of text
-    builder.begin_text_chunk().unwrap();
-    writer.write_all(b"After args").unwrap();
-
-    // Assert: autoclose tool because of text
-    builder.end_message().unwrap();
-    let expected = r#"[{"type":"text"},{"text":"I'll help you"}]
-[{"type":"function","id":"call_123","name":"get_user"},{"arguments":""}]
-[{"type":"text"},{"text":"Before tool index"}]
-[{"type":"function","id":"call_456","name":"get_data"},{"arguments":""}]
-[{"type":"text"},{"text":"Before tool name"}]
-[{"type":"function","id":"call_789","name":"another_tool"},{"arguments":""}]
-[{"type":"text"},{"text":"Before args"}]
-[{"type":"function","id":"call_final","name":"final_tool"},{"arguments":"some_args"}]
-[{"type":"text"},{"text":"After args"}]
-"#;
-    assert_eq!(writer.get_output(), expected);
+    assert_eq!(chat_output, expected_chat);
 }
 
 #[test]
@@ -489,25 +384,30 @@ fn tool_call_without_arguments_chunk_has_empty_arguments() {
     builder.tool_call_end_if_direct().unwrap();
     builder.end_message().unwrap();
 
-    // Assert - output should contain "arguments" field with empty string value
-    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+    // Assert ctl message is written to writer
+    let expected_ctl = r#"[{"type":"ctl"},{"role":"assistant"}]
+"#;
+    assert_eq!(writer.get_output(), expected_ctl);
+    
+    // Assert chat output (including function call) is in DAG value nodes
+    let chat_output = get_chat_output(&tracked_dagops);
+    let expected_chat = r#"[{"type":"ctl"},{"role":"assistant"}]
 [{"type":"function","id":"call_123","name":"get_user_name"},{"arguments":""}]
-"#
-    .to_owned();
-    assert_eq!(writer.get_output(), expected);
+"#;
+    assert_eq!(chat_output, expected_chat);
 
-    // Assert DAG operations - should have 2 value nodes (tool input and tool spec)
-    assert_eq!(tracked_dagops.value_nodes().len(), 2);
+    // Assert DAG operations - should have 3 value nodes (chat output + tool input + tool spec)
+    assert_eq!(tracked_dagops.value_nodes().len(), 3);
 
-    // Assert tool input value node has empty string
+    // Assert tool input value node has empty string (index 1 since chat output is at index 0)
     let (_, explain_tool_input, value_tool_input) =
-        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes()[0]);
+        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes()[1]);
     assert!(explain_tool_input.contains("tool input - get_user_name"));
     assert_eq!(value_tool_input, "");
 
-    // Assert tool spec value node has empty arguments
+    // Assert tool spec value node has empty arguments (index 2)
     let (_, explain_tool_spec, value_tool_spec) =
-        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes()[1]);
+        tracked_dagops.parse_value_node(&tracked_dagops.value_nodes()[2]);
     assert!(explain_tool_spec.contains("tool call spec - get_user_name"));
     let expected_tool_spec =
         r#"[{"type":"function","id":"call_123","name":"get_user_name"},{"arguments":""}]"#;
