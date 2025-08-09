@@ -77,7 +77,8 @@ fn inject_tool_calls_to_tools() {
     //
     // Assert: tool calls are in the chat history (written by FunCallsToChat)
     //
-    let expected_chat_output = r#"[{"type":"function","id":"call_1","name":"get_weather"},{"arguments":"{\"city\":\"London\"}"}]
+    let expected_chat_output = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"function","id":"call_1","name":"get_weather"},{"arguments":"{\"city\":\"London\"}"}]
 [{"type":"function","id":"call_2","name":"get_forecast"},{"arguments":"{\"days\":5}"}]
 "#;
     assert_eq!(writer.get_output(), expected_chat_output);
@@ -321,7 +322,9 @@ fn multiple_arguments_chunks() {
     // Assert: chat output contains complete arguments
     //
     let expected_chat_output = format!(
-        "[{{\"type\":\"function\",\"id\":\"call_1\",\"name\":\"get_weather\"}},{{\"arguments\":\"{}\"}}]\n",
+        r#"[{{"type":"ctl"}},{{"role":"assistant"}}]
+[{{"type":"function","id":"call_1","name":"get_weather"}},{{"arguments":"{}"}}]
+"#,
         expected_complete_args_escaped
     );
     assert_eq!(writer.get_output(), expected_chat_output);
