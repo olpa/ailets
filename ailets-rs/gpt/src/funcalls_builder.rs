@@ -70,14 +70,13 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     /// which happens when we enter the detached state for function call processing.
     fn create_writers(&mut self) {
         if self.chat_writer.is_none() {
-            let chat_awriter = AWriter::new_from_fd(777).expect("Failed to create writer from fd 777");
+            let chat_awriter = self.create_chat_output().expect("Failed to create chat output");
             self.chat_writer = Some(FunCallsToChat::new(chat_awriter));
         }
         if self.tools_writer.is_none() {
             self.tools_writer = Some(FunCallsToTools::new());
         }
     }
-
 
     /// Attempts to call `new_item` if both ID and name are available
     ///
@@ -352,6 +351,39 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
         self.pending_arguments = None;
     }
 
+    // =========================================================================
+    // Utility Methods for DAG Operations
+    // =========================================================================
+
+    /// Sets up the DAG for a new iteration by detaching from previous workflows
+    ///
+    /// This method ensures that new function calls don't interfere with
+    /// previous model workflows by detaching from the chat messages alias.
+    /// This prevents confusing dependency relationships in the DAG.
+    ///
+    /// # Arguments
+    /// * `dagops` - Mutable reference to the DAG operations implementation
+    ///
+    /// # Errors
+    /// Returns error if the detach operation fails
+    fn setup_loop_iteration_in_dag(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // Detach from previous chat messages to avoid dependency confusion
+        // This prevents the old "user prompt to messages" workflow from
+        // appearing to depend on new chat messages we're about to create
+        self.dagops.detach_from_alias(".chat_messages")?;
+        Ok(())
+    }
+
+    /// Creates a new DAG output value for chat messages and returns an AWriter to it
+    ///
+    /// # Errors
+    /// Returns error if DAG operations fail
+    fn create_chat_output(&mut self) -> Result<AWriter, Box<dyn std::error::Error>> {
+        let fd = self.dagops.open_write_pipe(Some("tool calls spec"))?;
+        self.dagops.alias_fd(".chat_messages", fd)?;
+        Ok(AWriter::new_from_fd(fd)?)
+    }
+
     /// Handles final DAG workflow processing
     ///
     /// This method handles the final DAG workflow setup when all function calls are complete,
@@ -373,29 +405,6 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
             self.dagops.alias(".output_messages", rerun_handle)?;
         }
 
-        Ok(())
-    }
-
-    // =========================================================================
-    // Utility Methods for DAG Operations
-    // =========================================================================
-
-    /// Sets up the DAG for a new iteration by detaching from previous workflows
-    ///
-    /// This method ensures that new function calls don't interfere with
-    /// previous model workflows by detaching from the chat messages alias.
-    /// This prevents confusing dependency relationships in the DAG.
-    ///
-    /// # Arguments
-    /// * `dagops` - Mutable reference to the DAG operations implementation
-    ///
-    /// # Errors
-    /// Returns error if the detach operation fails
-    fn setup_loop_iteration_in_dag(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Detach from previous chat messages to avoid dependency confusion
-        // This prevents the old "user prompt to messages" workflow from
-        // appearing to depend on new chat messages we're about to create
-        self.dagops.detach_from_alias(".chat_messages")?;
         Ok(())
     }
 }
