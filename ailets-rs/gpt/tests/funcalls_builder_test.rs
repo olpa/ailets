@@ -1,12 +1,17 @@
-use actor_runtime_mocked::RcWriter;
-use gpt::fcw_chat::FunCallsToChat;
-use gpt::fcw_tools::FunCallsToTools;
 use gpt::funcalls_builder::FunCallsBuilder;
 
 pub mod dagops_mock;
 use dagops_mock::TrackedDagOps;
 
-// Helper assertion functions
+// Helper functions
+fn get_chat_output(tracked_dagops: &TrackedDagOps) -> String {
+    let value_nodes = tracked_dagops.value_nodes();
+    assert!(!value_nodes.is_empty(), "Expected at least one value node for chat output");
+    let first_node = &value_nodes[0];
+    let (_, _, chat_output) = tracked_dagops.parse_value_node(first_node);
+    chat_output
+}
+
 fn assert_writers(
     tracked_dagops: &TrackedDagOps,
     id: &str,
@@ -19,11 +24,7 @@ fn assert_writers(
         id, name, arguments
     );
     
-    // Get chat_output as the first value from tracked_dagops
-    let value_nodes = tracked_dagops.value_nodes();
-    assert!(!value_nodes.is_empty(), "Expected at least one value node for chat output");
-    let first_node = &value_nodes[0];
-    let (_, _, chat_output) = tracked_dagops.parse_value_node(first_node);
+    let chat_output = get_chat_output(tracked_dagops);
     
     assert!(
         chat_output.contains(&expected_chat_output),
@@ -74,7 +75,6 @@ fn assert_own_dagops(tracked_dagops: &TrackedDagOps, n_tools: usize) {
 #[test]
 fn single_funcall_direct() {
     // Arrange
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -107,7 +107,6 @@ fn single_funcall_direct() {
 #[test]
 fn several_funcalls_direct() {
     // Arrange
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -179,7 +178,6 @@ fn several_funcalls_direct() {
 #[test]
 fn single_element_streaming() {
     // Arrange
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -211,7 +209,6 @@ fn single_element_streaming() {
 #[test]
 fn several_elements_streaming() {
     // Arrange
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -287,7 +284,6 @@ fn several_elements_streaming() {
 
 #[test]
 fn index_increment_validation() {
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -332,7 +328,6 @@ fn index_increment_validation() {
 
 #[test]
 fn first_index_must_be_zero() {
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -347,7 +342,6 @@ fn first_index_must_be_zero() {
 
 #[test]
 fn arguments_span_multiple_deltas() {
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -390,7 +384,6 @@ fn arguments_span_multiple_deltas() {
 
 #[test]
 fn test_id_already_given_error_streaming() {
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -410,7 +403,6 @@ fn test_id_already_given_error_streaming() {
 
 #[test]
 fn test_name_already_given_error() {
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -430,7 +422,6 @@ fn test_name_already_given_error() {
 
 #[test]
 fn test_id_then_name_calls_new_item() {
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -443,14 +434,13 @@ fn test_id_then_name_calls_new_item() {
         .unwrap();
 
     // Should have started outputting (partial output expected since we haven't called end_item)
-    let output = writer.get_output();
+    let output = get_chat_output(&tracked_dagops);
     assert!(output.contains("call_123"));
     assert!(output.contains("get_user"));
 }
 
 #[test]
 fn test_name_then_id_calls_new_item() {
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -463,14 +453,13 @@ fn test_name_then_id_calls_new_item() {
         .unwrap();
 
     // Should have started outputting (partial output expected since we haven't called end_item)
-    let output = writer.get_output();
+    let output = get_chat_output(&tracked_dagops);
     assert!(output.contains("call_123"));
     assert!(output.contains("get_user"));
 }
 
 #[test]
 fn test_arguments_chunk_without_new_item_stores() {
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -503,7 +492,6 @@ fn test_arguments_chunk_without_new_item_stores() {
 
 #[test]
 fn test_arguments_chunk_with_new_item_forwards() {
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -533,7 +521,6 @@ fn test_arguments_chunk_with_new_item_forwards() {
 
 #[test]
 fn test_end_item_if_direct_without_new_item_error() {
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -547,7 +534,6 @@ fn test_end_item_if_direct_without_new_item_error() {
 
 #[test]
 fn test_end_item_if_direct_missing_name_error() {
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -567,7 +553,6 @@ fn test_end_item_if_direct_missing_name_error() {
 
 #[test]
 fn test_end_item_if_direct_missing_id_error() {
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -587,7 +572,6 @@ fn test_end_item_if_direct_missing_id_error() {
 
 #[test]
 fn test_index_increment_calls_end_item_if_not_called() {
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -611,7 +595,7 @@ fn test_index_increment_calls_end_item_if_not_called() {
         .unwrap();
 
     // The first item should be completed
-    let output = writer.get_output();
+    let output = get_chat_output(&tracked_dagops);
     assert!(output.contains("call_123"));
     assert!(output.contains("get_user"));
     assert!(output.contains("{}"));
@@ -619,7 +603,6 @@ fn test_index_increment_calls_end_item_if_not_called() {
 
 #[test]
 fn test_end_calls_end_item_if_not_called() {
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -644,7 +627,6 @@ fn test_end_calls_end_item_if_not_called() {
 
 #[test]
 fn test_multiple_arguments_chunks_accumulated() {
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -683,7 +665,6 @@ fn test_multiple_arguments_chunks_accumulated() {
 
 #[test]
 fn test_end_item_if_direct_ends_item_in_direct_mode() {
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -714,7 +695,6 @@ fn test_end_item_if_direct_ends_item_in_direct_mode() {
 
 #[test]
 fn test_end_item_if_direct_does_not_end_item_in_streaming_mode() {
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -739,7 +719,7 @@ fn test_end_item_if_direct_does_not_end_item_in_streaming_mode() {
         .unwrap();
 
     // The item should NOT be completed yet - streaming mode doesn't end until index changes or end() is called
-    let output = writer.get_output();
+    let output = get_chat_output(&tracked_dagops);
     // Should have partial output but not complete line
     assert!(output.contains("call_123"));
     assert!(output.contains("get_user"));
@@ -749,7 +729,6 @@ fn test_end_item_if_direct_does_not_end_item_in_streaming_mode() {
 
 #[test]
 fn test_enforce_end_item_works_in_direct_mode() {
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -780,7 +759,6 @@ fn test_enforce_end_item_works_in_direct_mode() {
 
 #[test]
 fn test_enforce_end_item_works_in_streaming_mode() {
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
@@ -815,7 +793,6 @@ fn test_enforce_end_item_works_in_streaming_mode() {
 
 #[test]
 fn test_enforce_end_item_without_new_item_error() {
-    let writer = RcWriter::new();
     let tracked_dagops = TrackedDagOps::default();
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
