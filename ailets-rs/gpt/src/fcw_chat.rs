@@ -30,6 +30,7 @@ fn escape_json_string(s: &str) -> String {
 /// * `W` - Any type implementing `std::io::Write`
 pub struct FunCallsToChat<W: std::io::Write> {
     writer: W,
+    header_written: bool,
 }
 
 impl<W: std::io::Write> FunCallsToChat<W> {
@@ -42,7 +43,16 @@ impl<W: std::io::Write> FunCallsToChat<W> {
     /// A new `FunCallsToChat` instance that will write JSON-formatted function calls
     #[must_use]
     pub const fn new(writer: W) -> Self {
-        Self { writer }
+        Self { writer, header_written: false }
+    }
+
+    /// Ensures the header is written once at the beginning
+    fn ensure_header(&mut self) -> std::io::Result<()> {
+        if !self.header_written {
+            self.writer.write_all(b"[{\"type\":\"ctl\"},{\"role\":\"assistant\"}]\n")?;
+            self.header_written = true;
+        }
+        Ok(())
     }
 }
 
@@ -65,6 +75,9 @@ impl<W: std::io::Write + 'static> FunCallsWrite for FunCallsToChat<W> {
         name: &str,
         _dagops: &mut T,
     ) -> FunCallResult {
+        // Ensure header is written once
+        self.ensure_header()?;
+        
         // Write the JSON structure opening with escaped id and name
         write!(
             self.writer,

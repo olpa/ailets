@@ -29,7 +29,8 @@ fn single_funcall() {
 
     // Assert
     let output = writer.get_output();
-    let expected = r#"[{"type":"function","id":"call_9cFpsOXfVWMUoDz1yyyP1QXD","name":"get_user_name"},{"arguments":"{}"}]
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"function","id":"call_9cFpsOXfVWMUoDz1yyyP1QXD","name":"get_user_name"},{"arguments":"{}"}]
 "#;
     assert_eq!(output, expected);
 }
@@ -64,7 +65,8 @@ fn several_funcalls() {
 
     // Assert
     let output = writer.get_output();
-    let expected = r#"[{"type":"function","id":"call_foo","name":"get_foo"},{"arguments":"{foo_args}"}]
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"function","id":"call_foo","name":"get_foo"},{"arguments":"{foo_args}"}]
 [{"type":"function","id":"call_bar","name":"get_bar"},{"arguments":"{bar_args}"}]
 [{"type":"function","id":"call_baz","name":"get_baz"},{"arguments":"{baz_args}"}]
 "#;
@@ -91,7 +93,9 @@ fn long_arguments() {
 
     // Assert
     let output = writer.get_output();
-    let expected = "[{\"type\":\"function\",\"id\":\"call_123\",\"name\":\"test_func\"},{\"arguments\":\"{\\\"arg1\\\":\\\"value1\\\",\\\"arg2\\\":\\\"value2\\\"}\"}]\n";
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"function","id":"call_123","name":"test_func"},{"arguments":"{\"arg1\":\"value1\",\"arg2\":\"value2\"}"}]
+"#;
     assert_eq!(output, expected);
 }
 
@@ -117,7 +121,9 @@ fn multiple_arguments_chunks() {
 
     // Assert
     let output = writer.get_output();
-    let expected = "[{\"type\":\"function\",\"id\":\"call_multi\",\"name\":\"foo\"},{\"arguments\":\"{\\\"first\\\":\\\"chunk1\\\",\\\"second\\\":\\\"chunk2\\\",\\\"third\\\":\\\"chunk3\\\"}\"}]\n";
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"function","id":"call_multi","name":"foo"},{"arguments":"{\"first\":\"chunk1\",\"second\":\"chunk2\",\"third\":\"chunk3\"}"}]
+"#;
     assert_eq!(output, expected);
 }
 
@@ -136,7 +142,8 @@ fn empty_arguments() {
 
     // Assert
     let output = writer.get_output();
-    let expected = r#"[{"type":"function","id":"call_empty","name":"no_args_func"},{"arguments":""}]
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"function","id":"call_empty","name":"no_args_func"},{"arguments":""}]
 "#;
     assert_eq!(output, expected);
 }
@@ -159,7 +166,8 @@ fn json_escaping_in_id_and_name() {
 
     // Assert - id and name JSON special characters should be properly escaped
     let output = writer.get_output();
-    let expected = r#"[{"type":"function","id":"call_\"quote\"","name":"test_\"name\""},{"arguments":"{\"key\":\"value\"}"}]
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"function","id":"call_\"quote\"","name":"test_\"name\""},{"arguments":"{\"key\":\"value\"}"}]
 "#;
     assert_eq!(output, expected);
 }
@@ -182,7 +190,55 @@ fn json_escaping_backslashes_in_id_and_name() {
 
     // Assert - backslashes in id and name should be properly escaped
     let output = writer.get_output();
-    let expected = r#"[{"type":"function","id":"call\\id","name":"test\\name"},{"arguments":"{\"path\":\"C:\\\\Program Files\\\\\"}"}]
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"function","id":"call\\id","name":"test\\name"},{"arguments":"{\"path\":\"C:\\\\Program Files\\\\\"}"}]
 "#;
     assert_eq!(output, expected);
+}
+
+#[test]
+fn header_written_only_once() {
+    // Arrange
+    let writer = RcWriter::new();
+    let mut chat_writer = FunCallsToChat::new(writer.clone());
+    let mut dagops = TrackedDagOps::default();
+
+    // Act - multiple function calls should only write header once
+    chat_writer
+        .new_item("call_1", "func_1", &mut dagops)
+        .unwrap();
+    chat_writer.arguments_chunk(b"{}").unwrap();
+    chat_writer.end_item().unwrap();
+
+    chat_writer
+        .new_item("call_2", "func_2", &mut dagops)
+        .unwrap();
+    chat_writer.arguments_chunk(b"{}").unwrap();
+    chat_writer.end_item().unwrap();
+
+    // Assert - header should appear only once at the beginning
+    let output = writer.get_output();
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"function","id":"call_1","name":"func_1"},{"arguments":"{}"}]
+[{"type":"function","id":"call_2","name":"func_2"},{"arguments":"{}"}]
+"#;
+    assert_eq!(output, expected);
+    
+    // Verify there's only one occurrence of the header
+    let header_count = output.matches(r#"[{"type":"ctl"},{"role":"assistant"}]"#).count();
+    assert_eq!(header_count, 1, "Header should appear exactly once");
+}
+
+#[test]
+fn no_output_when_no_function_calls() {
+    // Arrange
+    let writer = RcWriter::new();
+    let _chat_writer = FunCallsToChat::new(writer.clone());
+
+    // Act - create writer but don't call any methods
+    // (no new_item, arguments_chunk, or end_item calls)
+
+    // Assert - no output should be written (including no header)
+    let output = writer.get_output();
+    assert_eq!(output, "", "No output should be written when no function calls are made");
 }
