@@ -7,7 +7,6 @@ use crate::dagops::DagOpsTrait;
 use crate::fcw_chat::FunCallsToChat;
 use crate::fcw_tools::FunCallsToTools;
 use crate::fcw_trait::FunCallsWrite;
-use actor_io::AWriter;
 
 /// State manager for streaming function call processing
 ///
@@ -32,7 +31,7 @@ pub struct FunCallsBuilder<D: DagOpsTrait> {
     /// DAG operations implementation
     dagops: D,
     /// Chat writer for function calls (lazily initialized)
-    chat_writer: Option<FunCallsToChat<AWriter>>,
+    chat_writer: Option<FunCallsToChat<Box<dyn std::io::Write>>>,
     /// Tools writer for function calls (lazily initialized)
     tools_writer: Option<FunCallsToTools>,
 }
@@ -70,8 +69,8 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     /// which happens when we enter the detached state for function call processing.
     fn create_writers(&mut self) {
         if self.chat_writer.is_none() {
-            let chat_awriter = self.create_chat_output().expect("Failed to create chat output");
-            self.chat_writer = Some(FunCallsToChat::new(chat_awriter));
+            let chat_writer = self.create_chat_output().expect("Failed to create chat output");
+            self.chat_writer = Some(FunCallsToChat::new(chat_writer));
         }
         if self.tools_writer.is_none() {
             self.tools_writer = Some(FunCallsToTools::new());
@@ -87,11 +86,12 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     /// Returns an error if the writers' `new_item` or `arguments_chunk` methods fail
     fn try_call_new_item(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if !self.new_item_called {
-            // Handle DAG detachment before calling writers
+            // First ever call: create writers
             if !self.detached {
-                self.create_writers();
                 self.setup_loop_iteration_in_dag()?;
                 self.detached = true;
+                // `create_writers` must be called after detachment
+                self.create_writers();
             }
 
             if let (Some(id), Some(name)) = (&self.current_id, &self.current_name) {
@@ -374,14 +374,18 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
         Ok(())
     }
 
-    /// Creates a new DAG output value for chat messages and returns an AWriter to it
+    /// Creates a new DAG output value for chat messages and returns a writer to it
     ///
     /// # Errors
-    /// Returns error if DAG operations fail
-    fn create_chat_output(&mut self) -> Result<AWriter, Box<dyn std::error::Error>> {
+    /// Returns error if DAG operations fail or if called before detachment
+    fn create_chat_output(&mut self) -> Result<Box<dyn std::io::Write>, Box<dyn std::error::Error>> {
+        if !self.detached {
+            return Err("create_chat_output must be called after setup_loop_iteration_in_dag".into());
+        }
         let fd = self.dagops.open_write_pipe(Some("tool calls spec"))?;
         self.dagops.alias_fd(".chat_messages", fd)?;
-        Ok(AWriter::new_from_fd(fd)?)
+        let writer = self.dagops.open_writer_to_pipe(fd)?;
+        Ok(writer)
     }
 
     /// Handles final DAG workflow processing
