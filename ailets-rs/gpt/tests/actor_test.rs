@@ -4,6 +4,15 @@ pub mod dagops_mock;
 use dagops_mock::TrackedDagOps;
 use std::io::Cursor;
 
+// Helper function to get chat output from DAG value nodes
+fn get_chat_output(tracked_dagops: &TrackedDagOps) -> String {
+    let value_nodes = tracked_dagops.value_nodes();
+    assert!(!value_nodes.is_empty(), "Expected at least one value node for chat output");
+    let first_node = &value_nodes[0];
+    let (_, _, chat_output) = tracked_dagops.parse_value_node(first_node);
+    chat_output
+}
+
 fn get_expected_basic_message() -> String {
     "[{\"type\":\"ctl\"},{\"role\":\"assistant\"}]\n[{\"type\":\"text\"},{\"text\":\"Hello! How can I assist you today?\"}]\n"
         .to_string()
@@ -43,23 +52,27 @@ fn funcall_response() {
 
     _process_gpt(reader, writer.clone(), dagops.clone()).unwrap();
 
-    // Assert chat output
-    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+    // Assert stdout is empty since there was no text content
+    assert_eq!(writer.get_output(), "");
+    
+    // Assert chat output (including function call) is in DAG value nodes
+    let chat_output = get_chat_output(&dagops);
+    let expected_chat = r#"[{"type":"ctl"},{"role":"assistant"}]
 [{"type":"function","id":"call_9br5e3keEQrjl49h7lteRxW4","name":"get_user_name"},{"arguments":"{}"}]
 "#;
-    assert_eq!(writer.get_output(), expected);
+    assert_eq!(chat_output, expected_chat);
 
-    // Assert DAG operations - should have 2 value nodes (tool input and tool spec)
-    assert_eq!(dagops.value_nodes().len(), 2);
+    // Assert DAG operations - should have 3 value nodes (chat output + tool input + tool spec)
+    assert_eq!(dagops.value_nodes().len(), 3);
 
-    // Assert tool input value node
+    // Assert tool input value node (index 1 since chat output is at index 0)
     let (_, explain_tool_input, value_tool_input) =
-        dagops.parse_value_node(&dagops.value_nodes()[0]);
+        dagops.parse_value_node(&dagops.value_nodes()[1]);
     assert!(explain_tool_input.contains("tool input - get_user_name"));
     assert_eq!(value_tool_input, "{}");
 
-    // Assert tool spec value node
-    let (_, explain_tool_spec, value_tool_spec) = dagops.parse_value_node(&dagops.value_nodes()[1]);
+    // Assert tool spec value node (index 2)
+    let (_, explain_tool_spec, value_tool_spec) = dagops.parse_value_node(&dagops.value_nodes()[2]);
     assert!(explain_tool_spec.contains("tool call spec - get_user_name"));
     let expected_tool_spec = r#"[{"type":"function","id":"call_9br5e3keEQrjl49h7lteRxW4","name":"get_user_name"},{"arguments":"{}"}]"#;
     assert_eq!(value_tool_spec, expected_tool_spec);
@@ -86,23 +99,27 @@ fn funcall_streaming() {
 
     _process_gpt(reader, writer.clone(), dagops.clone()).unwrap();
 
-    // Assert chat output
-    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+    // Assert stdout is empty since there was no text content
+    assert_eq!(writer.get_output(), "");
+    
+    // Assert chat output (including function call) is in DAG value nodes
+    let chat_output = get_chat_output(&dagops);
+    let expected_chat = r#"[{"type":"ctl"},{"role":"assistant"}]
 [{"type":"function","id":"call_9cFpsOXfVWMUoDz1yyyP1QXD","name":"get_user_name"},{"arguments":"{}"}]
 "#;
-    assert_eq!(writer.get_output(), expected);
+    assert_eq!(chat_output, expected_chat);
 
-    // Assert DAG operations - should have 2 value nodes (tool input and tool spec)
-    assert_eq!(dagops.value_nodes().len(), 2);
+    // Assert DAG operations - should have 3 value nodes (chat output + tool input + tool spec)
+    assert_eq!(dagops.value_nodes().len(), 3);
 
-    // Assert tool input value node
+    // Assert tool input value node (index 1 since chat output is at index 0)
     let (_, explain_tool_input, value_tool_input) =
-        dagops.parse_value_node(&dagops.value_nodes()[0]);
+        dagops.parse_value_node(&dagops.value_nodes()[1]);
     assert!(explain_tool_input.contains("tool input - get_user_name"));
     assert_eq!(value_tool_input, "{}");
 
-    // Assert tool spec value node
-    let (_, explain_tool_spec, value_tool_spec) = dagops.parse_value_node(&dagops.value_nodes()[1]);
+    // Assert tool spec value node (index 2)
+    let (_, explain_tool_spec, value_tool_spec) = dagops.parse_value_node(&dagops.value_nodes()[2]);
     assert!(explain_tool_spec.contains("tool call spec - get_user_name"));
     let expected_tool_spec = r#"[{"type":"function","id":"call_9cFpsOXfVWMUoDz1yyyP1QXD","name":"get_user_name"},{"arguments":"{}"}]"#;
     assert_eq!(value_tool_spec, expected_tool_spec);
@@ -129,38 +146,42 @@ fn delta_index_regress() {
 
     _process_gpt(reader, writer.clone(), dagops.clone()).unwrap();
 
-    // Assert chat output - should have 2 function calls
-    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+    // Assert stdout is empty since there was no text content
+    assert_eq!(writer.get_output(), "");
+    
+    // Assert chat output (including function calls) is in DAG value nodes
+    let chat_output = get_chat_output(&dagops);
+    let expected_chat = r#"[{"type":"ctl"},{"role":"assistant"}]
 [{"type":"function","id":"call_O8vJyvRJrH6ST1ssD97c3jPI","name":"get_user_name"},{"arguments":"{}"}]
 [{"type":"function","id":"call_5fx8xXsKGpAhCNDTZsYoWWUx","name":"get_user_name"},{"arguments":"{}"}]
 "#;
-    assert_eq!(writer.get_output(), expected);
+    assert_eq!(chat_output, expected_chat);
 
-    // Assert DAG operations - should have 4 value nodes (tool input and tool spec for each of 2 tools)
-    assert_eq!(dagops.value_nodes().len(), 4);
+    // Assert DAG operations - should have 5 value nodes (chat output + tool input and tool spec for each of 2 tools)
+    assert_eq!(dagops.value_nodes().len(), 5);
 
-    // Assert first tool input value node
+    // Assert first tool input value node (index 1 since chat output is at index 0)
     let (_, explain_tool_input1, value_tool_input1) =
-        dagops.parse_value_node(&dagops.value_nodes()[0]);
+        dagops.parse_value_node(&dagops.value_nodes()[1]);
     assert!(explain_tool_input1.contains("tool input - get_user_name"));
     assert_eq!(value_tool_input1, "{}");
 
-    // Assert first tool spec value node
+    // Assert first tool spec value node (index 2)
     let (_, explain_tool_spec1, value_tool_spec1) =
-        dagops.parse_value_node(&dagops.value_nodes()[1]);
+        dagops.parse_value_node(&dagops.value_nodes()[2]);
     assert!(explain_tool_spec1.contains("tool call spec - get_user_name"));
     let expected_tool_spec1 = r#"[{"type":"function","id":"call_O8vJyvRJrH6ST1ssD97c3jPI","name":"get_user_name"},{"arguments":"{}"}]"#;
     assert_eq!(value_tool_spec1, expected_tool_spec1);
 
-    // Assert second tool input value node
+    // Assert second tool input value node (index 3)
     let (_, explain_tool_input2, value_tool_input2) =
-        dagops.parse_value_node(&dagops.value_nodes()[2]);
+        dagops.parse_value_node(&dagops.value_nodes()[3]);
     assert!(explain_tool_input2.contains("tool input - get_user_name"));
     assert_eq!(value_tool_input2, "{}");
 
-    // Assert second tool spec value node
+    // Assert second tool spec value node (index 4)
     let (_, explain_tool_spec2, value_tool_spec2) =
-        dagops.parse_value_node(&dagops.value_nodes()[3]);
+        dagops.parse_value_node(&dagops.value_nodes()[4]);
     assert!(explain_tool_spec2.contains("tool call spec - get_user_name"));
     let expected_tool_spec2 = r#"[{"type":"function","id":"call_5fx8xXsKGpAhCNDTZsYoWWUx","name":"get_user_name"},{"arguments":"{}"}]"#;
     assert_eq!(value_tool_spec2, expected_tool_spec2);
@@ -217,23 +238,27 @@ fn arguments_before_name_retained() {
 
     _process_gpt(reader, writer.clone(), dagops.clone()).unwrap();
 
-    // Assert chat output - arguments before name should be retained
-    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+    // Assert stdout is empty since there was no text content
+    assert_eq!(writer.get_output(), "");
+    
+    // Assert chat output (including function call) is in DAG value nodes
+    let chat_output = get_chat_output(&dagops);
+    let expected_chat = r#"[{"type":"ctl"},{"role":"assistant"}]
 [{"type":"function","id":"call_test123","name":"test_function"},{"arguments":"{\"param\": true, \"value\": 42}"}]
 "#;
-    assert_eq!(writer.get_output(), expected);
+    assert_eq!(chat_output, expected_chat);
 
-    // Assert DAG operations - should have 2 value nodes (tool input and tool spec)
-    assert_eq!(dagops.value_nodes().len(), 2);
+    // Assert DAG operations - should have 3 value nodes (chat output + tool input + tool spec)
+    assert_eq!(dagops.value_nodes().len(), 3);
 
-    // Assert tool input value node
+    // Assert tool input value node (index 1 since chat output is at index 0)
     let (_, explain_tool_input, value_tool_input) =
-        dagops.parse_value_node(&dagops.value_nodes()[0]);
+        dagops.parse_value_node(&dagops.value_nodes()[1]);
     assert!(explain_tool_input.contains("tool input - test_function"));
     assert_eq!(value_tool_input, r#"{"param": true, "value": 42}"#);
 
-    // Assert tool spec value node
-    let (_, explain_tool_spec, value_tool_spec) = dagops.parse_value_node(&dagops.value_nodes()[1]);
+    // Assert tool spec value node (index 2)
+    let (_, explain_tool_spec, value_tool_spec) = dagops.parse_value_node(&dagops.value_nodes()[2]);
     assert!(explain_tool_spec.contains("tool call spec - test_function"));
     let expected_tool_spec = r#"[{"type":"function","id":"call_test123","name":"test_function"},{"arguments":"{\"param\": true, \"value\": 42}"}]"#;
     assert_eq!(value_tool_spec, expected_tool_spec);

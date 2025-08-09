@@ -289,23 +289,6 @@ fn autoclose_text_on_new_message_and_role() {
 }
 
 #[test]
-#[ignore] // Obsolete: FunCallsBuilder now manages tool calls independently
-fn autoclose_toolcall_on_end_message() {
-    // This test is obsolete because tool calls are now managed by FunCallsBuilder
-    // which outputs to DAG, not stdout. Auto-closing is handled internally by
-    // FunCallsBuilder.end() when StructureBuilder.end() is called.
-}
-
-#[test]
-#[ignore] // Obsolete: FunCallsBuilder now manages tool calls independently  
-fn autoclose_toolcall_on_new_message_and_role() {
-    // This test is obsolete because:
-    // 1. Tool calls are now managed by FunCallsBuilder which outputs to DAG
-    // 2. There's no longer auto-closing between text and tool calls since they use separate outputs
-    // 3. FunCallsBuilder validates against reusing IDs/names without proper state management
-}
-
-#[test]
 fn tool_call_without_arguments_chunk_has_empty_arguments() {
     // Arrange
     let writer = RcWriter::new();
