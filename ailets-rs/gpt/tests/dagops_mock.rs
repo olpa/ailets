@@ -73,7 +73,6 @@ impl DagOpsTrait for TrackedDagOps {
     }
 
     fn detach_from_alias(&mut self, alias: &str) -> Result<(), String> {
-        eprintln!("!!!! Detaching from alias in the mock: {}", alias); // FIXME
         self.detached.borrow_mut().push(alias.to_string());
         Ok(())
     }

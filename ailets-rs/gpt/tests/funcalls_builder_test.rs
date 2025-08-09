@@ -8,7 +8,6 @@ use dagops_mock::TrackedDagOps;
 
 // Helper assertion functions
 fn assert_writers(
-    writer: &RcWriter,
     tracked_dagops: &TrackedDagOps,
     id: &str,
     name: &str,
@@ -19,12 +18,18 @@ fn assert_writers(
         r#"[{{"type":"function","id":"{}","name":"{}"}},{{"arguments":"{}"}}]"#,
         id, name, arguments
     );
-    let actual_output = writer.get_output();
+    
+    // Get chat_output as the first value from tracked_dagops
+    let value_nodes = tracked_dagops.value_nodes();
+    assert!(!value_nodes.is_empty(), "Expected at least one value node for chat output");
+    let first_node = &value_nodes[0];
+    let (_, _, chat_output) = tracked_dagops.parse_value_node(first_node);
+    
     assert!(
-        actual_output.contains(&expected_chat_output),
+        chat_output.contains(&expected_chat_output),
         "Expected output to contain: {}\nActual output: {}",
         expected_chat_output,
-        actual_output
+        chat_output
     );
 
     // Check that ToolWriter was used
@@ -91,7 +96,6 @@ fn single_funcall_direct() {
     // Assert output
     funcalls.end().unwrap();
     assert_writers(
-        &writer,
         &tracked_dagops,
         "call_9cFpsOXfVWMUoDz1yyyP1QXD",
         "get_user_name",
@@ -152,21 +156,18 @@ fn several_funcalls_direct() {
     // Assert
     funcalls.end().unwrap();
     assert_writers(
-        &writer,
         &tracked_dagops,
         "call_foo",
         "get_foo",
         "{foo_args}",
     );
     assert_writers(
-        &writer,
         &tracked_dagops,
         "call_bar",
         "get_bar",
         "{bar_args}",
     );
     assert_writers(
-        &writer,
         &tracked_dagops,
         "call_baz",
         "get_baz",
@@ -199,7 +200,6 @@ fn single_element_streaming() {
     // Assert - streaming should auto-call end_item_if_direct
     funcalls.end().unwrap();
     assert_writers(
-        &writer,
         &tracked_dagops,
         "call_9cFpsOXfVWMUoDz1yyyP1QXD",
         "get_user_name",
@@ -261,21 +261,18 @@ fn several_elements_streaming() {
     // Assert
     funcalls.end().unwrap();
     assert_writers(
-        &writer,
         &tracked_dagops,
         "call_foo",
         "get_foo",
         "{foo_args}",
     );
     assert_writers(
-        &writer,
         &tracked_dagops,
         "call_bar",
         "get_bar",
         "{bar_args}",
     );
     assert_writers(
-        &writer,
         &tracked_dagops,
         "call_baz",
         "get_baz",
@@ -383,7 +380,6 @@ fn arguments_span_multiple_deltas() {
 
     // No error should occur - arguments are allowed to span deltas
     assert_writers(
-        &writer,
         &tracked_dagops,
         "call_123",
         "get_user",
@@ -498,7 +494,6 @@ fn test_arguments_chunk_without_new_item_stores() {
         .unwrap();
 
     assert_writers(
-        &writer,
         &tracked_dagops,
         "call_123",
         "get_user",
@@ -529,7 +524,6 @@ fn test_arguments_chunk_with_new_item_forwards() {
         .unwrap();
 
     assert_writers(
-        &writer,
         &tracked_dagops,
         "call_123",
         "get_user",
@@ -644,7 +638,7 @@ fn test_end_calls_end_item_if_not_called() {
     funcalls.end().unwrap();
 
     // Should have auto-called end_item_if_direct
-    assert_writers(&writer, &tracked_dagops, "call_123", "get_user", "{}");
+    assert_writers(&tracked_dagops, "call_123", "get_user", "{}");
     assert_own_dagops(&tracked_dagops, 1);
 }
 
@@ -680,7 +674,6 @@ fn test_multiple_arguments_chunks_accumulated() {
         .unwrap();
 
     assert_writers(
-        &writer,
         &tracked_dagops,
         "call_123",
         "get_user",
@@ -712,7 +705,6 @@ fn test_end_item_if_direct_ends_item_in_direct_mode() {
 
     // The item should be completed immediately
     assert_writers(
-        &writer,
         &tracked_dagops,
         "call_123",
         "get_user",
@@ -779,7 +771,6 @@ fn test_enforce_end_item_works_in_direct_mode() {
 
     // The item should be completed immediately
     assert_writers(
-        &writer,
         &tracked_dagops,
         "call_123",
         "get_user",
@@ -815,7 +806,6 @@ fn test_enforce_end_item_works_in_streaming_mode() {
 
     // The item should be completed (unlike end_item_if_direct which does nothing in streaming mode)
     assert_writers(
-        &writer,
         &tracked_dagops,
         "call_123",
         "get_user",
