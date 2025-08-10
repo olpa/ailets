@@ -50,13 +50,13 @@ fn create_message_without_input_role() {
 
     // Act without "builder.role()"
     builder.begin_message().unwrap();
-    builder.role("assistant").unwrap();
+    // Intentionally NOT calling builder.role() here to test default behavior
     builder.begin_text_chunk().unwrap();
     writer.write_all(b"hello").unwrap();
     builder.end_text_chunk().unwrap();
     builder.end_message().unwrap();
 
-    // Assert
+    // Assert - should default to "assistant" role
     let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
 [{"type":"text"},{"text":"hello"}]
 "#

@@ -35,7 +35,8 @@ pub struct StructureBuilder<W: std::io::Write, D: DagOpsTrait> {
     funcalls: FunCallsBuilder<D>,
     stdout: W,
     text_is_open: bool,
-    pending_role: Option<String>,
+    role: Option<String>,
+    text_section_started: bool,
 }
 
 impl<W: std::io::Write, D: DagOpsTrait> StructureBuilder<W, D> {
@@ -45,7 +46,8 @@ impl<W: std::io::Write, D: DagOpsTrait> StructureBuilder<W, D> {
             funcalls: FunCallsBuilder::new(dagops),
             stdout: stdout_writer,
             text_is_open: false,
-            pending_role: None,
+            role: None,
+            text_section_started: false,
         }
     }
 
@@ -75,8 +77,9 @@ impl<W: std::io::Write, D: DagOpsTrait> StructureBuilder<W, D> {
     /// Returns an error if auto-closing text operations fail.
     pub fn begin_message(&mut self) -> Result<(), std::io::Error> {
         self.auto_close_text_if_open()?;
-        // Clear any pending role from previous message
-        self.pending_role = None;
+        // Clear any role from previous message and reset text section flag
+        self.role = None;
+        self.text_section_started = false;
         Ok(())
     }
 
@@ -85,7 +88,7 @@ impl<W: std::io::Write, D: DagOpsTrait> StructureBuilder<W, D> {
     pub fn role(&mut self, role: &str) -> Result<(), std::io::Error> {
         self.auto_close_text_if_open()?;
         // Store the role to write later only if text is actually written
-        self.pending_role = Some(role.to_string());
+        self.role = Some(role.to_string());
         Ok(())
     }
 
@@ -93,12 +96,13 @@ impl<W: std::io::Write, D: DagOpsTrait> StructureBuilder<W, D> {
     /// # Errors
     /// I/O
     pub fn begin_text_chunk(&mut self) -> Result<(), std::io::Error> {
-        // Write pending role header if this is the first text
-        if let Some(role) = &self.pending_role {
+        // Write role header if this is the first text in the message - use "assistant" as default
+        if !self.text_section_started {
+            let role = self.role.as_deref().unwrap_or("assistant");
             self.stdout.write_all(b"[{\"type\":\"ctl\"},{\"role\":\"")?;
             self.stdout.write_all(role.as_bytes())?;
             self.stdout.write_all(b"\"}]\n")?;
-            self.pending_role = None;
+            self.text_section_started = true;
         }
 
         if !self.text_is_open {
