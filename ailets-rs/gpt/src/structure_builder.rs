@@ -6,17 +6,17 @@ use crate::dagops::DagOpsTrait;
 use crate::funcalls_builder::FunCallsBuilder;
 use std::io::Write;
 
-pub struct ArgumentsChunkWriter<'a, W1: Write, D: DagOpsTrait> {
-    builder: &'a mut StructureBuilder<W1, D>,
+pub struct ArgumentsChunkWriter<'a, W: Write, D: DagOpsTrait> {
+    builder: &'a mut StructureBuilder<W, D>,
 }
 
-impl<'a, W1: Write, D: DagOpsTrait> ArgumentsChunkWriter<'a, W1, D> {
-    fn new(builder: &'a mut StructureBuilder<W1, D>) -> Self {
+impl<'a, W: Write, D: DagOpsTrait> ArgumentsChunkWriter<'a, W, D> {
+    fn new(builder: &'a mut StructureBuilder<W, D>) -> Self {
         Self { builder }
     }
 }
 
-impl<'a, W1: Write, D: DagOpsTrait> Write for ArgumentsChunkWriter<'a, W1, D> {
+impl<'a, W: Write, D: DagOpsTrait> Write for ArgumentsChunkWriter<'a, W, D> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let s = std::str::from_utf8(buf)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -31,16 +31,16 @@ impl<'a, W1: Write, D: DagOpsTrait> Write for ArgumentsChunkWriter<'a, W1, D> {
     }
 }
 
-pub struct StructureBuilder<W1: std::io::Write, D: DagOpsTrait> {
+pub struct StructureBuilder<W: std::io::Write, D: DagOpsTrait> {
     funcalls: FunCallsBuilder<D>,
-    stdout: W1,
+    stdout: W,
     text_is_open: bool,
     pending_role: Option<String>,
 }
 
-impl<W1: std::io::Write, D: DagOpsTrait> StructureBuilder<W1, D> {
+impl<W: std::io::Write, D: DagOpsTrait> StructureBuilder<W, D> {
     #[must_use]
-    pub fn new(stdout_writer: W1, dagops: D) -> Self {
+    pub fn new(stdout_writer: W, dagops: D) -> Self {
         StructureBuilder {
             funcalls: FunCallsBuilder::new(dagops),
             stdout: stdout_writer,
@@ -50,12 +50,12 @@ impl<W1: std::io::Write, D: DagOpsTrait> StructureBuilder<W1, D> {
     }
 
     #[must_use]
-    pub fn get_writer(&mut self) -> &mut W1 {
+    pub fn get_writer(&mut self) -> &mut W {
         &mut self.stdout
     }
 
     #[must_use]
-    pub fn get_arguments_chunk_writer(&mut self) -> ArgumentsChunkWriter<'_, W1, D> {
+    pub fn get_arguments_chunk_writer(&mut self) -> ArgumentsChunkWriter<'_, W, D> {
         ArgumentsChunkWriter::new(self)
     }
 
