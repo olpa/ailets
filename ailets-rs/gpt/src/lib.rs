@@ -61,8 +61,7 @@ impl scan_json::Matcher for MatchInToolCall {
     }
 }
 
-fn make_triggers<'a, W: Write + 'a + 'static, D: DagOpsTrait + 'a>(
-) -> Vec<Trigger<'a, BA<'a, W, D>>> {
+fn make_triggers<'a, W: Write + 'a, D: DagOpsTrait + 'a>() -> Vec<Trigger<'a, BA<'a, W, D>>> {
     let begin_message = Trigger::new(
         Box::new(Name::new("message".to_string())),
         Box::new(on_begin_message) as BA<'a, W, D>,
@@ -136,7 +135,7 @@ fn make_triggers<'a, W: Write + 'a + 'static, D: DagOpsTrait + 'a>(
 
 /// # Errors
 /// If anything goes wrong.
-pub fn _process_gpt<W: Write + 'static, D: DagOpsTrait>(
+pub fn _process_gpt<W: Write, D: DagOpsTrait>(
     mut reader: impl std::io::Read,
     stdout_writer: W,
     dagops: D,

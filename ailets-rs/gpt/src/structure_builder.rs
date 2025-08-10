@@ -16,7 +16,7 @@ impl<'a, W1: Write, D: DagOpsTrait> ArgumentsChunkWriter<'a, W1, D> {
     }
 }
 
-impl<'a, W1: Write + 'static, D: DagOpsTrait> Write for ArgumentsChunkWriter<'a, W1, D> {
+impl<'a, W1: Write, D: DagOpsTrait> Write for ArgumentsChunkWriter<'a, W1, D> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let s = std::str::from_utf8(buf)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
@@ -38,7 +38,7 @@ pub struct StructureBuilder<W1: std::io::Write, D: DagOpsTrait> {
     pending_role: Option<String>,
 }
 
-impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
+impl<W1: std::io::Write, D: DagOpsTrait> StructureBuilder<W1, D> {
     #[must_use]
     pub fn new(stdout_writer: W1, dagops: D) -> Self {
         StructureBuilder {

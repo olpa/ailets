@@ -72,7 +72,7 @@ impl<W: std::io::Write> std::io::Write for FunCallsToChat<W> {
     }
 }
 
-impl<W: std::io::Write + 'static> FunCallsWrite for FunCallsToChat<W> {
+impl<W: std::io::Write> FunCallsWrite for FunCallsToChat<W> {
     fn new_item<T: crate::dagops::DagOpsTrait>(
         &mut self,
         id: &str,

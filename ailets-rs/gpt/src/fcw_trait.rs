@@ -18,7 +18,7 @@ pub type FunCallResult = Result<(), Box<dyn std::error::Error>>;
 /// The streaming approach allows for efficient processing of large function calls
 /// without requiring the entire payload to be loaded into memory at once.
 ///
-pub trait FunCallsWrite: std::any::Any {
+pub trait FunCallsWrite {
     /// Initialize a new function call with the given ID and name
     ///
     /// # Arguments
