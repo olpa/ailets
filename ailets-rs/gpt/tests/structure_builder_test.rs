@@ -458,3 +458,103 @@ fn begin_text_chunk_no_prefix_when_already_open() {
     .to_owned();
     assert_eq!(writer.get_output(), expected);
 }
+
+#[test]
+fn same_role_does_not_create_new_message() {
+    // Arrange
+    let mut writer = RcWriter::new();
+    let tracked_dagops = TrackedDagOps::default();
+    let mut builder = StructureBuilder::new(writer.clone(), tracked_dagops.clone());
+
+    // Act - set role to assistant, write text, then set role to assistant again
+    builder.begin_message().unwrap();
+    builder.role("assistant").unwrap();
+    builder.begin_text_chunk().unwrap();
+    writer.write_all(b"first message").unwrap();
+    builder.end_text_chunk().unwrap();
+
+    // Calling same role again should NOT create new message
+    builder.role("assistant").unwrap();
+    builder.begin_text_chunk().unwrap();
+    writer.write_all(b" continued").unwrap();
+    builder.end_text_chunk().unwrap();
+    builder.end_message().unwrap();
+
+    // Assert - should only have one role header, text should be separate chunks
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"text"},{"text":"first message"}]
+[{"type":"text"},{"text":" continued"}]
+"#
+    .to_owned();
+    assert_eq!(writer.get_output(), expected);
+}
+
+#[test]
+fn different_role_creates_new_message() {
+    // Arrange
+    let mut writer = RcWriter::new();
+    let tracked_dagops = TrackedDagOps::default();
+    let mut builder = StructureBuilder::new(writer.clone(), tracked_dagops.clone());
+
+    // Act - assistant role, then user role, then assistant role again
+    builder.begin_message().unwrap();
+    builder.role("assistant").unwrap();
+    builder.begin_text_chunk().unwrap();
+    writer.write_all(b"assistant message").unwrap();
+    builder.end_text_chunk().unwrap();
+
+    // Different role should create new message
+    builder.role("user").unwrap();
+    builder.begin_text_chunk().unwrap();
+    writer.write_all(b"user message").unwrap();
+    builder.end_text_chunk().unwrap();
+
+    // Back to assistant should create new message again
+    builder.role("assistant").unwrap();
+    builder.begin_text_chunk().unwrap();
+    writer.write_all(b"assistant again").unwrap();
+    builder.end_text_chunk().unwrap();
+    builder.end_message().unwrap();
+
+    // Assert - should have separate role headers for each role change
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"text"},{"text":"assistant message"}]
+[{"type":"ctl"},{"role":"user"}]
+[{"type":"text"},{"text":"user message"}]
+[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"text"},{"text":"assistant again"}]
+"#
+    .to_owned();
+    assert_eq!(writer.get_output(), expected);
+}
+
+#[test]
+fn role_change_auto_closes_text() {
+    // Arrange
+    let mut writer = RcWriter::new();
+    let tracked_dagops = TrackedDagOps::default();
+    let mut builder = StructureBuilder::new(writer.clone(), tracked_dagops.clone());
+
+    // Act - start text but don't close it, then change role
+    builder.begin_message().unwrap();
+    builder.role("assistant").unwrap();
+    builder.begin_text_chunk().unwrap();
+    writer.write_all(b"assistant message").unwrap();
+    // Intentionally NOT calling end_text_chunk() here
+
+    // Changing role should auto-close the current text
+    builder.role("user").unwrap();
+    builder.begin_text_chunk().unwrap();
+    writer.write_all(b"user message").unwrap();
+    builder.end_text_chunk().unwrap();
+    builder.end_message().unwrap();
+
+    // Assert - text should be auto-closed when role changes
+    let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
+[{"type":"text"},{"text":"assistant message"}]
+[{"type":"ctl"},{"role":"user"}]
+[{"type":"text"},{"text":"user message"}]
+"#
+    .to_owned();
+    assert_eq!(writer.get_output(), expected);
+}

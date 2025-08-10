@@ -86,8 +86,19 @@ impl<W: std::io::Write, D: DagOpsTrait> StructureBuilder<W, D> {
     /// # Errors
     /// I/O
     pub fn role(&mut self, role: &str) -> Result<(), std::io::Error> {
-        self.auto_close_text_if_open()?;
-        // Store the role to write later only if text is actually written
+        // Check if this is a different role than the current effective role
+        let is_different_role = match &self.role {
+            Some(current) => current != role,
+            None => role != "assistant", // Default is "assistant"
+        };
+
+        if is_different_role {
+            // Auto-close text if open and reset text section for new role
+            self.auto_close_text_if_open()?;
+            self.text_section_started = false;
+        }
+
+        // Store the role (update current role)
         self.role = Some(role.to_string());
         Ok(())
     }
@@ -96,12 +107,19 @@ impl<W: std::io::Write, D: DagOpsTrait> StructureBuilder<W, D> {
     /// # Errors
     /// I/O
     pub fn begin_text_chunk(&mut self) -> Result<(), std::io::Error> {
-        // Write role header if this is the first text in the message - use "assistant" as default
+        // Write role header if we haven't started a text section yet
         if !self.text_section_started {
-            let role = self.role.as_deref().unwrap_or("assistant");
-            self.stdout.write_all(b"[{\"type\":\"ctl\"},{\"role\":\"")?;
-            self.stdout.write_all(role.as_bytes())?;
-            self.stdout.write_all(b"\"}]\n")?;
+            // Set role to "assistant" if not set
+            if self.role.is_none() {
+                self.role = Some("assistant".to_string());
+            }
+
+            if let Some(ref role) = self.role {
+                self.stdout.write_all(b"[{\"type\":\"ctl\"},{\"role\":\"")?;
+                self.stdout.write_all(role.as_bytes())?;
+                self.stdout.write_all(b"\"}]\n")?;
+            }
+
             self.text_section_started = true;
         }
 
