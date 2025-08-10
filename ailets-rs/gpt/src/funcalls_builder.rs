@@ -67,14 +67,18 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     ///
     /// This method initializes the writers only when they are first needed,
     /// which happens when we enter the detached state for function call processing.
-    fn create_writers(&mut self) {
+    ///
+    /// # Errors
+    /// Returns error if chat output creation fails
+    fn create_writers(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.chat_writer.is_none() {
-            let chat_writer = self.create_chat_output().expect("Failed to create chat output");
+            let chat_writer = self.create_chat_output()?;
             self.chat_writer = Some(FunCallsToChat::new(chat_writer));
         }
         if self.tools_writer.is_none() {
             self.tools_writer = Some(FunCallsToTools::new());
         }
+        Ok(())
     }
 
     /// Attempts to call `new_item` if both ID and name are available
@@ -91,12 +95,13 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
                 self.setup_loop_iteration_in_dag()?;
                 self.detached = true;
                 // `create_writers` must be called after detachment
-                self.create_writers();
+                self.create_writers()?;
             }
 
             if let (Some(id), Some(name)) = (&self.current_id, &self.current_name) {
-                if let (Some(ref mut chat_writer), Some(ref mut tools_writer)) = 
-                    (&mut self.chat_writer, &mut self.tools_writer) {
+                if let (Some(ref mut chat_writer), Some(ref mut tools_writer)) =
+                    (&mut self.chat_writer, &mut self.tools_writer)
+                {
                     chat_writer.new_item(id, name, &mut self.dagops)?;
                     tools_writer.new_item(id, name, &mut self.dagops)?;
                     self.new_item_called = true;
@@ -166,8 +171,9 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
         }
 
         // Always end the item, regardless of mode
-        if let (Some(ref mut chat_writer), Some(ref mut tools_writer)) = 
-            (&mut self.chat_writer, &mut self.tools_writer) {
+        if let (Some(ref mut chat_writer), Some(ref mut tools_writer)) =
+            (&mut self.chat_writer, &mut self.tools_writer)
+        {
             chat_writer.end_item()?;
             tools_writer.end_item()?;
         }
@@ -211,8 +217,9 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
                 // If we're moving to a new index, end the current function call
                 if index > last {
                     if self.new_item_called {
-                        if let (Some(ref mut chat_writer), Some(ref mut tools_writer)) = 
-                            (&mut self.chat_writer, &mut self.tools_writer) {
+                        if let (Some(ref mut chat_writer), Some(ref mut tools_writer)) =
+                            (&mut self.chat_writer, &mut self.tools_writer)
+                        {
                             chat_writer.end_item()?;
                             tools_writer.end_item()?;
                         }
@@ -284,8 +291,9 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
 
         // Pass arguments directly to writers after new_item has been called
         if self.new_item_called {
-            if let (Some(ref mut chat_writer), Some(ref mut tools_writer)) = 
-                (&mut self.chat_writer, &mut self.tools_writer) {
+            if let (Some(ref mut chat_writer), Some(ref mut tools_writer)) =
+                (&mut self.chat_writer, &mut self.tools_writer)
+            {
                 chat_writer.arguments_chunk(args)?;
                 tools_writer.arguments_chunk(args)?;
             }
@@ -307,8 +315,9 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     pub fn end(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         // "end" calls "end_item" if "end_item_if_direct" was not called
         if self.new_item_called {
-            if let (Some(ref mut chat_writer), Some(ref mut tools_writer)) = 
-                (&mut self.chat_writer, &mut self.tools_writer) {
+            if let (Some(ref mut chat_writer), Some(ref mut tools_writer)) =
+                (&mut self.chat_writer, &mut self.tools_writer)
+            {
                 chat_writer.end_item()?;
                 tools_writer.end_item()?;
             }
@@ -378,9 +387,13 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     ///
     /// # Errors
     /// Returns error if DAG operations fail or if called before detachment
-    fn create_chat_output(&mut self) -> Result<Box<dyn std::io::Write>, Box<dyn std::error::Error>> {
+    fn create_chat_output(
+        &mut self,
+    ) -> Result<Box<dyn std::io::Write>, Box<dyn std::error::Error>> {
         if !self.detached {
-            return Err("create_chat_output must be called after setup_loop_iteration_in_dag".into());
+            return Err(
+                "create_chat_output must be called after setup_loop_iteration_in_dag".into(),
+            );
         }
         let fd = self.dagops.open_write_pipe(Some("tool calls spec"))?;
         self.dagops.alias_fd(".chat_messages", fd)?;

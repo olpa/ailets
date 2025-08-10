@@ -223,9 +223,11 @@ fn header_written_only_once() {
 [{"type":"function","id":"call_2","name":"func_2"},{"arguments":"{}"}]
 "#;
     assert_eq!(output, expected);
-    
+
     // Verify there's only one occurrence of the header
-    let header_count = output.matches(r#"[{"type":"ctl"},{"role":"assistant"}]"#).count();
+    let header_count = output
+        .matches(r#"[{"type":"ctl"},{"role":"assistant"}]"#)
+        .count();
     assert_eq!(header_count, 1, "Header should appear exactly once");
 }
 
@@ -240,5 +242,8 @@ fn no_output_when_no_function_calls() {
 
     // Assert - no output should be written (including no header)
     let output = writer.get_output();
-    assert_eq!(output, "", "No output should be written when no function calls are made");
+    assert_eq!(
+        output, "",
+        "No output should be written when no function calls are made"
+    );
 }

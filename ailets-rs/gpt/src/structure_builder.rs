@@ -68,7 +68,6 @@ impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
         Ok(())
     }
 
-
     /// Does nothing, just a placeholder for starting a message.
     /// This is useful for maintaining a consistent interface, to pair with `end_message`.
     ///
@@ -96,13 +95,12 @@ impl<W1: std::io::Write + 'static, D: DagOpsTrait> StructureBuilder<W1, D> {
     pub fn begin_text_chunk(&mut self) -> Result<(), std::io::Error> {
         // Write pending role header if this is the first text
         if let Some(role) = &self.pending_role {
-            self.stdout
-                .write_all(b"[{\"type\":\"ctl\"},{\"role\":\"")?;
+            self.stdout.write_all(b"[{\"type\":\"ctl\"},{\"role\":\"")?;
             self.stdout.write_all(role.as_bytes())?;
             self.stdout.write_all(b"\"}]\n")?;
             self.pending_role = None;
         }
-        
+
         if !self.text_is_open {
             self.stdout
                 .write_all(b"[{\"type\":\"text\"},{\"text\":\"")?;

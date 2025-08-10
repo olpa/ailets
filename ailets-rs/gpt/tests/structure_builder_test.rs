@@ -9,7 +9,10 @@ pub mod dagops_mock;
 // Helper function to get chat output from DAG value nodes
 fn get_chat_output(tracked_dagops: &TrackedDagOps) -> String {
     let value_nodes = tracked_dagops.value_nodes();
-    assert!(!value_nodes.is_empty(), "Expected at least one value node for chat output");
+    assert!(
+        !value_nodes.is_empty(),
+        "Expected at least one value node for chat output"
+    );
     let first_node = &value_nodes[0];
     let (_, _, chat_output) = tracked_dagops.parse_value_node(first_node);
     chat_output
@@ -110,7 +113,7 @@ fn output_direct_tool_call() {
 
     // Assert stdout is empty since there was no text output
     assert_eq!(writer.get_output(), "");
-    
+
     // Assert chat output (including function call) is in DAG value nodes
     let chat_output = get_chat_output(&tracked_dagops);
     let expected_chat = r#"[{"type":"ctl"},{"role":"assistant"}]
@@ -179,7 +182,7 @@ fn output_streaming_tool_call() {
 
     // Assert stdout is empty since there was no text output
     assert_eq!(writer.get_output(), "");
-    
+
     // Assert chat output (including function calls) is in DAG value nodes
     let chat_output = get_chat_output(&tracked_dagops);
     let expected_chat = r#"[{"type":"ctl"},{"role":"assistant"}]
@@ -306,7 +309,7 @@ fn tool_call_without_arguments_chunk_has_empty_arguments() {
 
     // Assert stdout is empty since there was no text output
     assert_eq!(writer.get_output(), "");
-    
+
     // Assert chat output (including function call) is in DAG value nodes
     let chat_output = get_chat_output(&tracked_dagops);
     let expected_chat = r#"[{"type":"ctl"},{"role":"assistant"}]
@@ -342,12 +345,12 @@ fn mixing_text_and_functions_separate_outputs() {
     // Act - mix text and function calls
     builder.begin_message().unwrap();
     builder.role("assistant").unwrap();
-    
+
     // Start with text
     builder.begin_text_chunk().unwrap();
     writer.write_all(b"I'll help you with that. ").unwrap();
     builder.end_text_chunk().unwrap();
-    
+
     // Add a function call
     builder.tool_call_id("call_123").unwrap();
     builder.tool_call_name("get_user_info").unwrap();
@@ -356,12 +359,12 @@ fn mixing_text_and_functions_separate_outputs() {
         args_writer.write_all(b"{\"user_id\": 42}").unwrap();
     }
     builder.tool_call_end_if_direct().unwrap();
-    
+
     // Add more text after function call
     builder.begin_text_chunk().unwrap();
     writer.write_all(b"Let me process that for you.").unwrap();
     builder.end_text_chunk().unwrap();
-    
+
     builder.end_message().unwrap();
     builder.end().unwrap();
 
@@ -371,16 +374,28 @@ fn mixing_text_and_functions_separate_outputs() {
 [{"type":"text"},{"text":"Let me process that for you."}]
 "#;
     assert_eq!(writer.get_output(), expected_stdout);
-    
+
     // Assert DAG was updated - should have at least one value node (chat output)
     let value_nodes = tracked_dagops.value_nodes();
-    assert!(!value_nodes.is_empty(), "Expected at least one DAG value node");
-    
+    assert!(
+        !value_nodes.is_empty(),
+        "Expected at least one DAG value node"
+    );
+
     // Check that the first value node contains the chat output with function call
     let (_, _, chat_output) = tracked_dagops.parse_value_node(&value_nodes[0]);
-    assert!(chat_output.contains("call_123"), "Chat output should contain function call ID");
-    assert!(chat_output.contains("get_user_info"), "Chat output should contain function name");
-    assert!(chat_output.contains("{\"user_id\": 42}"), "Chat output should contain function arguments");
+    assert!(
+        chat_output.contains("call_123"),
+        "Chat output should contain function call ID"
+    );
+    assert!(
+        chat_output.contains("get_user_info"),
+        "Chat output should contain function name"
+    );
+    assert!(
+        chat_output.contains("{\"user_id\": 42}"),
+        "Chat output should contain function arguments"
+    );
 }
 
 #[test]
@@ -393,7 +408,7 @@ fn function_calls_only_empty_stdout() {
     // Act - only function calls, no text
     builder.begin_message().unwrap();
     builder.role("assistant").unwrap();
-    
+
     // Add function call
     builder.tool_call_id("call_456").unwrap();
     builder.tool_call_name("fetch_data").unwrap();
@@ -402,16 +417,19 @@ fn function_calls_only_empty_stdout() {
         args_writer.write_all(b"{\"query\": \"test\"}").unwrap();
     }
     builder.tool_call_end_if_direct().unwrap();
-    
+
     builder.end_message().unwrap();
     builder.end().unwrap();
 
     // Assert stdout is completely empty (no ctl header written)
     assert_eq!(writer.get_output(), "");
-    
+
     // Verify DAG still gets the function call (minimal check)
     let value_nodes = tracked_dagops.value_nodes();
-    assert!(!value_nodes.is_empty(), "Expected DAG to have function call data");
+    assert!(
+        !value_nodes.is_empty(),
+        "Expected DAG to have function call data"
+    );
 }
 
 #[test]

@@ -7,7 +7,10 @@ use std::io::Cursor;
 // Helper function to get chat output from DAG value nodes
 fn get_chat_output(tracked_dagops: &TrackedDagOps) -> String {
     let value_nodes = tracked_dagops.value_nodes();
-    assert!(!value_nodes.is_empty(), "Expected at least one value node for chat output");
+    assert!(
+        !value_nodes.is_empty(),
+        "Expected at least one value node for chat output"
+    );
     let first_node = &value_nodes[0];
     let (_, _, chat_output) = tracked_dagops.parse_value_node(first_node);
     chat_output
@@ -48,13 +51,13 @@ fn funcall_response() {
         .expect("Failed to read fixture file 'funcall_response.txt'");
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
-    let mut dagops = TrackedDagOps::default();
+    let dagops = TrackedDagOps::default();
 
     _process_gpt(reader, writer.clone(), dagops.clone()).unwrap();
 
     // Assert stdout is empty since there was no text content
     assert_eq!(writer.get_output(), "");
-    
+
     // Assert chat output (including function call) is in DAG value nodes
     let chat_output = get_chat_output(&dagops);
     let expected_chat = r#"[{"type":"ctl"},{"role":"assistant"}]
@@ -95,13 +98,13 @@ fn funcall_streaming() {
         .expect("Failed to read fixture file 'funcall_streaming.txt'");
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
-    let mut dagops = TrackedDagOps::default();
+    let dagops = TrackedDagOps::default();
 
     _process_gpt(reader, writer.clone(), dagops.clone()).unwrap();
 
     // Assert stdout is empty since there was no text content
     assert_eq!(writer.get_output(), "");
-    
+
     // Assert chat output (including function call) is in DAG value nodes
     let chat_output = get_chat_output(&dagops);
     let expected_chat = r#"[{"type":"ctl"},{"role":"assistant"}]
@@ -142,13 +145,13 @@ fn delta_index_regress() {
         .expect("Failed to read fixture file 'delta_index_regress.txt'");
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
-    let mut dagops = TrackedDagOps::default();
+    let dagops = TrackedDagOps::default();
 
     _process_gpt(reader, writer.clone(), dagops.clone()).unwrap();
 
     // Assert stdout is empty since there was no text content
     assert_eq!(writer.get_output(), "");
-    
+
     // Assert chat output (including function calls) is in DAG value nodes
     let chat_output = get_chat_output(&dagops);
     let expected_chat = r#"[{"type":"ctl"},{"role":"assistant"}]
@@ -204,7 +207,7 @@ fn duplicate_tool_call_id_error() {
         .expect("Failed to read fixture file 'funcall_duplicate_name.txt'");
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
-    let mut dagops = TrackedDagOps::default();
+    let dagops = TrackedDagOps::default();
 
     let result = _process_gpt(reader, writer.clone(), dagops.clone());
 
@@ -219,7 +222,7 @@ fn nonincremental_index_error() {
         .expect("Failed to read fixture file 'funcall_nonincremental_index.txt'");
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
-    let mut dagops = TrackedDagOps::default();
+    let dagops = TrackedDagOps::default();
 
     let result = _process_gpt(reader, writer.clone(), dagops.clone());
 
@@ -234,13 +237,13 @@ fn arguments_before_name_retained() {
         .expect("Failed to read fixture file 'arguments_before_name.txt'");
     let reader = Cursor::new(fixture_content);
     let writer = RcWriter::new();
-    let mut dagops = TrackedDagOps::default();
+    let dagops = TrackedDagOps::default();
 
     _process_gpt(reader, writer.clone(), dagops.clone()).unwrap();
 
     // Assert stdout is empty since there was no text content
     assert_eq!(writer.get_output(), "");
-    
+
     // Assert chat output (including function call) is in DAG value nodes
     let chat_output = get_chat_output(&dagops);
     let expected_chat = r#"[{"type":"ctl"},{"role":"assistant"}]

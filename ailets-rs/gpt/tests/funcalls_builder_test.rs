@@ -6,26 +6,24 @@ use dagops_mock::TrackedDagOps;
 // Helper functions
 fn get_chat_output(tracked_dagops: &TrackedDagOps) -> String {
     let value_nodes = tracked_dagops.value_nodes();
-    assert!(!value_nodes.is_empty(), "Expected at least one value node for chat output");
+    assert!(
+        !value_nodes.is_empty(),
+        "Expected at least one value node for chat output"
+    );
     let first_node = &value_nodes[0];
     let (_, _, chat_output) = tracked_dagops.parse_value_node(first_node);
     chat_output
 }
 
-fn assert_writers(
-    tracked_dagops: &TrackedDagOps,
-    id: &str,
-    name: &str,
-    arguments: &str,
-) {
+fn assert_writers(tracked_dagops: &TrackedDagOps, id: &str, name: &str, arguments: &str) {
     // Check that ChatWriter was used
     let expected_chat_output = format!(
         r#"[{{"type":"function","id":"{}","name":"{}"}},{{"arguments":"{}"}}]"#,
         id, name, arguments
     );
-    
+
     let chat_output = get_chat_output(tracked_dagops);
-    
+
     assert!(
         chat_output.contains(&expected_chat_output),
         "Expected output to contain: {}\nActual output: {}",
@@ -80,18 +78,10 @@ fn single_funcall_direct() {
 
     // Act
     // Don't call "index"
-    funcalls
-        .id("call_9cFpsOXfVWMUoDz1yyyP1QXD")
-        .unwrap();
-    funcalls
-        .name("get_user_name")
-        .unwrap();
-    funcalls
-        .arguments_chunk(b"{}")
-        .unwrap();
-    funcalls
-        .end_item_if_direct()
-        .unwrap();
+    funcalls.id("call_9cFpsOXfVWMUoDz1yyyP1QXD").unwrap();
+    funcalls.name("get_user_name").unwrap();
+    funcalls.arguments_chunk(b"{}").unwrap();
+    funcalls.end_item_if_direct().unwrap();
 
     // Assert output
     funcalls.end().unwrap();
@@ -111,67 +101,28 @@ fn several_funcalls_direct() {
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // First tool call - Don't call "index"
-    funcalls
-        .id("call_foo")
-        .unwrap();
-    funcalls
-        .name("get_foo")
-        .unwrap();
-    funcalls
-        .arguments_chunk(b"{foo_args}")
-        .unwrap();
-    funcalls
-        .end_item_if_direct()
-        .unwrap();
+    funcalls.id("call_foo").unwrap();
+    funcalls.name("get_foo").unwrap();
+    funcalls.arguments_chunk(b"{foo_args}").unwrap();
+    funcalls.end_item_if_direct().unwrap();
 
     // Second tool call - Don't call "index"
-    funcalls
-        .id("call_bar")
-        .unwrap();
-    funcalls
-        .name("get_bar")
-        .unwrap();
-    funcalls
-        .arguments_chunk(b"{bar_args}")
-        .unwrap();
-    funcalls
-        .end_item_if_direct()
-        .unwrap();
+    funcalls.id("call_bar").unwrap();
+    funcalls.name("get_bar").unwrap();
+    funcalls.arguments_chunk(b"{bar_args}").unwrap();
+    funcalls.end_item_if_direct().unwrap();
 
     // Third tool call - Don't call "index"
-    funcalls
-        .id("call_baz")
-        .unwrap();
-    funcalls
-        .name("get_baz")
-        .unwrap();
-    funcalls
-        .arguments_chunk(b"{baz_args}")
-        .unwrap();
-    funcalls
-        .end_item_if_direct()
-        .unwrap();
+    funcalls.id("call_baz").unwrap();
+    funcalls.name("get_baz").unwrap();
+    funcalls.arguments_chunk(b"{baz_args}").unwrap();
+    funcalls.end_item_if_direct().unwrap();
 
     // Assert
     funcalls.end().unwrap();
-    assert_writers(
-        &tracked_dagops,
-        "call_foo",
-        "get_foo",
-        "{foo_args}",
-    );
-    assert_writers(
-        &tracked_dagops,
-        "call_bar",
-        "get_bar",
-        "{bar_args}",
-    );
-    assert_writers(
-        &tracked_dagops,
-        "call_baz",
-        "get_baz",
-        "{baz_args}",
-    );
+    assert_writers(&tracked_dagops, "call_foo", "get_foo", "{foo_args}");
+    assert_writers(&tracked_dagops, "call_bar", "get_bar", "{bar_args}");
+    assert_writers(&tracked_dagops, "call_baz", "get_baz", "{baz_args}");
     assert_own_dagops(&tracked_dagops, 3);
 }
 
@@ -182,18 +133,10 @@ fn single_element_streaming() {
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Act - streaming mode with delta_index
-    funcalls
-        .index(0)
-        .unwrap();
-    funcalls
-        .id("call_9cFpsOXfVWMUoDz1yyyP1QXD")
-        .unwrap();
-    funcalls
-        .name("get_user_name")
-        .unwrap();
-    funcalls
-        .arguments_chunk(b"{}")
-        .unwrap();
+    funcalls.index(0).unwrap();
+    funcalls.id("call_9cFpsOXfVWMUoDz1yyyP1QXD").unwrap();
+    funcalls.name("get_user_name").unwrap();
+    funcalls.arguments_chunk(b"{}").unwrap();
 
     // Assert - streaming should auto-call end_item_if_direct
     funcalls.end().unwrap();
@@ -213,68 +156,29 @@ fn several_elements_streaming() {
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Act - streaming mode with delta_index, multiple elements in one round
-    funcalls
-        .index(0)
-        .unwrap();
+    funcalls.index(0).unwrap();
 
-    funcalls
-        .id("call_foo")
-        .unwrap();
-    funcalls
-        .name("get_foo")
-        .unwrap();
-    funcalls
-        .arguments_chunk(b"{foo_args}")
-        .unwrap();
+    funcalls.id("call_foo").unwrap();
+    funcalls.name("get_foo").unwrap();
+    funcalls.arguments_chunk(b"{foo_args}").unwrap();
 
-    funcalls
-        .index(1)
-        .unwrap();
+    funcalls.index(1).unwrap();
 
-    funcalls
-        .id("call_bar")
-        .unwrap();
-    funcalls
-        .name("get_bar")
-        .unwrap();
-    funcalls
-        .arguments_chunk(b"{bar_args}")
-        .unwrap();
+    funcalls.id("call_bar").unwrap();
+    funcalls.name("get_bar").unwrap();
+    funcalls.arguments_chunk(b"{bar_args}").unwrap();
 
-    funcalls
-        .index(2)
-        .unwrap();
+    funcalls.index(2).unwrap();
 
-    funcalls
-        .id("call_baz")
-        .unwrap();
-    funcalls
-        .name("get_baz")
-        .unwrap();
-    funcalls
-        .arguments_chunk(b"{baz_args}")
-        .unwrap();
+    funcalls.id("call_baz").unwrap();
+    funcalls.name("get_baz").unwrap();
+    funcalls.arguments_chunk(b"{baz_args}").unwrap();
 
     // Assert
     funcalls.end().unwrap();
-    assert_writers(
-        &tracked_dagops,
-        "call_foo",
-        "get_foo",
-        "{foo_args}",
-    );
-    assert_writers(
-        &tracked_dagops,
-        "call_bar",
-        "get_bar",
-        "{bar_args}",
-    );
-    assert_writers(
-        &tracked_dagops,
-        "call_baz",
-        "get_baz",
-        "{baz_args}",
-    );
+    assert_writers(&tracked_dagops, "call_foo", "get_foo", "{foo_args}");
+    assert_writers(&tracked_dagops, "call_bar", "get_bar", "{bar_args}");
+    assert_writers(&tracked_dagops, "call_baz", "get_baz", "{baz_args}");
     assert_own_dagops(&tracked_dagops, 3);
 }
 
@@ -288,29 +192,19 @@ fn index_increment_validation() {
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // First index must be 0
-    assert!(funcalls
-        .index(0)
-        .is_ok());
+    assert!(funcalls.index(0).is_ok());
 
     // Index can stay the same
-    assert!(funcalls
-        .index(0)
-        .is_ok());
+    assert!(funcalls.index(0).is_ok());
 
     // Index can increment by 1
-    assert!(funcalls
-        .index(1)
-        .is_ok());
+    assert!(funcalls.index(1).is_ok());
 
     // Index can stay the same
-    assert!(funcalls
-        .index(1)
-        .is_ok());
+    assert!(funcalls.index(1).is_ok());
 
     // Index can increment by 1
-    assert!(funcalls
-        .index(2)
-        .is_ok());
+    assert!(funcalls.index(2).is_ok());
 
     // Index cannot skip
     let result = funcalls.index(4);
@@ -346,28 +240,16 @@ fn arguments_span_multiple_deltas() {
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Enable streaming mode
-    assert!(funcalls
-        .index(0)
-        .is_ok());
+    assert!(funcalls.index(0).is_ok());
 
     // Set up id and name first so new_item gets called
-    funcalls
-        .id("call_123")
-        .unwrap();
-    funcalls
-        .name("get_user")
-        .unwrap();
+    funcalls.id("call_123").unwrap();
+    funcalls.name("get_user").unwrap();
 
     // Arguments can be set multiple times - this should work
-    funcalls
-        .arguments_chunk(b"{")
-        .unwrap();
-    funcalls
-        .arguments_chunk(b"\"arg\": \"value\"")
-        .unwrap();
-    funcalls
-        .arguments_chunk(b"}")
-        .unwrap();
+    funcalls.arguments_chunk(b"{").unwrap();
+    funcalls.arguments_chunk(b"\"arg\": \"value\"").unwrap();
+    funcalls.arguments_chunk(b"}").unwrap();
 
     // End the item (use end() for streaming mode)
     funcalls.end().unwrap();
@@ -388,9 +270,7 @@ fn test_id_already_given_error_streaming() {
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // First ID should work
-    funcalls
-        .id("call_123")
-        .unwrap();
+    funcalls.id("call_123").unwrap();
 
     // Second ID should error
     let result = funcalls.id("call_456");
@@ -407,9 +287,7 @@ fn test_name_already_given_error() {
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // First name should work
-    funcalls
-        .name("get_user")
-        .unwrap();
+    funcalls.name("get_user").unwrap();
 
     // Second name should error
     let result = funcalls.name("get_data");
@@ -426,12 +304,8 @@ fn test_id_then_name_calls_new_item() {
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Set id first, then name
-    funcalls
-        .id("call_123")
-        .unwrap();
-    funcalls
-        .name("get_user")
-        .unwrap();
+    funcalls.id("call_123").unwrap();
+    funcalls.name("get_user").unwrap();
 
     // Should have started outputting (partial output expected since we haven't called end_item)
     let output = get_chat_output(&tracked_dagops);
@@ -445,12 +319,8 @@ fn test_name_then_id_calls_new_item() {
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Set name first, then id
-    funcalls
-        .name("get_user")
-        .unwrap();
-    funcalls
-        .id("call_123")
-        .unwrap();
+    funcalls.name("get_user").unwrap();
+    funcalls.id("call_123").unwrap();
 
     // Should have started outputting (partial output expected since we haven't called end_item)
     let output = get_chat_output(&tracked_dagops);
@@ -464,23 +334,15 @@ fn test_arguments_chunk_without_new_item_stores() {
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Add arguments without calling new_item first
-    funcalls
-        .arguments_chunk(b"{\"arg\": \"value\"}")
-        .unwrap();
+    funcalls.arguments_chunk(b"{\"arg\": \"value\"}").unwrap();
 
     // Should not have written anything yet
     // Now set id and name to trigger new_item
-    funcalls
-        .id("call_123")
-        .unwrap();
-    funcalls
-        .name("get_user")
-        .unwrap();
+    funcalls.id("call_123").unwrap();
+    funcalls.name("get_user").unwrap();
 
     // Now end the item
-    funcalls
-        .end_item_if_direct()
-        .unwrap();
+    funcalls.end_item_if_direct().unwrap();
 
     assert_writers(
         &tracked_dagops,
@@ -496,20 +358,12 @@ fn test_arguments_chunk_with_new_item_forwards() {
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Set id and name to trigger new_item
-    funcalls
-        .id("call_123")
-        .unwrap();
-    funcalls
-        .name("get_user")
-        .unwrap();
+    funcalls.id("call_123").unwrap();
+    funcalls.name("get_user").unwrap();
 
     // Now add arguments - should forward directly to writer
-    funcalls
-        .arguments_chunk(b"{\"arg\": \"value\"}")
-        .unwrap();
-    funcalls
-        .end_item_if_direct()
-        .unwrap();
+    funcalls.arguments_chunk(b"{\"arg\": \"value\"}").unwrap();
+    funcalls.end_item_if_direct().unwrap();
 
     assert_writers(
         &tracked_dagops,
@@ -538,9 +392,7 @@ fn test_end_item_if_direct_missing_name_error() {
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Set only id, but not name
-    funcalls
-        .id("call_123")
-        .unwrap();
+    funcalls.id("call_123").unwrap();
 
     // Call end_item_if_direct without name should error
     let result = funcalls.end_item_if_direct();
@@ -557,9 +409,7 @@ fn test_end_item_if_direct_missing_id_error() {
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Set only name, but not id
-    funcalls
-        .name("test_function")
-        .unwrap();
+    funcalls.name("test_function").unwrap();
 
     // Call end_item_if_direct without id should error
     let result = funcalls.end_item_if_direct();
@@ -576,23 +426,13 @@ fn test_index_increment_calls_end_item_if_not_called() {
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Start with index 0
-    funcalls
-        .index(0)
-        .unwrap();
-    funcalls
-        .id("call_123")
-        .unwrap();
-    funcalls
-        .name("get_user")
-        .unwrap();
-    funcalls
-        .arguments_chunk(b"{}")
-        .unwrap();
+    funcalls.index(0).unwrap();
+    funcalls.id("call_123").unwrap();
+    funcalls.name("get_user").unwrap();
+    funcalls.arguments_chunk(b"{}").unwrap();
 
     // Move to index 1 without calling end_item_if_direct - should auto-call it
-    funcalls
-        .index(1)
-        .unwrap();
+    funcalls.index(1).unwrap();
 
     // The first item should be completed
     let output = get_chat_output(&tracked_dagops);
@@ -607,15 +447,9 @@ fn test_end_calls_end_item_if_not_called() {
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Set up a function call
-    funcalls
-        .id("call_123")
-        .unwrap();
-    funcalls
-        .name("get_user")
-        .unwrap();
-    funcalls
-        .arguments_chunk(b"{}")
-        .unwrap();
+    funcalls.id("call_123").unwrap();
+    funcalls.name("get_user").unwrap();
+    funcalls.arguments_chunk(b"{}").unwrap();
 
     // Call end without calling end_item_if_direct first
     funcalls.end().unwrap();
@@ -631,29 +465,15 @@ fn test_multiple_arguments_chunks_accumulated() {
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Add multiple argument chunks before new_item
-    funcalls
-        .arguments_chunk(b"{")
-        .unwrap();
-    funcalls
-        .arguments_chunk(b"\"key\":")
-        .unwrap();
-    funcalls
-        .arguments_chunk(b"\"value\"")
-        .unwrap();
-    funcalls
-        .arguments_chunk(b"}")
-        .unwrap();
+    funcalls.arguments_chunk(b"{").unwrap();
+    funcalls.arguments_chunk(b"\"key\":").unwrap();
+    funcalls.arguments_chunk(b"\"value\"").unwrap();
+    funcalls.arguments_chunk(b"}").unwrap();
 
     // Set id and name to trigger new_item
-    funcalls
-        .id("call_123")
-        .unwrap();
-    funcalls
-        .name("get_user")
-        .unwrap();
-    funcalls
-        .end_item_if_direct()
-        .unwrap();
+    funcalls.id("call_123").unwrap();
+    funcalls.name("get_user").unwrap();
+    funcalls.end_item_if_direct().unwrap();
 
     assert_writers(
         &tracked_dagops,
@@ -669,20 +489,12 @@ fn test_end_item_if_direct_ends_item_in_direct_mode() {
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Direct mode - no call to index()
-    funcalls
-        .id("call_123")
-        .unwrap();
-    funcalls
-        .name("get_user")
-        .unwrap();
-    funcalls
-        .arguments_chunk(b"{\"arg\": \"value\"}")
-        .unwrap();
+    funcalls.id("call_123").unwrap();
+    funcalls.name("get_user").unwrap();
+    funcalls.arguments_chunk(b"{\"arg\": \"value\"}").unwrap();
 
     // Call end_item_if_direct - should end the item in direct mode
-    funcalls
-        .end_item_if_direct()
-        .unwrap();
+    funcalls.end_item_if_direct().unwrap();
 
     // The item should be completed immediately
     assert_writers(
@@ -699,24 +511,14 @@ fn test_end_item_if_direct_does_not_end_item_in_streaming_mode() {
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Streaming mode - call index() to enable streaming
-    funcalls
-        .index(0)
-        .unwrap();
+    funcalls.index(0).unwrap();
 
-    funcalls
-        .id("call_123")
-        .unwrap();
-    funcalls
-        .name("get_user")
-        .unwrap();
-    funcalls
-        .arguments_chunk(b"{\"arg\": \"value\"}")
-        .unwrap();
+    funcalls.id("call_123").unwrap();
+    funcalls.name("get_user").unwrap();
+    funcalls.arguments_chunk(b"{\"arg\": \"value\"}").unwrap();
 
     // Call end_item_if_direct - should NOT end the item in streaming mode
-    funcalls
-        .end_item_if_direct()
-        .unwrap();
+    funcalls.end_item_if_direct().unwrap();
 
     // The item should NOT be completed yet - streaming mode doesn't end until index changes or end() is called
     let output = get_chat_output(&tracked_dagops);
@@ -733,20 +535,12 @@ fn test_enforce_end_item_works_in_direct_mode() {
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Direct mode - no call to index()
-    funcalls
-        .id("call_123")
-        .unwrap();
-    funcalls
-        .name("get_user")
-        .unwrap();
-    funcalls
-        .arguments_chunk(b"{\"arg\": \"value\"}")
-        .unwrap();
+    funcalls.id("call_123").unwrap();
+    funcalls.name("get_user").unwrap();
+    funcalls.arguments_chunk(b"{\"arg\": \"value\"}").unwrap();
 
     // Call enforce_end_item - should end the item in direct mode
-    funcalls
-        .enforce_end_item()
-        .unwrap();
+    funcalls.enforce_end_item().unwrap();
 
     // The item should be completed immediately
     assert_writers(
@@ -763,24 +557,14 @@ fn test_enforce_end_item_works_in_streaming_mode() {
     let mut funcalls = FunCallsBuilder::new(tracked_dagops.clone());
 
     // Streaming mode - call index() to enable streaming
-    funcalls
-        .index(0)
-        .unwrap();
+    funcalls.index(0).unwrap();
 
-    funcalls
-        .id("call_123")
-        .unwrap();
-    funcalls
-        .name("get_user")
-        .unwrap();
-    funcalls
-        .arguments_chunk(b"{\"arg\": \"value\"}")
-        .unwrap();
+    funcalls.id("call_123").unwrap();
+    funcalls.name("get_user").unwrap();
+    funcalls.arguments_chunk(b"{\"arg\": \"value\"}").unwrap();
 
     // Call enforce_end_item - should end the item even in streaming mode
-    funcalls
-        .enforce_end_item()
-        .unwrap();
+    funcalls.enforce_end_item().unwrap();
 
     // The item should be completed (unlike end_item_if_direct which does nothing in streaming mode)
     assert_writers(
