@@ -2,7 +2,7 @@
 
 use crate::fcw_trait::{FunCallResult, FunCallsWrite};
 
-// https://github.com/olpa/ailets/issues/185
+// TODO https://github.com/olpa/ailets/issues/185
 fn escape_json_string(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }

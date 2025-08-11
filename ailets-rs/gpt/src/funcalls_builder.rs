@@ -1,4 +1,5 @@
-//! Function call state management for streaming processing
+//! Function call state management
+//! Collect/validate streaming input and forward it to the writers
 //!
 //! This module provides state management for function calls during streaming
 //! processing, ensuring proper sequencing and validation of function call data.
@@ -8,16 +9,10 @@ use crate::fcw_chat::FunCallsToChat;
 use crate::fcw_tools::FunCallsToTools;
 use crate::fcw_trait::FunCallsWrite;
 
-/// State manager for streaming function call processing
-///
-/// Manages function call state during streaming processing, ensuring:
-/// - Proper sequencing of function calls by index
-/// - Correct pairing of ID and name before processing
-/// - Buffering of arguments until the function call is ready
-/// - State transitions follow the expected protocol
+/// Collect/validate streaming input and forward it to the writers
 pub struct FunCallsBuilder<D: DagOpsTrait> {
     /// The highest function call index seen so far (enables streaming mode)
-    pub last_index: Option<usize>,
+    last_index: Option<usize>,
     /// Current function call ID (waiting for name to complete setup)
     current_id: Option<String>,
     /// Current function call name (waiting for ID to complete setup)
@@ -38,12 +33,6 @@ pub struct FunCallsBuilder<D: DagOpsTrait> {
 
 impl<D: DagOpsTrait> FunCallsBuilder<D> {
     /// Creates a new function call state manager
-    ///
-    /// # Arguments
-    /// * `dagops` - DAG operations implementation
-    ///
-    /// # Returns
-    /// A new `FunCallsBuilder` instance ready to process streaming function calls
     #[must_use]
     pub fn new(dagops: D) -> Self {
         Self {
@@ -59,17 +48,6 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
         }
     }
 
-    // =========================================================================
-    // Private Helper Methods
-    // =========================================================================
-
-    /// Creates chat and tools writers lazily when needed
-    ///
-    /// This method initializes the writers only when they are first needed,
-    /// which happens when we enter the detached state for function call processing.
-    ///
-    /// # Errors
-    /// Returns error if chat output creation fails
     fn create_writers(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.chat_writer.is_none() {
             let chat_writer = self.create_chat_output()?;
@@ -236,9 +214,6 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
 
     /// Sets the ID of the current function call
     ///
-    /// # Arguments
-    /// * `id` - The function call ID
-    ///
     /// # Errors
     /// Returns error if validation fails
     pub fn id(&mut self, id: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -247,21 +222,14 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
             return Err("ID is already given".into());
         }
 
-        // Store the ID
+        // Store the ID and try to create a new item
         self.current_id = Some(id.to_string());
-
-        // ID is now stored only in current_call
-
-        // Call new_item immediately if both id and name are now available
         self.try_call_new_item()?;
 
         Ok(())
     }
 
     /// Sets the name of the current function call
-    ///
-    /// # Arguments
-    /// * `name` - The function call name
     ///
     /// # Errors
     /// Returns error if validation fails or writing operation fails
@@ -271,12 +239,8 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
             return Err("Name is already given".into());
         }
 
-        // Store the name
+        // Store the name and try to create a new item
         self.current_name = Some(name.to_string());
-
-        // Name is now stored only in current_call
-
-        // Call new_item immediately if both id and name are now available
         self.try_call_new_item()?;
 
         Ok(())
@@ -287,8 +251,6 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     /// # Errors
     /// Returns error if writing operation fails
     pub fn arguments_chunk(&mut self, args: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
-        // Arguments are now stored only in current_call
-
         // Pass arguments directly to writers after new_item has been called
         if self.new_item_called {
             if let (Some(ref mut chat_writer), Some(ref mut tools_writer)) =
@@ -324,7 +286,7 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
             self.new_item_called = false;
         }
 
-        // Call end on writers (no dagops needed anymore)
+        // Call end on writers
         if let Some(ref mut chat_writer) = self.chat_writer {
             chat_writer.end()?;
         }
@@ -339,7 +301,7 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     }
 
     // =========================================================================
-    // Private Utility Methods
+    // Utility Methods for DAG Operations
     // =========================================================================
 
     /// Checks if we are in streaming mode
@@ -360,30 +322,20 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
         self.pending_arguments = None;
     }
 
-    // =========================================================================
-    // Utility Methods for DAG Operations
-    // =========================================================================
-
     /// Sets up the DAG for a new iteration by detaching from previous workflows
     ///
-    /// This method ensures that new function calls don't interfere with
-    /// previous model workflows by detaching from the chat messages alias.
-    /// This prevents confusing dependency relationships in the DAG.
-    ///
-    /// # Arguments
-    /// * `dagops` - Mutable reference to the DAG operations implementation
+    /// Detach from previous chat messages to avoid dependency confusion
+    /// This prevents the old "user prompt to messages" workflow from
+    /// appearing to depend on new chat messages we're about to create
     ///
     /// # Errors
     /// Returns error if the detach operation fails
     fn setup_loop_iteration_in_dag(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Detach from previous chat messages to avoid dependency confusion
-        // This prevents the old "user prompt to messages" workflow from
-        // appearing to depend on new chat messages we're about to create
         self.dagops.detach_from_alias(".chat_messages")?;
         Ok(())
     }
 
-    /// Creates a new DAG output value for chat messages and returns a writer to it
+    /// Copy LLM-mesage with tool calls to the chat history
     ///
     /// # Errors
     /// Returns error if DAG operations fail or if called before detachment

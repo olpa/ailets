@@ -1,6 +1,4 @@
 //! A module for building structured messages in a streaming fashion.
-//!
-//! Collects function calls from the JSON stream and stores them in a `FunCalls` struct.
 
 use crate::dagops::DagOpsTrait;
 use crate::funcalls_builder::FunCallsBuilder;
@@ -31,6 +29,8 @@ impl<'a, W: Write, D: DagOpsTrait> Write for ArgumentsChunkWriter<'a, W, D> {
     }
 }
 
+// Normal chat content goes to the stdout,
+// function calls inject workflows to the DAG using `FunCallsBuilder`
 pub struct StructureBuilder<W: std::io::Write, D: DagOpsTrait> {
     funcalls: FunCallsBuilder<D>,
     stdout: W,
@@ -83,6 +83,8 @@ impl<W: std::io::Write, D: DagOpsTrait> StructureBuilder<W, D> {
         Ok(())
     }
 
+    /// Set the role for the current message,
+    /// the header will be written by the first item in the message.
     /// # Errors
     /// I/O
     pub fn role(&mut self, role: &str) -> Result<(), std::io::Error> {
@@ -131,7 +133,6 @@ impl<W: std::io::Write, D: DagOpsTrait> StructureBuilder<W, D> {
         Ok(())
     }
 
-    /// End a text chunk
     /// # Errors
     /// I/O
     pub fn end_text_chunk(&mut self) -> Result<(), std::io::Error> {
@@ -140,7 +141,6 @@ impl<W: std::io::Write, D: DagOpsTrait> StructureBuilder<W, D> {
         Ok(())
     }
 
-    /// Public interface for setting tool call ID - forwards to funcalls and handles streaming
     /// # Errors
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_id(&mut self, id: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -148,7 +148,6 @@ impl<W: std::io::Write, D: DagOpsTrait> StructureBuilder<W, D> {
         Ok(())
     }
 
-    /// Public interface for setting tool call name - forwards to funcalls and handles streaming
     /// # Errors
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_name(&mut self, name: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -156,7 +155,8 @@ impl<W: std::io::Write, D: DagOpsTrait> StructureBuilder<W, D> {
         Ok(())
     }
 
-    /// Private interface for adding tool call arguments chunk - forwards to funcalls and handles streaming
+    /// Private interface for adding tool call arguments chunk
+    /// This is used internally by the `ArgumentsChunkWriter`.
     /// # Errors
     /// Returns error if I/O error occurs
     fn _tool_call_arguments_chunk(&mut self, args: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -164,7 +164,6 @@ impl<W: std::io::Write, D: DagOpsTrait> StructureBuilder<W, D> {
         Ok(())
     }
 
-    /// Public interface for setting tool call index - forwards to funcalls and handles streaming
     /// # Errors
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_index(&mut self, index: usize) -> Result<(), Box<dyn std::error::Error>> {
@@ -172,7 +171,6 @@ impl<W: std::io::Write, D: DagOpsTrait> StructureBuilder<W, D> {
         Ok(())
     }
 
-    /// Public interface for ending a direct tool call - forwards to funcalls and handles streaming
     /// # Errors
     /// Returns error if validation fails or I/O error occurs
     pub fn tool_call_end_if_direct(&mut self) -> Result<(), Box<dyn std::error::Error>> {
@@ -180,7 +178,6 @@ impl<W: std::io::Write, D: DagOpsTrait> StructureBuilder<W, D> {
         Ok(())
     }
 
-    /// End the current message.
     /// # Errors
     /// I/O
     pub fn end_message(&mut self) -> Result<(), std::io::Error> {
@@ -188,7 +185,6 @@ impl<W: std::io::Write, D: DagOpsTrait> StructureBuilder<W, D> {
         Ok(())
     }
 
-    /// End processing and finalize all writers.
     /// # Errors
     /// I/O or other errors from the underlying writers
     pub fn end(&mut self) -> Result<(), Box<dyn std::error::Error>> {

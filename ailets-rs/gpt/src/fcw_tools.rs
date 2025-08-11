@@ -1,34 +1,26 @@
-//! Function call writer that integrates with tool operations
-//!
-//! This module provides a function call writer implementation that creates
-//! tool nodes, workflows, and pipes for each function call, enabling function
-//! calls to participate in the larger workflow system.
+//! For each function, put to DAG a workflow to call the function
 
 use crate::dagops::DagOpsTrait;
 use crate::fcw_trait::FunCallsWrite;
 use std::collections::HashMap;
 use std::io::Write;
 
-/// Escapes a string for safe inclusion in JSON by escaping backslashes and quotes
-///
-/// # Arguments
-/// * `s` - The string to escape
-///
-/// # Returns
-/// A new string with `\` escaped as `\\` and `"` escaped as `\"`
+// TODO https://github.com/olpa/ailets/issues/185
 fn escape_json_string(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-/// Function call writer that integrates with tool operations
-///
-/// This writer implements the `FunCallsWrite` trait while simultaneously
-/// creating tool nodes, workflows, and pipes for each function call. It
-/// enables function calls to participate in the larger workflow system.
+/// For each function call, this writer creates a tool node in the DAG:
+/// 
+/// tool call spec from llm + tool arguments (the input) from llm ->
+///   instantiated tool workflow ->
+///   chat messages
+/// 
+/// The representation format for a tool spec is:
+/// `[{"type":"function","id":"...","name":"..."},{"arguments":"..."}]`
+
 pub struct FunCallsToTools {
-    /// Writer for the current tool's input data
     tool_input_writer: Option<Box<dyn Write>>,
-    /// Writer for the current tool's specification (JSON)
     tool_spec_writer: Option<Box<dyn Write>>,
 }
 
@@ -106,6 +98,7 @@ impl FunCallsWrite for FunCallsToTools {
     fn arguments_chunk(&mut self, args: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
         // Write to tool input writer - unescape the JSON string first
         if let Some(ref mut writer) = self.tool_input_writer {
+            // TODO https://github.com/olpa/ailets/issues/185
             // Create a new slice with quotes around the content to make it a valid JSON string
             let mut quoted_args = Vec::with_capacity(args.len() + 2);
             quoted_args.push(b'"');
@@ -149,7 +142,6 @@ impl FunCallsWrite for FunCallsToTools {
     }
 
     fn end(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Placeholder - actual DAG workflow ending is handled by FunCallsBuilder
         Ok(())
     }
 }
