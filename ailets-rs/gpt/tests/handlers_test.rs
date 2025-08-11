@@ -26,7 +26,7 @@ fn content_writes_to_builder() {
 
     // Assert
     assert!(matches!(result, StreamOp::ValueIsConsumed));
-    let expected = "[{\"type\":\"text\"},{\"text\":\"hello world";
+    let expected = "[{\"type\":\"ctl\"},{\"role\":\"assistant\"}]\n[{\"type\":\"text\"},{\"text\":\"hello world";
     assert_eq!(writer.get_output(), expected);
 }
 

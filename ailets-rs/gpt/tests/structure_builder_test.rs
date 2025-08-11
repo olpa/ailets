@@ -283,6 +283,7 @@ fn autoclose_text_on_new_message_and_role() {
     // Assert - should have auto-closed the first text chunk on begin_message
     let expected = r#"[{"type":"ctl"},{"role":"assistant"}]
 [{"type":"text"},{"text":"hello"}]
+[{"type":"ctl"},{"role":"assistant"}]
 [{"type":"text"},{"text":"from"}]
 [{"type":"ctl"},{"role":"user"}]
 [{"type":"text"},{"text":"world"}]
