@@ -1,23 +1,7 @@
 //! Function call writing trait definition
-//!
-//! This module provides the core trait for writing function call data
-//! in a streaming fashion, enabling efficient processing of large function calls
-//! while maintaining JSON safety through proper escaping.
 
-/// Result type for function call writing operations
 pub type FunCallResult = Result<(), Box<dyn std::error::Error>>;
 
-/// Trait for writing function call data in a streaming manner
-///
-/// This trait supports streaming output by breaking function calls into discrete phases:
-/// 1. `new_item` - Initialize a new function call with ID and name
-/// 2. `arguments_chunk` - Stream argument data in chunks (can be called multiple times)
-/// 3. `end_item` - Finalize the current function call
-/// 4. `end` - Complete all processing
-///
-/// The streaming approach allows for efficient processing of large function calls
-/// without requiring the entire payload to be loaded into memory at once.
-///
 pub trait FunCallsWrite {
     /// Initialize a new function call with the given ID and name
     ///
@@ -48,8 +32,6 @@ pub trait FunCallsWrite {
     fn arguments_chunk(&mut self, chunk: &[u8]) -> FunCallResult;
 
     /// Finalize the current function call item
-    ///
-    /// This must be called after all argument chunks have been written.
     ///
     /// # Errors
     /// Returns an error if the underlying writer fails
