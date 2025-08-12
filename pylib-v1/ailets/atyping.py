@@ -286,6 +286,14 @@ class IDagops(Protocol):
         raise NotImplementedError
 
 
+class ILiveDependencies(Protocol):
+    """Protocol for getting live dependencies for a node."""
+    
+    def get_dependencies(self) -> Sequence[Dependency]:
+        """Get current dependencies for this node."""
+        raise NotImplementedError
+
+
 class INodeRegistry(Protocol):
     def has_node(self, name: str) -> bool:
         raise NotImplementedError

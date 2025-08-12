@@ -1,7 +1,8 @@
 import json
+import sys  # FIXME
 from typing import Any, AsyncGenerator, Dict, Optional, Sequence
 
-from ailets.atyping import Dependency, IAsyncReader, INodeRuntime, IPiper, IPipe, StdHandles
+from ailets.atyping import Dependency, IAsyncReader, INodeRuntime, IPiper, IPipe, StdHandles, ILiveDependencies
 from ailets.cons.util import io_errno_to_oserror
 
 
@@ -23,12 +24,12 @@ class MergeInputReader(IAsyncReader):
     def __init__(
         self,
         piper: IPiper,
-        deps: Sequence[Dependency],
+        live_deps: ILiveDependencies,
         slot_name: str,
         read_handle: int,
     ):
         self.piper = piper
-        self.deps = deps
+        self.live_deps = live_deps
         self.slot_name = slot_name
         self.read_handle = read_handle
         self.index = -1
@@ -61,8 +62,11 @@ class MergeInputReader(IAsyncReader):
             self.current_reader.close()
             self.current_reader = None
 
-        pipes = _get_pipes(self.piper, self.deps, self.slot_name)
+        current_deps = self.live_deps.get_dependencies()
+        pipes = _get_pipes(self.piper, current_deps, self.slot_name)
         self.index += 1
+
+        print(f"!!!debug MergeInputReader for '{self.slot_name}', try advance: index={self.index}, N pipes={len(pipes)}, deps: {current_deps}", file=sys.stderr)  # FIXME
 
         # Open an attachment from the kv
         if not len(pipes) and self.index == 0:

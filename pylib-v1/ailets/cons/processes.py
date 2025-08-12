@@ -9,7 +9,7 @@ from ailets.atyping import (
     IEnvironment,
     IProcesses,
 )
-from ailets.actor_runtime.node_runtime import NodeRuntime
+from ailets.actor_runtime.node_runtime import NodeRuntime, LiveDependencies
 
 
 logger = logging.getLogger("ailets.processes")
@@ -82,6 +82,7 @@ class Processes(IProcesses):
         return name in self.active_nodes
 
     def add_finished_node(self, name: str) -> None:
+        print(f"!!!debug Set node '{name}' finished", file=sys.stderr)  # FIXME
         self.finished_nodes.add(name)
 
     def resolve_deps(self) -> None:
@@ -138,6 +139,14 @@ class Processes(IProcesses):
             nodes_to_build = self.get_nodes_to_build(target_node_name)
 
             last_hash = self.dagops.hash_of_nodenames()
+
+            print(
+                (
+                    f"!!!debug next_node_iter: hash: {last_hash}, ",
+                    "nodes to build: {nodes_to_build}",
+                ),
+                file=sys.stderr,
+            )  # FIXME
 
             # Inner loop: return nodes to build as they are ready to be built
             has_yielded = False
@@ -269,7 +278,8 @@ class Processes(IProcesses):
         logger.debug(f"Starting to build node '{name}'")
         node = self.dagops.get_node(name)
 
-        node_runtime = NodeRuntime(self.env, name, self.deps[name])
+        live_deps = LiveDependencies(self.env, name)
+        node_runtime = NodeRuntime(self.env, name, live_deps)
 
         # Execute the node's function with all dependencies
         try:
