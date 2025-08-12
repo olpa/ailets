@@ -215,9 +215,10 @@ class NodeRuntime:
         return 0
 
     def open_write_pipe(self, explain: str) -> int:
-        print(f"open_write_pipe: explan: {explain}")
         self.streams.append(io.BytesIO())
-        return len(self.streams) - 1
+        handle = len(self.streams) - 1
+        print(f"open_write_pipe: explain: {explain}, return: {handle}")
+        return handle
 
     def dag_instantiate_with_deps(self, workflow: str, deps: str) -> int:
         handle = len(workflow)

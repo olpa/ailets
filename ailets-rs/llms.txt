@@ -1,5 +1,7 @@
-actor_runtime: Core runtime interface for actor-based systems, offering I/O operations and optional DAG workflow management. See actor_runtime/doc/llms.txt for more details.
+crate `actor_runtime`: Core runtime interface for actor-based systems, offering I/O operations and optional DAG workflow management. See `actor_runtime/doc/llms.txt` for more details.
 
-actor_runtime_mocked: Mock implementation of actor runtime for testing purposes, providing virtual file system.
+crate `actor_runtime_mocked`: Mock implementation of actor runtime for testing purposes, providing virtual file system.
 
-actor_io: Provides high-level reader and writer abstractions over the actor runtime's low-level I/O operations. See actor_io/doc/llms.txt for more details.
+crate `actor_io`: Provides high-level reader and writer abstractions over the actor runtime's low-level I/O operations. See `actor_io/doc/llms.txt` for more details.
+
+create `rjiter` and `scan_json`: streaming json processing. See <https://raw.githubusercontent.com/olpa/streaming_json/refs/heads/master/rjiter/doc/llms.txt> and <https://raw.githubusercontent.com/olpa/streaming_json/refs/heads/master/scan_json/doc/llms.txt> for more details, local copies might be at `../../streaming_json/rjiter/doc/llms.txt` and `../../streaming_json/scan_json/doc/llms.txt`.

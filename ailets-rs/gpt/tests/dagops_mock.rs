@@ -4,83 +4,58 @@ use std::rc::Rc;
 
 use actor_runtime_mocked::{Vfs, VfsWriter};
 use gpt::dagops::DagOpsTrait;
-use gpt::dagops::{inject_tool_calls, InjectDagOpsTrait};
-use gpt::funcalls::ContentItemFunction;
 use std::io::Write;
 
-pub struct TrackedInjectDagOps {
-    dagops: Rc<RefCell<TrackedDagOps>>,
-    tool_calls: Vec<ContentItemFunction>,
-}
-
-impl TrackedInjectDagOps {
-    #[allow(clippy::new_without_default)]
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            dagops: Rc::new(RefCell::new(TrackedDagOps::default())),
-            tool_calls: Vec::new(),
-        }
-    }
-
-    #[must_use]
-    pub fn get_tool_calls(&self) -> &Vec<ContentItemFunction> {
-        &self.tool_calls
-    }
-}
-
-impl InjectDagOpsTrait for TrackedInjectDagOps {
-    fn inject_tool_calls(&mut self, tool_calls: &[ContentItemFunction]) -> Result<(), String> {
-        self.tool_calls = tool_calls.to_vec();
-        inject_tool_calls(&mut *self.dagops.borrow_mut(), tool_calls)
-    }
-}
-
+#[derive(Clone)]
 pub struct TrackedDagOps {
-    pub vfs: Rc<RefCell<Vfs>>,
-    pub value_nodes: Vec<String>,
-    pub aliases: Vec<String>,
-    pub detached: Vec<String>,
-    pub workflows: Vec<String>,
-    pub next_fd: i32,
+    vfs: Rc<RefCell<Vfs>>,
+    value_nodes: Rc<RefCell<Vec<String>>>,
+    aliases: Rc<RefCell<Vec<String>>>,
+    detached: Rc<RefCell<Vec<String>>>,
+    workflows: Rc<RefCell<Vec<String>>>,
 }
 
 impl Default for TrackedDagOps {
     fn default() -> Self {
         Self {
             vfs: Rc::new(RefCell::new(Vfs::new())),
-            value_nodes: Vec::new(),
-            aliases: Vec::new(),
-            detached: Vec::new(),
-            workflows: Vec::new(),
-            next_fd: 10, // Start at 10 to avoid conflicts with standard fds
+            value_nodes: Rc::new(RefCell::new(Vec::new())),
+            aliases: Rc::new(RefCell::new(Vec::new())),
+            detached: Rc::new(RefCell::new(Vec::new())),
+            workflows: Rc::new(RefCell::new(Vec::new())),
         }
     }
 }
 
 impl DagOpsTrait for TrackedDagOps {
-    fn value_node(&mut self, value: &[u8], explain: &str) -> Result<u32, String> {
-        let handle = self.value_nodes.len();
-        self.value_nodes.push(format!("{handle}:{explain}"));
+    fn value_node(&mut self, value: &[u8], explain: &str) -> Result<i32, String> {
+        let handle = self.value_nodes.borrow().len();
+        self.value_nodes
+            .borrow_mut()
+            .push(format!("{handle}:{explain}"));
 
         // Create file "value.N" on the VFS with the initial value
         let filename = format!("value.{handle}");
         self.vfs.borrow_mut().add_file(filename, value.to_vec());
 
-        Ok(handle as u32)
+        Ok(handle as i32)
     }
 
-    fn alias(&mut self, alias: &str, node_handle: u32) -> Result<u32, String> {
-        let handle = self.aliases.len() + self.value_nodes.len() + self.workflows.len();
-        self.aliases.push(format!("{handle}:{alias}:{node_handle}"));
-        Ok(handle as u32)
+    fn alias(&mut self, alias: &str, node_handle: i32) -> Result<i32, String> {
+        let handle = self.aliases.borrow().len()
+            + self.value_nodes.borrow().len()
+            + self.workflows.borrow().len();
+        self.aliases
+            .borrow_mut()
+            .push(format!("{handle}:{alias}:{node_handle}"));
+        Ok(handle as i32)
     }
 
     fn instantiate_with_deps(
         &mut self,
         workflow_name: &str,
-        deps: impl Iterator<Item = (String, u32)>,
-    ) -> Result<u32, String> {
+        deps: impl Iterator<Item = (String, i32)>,
+    ) -> Result<i32, String> {
         let mut deps_str = String::new();
         for (key, value) in deps {
             deps_str.push_str(key.as_str());
@@ -88,21 +63,26 @@ impl DagOpsTrait for TrackedDagOps {
             deps_str.push_str(&value.to_string());
             deps_str.push(',');
         }
-        let handle = self.workflows.len() + self.aliases.len() + self.value_nodes.len();
+        let handle = self.workflows.borrow().len()
+            + self.aliases.borrow().len()
+            + self.value_nodes.borrow().len();
         self.workflows
+            .borrow_mut()
             .push(format!("{handle}:{workflow_name}:{deps_str}"));
-        Ok(handle as u32)
+        Ok(handle as i32)
     }
 
     fn detach_from_alias(&mut self, alias: &str) -> Result<(), String> {
-        self.detached.push(alias.to_string());
+        self.detached.borrow_mut().push(alias.to_string());
         Ok(())
     }
 
     fn open_write_pipe(&mut self, explain: Option<&str>) -> Result<i32, String> {
-        let handle = self.value_nodes.len();
+        let handle = self.value_nodes.borrow().len();
         let explain_str = explain.unwrap_or("pipe");
-        self.value_nodes.push(format!("{handle}:{explain_str}"));
+        self.value_nodes
+            .borrow_mut()
+            .push(format!("{handle}:{explain_str}"));
 
         // Create file "value.N" on the VFS for the pipe
         let filename = format!("value.{handle}");
@@ -112,12 +92,16 @@ impl DagOpsTrait for TrackedDagOps {
         Ok(handle as i32)
     }
 
-    fn alias_fd(&mut self, alias: &str, fd: u32) -> Result<u32, String> {
+    fn alias_fd(&mut self, alias: &str, fd: i32) -> Result<i32, String> {
         // For mock implementation, create alias directly without generating new handle
         // The format is "{alias_handle}:{alias_name}:{node_handle}"
         // Since we're aliasing an fd (which maps to a value node), use fd as the node_handle
-        let alias_handle = self.aliases.len() + self.value_nodes.len() + self.workflows.len();
-        self.aliases.push(format!("{alias_handle}:{alias}:{fd}"));
+        let alias_handle = self.aliases.borrow().len()
+            + self.value_nodes.borrow().len()
+            + self.workflows.borrow().len();
+        self.aliases
+            .borrow_mut()
+            .push(format!("{alias_handle}:{alias}:{fd}"));
         // Return the original fd
         Ok(fd)
     }
@@ -131,10 +115,26 @@ impl DagOpsTrait for TrackedDagOps {
 }
 
 impl TrackedDagOps {
-    pub fn parse_value_node(&self, value_node: &str) -> (u32, String, String) {
+    pub fn value_nodes(&self) -> std::cell::Ref<Vec<String>> {
+        self.value_nodes.borrow()
+    }
+
+    pub fn aliases(&self) -> std::cell::Ref<Vec<String>> {
+        self.aliases.borrow()
+    }
+
+    pub fn detached(&self) -> std::cell::Ref<Vec<String>> {
+        self.detached.borrow()
+    }
+
+    pub fn workflows(&self) -> std::cell::Ref<Vec<String>> {
+        self.workflows.borrow()
+    }
+
+    pub fn parse_value_node(&self, value_node: &str) -> (i32, String, String) {
         let parts = value_node.split(':').collect::<Vec<&str>>();
         assert_eq!(parts.len(), 2);
-        let handle = parts[0].parse::<u32>().unwrap();
+        let handle = parts[0].parse::<i32>().unwrap();
         let explain = parts[1].to_string();
 
         // Get content from value.N file in VFS
@@ -149,17 +149,17 @@ impl TrackedDagOps {
         (handle, explain, value)
     }
 
-    pub fn parse_workflow(&self, workflow: &str) -> (u32, String, HashMap<String, u32>) {
+    pub fn parse_workflow(&self, workflow: &str) -> (i32, String, HashMap<String, i32>) {
         let parts = workflow.split(':').collect::<Vec<&str>>();
         assert_eq!(parts.len(), 3);
-        let handle = parts[0].parse::<u32>().unwrap();
+        let handle = parts[0].parse::<i32>().unwrap();
         let explain = parts[1].to_string();
 
         let mut deps = HashMap::new();
         let deps_parts: Vec<&str> = parts[2].split(',').filter(|s| !s.is_empty()).collect();
         for chunk in deps_parts.chunks(2) {
             if chunk.len() == 2 {
-                if let Ok(value) = chunk[1].parse::<u32>() {
+                if let Ok(value) = chunk[1].parse::<i32>() {
                     deps.insert(chunk[0].to_string(), value);
                 }
             }
@@ -168,26 +168,13 @@ impl TrackedDagOps {
         (handle, explain, deps)
     }
 
-    pub fn parse_alias(&self, alias: &str) -> (u32, String, u32) {
+    pub fn parse_alias(&self, alias: &str) -> (i32, String, i32) {
         let parts = alias.split(':').collect::<Vec<&str>>();
         assert_eq!(parts.len(), 3);
-        let node_handle = parts[0].parse::<u32>().unwrap();
+        let node_handle = parts[0].parse::<i32>().unwrap();
         let alias_name = parts[1].to_string();
-        let alias_handle = parts[2].parse::<u32>().unwrap();
+        let alias_handle = parts[2].parse::<i32>().unwrap();
 
         (node_handle, alias_name, alias_handle)
-    }
-}
-
-impl Clone for TrackedDagOps {
-    fn clone(&self) -> Self {
-        TrackedDagOps {
-            vfs: self.vfs.clone(), // Share the same VFS instance
-            value_nodes: self.value_nodes.clone(),
-            aliases: self.aliases.clone(),
-            detached: self.detached.clone(),
-            workflows: self.workflows.clone(),
-            next_fd: self.next_fd,
-        }
     }
 }
