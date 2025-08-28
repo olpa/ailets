@@ -13,9 +13,9 @@ def _get_pipes(
     pipes = []
     for dep in slot_deps:
         try:
-            pipe = piper.get_existing_pipe(dep.source, dep.slot)
+            pipe = piper.get_future_pipe(dep.source, dep.slot)
         except KeyError:
-            continue
+            raise RuntimeError(f"Expected pipe for dependency '{dep.source}:{dep.slot}' in slot '{slot_name}' does not exist in VFS")
         pipes.append(pipe)
     return pipes
 
