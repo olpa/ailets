@@ -118,6 +118,7 @@ class Piper(IPiper):
         self.fsops_handle = -1
         self.init_fsops_handle()
         self.pipes: Dict[str, IPipe] = {}
+        self.future_pipes: set[str] = set()  # Track paths that are future pipes
 
     def destroy(self) -> None:
         self.destroy_fsops_handle()
@@ -149,6 +150,11 @@ class Piper(IPiper):
         pipe = self.pipes.get(path, None)
         if pipe is not None:
             if open_mode == "read":
+                return pipe
+            # Check if this is a future pipe that we can now resolve
+            if path in self.future_pipes and open_mode in ["write", "append"]:
+                self.future_pipes.remove(path)  # Remove future annotation
+                logger.debug(f"Resolved future pipe for path: {path}")
                 return pipe
             raise KeyError(f"Path already exists: {path}")
 
@@ -188,6 +194,38 @@ class Piper(IPiper):
         """If the pipe does not exist, and there is no kv entry, raise KeyError.
         Otherwise, create it as a read-only pipe."""
         return self.create_pipe(node_name, slot_name, "read")
+
+    def get_future_pipe(self, node_name: str, slot_name: str) -> IPipe:
+        """Get a pipe that may not exist yet. If the pipe doesn't exist,
+        create a normal pipe but mark it as 'future' so it blocks on read until resolved."""
+        path = get_path(node_name, slot_name)
+        
+        # Check if pipe already exists
+        pipe = self.pipes.get(path, None)
+        if pipe is not None:
+            return pipe
+            
+        # Try to create from KV data first
+        try:
+            return self.create_pipe(node_name, slot_name, "read")
+        except KeyError:
+            pass
+            
+        # Create a future pipe by temporarily allowing the path to be created
+        # with write mode, then mark it as future
+        try:
+            # Use create_pipe to create a normal write pipe
+            pipe = self.create_pipe(node_name, slot_name, "write")
+            
+            # Mark it as future pipe
+            self.future_pipes.add(path)
+            logger.debug(f"Created future pipe: {pipe} for path '{path}'")
+            
+            return pipe
+            
+        except KeyError:
+            # This shouldn't happen since we're creating a new pipe, but just in case
+            raise RuntimeError(f"Failed to create future pipe for {path}")
 
     def flush_pipes(self) -> None:
         for path in self.pipes.keys():
