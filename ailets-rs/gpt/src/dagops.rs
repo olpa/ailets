@@ -7,16 +7,50 @@ use actor_io::AWriter;
 use std::io::Write;
 
 pub trait DagOpsTrait {
+    /// Creates a value node in the DAG.
+    /// 
+    /// # Errors
+    /// Returns an error if the node creation fails.
     fn value_node(&mut self, value: &[u8], explain: &str) -> Result<i32, String>;
+    
+    /// Creates an alias for a node handle.
+    /// 
+    /// # Errors
+    /// Returns an error if the alias creation fails.
     fn alias(&mut self, alias: &str, node_handle: i32) -> Result<i32, String>;
+    
+    /// Detaches a node from its alias.
+    /// 
+    /// # Errors
+    /// Returns an error if the detachment fails.
     fn detach_from_alias(&mut self, alias: &str) -> Result<(), String>;
+    
+    /// Instantiates a workflow with dependencies.
+    /// 
+    /// # Errors
+    /// Returns an error if the instantiation fails.
     fn instantiate_with_deps(
         &mut self,
         workflow_name: &str,
         deps: impl Iterator<Item = (String, i32)>,
     ) -> Result<i32, String>;
+    
+    /// Opens a write pipe.
+    /// 
+    /// # Errors
+    /// Returns an error if the pipe creation fails.
     fn open_write_pipe(&mut self, explain: Option<&str>) -> Result<i32, String>;
+    
+    /// Creates an alias for a file descriptor.
+    /// 
+    /// # Errors
+    /// Returns an error if the alias creation fails.
     fn alias_fd(&mut self, alias: &str, fd: i32) -> Result<i32, String>;
+    
+    /// Opens a writer to a pipe.
+    /// 
+    /// # Errors
+    /// Returns an error if the writer creation fails.
     fn open_writer_to_pipe(&mut self, fd: i32) -> Result<Box<dyn Write>, String>;
 }
 

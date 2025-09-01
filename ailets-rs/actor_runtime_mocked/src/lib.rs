@@ -2,16 +2,14 @@ pub mod rc_writer;
 pub mod vfs;
 pub mod vfs_writer;
 
-use lazy_static::lazy_static;
 use std::os::raw::{c_char, c_int, c_uint};
+use std::sync::LazyLock;
 
 pub use rc_writer::RcWriter;
 pub use vfs::{Vfs, IO_INTERRUPT, WANT_ERROR};
 pub use vfs_writer::VfsWriter;
 
-lazy_static! {
-    static ref VFS_INSTANCE: Vfs = Vfs::new();
-}
+static VFS_INSTANCE: LazyLock<Vfs> = LazyLock::new(Vfs::new);
 
 pub fn clear_mocks() {
     VFS_INSTANCE.clear_mocks();

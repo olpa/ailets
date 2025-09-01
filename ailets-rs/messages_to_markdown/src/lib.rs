@@ -54,6 +54,7 @@ fn on_content_text<W: Write>(
 ///
 /// # Errors
 /// If anything goes wrong.
+#[allow(clippy::used_underscore_items)]
 pub fn _messages_to_markdown<W: Write>(
     mut reader: impl std::io::Read,
     writer: W,
@@ -90,6 +91,7 @@ pub extern "C" fn messages_to_markdown() -> *const c_char {
     let reader = AReader::new_from_std(StdHandle::Stdin);
     let writer = AWriter::new_from_std(StdHandle::Stdout);
 
+    #[allow(clippy::used_underscore_items)]
     if let Err(e) = _messages_to_markdown(reader, writer) {
         return err_to_heap_c_string(
             extract_errno(&e),
