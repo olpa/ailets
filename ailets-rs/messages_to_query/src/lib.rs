@@ -133,6 +133,7 @@ fn create_end_triggers<'a, W: Write + 'a>(
 
 /// # Errors
 /// If anything goes wrong.
+#[allow(clippy::used_underscore_items)]
 pub fn _process_messages<W: Write>(
     mut reader: impl std::io::Read,
     writer: W,
@@ -175,6 +176,7 @@ pub extern "C" fn process_messages() -> *const c_char {
         }
     };
 
+    #[allow(clippy::used_underscore_items)]
     if let Err(e) = _process_messages(reader, writer, env_opts) {
         return err_to_heap_c_string(extract_errno(&e), &format!("Messages to query: {e}"));
     }

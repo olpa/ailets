@@ -14,13 +14,13 @@ impl<'a, W: Write, D: DagOpsTrait> ArgumentsChunkWriter<'a, W, D> {
     }
 }
 
-impl<'a, W: Write, D: DagOpsTrait> Write for ArgumentsChunkWriter<'a, W, D> {
+impl<W: Write, D: DagOpsTrait> Write for ArgumentsChunkWriter<'_, W, D> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         let s = std::str::from_utf8(buf)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         self.builder
-            ._tool_call_arguments_chunk(s)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+            .tool_call_arguments_chunk(s)
+            .map_err(|e| std::io::Error::other(e.to_string()))?;
         Ok(buf.len())
     }
 
@@ -159,7 +159,7 @@ impl<W: std::io::Write, D: DagOpsTrait> StructureBuilder<W, D> {
     /// This is used internally by the `ArgumentsChunkWriter`.
     /// # Errors
     /// Returns error if I/O error occurs
-    fn _tool_call_arguments_chunk(&mut self, args: &str) -> Result<(), Box<dyn std::error::Error>> {
+    fn tool_call_arguments_chunk(&mut self, args: &str) -> Result<(), Box<dyn std::error::Error>> {
         self.funcalls.arguments_chunk(args.as_bytes())?;
         Ok(())
     }

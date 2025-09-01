@@ -29,7 +29,7 @@ impl Write for VfsWriter {
         self.vfs
             .borrow_mut()
             .append_to_file(&self.filename, buf)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
         Ok(buf.len())
     }
 

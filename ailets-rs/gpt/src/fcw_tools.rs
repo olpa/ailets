@@ -11,14 +11,13 @@ fn escape_json_string(s: &str) -> String {
 }
 
 /// For each function call, this writer creates a tool node in the DAG:
-/// 
+///
 /// tool call spec from llm + tool arguments (the input) from llm ->
 ///   instantiated tool workflow ->
 ///   chat messages
-/// 
+///
 /// The representation format for a tool spec is:
 /// `[{"type":"function","id":"...","name":"..."},{"arguments":"..."}]`
-
 pub struct FunCallsToTools {
     tool_input_writer: Option<Box<dyn Write>>,
     tool_spec_writer: Option<Box<dyn Write>>,

@@ -487,7 +487,7 @@ impl<W: Write> StructureBuilder<W> {
             .item_attr
             .as_ref()
             .and_then(|attrs| attrs.get("type"))
-            .map_or(true, |t| t == "ctl");
+            .is_none_or(|t| t == "ctl");
 
         if !is_ctl {
             if self.item_attr_mode == ItemAttrMode::Collect {
@@ -621,7 +621,7 @@ impl<W: Write> StructureBuilder<W> {
             if let Some(ref detail) = attrs.get("detail") {
                 write!(self.writer, r#""detail":"#).map_err(|e| e.to_string())?;
                 serde_json::to_writer(&mut self.writer, detail).map_err(|e| e.to_string())?;
-                write!(self.writer, r#","#).map_err(|e| e.to_string())?;
+                write!(self.writer, r",").map_err(|e| e.to_string())?;
             }
         }
         write!(self.writer, r#""url":""#).map_err(|e| e.to_string())?;

@@ -45,13 +45,12 @@ impl scan_json::Matcher for MatchInToolCall {
         for frame in context.iter().rev() {
             let key: &str = &frame.current_key;
             match key {
-                "#object" | "#array" => continue,
+                "#object" | "#array" => {}
                 "function" => {
                     // match only top-level #object
                     if self.field == "#object" {
                         return false;
                     }
-                    continue;
                 }
                 "tool_calls" => return true,
                 _ => return false,
@@ -135,6 +134,7 @@ fn make_triggers<'a, W: Write + 'a, D: DagOpsTrait + 'a>() -> Vec<Trigger<'a, BA
 
 /// # Errors
 /// If anything goes wrong.
+#[allow(clippy::used_underscore_items)]
 pub fn _process_gpt<W: Write, D: DagOpsTrait>(
     mut reader: impl std::io::Read,
     stdout_writer: W,
@@ -188,6 +188,7 @@ pub extern "C" fn process_gpt() -> *const c_char {
     let writer = AWriter::new_from_std(StdHandle::Stdout);
 
     let dagops = DagOps::new();
+    #[allow(clippy::used_underscore_items)]
     if let Err(e) = _process_gpt(reader, writer, dagops) {
         return err_to_heap_c_string(extract_errno(&e), &format!("Failed to process GPT: {e}"));
     }
