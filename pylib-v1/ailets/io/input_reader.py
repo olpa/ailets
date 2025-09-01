@@ -1,5 +1,4 @@
 import json
-import sys  # FIXME
 from typing import Any, AsyncGenerator, Dict, Optional, Sequence
 
 from ailets.atyping import Dependency, IAsyncReader, INodeRuntime, IPiper, IPipe, StdHandles, ILiveDependencies
@@ -65,8 +64,6 @@ class MergeInputReader(IAsyncReader):
         current_deps = self.live_deps.get_dependencies()
         pipes = _get_pipes(self.piper, current_deps, self.slot_name)
         self.index += 1
-
-        print(f"!!!debug MergeInputReader for '{self.slot_name}', try advance: index={self.index}, N pipes={len(pipes)}, deps: {current_deps}", file=sys.stderr)  # FIXME
 
         # Open an attachment from the kv
         if not len(pipes) and self.index == 0:
