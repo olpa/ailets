@@ -9,7 +9,7 @@ from ailets.atyping import (
     IEnvironment,
     IProcesses,
 )
-from ailets.actor_runtime.node_runtime import NodeRuntime
+from ailets.actor_runtime.node_runtime import NodeRuntime, LiveDependencies
 
 
 logger = logging.getLogger("ailets.processes")
@@ -269,7 +269,8 @@ class Processes(IProcesses):
         logger.debug(f"Starting to build node '{name}'")
         node = self.dagops.get_node(name)
 
-        node_runtime = NodeRuntime(self.env, name, self.deps[name])
+        live_deps = LiveDependencies(self.env, name)
+        node_runtime = NodeRuntime(self.env, name, live_deps)
 
         # Execute the node's function with all dependencies
         try:

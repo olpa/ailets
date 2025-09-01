@@ -97,6 +97,11 @@ class IPiper(Protocol):
         If called before the pipe is created: unusable for reading"""
         raise NotImplementedError
 
+    def get_future_pipe(self, node_name: str, slot_name: str) -> IPipe:
+        """Get a pipe that may not exist yet. If the pipe doesn't exist,
+        create a 'future' pipe that will block on read until the actual pipe is created."""
+        raise NotImplementedError
+
     def get_fsops_handle(self) -> int:
         raise NotImplementedError
 
@@ -283,6 +288,14 @@ class IDagops(Protocol):
         raise NotImplementedError
 
     def hash_of_nodenames(self) -> int:
+        raise NotImplementedError
+
+
+class ILiveDependencies(Protocol):
+    """Protocol for getting live dependencies for a node."""
+    
+    def get_dependencies(self) -> Sequence[Dependency]:
+        """Get current dependencies for this node."""
         raise NotImplementedError
 
 

@@ -356,11 +356,11 @@ async def main() -> None:
             env.dagops, nodereg, ".messages_to_markdown", {}
         )
 
-    stop_after_node = args.stop_after or target_node_name
+    stop_after_node = args.stop_after
     stop_before_node = args.stop_before
     env.processes.resolve_deps()
 
-    print_nodes = {target_node_name, stop_after_node}
+    print_nodes = {target_node_name, stop_after_node, target_node_name}
     if stop_before_node:
         print_nodes.update(dep.source for dep in env.dagops.iter_deps(stop_before_node))
     dup_output_to_stdout(env, print_nodes)

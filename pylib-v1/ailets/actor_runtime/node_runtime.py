@@ -16,6 +16,7 @@ from ailets.atyping import (
     IAsyncReader,
     IAsyncWriter,
     IEnvironment,
+    ILiveDependencies,
     INodeDagops,
     INodeRuntime,
     IPipe,
@@ -30,6 +31,18 @@ class OpenFd:
     writer: Optional[IAsyncWriter]
 
 
+class LiveDependencies(ILiveDependencies):
+    """Implementation that gets live dependencies from the environment's dagops."""
+    
+    def __init__(self, env: IEnvironment, node_name: str):
+        self.env = env
+        self.node_name = node_name
+    
+    def get_dependencies(self) -> Sequence[Dependency]:
+        """Get current dependencies for this node from the live DAG."""
+        return list(self.env.dagops.iter_deps(self.node_name))
+
+
 class Opener(Enum):
     input = "input"
     output = "output"
@@ -42,12 +55,12 @@ class NodeRuntime(INodeRuntime):
         self,
         env: IEnvironment,
         node_name: str,
-        deps: Sequence[Dependency],
+        live_deps: ILiveDependencies,
     ):
         self.env = env
         self.piper = env.piper
         self.node_name = node_name
-        self.deps = deps
+        self.live_deps = live_deps
         self.open_fds: Dict[int, OpenFd] = {}
         self.cached_dagops: Optional[INodeDagops] = None
         self.fd_openers: Dict[StdHandles, Opener] = {
@@ -140,7 +153,7 @@ class NodeRuntime(INodeRuntime):
     async def open_read(self, slot_name: str) -> int:
         try:
             fd = self.env.seqno.next_seqno()
-            reader = MergeInputReader(self.piper, self.deps, slot_name, fd)
+            reader = MergeInputReader(self.piper, self.live_deps, slot_name, fd)
             self._store_reader(slot_name, reader, fd)
             return fd
         except Exception as e:
