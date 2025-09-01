@@ -115,19 +115,19 @@ impl DagOpsTrait for TrackedDagOps {
 }
 
 impl TrackedDagOps {
-    pub fn value_nodes(&self) -> std::cell::Ref<Vec<String>> {
+    pub fn value_nodes(&self) -> std::cell::Ref<'_, Vec<String>> {
         self.value_nodes.borrow()
     }
 
-    pub fn aliases(&self) -> std::cell::Ref<Vec<String>> {
+    pub fn aliases(&self) -> std::cell::Ref<'_, Vec<String>> {
         self.aliases.borrow()
     }
 
-    pub fn detached(&self) -> std::cell::Ref<Vec<String>> {
+    pub fn detached(&self) -> std::cell::Ref<'_, Vec<String>> {
         self.detached.borrow()
     }
 
-    pub fn workflows(&self) -> std::cell::Ref<Vec<String>> {
+    pub fn workflows(&self) -> std::cell::Ref<'_, Vec<String>> {
         self.workflows.borrow()
     }
 
