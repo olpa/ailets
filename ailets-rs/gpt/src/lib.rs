@@ -45,13 +45,13 @@ impl scan_json::Matcher for MatchInToolCall {
         for frame in context.iter().rev() {
             let key: &str = &frame.current_key;
             match key {
-                "#object" | "#array" => {},
+                "#object" | "#array" => {}
                 "function" => {
                     // match only top-level #object
                     if self.field == "#object" {
                         return false;
                     }
-                },
+                }
                 "tool_calls" => return true,
                 _ => return false,
             }
