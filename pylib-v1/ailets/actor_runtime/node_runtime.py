@@ -75,6 +75,13 @@ class NodeRuntime(INodeRuntime):
         self.logger = logging.getLogger(f"ailets.actor.{node_name}")
 
     async def destroy(self) -> None:
+        # Ensure stdout is created so that if a dependency reads from this node, it can
+        try:
+            pipe = self.piper.get_existing_pipe(self.node_name, "")
+            self.private_store_writer("", pipe)
+        except KeyError:
+            await self.auto_open(StdHandles.stdout)
+
         fds = list(self.open_fds.keys())
         for fd in fds:
             if self.errno != 0:
