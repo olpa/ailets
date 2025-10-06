@@ -16,3 +16,4 @@ actor_runtime = { version = "0.2.0", path = "../actor_runtime" }
 actor_runtime_mocked = { version = "0.1.0", path = "../actor_runtime_mocked" }
 getrandom = { version = "0.2", features = ["custom"] }
 scan_json = { version = "1.2.0", path = "../../../streaming_json/scan_json" }
+u8pool = { version = "1.0.0", path = "../../../streaming_json/u8pool" }

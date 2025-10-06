@@ -121,6 +121,7 @@ dependencies = [
  "hamcrest",
  "scan_json",
  "serde_json",
+ "u8pool",
 ]
 
 [[package]]
@@ -238,6 +239,7 @@ dependencies = [
  "actor_runtime_mocked",
  "getrandom",
  "scan_json",
+ "u8pool",
 ]
 
 [[package]]
@@ -254,6 +256,7 @@ dependencies = [
  "scan_json",
  "serde",
  "serde_json",
+ "u8pool",
 ]
 
 [[package]]
