@@ -16,9 +16,11 @@ use handlers::{
 };
 use scan_json::RJiter;
 use scan_json::{
-    scan, BoxedAction, BoxedEndAction, ContextFrame, Name, ParentAndName, ParentParentAndName,
-    Trigger,
+    scan, iter_match, BoxedAction, BoxedEndAction, Options,
 };
+use scan_json::matcher::StructuralPseudoname;
+use scan_json::stack::ContextIter;
+use u8pool::U8Pool;
 use std::cell::RefCell;
 use std::ffi::c_char;
 use std::io::Write;
@@ -26,116 +28,68 @@ use structure_builder::StructureBuilder;
 
 const BUFFER_SIZE: u32 = 1024;
 
-type BA<'a, W, D> = BoxedAction<'a, StructureBuilder<W, D>>;
-type EA<'a, W, D> = BoxedEndAction<'a, StructureBuilder<W, D>>;
+type BA<W, D> = BoxedAction<StructureBuilder<W, D>>;
+type EA<W, D> = BoxedEndAction<StructureBuilder<W, D>>;
 
-#[derive(Debug)]
-struct MatchInToolCall {
-    field: String,
-}
-
-impl scan_json::Matcher for MatchInToolCall {
-    fn matches(&self, name: &str, context: &[ContextFrame]) -> bool {
-        // Check the field name
-        if name != self.field {
-            return false;
-        }
-
-        // Check the "tool_calls" context
-        for frame in context.iter().rev() {
-            let key: &str = &frame.current_key;
-            match key {
-                "#object" | "#array" => {}
-                "function" => {
-                    // match only top-level #object
-                    if self.field == "#object" {
-                        return false;
-                    }
-                }
-                "tool_calls" => return true,
-                _ => return false,
-            }
-        }
-        false
+fn find_action<W: Write + 'static, D: DagOpsTrait + 'static>(
+    structural_pseudoname: StructuralPseudoname,
+    context: ContextIter,
+) -> Option<BA<W, D>> {
+    // Begin message
+    if iter_match(|| ["message".as_bytes()], structural_pseudoname, context.clone()) {
+        return Some(Box::new(on_begin_message));
     }
+
+    // Role handlers (message.role or delta.role)
+    if iter_match(|| ["role".as_bytes(), "message".as_bytes()], structural_pseudoname, context.clone()) ||
+       iter_match(|| ["role".as_bytes(), "delta".as_bytes()], structural_pseudoname, context.clone()) {
+        return Some(Box::new(on_role));
+    }
+
+    // Content handlers (message.content or delta.content)
+    if iter_match(|| ["content".as_bytes(), "message".as_bytes()], structural_pseudoname, context.clone()) ||
+       iter_match(|| ["content".as_bytes(), "delta".as_bytes()], structural_pseudoname, context.clone()) {
+        return Some(Box::new(on_content));
+    }
+
+    // Tool call handlers
+    if iter_match(|| ["id".as_bytes(), "function".as_bytes(), "#array".as_bytes(), "tool_calls".as_bytes()], structural_pseudoname, context.clone()) {
+        return Some(Box::new(on_function_id));
+    }
+    if iter_match(|| ["name".as_bytes(), "function".as_bytes(), "#array".as_bytes(), "tool_calls".as_bytes()], structural_pseudoname, context.clone()) {
+        return Some(Box::new(on_function_name));
+    }
+    if iter_match(|| ["arguments".as_bytes(), "function".as_bytes(), "#array".as_bytes(), "tool_calls".as_bytes()], structural_pseudoname, context.clone()) {
+        return Some(Box::new(on_function_arguments));
+    }
+    if iter_match(|| ["index".as_bytes(), "#array".as_bytes(), "tool_calls".as_bytes()], structural_pseudoname, context.clone()) {
+        return Some(Box::new(on_function_index));
+    }
+
+    None
 }
 
-fn make_triggers<'a, W: Write + 'a, D: DagOpsTrait + 'a>() -> Vec<Trigger<'a, BA<'a, W, D>>> {
-    let begin_message = Trigger::new(
-        Box::new(Name::new("message".to_string())),
-        Box::new(on_begin_message) as BA<'a, W, D>,
-    );
+fn find_end_action<W: Write + 'static, D: DagOpsTrait + 'static>(
+    structural_pseudoname: StructuralPseudoname,
+    context: ContextIter,
+) -> Option<EA<W, D>> {
+    // End message
+    if iter_match(|| ["message".as_bytes()], structural_pseudoname, context.clone()) {
+        return Some(Box::new(on_end_message));
+    }
 
-    let message_role = Trigger::new(
-        Box::new(ParentAndName::new(
-            "message".to_string(),
-            "role".to_string(),
-        )),
-        Box::new(on_role) as BA<'a, W, D>,
-    );
-    let delta_role = Trigger::new(
-        Box::new(ParentAndName::new("delta".to_string(), "role".to_string())),
-        Box::new(on_role) as BA<'a, W, D>,
-    );
-    let message_content = Trigger::new(
-        Box::new(ParentAndName::new(
-            "message".to_string(),
-            "content".to_string(),
-        )),
-        Box::new(on_content) as BA<'a, W, D>,
-    );
-    let delta_content = Trigger::new(
-        Box::new(ParentAndName::new(
-            "delta".to_string(),
-            "content".to_string(),
-        )),
-        Box::new(on_content) as BA<'a, W, D>,
-    );
+    // End tool call (tool_calls[].#object pattern)
+    if iter_match(|| ["#object".as_bytes(), "#array".as_bytes(), "tool_calls".as_bytes()], structural_pseudoname, context.clone()) {
+        return Some(Box::new(on_function_end));
+    }
 
-    let function_id = Trigger::new(
-        Box::new(MatchInToolCall {
-            field: "id".to_string(),
-        }),
-        Box::new(on_function_id) as BA<'a, W, D>,
-    );
-    let function_name = Trigger::new(
-        Box::new(MatchInToolCall {
-            field: "name".to_string(),
-        }),
-        Box::new(on_function_name) as BA<'a, W, D>,
-    );
-    let function_arguments = Trigger::new(
-        Box::new(MatchInToolCall {
-            field: "arguments".to_string(),
-        }),
-        Box::new(on_function_arguments) as BA<'a, W, D>,
-    );
-    let function_index = Trigger::new(
-        Box::new(MatchInToolCall {
-            field: "index".to_string(),
-        }),
-        Box::new(on_function_index) as BA<'a, W, D>,
-    );
-
-    let triggers = vec![
-        begin_message,
-        message_role,
-        message_content,
-        delta_role,
-        delta_content,
-        function_id,
-        function_name,
-        function_arguments,
-        function_index,
-    ];
-
-    triggers
+    None
 }
 
 /// # Errors
 /// If anything goes wrong.
 #[allow(clippy::used_underscore_items)]
-pub fn _process_gpt<W: Write, D: DagOpsTrait>(
+pub fn _process_gpt<W: Write + 'static, D: DagOpsTrait + 'static>(
     mut reader: impl std::io::Read,
     stdout_writer: W,
     dagops: D,
@@ -144,35 +98,24 @@ pub fn _process_gpt<W: Write, D: DagOpsTrait>(
     let builder_cell = RefCell::new(builder);
 
     let mut buffer = vec![0u8; BUFFER_SIZE as usize];
-
     let rjiter_cell = RefCell::new(RJiter::new(&mut reader, &mut buffer));
 
-    let end_message = Trigger::new(
-        Box::new(Name::new("message".to_string())),
-        Box::new(on_end_message) as EA<W, D>,
-    );
-    let end_tool_call = Trigger::new(
-        Box::new(ParentParentAndName::new(
-            "tool_calls".to_string(),
-            "#array".to_string(),
-            "#object".to_string(),
-        )),
-        Box::new(on_function_end) as EA<W, D>,
-    );
-    let triggers = make_triggers::<W, D>();
-    let triggers_end = vec![end_message, end_tool_call];
-    let sse_tokens = vec![String::from("data:"), String::from("DONE")];
+    // Create working buffer for context stack (512 bytes, up to 20 nesting levels)
+    // Based on estimation: 16 bytes per JSON key, plus 8 bytes per frame for state tracking
+    let mut working_buffer = [0u8; 512];
+    let mut context = U8Pool::new(&mut working_buffer, 20)?;
+
+    let sse_tokens: &[&[u8]] = &[b"data:", b"DONE"];
 
     scan(
-        &triggers,
-        &triggers_end,
+        find_action::<W, D>,
+        find_end_action::<W, D>,
         &rjiter_cell,
         &builder_cell,
-        &scan_json::Options {
-            sse_tokens,
-            stop_early: false,
-        },
+        &mut context,
+        &Options::with_sse_tokens(sse_tokens),
     )?;
+
     let mut builder = builder_cell.borrow_mut();
     builder.end_message()?;
     builder.end()?;
