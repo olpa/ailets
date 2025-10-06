@@ -53,7 +53,7 @@ fn find_action<W: Write + 'static, D: DagOpsTrait + 'static>(
     }
 
     // Tool call handlers
-    if iter_match(|| ["id".as_bytes(), "function".as_bytes(), "#array".as_bytes(), "tool_calls".as_bytes()], structural_pseudoname, context.clone()) {
+    if iter_match(|| ["id".as_bytes(), "#array".as_bytes(), "tool_calls".as_bytes()], structural_pseudoname, context.clone()) {
         return Some(Box::new(on_function_id));
     }
     if iter_match(|| ["name".as_bytes(), "function".as_bytes(), "#array".as_bytes(), "tool_calls".as_bytes()], structural_pseudoname, context.clone()) {
