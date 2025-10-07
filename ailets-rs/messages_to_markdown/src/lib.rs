@@ -67,8 +67,8 @@ pub fn _messages_to_markdown<W: Write>(
     let rjiter_cell = RefCell::new(RJiter::new(&mut reader, &mut buffer));
 
     let find_action = |structural_pseudoname: StructuralPseudoname, context: ContextIter| -> Option<BA<'_, W>> {
-        // Match pattern: #top -> #array -> "text"
-        if iter_match(|| ["#top".as_bytes(), "#array".as_bytes(), "text".as_bytes()], structural_pseudoname, context) {
+        // Match pattern: text key in an array at top level
+        if iter_match(|| ["text".as_bytes(), "#array".as_bytes(), "#top".as_bytes()], structural_pseudoname, context) {
             Some(Box::new(on_content_text))
         } else {
             None
