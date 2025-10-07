@@ -2,13 +2,15 @@ mod structure_builder;
 
 use actor_io::{AReader, AWriter};
 use actor_runtime::{err_to_heap_c_string, extract_errno, StdHandle};
-use scan_json::jiter::Peek;
-use scan_json::RJiter;
-use scan_json::{scan, BoxedAction, ParentParentAndName, StreamOp, Trigger};
+use scan_json::rjiter::{RJiter, jiter::Peek};
+use scan_json::{scan, iter_match, BoxedAction, StreamOp, Options};
+use scan_json::matcher::StructuralPseudoname;
+use scan_json::stack::ContextIter;
 use std::cell::RefCell;
 use std::ffi::c_char;
 use std::io::Write;
 use structure_builder::StructureBuilder;
+use u8pool::U8Pool;
 
 const BUFFER_SIZE: u32 = 1024;
 
@@ -64,21 +66,30 @@ pub fn _messages_to_markdown<W: Write>(
     let mut buffer = [0u8; BUFFER_SIZE as usize];
     let rjiter_cell = RefCell::new(RJiter::new(&mut reader, &mut buffer));
 
-    let content_text = Trigger::new(
-        Box::new(ParentParentAndName::new(
-            "#top".to_string(),
-            "#array".to_string(),
-            "text".to_string(),
-        )),
-        Box::new(on_content_text) as BA<'_, W>,
-    );
+    let find_action = |structural_pseudoname: StructuralPseudoname, context: ContextIter| -> Option<BA<'_, W>> {
+        // Match pattern: #top -> #array -> "text"
+        if iter_match(|| ["#top".as_bytes(), "#array".as_bytes(), "text".as_bytes()], structural_pseudoname, context) {
+            Some(Box::new(on_content_text))
+        } else {
+            None
+        }
+    };
+
+    let find_end_action = |_structural_pseudoname: StructuralPseudoname, _context: ContextIter| -> Option<scan_json::BoxedEndAction<StructureBuilder<W>>> {
+        None
+    };
+
+    // Create working buffer for context stack (512 bytes, up to 20 nesting levels)
+    let mut working_buffer = [0u8; 512];
+    let mut context = U8Pool::new(&mut working_buffer, 20).unwrap();
 
     scan(
-        &[content_text],
-        &[],
+        find_action,
+        find_end_action,
         &rjiter_cell,
         &builder_cell,
-        &scan_json::Options::default(),
+        &mut context,
+        &Options::new(),
     )?;
     builder_cell.borrow_mut().finish_with_newline()?;
     Ok(())
