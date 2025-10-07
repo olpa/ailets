@@ -2,10 +2,10 @@ mod structure_builder;
 
 use actor_io::{AReader, AWriter};
 use actor_runtime::{err_to_heap_c_string, extract_errno, StdHandle};
-use scan_json::rjiter::{RJiter, jiter::Peek};
-use scan_json::{scan, iter_match, BoxedAction, StreamOp, Options};
 use scan_json::matcher::StructuralPseudoname;
+use scan_json::rjiter::{jiter::Peek, RJiter};
 use scan_json::stack::ContextIter;
+use scan_json::{iter_match, scan, BoxedAction, Options, StreamOp};
 use std::cell::RefCell;
 use std::ffi::c_char;
 use std::io::Write;
@@ -55,7 +55,7 @@ fn on_content_text<W: Write>(
 /// Convert a JSON message format to markdown.
 ///
 /// # Errors
-/// If anything goes wrong.
+/// If anything goes wrong, including if the `U8Pool` cannot be created.
 #[allow(clippy::used_underscore_items)]
 pub fn _messages_to_markdown<W: Write>(
     mut reader: impl std::io::Read,
@@ -66,22 +66,28 @@ pub fn _messages_to_markdown<W: Write>(
     let mut buffer = [0u8; BUFFER_SIZE as usize];
     let rjiter_cell = RefCell::new(RJiter::new(&mut reader, &mut buffer));
 
-    let find_action = |structural_pseudoname: StructuralPseudoname, context: ContextIter| -> Option<BA<'_, W>> {
-        // Match pattern: text key in an array at top level
-        if iter_match(|| ["text".as_bytes(), "#array".as_bytes(), "#top".as_bytes()], structural_pseudoname, context) {
-            Some(Box::new(on_content_text))
-        } else {
-            None
-        }
-    };
+    let find_action =
+        |structural_pseudoname: StructuralPseudoname, context: ContextIter| -> Option<BA<'_, W>> {
+            // Match pattern: text key in an array at top level
+            if iter_match(
+                || ["text".as_bytes(), "#array".as_bytes(), "#top".as_bytes()],
+                structural_pseudoname,
+                context,
+            ) {
+                Some(Box::new(on_content_text))
+            } else {
+                None
+            }
+        };
 
-    let find_end_action = |_structural_pseudoname: StructuralPseudoname, _context: ContextIter| -> Option<scan_json::BoxedEndAction<StructureBuilder<W>>> {
-        None
-    };
+    let find_end_action = |_structural_pseudoname: StructuralPseudoname,
+                           _context: ContextIter|
+     -> Option<scan_json::BoxedEndAction<StructureBuilder<W>>> { None };
 
     // Create working buffer for context stack (512 bytes, up to 20 nesting levels)
     let mut working_buffer = [0u8; 512];
-    let mut context = U8Pool::new(&mut working_buffer, 20).unwrap();
+    let mut context = U8Pool::new(&mut working_buffer, 20)
+        .map_err(|e| format!("Failed to create context pool: {e}"))?;
 
     scan(
         find_action,
