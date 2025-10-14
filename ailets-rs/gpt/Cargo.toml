@@ -14,7 +14,7 @@ actor_runtime = { version = "0.2.0", path = "../actor_runtime" }
 actor_runtime_mocked = { version = "0.1.0", path = "../actor_runtime_mocked" }
 actor_io = { version = "0.1.0", path = "../actor_io" }
 serde_json = "1.0.139"
-scan_json = { version = "1.2.0", path = "../../../streaming_json/scan_json" }
+scan_json = { version = "2.0.0", path = "../../../streaming_json/scan_json" }
 u8pool = { version = "1.0.0", path = "../../../streaming_json/u8pool" }
 
 [dev-dependencies]
