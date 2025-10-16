@@ -2,7 +2,6 @@
 
 use crate::Vfs;
 use std::cell::RefCell;
-use std::io::{Result, Write};
 use std::rc::Rc;
 
 pub struct VfsWriter {
@@ -18,26 +17,27 @@ impl VfsWriter {
     /// Close the writer (AWriter-compatible interface)
     /// # Errors
     /// None
-    pub fn close(self) -> Result<()> {
+    pub fn close(self) -> Result<(), embedded_io::ErrorKind> {
         // VFS doesn't need explicit closing
         Ok(())
     }
 }
 
-impl Write for VfsWriter {
-    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+impl embedded_io::ErrorType for VfsWriter {
+    type Error = embedded_io::ErrorKind;
+}
+
+impl embedded_io::Write for VfsWriter {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.vfs
             .borrow_mut()
             .append_to_file(&self.filename, buf)
-            .map_err(std::io::Error::other)?;
+            .map_err(|_| embedded_io::ErrorKind::Other)?;
         Ok(buf.len())
     }
 
-    fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> Result<(), Self::Error> {
         // VFS doesn't need explicit flushing
         Ok(())
     }
 }
-
-// Need to import the trait to implement it, but it's in gpt crate which depends on this crate
-// We'll implement it in the test file instead where we have access to both crates
