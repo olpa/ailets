@@ -1,6 +1,6 @@
 [package]
 name = "actor_io"
-version.workspace = true
+version = "0.2.0"
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -9,5 +9,8 @@ license.workspace = true
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
-actor_runtime = { version = "0.2.0", path = "../actor_runtime" }
-actor_runtime_mocked = { version = "0.1.0", path = "../actor_runtime_mocked" }
+actor_runtime = { version = "0.3.0", path = "../actor_runtime" }
+embedded-io = "0.6"
+
+[dev-dependencies]
+actor_runtime_mocked = { version = "0.2.0", path = "../actor_runtime_mocked" }

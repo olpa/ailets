@@ -1,69 +1,116 @@
 # actor_io Library - AI Coding Agent Summary
 
+Version: 0.2.0
+
 ## Overview
-`actor_io` is a Rust crate that provides I/O abstractions for an actor runtime system. It enables reading from and writing to actor streams through familiar standard library interfaces.
+`actor_io` is a Rust crate that provides I/O abstractions for an actor runtime system. It enables reading from and writing to actor streams through embedded_io compatible interfaces, making it suitable for both embedded and standard environments.
 
 ## Core Components
 
 ### AReader (`areader` module)
 - **Purpose**: Read from actor streams
 - **Key Features**:
-  - Implements `std::io::Read` trait for familiar usage patterns
+  - Implements `embedded_io::Read` trait for embedded compatibility
+  - No std::io dependencies - uses core only
   - Supports both named streams and standard handles (stdin/stdout/stderr)
   - Automatic resource cleanup via Drop trait
   - Safe abstraction over C FFI actor runtime calls
 
 - **Usage Example**:
   ```rust
-  use std::io::Read;
+  use embedded_io::Read;
   use actor_io::AReader;
-  
+
   let mut reader = AReader::new(c"my_stream").unwrap();
   let mut buffer = Vec::new();
   reader.read_to_end(&mut buffer).unwrap();
   ```
 
 - **Methods**:
-  - `new(filename: &CStr)` - Create reader for named stream
-  - `new_from_std(handle: StdHandle)` - Create reader for standard handle
-  - `close()` - Manually close the stream
-  - `read()` - Read data (via std::io::Read trait)
+  - `new(filename: &CStr) -> Result<Self, embedded_io::ErrorKind>` - Create reader for named stream
+  - `new_from_std(handle: StdHandle) -> Self` - Create reader for standard handle
+  - `close(&mut self) -> Result<(), embedded_io::ErrorKind>` - Manually close the stream
+  - `read(&mut self, buf: &mut [u8]) -> Result<usize, ErrorKind>` - Read data (via embedded_io::Read trait)
+
+- **Error Type**:
+  - Uses `embedded_io::ErrorKind` for all error returns
+  - Uses `error_mapping::errno_to_error_kind` for errno conversion (see Error Mapping section below)
 
 ### AWriter (`awriter` module)
 - **Purpose**: Write to actor streams and files
 - **Key Features**:
-  - Implements `std::io::Write` trait for standard write operations
+  - Implements `embedded_io::Write` trait for embedded compatibility
+  - No std::io dependencies - uses core only
   - Supports both file creation and standard handles
   - Automatic resource cleanup via Drop trait
   - Safe abstraction over C FFI actor runtime calls
 
 - **Usage Example**:
   ```rust
-  use std::io::Write;
+  use embedded_io::Write;
   use actor_io::AWriter;
-  
+
   let mut writer = AWriter::new(c"example.txt").unwrap();
   writer.write_all(b"Hello, world!").unwrap();
   writer.close().unwrap();
   ```
 
 - **Methods**:
-  - `new(filename: &CStr)` - Create writer for file
-  - `new_from_std(handle: StdHandle)` - Create writer for standard handle
-  - `new_from_fd(fd: c_int)` - Create writer from existing file descriptor
-  - `close()` - Manually close the writer
-  - `write()` - Write data (via std::io::Write trait)
-  - `flush()` - Flush output (no-op implementation)
+  - `new(filename: &CStr) -> Result<Self, embedded_io::ErrorKind>` - Create writer for file
+  - `new_from_std(handle: StdHandle) -> Self` - Create writer for standard handle
+  - `new_from_fd(fd: c_int) -> Result<Self, embedded_io::ErrorKind>` - Create writer from existing file descriptor
+  - `close(&mut self) -> Result<(), embedded_io::ErrorKind>` - Manually close the writer
+  - `write(&mut self, buf: &[u8]) -> Result<usize, ErrorKind>` - Write data (via embedded_io::Write trait)
+  - `flush(&mut self) -> Result<(), ErrorKind>` - Flush output (no-op implementation)
+
+- **Error Type**:
+  - Uses `embedded_io::ErrorKind` for all error returns
+  - Uses `error_mapping::errno_to_error_kind` for errno conversion (see Error Mapping section below)
+
+### Error Mapping (`error_mapping` module)
+- **Purpose**: Utilities for converting between error types
+- **Key Features**:
+  - Public API for error conversion and formatting
+  - Consistent errno-to-ErrorKind mapping across the crate
+  - Human-readable error descriptions
+
+- **Public Functions**:
+  - `errno_to_error_kind(errno: c_int) -> embedded_io::ErrorKind` - Convert errno to ErrorKind
+  - `error_kind_to_str(kind: embedded_io::ErrorKind) -> &'static str` - Convert ErrorKind to human-readable string
+
+- **Usage Example**:
+  ```rust
+  use actor_io::{errno_to_error_kind, error_kind_to_str};
+
+  let error_kind = errno_to_error_kind(2); // ENOENT
+  let error_msg = error_kind_to_str(error_kind); // "not found"
+  ```
+
+- **Errno Mapping**:
+  - EPERM (1), EACCES (13) → PermissionDenied
+  - ENOENT (2) → NotFound
+  - EIO (5) → Other
+  - EBADF (9), EINVAL (22) → InvalidInput
+  - EAGAIN/EWOULDBLOCK (11) → Other
+  - ENOMEM (12), ENOSPC (28) → OutOfMemory
+  - EMFILE (24) → Unsupported
+  - EPIPE (32), ECONNRESET (104), ETIMEDOUT (110), ECONNREFUSED (111) → Other
+  - Others → Other
 
 ## Dependencies
-- `actor_runtime` (v0.2.0) - Core runtime system with C FFI bindings
-- `actor_runtime_mocked` (v0.1.0) - Mocked runtime for testing
+- `actor_runtime` (v0.3.0) - Core runtime system with C FFI bindings
+- `embedded-io` (v0.6) - Embedded I/O traits
+
+## Dev Dependencies
+- `actor_runtime_mocked` (v0.2.0) - Mocked runtime for testing
 
 ## Safety & Error Handling
 - Uses unsafe FFI calls internally but provides safe Rust interfaces
-- Proper error propagation using `std::io::Result`
+- All methods use `embedded_io::ErrorKind` for error reporting
+- Consistent error handling across all APIs
 - Automatic cleanup prevents resource leaks
 - File descriptors are properly managed and closed
+- No std::io dependencies - uses core primitives only
 
 ## Library Configuration
 - Can be built as both library (`lib`) and C dynamic library (`cdylib`)
@@ -74,8 +121,11 @@ This library provides essential I/O primitives for actor-based systems. When wor
 
 1. **Stream Operations**: Use AReader/AWriter for all actor stream I/O
 2. **Resource Management**: Always handle Result types for proper error handling
-3. **Standard Interface**: Both types implement std::io traits, so standard Rust I/O patterns apply
+3. **Embedded Compatible**: Both types implement embedded_io traits for no_std environments
 4. **FFI Safety**: The library handles unsafe FFI internally - use the safe public APIs
 5. **Testing**: Use mocked runtime for unit tests to avoid system dependencies
+6. **Error Handling**: All methods consistently use `embedded_io::ErrorKind` for errors
+7. **Error Utilities**: Use `errno_to_error_kind` and `error_kind_to_str` for error conversion and formatting
+8. **No std::io**: The library avoids std::io dependencies, using core primitives only
 
-The library follows standard Rust conventions and integrates seamlessly with existing I/O code through trait implementations.
+The library follows standard Rust conventions and integrates seamlessly with embedded_io-based I/O code through trait implementations.

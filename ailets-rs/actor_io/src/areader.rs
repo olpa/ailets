@@ -3,7 +3,7 @@
 //! # Example
 //!
 //! ```no_run
-//! use std::io::Read;
+//! use embedded_io::Read;
 //! use actor_io::AReader;
 //!
 //! let mut reader = AReader::new(c"my_stream").unwrap();
@@ -13,8 +13,9 @@
 //! ```
 
 use actor_runtime::{aclose, aread, get_errno, open_read, StdHandle};
-use std::ffi::CStr;
-use std::os::raw::{c_int, c_uint};
+use core::ffi::{c_int, c_uint, CStr};
+
+use crate::error_mapping::errno_to_error_kind;
 
 pub struct AReader {
     fd: Option<c_int>,
@@ -25,10 +26,11 @@ impl AReader {
     ///
     /// # Errors
     /// Returns an error if opening fails.
-    pub fn new(filename: &CStr) -> std::io::Result<Self> {
+    pub fn new(filename: &CStr) -> Result<Self, embedded_io::ErrorKind> {
         let fd = unsafe { open_read(filename.as_ptr()) };
         if fd < 0 {
-            Err(std::io::Error::from_raw_os_error(unsafe { get_errno() }))
+            let errno = unsafe { get_errno() };
+            Err(errno_to_error_kind(errno))
         } else {
             Ok(AReader { fd: Some(fd) })
         }
@@ -48,11 +50,12 @@ impl AReader {
     ///
     /// # Errors
     /// Returns an error if closing fails.
-    pub fn close(&mut self) -> std::io::Result<()> {
+    pub fn close(&mut self) -> Result<(), embedded_io::ErrorKind> {
         if let Some(fd) = self.fd {
             let result = unsafe { aclose(fd) };
             if result < 0 {
-                return Err(std::io::Error::from_raw_os_error(unsafe { get_errno() }));
+                let errno = unsafe { get_errno() };
+                return Err(errno_to_error_kind(errno));
             }
             self.fd = None;
         }
@@ -66,8 +69,12 @@ impl Drop for AReader {
     }
 }
 
-impl std::io::Read for AReader {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+impl embedded_io::ErrorType for AReader {
+    type Error = embedded_io::ErrorKind;
+}
+
+impl embedded_io::Read for AReader {
+    fn read(&mut self, buf: &mut [u8]) -> core::result::Result<usize, Self::Error> {
         let Some(fd) = self.fd else {
             return Ok(0);
         };
@@ -77,7 +84,8 @@ impl std::io::Read for AReader {
         let bytes_read = unsafe { aread(fd, buf.as_mut_ptr(), buf_len) };
 
         if bytes_read < 0 {
-            return Err(std::io::Error::from_raw_os_error(unsafe { get_errno() }));
+            let errno = unsafe { get_errno() };
+            return Err(errno_to_error_kind(errno));
         }
 
         #[allow(clippy::cast_sign_loss)]
@@ -85,8 +93,8 @@ impl std::io::Read for AReader {
     }
 }
 
-impl std::fmt::Debug for AReader {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for AReader {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("AReader").field("fd", &self.fd).finish()
     }
 }

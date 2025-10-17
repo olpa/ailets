@@ -1,11 +1,11 @@
 //! A writer implementation for the actor runtime system.
 //!
-//! `AWriter` provides an implementation of the standard [`std::io::Write`] trait.
+//! `AWriter` provides an implementation of the [`embedded_io::Write`] trait.
 //! It manages a file descriptor internally and ensures proper cleanup through the Drop trait.
 //!
 //! # Example
 //! ```no_run
-//! use std::io::Write;
+//! use embedded_io::Write;
 //! use actor_io::AWriter;
 //!
 //! let mut writer = AWriter::new(c"example.txt").unwrap();
@@ -18,10 +18,10 @@
 //! The safety guarantees are maintained through proper file descriptor management
 //! and automatic cleanup in the Drop implementation.
 
-use std::ffi::CStr;
-use std::os::raw::{c_int, c_uint};
-
 use actor_runtime::{aclose, awrite, get_errno, open_write, StdHandle};
+use core::ffi::{c_int, c_uint, CStr};
+
+use crate::error_mapping::errno_to_error_kind;
 
 pub struct AWriter {
     fd: Option<c_int>,
@@ -32,10 +32,11 @@ impl AWriter {
     ///
     /// # Errors
     /// Returns an error if the file could not be created.
-    pub fn new(filename: &CStr) -> std::io::Result<Self> {
+    pub fn new(filename: &CStr) -> Result<Self, embedded_io::ErrorKind> {
         let fd = unsafe { open_write(filename.as_ptr()) };
         if fd < 0 {
-            Err(std::io::Error::from_raw_os_error(unsafe { get_errno() }))
+            let errno = unsafe { get_errno() };
+            Err(errno_to_error_kind(errno))
         } else {
             Ok(AWriter { fd: Some(fd) })
         }
@@ -53,12 +54,9 @@ impl AWriter {
     ///
     /// # Errors
     /// Returns an error if the file descriptor is invalid (negative).
-    pub fn new_from_fd(fd: c_int) -> std::io::Result<Self> {
+    pub fn new_from_fd(fd: c_int) -> Result<Self, embedded_io::ErrorKind> {
         if fd < 0 {
-            Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Bad handle",
-            ))
+            Err(embedded_io::ErrorKind::InvalidInput)
         } else {
             Ok(AWriter { fd: Some(fd) })
         }
@@ -70,11 +68,12 @@ impl AWriter {
     ///
     /// # Errors
     /// Returns an error if closing fails.
-    pub fn close(&mut self) -> std::io::Result<()> {
+    pub fn close(&mut self) -> Result<(), embedded_io::ErrorKind> {
         if let Some(fd) = self.fd {
             let result = unsafe { aclose(fd) };
             if result < 0 {
-                return Err(std::io::Error::from_raw_os_error(unsafe { get_errno() }));
+                let errno = unsafe { get_errno() };
+                return Err(errno_to_error_kind(errno));
             }
             self.fd = None;
         }
@@ -88,8 +87,12 @@ impl Drop for AWriter {
     }
 }
 
-impl std::io::Write for AWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+impl embedded_io::ErrorType for AWriter {
+    type Error = embedded_io::ErrorKind;
+}
+
+impl embedded_io::Write for AWriter {
+    fn write(&mut self, buf: &[u8]) -> core::result::Result<usize, Self::Error> {
         let Some(fd) = self.fd else {
             return Ok(0);
         };
@@ -99,19 +102,20 @@ impl std::io::Write for AWriter {
         let n = unsafe { awrite(fd, buf.as_ptr(), buf_len) };
 
         if n < 0 {
-            return Err(std::io::Error::from_raw_os_error(unsafe { get_errno() }));
+            let errno = unsafe { get_errno() };
+            return Err(errno_to_error_kind(errno));
         }
         #[allow(clippy::cast_sign_loss)]
         Ok(n as usize)
     }
 
-    fn flush(&mut self) -> std::io::Result<()> {
+    fn flush(&mut self) -> core::result::Result<(), Self::Error> {
         Ok(())
     }
 }
 
-impl std::fmt::Debug for AWriter {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Debug for AWriter {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("AWriter").field("fd", &self.fd).finish()
     }
 }
