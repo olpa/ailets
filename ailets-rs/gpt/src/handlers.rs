@@ -5,7 +5,6 @@
 //! indicate the result of their operations.
 
 use std::cell::RefCell;
-use std::io::Write;
 
 use crate::dagops::DagOpsTrait;
 use crate::structure_builder::StructureBuilder;
@@ -13,197 +12,153 @@ use scan_json::rjiter::jiter::{NumberInt, Peek};
 use scan_json::RJiter;
 use scan_json::StreamOp;
 
-pub fn on_begin_message<W: Write, D: DagOpsTrait>(
-    _rjiter: &RefCell<RJiter>,
+pub fn on_begin_message<W: embedded_io::Write, D: DagOpsTrait, R: embedded_io::Read>(
+    _rjiter: &mut RJiter<R>,
     builder_cell: &RefCell<StructureBuilder<W, D>>,
 ) -> StreamOp {
-    if let Err(e) = builder_cell.borrow_mut().begin_message() {
-        return StreamOp::Error(Box::new(e));
+    if let Err(_e) = builder_cell.borrow_mut().begin_message() {
+        return StreamOp::Error("Failed to begin message");
     }
     StreamOp::None
 }
 
 /// # Errors
 /// If anything goes wrong.
-pub fn on_end_message<W: Write, D: DagOpsTrait>(
+pub fn on_end_message<W: embedded_io::Write, D: DagOpsTrait>(
     builder_cell: &RefCell<StructureBuilder<W, D>>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    builder_cell.borrow_mut().end_message()?;
+) -> Result<(), &'static str> {
+    builder_cell
+        .borrow_mut()
+        .end_message()
+        .map_err(|_| "Failed to end message")?;
     Ok(())
 }
 
-pub fn on_role<W: Write, D: DagOpsTrait>(
-    rjiter_cell: &RefCell<RJiter>,
+pub fn on_role<W: embedded_io::Write, D: DagOpsTrait, R: embedded_io::Read>(
+    rjiter: &mut RJiter<R>,
     builder_cell: &RefCell<StructureBuilder<W, D>>,
 ) -> StreamOp {
-    let mut rjiter = rjiter_cell.borrow_mut();
-    let role = match rjiter.next_str() {
-        Ok(r) => r,
-        Err(e) => {
-            return StreamOp::Error(
-                format!("Error getting role value. Expected string, got: {e:?}").into(),
-            )
-        }
+    let Ok(role) = rjiter.next_str() else {
+        return StreamOp::Error("Error getting role value");
     };
-    if let Err(e) = builder_cell.borrow_mut().role(role) {
-        return StreamOp::Error(Box::new(e));
+    if builder_cell.borrow_mut().role(role).is_err() {
+        return StreamOp::Error("Failed to set role");
     }
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_content<W: Write, D: DagOpsTrait>(
-    rjiter_cell: &RefCell<RJiter>,
+pub fn on_content<W: embedded_io::Write, D: DagOpsTrait, R: embedded_io::Read>(
+    rjiter: &mut RJiter<R>,
     builder_cell: &RefCell<StructureBuilder<W, D>>,
 ) -> StreamOp {
-    let mut rjiter = rjiter_cell.borrow_mut();
-    let peeked = match rjiter.peek() {
-        Ok(p) => p,
-        Err(e) => return StreamOp::Error(Box::new(e)),
+    let Ok(peeked) = rjiter.peek() else {
+        return StreamOp::Error("Peek error for content");
     };
     if peeked == Peek::Null {
-        if let Err(e) = rjiter.known_null() {
-            return StreamOp::Error(Box::new(e));
+        if rjiter.known_null().is_err() {
+            return StreamOp::Error("Error consuming null");
         }
         return StreamOp::ValueIsConsumed;
     }
     if peeked != Peek::String {
-        let idx = rjiter.current_index();
-        let pos = rjiter.error_position(idx);
-        let error: Box<dyn std::error::Error> = format!(
-            "Expected string for 'content' value, got {peeked:?}, at index {idx}, position {pos}"
-        )
-        .into();
-        return StreamOp::Error(error);
+        return StreamOp::Error("Expected string for content value");
     }
     let mut builder = builder_cell.borrow_mut();
-    if let Err(e) = builder.begin_text_chunk() {
-        return StreamOp::Error(Box::new(e));
+    if builder.begin_text_chunk().is_err() {
+        return StreamOp::Error("Failed to begin text chunk");
     }
     let writer = builder.get_writer();
-    if let Err(e) = rjiter.write_long_bytes(writer) {
-        return StreamOp::Error(Box::new(e));
+    if rjiter.write_long_bytes(writer).is_err() {
+        return StreamOp::Error("Failed to write content bytes");
     }
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_function_id<W: Write, D: DagOpsTrait>(
-    rjiter_cell: &RefCell<RJiter>,
+pub fn on_function_id<W: embedded_io::Write, D: DagOpsTrait, R: embedded_io::Read>(
+    rjiter: &mut RJiter<R>,
     builder_cell: &RefCell<StructureBuilder<W, D>>,
 ) -> StreamOp {
-    let mut rjiter = rjiter_cell.borrow_mut();
-    let value = match rjiter.next_str() {
-        Ok(value) => value,
-        Err(e) => {
-            let error: Box<dyn std::error::Error> =
-                format!("Expected string as the function id, got {e:?}").into();
-            return StreamOp::Error(error);
-        }
+    let Ok(value) = rjiter.next_str() else {
+        return StreamOp::Error("Expected string as function id");
     };
 
     let mut builder = builder_cell.borrow_mut();
-    if let Err(e) = builder.tool_call_id(value) {
-        let error: Box<dyn std::error::Error> = format!("Error handling function id: {e}").into();
-        return StreamOp::Error(error);
+    if builder.tool_call_id(value).is_err() {
+        return StreamOp::Error("Error handling function id");
     }
 
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_function_name<W: Write, D: DagOpsTrait>(
-    rjiter_cell: &RefCell<RJiter>,
+pub fn on_function_name<W: embedded_io::Write, D: DagOpsTrait, R: embedded_io::Read>(
+    rjiter: &mut RJiter<R>,
     builder_cell: &RefCell<StructureBuilder<W, D>>,
 ) -> StreamOp {
-    let mut rjiter = rjiter_cell.borrow_mut();
-    let value = match rjiter.next_str() {
-        Ok(value) => value,
-        Err(e) => {
-            let error: Box<dyn std::error::Error> =
-                format!("Expected string as the function name, got {e:?}").into();
-            return StreamOp::Error(error);
-        }
+    let Ok(value) = rjiter.next_str() else {
+        return StreamOp::Error("Expected string as function name");
     };
 
     let mut builder = builder_cell.borrow_mut();
-    if let Err(e) = builder.tool_call_name(value) {
-        let error: Box<dyn std::error::Error> = format!("Error handling function name: {e}").into();
-        return StreamOp::Error(error);
+    if builder.tool_call_name(value).is_err() {
+        return StreamOp::Error("Error handling function name");
     }
 
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_function_arguments<W: Write, D: DagOpsTrait>(
-    rjiter_cell: &RefCell<RJiter>,
+pub fn on_function_arguments<W: embedded_io::Write, D: DagOpsTrait, R: embedded_io::Read>(
+    rjiter: &mut RJiter<R>,
     builder_cell: &RefCell<StructureBuilder<W, D>>,
 ) -> StreamOp {
-    let mut rjiter = rjiter_cell.borrow_mut();
-    let peeked = match rjiter.peek() {
-        Ok(p) => p,
-        Err(e) => return StreamOp::Error(Box::new(e)),
+    let Ok(peeked) = rjiter.peek() else {
+        return StreamOp::Error("Peek error for arguments");
     };
     if peeked != Peek::String {
-        let idx = rjiter.current_index();
-        let pos = rjiter.error_position(idx);
-        let error: Box<dyn std::error::Error> = format!(
-            "Expected string for 'arguments' value, got {peeked:?}, at index {idx}, position {pos}"
-        )
-        .into();
-        return StreamOp::Error(error);
+        return StreamOp::Error("Expected string for arguments value");
     }
     let mut builder = builder_cell.borrow_mut();
     let mut writer = builder.get_arguments_chunk_writer();
-    if let Err(e) = rjiter.write_long_bytes(&mut writer) {
-        return StreamOp::Error(Box::new(e));
+    if rjiter.write_long_bytes(&mut writer).is_err() {
+        return StreamOp::Error("Failed to write arguments bytes");
     }
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_function_index<W: Write, D: DagOpsTrait>(
-    rjiter_cell: &RefCell<RJiter>,
+pub fn on_function_index<W: embedded_io::Write, D: DagOpsTrait, R: embedded_io::Read>(
+    rjiter: &mut RJiter<R>,
     builder_cell: &RefCell<StructureBuilder<W, D>>,
 ) -> StreamOp {
-    let mut rjiter = rjiter_cell.borrow_mut();
-    let value = match rjiter.next_int() {
-        Ok(value) => value,
-        Err(e) => {
-            let error: Box<dyn std::error::Error> =
-                format!("Expected integer as the function index, got {e:?}").into();
-            return StreamOp::Error(error);
-        }
+    let Ok(value) = rjiter.next_int() else {
+        return StreamOp::Error("Expected integer as function index");
     };
-    let idx = rjiter.current_index();
-    let pos = rjiter.error_position(idx);
     let call_idx: usize = match value {
         NumberInt::BigInt(_) => {
-            let error: Box<dyn std::error::Error> =
-                format!("Can't convert the function index to usize, got {value:?} at index {idx}, position {pos}").into();
-            return StreamOp::Error(error);
+            return StreamOp::Error("Function index too large for usize");
         }
         NumberInt::Int(i) => {
             if let Ok(idx) = usize::try_from(i) {
                 idx
             } else {
-                let error: Box<dyn std::error::Error> =
-                    format!("Can't convert the function index to usize, got {value:?} at index {idx}, position {pos}").into();
-                return StreamOp::Error(error);
+                return StreamOp::Error("Can't convert function index to usize");
             }
         }
     };
 
     let mut builder = builder_cell.borrow_mut();
-    if let Err(e) = builder.tool_call_index(call_idx) {
-        let error: Box<dyn std::error::Error> =
-            format!("Error handling function call index {call_idx}: {e}").into();
-        return StreamOp::Error(error);
+    if builder.tool_call_index(call_idx).is_err() {
+        return StreamOp::Error("Error handling function call index");
     }
 
     StreamOp::ValueIsConsumed
 }
 
 /// # Errors
-pub fn on_function_end<W: Write, D: DagOpsTrait>(
+pub fn on_function_end<W: embedded_io::Write, D: DagOpsTrait>(
     builder_cell: &RefCell<StructureBuilder<W, D>>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    builder_cell.borrow_mut().tool_call_end_if_direct()?;
+) -> Result<(), &'static str> {
+    builder_cell
+        .borrow_mut()
+        .tool_call_end_if_direct()
+        .map_err(|_| "Failed to end tool call")?;
     Ok(())
 }

@@ -2,8 +2,9 @@
 
 use crate::dagops::DagOpsTrait;
 use crate::fcw_trait::FunCallsWrite;
+use actor_io::error_kind_to_str;
+use embedded_io::Write;
 use std::collections::HashMap;
-use std::io::Write;
 
 // TODO https://github.com/olpa/ailets/issues/185
 fn escape_json_string(s: &str) -> String {
@@ -19,8 +20,8 @@ fn escape_json_string(s: &str) -> String {
 /// The representation format for a tool spec is:
 /// `[{"type":"function","id":"...","name":"..."},{"arguments":"..."}]`
 pub struct FunCallsToTools {
-    tool_input_writer: Option<Box<dyn Write>>,
-    tool_spec_writer: Option<Box<dyn Write>>,
+    tool_input_writer: Option<Box<dyn embedded_io::Write<Error = embedded_io::ErrorKind>>>,
+    tool_spec_writer: Option<Box<dyn embedded_io::Write<Error = embedded_io::ErrorKind>>>,
 }
 
 impl FunCallsToTools {
@@ -43,18 +44,20 @@ impl FunCallsWrite for FunCallsToTools {
         id: &str,
         name: &str,
         dagops: &mut T,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    ) -> Result<(), String> {
         // Create the tool input pipe and writer
         let explain = format!("tool input - {name}");
         let tool_input_fd = dagops.open_write_pipe(Some(&explain))?;
-        let tool_input_writer = dagops.open_writer_to_pipe(tool_input_fd)?;
+        let tool_input_writer = actor_io::AWriter::new_from_fd(tool_input_fd)
+            .map_err(|e| error_kind_to_str(e).to_string())?;
 
-        self.tool_input_writer = Some(tool_input_writer);
+        self.tool_input_writer = Some(Box::new(tool_input_writer));
 
         // Create the tool spec pipe and writer
         let explain = format!("tool call spec - {name}");
         let tool_spec_handle_fd = dagops.open_write_pipe(Some(&explain))?;
-        let mut tool_spec_writer = dagops.open_writer_to_pipe(tool_spec_handle_fd)?;
+        let mut tool_spec_writer = actor_io::AWriter::new_from_fd(tool_spec_handle_fd)
+            .map_err(|e| error_kind_to_str(e).to_string())?;
 
         // Write the beginning of the tool spec JSON structure up to the arguments value
         let json_start = format!(
@@ -64,9 +67,9 @@ impl FunCallsWrite for FunCallsToTools {
         );
         tool_spec_writer
             .write_all(json_start.as_bytes())
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| error_kind_to_str(e).to_string())?;
 
-        self.tool_spec_writer = Some(tool_spec_writer);
+        self.tool_spec_writer = Some(Box::new(tool_spec_writer));
 
         // Create aliases for the pipes
         dagops.alias_fd(".tool_input", tool_input_fd)?;
@@ -94,7 +97,7 @@ impl FunCallsWrite for FunCallsToTools {
         Ok(())
     }
 
-    fn arguments_chunk(&mut self, args: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    fn arguments_chunk(&mut self, args: &[u8]) -> Result<(), String> {
         // Write to tool input writer - unescape the JSON string first
         if let Some(ref mut writer) = self.tool_input_writer {
             // TODO https://github.com/olpa/ailets/issues/185
@@ -112,18 +115,20 @@ impl FunCallsWrite for FunCallsToTools {
 
             writer
                 .write_all(unescaped_str.as_bytes())
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| error_kind_to_str(e).to_string())?;
         }
 
         // Write to tool spec writer (arguments are already correctly escaped JSON)
         if let Some(ref mut writer) = self.tool_spec_writer {
-            writer.write_all(args).map_err(|e| e.to_string())?;
+            writer
+                .write_all(args)
+                .map_err(|e| error_kind_to_str(e).to_string())?;
         }
 
         Ok(())
     }
 
-    fn end_item(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn end_item(&mut self) -> Result<(), String> {
         // Drop/finalize the tool input writer
         drop(self.tool_input_writer.take());
 
@@ -133,14 +138,14 @@ impl FunCallsWrite for FunCallsToTools {
             let json_end = r#""}]"#;
             writer
                 .write_all(json_end.as_bytes())
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| error_kind_to_str(e).to_string())?;
             drop(writer);
         }
 
         Ok(())
     }
 
-    fn end(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn end(&mut self) -> Result<(), String> {
         Ok(())
     }
 }

@@ -4,7 +4,6 @@ use std::rc::Rc;
 
 use actor_runtime_mocked::{Vfs, VfsWriter};
 use gpt::dagops::DagOpsTrait;
-use std::io::Write;
 
 #[derive(Clone)]
 pub struct TrackedDagOps {
@@ -106,7 +105,10 @@ impl DagOpsTrait for TrackedDagOps {
         Ok(fd)
     }
 
-    fn open_writer_to_pipe(&mut self, fd: i32) -> Result<Box<dyn Write>, String> {
+    fn open_writer_to_pipe(
+        &mut self,
+        fd: i32,
+    ) -> Result<Box<dyn embedded_io::Write<Error = embedded_io::ErrorKind>>, String> {
         // In mock, fd is the handle
         let filename = format!("value.{fd}");
         let writer = VfsWriter::new(self.vfs.clone(), filename);

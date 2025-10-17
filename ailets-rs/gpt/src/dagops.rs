@@ -3,9 +3,6 @@
 //! This module provides abstractions for integrating function calls with
 //! Directed Acyclic Graph (DAG) operations. It enables mocking.
 
-use actor_io::AWriter;
-use std::io::Write;
-
 pub trait DagOpsTrait {
     /// Creates a value node in the DAG.
     ///
@@ -47,11 +44,14 @@ pub trait DagOpsTrait {
     /// Returns an error if the alias creation fails.
     fn alias_fd(&mut self, alias: &str, fd: i32) -> Result<i32, String>;
 
-    /// Opens a writer to a pipe.
+    /// Opens a writer to a pipe for testing/mocking.
     ///
     /// # Errors
     /// Returns an error if the writer creation fails.
-    fn open_writer_to_pipe(&mut self, fd: i32) -> Result<Box<dyn Write>, String>;
+    fn open_writer_to_pipe(
+        &mut self,
+        fd: i32,
+    ) -> Result<Box<dyn embedded_io::Write<Error = embedded_io::ErrorKind>>, String>;
 }
 
 pub struct DagOps;
@@ -99,8 +99,12 @@ impl DagOpsTrait for DagOps {
         actor_runtime::alias_fd(alias, fd)
     }
 
-    fn open_writer_to_pipe(&mut self, fd: i32) -> Result<Box<dyn Write>, String> {
-        let writer = AWriter::new_from_fd(fd).map_err(|e| e.to_string())?;
+    fn open_writer_to_pipe(
+        &mut self,
+        fd: i32,
+    ) -> Result<Box<dyn embedded_io::Write<Error = embedded_io::ErrorKind>>, String> {
+        let writer = actor_io::AWriter::new_from_fd(fd)
+            .map_err(|e| actor_io::error_kind_to_str(e).to_string())?;
         Ok(Box::new(writer))
     }
 }

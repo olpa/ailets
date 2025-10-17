@@ -1,6 +1,6 @@
 //! Function call writing trait definition
 
-pub type FunCallResult = Result<(), Box<dyn std::error::Error>>;
+pub type FunCallResult = Result<(), String>;
 
 pub trait FunCallsWrite {
     /// Initialize a new function call with the given ID and name
