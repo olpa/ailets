@@ -1,31 +1,38 @@
-use actor_io::{AReader, AWriter};
+use actor_io::{error_kind_to_str, AReader, AWriter};
 use actor_runtime::{err_to_heap_c_string, StdHandle};
+use embedded_io::{Read, Write};
 use std::ffi::c_char;
-use std::io;
 
 #[no_mangle]
 pub extern "C" fn execute() -> *const c_char {
     let mut reader = AReader::new_from_std(StdHandle::Stdin);
     let mut writer = AWriter::new_from_std(StdHandle::Stdout);
 
-    if let Err(e) = io::copy(&mut reader, &mut writer) {
-        return err_to_heap_c_string(
-            e.raw_os_error().unwrap_or(-1),
-            &format!("Failed to copy: {e}"),
-        );
+    // Manual copy loop since std::io::copy is not available with embedded_io
+    let mut buffer = [0u8; 8192];
+    loop {
+        match reader.read(&mut buffer) {
+            Ok(0) => break, // EOF
+            Ok(n) => {
+                if let Err(e) = writer.write_all(&buffer[..n]) {
+                    let error_msg = error_kind_to_str(e);
+                    return err_to_heap_c_string(-1, &format!("Failed to write: {error_msg}"));
+                }
+            }
+            Err(e) => {
+                let error_msg = error_kind_to_str(e);
+                return err_to_heap_c_string(-1, &format!("Failed to read: {error_msg}"));
+            }
+        }
     }
 
     if let Err(e) = writer.close() {
-        return err_to_heap_c_string(
-            e.raw_os_error().unwrap_or(-1),
-            &format!("Failed to close writer: {e}"),
-        );
+        let error_msg = error_kind_to_str(e);
+        return err_to_heap_c_string(-1, &format!("Failed to close writer: {error_msg}"));
     }
     if let Err(e) = reader.close() {
-        return err_to_heap_c_string(
-            e.raw_os_error().unwrap_or(-1),
-            &format!("Failed to close reader: {e}"),
-        );
+        let error_msg = error_kind_to_str(e);
+        return err_to_heap_c_string(-1, &format!("Failed to close reader: {error_msg}"));
     }
 
     std::ptr::null()
