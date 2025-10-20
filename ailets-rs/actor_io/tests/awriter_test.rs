@@ -1,6 +1,6 @@
-use actor_io::AWriter;
+use actor_io::{error_kind_to_str, AWriter};
 use actor_runtime_mocked::{clear_mocks, get_file, WANT_ERROR};
-use std::io::Write;
+use embedded_io::Write;
 
 #[test]
 fn happy_path() {
@@ -37,9 +37,11 @@ fn cant_open_nonexistent_file() {
 
     let err = AWriter::new(c"file-name-to-fail\u{1}").expect_err("Should fail to create writer");
 
-    assert!(
-        err.to_string().contains("os error"),
-        "Error message should contain os error"
+    assert_eq!(
+        err,
+        embedded_io::ErrorKind::InvalidInput,
+        "Error should be InvalidInput, got: {}",
+        error_kind_to_str(err)
     );
 }
 
@@ -62,8 +64,10 @@ fn write_error() {
         .write(&[WANT_ERROR as u8])
         .expect_err("Should fail to write");
 
-    assert!(
-        err.to_string().contains("os error"),
-        "Error message should indicate write failure"
+    assert_eq!(
+        err,
+        embedded_io::ErrorKind::Other,
+        "Error should be Other, got: {}",
+        error_kind_to_str(err)
     );
 }
