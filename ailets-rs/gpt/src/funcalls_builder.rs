@@ -9,6 +9,23 @@ use crate::fcw_chat::FunCallsToChat;
 use crate::fcw_tools::FunCallsToTools;
 use crate::fcw_trait::FunCallsWrite;
 
+/// Wrapper around boxed writer that implements embedded_io::Write
+struct BoxedWriter(Box<dyn embedded_io::Write<Error = embedded_io::ErrorKind>>);
+
+impl embedded_io::ErrorType for BoxedWriter {
+    type Error = embedded_io::ErrorKind;
+}
+
+impl embedded_io::Write for BoxedWriter {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.0.write(buf)
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        self.0.flush()
+    }
+}
+
 /// Collect/validate streaming input and forward it to the writers
 pub struct FunCallsBuilder<D: DagOpsTrait> {
     /// The highest function call index seen so far (enables streaming mode)
@@ -26,7 +43,7 @@ pub struct FunCallsBuilder<D: DagOpsTrait> {
     /// DAG operations implementation
     dagops: D,
     /// Chat writer for function calls (lazily initialized)
-    chat_writer: Option<FunCallsToChat<actor_io::AWriter>>,
+    chat_writer: Option<FunCallsToChat<BoxedWriter>>,
     /// Tools writer for function calls (lazily initialized)
     tools_writer: Option<FunCallsToTools>,
 }
@@ -336,7 +353,7 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     ///
     /// # Errors
     /// Returns error if DAG operations fail or if called before detachment
-    fn create_chat_output(&mut self) -> Result<actor_io::AWriter, String> {
+    fn create_chat_output(&mut self) -> Result<BoxedWriter, String> {
         if !self.detached {
             return Err(
                 "create_chat_output must be called after setup_loop_iteration_in_dag".into(),
@@ -344,9 +361,8 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
         }
         let fd = self.dagops.open_write_pipe(Some("tool calls spec"))?;
         self.dagops.alias_fd(".chat_messages", fd)?;
-        let writer = actor_io::AWriter::new_from_fd(fd)
-            .map_err(|e| actor_io::error_kind_to_str(e).to_string())?;
-        Ok(writer)
+        let writer = self.dagops.open_writer_to_pipe(fd)?;
+        Ok(BoxedWriter(writer))
     }
 
     /// Handles final DAG workflow processing

@@ -41,6 +41,8 @@ pub struct StructureBuilder<W: embedded_io::Write, D: DagOpsTrait> {
     text_is_open: bool,
     role: Option<String>,
     text_section_started: bool,
+    /// Optional extended error message to provide more details than the static StreamOp::Error
+    last_error: Option<String>,
 }
 
 impl<W: embedded_io::Write, D: DagOpsTrait> StructureBuilder<W, D> {
@@ -52,7 +54,18 @@ impl<W: embedded_io::Write, D: DagOpsTrait> StructureBuilder<W, D> {
             text_is_open: false,
             role: None,
             text_section_started: false,
+            last_error: None,
         }
+    }
+
+    /// Sets the last error message for later retrieval
+    pub fn set_error(&mut self, error: String) {
+        self.last_error = Some(error);
+    }
+
+    /// Takes the last error message, clearing it
+    pub fn take_error(&mut self) -> Option<String> {
+        self.last_error.take()
     }
 
     #[must_use]

@@ -177,15 +177,23 @@ pub fn _process_gpt<W: embedded_io::Write + 'static, D: DagOpsTrait + 'static>(
 
     let sse_tokens: &[&[u8]] = &[b"data:", b"DONE"];
 
-    scan(
+    let scan_result = scan(
         find_action,
         find_end_action,
         &mut rjiter,
         &builder_cell,
         &mut context,
         &Options::with_sse_tokens(sse_tokens),
-    )
-    .map_err(|e| format!("Scan error: {e:?}"))?;
+    );
+
+    // Check if there's a detailed error in the baton before returning scan error
+    if let Err(e) = scan_result {
+        let mut builder = builder_cell.borrow_mut();
+        if let Some(detailed_error) = builder.take_error() {
+            return Err(detailed_error);
+        }
+        return Err(format!("Scan error: {e:?}"));
+    }
 
     let mut builder = builder_cell.borrow_mut();
     builder.end_message().map_err(|e| format!("{e:?}"))?;

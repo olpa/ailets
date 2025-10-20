@@ -3,7 +3,6 @@
 use crate::dagops::DagOpsTrait;
 use crate::fcw_trait::FunCallsWrite;
 use actor_io::error_kind_to_str;
-use embedded_io::Write;
 use std::collections::HashMap;
 
 // TODO https://github.com/olpa/ailets/issues/185
@@ -48,16 +47,14 @@ impl FunCallsWrite for FunCallsToTools {
         // Create the tool input pipe and writer
         let explain = format!("tool input - {name}");
         let tool_input_fd = dagops.open_write_pipe(Some(&explain))?;
-        let tool_input_writer = actor_io::AWriter::new_from_fd(tool_input_fd)
-            .map_err(|e| error_kind_to_str(e).to_string())?;
+        let tool_input_writer = dagops.open_writer_to_pipe(tool_input_fd)?;
 
-        self.tool_input_writer = Some(Box::new(tool_input_writer));
+        self.tool_input_writer = Some(tool_input_writer);
 
         // Create the tool spec pipe and writer
         let explain = format!("tool call spec - {name}");
         let tool_spec_handle_fd = dagops.open_write_pipe(Some(&explain))?;
-        let mut tool_spec_writer = actor_io::AWriter::new_from_fd(tool_spec_handle_fd)
-            .map_err(|e| error_kind_to_str(e).to_string())?;
+        let mut tool_spec_writer = dagops.open_writer_to_pipe(tool_spec_handle_fd)?;
 
         // Write the beginning of the tool spec JSON structure up to the arguments value
         let json_start = format!(
@@ -69,7 +66,7 @@ impl FunCallsWrite for FunCallsToTools {
             .write_all(json_start.as_bytes())
             .map_err(|e| error_kind_to_str(e).to_string())?;
 
-        self.tool_spec_writer = Some(Box::new(tool_spec_writer));
+        self.tool_spec_writer = Some(tool_spec_writer);
 
         // Create aliases for the pipes
         dagops.alias_fd(".tool_input", tool_input_fd)?;

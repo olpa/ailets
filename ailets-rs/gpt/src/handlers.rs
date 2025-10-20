@@ -83,7 +83,8 @@ pub fn on_function_id<W: embedded_io::Write, D: DagOpsTrait, R: embedded_io::Rea
     };
 
     let mut builder = builder_cell.borrow_mut();
-    if builder.tool_call_id(value).is_err() {
+    if let Err(e) = builder.tool_call_id(value) {
+        builder.set_error(e);
         return StreamOp::Error("Error handling function id");
     }
 
@@ -99,7 +100,8 @@ pub fn on_function_name<W: embedded_io::Write, D: DagOpsTrait, R: embedded_io::R
     };
 
     let mut builder = builder_cell.borrow_mut();
-    if builder.tool_call_name(value).is_err() {
+    if let Err(e) = builder.tool_call_name(value) {
+        builder.set_error(e);
         return StreamOp::Error("Error handling function name");
     }
 
@@ -145,7 +147,8 @@ pub fn on_function_index<W: embedded_io::Write, D: DagOpsTrait, R: embedded_io::
     };
 
     let mut builder = builder_cell.borrow_mut();
-    if builder.tool_call_index(call_idx).is_err() {
+    if let Err(e) = builder.tool_call_index(call_idx) {
+        builder.set_error(e);
         return StreamOp::Error("Error handling function call index");
     }
 
@@ -156,9 +159,10 @@ pub fn on_function_index<W: embedded_io::Write, D: DagOpsTrait, R: embedded_io::
 pub fn on_function_end<W: embedded_io::Write, D: DagOpsTrait>(
     builder_cell: &RefCell<StructureBuilder<W, D>>,
 ) -> Result<(), &'static str> {
-    builder_cell
-        .borrow_mut()
-        .tool_call_end_if_direct()
-        .map_err(|_| "Failed to end tool call")?;
+    let mut builder = builder_cell.borrow_mut();
+    if let Err(e) = builder.tool_call_end_if_direct() {
+        builder.set_error(e);
+        return Err("Failed to end tool call");
+    }
     Ok(())
 }
