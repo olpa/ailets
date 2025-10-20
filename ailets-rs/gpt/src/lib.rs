@@ -1,3 +1,4 @@
+pub mod action_error;
 pub mod dagops;
 pub mod fcw_chat;
 pub mod fcw_tools;
@@ -190,7 +191,7 @@ pub fn _process_gpt<W: embedded_io::Write + 'static, D: DagOpsTrait + 'static>(
     if let Err(e) = scan_result {
         let mut builder = builder_cell.borrow_mut();
         if let Some(detailed_error) = builder.take_error() {
-            return Err(detailed_error);
+            return Err(detailed_error.to_string());
         }
         return Err(format!("Scan error: {e:?}"));
     }

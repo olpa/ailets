@@ -1,5 +1,6 @@
 //! A module for building structured messages in a streaming fashion.
 
+use crate::action_error::ActionError;
 use crate::dagops::DagOpsTrait;
 use crate::funcalls_builder::FunCallsBuilder;
 
@@ -42,7 +43,7 @@ pub struct StructureBuilder<W: embedded_io::Write, D: DagOpsTrait> {
     role: Option<String>,
     text_section_started: bool,
     /// Optional extended error message to provide more details than the static StreamOp::Error
-    last_error: Option<String>,
+    last_error: Option<ActionError>,
 }
 
 impl<W: embedded_io::Write, D: DagOpsTrait> StructureBuilder<W, D> {
@@ -59,12 +60,12 @@ impl<W: embedded_io::Write, D: DagOpsTrait> StructureBuilder<W, D> {
     }
 
     /// Sets the last error message for later retrieval
-    pub fn set_error(&mut self, error: String) {
+    pub fn set_error(&mut self, error: ActionError) {
         self.last_error = Some(error);
     }
 
     /// Takes the last error message, clearing it
-    pub fn take_error(&mut self) -> Option<String> {
+    pub fn take_error(&mut self) -> Option<ActionError> {
         self.last_error.take()
     }
 
