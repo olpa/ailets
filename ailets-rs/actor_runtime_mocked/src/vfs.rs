@@ -118,7 +118,7 @@ impl Vfs {
             return c_int::try_from(handles.len()).unwrap_or(-1) - 1;
         }
 
-        self.io_errno.store(-1, Ordering::Relaxed);
+        self.io_errno.store(2, Ordering::Relaxed); // ENOENT - No such file or directory
         -1
     }
 
@@ -131,7 +131,7 @@ impl Vfs {
 
         let name = cstr_to_string(name_ptr);
         if name.contains(WANT_ERROR) {
-            self.io_errno.store(-1, Ordering::Relaxed);
+            self.io_errno.store(22, Ordering::Relaxed); // EINVAL - Invalid argument
             return -1;
         }
 
@@ -159,15 +159,15 @@ impl Vfs {
         let mut handles = self.handles.lock().unwrap();
 
         let Ok(fd) = usize::try_from(fd) else {
-            self.io_errno.store(-1, Ordering::Relaxed);
+            self.io_errno.store(9, Ordering::Relaxed); // EBADF - Bad file descriptor
             return -1;
         };
         let Some(handle) = handles.get_mut(fd) else {
-            self.io_errno.store(-1, Ordering::Relaxed);
+            self.io_errno.store(9, Ordering::Relaxed); // EBADF - Bad file descriptor
             return -1;
         };
         let Some(file) = files.get(handle.vfs_index) else {
-            self.io_errno.store(-1, Ordering::Relaxed);
+            self.io_errno.store(9, Ordering::Relaxed); // EBADF - Bad file descriptor
             return -1;
         };
 
@@ -180,7 +180,7 @@ impl Vfs {
             #[allow(clippy::indexing_slicing)]
             let ch = file.buffer[handle.pos];
             if ch == WANT_ERROR as u8 {
-                self.io_errno.store(-1, Ordering::Relaxed);
+                self.io_errno.store(5, Ordering::Relaxed); // EIO - I/O error
                 return -1;
             }
             *b = ch;
@@ -201,15 +201,15 @@ impl Vfs {
         let handles = self.handles.lock().unwrap();
 
         let Ok(fd) = usize::try_from(fd) else {
-            self.io_errno.store(-1, Ordering::Relaxed);
+            self.io_errno.store(9, Ordering::Relaxed); // EBADF - Bad file descriptor
             return -1;
         };
         let Some(handle) = handles.get(fd) else {
-            self.io_errno.store(-1, Ordering::Relaxed);
+            self.io_errno.store(9, Ordering::Relaxed); // EBADF - Bad file descriptor
             return -1;
         };
         let Some(file) = files.get_mut(handle.vfs_index) else {
-            self.io_errno.store(-1, Ordering::Relaxed);
+            self.io_errno.store(9, Ordering::Relaxed); // EBADF - Bad file descriptor
             return -1;
         };
 
@@ -218,7 +218,7 @@ impl Vfs {
 
         for &ch in buffer.iter().take(count as usize) {
             if ch == WANT_ERROR as u8 {
-                self.io_errno.store(-1, Ordering::Relaxed);
+                self.io_errno.store(5, Ordering::Relaxed); // EIO - I/O error
                 return -1;
             }
             file.buffer.push(ch);
@@ -240,11 +240,11 @@ impl Vfs {
         let mut handles = self.handles.lock().unwrap();
 
         let Ok(fd) = usize::try_from(fd) else {
-            self.io_errno.store(-1, Ordering::Relaxed);
+            self.io_errno.store(9, Ordering::Relaxed); // EBADF - Bad file descriptor
             return -1;
         };
         let Some(handle) = handles.get_mut(fd) else {
-            self.io_errno.store(-1, Ordering::Relaxed);
+            self.io_errno.store(9, Ordering::Relaxed); // EBADF - Bad file descriptor
             return -1;
         };
         handle.vfs_index = usize::MAX;

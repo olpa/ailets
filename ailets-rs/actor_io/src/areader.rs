@@ -9,7 +9,14 @@
 //! let mut reader = AReader::new(c"my_stream").unwrap();
 //!
 //! let mut buffer = Vec::new();
-//! reader.read_to_end(&mut buffer).unwrap();
+//! let mut chunk = [0u8; 1024];
+//! loop {
+//!     let n = reader.read(&mut chunk).unwrap();
+//!     if n == 0 {
+//!         break;
+//!     }
+//!     buffer.extend_from_slice(&chunk[..n]);
+//! }
 //! ```
 
 use actor_runtime::{aclose, aread, get_errno, open_read, StdHandle};
