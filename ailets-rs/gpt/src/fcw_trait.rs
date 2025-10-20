@@ -3,6 +3,9 @@
 pub type FunCallResult = Result<(), String>;
 
 pub trait FunCallsWrite {
+    /// Writer type expected by this function calls writer
+    type Writer: embedded_io::Write<Error = embedded_io::ErrorKind>;
+
     /// Initialize a new function call with the given ID and name
     ///
     /// # Arguments
@@ -12,12 +15,14 @@ pub trait FunCallsWrite {
     ///
     /// # Errors
     /// Returns an error if the underlying writer fails
-    fn new_item<T: crate::dagops::DagOpsTrait>(
+    fn new_item<T>(
         &mut self,
         id: &str,
         name: &str,
         dagops: &mut T,
-    ) -> FunCallResult;
+    ) -> FunCallResult
+    where
+        T: crate::dagops::DagOpsTrait<Writer = Self::Writer>;
 
     /// Add a chunk of arguments to the current function call
     ///

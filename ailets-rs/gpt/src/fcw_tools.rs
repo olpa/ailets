@@ -18,12 +18,12 @@ fn escape_json_string(s: &str) -> String {
 ///
 /// The representation format for a tool spec is:
 /// `[{"type":"function","id":"...","name":"..."},{"arguments":"..."}]`
-pub struct FunCallsToTools {
-    tool_input_writer: Option<Box<dyn embedded_io::Write<Error = embedded_io::ErrorKind>>>,
-    tool_spec_writer: Option<Box<dyn embedded_io::Write<Error = embedded_io::ErrorKind>>>,
+pub struct FunCallsToTools<W: embedded_io::Write<Error = embedded_io::ErrorKind>> {
+    tool_input_writer: Option<W>,
+    tool_spec_writer: Option<W>,
 }
 
-impl FunCallsToTools {
+impl<W: embedded_io::Write<Error = embedded_io::ErrorKind>> FunCallsToTools<W> {
     /// Creates a new tool-integrated function call writer
     ///
     /// # Returns
@@ -37,13 +37,18 @@ impl FunCallsToTools {
     }
 }
 
-impl FunCallsWrite for FunCallsToTools {
-    fn new_item<T: DagOpsTrait>(
+impl<W: embedded_io::Write<Error = embedded_io::ErrorKind>> FunCallsWrite for FunCallsToTools<W> {
+    type Writer = W;
+
+    fn new_item<T>(
         &mut self,
         id: &str,
         name: &str,
         dagops: &mut T,
-    ) -> Result<(), String> {
+    ) -> Result<(), String>
+    where
+        T: DagOpsTrait<Writer = W>,
+    {
         // Create the tool input pipe and writer
         let explain = format!("tool input - {name}");
         let tool_input_fd = dagops.open_write_pipe(Some(&explain))?;
@@ -147,7 +152,7 @@ impl FunCallsWrite for FunCallsToTools {
     }
 }
 
-impl Default for FunCallsToTools {
+impl<W: embedded_io::Write<Error = embedded_io::ErrorKind>> Default for FunCallsToTools<W> {
     fn default() -> Self {
         Self::new()
     }

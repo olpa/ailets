@@ -4,6 +4,9 @@
 //! Directed Acyclic Graph (DAG) operations. It enables mocking.
 
 pub trait DagOpsTrait {
+    /// Writer type for this DAG operations implementation
+    type Writer: embedded_io::Write<Error = embedded_io::ErrorKind>;
+
     /// Creates a value node in the DAG.
     ///
     /// # Errors
@@ -48,10 +51,7 @@ pub trait DagOpsTrait {
     ///
     /// # Errors
     /// Returns an error if the writer creation fails.
-    fn open_writer_to_pipe(
-        &mut self,
-        fd: i32,
-    ) -> Result<Box<dyn embedded_io::Write<Error = embedded_io::ErrorKind>>, String>;
+    fn open_writer_to_pipe(&mut self, fd: i32) -> Result<Self::Writer, String>;
 }
 
 pub struct DagOps;
@@ -71,6 +71,8 @@ impl Default for DagOps {
 }
 
 impl DagOpsTrait for DagOps {
+    type Writer = actor_io::AWriter;
+
     fn value_node(&mut self, value: &[u8], explain: &str) -> Result<i32, String> {
         actor_runtime::value_node(value, explain)
     }
@@ -99,12 +101,8 @@ impl DagOpsTrait for DagOps {
         actor_runtime::alias_fd(alias, fd)
     }
 
-    fn open_writer_to_pipe(
-        &mut self,
-        fd: i32,
-    ) -> Result<Box<dyn embedded_io::Write<Error = embedded_io::ErrorKind>>, String> {
-        let writer = actor_io::AWriter::new_from_fd(fd)
-            .map_err(|e| actor_io::error_kind_to_str(e).to_string())?;
-        Ok(Box::new(writer))
+    fn open_writer_to_pipe(&mut self, fd: i32) -> Result<Self::Writer, String> {
+        actor_io::AWriter::new_from_fd(fd)
+            .map_err(|e| actor_io::error_kind_to_str(e).to_string())
     }
 }
