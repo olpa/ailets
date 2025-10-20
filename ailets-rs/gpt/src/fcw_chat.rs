@@ -1,8 +1,7 @@
 //! Write llm-message with function call requests to the chat
 
 use crate::fcw_trait::{FunCallResult, FunCallsWrite};
-use actor_io::{error_kind_to_str, AWriter};
-use embedded_io::Write;
+use actor_io::error_kind_to_str;
 
 // TODO https://github.com/olpa/ailets/issues/185
 fn escape_json_string(s: &str) -> String {
@@ -11,14 +10,14 @@ fn escape_json_string(s: &str) -> String {
 
 /// Each function call is written as a single JSON line in the format:
 /// `[{"type":"function","id":"...","name":"..."},{"arguments":"..."}]`
-pub struct FunCallsToChat {
-    writer: AWriter,
+pub struct FunCallsToChat<W: embedded_io::Write<Error = embedded_io::ErrorKind>> {
+    writer: W,
     header_written: bool,
 }
 
-impl FunCallsToChat {
+impl<W: embedded_io::Write<Error = embedded_io::ErrorKind>> FunCallsToChat<W> {
     #[must_use]
-    pub const fn new(writer: AWriter) -> Self {
+    pub const fn new(writer: W) -> Self {
         Self {
             writer,
             header_written: false,
@@ -35,7 +34,7 @@ impl FunCallsToChat {
     }
 }
 
-impl FunCallsWrite for FunCallsToChat {
+impl<W: embedded_io::Write<Error = embedded_io::ErrorKind>> FunCallsWrite for FunCallsToChat<W> {
     fn new_item<T: crate::dagops::DagOpsTrait>(
         &mut self,
         id: &str,

@@ -26,7 +26,7 @@ pub struct FunCallsBuilder<D: DagOpsTrait> {
     /// DAG operations implementation
     dagops: D,
     /// Chat writer for function calls (lazily initialized)
-    chat_writer: Option<FunCallsToChat>,
+    chat_writer: Option<FunCallsToChat<actor_io::AWriter>>,
     /// Tools writer for function calls (lazily initialized)
     tools_writer: Option<FunCallsToTools>,
 }
