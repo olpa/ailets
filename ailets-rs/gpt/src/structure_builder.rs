@@ -42,7 +42,7 @@ pub struct StructureBuilder<W: embedded_io::Write, D: DagOpsTrait> {
     text_is_open: bool,
     role: Option<String>,
     text_section_started: bool,
-    /// Optional extended error message to provide more details than the static StreamOp::Error
+    /// Optional extended error message to provide more details than the static `StreamOp::Error`
     last_error: Option<ActionError>,
 }
 

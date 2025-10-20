@@ -102,7 +102,6 @@ impl DagOpsTrait for DagOps {
     }
 
     fn open_writer_to_pipe(&mut self, fd: i32) -> Result<Self::Writer, String> {
-        actor_io::AWriter::new_from_fd(fd)
-            .map_err(|e| actor_io::error_kind_to_str(e).to_string())
+        actor_io::AWriter::new_from_fd(fd).map_err(|e| actor_io::error_kind_to_str(e).to_string())
     }
 }

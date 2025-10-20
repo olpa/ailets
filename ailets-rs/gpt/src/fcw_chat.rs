@@ -37,12 +37,7 @@ impl<W: embedded_io::Write<Error = embedded_io::ErrorKind>> FunCallsToChat<W> {
 impl<W: embedded_io::Write<Error = embedded_io::ErrorKind>> FunCallsWrite for FunCallsToChat<W> {
     type Writer = W;
 
-    fn new_item<T>(
-        &mut self,
-        id: &str,
-        name: &str,
-        _dagops: &mut T,
-    ) -> FunCallResult
+    fn new_item<T>(&mut self, id: &str, name: &str, _dagops: &mut T) -> FunCallResult
     where
         T: crate::dagops::DagOpsTrait<Writer = W>,
     {

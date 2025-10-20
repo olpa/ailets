@@ -255,7 +255,8 @@ fn inject_empty_tool_calls_to_tools() {
     let tracked_dagops = TrackedDagOps::default();
 
     {
-        let _dagops_writer: FunCallsToTools<actor_runtime_mocked::VfsWriter> = FunCallsToTools::new();
+        let _dagops_writer: FunCallsToTools<actor_runtime_mocked::VfsWriter> =
+            FunCallsToTools::new();
 
         // Act - Don't call any methods on the writer (equivalent to empty tool calls)
     } // dagops_writer is dropped here, releasing the borrow

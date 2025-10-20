@@ -40,12 +40,7 @@ impl<W: embedded_io::Write<Error = embedded_io::ErrorKind>> FunCallsToTools<W> {
 impl<W: embedded_io::Write<Error = embedded_io::ErrorKind>> FunCallsWrite for FunCallsToTools<W> {
     type Writer = W;
 
-    fn new_item<T>(
-        &mut self,
-        id: &str,
-        name: &str,
-        dagops: &mut T,
-    ) -> Result<(), String>
+    fn new_item<T>(&mut self, id: &str, name: &str, dagops: &mut T) -> Result<(), String>
     where
         T: DagOpsTrait<Writer = W>,
     {

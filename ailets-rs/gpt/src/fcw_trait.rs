@@ -15,12 +15,7 @@ pub trait FunCallsWrite {
     ///
     /// # Errors
     /// Returns an error if the underlying writer fails
-    fn new_item<T>(
-        &mut self,
-        id: &str,
-        name: &str,
-        dagops: &mut T,
-    ) -> FunCallResult
+    fn new_item<T>(&mut self, id: &str, name: &str, dagops: &mut T) -> FunCallResult
     where
         T: crate::dagops::DagOpsTrait<Writer = Self::Writer>;
 
