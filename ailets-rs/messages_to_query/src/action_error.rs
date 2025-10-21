@@ -47,10 +47,10 @@ pub enum ActionError {
     /// Failed to end text
     EndText(String),
 
-    /// Peek error for image_url
+    /// Peek error for `image_url`
     PeekImageUrl(String),
 
-    /// Expected string for image_url value but got something else
+    /// Expected string for `image_url` value but got something else
     ImageUrlNotString {
         got: Peek,
         index: usize,
@@ -58,13 +58,13 @@ pub enum ActionError {
         column: usize,
     },
 
-    /// Failed to begin image_url
+    /// Failed to begin `image_url`
     BeginImageUrl(String),
 
-    /// Failed to write image_url bytes
+    /// Failed to write `image_url` bytes
     WriteImageUrlBytes(String),
 
-    /// Failed to end image_url
+    /// Failed to end `image_url`
     EndImageUrl(String),
 
     /// Error getting key value
@@ -73,10 +73,10 @@ pub enum ActionError {
     /// Failed to set image key
     SetImageKey(String),
 
-    /// Error getting content_type
+    /// Error getting `content_type`
     GetContentType(String),
 
-    /// Failed to add content_type
+    /// Failed to add `content_type`
     AddContentType(String),
 
     /// Error getting detail
@@ -123,10 +123,10 @@ pub enum ActionError {
     /// Failed to set toolspec key
     SetToolspecKey(String),
 
-    /// Error getting tool_call_id
+    /// Error getting `tool_call_id`
     GetToolCallId(String),
 
-    /// Failed to add tool_call_id
+    /// Failed to add `tool_call_id`
     AddToolCallId(String),
 }
 

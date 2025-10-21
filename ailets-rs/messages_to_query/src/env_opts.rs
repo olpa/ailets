@@ -27,8 +27,8 @@ impl EnvOpts {
         }
 
         // Deserialize from the string
-        let opts_map: HashMap<String, serde_json::Value> =
-            serde_json::from_slice(&buffer).map_err(|e| format!("Failed to parse env opts JSON: {e}"))?;
+        let opts_map: HashMap<String, serde_json::Value> = serde_json::from_slice(&buffer)
+            .map_err(|e| format!("Failed to parse env opts JSON: {e}"))?;
         Ok(EnvOpts { opts: opts_map })
     }
 

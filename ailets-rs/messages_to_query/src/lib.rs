@@ -6,9 +6,9 @@ pub mod structure_builder;
 use actor_io::{AReader, AWriter};
 use actor_runtime::{err_to_heap_c_string, StdHandle};
 use env_opts::EnvOpts;
-use scan_json::{scan, iter_match, Action, EndAction, Options, RJiter};
 use scan_json::matcher::StructuralPseudoname;
 use scan_json::stack::ContextIter;
+use scan_json::{iter_match, scan, Action, EndAction, Options, RJiter};
 use std::cell::RefCell;
 use std::ffi::c_char;
 use structure_builder::StructureBuilder;
@@ -19,6 +19,7 @@ const BUFFER_SIZE: u32 = 1024;
 /// # Errors
 /// If anything goes wrong.
 #[allow(clippy::used_underscore_items)]
+#[allow(clippy::too_many_lines)]
 pub fn _process_messages<W: embedded_io::Write + 'static>(
     mut reader: impl embedded_io::Read,
     writer: W,
@@ -35,48 +36,104 @@ pub fn _process_messages<W: embedded_io::Write + 'static>(
                        _baton: &RefCell<StructureBuilder<W>>|
      -> Option<Action<&RefCell<StructureBuilder<W>>, _>> {
         // Message boilerplate
-        if iter_match(|| ["role".as_bytes(), "#array".as_bytes()], structural_pseudoname, context.clone()) {
+        if iter_match(
+            || ["role".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
             return Some(handlers::on_role);
         }
-        if iter_match(|| ["#array".as_bytes(), "#top".as_bytes()], structural_pseudoname, context.clone()) {
+        if iter_match(
+            || ["#array".as_bytes(), "#top".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
             return Some(handlers::on_item_begin);
         }
-        if iter_match(|| ["type".as_bytes(), "#array".as_bytes()], structural_pseudoname, context.clone()) {
+        if iter_match(
+            || ["type".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
             return Some(handlers::on_item_type);
         }
 
         // Content items
-        if iter_match(|| ["text".as_bytes(), "#array".as_bytes()], structural_pseudoname, context.clone()) {
+        if iter_match(
+            || ["text".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
             return Some(handlers::on_text);
         }
-        if iter_match(|| ["image_url".as_bytes(), "#array".as_bytes()], structural_pseudoname, context.clone()) {
+        if iter_match(
+            || ["image_url".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
             return Some(handlers::on_image_url);
         }
-        if iter_match(|| ["image_key".as_bytes(), "#array".as_bytes()], structural_pseudoname, context.clone()) {
+        if iter_match(
+            || ["image_key".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
             return Some(handlers::on_image_key);
         }
-        if iter_match(|| ["content_type".as_bytes(), "#array".as_bytes()], structural_pseudoname, context.clone()) {
+        if iter_match(
+            || ["content_type".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
             return Some(handlers::on_image_content_type);
         }
-        if iter_match(|| ["detail".as_bytes(), "#array".as_bytes()], structural_pseudoname, context.clone()) {
+        if iter_match(
+            || ["detail".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
             return Some(handlers::on_image_detail);
         }
-        if iter_match(|| ["id".as_bytes(), "#array".as_bytes()], structural_pseudoname, context.clone()) {
+        if iter_match(
+            || ["id".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
             return Some(handlers::on_func_id);
         }
-        if iter_match(|| ["name".as_bytes(), "#array".as_bytes()], structural_pseudoname, context.clone()) {
+        if iter_match(
+            || ["name".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
             return Some(handlers::on_func_name);
         }
-        if iter_match(|| ["arguments".as_bytes(), "#array".as_bytes()], structural_pseudoname, context.clone()) {
+        if iter_match(
+            || ["arguments".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
             return Some(handlers::on_func_arguments);
         }
-        if iter_match(|| ["toolspec".as_bytes(), "#array".as_bytes()], structural_pseudoname, context.clone()) {
+        if iter_match(
+            || ["toolspec".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
             return Some(handlers::on_toolspec);
         }
-        if iter_match(|| ["toolspec_key".as_bytes(), "#array".as_bytes()], structural_pseudoname, context.clone()) {
+        if iter_match(
+            || ["toolspec_key".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
             return Some(handlers::on_toolspec_key);
         }
-        if iter_match(|| ["tool_call_id".as_bytes(), "#array".as_bytes()], structural_pseudoname, context.clone()) {
+        if iter_match(
+            || ["tool_call_id".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
             return Some(handlers::on_tool_call_id);
         }
 
@@ -87,7 +144,11 @@ pub fn _process_messages<W: embedded_io::Write + 'static>(
                            context: ContextIter,
                            _baton: &RefCell<StructureBuilder<W>>|
      -> Option<EndAction<&RefCell<StructureBuilder<W>>>> {
-        if iter_match(|| ["#array".as_bytes(), "#top".as_bytes()], structural_pseudoname, context.clone()) {
+        if iter_match(
+            || ["#array".as_bytes(), "#top".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
             return Some(handlers::on_item_end);
         }
 
@@ -131,9 +192,7 @@ pub extern "C" fn process_messages() -> *const c_char {
     let env_reader = AReader::new_from_std(StdHandle::Env);
     let env_opts = match EnvOpts::envopts_from_reader(env_reader) {
         Ok(opts) => opts,
-        Err(e) => {
-            return err_to_heap_c_string(1, &e)
-        }
+        Err(e) => return err_to_heap_c_string(1, &e),
     };
 
     #[allow(clippy::used_underscore_items)]

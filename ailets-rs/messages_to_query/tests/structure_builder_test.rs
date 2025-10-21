@@ -80,12 +80,14 @@ fn many_messages_and_items() {
     begin_message(&mut builder, "assistant");
     builder.begin_item().unwrap();
     builder.begin_text().unwrap();
-    embedded_io::Write::write_all(builder.get_writer(), b"First item of the second message").unwrap();
+    embedded_io::Write::write_all(builder.get_writer(), b"First item of the second message")
+        .unwrap();
     builder.end_text().unwrap();
     builder.end_item().unwrap();
     builder.begin_item().unwrap();
     builder.begin_text().unwrap();
-    embedded_io::Write::write_all(builder.get_writer(), b"Second item of the second message").unwrap();
+    embedded_io::Write::write_all(builder.get_writer(), b"Second item of the second message")
+        .unwrap();
     builder.end_text().unwrap();
     builder.end_item().unwrap();
     builder.end().unwrap();

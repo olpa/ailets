@@ -81,8 +81,8 @@ fn image_url_as_is() {
     let writer = RcWriter::new();
 
     _process_messages(reader, writer.clone(), create_empty_env_opts()).unwrap();
-    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
-        .unwrap_or_else(|e| {
+    let output_json: Value =
+        serde_json::from_str(&writer.get_output().as_str()).unwrap_or_else(|e| {
             eprintln!("Output: {}", writer.get_output());
             panic!("Failed to parse output as JSON: {}", e);
         });
