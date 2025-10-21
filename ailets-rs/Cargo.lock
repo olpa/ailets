@@ -4,25 +4,26 @@ version = 4
 
 [[package]]
 name = "actor_io"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "actor_runtime",
  "actor_runtime_mocked",
+ "embedded-io",
 ]
 
 [[package]]
 name = "actor_runtime"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "base64",
- "scan_json",
  "serde_json",
 ]
 
 [[package]]
 name = "actor_runtime_mocked"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
+ "embedded-io",
  "lazy_static",
 ]
 
@@ -78,6 +79,7 @@ version = "0.1.0"
 dependencies = [
  "actor_io",
  "actor_runtime",
+ "embedded-io",
  "getrandom",
 ]
 
@@ -86,6 +88,12 @@ name = "cfg-if"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
+
+[[package]]
+name = "embedded-io"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edd0f118536f44f5ccd48bcb8b111bdc3de888b58c74639dfb034a357d0f206d"
 
 [[package]]
 name = "fuchsia-cprng"
@@ -117,6 +125,7 @@ dependencies = [
  "actor_io",
  "actor_runtime",
  "actor_runtime_mocked",
+ "embedded-io",
  "getrandom",
  "hamcrest",
  "scan_json",
@@ -237,6 +246,7 @@ dependencies = [
  "actor_io",
  "actor_runtime",
  "actor_runtime_mocked",
+ "embedded-io",
  "getrandom",
  "scan_json",
  "u8pool",
@@ -250,6 +260,7 @@ dependencies = [
  "actor_runtime",
  "actor_runtime_mocked",
  "base64",
+ "embedded-io",
  "getrandom",
  "hamcrest",
  "linked-hash-map",
@@ -510,10 +521,9 @@ dependencies = [
 
 [[package]]
 name = "rjiter"
-version = "1.1.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f48d70eac74c52a78e2196fbf2fdf7194e3e9ccb5437e06f9ecb95886f9ab02"
+version = "1.2.0"
 dependencies = [
+ "embedded-io",
  "jiter",
 ]
 
@@ -531,8 +541,9 @@ checksum = "6ea1a2d0a644769cc99faa24c3ad26b379b786fe7c36fd3c546254801650e6dd"
 
 [[package]]
 name = "scan_json"
-version = "1.2.0"
+version = "2.0.0"
 dependencies = [
+ "embedded-io",
  "rjiter",
  "u8pool",
 ]
@@ -605,26 +616,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "61c41af27dd6d1e27b1b16b489db798443478cef1f06a660c96db617ba5de3b1"
 
 [[package]]
-name = "thiserror"
-version = "2.0.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f63587ca0f12b72a0600bcba1d40081f830876000bb46dd2337a3051618f4fc8"
-dependencies = [
- "thiserror-impl",
-]
-
-[[package]]
-name = "thiserror-impl"
-version = "2.0.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3ff15c8ecd7de3849db632e14d18d2571fa09dfc5ed93479bc4485c7a517c913"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn",
-]
-
-[[package]]
 name = "thread_local"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -636,9 +627,6 @@ dependencies = [
 [[package]]
 name = "u8pool"
 version = "1.0.0"
-dependencies = [
- "thiserror",
-]
 
 [[package]]
 name = "ucd-util"

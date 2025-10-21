@@ -1,29 +1,9 @@
+use crate::action_error::ActionError;
 use crate::env_opts::EnvOpts;
 use actor_io::AReader;
-use actor_runtime::annotate_error;
 use base64::engine::general_purpose::STANDARD;
-use base64::write::EncoderWriter as Base64Encoder;
+use base64::Engine;
 use linked_hash_map::LinkedHashMap;
-use serde::Serialize;
-use std::io;
-use std::io::Write;
-
-struct StrFormatter {}
-
-impl serde_json::ser::Formatter for StrFormatter {
-    fn begin_string<W>(&mut self, _writer: &mut W) -> io::Result<()>
-    where
-        W: ?Sized + io::Write,
-    {
-        Ok(())
-    }
-    fn end_string<W>(&mut self, _writer: &mut W) -> io::Result<()>
-    where
-        W: ?Sized + io::Write,
-    {
-        Ok(())
-    }
-}
 
 //
 // The state machine, to generate on the levels:
@@ -54,15 +34,17 @@ const DEFAULT_MODEL: &str = "gpt-4o-mini";
 const DEFAULT_CONTENT_TYPE: &str = "application/json";
 const DEFAULT_AUTHORIZATION: &str = "Bearer {{secret}}";
 
-pub struct StructureBuilder<W: Write> {
+pub struct StructureBuilder<W: embedded_io::Write> {
     writer: W,
     env_opts: EnvOpts,
     divider: Divider,
     item_attr: Option<LinkedHashMap<String, String>>,
     item_attr_mode: ItemAttrMode,
+    /// Optional extended error message to provide more details than the static `StreamOp::Error`
+    last_error: Option<ActionError>,
 }
 
-impl<W: Write> StructureBuilder<W> {
+impl<W: embedded_io::Write> StructureBuilder<W> {
     pub fn new(writer: W, env_opts: EnvOpts) -> Self {
         StructureBuilder {
             writer,
@@ -70,12 +52,23 @@ impl<W: Write> StructureBuilder<W> {
             divider: Divider::Prologue,
             item_attr: None,
             item_attr_mode: ItemAttrMode::RaiseError,
+            last_error: None,
         }
     }
 
     #[must_use]
     pub fn get_writer(&mut self) -> &mut W {
         &mut self.writer
+    }
+
+    /// Store a detailed error that occurred during action handling
+    pub fn set_error(&mut self, error: ActionError) {
+        self.last_error = Some(error);
+    }
+
+    /// Take the stored error, leaving None in its place
+    pub fn take_error(&mut self) -> Option<ActionError> {
+        self.last_error.take()
     }
 
     // ----------------------------------------------------
@@ -115,7 +108,7 @@ impl<W: Write> StructureBuilder<W> {
                 self.end_toolspecs()?;
             }
         }
-        self.writer.write_all(b"}}\n").map_err(|e| e.to_string())?;
+        embedded_io::Write::write_all(&mut self.writer, b"}}\n").map_err(|e| format!("{e:?}"))?;
         self.divider = Divider::Prologue;
         Ok(())
     }
@@ -136,7 +129,7 @@ impl<W: Write> StructureBuilder<W> {
                 // not: self.end_item()?;
             }
         }
-        self.writer.write_all(b"] ").map_err(|e| e.to_string())?;
+        embedded_io::Write::write_all(&mut self.writer, b"] ").map_err(|e| format!("{e:?}"))?;
         self.divider = Divider::MessageComma;
         Ok(())
     }
@@ -154,7 +147,7 @@ impl<W: Write> StructureBuilder<W> {
             }
             Divider::MessageComma => {}
         }
-        self.writer.write_all(b"]").map_err(|e| e.to_string())?;
+        embedded_io::Write::write_all(&mut self.writer, b"]").map_err(|e| format!("{e:?}"))?;
         self.divider = Divider::MessageComma;
         Ok(())
     }
@@ -170,16 +163,16 @@ impl<W: Write> StructureBuilder<W> {
             Divider::ItemCommaContent => {
                 // not: self.end_item()?;
                 // Close the content array
-                self.writer.write_all(b"\n]").map_err(|e| e.to_string())?;
+                embedded_io::Write::write_all(&mut self.writer, b"\n]").map_err(|e| format!("{e:?}"))?;
             }
             Divider::ItemCommaFunctions => {
                 // not: self.end_item()?;
                 // Close the tool_calls array
-                self.writer.write_all(b"\n]").map_err(|e| e.to_string())?;
+                embedded_io::Write::write_all(&mut self.writer, b"\n]").map_err(|e| format!("{e:?}"))?;
             }
             Divider::ItemNone => {}
         }
-        self.writer.write_all(b"}").map_err(|e| e.to_string())?;
+        embedded_io::Write::write_all(&mut self.writer, b"}").map_err(|e| format!("{e:?}"))?;
         self.divider = Divider::Prologue; // Bad state, to be updated in `end_messages`
         Ok(())
     }
@@ -204,20 +197,20 @@ impl<W: Write> StructureBuilder<W> {
     //
 
     fn write_prologue(&mut self) -> Result<(), String> {
-        self.writer
-            .write_all(b"{ \"url\": \"")
-            .map_err(|e| e.to_string())?;
+        embedded_io::Write::write_all(&mut self.writer,
+            b"{ \"url\": \"")
+            .map_err(|e| format!("{e:?}"))?;
         let url = self
             .env_opts
             .get("http.url")
             .and_then(|v| v.as_str())
             .unwrap_or(DEFAULT_URL);
-        self.writer
-            .write_all(url.as_bytes())
-            .map_err(|e| e.to_string())?;
-        self.writer
-            .write_all(b"\",\n\"method\": \"POST\",\n\"headers\": { ")
-            .map_err(|e| e.to_string())?;
+        embedded_io::Write::write_all(&mut self.writer,
+            url.as_bytes())
+            .map_err(|e| format!("{e:?}"))?;
+        embedded_io::Write::write_all(&mut self.writer,
+            b"\",\n\"method\": \"POST\",\n\"headers\": { ")
+            .map_err(|e| format!("{e:?}"))?;
 
         // Write Content-type header
         let content_type = self
@@ -225,23 +218,23 @@ impl<W: Write> StructureBuilder<W> {
             .get("http.header.Content-type")
             .and_then(|v| v.as_str())
             .unwrap_or(DEFAULT_CONTENT_TYPE);
-        self.writer
-            .write_all(b"\"Content-type\": \"")
-            .map_err(|e| e.to_string())?;
-        self.writer
-            .write_all(content_type.as_bytes())
-            .map_err(|e| e.to_string())?;
+        embedded_io::Write::write_all(&mut self.writer,
+            b"\"Content-type\": \"")
+            .map_err(|e| format!("{e:?}"))?;
+        embedded_io::Write::write_all(&mut self.writer,
+            content_type.as_bytes())
+            .map_err(|e| format!("{e:?}"))?;
         let authorization = self
             .env_opts
             .get("http.header.Authorization")
             .and_then(|v| v.as_str())
             .unwrap_or(DEFAULT_AUTHORIZATION);
-        self.writer
-            .write_all(b"\", \"Authorization\": \"")
-            .map_err(|e| e.to_string())?;
-        self.writer
-            .write_all(authorization.as_bytes())
-            .map_err(|e| e.to_string())?;
+        embedded_io::Write::write_all(&mut self.writer,
+            b"\", \"Authorization\": \"")
+            .map_err(|e| format!("{e:?}"))?;
+        embedded_io::Write::write_all(&mut self.writer,
+            authorization.as_bytes())
+            .map_err(|e| format!("{e:?}"))?;
 
         // Add remaining http.header.* parameters
         for (key, value) in &self.env_opts {
@@ -249,45 +242,53 @@ impl<W: Write> StructureBuilder<W> {
                 && key != "http.header.Content-type"
                 && key != "http.header.Authorization"
             {
-                self.writer.write_all(b", ").map_err(|e| e.to_string())?;
+                embedded_io::Write::write_all(&mut self.writer, b", ").map_err(|e| format!("{e:?}"))?;
                 if let Some(header_name) = key.strip_prefix("http.header.") {
-                    write!(self.writer, r#""{header_name}": "#).map_err(|e| e.to_string())?;
-                    serde_json::to_writer(&mut self.writer, value).map_err(|e| e.to_string())?;
+                    let header_part = format!(r#""{header_name}": "#);
+                    embedded_io::Write::write_all(&mut self.writer, header_part.as_bytes())
+                        .map_err(|e| format!("{e:?}"))?;
+                    let value_json = serde_json::to_string(value).map_err(|e| format!("{e:?}"))?;
+                    embedded_io::Write::write_all(&mut self.writer, value_json.as_bytes())
+                        .map_err(|e| format!("{e:?}"))?;
                 }
             }
         }
 
         // Write the body
-        self.writer
-            .write_all(b"\" },\n\"body\": { \"model\": \"")
-            .map_err(|e| e.to_string())?;
+        embedded_io::Write::write_all(&mut self.writer,
+            b"\" },\n\"body\": { \"model\": \"")
+            .map_err(|e| format!("{e:?}"))?;
         let model = self
             .env_opts
             .get("llm.model")
             .and_then(|v| v.as_str())
             .unwrap_or(DEFAULT_MODEL);
-        self.writer
-            .write_all(model.as_bytes())
-            .map_err(|e| e.to_string())?;
-        self.writer
-            .write_all(b"\", \"stream\": ")
-            .map_err(|e| e.to_string())?;
+        embedded_io::Write::write_all(&mut self.writer,
+            model.as_bytes())
+            .map_err(|e| format!("{e:?}"))?;
+        embedded_io::Write::write_all(&mut self.writer,
+            b"\", \"stream\": ")
+            .map_err(|e| format!("{e:?}"))?;
         let stream = self
             .env_opts
             .get("llm.stream")
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(true);
-        self.writer
-            .write_all(stream.to_string().as_bytes())
-            .map_err(|e| e.to_string())?;
+        embedded_io::Write::write_all(&mut self.writer,
+            stream.to_string().as_bytes())
+            .map_err(|e| format!("{e:?}"))?;
 
         // Add remaining llm.* parameters
         for (key, value) in &self.env_opts {
             if key.starts_with("llm.") && key != "llm.model" && key != "llm.stream" {
-                self.writer.write_all(b", ").map_err(|e| e.to_string())?;
+                embedded_io::Write::write_all(&mut self.writer, b", ").map_err(|e| format!("{e:?}"))?;
                 if let Some(param_name) = key.strip_prefix("llm.") {
-                    write!(self.writer, r#""{param_name}": "#).map_err(|e| e.to_string())?;
-                    serde_json::to_writer(&mut self.writer, value).map_err(|e| e.to_string())?;
+                    let param_part = format!(r#""{param_name}": "#);
+                    embedded_io::Write::write_all(&mut self.writer, param_part.as_bytes())
+                        .map_err(|e| format!("{e:?}"))?;
+                    let value_json = serde_json::to_string(value).map_err(|e| format!("{e:?}"))?;
+                    embedded_io::Write::write_all(&mut self.writer, value_json.as_bytes())
+                        .map_err(|e| format!("{e:?}"))?;
                 }
             }
         }
@@ -316,10 +317,12 @@ impl<W: Write> StructureBuilder<W> {
         };
 
         if need_comma {
-            self.writer.write_all(b",").map_err(|e| e.to_string())?;
+            embedded_io::Write::write_all(&mut self.writer, b",").map_err(|e| format!("{e:?}"))?;
         }
 
-        write!(self.writer, r#"{{"role":"{role}""#).map_err(|e| e.to_string())?;
+        let role_str = format!(r#"{{"role":"{role}""#);
+        embedded_io::Write::write_all(&mut self.writer, role_str.as_bytes())
+            .map_err(|e| format!("{e:?}"))?;
         self.divider = Divider::ItemNone;
         self.item_attr_mode = ItemAttrMode::RaiseError;
         Ok(())
@@ -339,17 +342,17 @@ impl<W: Write> StructureBuilder<W> {
         match self.divider {
             Divider::Prologue => {
                 self.write_prologue()?;
-                self.writer
-                    .write_all(b", \"messages\": [")
-                    .map_err(|e| e.to_string())?;
+                embedded_io::Write::write_all(&mut self.writer,
+                    b", \"messages\": [")
+                    .map_err(|e| format!("{e:?}"))?;
                 self.divider = Divider::MessageComma;
             }
             Divider::ItemCommaToolspecs => {
                 // Close tools section and start messages
-                self.writer.write_all(b"]").map_err(|e| e.to_string())?;
-                self.writer
-                    .write_all(b", \"messages\": [")
-                    .map_err(|e| e.to_string())?;
+                embedded_io::Write::write_all(&mut self.writer, b"]").map_err(|e| format!("{e:?}"))?;
+                embedded_io::Write::write_all(&mut self.writer,
+                    b", \"messages\": [")
+                    .map_err(|e| format!("{e:?}"))?;
                 self.divider = Divider::MessageComma;
             }
             Divider::MessageComma
@@ -365,7 +368,7 @@ impl<W: Write> StructureBuilder<W> {
     fn want_toolspecs(&mut self) -> Result<(), String> {
         match self.divider {
             Divider::ItemCommaToolspecs => {
-                self.writer.write_all(b",\n").map_err(|e| e.to_string())?;
+                embedded_io::Write::write_all(&mut self.writer, b",\n").map_err(|e| format!("{e:?}"))?;
                 return Ok(());
             }
             Divider::MessageComma
@@ -378,9 +381,9 @@ impl<W: Write> StructureBuilder<W> {
                 self.write_prologue()?;
             }
         }
-        self.writer
-            .write_all(b",\n\"tools\": [")
-            .map_err(|e| e.to_string())?;
+        embedded_io::Write::write_all(&mut self.writer,
+            b",\n\"tools\": [")
+            .map_err(|e| format!("{e:?}"))?;
         self.divider = Divider::ItemCommaToolspecs;
         Ok(())
     }
@@ -391,25 +394,25 @@ impl<W: Write> StructureBuilder<W> {
         match (&self.divider, is_function) {
             // Same section, just add comma
             (Divider::ItemCommaContent, false) | (Divider::ItemCommaFunctions, true) => {
-                self.writer.write_all(b",\n").map_err(|e| e.to_string())?;
+                embedded_io::Write::write_all(&mut self.writer, b",\n").map_err(|e| format!("{e:?}"))?;
             }
             // The very beginning, write message content/function section
             // Assume that the attribute `role` has been written already, therefore add a comma
             (Divider::ItemNone, false) => {
-                self.writer
-                    .write_all(b",\n\"content\":[\n")
-                    .map_err(|e| e.to_string())?;
+                embedded_io::Write::write_all(&mut self.writer,
+                    b",\n\"content\":[\n")
+                    .map_err(|e| format!("{e:?}"))?;
                 self.divider = Divider::ItemCommaContent;
             }
             (Divider::ItemNone, true) => {
-                self.writer
-                    .write_all(b",\n\"tool_calls\":[\n")
-                    .map_err(|e| e.to_string())?;
+                embedded_io::Write::write_all(&mut self.writer,
+                    b",\n\"tool_calls\":[\n")
+                    .map_err(|e| format!("{e:?}"))?;
                 self.divider = Divider::ItemCommaFunctions;
             }
             // Switch between "content" to "tool_calls"
             (Divider::ItemCommaContent, true) | (Divider::ItemCommaFunctions, false) => {
-                self.writer.write_all(b"]").map_err(|e| e.to_string())?;
+                embedded_io::Write::write_all(&mut self.writer, b"]").map_err(|e| format!("{e:?}"))?;
                 self.divider = Divider::ItemNone;
                 self.want_message_item(is_function)?;
             }
@@ -464,8 +467,11 @@ impl<W: Write> StructureBuilder<W> {
             .ok_or_else(|| "Missing 'type' attribute".to_string())?;
 
         // Write the item
-        write!(self.writer, r#"{{"type":"#).map_err(|e| e.to_string())?;
-        serde_json::to_writer(&mut self.writer, write_item_type).map_err(|e| e.to_string())?;
+        embedded_io::Write::write_all(&mut self.writer, br#"{"type":"#)
+            .map_err(|e| format!("{e:?}"))?;
+        let type_json = serde_json::to_string(write_item_type).map_err(|e| format!("{e:?}"))?;
+        embedded_io::Write::write_all(&mut self.writer, type_json.as_bytes())
+            .map_err(|e| format!("{e:?}"))?;
 
         for (key, value) in attrs {
             if key == "type" {
@@ -474,8 +480,12 @@ impl<W: Write> StructureBuilder<W> {
             if item_type == "image" && (key == "detail" || key == "content_type") {
                 continue;
             }
-            write!(self.writer, r#","{key}":"#).map_err(|e| e.to_string())?;
-            serde_json::to_writer(&mut self.writer, value).map_err(|e| e.to_string())?;
+            let key_part = format!(r#","{key}":"#);
+            embedded_io::Write::write_all(&mut self.writer, key_part.as_bytes())
+                .map_err(|e| format!("{e:?}"))?;
+            let value_json = serde_json::to_string(value).map_err(|e| format!("{e:?}"))?;
+            embedded_io::Write::write_all(&mut self.writer, value_json.as_bytes())
+                .map_err(|e| format!("{e:?}"))?;
         }
 
         self.item_attr_mode = ItemAttrMode::Passthrough;
@@ -493,7 +503,7 @@ impl<W: Write> StructureBuilder<W> {
             if self.item_attr_mode == ItemAttrMode::Collect {
                 self.begin_item_logic()?;
             }
-            self.writer.write_all(b"}").map_err(|e| e.to_string())?;
+            embedded_io::Write::write_all(&mut self.writer, b"}").map_err(|e| format!("{e:?}"))?;
         }
 
         self.item_attr = None;
@@ -534,8 +544,11 @@ impl<W: Write> StructureBuilder<W> {
                 .and_then(|attrs| attrs.remove("tool_call_id"));
             match tool_call_id {
                 Some(id) => {
-                    write!(self.writer, ",\"tool_call_id\":").map_err(|e| e.to_string())?;
-                    serde_json::to_writer(&mut self.writer, &id).map_err(|e| e.to_string())?;
+                    embedded_io::Write::write_all(&mut self.writer, br#","tool_call_id":"#)
+                        .map_err(|e| format!("{e:?}"))?;
+                    let id_json = serde_json::to_string(&id).map_err(|e| format!("{e:?}"))?;
+                    embedded_io::Write::write_all(&mut self.writer, id_json.as_bytes())
+                        .map_err(|e| format!("{e:?}"))?;
                 }
                 None => {
                     return Err(
@@ -557,8 +570,12 @@ impl<W: Write> StructureBuilder<W> {
         }
 
         if self.item_attr_mode == ItemAttrMode::Passthrough {
-            write!(self.writer, r#","{key}":"#).map_err(|e| e.to_string())?;
-            serde_json::to_writer(&mut self.writer, &value).map_err(|e| e.to_string())?;
+            let key_part = format!(r#","{key}":"#);
+            embedded_io::Write::write_all(&mut self.writer, key_part.as_bytes())
+                .map_err(|e| format!("{e:?}"))?;
+            let value_json = serde_json::to_string(&value).map_err(|e| format!("{e:?}"))?;
+            embedded_io::Write::write_all(&mut self.writer, value_json.as_bytes())
+                .map_err(|e| format!("{e:?}"))?;
             return Ok(());
         }
 
@@ -596,14 +613,16 @@ impl<W: Write> StructureBuilder<W> {
         self.add_item_attribute(String::from("type"), String::from("text"))?;
         self.begin_item_logic()?;
 
-        write!(self.writer, r#","text":""#).map_err(|e| e.to_string())?;
+        embedded_io::Write::write_all(&mut self.writer, br#","text":""#)
+            .map_err(|e| format!("{e:?}"))?;
         Ok(())
     }
 
     /// # Errors
     /// - I/O, state machine errors
     pub fn end_text(&mut self) -> Result<(), String> {
-        write!(self.writer, "\"").map_err(|e| e.to_string())?;
+        embedded_io::Write::write_all(&mut self.writer, b"\"")
+            .map_err(|e| format!("{e:?}"))?;
         Ok(())
     }
 
@@ -616,53 +635,76 @@ impl<W: Write> StructureBuilder<W> {
         self.add_item_attribute(String::from("type"), String::from("image"))?;
         self.begin_item_logic()?;
 
-        write!(self.writer, r#","image_url":{{"#).map_err(|e| e.to_string())?;
+        embedded_io::Write::write_all(&mut self.writer, b",\"image_url\":{")
+            .map_err(|e| format!("{e:?}"))?;
         if let Some(ref attrs) = self.item_attr {
             if let Some(ref detail) = attrs.get("detail") {
-                write!(self.writer, r#""detail":"#).map_err(|e| e.to_string())?;
-                serde_json::to_writer(&mut self.writer, detail).map_err(|e| e.to_string())?;
-                write!(self.writer, r",").map_err(|e| e.to_string())?;
+                embedded_io::Write::write_all(&mut self.writer, br#""detail":"#)
+                    .map_err(|e| format!("{e:?}"))?;
+                let detail_json = serde_json::to_string(detail).map_err(|e| format!("{e:?}"))?;
+                embedded_io::Write::write_all(&mut self.writer, detail_json.as_bytes())
+                    .map_err(|e| format!("{e:?}"))?;
+                embedded_io::Write::write_all(&mut self.writer, b",")
+                    .map_err(|e| format!("{e:?}"))?;
             }
         }
-        write!(self.writer, r#""url":""#).map_err(|e| e.to_string())?;
+        embedded_io::Write::write_all(&mut self.writer, br#""url":""#)
+            .map_err(|e| format!("{e:?}"))?;
         Ok(())
     }
 
     /// # Errors
     /// - I/O, state machine errors
     pub fn end_image_url(&mut self) -> Result<(), String> {
-        write!(self.writer, r#""}}"#).map_err(|e| e.to_string())?;
+        embedded_io::Write::write_all(&mut self.writer, b"\"}")
+            .map_err(|e| format!("{e:?}"))?;
         Ok(())
     }
 
     /// # Errors
     /// - I/O, state machine errors
     pub fn image_key(&mut self, key: &str) -> Result<(), String> {
-        let err_to_str = |e: std::io::Error| {
-            let dyn_err: Box<dyn std::error::Error> = e.into();
-            let annotated_error = annotate_error(dyn_err, format!("image key `{key}`").as_str());
-            annotated_error.to_string()
+        let err_kind_to_str = |e: embedded_io::ErrorKind| {
+            format!("image key `{key}`: {e:?}")
         };
         self.begin_image_url()?;
-        write!(self.writer, "data:").map_err(err_to_str)?;
+        embedded_io::Write::write_all(&mut self.writer, b"data:")
+            .map_err(|e| format!("image key `{key}`: {e:?}"))?;
         if let Some(ref attrs) = self.item_attr {
-            if let Some(ref content_type) = attrs.get("content_type") {
-                let mut ser =
-                    serde_json::ser::Serializer::with_formatter(&mut self.writer, StrFormatter {});
-                content_type
-                    .serialize(&mut ser)
-                    .map_err(|e| e.to_string())?;
+            if let Some(content_type) = attrs.get("content_type") {
+                // Serialize content_type as a JSON string, then strip outer quotes
+                // This ensures proper escaping of special characters
+                let json_str = serde_json::to_string(content_type)
+                    .map_err(|e| format!("image key `{key}`: {e:?}"))?;
+                // Remove the outer quotes that serde_json adds
+                let inner = &json_str[1..json_str.len()-1];
+                embedded_io::Write::write_all(&mut self.writer, inner.as_bytes())
+                    .map_err(|e| format!("image key `{key}`: {e:?}"))?;
             }
         }
-        self.writer.write_all(b";base64,").map_err(err_to_str)?;
+        embedded_io::Write::write_all(&mut self.writer, b";base64,")
+            .map_err(|e| format!("image key `{key}`: {e:?}"))?;
 
-        let cname = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
-        let mut blob_reader = AReader::new(&cname).map_err(err_to_str)?;
+        let cname = std::ffi::CString::new(key).map_err(|e| format!("{e:?}"))?;
+        let mut blob_reader = AReader::new(&cname).map_err(err_kind_to_str)?;
 
-        let mut encoder = Base64Encoder::new(&mut self.writer, &STANDARD);
-        std::io::copy(&mut blob_reader, &mut encoder).map_err(err_to_str)?;
-        encoder.finish().map_err(err_to_str)?;
-        drop(encoder);
+        // Read all data and encode as base64
+        let mut data = Vec::new();
+        let mut buffer = [0u8; 1024];
+        loop {
+            match embedded_io::Read::read(&mut blob_reader, &mut buffer) {
+                Ok(0) => break,
+                Ok(n) => {
+                    data.extend_from_slice(&buffer[..n]);
+                }
+                Err(e) => return Err(format!("image key `{key}`: {e:?}")),
+            }
+        }
+
+        // Encode to base64 and write
+        let encoded = STANDARD.encode(&data);
+        embedded_io::Write::write_all(&mut self.writer, encoded.as_bytes())
+            .map_err(|e| format!("image key `{key}`: {e:?}"))?;
 
         self.end_image_url()
     }
@@ -683,16 +725,20 @@ impl<W: Write> StructureBuilder<W> {
         self.add_item_attribute(String::from("type"), String::from("function"))?;
         self.begin_item_logic()?;
 
-        write!(self.writer, r#","function":{{"name":"#).map_err(|e| e.to_string())?;
-        serde_json::to_writer(&mut self.writer, &name).map_err(|e| e.to_string())?;
-        write!(self.writer, r#","arguments":""#).map_err(|e| e.to_string())?;
+        embedded_io::Write::write_all(&mut self.writer, br#","function":{"name":"#)
+            .map_err(|e| format!("{e:?}"))?;
+        let name_json = serde_json::to_string(&name).map_err(|e| format!("{e:?}"))?;
+        embedded_io::Write::write_all(&mut self.writer, name_json.as_bytes())
+            .map_err(|e| format!("{e:?}"))?;
+        embedded_io::Write::write_all(&mut self.writer, br#","arguments":""#)
+            .map_err(|e| format!("{e:?}"))?;
         Ok(())
     }
 
     /// # Errors
     /// - I/O, state machine errors
     pub fn end_function_arguments(&mut self) -> Result<(), String> {
-        self.writer.write_all(b"\"}").map_err(|e| e.to_string())?;
+        embedded_io::Write::write_all(&mut self.writer, b"\"}").map_err(|e| format!("{e:?}"))?;
         Ok(())
     }
 
@@ -702,38 +748,35 @@ impl<W: Write> StructureBuilder<W> {
     /// - file not found
     /// - invalid JSON in file
     pub fn toolspec_key(&mut self, key: &str) -> Result<(), String> {
-        let err_to_str = |e: std::io::Error| {
-            let dyn_err: Box<dyn std::error::Error> = e.into();
-            let annotated_error = annotate_error(dyn_err, format!("toolspec key `{key}`").as_str());
-            annotated_error.to_string()
+        let err_kind_to_str = |e: embedded_io::ErrorKind| {
+            format!("toolspec key `{key}`: {e:?}")
         };
-        let cname = std::ffi::CString::new(key).map_err(|e| e.to_string())?;
-        let mut blob_reader = AReader::new(&cname).map_err(err_to_str)?;
+        let cname = std::ffi::CString::new(key).map_err(|e| format!("{e:?}"))?;
+        let mut blob_reader = AReader::new(&cname).map_err(err_kind_to_str)?;
         let mut buffer = [0u8; 1024];
-        let rjiter = scan_json::RJiter::new(&mut blob_reader, &mut buffer);
-        let rjiter_cell = std::cell::RefCell::new(rjiter);
+        let mut rjiter = scan_json::RJiter::new(&mut blob_reader, &mut buffer);
 
-        self.toolspec_rjiter_with_key(&rjiter_cell, Some(key))
+        self.toolspec_rjiter_with_key(&mut rjiter, Some(key))
     }
 
     /// # Errors
     /// - I/O
     /// - state machine errors
     /// - invalid JSON in rjiter
-    pub fn toolspec_rjiter(
+    pub fn toolspec_rjiter<R: embedded_io::Read>(
         &mut self,
-        rjiter_cell: &std::cell::RefCell<scan_json::RJiter>,
+        rjiter: &mut scan_json::RJiter<R>,
     ) -> Result<(), String> {
-        self.toolspec_rjiter_with_key(rjiter_cell, None)
+        self.toolspec_rjiter_with_key(rjiter, None)
     }
 
     /// # Errors
     /// - I/O
     /// - state machine errors
     /// - invalid JSON in rjiter
-    fn toolspec_rjiter_with_key(
+    fn toolspec_rjiter_with_key<R: embedded_io::Read>(
         &mut self,
-        rjiter_cell: &std::cell::RefCell<scan_json::RJiter>,
+        rjiter: &mut scan_json::RJiter<R>,
         key: Option<&str>,
     ) -> Result<(), String> {
         if let ItemAttrMode::RaiseError = self.item_attr_mode {
@@ -742,7 +785,8 @@ impl<W: Write> StructureBuilder<W> {
         self.add_item_attribute(String::from("type"), String::from("toolspec"))?;
         self.begin_item_logic()?;
 
-        write!(self.writer, r#","function":"#).map_err(|e| e.to_string())?;
+        embedded_io::Write::write_all(&mut self.writer, br#","function":"#)
+            .map_err(|e| format!("{e:?}"))?;
 
         let writer = self.get_writer();
 
@@ -752,8 +796,13 @@ impl<W: Write> StructureBuilder<W> {
             "toolspec rjiter".to_string()
         };
 
-        scan_json::idtransform::idtransform(rjiter_cell, writer)
-            .map_err(|e| format!("{error_prefix}: {e}"))?;
+        // Create working buffer for context stack (512 bytes, up to 20 nesting levels)
+        let mut working_buffer = [0u8; 512];
+        let mut context = u8pool::U8Pool::new(&mut working_buffer, 20)
+            .map_err(|e| format!("{error_prefix}: failed to create context pool: {e:?}"))?;
+
+        scan_json::idtransform::idtransform(rjiter, writer, &mut context)
+            .map_err(|e| format!("{error_prefix}: {e:?}"))?;
 
         Ok(())
     }

@@ -6,13 +6,11 @@ use messages_to_query::env_opts::EnvOpts;
 use messages_to_query::structure_builder::StructureBuilder;
 use serde_json;
 use std::collections::HashMap;
-use std::io::Cursor;
-use std::io::Write;
 
 #[test]
 fn test_env_opts_happy_path() {
     let input = r#"{"foo": "bar"}"#;
-    let reader = Cursor::new(input.as_bytes());
+    let reader = input.as_bytes();
 
     let env_opts = EnvOpts::envopts_from_reader(reader).unwrap();
 
@@ -23,7 +21,7 @@ fn test_env_opts_happy_path() {
 #[test]
 fn test_env_opts_not_map() {
     let input = r#"["not", "a", "map"]"#;
-    let reader = Cursor::new(input.as_bytes());
+    let reader = input.as_bytes();
 
     let result = EnvOpts::envopts_from_reader(reader);
     assert!(result.is_err());
@@ -31,7 +29,7 @@ fn test_env_opts_not_map() {
 #[test]
 fn test_env_opts_invalid_json() {
     let input = r#"{"foo": "bar""#; // Missing closing brace
-    let reader = Cursor::new(input.as_bytes());
+    let reader = input.as_bytes();
 
     let result = EnvOpts::envopts_from_reader(reader);
     assert!(result.is_err());
@@ -48,7 +46,7 @@ fn _build_with_env_opts(env_opts: EnvOpts) -> String {
     builder.end_item().unwrap();
     builder.begin_item().unwrap();
     builder.begin_text().unwrap();
-    write!(builder.get_writer(), "Hello!").unwrap();
+    embedded_io::Write::write_all(builder.get_writer(), b"Hello!").unwrap();
     builder.end_text().unwrap();
     builder.end_item().unwrap();
     builder.end().unwrap();
