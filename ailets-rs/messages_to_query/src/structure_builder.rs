@@ -686,7 +686,10 @@ impl<W: embedded_io::Write> StructureBuilder<W> {
             match embedded_io::Read::read(&mut blob_reader, &mut buffer) {
                 Ok(0) => break,
                 Ok(n) => {
-                    data.extend_from_slice(&buffer[..n]);
+                    let slice = buffer
+                        .get(..n)
+                        .ok_or_else(|| format!("image key `{key}`: Internal error: rogue read"))?;
+                    data.extend_from_slice(slice);
                 }
                 Err(e) => return Err(format!("image key `{key}`: {e:?}")),
             }

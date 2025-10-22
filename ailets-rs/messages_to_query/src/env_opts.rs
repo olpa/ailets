@@ -21,7 +21,10 @@ impl EnvOpts {
         loop {
             match embedded_io::Read::read(&mut reader, &mut chunk) {
                 Ok(0) => break,
-                Ok(n) => buffer.extend_from_slice(&chunk[..n]),
+                Ok(n) => {
+                    let slice = chunk.get(..n).ok_or("Internal error: rogue read")?;
+                    buffer.extend_from_slice(slice);
+                }
                 Err(e) => return Err(format!("Failed to read env opts: {e:?}")),
             }
         }
