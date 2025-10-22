@@ -8,6 +8,25 @@ edition = "2021"
 authors = ["Oleg Parashchenko <olpa@uucode.com>"]
 license = "MIT"
 
+[workspace.dependencies]
+# External dependencies
+scan_json = "2.0.0"
+u8pool = "1.1.2"
+rjiter = "1.2.0"
+serde_json = "1.0.140"
+base64 = "0.22.1"
+embedded-io = "0.6"
+getrandom = { version = "0.2", features = ["custom"] }
+serde = { version = "1.0.219", features = ["derive"] }
+linked-hash-map = "0.5.6"
+lazy_static = "1.5.0"
+hamcrest = "0.1.5"
+
+# Workspace crates
+actor_runtime = { version = "0.3.0", path = "actor_runtime" }
+actor_runtime_mocked = { version = "0.2.0", path = "actor_runtime_mocked" }
+actor_io = { version = "0.2.0", path = "actor_io" }
+
 [patch.crates-io]
 # scan_json = { path = "../../streaming_json/scan_json" }
 # rjiter = { path = "../../streaming_json/rjiter" }

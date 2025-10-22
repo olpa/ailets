@@ -9,8 +9,8 @@ license.workspace = true
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
-actor_runtime = { version = "0.3.0", path = "../actor_runtime" }
-embedded-io = "0.6"
+actor_runtime.workspace = true
+embedded-io.workspace = true
 
 [dev-dependencies]
-actor_runtime_mocked = { version = "0.2.0", path = "../actor_runtime_mocked" }
+actor_runtime_mocked.workspace = true
