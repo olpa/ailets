@@ -17,9 +17,10 @@ pub fn on_role<W: embedded_io::Write, R: embedded_io::Read>(
             return StreamOp::Error("Error getting role value");
         }
     };
-    if let Err(e) = builder_cell.borrow_mut().handle_role(role) {
+    let mut builder = builder_cell.borrow_mut();
+    if let Err(e) = builder.handle_role(role) {
         let error = ActionError::HandleRole(format!("{e:?}"));
-        builder_cell.borrow_mut().set_error(error);
+        builder.set_error(error);
         return StreamOp::Error("Failed to handle role");
     }
     StreamOp::ValueIsConsumed
@@ -62,12 +63,10 @@ pub fn on_item_type<W: embedded_io::Write, R: embedded_io::Read>(
             return StreamOp::Error("Error getting type value");
         }
     };
-    if let Err(e) = builder_cell
-        .borrow_mut()
-        .add_item_attribute(String::from("type"), item_type.to_string())
-    {
+    let mut builder = builder_cell.borrow_mut();
+    if let Err(e) = builder.add_item_attribute(String::from("type"), item_type.to_string()) {
         let error = ActionError::AddItemType(format!("{e:?}"));
-        builder_cell.borrow_mut().set_error(error);
+        builder.set_error(error);
         return StreamOp::Error("Failed to add item type");
     }
     StreamOp::ValueIsConsumed
@@ -179,9 +178,10 @@ pub fn on_image_key<W: embedded_io::Write, R: embedded_io::Read>(
             return StreamOp::Error("Error getting key value");
         }
     };
-    if let Err(e) = builder_cell.borrow_mut().image_key(key) {
+    let mut builder = builder_cell.borrow_mut();
+    if let Err(e) = builder.image_key(key) {
         let error = ActionError::SetImageKey(format!("{e:?}"));
-        builder_cell.borrow_mut().set_error(error);
+        builder.set_error(error);
         return StreamOp::Error("Failed to set image key");
     }
     StreamOp::ValueIsConsumed
@@ -241,12 +241,10 @@ pub fn on_func_id<W: embedded_io::Write, R: embedded_io::Read>(
             return StreamOp::Error("Error getting function id");
         }
     };
-    if let Err(e) = builder_cell
-        .borrow_mut()
-        .add_item_attribute(String::from("id"), String::from(id))
-    {
+    let mut builder = builder_cell.borrow_mut();
+    if let Err(e) = builder.add_item_attribute(String::from("id"), String::from(id)) {
         let error = ActionError::AddFunctionId(format!("{e:?}"));
-        builder_cell.borrow_mut().set_error(error);
+        builder.set_error(error);
         return StreamOp::Error("Failed to add function id");
     }
     StreamOp::ValueIsConsumed
@@ -264,12 +262,10 @@ pub fn on_func_name<W: embedded_io::Write, R: embedded_io::Read>(
             return StreamOp::Error("Error getting function name");
         }
     };
-    if let Err(e) = builder_cell
-        .borrow_mut()
-        .add_item_attribute(String::from("name"), String::from(name))
-    {
+    let mut builder = builder_cell.borrow_mut();
+    if let Err(e) = builder.add_item_attribute(String::from("name"), String::from(name)) {
         let error = ActionError::AddFunctionName(format!("{e:?}"));
-        builder_cell.borrow_mut().set_error(error);
+        builder.set_error(error);
         return StreamOp::Error("Failed to add function name");
     }
     StreamOp::ValueIsConsumed
@@ -347,9 +343,10 @@ pub fn on_toolspec_key<W: embedded_io::Write, R: embedded_io::Read>(
             return StreamOp::Error("Error getting toolspec key");
         }
     };
-    if let Err(e) = builder_cell.borrow_mut().toolspec_key(key) {
+    let mut builder = builder_cell.borrow_mut();
+    if let Err(e) = builder.toolspec_key(key) {
         let error = ActionError::SetToolspecKey(format!("{e:?}"));
-        builder_cell.borrow_mut().set_error(error);
+        builder.set_error(error);
         return StreamOp::Error("Failed to set toolspec key");
     }
     StreamOp::ValueIsConsumed
