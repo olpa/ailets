@@ -20,7 +20,7 @@ const BUFFER_SIZE: u32 = 1024;
 /// If anything goes wrong.
 #[allow(clippy::used_underscore_items)]
 #[allow(clippy::too_many_lines)]
-pub fn _process_messages<W: embedded_io::Write + 'static>(
+pub fn _process_messages<W: embedded_io::Write>(
     mut reader: impl embedded_io::Read,
     writer: W,
     env_opts: EnvOpts,

@@ -30,7 +30,7 @@ const BUFFER_SIZE: u32 = 1024;
 /// If anything goes wrong.
 #[allow(clippy::used_underscore_items)]
 #[allow(clippy::too_many_lines)]
-pub fn _process_gpt<W: embedded_io::Write + 'static, D: DagOpsTrait + 'static>(
+pub fn _process_gpt<W: embedded_io::Write, D: DagOpsTrait>(
     mut reader: impl embedded_io::Read,
     stdout_writer: W,
     dagops: D,
