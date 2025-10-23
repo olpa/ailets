@@ -514,14 +514,14 @@ impl<W: embedded_io::Write> StructureBuilder<W> {
     /// - I/O, state machine errors
     pub fn handle_role(&mut self, role: &str) -> Result<(), String> {
         if let ItemAttrMode::RaiseError = self.item_attr_mode {
-            return Err("Content item is not started".to_string());
+            return Err("Content item is not started for 'role'".to_string());
         }
         let item_type = self
             .item_attr
             .as_ref()
-            .ok_or_else(|| "Content item attributes are not set".to_string())?
+            .ok_or_else(|| "Content item attributes are not set for 'role'".to_string())?
             .get("type")
-            .ok_or_else(|| "Content item type is not set".to_string())?;
+            .ok_or_else(|| "Content item 'type' is not set for 'role'".to_string())?;
 
         if item_type != "ctl" {
             return Err(format!(
@@ -561,7 +561,7 @@ impl<W: embedded_io::Write> StructureBuilder<W> {
     /// - for "type" attribute, the value is unknown or conflicting with the already typed item
     pub fn add_item_attribute(&mut self, key: String, value: String) -> Result<(), String> {
         if let ItemAttrMode::RaiseError = self.item_attr_mode {
-            return Err("Content item is not started".to_string());
+            return Err(format!("Content item is not started for attribute '{key}'"));
         }
 
         if self.item_attr_mode == ItemAttrMode::Passthrough {
@@ -603,7 +603,7 @@ impl<W: embedded_io::Write> StructureBuilder<W> {
     /// - I/O, state machine errors
     pub fn begin_text(&mut self) -> Result<(), String> {
         if let ItemAttrMode::RaiseError = self.item_attr_mode {
-            return Err("Content item is not started".to_string());
+            return Err("Content item is not started for 'text'".to_string());
         }
         self.add_item_attribute(String::from("type"), String::from("text"))?;
         self.begin_item_logic()?;
@@ -624,7 +624,7 @@ impl<W: embedded_io::Write> StructureBuilder<W> {
     /// - I/O, state machine errors
     pub fn begin_image_url(&mut self) -> Result<(), String> {
         if let ItemAttrMode::RaiseError = self.item_attr_mode {
-            return Err("Content item is not started".to_string());
+            return Err("Content item is not started for 'image_url'".to_string());
         }
         self.add_item_attribute(String::from("type"), String::from("image"))?;
         self.begin_item_logic()?;
@@ -707,12 +707,12 @@ impl<W: embedded_io::Write> StructureBuilder<W> {
     /// - I/O, state machine errors
     pub fn begin_function_arguments(&mut self) -> Result<(), String> {
         if let ItemAttrMode::RaiseError = self.item_attr_mode {
-            return Err("Content item is not started".to_string());
+            return Err("Content item is not started for 'function'".to_string());
         }
         let name = self
             .item_attr
             .as_mut()
-            .ok_or_else(|| "Content item attributes not found".to_string())?
+            .ok_or_else(|| "Content item attributes not found for 'function'".to_string())?
             .remove("name")
             .ok_or_else(|| "Missing required 'name' attribute for 'type=function'".to_string())?;
 
@@ -772,7 +772,7 @@ impl<W: embedded_io::Write> StructureBuilder<W> {
         key: Option<&str>,
     ) -> Result<(), String> {
         if let ItemAttrMode::RaiseError = self.item_attr_mode {
-            return Err("Content item is not started".to_string());
+            return Err("Content item is not started for 'toolspec'".to_string());
         }
         self.add_item_attribute(String::from("type"), String::from("toolspec"))?;
         self.begin_item_logic()?;
