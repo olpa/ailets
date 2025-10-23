@@ -6,7 +6,7 @@ fn open_read_returns_minus_one_if_file_not_found() {
     let vfs = Vfs::new();
     let fd = vfs.open_read(c"test".as_ptr());
     assert_eq!(fd, -1);
-    assert_eq!(vfs.get_errno(), -1);
+    assert_eq!(vfs.get_errno(), 2); // ENOENT - No such file or directory
 }
 
 #[test]
@@ -27,7 +27,7 @@ fn open_write_returns_minus_one_on_error() {
     let fd = vfs.open_write(c"test\u{1}".as_ptr());
 
     assert_eq!(fd, -1);
-    assert_eq!(vfs.get_errno(), -1);
+    assert_eq!(vfs.get_errno(), 22); // EINVAL - Invalid argument
 }
 
 #[test]
@@ -54,7 +54,7 @@ fn close_returns_minus_one_for_invalid_handle() {
     let result = vfs.aclose(999);
 
     assert_eq!(result, -1);
-    assert_eq!(vfs.get_errno(), -1);
+    assert_eq!(vfs.get_errno(), 9); // EBADF - Bad file descriptor
 }
 
 #[test]
@@ -84,7 +84,7 @@ fn read_returns_minus_one_for_invalid_handle() {
     let result = vfs.aread(999, buffer.as_mut_ptr(), buffer.len() as c_uint);
 
     assert_eq!(result, -1);
-    assert_eq!(vfs.get_errno(), -1);
+    assert_eq!(vfs.get_errno(), 9); // EBADF - Bad file descriptor
 }
 
 #[test]
@@ -143,7 +143,7 @@ fn read_in_chunks_with_io_interrupt() {
     // Get an error
     let bytes_read = vfs.aread(fd, buffer.as_mut_ptr(), buffer.len() as c_uint);
     assert_eq!(bytes_read, -1);
-    assert_eq!(vfs.get_errno(), -1);
+    assert_eq!(vfs.get_errno(), 5); // EIO - I/O error
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn write_returns_minus_one_for_invalid_handle() {
     let buffer = [1u8, 2, 3];
     let bytes_written = vfs.awrite(999, buffer.as_ptr() as *mut u8, buffer.len() as c_uint);
     assert_eq!(bytes_written, -1);
-    assert_eq!(vfs.get_errno(), -1);
+    assert_eq!(vfs.get_errno(), 9); // EBADF - Bad file descriptor
 }
 
 #[test]
@@ -233,7 +233,7 @@ fn write_in_chunks_with_io_interrupt() {
         100,
     );
     assert_eq!(bytes_written, -1);
-    assert_eq!(vfs.get_errno(), -1);
+    assert_eq!(vfs.get_errno(), 5); // EIO - I/O error
 
     // Verify complete (until error) content
     let written = vfs.get_file("test").unwrap();

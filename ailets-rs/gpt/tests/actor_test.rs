@@ -2,7 +2,6 @@ use actor_runtime_mocked::RcWriter;
 use gpt::_process_gpt;
 pub mod dagops_mock;
 use dagops_mock::TrackedDagOps;
-use std::io::Cursor;
 
 // Helper function to get chat output from DAG value nodes
 fn get_chat_output(tracked_dagops: &TrackedDagOps) -> String {
@@ -25,7 +24,7 @@ fn get_expected_basic_message() -> String {
 fn test_basic_processing() {
     let fixture_content = std::fs::read_to_string("tests/fixture/basic_response.txt")
         .expect("Failed to read fixture file 'basic_response.txt'");
-    let reader = Cursor::new(fixture_content);
+    let reader = fixture_content.as_bytes();
     let writer = RcWriter::new();
 
     _process_gpt(reader, writer.clone(), TrackedDagOps::default()).unwrap();
@@ -37,7 +36,7 @@ fn test_basic_processing() {
 fn test_streaming() {
     let fixture_content = std::fs::read_to_string("tests/fixture/basic_streaming.txt")
         .expect("Failed to read fixture file 'basic_streaming.txt'");
-    let reader = Cursor::new(fixture_content);
+    let reader = fixture_content.as_bytes();
     let writer = RcWriter::new();
 
     _process_gpt(reader, writer.clone(), TrackedDagOps::default()).unwrap();
@@ -49,7 +48,7 @@ fn test_streaming() {
 fn funcall_response() {
     let fixture_content = std::fs::read_to_string("tests/fixture/funcall_response.txt")
         .expect("Failed to read fixture file 'funcall_response.txt'");
-    let reader = Cursor::new(fixture_content);
+    let reader = fixture_content.as_bytes();
     let writer = RcWriter::new();
     let dagops = TrackedDagOps::default();
 
@@ -96,7 +95,7 @@ fn funcall_response() {
 fn funcall_streaming() {
     let fixture_content = std::fs::read_to_string("tests/fixture/funcall_streaming.txt")
         .expect("Failed to read fixture file 'funcall_streaming.txt'");
-    let reader = Cursor::new(fixture_content);
+    let reader = fixture_content.as_bytes();
     let writer = RcWriter::new();
     let dagops = TrackedDagOps::default();
 
@@ -143,7 +142,7 @@ fn funcall_streaming() {
 fn delta_index_regress() {
     let fixture_content = std::fs::read_to_string("tests/fixture/delta_index_regress.txt")
         .expect("Failed to read fixture file 'delta_index_regress.txt'");
-    let reader = Cursor::new(fixture_content);
+    let reader = fixture_content.as_bytes();
     let writer = RcWriter::new();
     let dagops = TrackedDagOps::default();
 
@@ -205,7 +204,7 @@ fn delta_index_regress() {
 fn duplicate_tool_call_id_error() {
     let fixture_content = std::fs::read_to_string("tests/fixture/funcall_duplicate_name.txt")
         .expect("Failed to read fixture file 'funcall_duplicate_name.txt'");
-    let reader = Cursor::new(fixture_content);
+    let reader = fixture_content.as_bytes();
     let writer = RcWriter::new();
     let dagops = TrackedDagOps::default();
 
@@ -220,7 +219,7 @@ fn duplicate_tool_call_id_error() {
 fn nonincremental_index_error() {
     let fixture_content = std::fs::read_to_string("tests/fixture/funcall_nonincremental_index.txt")
         .expect("Failed to read fixture file 'funcall_nonincremental_index.txt'");
-    let reader = Cursor::new(fixture_content);
+    let reader = fixture_content.as_bytes();
     let writer = RcWriter::new();
     let dagops = TrackedDagOps::default();
 
@@ -235,7 +234,7 @@ fn nonincremental_index_error() {
 fn arguments_before_name_retained() {
     let fixture_content = std::fs::read_to_string("tests/fixture/arguments_before_name.txt")
         .expect("Failed to read fixture file 'arguments_before_name.txt'");
-    let reader = Cursor::new(fixture_content);
+    let reader = fixture_content.as_bytes();
     let writer = RcWriter::new();
     let dagops = TrackedDagOps::default();
 

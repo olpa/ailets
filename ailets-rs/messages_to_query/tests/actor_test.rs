@@ -6,7 +6,6 @@ use messages_to_query::_process_messages;
 use messages_to_query::env_opts::EnvOpts;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::io::Cursor;
 
 fn create_empty_env_opts() -> EnvOpts {
     EnvOpts::from_map(HashMap::new())
@@ -33,7 +32,7 @@ fn inject_tools(payload: &str, tools: &str) -> String {
 fn test_text_items() {
     let fixture_content = std::fs::read_to_string("tests/fixture/text_items.txt")
         .expect("Failed to read fixture file 'text_items.txt'");
-    let reader = Cursor::new(fixture_content.clone());
+    let reader = fixture_content.as_bytes();
     let writer = RcWriter::new();
 
     _process_messages(reader, writer.clone(), create_empty_env_opts()).unwrap();
@@ -57,7 +56,7 @@ fn special_symbols_in_text() {
                    [{"type": "text"}, {"text": "Here's a \"quoted\" string\nwith newline and unicode: \u1F60 🌟"}]
                    [{"type": "text"}, {"text": "Tab\there & escaped quotes: \"hello\""}]
                    [{"type": "text"}, {"text": "Backslashes \\ and more \\\\ and control chars \u0007"}]"#;
-    let reader = Cursor::new(input);
+    let reader = input.as_bytes();
     let writer = RcWriter::new();
 
     _process_messages(reader, writer.clone(), create_empty_env_opts()).unwrap();
@@ -78,12 +77,15 @@ fn special_symbols_in_text() {
 fn image_url_as_is() {
     let input = r#"[{"type": "ctl"}, {"role": "user"}]
                    [{"type": "image"}, {"image_url": "https://example.com/image.jpg"}]"#;
-    let reader = Cursor::new(input);
+    let reader = input.as_bytes();
     let writer = RcWriter::new();
 
     _process_messages(reader, writer.clone(), create_empty_env_opts()).unwrap();
-    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
-        .expect("Failed to parse output as JSON");
+    let output_json: Value =
+        serde_json::from_str(&writer.get_output().as_str()).unwrap_or_else(|e| {
+            eprintln!("Output: {}", writer.get_output());
+            panic!("Failed to parse output as JSON: {}", e);
+        });
 
     let expected_item = r#"[{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "https://example.com/image.jpg"}}]}]"#;
     let expected_json = serde_json::from_str(&wrap_boilerplate(&expected_item))
@@ -96,7 +98,7 @@ fn image_as_key() {
     let input = r#"[{"type": "ctl"}, {"role": "user"}]
                    [{"type": "image", "detail": "auto", "content_type": "image/png"},
                        {"image_key": "media/image-as-key-2.png"}]"#;
-    let reader = Cursor::new(input);
+    let reader = input.as_bytes();
     let writer = RcWriter::new();
     add_file(String::from("media/image-as-key-2.png"), b"hello".to_vec());
 
@@ -116,7 +118,7 @@ fn mix_text_and_image() {
                    [{"type": "text"}, {"text": "Here's an image:"}]
                    [{"type": "image"}, {"image_url": "https://example.com/image.jpg"}]
                    [{"type": "text"}, {"text": "What do you think about it?"}]"#;
-    let reader = Cursor::new(input);
+    let reader = input.as_bytes();
     let writer = RcWriter::new();
 
     _process_messages(reader, writer.clone(), create_empty_env_opts()).unwrap();
@@ -139,7 +141,7 @@ fn mix_text_and_image() {
 fn regression_one_item_not_two() {
     let input = r#"[{"type": "ctl"}, {"role": "user"}]
                    [{"type": "text"}, {"text": "Hello!"}]"#;
-    let reader = Cursor::new(input);
+    let reader = input.as_bytes();
     let writer = RcWriter::new();
 
     _process_messages(reader, writer.clone(), create_empty_env_opts()).unwrap();
@@ -157,7 +159,7 @@ fn function_call() {
     let input = r#"[{"type": "ctl"}, {"role": "assistant"}]
                    [{"type": "function", "id": "id123", "name": "get_weather"},
                        {"arguments": "{\"location\": \"London\", \"unit\": \"celsius\"}"}]"#;
-    let reader = Cursor::new(input);
+    let reader = input.as_bytes();
     let writer = RcWriter::new();
 
     _process_messages(reader, writer.clone(), create_empty_env_opts()).unwrap();
@@ -177,7 +179,7 @@ fn special_symbols_in_function_arguments() {
     let input = r#"[{"type": "ctl"}, {"role": "assistant"}]
                    [{"type": "function", "id": "id123", "name": "process_text"},
                        {"arguments": "{\"text\": \"Hello\\n\\\"World\\\" 🌟 🎉\u1F60\\\""}]"#;
-    let reader = Cursor::new(input);
+    let reader = input.as_bytes();
     let writer = RcWriter::new();
 
     _process_messages(reader, writer.clone(), create_empty_env_opts()).unwrap();
@@ -217,7 +219,7 @@ fn tool_specification() {
            [{{"type": "text"}}, {{"text": "Hello!"}}]"#
     );
 
-    let reader = Cursor::new(input);
+    let reader = input.as_bytes();
     let writer = RcWriter::new();
 
     _process_messages(reader, writer.clone(), create_empty_env_opts()).unwrap();
@@ -257,7 +259,7 @@ fn toolspec_by_key() {
            [{"type": "ctl"}, {"role": "user"}]
            "#;
 
-    let reader = Cursor::new(input);
+    let reader = input.as_bytes();
     let writer = RcWriter::new();
 
     // Act
@@ -281,7 +283,7 @@ fn tool_role_with_tool_call_id() {
     let input = r#"[{"type": "ctl", "tool_call_id": "call_hEUJSGdhP42m1HYos3OTEeCS"}, {"role": "tool"}]
                    [{"type": "text"}, {"text": "{}"}]
                    [{"type": "text"}, {"text": "{\"get_user_name\": \"olpa\"}"}]"#;
-    let reader = Cursor::new(input);
+    let reader = input.as_bytes();
     let writer = RcWriter::new();
 
     _process_messages(reader, writer.clone(), create_empty_env_opts()).unwrap();

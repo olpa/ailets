@@ -1,159 +1,183 @@
+pub mod action_error;
 pub mod env_opts;
 mod handlers;
 pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
-use actor_runtime::{err_to_heap_c_string, extract_errno, StdHandle};
+use actor_runtime::{err_to_heap_c_string, StdHandle};
 use env_opts::EnvOpts;
-use scan_json::{scan, BoxedAction, BoxedEndAction, ParentAndName, RJiter, Trigger};
+use scan_json::matcher::StructuralPseudoname;
+use scan_json::stack::ContextIter;
+use scan_json::{iter_match, scan, Action, EndAction, Options, RJiter};
 use std::cell::RefCell;
 use std::ffi::c_char;
-use std::io::Write;
 use structure_builder::StructureBuilder;
+use u8pool::U8Pool;
 
 const BUFFER_SIZE: u32 = 1024;
-
-fn create_begin_triggers<'a, W: Write + 'a>(
-) -> Vec<Trigger<'a, BoxedAction<'a, StructureBuilder<W>>>> {
-    //
-    // Message boilerplate
-    //
-    let role = Trigger::new(
-        Box::new(ParentAndName::new("#array".to_string(), "role".to_string())),
-        Box::new(handlers::on_role) as BoxedAction<'_, StructureBuilder<W>>,
-    );
-    let item = Trigger::new(
-        Box::new(ParentAndName::new("#top".to_string(), "#array".to_string())),
-        Box::new(handlers::on_item_begin) as BoxedAction<'_, StructureBuilder<W>>,
-    );
-    let item_type = Trigger::new(
-        Box::new(ParentAndName::new("#array".to_string(), "type".to_string())),
-        Box::new(handlers::on_item_type) as BoxedAction<'_, StructureBuilder<W>>,
-    );
-
-    //
-    // Content items
-    //
-    let text = Trigger::new(
-        Box::new(ParentAndName::new("#array".to_string(), "text".to_string())),
-        Box::new(handlers::on_text) as BoxedAction<'_, StructureBuilder<W>>,
-    );
-    let image_url = Trigger::new(
-        Box::new(ParentAndName::new(
-            "#array".to_string(),
-            "image_url".to_string(),
-        )),
-        Box::new(handlers::on_image_url) as BoxedAction<'_, StructureBuilder<W>>,
-    );
-    let image_key = Trigger::new(
-        Box::new(ParentAndName::new(
-            "#array".to_string(),
-            "image_key".to_string(),
-        )),
-        Box::new(handlers::on_image_key) as BoxedAction<'_, StructureBuilder<W>>,
-    );
-    let image_content_type = Trigger::new(
-        Box::new(ParentAndName::new(
-            "#array".to_string(),
-            "content_type".to_string(),
-        )),
-        Box::new(handlers::on_image_content_type) as BoxedAction<'_, StructureBuilder<W>>,
-    );
-    let image_detail = Trigger::new(
-        Box::new(ParentAndName::new(
-            "#array".to_string(),
-            "detail".to_string(),
-        )),
-        Box::new(handlers::on_image_detail) as BoxedAction<'_, StructureBuilder<W>>,
-    );
-    let func_id = Trigger::new(
-        Box::new(ParentAndName::new("#array".to_string(), "id".to_string())),
-        Box::new(handlers::on_func_id) as BoxedAction<'_, StructureBuilder<W>>,
-    );
-    let func_name = Trigger::new(
-        Box::new(ParentAndName::new("#array".to_string(), "name".to_string())),
-        Box::new(handlers::on_func_name) as BoxedAction<'_, StructureBuilder<W>>,
-    );
-    let func_arguments = Trigger::new(
-        Box::new(ParentAndName::new(
-            "#array".to_string(),
-            "arguments".to_string(),
-        )),
-        Box::new(handlers::on_func_arguments) as BoxedAction<'_, StructureBuilder<W>>,
-    );
-    let toolspec = Trigger::new(
-        Box::new(ParentAndName::new(
-            "#array".to_string(),
-            "toolspec".to_string(),
-        )),
-        Box::new(handlers::on_toolspec) as BoxedAction<'_, StructureBuilder<W>>,
-    );
-    let toolspec_key = Trigger::new(
-        Box::new(ParentAndName::new(
-            "#array".to_string(),
-            "toolspec_key".to_string(),
-        )),
-        Box::new(handlers::on_toolspec_key) as BoxedAction<'_, StructureBuilder<W>>,
-    );
-    let tool_call_id = Trigger::new(
-        Box::new(ParentAndName::new(
-            "#array".to_string(),
-            "tool_call_id".to_string(),
-        )),
-        Box::new(handlers::on_tool_call_id) as BoxedAction<'_, StructureBuilder<W>>,
-    );
-
-    vec![
-        item_type,
-        text,
-        image_url,
-        image_key,
-        item,
-        image_content_type,
-        image_detail,
-        func_id,
-        func_name,
-        func_arguments,
-        toolspec,
-        toolspec_key,
-        tool_call_id,
-        role,
-    ]
-}
-
-fn create_end_triggers<'a, W: Write + 'a>(
-) -> Vec<Trigger<'a, BoxedEndAction<'a, StructureBuilder<W>>>> {
-    let item = Trigger::new(
-        Box::new(ParentAndName::new("#top".to_string(), "#array".to_string())),
-        Box::new(handlers::on_item_end) as BoxedEndAction<'_, StructureBuilder<W>>,
-    );
-
-    vec![item]
-}
 
 /// # Errors
 /// If anything goes wrong.
 #[allow(clippy::used_underscore_items)]
-pub fn _process_messages<W: Write>(
-    mut reader: impl std::io::Read,
+#[allow(clippy::too_many_lines)]
+pub fn _process_messages<W: embedded_io::Write>(
+    mut reader: impl embedded_io::Read,
     writer: W,
     env_opts: EnvOpts,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut buffer = vec![0u8; BUFFER_SIZE as usize];
-    let rjiter_cell = RefCell::new(RJiter::new(&mut reader, &mut buffer));
+) -> Result<(), String> {
     let builder = StructureBuilder::new(writer, env_opts);
     let builder_cell = RefCell::new(builder);
 
-    let begin_triggers = create_begin_triggers();
-    let end_triggers = create_end_triggers();
+    let mut buffer = vec![0u8; BUFFER_SIZE as usize];
+    let mut rjiter = RJiter::new(&mut reader, &mut buffer);
 
-    scan(
-        &begin_triggers,
-        &end_triggers,
-        &rjiter_cell,
+    let find_action = |structural_pseudoname: StructuralPseudoname,
+                       context: ContextIter,
+                       _baton: &RefCell<StructureBuilder<W>>|
+     -> Option<Action<&RefCell<StructureBuilder<W>>, _>> {
+        // Message boilerplate
+        if iter_match(
+            || ["role".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
+            return Some(handlers::on_role);
+        }
+        if iter_match(
+            || ["#array".as_bytes(), "#top".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
+            return Some(handlers::on_item_begin);
+        }
+        if iter_match(
+            || ["type".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
+            return Some(handlers::on_item_type);
+        }
+
+        // Content items
+        if iter_match(
+            || ["text".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
+            return Some(handlers::on_text);
+        }
+        if iter_match(
+            || ["image_url".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
+            return Some(handlers::on_image_url);
+        }
+        if iter_match(
+            || ["image_key".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
+            return Some(handlers::on_image_key);
+        }
+        if iter_match(
+            || ["content_type".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
+            return Some(handlers::on_image_content_type);
+        }
+        if iter_match(
+            || ["detail".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
+            return Some(handlers::on_image_detail);
+        }
+        if iter_match(
+            || ["id".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
+            return Some(handlers::on_func_id);
+        }
+        if iter_match(
+            || ["name".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
+            return Some(handlers::on_func_name);
+        }
+        if iter_match(
+            || ["arguments".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
+            return Some(handlers::on_func_arguments);
+        }
+        if iter_match(
+            || ["toolspec".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
+            return Some(handlers::on_toolspec);
+        }
+        if iter_match(
+            || ["toolspec_key".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
+            return Some(handlers::on_toolspec_key);
+        }
+        if iter_match(
+            || ["tool_call_id".as_bytes(), "#array".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
+            return Some(handlers::on_tool_call_id);
+        }
+
+        None
+    };
+
+    let find_end_action = |structural_pseudoname: StructuralPseudoname,
+                           context: ContextIter,
+                           _baton: &RefCell<StructureBuilder<W>>|
+     -> Option<EndAction<&RefCell<StructureBuilder<W>>>> {
+        if iter_match(
+            || ["#array".as_bytes(), "#top".as_bytes()],
+            structural_pseudoname,
+            context.clone(),
+        ) {
+            return Some(handlers::on_item_end);
+        }
+
+        None
+    };
+
+    // Create working buffer for context stack (512 bytes, up to 20 nesting levels)
+    let mut working_buffer = [0u8; 512];
+    let mut context = U8Pool::new(&mut working_buffer, 20)
+        .map_err(|e| format!("Failed to create context pool: {e:?}"))?;
+
+    let scan_result = scan(
+        find_action,
+        find_end_action,
+        &mut rjiter,
         &builder_cell,
-        &scan_json::Options::default(),
-    )?;
+        &mut context,
+        &Options::new(),
+    );
+
+    // Check if there's a detailed error in the baton before returning scan error
+    if let Err(e) = scan_result {
+        let mut builder = builder_cell.borrow_mut();
+        if let Some(detailed_error) = builder.take_error() {
+            return Err(detailed_error.to_string());
+        }
+        return Err(format!("Scan error: {e:?}"));
+    }
+
     builder_cell.borrow_mut().end()?;
     Ok(())
 }
@@ -168,17 +192,12 @@ pub extern "C" fn process_messages() -> *const c_char {
     let env_reader = AReader::new_from_std(StdHandle::Env);
     let env_opts = match EnvOpts::envopts_from_reader(env_reader) {
         Ok(opts) => opts,
-        Err(e) => {
-            return err_to_heap_c_string(
-                extract_errno(&e),
-                &format!("Failed to read env opts: {e}"),
-            )
-        }
+        Err(e) => return err_to_heap_c_string(1, &e),
     };
 
     #[allow(clippy::used_underscore_items)]
     if let Err(e) = _process_messages(reader, writer, env_opts) {
-        return err_to_heap_c_string(extract_errno(&e), &format!("Messages to query: {e}"));
+        return err_to_heap_c_string(1, &format!("Messages to query: {e}"));
     }
     std::ptr::null()
 }

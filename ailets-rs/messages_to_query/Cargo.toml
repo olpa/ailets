@@ -11,15 +11,17 @@ crate-type = ["cdylib", "lib"]
 # crate-type = ["lib"]
 
 [dependencies]
-actor_io = { version = "0.1.0", path = "../actor_io" }
-actor_runtime = { version = "0.2.0", path = "../actor_runtime" }
-actor_runtime_mocked = { version = "0.1.0", path = "../actor_runtime_mocked" }
-serde_json = "1.0.140"
-getrandom = { version = "0.2", features = ["custom"] }
-serde = { version = "1.0.219", features = ["derive"] }
-base64 = "0.22.1"
-linked-hash-map = "0.5.6"
-scan_json = "1.1.0"
+actor_io.workspace = true
+actor_runtime.workspace = true
+actor_runtime_mocked.workspace = true
+serde_json.workspace = true
+getrandom.workspace = true
+serde.workspace = true
+base64.workspace = true
+linked-hash-map.workspace = true
+scan_json.workspace = true
+u8pool.workspace = true
+embedded-io.workspace = true
 
 [dev-dependencies]
-hamcrest = "0.1.5"
+hamcrest.workspace = true

@@ -1,6 +1,5 @@
 use serde::Deserialize;
 use std::collections::HashMap;
-use std::io::Read;
 
 #[derive(Deserialize, Debug)]
 pub struct EnvOpts {
@@ -15,9 +14,24 @@ impl EnvOpts {
     /// Returns an error if:
     /// - The JSON input is invalid or malformed
     /// - There are I/O errors reading from the provided reader
-    pub fn envopts_from_reader(reader: impl Read) -> Result<EnvOpts, Box<dyn std::error::Error>> {
-        let mut de = serde_json::Deserializer::from_reader(reader);
-        let opts_map = HashMap::<String, serde_json::Value>::deserialize(&mut de)?;
+    pub fn envopts_from_reader(mut reader: impl embedded_io::Read) -> Result<EnvOpts, String> {
+        // Read all data into a Vec<u8>
+        let mut buffer = Vec::new();
+        let mut chunk = [0u8; 1024];
+        loop {
+            match embedded_io::Read::read(&mut reader, &mut chunk) {
+                Ok(0) => break,
+                Ok(n) => {
+                    let slice = chunk.get(..n).ok_or("Internal error: rogue read")?;
+                    buffer.extend_from_slice(slice);
+                }
+                Err(e) => return Err(format!("Failed to read env opts: {e:?}")),
+            }
+        }
+
+        // Deserialize from the string
+        let opts_map: HashMap<String, serde_json::Value> = serde_json::from_slice(&buffer)
+            .map_err(|e| format!("Failed to parse env opts JSON: {e}"))?;
         Ok(EnvOpts { opts: opts_map })
     }
 

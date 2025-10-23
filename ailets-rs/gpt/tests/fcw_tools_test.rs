@@ -1,7 +1,7 @@
 #[cfg(test)]
 #[macro_use]
 extern crate hamcrest;
-use crate::dagops_mock::TrackedDagOps;
+use crate::dagops_mock::{DummyDagOps, TrackedDagOps};
 use actor_runtime_mocked::RcWriter;
 use gpt::fcw_chat::FunCallsToChat;
 use gpt::fcw_tools::FunCallsToTools;
@@ -20,6 +20,7 @@ fn inject_tool_calls_to_tools() {
     // Arrange
     //
     let mut tracked_dagops = TrackedDagOps::default();
+    let mut dummy_dagops = DummyDagOps;
     let writer = RcWriter::new();
     let mut chat_writer = FunCallsToChat::new(writer.clone());
 
@@ -31,7 +32,7 @@ fn inject_tool_calls_to_tools() {
 
         // Write to both chat and tools
         chat_writer
-            .new_item("call_1", "get_weather", &mut tracked_dagops)
+            .new_item("call_1", "get_weather", &mut dummy_dagops)
             .unwrap();
         dagops_writer
             .new_item("call_1", "get_weather", &mut tracked_dagops)
@@ -48,7 +49,7 @@ fn inject_tool_calls_to_tools() {
         dagops_writer.end_item().unwrap();
 
         chat_writer
-            .new_item("call_2", "get_forecast", &mut tracked_dagops)
+            .new_item("call_2", "get_forecast", &mut dummy_dagops)
             .unwrap();
         dagops_writer
             .new_item("call_2", "get_forecast", &mut tracked_dagops)
@@ -254,7 +255,8 @@ fn inject_empty_tool_calls_to_tools() {
     let tracked_dagops = TrackedDagOps::default();
 
     {
-        let _dagops_writer = FunCallsToTools::new();
+        let _dagops_writer: FunCallsToTools<actor_runtime_mocked::VfsWriter> =
+            FunCallsToTools::new();
 
         // Act - Don't call any methods on the writer (equivalent to empty tool calls)
     } // dagops_writer is dropped here, releasing the borrow
@@ -272,6 +274,7 @@ fn multiple_arguments_chunks() {
     // Arrange
     //
     let mut tracked_dagops = TrackedDagOps::default();
+    let mut dummy_dagops = DummyDagOps;
     let writer = RcWriter::new();
     let mut chat_writer = FunCallsToChat::new(writer.clone());
 
@@ -283,7 +286,7 @@ fn multiple_arguments_chunks() {
 
         // Write to both chat and tools
         chat_writer
-            .new_item("call_1", "get_weather", &mut tracked_dagops)
+            .new_item("call_1", "get_weather", &mut dummy_dagops)
             .unwrap();
         dagops_writer
             .new_item("call_1", "get_weather", &mut tracked_dagops)

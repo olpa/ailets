@@ -4,7 +4,6 @@ use std::rc::Rc;
 
 use actor_runtime_mocked::{Vfs, VfsWriter};
 use gpt::dagops::DagOpsTrait;
-use std::io::Write;
 
 #[derive(Clone)]
 pub struct TrackedDagOps {
@@ -28,6 +27,8 @@ impl Default for TrackedDagOps {
 }
 
 impl DagOpsTrait for TrackedDagOps {
+    type Writer = VfsWriter;
+
     fn value_node(&mut self, value: &[u8], explain: &str) -> Result<i32, String> {
         let handle = self.value_nodes.borrow().len();
         self.value_nodes
@@ -106,11 +107,10 @@ impl DagOpsTrait for TrackedDagOps {
         Ok(fd)
     }
 
-    fn open_writer_to_pipe(&mut self, fd: i32) -> Result<Box<dyn Write>, String> {
+    fn open_writer_to_pipe(&mut self, fd: i32) -> Result<Self::Writer, String> {
         // In mock, fd is the handle
         let filename = format!("value.{fd}");
-        let writer = VfsWriter::new(self.vfs.clone(), filename);
-        Ok(Box::new(writer))
+        Ok(VfsWriter::new(self.vfs.clone(), filename))
     }
 }
 
@@ -176,5 +176,45 @@ impl TrackedDagOps {
         let alias_handle = parts[2].parse::<i32>().unwrap();
 
         (node_handle, alias_name, alias_handle)
+    }
+}
+
+// Dummy DagOps for tests that don't actually use dagops (e.g., FunCallsToChat)
+// but need a DagOpsTrait implementation with RcWriter
+pub struct DummyDagOps;
+
+impl DagOpsTrait for DummyDagOps {
+    type Writer = actor_runtime_mocked::RcWriter;
+
+    fn value_node(&mut self, _value: &[u8], _explain: &str) -> Result<i32, String> {
+        unimplemented!("Not used in tests that use DummyDagOps")
+    }
+
+    fn alias(&mut self, _alias: &str, _node_handle: i32) -> Result<i32, String> {
+        unimplemented!("Not used in tests that use DummyDagOps")
+    }
+
+    fn detach_from_alias(&mut self, _alias: &str) -> Result<(), String> {
+        unimplemented!("Not used in tests that use DummyDagOps")
+    }
+
+    fn instantiate_with_deps(
+        &mut self,
+        _workflow_name: &str,
+        _deps: impl Iterator<Item = (String, i32)>,
+    ) -> Result<i32, String> {
+        unimplemented!("Not used in tests that use DummyDagOps")
+    }
+
+    fn open_write_pipe(&mut self, _explain: Option<&str>) -> Result<i32, String> {
+        unimplemented!("Not used in tests that use DummyDagOps")
+    }
+
+    fn alias_fd(&mut self, _alias: &str, _fd: i32) -> Result<i32, String> {
+        unimplemented!("Not used in tests that use DummyDagOps")
+    }
+
+    fn open_writer_to_pipe(&mut self, _fd: i32) -> Result<Self::Writer, String> {
+        unimplemented!("Not used in tests that use DummyDagOps")
     }
 }

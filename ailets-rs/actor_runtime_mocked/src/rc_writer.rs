@@ -3,7 +3,7 @@
 //! # Example
 //! ```
 //! use actor_runtime_mocked::RcWriter;
-//! use std::io::Write;
+//! use embedded_io::Write;
 //!
 //! let mut writer = RcWriter::new();
 //! writer.write_all(b"Hello, world!").unwrap();
@@ -11,7 +11,6 @@
 //! ```
 
 use std::cell::RefCell;
-use std::io::{Result, Write};
 use std::rc::Rc;
 
 #[derive(Clone, Default)]
@@ -19,13 +18,18 @@ pub struct RcWriter {
     inner: Rc<RefCell<Vec<u8>>>,
 }
 
-impl Write for RcWriter {
-    fn write(&mut self, buf: &[u8]) -> Result<usize> {
-        self.inner.borrow_mut().write(buf)
+impl embedded_io::ErrorType for RcWriter {
+    type Error = embedded_io::ErrorKind;
+}
+
+impl embedded_io::Write for RcWriter {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        self.inner.borrow_mut().extend_from_slice(buf);
+        Ok(buf.len())
     }
 
-    fn flush(&mut self) -> Result<()> {
-        self.inner.borrow_mut().flush()
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
     }
 }
 

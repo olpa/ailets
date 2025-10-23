@@ -3,7 +3,7 @@ use gpt::fcw_chat::FunCallsToChat;
 use gpt::fcw_trait::FunCallsWrite;
 
 pub mod dagops_mock;
-use dagops_mock::TrackedDagOps;
+use dagops_mock::DummyDagOps;
 
 //
 // Tests for FunCallsToChat implementation
@@ -14,7 +14,7 @@ fn single_funcall() {
     // Arrange
     let writer = RcWriter::new();
     let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut dagops = TrackedDagOps::default();
+    let mut dagops = DummyDagOps;
 
     // Act
     chat_writer
@@ -40,7 +40,7 @@ fn several_funcalls() {
     // Arrange
     let writer = RcWriter::new();
     let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut dagops = TrackedDagOps::default();
+    let mut dagops = DummyDagOps;
 
     // First tool call
     chat_writer
@@ -78,7 +78,7 @@ fn long_arguments() {
     // Arrange
     let writer = RcWriter::new();
     let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut dagops = TrackedDagOps::default();
+    let mut dagops = DummyDagOps;
 
     // Act - arguments come in multiple chunks
     chat_writer
@@ -104,7 +104,7 @@ fn multiple_arguments_chunks() {
     // Arrange
     let writer = RcWriter::new();
     let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut dagops = TrackedDagOps::default();
+    let mut dagops = DummyDagOps;
 
     // Act - multiple calls to arguments_chunk join values to one arguments attribute
     chat_writer
@@ -132,7 +132,7 @@ fn empty_arguments() {
     // Arrange
     let writer = RcWriter::new();
     let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut dagops = TrackedDagOps::default();
+    let mut dagops = DummyDagOps;
 
     // Act - function call with empty arguments
     chat_writer
@@ -153,7 +153,7 @@ fn json_escaping_in_id_and_name() {
     // Arrange
     let writer = RcWriter::new();
     let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut dagops = TrackedDagOps::default();
+    let mut dagops = DummyDagOps;
 
     // Act - id and name contain JSON special characters that need escaping
     chat_writer
@@ -177,7 +177,7 @@ fn json_escaping_backslashes_in_id_and_name() {
     // Arrange
     let writer = RcWriter::new();
     let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut dagops = TrackedDagOps::default();
+    let mut dagops = DummyDagOps;
 
     // Act - test backslash escaping in id and name
     chat_writer
@@ -201,7 +201,7 @@ fn header_written_only_once() {
     // Arrange
     let writer = RcWriter::new();
     let mut chat_writer = FunCallsToChat::new(writer.clone());
-    let mut dagops = TrackedDagOps::default();
+    let mut dagops = DummyDagOps;
 
     // Act - multiple function calls should only write header once
     chat_writer

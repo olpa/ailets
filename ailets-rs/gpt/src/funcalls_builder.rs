@@ -26,9 +26,9 @@ pub struct FunCallsBuilder<D: DagOpsTrait> {
     /// DAG operations implementation
     dagops: D,
     /// Chat writer for function calls (lazily initialized)
-    chat_writer: Option<FunCallsToChat<Box<dyn std::io::Write>>>,
+    chat_writer: Option<FunCallsToChat<D::Writer>>,
     /// Tools writer for function calls (lazily initialized)
-    tools_writer: Option<FunCallsToTools>,
+    tools_writer: Option<FunCallsToTools<D::Writer>>,
 }
 
 impl<D: DagOpsTrait> FunCallsBuilder<D> {
@@ -48,7 +48,7 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
         }
     }
 
-    fn create_writers(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn create_writers(&mut self) -> Result<(), String> {
         if self.chat_writer.is_none() {
             let chat_writer = self.create_chat_output()?;
             self.chat_writer = Some(FunCallsToChat::new(chat_writer));
@@ -66,7 +66,7 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     ///
     /// # Errors
     /// Returns an error if the writers' `new_item` or `arguments_chunk` methods fail
-    fn try_call_new_item(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn try_call_new_item(&mut self) -> Result<(), String> {
         if !self.new_item_called {
             // First ever call: create writers
             if !self.detached {
@@ -111,7 +111,7 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     ///
     /// # Errors
     /// Returns error if "`end_item_if_direct`" is called without "`new_item`" being called first
-    pub fn end_item_if_direct(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn end_item_if_direct(&mut self) -> Result<(), String> {
         if !self.new_item_called {
             // Provide a more descriptive error message based on what's missing
             let missing_parts = match (&self.current_id, &self.current_name) {
@@ -122,8 +122,7 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
             };
             return Err(format!(
                 "At the end of a 'tool_calls' item, {missing_parts} should be already given"
-            )
-            .into());
+            ));
         }
 
         // Only end the item if we're in direct mode (not streaming mode)
@@ -143,7 +142,7 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     ///
     /// # Errors
     /// Returns error if "`enforce_end_item`" is called without "`new_item`" being called first
-    pub fn enforce_end_item(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn enforce_end_item(&mut self) -> Result<(), String> {
         if !self.new_item_called {
             return Err("enforce_end_item called without new_item being called first".into());
         }
@@ -168,13 +167,13 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     ///
     /// # Errors
     /// Returns error if validation fails or writing operation fails
-    pub fn index(&mut self, index: usize) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn index(&mut self, index: usize) -> Result<(), String> {
         // Validate streaming assumption: index progression
         match self.last_index {
             None => {
                 // First index must be 0
                 if index != 0 {
-                    return Err(format!("First tool call index must be 0, got {index}").into());
+                    return Err(format!("First tool call index must be 0, got {index}"));
                 }
             }
             Some(last) => {
@@ -182,14 +181,12 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
                 if index < last {
                     return Err(format!(
                         "Tool call index cannot decrease, max seen is {last}, got {index}"
-                    )
-                    .into());
+                    ));
                 }
                 if index > last + 1 {
                     return Err(format!(
                         "Tool call index cannot skip values, max seen is {last}, got {index}"
-                    )
-                    .into());
+                    ));
                 }
 
                 // If we're moving to a new index, end the current function call
@@ -216,7 +213,7 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     ///
     /// # Errors
     /// Returns error if validation fails
-    pub fn id(&mut self, id: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn id(&mut self, id: &str) -> Result<(), String> {
         // Check if ID is already set or new_item already called
         if self.new_item_called || self.current_id.is_some() {
             return Err("ID is already given".into());
@@ -233,7 +230,7 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     ///
     /// # Errors
     /// Returns error if validation fails or writing operation fails
-    pub fn name(&mut self, name: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn name(&mut self, name: &str) -> Result<(), String> {
         // Check if name is already set or new_item already called
         if self.new_item_called || self.current_name.is_some() {
             return Err("Name is already given".into());
@@ -250,7 +247,7 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     ///
     /// # Errors
     /// Returns error if writing operation fails
-    pub fn arguments_chunk(&mut self, args: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn arguments_chunk(&mut self, args: &[u8]) -> Result<(), String> {
         // Pass arguments directly to writers after new_item has been called
         if self.new_item_called {
             if let (Some(ref mut chat_writer), Some(ref mut tools_writer)) =
@@ -274,7 +271,7 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     ///
     /// # Errors
     /// Returns error if writing operation fails
-    pub fn end(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn end(&mut self) -> Result<(), String> {
         // "end" calls "end_item" if "end_item_if_direct" was not called
         if self.new_item_called {
             if let (Some(ref mut chat_writer), Some(ref mut tools_writer)) =
@@ -330,7 +327,7 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     ///
     /// # Errors
     /// Returns error if the detach operation fails
-    fn setup_loop_iteration_in_dag(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn setup_loop_iteration_in_dag(&mut self) -> Result<(), String> {
         self.dagops.detach_from_alias(".chat_messages")?;
         Ok(())
     }
@@ -339,9 +336,7 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     ///
     /// # Errors
     /// Returns error if DAG operations fail or if called before detachment
-    fn create_chat_output(
-        &mut self,
-    ) -> Result<Box<dyn std::io::Write>, Box<dyn std::error::Error>> {
+    fn create_chat_output(&mut self) -> Result<D::Writer, String> {
         if !self.detached {
             return Err(
                 "create_chat_output must be called after setup_loop_iteration_in_dag".into(),
@@ -349,8 +344,7 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
         }
         let fd = self.dagops.open_write_pipe(Some("tool calls spec"))?;
         self.dagops.alias_fd(".chat_messages", fd)?;
-        let writer = self.dagops.open_writer_to_pipe(fd)?;
-        Ok(writer)
+        self.dagops.open_writer_to_pipe(fd)
     }
 
     /// Handles final DAG workflow processing
@@ -360,7 +354,7 @@ impl<D: DagOpsTrait> FunCallsBuilder<D> {
     ///
     /// # Errors
     /// Returns error if DAG operations fail
-    pub fn end_workflow(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn end_workflow(&mut self) -> Result<(), String> {
         // Rerun model if we processed any tool calls (indicated by detached flag)
         if self.detached {
             let rerun_handle = self.dagops.instantiate_with_deps(

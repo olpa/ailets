@@ -53,8 +53,6 @@ Standard I/O handles enumeration:
 
 #### Error Handling
 - `err_to_heap_c_string(code: i32, message: &str) -> *const c_char`: Convert error to heap-allocated C-string with JSON format `{"code": code, "message": message}`
-- `extract_errno(e: &Box<dyn std::error::Error>) -> i32`: Extract errno from error, supporting std::io::Error and scan_json errors
-- `annotate_error(e: Box<dyn std::error::Error>, annotation: &str) -> Box<dyn std::error::Error>`: Add annotation to error messages
 
 ## DAG Operations
 
@@ -124,14 +122,10 @@ detach_from_alias("my_alias")?;
 
 ### Error Handling
 ```rust
-use actor_runtime::{err_to_heap_c_string, extract_errno, annotate_error};
+use actor_runtime::err_to_heap_c_string;
 
 // Convert error to C-string for host runtime
 let c_err = err_to_heap_c_string(-1, "Operation failed");
-// Extract errno from complex error types
-let errno = extract_errno(&error_box);
-// Add context to errors
-let annotated = annotate_error(error_box, "During file operation");
 ```
 
 ## Architecture Notes

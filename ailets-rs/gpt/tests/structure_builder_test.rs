@@ -1,4 +1,4 @@
-use std::io::Write;
+use embedded_io::Write;
 
 use actor_runtime_mocked::RcWriter;
 use dagops_mock::TrackedDagOps;

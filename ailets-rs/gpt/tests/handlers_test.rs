@@ -6,7 +6,6 @@ use gpt::structure_builder::StructureBuilder;
 pub mod dagops_mock;
 use scan_json::{RJiter, StreamOp};
 use std::cell::RefCell;
-use std::io::Cursor;
 
 #[test]
 fn content_writes_to_builder() {
@@ -16,13 +15,13 @@ fn content_writes_to_builder() {
     let builder = StructureBuilder::new(writer.clone(), tracked_dagops);
     let builder_cell = RefCell::new(builder);
 
-    let mut json_reader = Cursor::new(r#""hello world""#);
+    let json = r#""hello world""#;
+    let mut json_reader = json.as_bytes();
     let mut buffer = [0u8; 8];
-    let rjiter = RJiter::new(&mut json_reader, &mut buffer);
-    let rjiter_cell = RefCell::new(rjiter);
+    let mut rjiter = RJiter::new(&mut json_reader, &mut buffer);
 
     // Act
-    let result = on_content(&rjiter_cell, &builder_cell);
+    let result = on_content(&mut rjiter, &builder_cell);
 
     // Assert
     assert!(matches!(result, StreamOp::ValueIsConsumed));
@@ -38,13 +37,13 @@ fn content_can_be_null() {
     let builder = StructureBuilder::new(writer.clone(), tracked_dagops);
     let builder_cell = RefCell::new(builder);
 
-    let mut json_reader = Cursor::new(r#"null"#);
+    let json = r#"null"#;
+    let mut json_reader = json.as_bytes();
     let mut buffer = [0u8; 8];
-    let rjiter = RJiter::new(&mut json_reader, &mut buffer);
-    let rjiter_cell = RefCell::new(rjiter);
+    let mut rjiter = RJiter::new(&mut json_reader, &mut buffer);
 
     // Act
-    let result = on_content(&rjiter_cell, &builder_cell);
+    let result = on_content(&mut rjiter, &builder_cell);
 
     // Assert
     assert!(matches!(result, StreamOp::ValueIsConsumed));
@@ -61,13 +60,12 @@ fn on_function_string_field_invalid_value_type() {
 
     // Arrange: Setup with invalid JSON (number instead of string)
     let json = "true"; // Invalid - should be a string
-    let mut json_reader = Cursor::new(json);
+    let mut json_reader = json.as_bytes();
     let mut buffer = [0u8; 32];
-    let rjiter = RJiter::new(&mut json_reader, &mut buffer);
-    let rjiter_cell = RefCell::new(rjiter);
+    let mut rjiter = RJiter::new(&mut json_reader, &mut buffer);
 
     // Act
-    let result = on_function_name(&rjiter_cell, &builder_cell);
+    let result = on_function_name(&mut rjiter, &builder_cell);
 
     // Assert
     assert!(matches!(result, StreamOp::Error(_)));
@@ -82,13 +80,12 @@ fn on_function_index_invalid_value_type() {
     let builder_cell = RefCell::new(builder);
 
     let json = r#"3.14"#; // Invalid - should be an integer
-    let mut json_reader = Cursor::new(json);
+    let mut json_reader = json.as_bytes();
     let mut buffer = [0u8; 32];
-    let rjiter = RJiter::new(&mut json_reader, &mut buffer);
-    let rjiter_cell = RefCell::new(rjiter);
+    let mut rjiter = RJiter::new(&mut json_reader, &mut buffer);
 
     // Act
-    let result = on_function_index(&rjiter_cell, &builder_cell);
+    let result = on_function_index(&mut rjiter, &builder_cell);
 
     // Assert
     assert!(matches!(result, StreamOp::Error(_)));

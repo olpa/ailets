@@ -2,12 +2,12 @@
 extern crate hamcrest;
 use actor_runtime_mocked::add_file;
 use actor_runtime_mocked::RcWriter;
+use embedded_io::Write;
 use hamcrest::prelude::*;
 use messages_to_query::env_opts::EnvOpts;
 use messages_to_query::structure_builder::StructureBuilder;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::io::{Cursor, Write};
 
 fn wrap_boilerplate(s: &str) -> String {
     let s1 = r#"{ "url": "https://api.openai.com/v1/chat/completions","#;
@@ -51,7 +51,7 @@ fn happy_path_for_text() {
         .add_item_attribute(String::from("type"), String::from("text"))
         .unwrap();
     builder.begin_text().unwrap();
-    write!(builder.get_writer(), "Hello!").unwrap();
+    embedded_io::Write::write_all(builder.get_writer(), b"Hello!").unwrap();
     builder.end_text().unwrap();
     builder.end_item().unwrap();
     builder.end().unwrap();
@@ -73,19 +73,21 @@ fn many_messages_and_items() {
     begin_message(&mut builder, "user");
     builder.begin_item().unwrap();
     builder.begin_text().unwrap();
-    write!(builder.get_writer(), "Text item of the first message").unwrap();
+    embedded_io::Write::write_all(builder.get_writer(), b"Text item of the first message").unwrap();
     builder.end_text().unwrap();
     builder.end_item().unwrap();
 
     begin_message(&mut builder, "assistant");
     builder.begin_item().unwrap();
     builder.begin_text().unwrap();
-    write!(builder.get_writer(), "First item of the second message").unwrap();
+    embedded_io::Write::write_all(builder.get_writer(), b"First item of the second message")
+        .unwrap();
     builder.end_text().unwrap();
     builder.end_item().unwrap();
     builder.begin_item().unwrap();
     builder.begin_text().unwrap();
-    write!(builder.get_writer(), "Second item of the second message").unwrap();
+    embedded_io::Write::write_all(builder.get_writer(), b"Second item of the second message")
+        .unwrap();
     builder.end_text().unwrap();
     builder.end_item().unwrap();
     builder.end().unwrap();
@@ -161,7 +163,7 @@ fn auto_generate_type_text() {
 
     builder.begin_item().unwrap();
     builder.begin_text().unwrap();
-    write!(builder.get_writer(), "hello").unwrap();
+    embedded_io::Write::write_all(builder.get_writer(), b"hello").unwrap();
     builder.end_text().unwrap();
     builder.end_item().unwrap();
     builder.end().unwrap();
@@ -272,7 +274,7 @@ fn pass_preceding_attributes_to_text_output() {
         .unwrap();
 
     builder.begin_text().unwrap();
-    write!(builder.get_writer(), "Hello world").unwrap();
+    embedded_io::Write::write_all(builder.get_writer(), b"Hello world").unwrap();
     builder.end_text().unwrap();
     builder.end_item().unwrap();
     builder.end().unwrap();
@@ -299,7 +301,7 @@ fn pass_following_attributes_to_text_output() {
     begin_message(&mut builder, "user");
     builder.begin_item().unwrap();
     builder.begin_text().unwrap();
-    write!(builder.get_writer(), "Hello world").unwrap();
+    embedded_io::Write::write_all(builder.get_writer(), b"Hello world").unwrap();
     builder.end_text().unwrap();
 
     builder
@@ -574,7 +576,7 @@ fn mix_text_and_image_content() {
         .add_item_attribute(String::from("type"), String::from("text"))
         .unwrap();
     builder.begin_text().unwrap();
-    write!(builder.get_writer(), "Hello world").unwrap();
+    embedded_io::Write::write_all(builder.get_writer(), b"Hello world").unwrap();
     builder.end_text().unwrap();
     builder.end_item().unwrap();
 
@@ -597,7 +599,7 @@ fn mix_text_and_image_content() {
         .add_item_attribute(String::from("type"), String::from("text"))
         .unwrap();
     builder.begin_text().unwrap();
-    write!(builder.get_writer(), "Another text").unwrap();
+    embedded_io::Write::write_all(builder.get_writer(), b"Another text").unwrap();
     builder.end_text().unwrap();
     builder.end_item().unwrap();
 
@@ -635,7 +637,7 @@ fn function_call() {
         .add_item_attribute(String::from("name"), String::from("get_weather"))
         .unwrap();
     builder.begin_function_arguments().unwrap();
-    write!(builder.get_writer(), "foo,bar").unwrap();
+    embedded_io::Write::write_all(builder.get_writer(), b"foo,bar").unwrap();
     builder.end_function_arguments().unwrap();
     builder.end_item().unwrap();
     builder.end().unwrap();
@@ -788,15 +790,17 @@ fn happy_path_toolspecs() {
         "name": "another_function", "foo": "bar"
     }"#;
 
-    let mut cursor1 = Cursor::new(get_user_name_fn.as_bytes().to_vec());
+    let data1 = get_user_name_fn.as_bytes();
+    let mut cursor1 = data1.as_ref();
     let mut buffer1 = [0u8; 1024];
     let rjiter1 = scan_json::RJiter::new(&mut cursor1, &mut buffer1);
-    let rjiter_cell_1 = std::cell::RefCell::new(rjiter1);
+    let mut rjiter1 = rjiter1;
 
-    let mut cursor2 = Cursor::new(another_function_fn.as_bytes().to_vec());
+    let data2 = another_function_fn.as_bytes();
+    let mut cursor2 = data2.as_ref();
     let mut buffer2 = [0u8; 1024];
     let rjiter2 = scan_json::RJiter::new(&mut cursor2, &mut buffer2);
-    let rjiter_cell_2 = std::cell::RefCell::new(rjiter2);
+    let mut rjiter2 = rjiter2;
 
     //
     // Act
@@ -805,14 +809,14 @@ fn happy_path_toolspecs() {
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.toolspec_rjiter(&rjiter_cell_1).unwrap();
+    builder.toolspec_rjiter(&mut rjiter1).unwrap();
     builder.end_item().unwrap();
 
     builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.toolspec_rjiter(&rjiter_cell_2).unwrap();
+    builder.toolspec_rjiter(&mut rjiter2).unwrap();
     builder.end_item().unwrap();
 
     begin_message(&mut builder, "user");
@@ -821,7 +825,7 @@ fn happy_path_toolspecs() {
         .add_item_attribute(String::from("type"), String::from("text"))
         .unwrap();
     builder.begin_text().unwrap();
-    write!(builder.get_writer(), "Hello!").unwrap();
+    embedded_io::Write::write_all(builder.get_writer(), b"Hello!").unwrap();
     builder.end_text().unwrap();
     builder.end_item().unwrap();
 
@@ -873,10 +877,10 @@ fn toolspec_by_key() {
         toolspec_content.as_bytes().to_vec(),
     );
 
-    let mut cursor = Cursor::new(toolspec_content.as_bytes().to_vec());
+    let data = toolspec_content.as_bytes();
+    let mut cursor = data.as_ref();
     let mut buffer = [0u8; 1024];
-    let rjiter = scan_json::RJiter::new(&mut cursor, &mut buffer);
-    let rjiter_cell = std::cell::RefCell::new(rjiter);
+    let mut rjiter = scan_json::RJiter::new(&mut cursor, &mut buffer);
 
     //
     // Act
@@ -885,7 +889,7 @@ fn toolspec_by_key() {
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.toolspec_rjiter(&rjiter_cell).unwrap();
+    builder.toolspec_rjiter(&mut rjiter).unwrap();
     builder.end_item().unwrap();
     builder.end().unwrap();
 
@@ -968,20 +972,23 @@ fn several_toolspecs_to_one_block() {
     let toolspec2_content = r#"{"name":"tool2","description":"Second tool"}"#;
     let toolspec3_content = r#"{"name":"tool3","description":"Third tool"}"#;
 
-    let mut cursor1 = Cursor::new(toolspec1_content.as_bytes().to_vec());
+    let data1 = toolspec1_content.as_bytes();
+    let mut cursor1 = data1.as_ref();
     let mut buffer1 = [0u8; 1024];
     let rjiter1 = scan_json::RJiter::new(&mut cursor1, &mut buffer1);
-    let rjiter_cell_1 = std::cell::RefCell::new(rjiter1);
+    let mut rjiter1 = rjiter1;
 
-    let mut cursor2 = Cursor::new(toolspec2_content.as_bytes().to_vec());
+    let data2 = toolspec2_content.as_bytes();
+    let mut cursor2 = data2.as_ref();
     let mut buffer2 = [0u8; 1024];
     let rjiter2 = scan_json::RJiter::new(&mut cursor2, &mut buffer2);
-    let rjiter_cell_2 = std::cell::RefCell::new(rjiter2);
+    let mut rjiter2 = rjiter2;
 
-    let mut cursor3 = Cursor::new(toolspec3_content.as_bytes().to_vec());
+    let data3 = toolspec3_content.as_bytes();
+    let mut cursor3 = data3.as_ref();
     let mut buffer3 = [0u8; 1024];
     let rjiter3 = scan_json::RJiter::new(&mut cursor3, &mut buffer3);
-    let rjiter_cell_3 = std::cell::RefCell::new(rjiter3);
+    let mut rjiter3 = rjiter3;
 
     //
     // Act - Add several toolspecs to one block
@@ -990,21 +997,21 @@ fn several_toolspecs_to_one_block() {
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.toolspec_rjiter(&rjiter_cell_1).unwrap();
+    builder.toolspec_rjiter(&mut rjiter1).unwrap();
     builder.end_item().unwrap();
 
     builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.toolspec_rjiter(&rjiter_cell_2).unwrap();
+    builder.toolspec_rjiter(&mut rjiter2).unwrap();
     builder.end_item().unwrap();
 
     builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.toolspec_rjiter(&rjiter_cell_3).unwrap();
+    builder.toolspec_rjiter(&mut rjiter3).unwrap();
     builder.end_item().unwrap();
 
     builder.end().unwrap();
@@ -1039,15 +1046,17 @@ fn mix_toolspec_and_other_content() {
     let toolspec1_content = r#"{"name":"tool1","description":"First tool"}"#;
     let toolspec2_content = r#"{"name":"tool2","description":"Second tool"}"#;
 
-    let mut cursor1 = Cursor::new(toolspec1_content.as_bytes().to_vec());
+    let data1 = toolspec1_content.as_bytes();
+    let mut cursor1 = data1.as_ref();
     let mut buffer1 = [0u8; 1024];
     let rjiter1 = scan_json::RJiter::new(&mut cursor1, &mut buffer1);
-    let rjiter_cell_1 = std::cell::RefCell::new(rjiter1);
+    let mut rjiter1 = rjiter1;
 
-    let mut cursor2 = Cursor::new(toolspec2_content.as_bytes().to_vec());
+    let data2 = toolspec2_content.as_bytes();
+    let mut cursor2 = data2.as_ref();
     let mut buffer2 = [0u8; 1024];
     let rjiter2 = scan_json::RJiter::new(&mut cursor2, &mut buffer2);
-    let rjiter_cell_2 = std::cell::RefCell::new(rjiter2);
+    let mut rjiter2 = rjiter2;
 
     //
     // Act
@@ -1061,7 +1070,7 @@ fn mix_toolspec_and_other_content() {
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.toolspec_rjiter(&rjiter_cell_1).unwrap();
+    builder.toolspec_rjiter(&mut rjiter1).unwrap();
     builder.end_item().unwrap();
 
     // 3. some content: it should start "content"
@@ -1070,7 +1079,7 @@ fn mix_toolspec_and_other_content() {
         .add_item_attribute(String::from("type"), String::from("text"))
         .unwrap();
     builder.begin_text().unwrap();
-    write!(builder.get_writer(), "Some text content").unwrap();
+    embedded_io::Write::write_all(builder.get_writer(), b"Some text content").unwrap();
     builder.end_text().unwrap();
     builder.end_item().unwrap();
 
@@ -1079,7 +1088,7 @@ fn mix_toolspec_and_other_content() {
     builder
         .add_item_attribute(String::from("type"), String::from("toolspec"))
         .unwrap();
-    builder.toolspec_rjiter(&rjiter_cell_2).unwrap();
+    builder.toolspec_rjiter(&mut rjiter2).unwrap();
     builder.end_item().unwrap();
 
     // 5. a tool call item: it should start "tool_calls"
@@ -1169,7 +1178,7 @@ fn tool_role_requires_tool_call_id() {
         .add_item_attribute(String::from("type"), String::from("text"))
         .unwrap();
     builder.begin_text().unwrap();
-    write!(builder.get_writer(), "Tool response content").unwrap();
+    embedded_io::Write::write_all(builder.get_writer(), b"Tool response content").unwrap();
     builder.end_text().unwrap();
     builder.end_item().unwrap();
     builder.end().unwrap();

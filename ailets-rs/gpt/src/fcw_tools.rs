@@ -2,8 +2,8 @@
 
 use crate::dagops::DagOpsTrait;
 use crate::fcw_trait::FunCallsWrite;
+use actor_io::error_kind_to_str;
 use std::collections::HashMap;
-use std::io::Write;
 
 // TODO https://github.com/olpa/ailets/issues/185
 fn escape_json_string(s: &str) -> String {
@@ -18,12 +18,12 @@ fn escape_json_string(s: &str) -> String {
 ///
 /// The representation format for a tool spec is:
 /// `[{"type":"function","id":"...","name":"..."},{"arguments":"..."}]`
-pub struct FunCallsToTools {
-    tool_input_writer: Option<Box<dyn Write>>,
-    tool_spec_writer: Option<Box<dyn Write>>,
+pub struct FunCallsToTools<W: embedded_io::Write<Error = embedded_io::ErrorKind>> {
+    tool_input_writer: Option<W>,
+    tool_spec_writer: Option<W>,
 }
 
-impl FunCallsToTools {
+impl<W: embedded_io::Write<Error = embedded_io::ErrorKind>> FunCallsToTools<W> {
     /// Creates a new tool-integrated function call writer
     ///
     /// # Returns
@@ -37,13 +37,13 @@ impl FunCallsToTools {
     }
 }
 
-impl FunCallsWrite for FunCallsToTools {
-    fn new_item<T: DagOpsTrait>(
-        &mut self,
-        id: &str,
-        name: &str,
-        dagops: &mut T,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+impl<W: embedded_io::Write<Error = embedded_io::ErrorKind>> FunCallsWrite for FunCallsToTools<W> {
+    type Writer = W;
+
+    fn new_item<T>(&mut self, id: &str, name: &str, dagops: &mut T) -> Result<(), String>
+    where
+        T: DagOpsTrait<Writer = W>,
+    {
         // Create the tool input pipe and writer
         let explain = format!("tool input - {name}");
         let tool_input_fd = dagops.open_write_pipe(Some(&explain))?;
@@ -64,7 +64,7 @@ impl FunCallsWrite for FunCallsToTools {
         );
         tool_spec_writer
             .write_all(json_start.as_bytes())
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| error_kind_to_str(e).to_string())?;
 
         self.tool_spec_writer = Some(tool_spec_writer);
 
@@ -94,7 +94,7 @@ impl FunCallsWrite for FunCallsToTools {
         Ok(())
     }
 
-    fn arguments_chunk(&mut self, args: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    fn arguments_chunk(&mut self, args: &[u8]) -> Result<(), String> {
         // Write to tool input writer - unescape the JSON string first
         if let Some(ref mut writer) = self.tool_input_writer {
             // TODO https://github.com/olpa/ailets/issues/185
@@ -112,18 +112,20 @@ impl FunCallsWrite for FunCallsToTools {
 
             writer
                 .write_all(unescaped_str.as_bytes())
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| error_kind_to_str(e).to_string())?;
         }
 
         // Write to tool spec writer (arguments are already correctly escaped JSON)
         if let Some(ref mut writer) = self.tool_spec_writer {
-            writer.write_all(args).map_err(|e| e.to_string())?;
+            writer
+                .write_all(args)
+                .map_err(|e| error_kind_to_str(e).to_string())?;
         }
 
         Ok(())
     }
 
-    fn end_item(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn end_item(&mut self) -> Result<(), String> {
         // Drop/finalize the tool input writer
         drop(self.tool_input_writer.take());
 
@@ -133,19 +135,19 @@ impl FunCallsWrite for FunCallsToTools {
             let json_end = r#""}]"#;
             writer
                 .write_all(json_end.as_bytes())
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| error_kind_to_str(e).to_string())?;
             drop(writer);
         }
 
         Ok(())
     }
 
-    fn end(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    fn end(&mut self) -> Result<(), String> {
         Ok(())
     }
 }
 
-impl Default for FunCallsToTools {
+impl<W: embedded_io::Write<Error = embedded_io::ErrorKind>> Default for FunCallsToTools<W> {
     fn default() -> Self {
         Self::new()
     }

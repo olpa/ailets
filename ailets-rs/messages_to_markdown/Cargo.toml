@@ -11,8 +11,10 @@ crate-type = ["cdylib", "lib"]
 # crate-type = ["cdylib"]
 
 [dependencies]
-actor_io = { version = "0.1.0", path = "../actor_io" }
-actor_runtime = { version = "0.2.0", path = "../actor_runtime" }
-actor_runtime_mocked = { version = "0.1.0", path = "../actor_runtime_mocked" }
-getrandom = { version = "0.2", features = ["custom"] }
-scan_json = "1.1.0"
+actor_io.workspace = true
+actor_runtime.workspace = true
+actor_runtime_mocked.workspace = true
+getrandom.workspace = true
+scan_json.workspace = true
+u8pool.workspace = true
+embedded-io.workspace = true
