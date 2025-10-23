@@ -790,13 +790,13 @@ fn happy_path_toolspecs() {
         "name": "another_function", "foo": "bar"
     }"#;
 
-    let mut data1 = get_user_name_fn.as_bytes();
+    let data1 = get_user_name_fn.as_bytes();
     let mut cursor1 = data1.as_ref();
     let mut buffer1 = [0u8; 1024];
     let rjiter1 = scan_json::RJiter::new(&mut cursor1, &mut buffer1);
     let mut rjiter1 = rjiter1;
 
-    let mut data2 = another_function_fn.as_bytes();
+    let data2 = another_function_fn.as_bytes();
     let mut cursor2 = data2.as_ref();
     let mut buffer2 = [0u8; 1024];
     let rjiter2 = scan_json::RJiter::new(&mut cursor2, &mut buffer2);
@@ -877,7 +877,7 @@ fn toolspec_by_key() {
         toolspec_content.as_bytes().to_vec(),
     );
 
-    let mut data = toolspec_content.as_bytes();
+    let data = toolspec_content.as_bytes();
     let mut cursor = data.as_ref();
     let mut buffer = [0u8; 1024];
     let mut rjiter = scan_json::RJiter::new(&mut cursor, &mut buffer);
@@ -972,19 +972,19 @@ fn several_toolspecs_to_one_block() {
     let toolspec2_content = r#"{"name":"tool2","description":"Second tool"}"#;
     let toolspec3_content = r#"{"name":"tool3","description":"Third tool"}"#;
 
-    let mut data1 = toolspec1_content.as_bytes();
+    let data1 = toolspec1_content.as_bytes();
     let mut cursor1 = data1.as_ref();
     let mut buffer1 = [0u8; 1024];
     let rjiter1 = scan_json::RJiter::new(&mut cursor1, &mut buffer1);
     let mut rjiter1 = rjiter1;
 
-    let mut data2 = toolspec2_content.as_bytes();
+    let data2 = toolspec2_content.as_bytes();
     let mut cursor2 = data2.as_ref();
     let mut buffer2 = [0u8; 1024];
     let rjiter2 = scan_json::RJiter::new(&mut cursor2, &mut buffer2);
     let mut rjiter2 = rjiter2;
 
-    let mut data3 = toolspec3_content.as_bytes();
+    let data3 = toolspec3_content.as_bytes();
     let mut cursor3 = data3.as_ref();
     let mut buffer3 = [0u8; 1024];
     let rjiter3 = scan_json::RJiter::new(&mut cursor3, &mut buffer3);
@@ -1046,13 +1046,13 @@ fn mix_toolspec_and_other_content() {
     let toolspec1_content = r#"{"name":"tool1","description":"First tool"}"#;
     let toolspec2_content = r#"{"name":"tool2","description":"Second tool"}"#;
 
-    let mut data1 = toolspec1_content.as_bytes();
+    let data1 = toolspec1_content.as_bytes();
     let mut cursor1 = data1.as_ref();
     let mut buffer1 = [0u8; 1024];
     let rjiter1 = scan_json::RJiter::new(&mut cursor1, &mut buffer1);
     let mut rjiter1 = rjiter1;
 
-    let mut data2 = toolspec2_content.as_bytes();
+    let data2 = toolspec2_content.as_bytes();
     let mut cursor2 = data2.as_ref();
     let mut buffer2 = [0u8; 1024];
     let rjiter2 = scan_json::RJiter::new(&mut cursor2, &mut buffer2);

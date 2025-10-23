@@ -14,7 +14,10 @@ pub extern "C" fn execute() -> *const c_char {
         match reader.read(&mut buffer) {
             Ok(0) => break, // EOF
             Ok(n) => {
-                if let Err(e) = writer.write_all(&buffer[..n]) {
+                let Some(data) = buffer.get(..n) else {
+                    return err_to_heap_c_string(-1, "Buffer slice out of bounds");
+                };
+                if let Err(e) = writer.write_all(data) {
                     let error_msg = error_kind_to_str(e);
                     return err_to_heap_c_string(-1, &format!("Failed to write: {error_msg}"));
                 }
