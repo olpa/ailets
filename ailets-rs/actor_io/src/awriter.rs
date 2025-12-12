@@ -7,10 +7,14 @@
 //! ```no_run
 //! use embedded_io::Write;
 //! use actor_io::AWriter;
+//! # use actor_runtime::ActorRuntime;
+//! # fn example(runtime: &dyn ActorRuntime) -> Result<(), embedded_io::ErrorKind> {
 //!
-//! let mut writer = AWriter::new(c"example.txt").unwrap();
-//! writer.write_all(b"Hello, world!").unwrap();
-//! writer.close().unwrap();
+//! let mut writer = AWriter::new(runtime, "example.txt")?;
+//! writer.write_all(b"Hello, world!")?;
+//! writer.close()?;
+//! # Ok(())
+//! # }
 //! ```
 //!
 //! # Safety
@@ -18,35 +22,43 @@
 //! The safety guarantees are maintained through proper file descriptor management
 //! and automatic cleanup in the Drop implementation.
 
-use actor_runtime::{aclose, awrite, get_errno, open_write, StdHandle};
-use core::ffi::{c_int, c_uint, CStr};
+use actor_runtime::{ActorRuntime, StdHandle};
+use core::ffi::c_int;
 
 use crate::error_mapping::errno_to_error_kind;
 
-pub struct AWriter {
+pub struct AWriter<'a> {
     fd: Option<c_int>,
+    runtime: &'a dyn ActorRuntime,
 }
 
-impl AWriter {
+impl<'a> AWriter<'a> {
     /// Create a new `AWriter` instance for the specified file.
     ///
     /// # Errors
     /// Returns an error if the file could not be created.
-    pub fn new(filename: &CStr) -> Result<Self, embedded_io::ErrorKind> {
-        let fd = unsafe { open_write(filename.as_ptr()) };
+    pub fn new(
+        runtime: &'a dyn ActorRuntime,
+        filename: &str,
+    ) -> Result<Self, embedded_io::ErrorKind> {
+        let fd = runtime.open_write(filename);
         if fd < 0 {
-            let errno = unsafe { get_errno() };
+            let errno = runtime.get_errno();
             Err(errno_to_error_kind(errno))
         } else {
-            Ok(AWriter { fd: Some(fd) })
+            Ok(AWriter {
+                fd: Some(fd),
+                runtime,
+            })
         }
     }
 
     /// Create a new `AWriter` instance for the given standard handle.
     #[must_use]
-    pub fn new_from_std(handle: StdHandle) -> Self {
+    pub fn new_from_std(runtime: &'a dyn ActorRuntime, handle: StdHandle) -> Self {
         Self {
             fd: Some(handle as c_int),
+            runtime,
         }
     }
 
@@ -54,11 +66,17 @@ impl AWriter {
     ///
     /// # Errors
     /// Returns an error if the file descriptor is invalid (negative).
-    pub fn new_from_fd(fd: c_int) -> Result<Self, embedded_io::ErrorKind> {
+    pub fn new_from_fd(
+        runtime: &'a dyn ActorRuntime,
+        fd: c_int,
+    ) -> Result<Self, embedded_io::ErrorKind> {
         if fd < 0 {
             Err(embedded_io::ErrorKind::InvalidInput)
         } else {
-            Ok(AWriter { fd: Some(fd) })
+            Ok(AWriter {
+                fd: Some(fd),
+                runtime,
+            })
         }
     }
 
@@ -70,9 +88,9 @@ impl AWriter {
     /// Returns an error if closing fails.
     pub fn close(&mut self) -> Result<(), embedded_io::ErrorKind> {
         if let Some(fd) = self.fd {
-            let result = unsafe { aclose(fd) };
+            let result = self.runtime.aclose(fd);
             if result < 0 {
-                let errno = unsafe { get_errno() };
+                let errno = self.runtime.get_errno();
                 return Err(errno_to_error_kind(errno));
             }
             self.fd = None;
@@ -81,28 +99,26 @@ impl AWriter {
     }
 }
 
-impl Drop for AWriter {
+impl Drop for AWriter<'_> {
     fn drop(&mut self) {
         let _ = self.close();
     }
 }
 
-impl embedded_io::ErrorType for AWriter {
+impl embedded_io::ErrorType for AWriter<'_> {
     type Error = embedded_io::ErrorKind;
 }
 
-impl embedded_io::Write for AWriter {
+impl embedded_io::Write for AWriter<'_> {
     fn write(&mut self, buf: &[u8]) -> core::result::Result<usize, Self::Error> {
         let Some(fd) = self.fd else {
             return Ok(0);
         };
 
-        #[allow(clippy::cast_possible_truncation)]
-        let buf_len = buf.len() as c_uint;
-        let n = unsafe { awrite(fd, buf.as_ptr(), buf_len) };
+        let n = self.runtime.awrite(fd, buf);
 
         if n < 0 {
-            let errno = unsafe { get_errno() };
+            let errno = self.runtime.get_errno();
             return Err(errno_to_error_kind(errno));
         }
         #[allow(clippy::cast_sign_loss)]
@@ -114,7 +130,7 @@ impl embedded_io::Write for AWriter {
     }
 }
 
-impl core::fmt::Debug for AWriter {
+impl core::fmt::Debug for AWriter<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("AWriter").field("fd", &self.fd).finish()
     }
