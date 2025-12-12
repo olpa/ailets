@@ -2,11 +2,15 @@ use std::ffi::c_char;
 
 mod actor_runtime;
 mod dagops;
+mod ffi_runtime;
+mod runtime_trait;
 
 pub use actor_runtime::{aclose, aread, awrite, get_errno, open_read, open_write};
 pub use dagops::{
     alias, alias_fd, detach_from_alias, instantiate_with_deps, open_write_pipe, value_node,
 };
+pub use ffi_runtime::FfiActorRuntime;
+pub use runtime_trait::ActorRuntime;
 
 /// Standard handles for I/O streams.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
