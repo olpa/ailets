@@ -3,7 +3,7 @@ pub mod handlers;
 mod structure_builder;
 
 use actor_io::{AReader, AWriter};
-use actor_runtime::{err_to_heap_c_string, StdHandle};
+use actor_runtime::{err_to_heap_c_string, FfiActorRuntime, StdHandle};
 use handlers::on_content_text;
 use scan_json::matcher::StructuralPseudoname;
 use scan_json::rjiter::RJiter;
@@ -88,8 +88,9 @@ pub fn _messages_to_markdown<W: embedded_io::Write>(
 /// If anything goes wrong.
 #[no_mangle]
 pub extern "C" fn messages_to_markdown() -> *const c_char {
-    let reader = AReader::new_from_std(StdHandle::Stdin);
-    let writer = AWriter::new_from_std(StdHandle::Stdout);
+    let runtime = FfiActorRuntime::new();
+    let reader = AReader::new_from_std(&runtime, StdHandle::Stdin);
+    let writer = AWriter::new_from_std(&runtime, StdHandle::Stdout);
 
     #[allow(clippy::used_underscore_items)]
     if let Err(e) = _messages_to_markdown(reader, writer) {

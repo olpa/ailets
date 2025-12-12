@@ -1,5 +1,6 @@
 #[macro_use]
 extern crate hamcrest;
+use actor_runtime::FfiActorRuntime;
 use actor_runtime_mocked::add_file;
 use actor_runtime_mocked::RcWriter;
 use embedded_io::Write;
@@ -42,7 +43,8 @@ fn begin_message(builder: &mut StructureBuilder<RcWriter>, role: &str) {
 #[test]
 fn happy_path_for_text() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
 
     begin_message(&mut builder, "user");
@@ -67,7 +69,8 @@ fn happy_path_for_text() {
 #[test]
 fn many_messages_and_items() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
 
     begin_message(&mut builder, "user");
@@ -105,7 +108,8 @@ fn many_messages_and_items() {
 #[test]
 fn several_contentless_roles_create_several_messages_anyway() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
 
     begin_message(&mut builder, "user");
@@ -139,7 +143,8 @@ fn several_contentless_roles_create_several_messages_anyway() {
 #[test]
 fn reject_role_for_non_ctl_type() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
 
     builder.begin_item().unwrap();
@@ -157,7 +162,8 @@ fn reject_role_for_non_ctl_type() {
 #[test]
 fn auto_generate_type_text() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
     begin_message(&mut builder, "user");
 
@@ -177,7 +183,8 @@ fn auto_generate_type_text() {
 #[test]
 fn reject_unknown_type() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
     begin_message(&mut builder, "user");
 
@@ -197,7 +204,8 @@ fn reject_unknown_type() {
 #[test]
 fn reject_conflicting_type() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
     begin_message(&mut builder, "user");
 
@@ -225,7 +233,8 @@ fn reject_conflicting_type() {
 #[test]
 fn support_special_chars_and_unicode() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
 
     let special_chars = "Special chars: \"\\/\n\r\t\u{1F600}";
@@ -257,7 +266,8 @@ fn support_special_chars_and_unicode() {
 #[test]
 fn pass_preceding_attributes_to_text_output() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
 
     begin_message(&mut builder, "user");
@@ -295,7 +305,8 @@ fn pass_preceding_attributes_to_text_output() {
 #[test]
 fn pass_following_attributes_to_text_output() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
 
     begin_message(&mut builder, "user");
@@ -330,7 +341,8 @@ fn pass_following_attributes_to_text_output() {
 #[test]
 fn add_image_by_url() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
 
     begin_message(&mut builder, "user");
@@ -366,7 +378,8 @@ fn add_image_by_url() {
 #[test]
 fn add_image_by_key() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
 
     add_file(String::from("media/image-as-key-1.png"), b"hello".to_vec());
@@ -402,7 +415,8 @@ fn add_image_by_key() {
 #[test]
 fn image_as_key_file_not_found() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
 
     begin_message(&mut builder, "user");
@@ -428,7 +442,8 @@ fn image_as_key_file_not_found() {
 #[test]
 fn add_image_with_detail() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
 
     begin_message(&mut builder, "user");
@@ -466,7 +481,8 @@ fn add_image_with_detail() {
 #[test]
 fn image_key_with_adversarial_content_type() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
 
     add_file(String::from("media/test.png"), b"hello".to_vec());
@@ -508,7 +524,8 @@ fn image_key_with_adversarial_content_type() {
 #[test]
 fn image_settings_dont_transfer() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
 
     begin_message(&mut builder, "user");
@@ -566,7 +583,8 @@ fn image_settings_dont_transfer() {
 #[test]
 fn mix_text_and_image_content() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
     begin_message(&mut builder, "user");
 
@@ -622,7 +640,8 @@ fn mix_text_and_image_content() {
 #[test]
 fn function_call() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
 
     begin_message(&mut builder, "assistant");
@@ -652,7 +671,8 @@ fn function_call() {
 #[test]
 fn function_must_have_name() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
 
     begin_message(&mut builder, "assistant");
@@ -673,7 +693,8 @@ fn function_must_have_name() {
 #[test]
 fn mix_content_and_tool_calls() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
 
     begin_message(&mut builder, "assistant");
@@ -773,7 +794,8 @@ fn mix_content_and_tool_calls() {
 #[test]
 fn happy_path_toolspecs() {
     let writer = RcWriter::new();
-    let mut builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let mut builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
 
     let get_user_name_fn = r#"{
         "name": "get_user_name",
@@ -859,7 +881,8 @@ fn happy_path_toolspecs() {
 #[test]
 fn toolspec_by_key() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
 
     let toolspec_content = r#"{
@@ -914,7 +937,8 @@ fn toolspec_by_key() {
 #[test]
 fn toolspec_key_file_not_found() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
 
     builder.begin_item().unwrap();
@@ -935,7 +959,8 @@ fn toolspec_key_file_not_found() {
 #[test]
 fn toolspec_key_with_bad_json() {
     let writer = RcWriter::new();
-    let builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
     let mut builder = builder;
 
     // Add a file with invalid JSON content
@@ -965,7 +990,8 @@ fn toolspec_key_with_bad_json() {
 #[test]
 fn several_toolspecs_to_one_block() {
     let writer = RcWriter::new();
-    let mut builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let mut builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
 
     // Simple placeholder toolspecs (valid JSON)
     let toolspec1_content = r#"{"name":"tool1","description":"First tool"}"#;
@@ -1041,7 +1067,8 @@ fn several_toolspecs_to_one_block() {
 #[test]
 fn mix_toolspec_and_other_content() {
     let writer = RcWriter::new();
-    let mut builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let mut builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
 
     let toolspec1_content = r#"{"name":"tool1","description":"First tool"}"#;
     let toolspec2_content = r#"{"name":"tool2","description":"Second tool"}"#;
@@ -1160,7 +1187,8 @@ fn mix_toolspec_and_other_content() {
 #[test]
 fn tool_role_requires_tool_call_id() {
     let writer = RcWriter::new();
-    let mut builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let mut builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
 
     // Set up item_attr with tool_call_id before begin_message
     builder.begin_item().unwrap();
@@ -1193,7 +1221,8 @@ fn tool_role_requires_tool_call_id() {
 #[test]
 fn tool_role_missing_tool_call_id() {
     let writer = RcWriter::new();
-    let mut builder = StructureBuilder::new(writer.clone(), create_empty_env_opts());
+    let runtime = FfiActorRuntime::new();
+    let mut builder = StructureBuilder::new(writer.clone(), &runtime, create_empty_env_opts());
 
     // Set up item_attr without tool_call_id for tool role
     builder.begin_item().unwrap();
