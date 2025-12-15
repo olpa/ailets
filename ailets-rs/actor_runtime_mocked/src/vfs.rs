@@ -294,3 +294,74 @@ fn cstr_to_string(ptr: *const c_char) -> String {
 fn cbuf_to_slice<'a>(ptr: *mut u8, count: usize) -> &'a mut [u8] {
     unsafe { std::slice::from_raw_parts_mut(ptr, count) }
 }
+
+/// Wrapper around Vfs that implements the ActorRuntime trait
+pub struct VfsActorRuntime {
+    vfs: Vfs,
+}
+
+impl VfsActorRuntime {
+    #[must_use]
+    pub fn new() -> Self {
+        Self { vfs: Vfs::new() }
+    }
+
+    /// Delegate methods to the underlying Vfs for direct access
+    pub fn add_file(&self, name: String, buffer: Vec<u8>) {
+        self.vfs.add_file(name, buffer);
+    }
+
+    pub fn get_file(&self, name: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + '_>> {
+        self.vfs.get_file(name)
+    }
+
+    pub fn clear_mocks(&self) {
+        self.vfs.clear_mocks();
+    }
+
+    pub fn append_to_file(&self, name: &str, data: &[u8]) -> Result<(), String> {
+        self.vfs.append_to_file(name, data)
+    }
+}
+
+impl Default for VfsActorRuntime {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl actor_runtime::ActorRuntime for VfsActorRuntime {
+    fn get_errno(&self) -> c_int {
+        self.vfs.get_errno()
+    }
+
+    fn open_read(&self, name: &str) -> c_int {
+        let Ok(c_name) = std::ffi::CString::new(name) else {
+            // Can't set errno directly, but return -1 to indicate error
+            return -1;
+        };
+        self.vfs.open_read(c_name.as_ptr())
+    }
+
+    fn open_write(&self, name: &str) -> c_int {
+        let Ok(c_name) = std::ffi::CString::new(name) else {
+            // Can't set errno directly, but return -1 to indicate error
+            return -1;
+        };
+        self.vfs.open_write(c_name.as_ptr())
+    }
+
+    fn aread(&self, fd: c_int, buffer: &mut [u8]) -> c_int {
+        let count = c_uint::try_from(buffer.len()).unwrap_or(c_uint::MAX - 1);
+        self.vfs.aread(fd, buffer.as_mut_ptr(), count)
+    }
+
+    fn awrite(&self, fd: c_int, buffer: &[u8]) -> c_int {
+        let count = c_uint::try_from(buffer.len()).unwrap_or(c_uint::MAX - 1);
+        self.vfs.awrite(fd, buffer.as_ptr() as *mut u8, count)
+    }
+
+    fn aclose(&self, fd: c_int) -> c_int {
+        self.vfs.aclose(fd)
+    }
+}

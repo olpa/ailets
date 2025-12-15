@@ -10,5 +10,5 @@ crate-type = ["cdylib", "lib"]
 
 
 [dependencies]
+actor_runtime = { path = "../actor_runtime" }
 embedded-io.workspace = true
-lazy_static.workspace = true

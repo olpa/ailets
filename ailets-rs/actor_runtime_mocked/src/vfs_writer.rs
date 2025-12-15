@@ -1,16 +1,16 @@
 //! A writer implementation that writes to the VFS for value nodes.
 
-use crate::Vfs;
+use crate::VfsActorRuntime;
 use std::cell::RefCell;
 use std::rc::Rc;
 
 pub struct VfsWriter {
-    vfs: Rc<RefCell<Vfs>>,
+    vfs: Rc<RefCell<VfsActorRuntime>>,
     filename: String,
 }
 
 impl VfsWriter {
-    pub fn new(vfs: Rc<RefCell<Vfs>>, filename: String) -> Self {
+    pub fn new(vfs: Rc<RefCell<VfsActorRuntime>>, filename: String) -> Self {
         Self { vfs, filename }
     }
 
