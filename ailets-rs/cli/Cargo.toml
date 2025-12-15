@@ -10,3 +10,7 @@ name = "cli"
 path = "src/main.rs"
 
 [dependencies]
+cat = { path = "../cat" }
+actor_io = { path = "../actor_io" }
+actor_runtime = { path = "../actor_runtime" }
+embedded-io.workspace = true
