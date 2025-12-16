@@ -19,7 +19,6 @@ embedded-io = "0.7"
 getrandom = "0.3"
 serde = { version = "1.0.219", features = ["derive"] }
 linked-hash-map = "0.5.6"
-lazy_static = "1.5.0"
 hamcrest = "0.1.5"
 
 # Workspace crates
