@@ -16,8 +16,7 @@
 /// `aread`, `awrite`:
 /// - stops on `IO_INTERRUPT` or `WANT_ERROR`.
 /// - return an error if `WANT_ERROR` is encountered.
-use std::ffi::CStr;
-use std::os::raw::{c_char, c_int};
+use std::os::raw::c_int;
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Mutex;
 
@@ -249,36 +248,6 @@ impl Vfs {
     #[must_use]
     pub fn get_errno(&self) -> c_int {
         self.io_errno.load(Ordering::Relaxed)
-    }
-
-    #[allow(clippy::missing_panics_doc)]
-    #[allow(clippy::unwrap_used)]
-    pub fn dag_value_node(&self, value_ptr: *const u8, _explain_ptr: *const c_char) -> c_int {
-        self.io_errno.store(0, Ordering::Relaxed);
-        let mut files = self.files.lock().unwrap();
-
-        // Extract the content from the value pointer (assuming it's a C string)
-        let content = if value_ptr.is_null() {
-            Vec::new()
-        } else {
-            unsafe { CStr::from_ptr(value_ptr.cast::<c_char>()) }
-                .to_bytes()
-                .to_vec()
-        };
-
-        // Create a file named "value.N" where N is the future handle
-        let handle = files.len();
-        let name = format!("value.{handle}");
-
-        files.push(VfsFile {
-            name,
-            buffer: content,
-        });
-
-        c_int::try_from(handle).unwrap_or_else(|_| {
-            self.io_errno.store(-1, Ordering::Relaxed);
-            -1
-        })
     }
 }
 

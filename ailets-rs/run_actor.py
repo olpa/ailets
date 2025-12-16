@@ -3,7 +3,6 @@
 import argparse
 from dataclasses import dataclass
 import io
-import base64
 import sys
 from typing import Literal, Optional, Protocol, Sequence, cast
 import wasmer  # type: ignore[import-untyped]
@@ -227,16 +226,6 @@ class NodeRuntime:
         )
         return handle
 
-    def dag_value_node(self, value: str, explain: str) -> int:
-        try:
-            value = base64.b64decode(value).decode("utf-8")
-        except Exception as e:
-            print(f"dag_value_node: Error decoding value: {e}")
-            return -1
-        handle = len(value)
-        print(f"dag_value_node: value: {value}, explain: {explain} -> {handle}")
-        return handle
-
     def dag_alias(self, alias: str, node_handle: int) -> int:
         handle = len(alias)
         print(f"dag_alias: alias: {alias}, node_handle: {node_handle} -> {handle}")
@@ -312,12 +301,6 @@ def register_node_runtime(
             buf_to_str.get_string(deps),
         )
 
-    def dag_value_node(value: int, explain: int) -> int:
-        return nr.dag_value_node(
-            buf_to_str.get_string(value),
-            buf_to_str.get_string(explain),
-        )
-
     def dag_alias(alias: int, node_handle: int) -> int:
         return nr.dag_alias(
             buf_to_str.get_string(alias),
@@ -345,7 +328,6 @@ def register_node_runtime(
             "dag_instantiate_with_deps": wasmer.Function(
                 store, dag_instantiate_with_deps
             ),
-            "dag_value_node": wasmer.Function(store, dag_value_node),
             "dag_alias": wasmer.Function(store, dag_alias),
             "dag_detach_from_alias": wasmer.Function(store, dag_detach_from_alias),
             "open_write_pipe": wasmer.Function(store, open_write_pipe),
