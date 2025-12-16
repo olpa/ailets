@@ -17,7 +17,7 @@
 /// - stops on `IO_INTERRUPT` or `WANT_ERROR`.
 /// - return an error if `WANT_ERROR` is encountered.
 use std::ffi::CStr;
-use std::os::raw::{c_char, c_int, c_uint};
+use std::os::raw::{c_char, c_int};
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Mutex;
 
@@ -105,12 +105,10 @@ impl Vfs {
 
     #[allow(clippy::missing_panics_doc)]
     #[allow(clippy::unwrap_used)]
-    pub fn open_read(&self, name_ptr: *const c_char) -> c_int {
+    pub fn open_read(&self, name: &str) -> c_int {
         self.io_errno.store(0, Ordering::Relaxed);
         let files = self.files.lock().unwrap();
         let mut handles = self.handles.lock().unwrap();
-
-        let name = cstr_to_string(name_ptr);
 
         if let Some(vfs_index) = files.iter().position(|f| f.name == name) {
             let handle = FileHandle { vfs_index, pos: 0 };
@@ -124,19 +122,18 @@ impl Vfs {
 
     #[allow(clippy::missing_panics_doc)]
     #[allow(clippy::unwrap_used)]
-    pub fn open_write(&self, name_ptr: *const c_char) -> c_int {
+    pub fn open_write(&self, name: &str) -> c_int {
         self.io_errno.store(0, Ordering::Relaxed);
         let mut files = self.files.lock().unwrap();
         let mut handles = self.handles.lock().unwrap();
 
-        let name = cstr_to_string(name_ptr);
         if name.contains(WANT_ERROR) {
             self.io_errno.store(22, Ordering::Relaxed); // EINVAL - Invalid argument
             return -1;
         }
 
         files.push(VfsFile {
-            name,
+            name: name.to_string(),
             buffer: Vec::new(),
         });
         let vfs_index = files.len() - 1;
@@ -153,7 +150,7 @@ impl Vfs {
 
     #[allow(clippy::missing_panics_doc)]
     #[allow(clippy::unwrap_used)]
-    pub fn aread(&self, fd: c_int, buffer_ptr: *mut u8, count: c_uint) -> c_int {
+    pub fn aread(&self, fd: c_int, buffer: &mut [u8]) -> c_int {
         self.io_errno.store(0, Ordering::Relaxed);
         let files = self.files.lock().unwrap();
         let mut handles = self.handles.lock().unwrap();
@@ -171,10 +168,9 @@ impl Vfs {
             return -1;
         };
 
-        let buffer = cbuf_to_slice(buffer_ptr, count as usize);
         let pos_before = handle.pos;
         let remaining = file.buffer.len() - pos_before;
-        let to_copy = std::cmp::min(count as usize, remaining);
+        let to_copy = std::cmp::min(buffer.len(), remaining);
 
         for b in buffer.iter_mut().take(to_copy) {
             #[allow(clippy::indexing_slicing)]
@@ -195,7 +191,7 @@ impl Vfs {
 
     #[allow(clippy::missing_panics_doc)]
     #[allow(clippy::unwrap_used)]
-    pub fn awrite(&self, fd: c_int, buffer_ptr: *mut u8, count: c_uint) -> c_int {
+    pub fn awrite(&self, fd: c_int, buffer: &[u8]) -> c_int {
         self.io_errno.store(0, Ordering::Relaxed);
         let mut files = self.files.lock().unwrap();
         let handles = self.handles.lock().unwrap();
@@ -213,10 +209,9 @@ impl Vfs {
             return -1;
         };
 
-        let buffer = cbuf_to_slice(buffer_ptr, count as usize);
         let len_before = file.buffer.len();
 
-        for &ch in buffer.iter().take(count as usize) {
+        for &ch in buffer {
             if ch == WANT_ERROR as u8 {
                 self.io_errno.store(5, Ordering::Relaxed); // EIO - I/O error
                 return -1;
@@ -287,15 +282,7 @@ impl Vfs {
     }
 }
 
-fn cstr_to_string(ptr: *const c_char) -> String {
-    unsafe { CStr::from_ptr(ptr) }.to_string_lossy().to_string()
-}
-
-fn cbuf_to_slice<'a>(ptr: *mut u8, count: usize) -> &'a mut [u8] {
-    unsafe { std::slice::from_raw_parts_mut(ptr, count) }
-}
-
-/// Wrapper around Vfs that implements the ActorRuntime trait
+/// Wrapper around Vfs that implements the `ActorRuntime` trait
 pub struct VfsActorRuntime {
     vfs: Vfs,
 }
@@ -311,6 +298,9 @@ impl VfsActorRuntime {
         self.vfs.add_file(name, buffer);
     }
 
+    /// Get file content from the virtual file system
+    /// # Errors
+    /// Returns an error if the file is not found
     pub fn get_file(&self, name: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + '_>> {
         self.vfs.get_file(name)
     }
@@ -319,6 +309,9 @@ impl VfsActorRuntime {
         self.vfs.clear_mocks();
     }
 
+    /// Append data to an existing file
+    /// # Errors
+    /// Returns an error if the file is not found
     pub fn append_to_file(&self, name: &str, data: &[u8]) -> Result<(), String> {
         self.vfs.append_to_file(name, data)
     }
@@ -336,29 +329,19 @@ impl actor_runtime::ActorRuntime for VfsActorRuntime {
     }
 
     fn open_read(&self, name: &str) -> c_int {
-        let Ok(c_name) = std::ffi::CString::new(name) else {
-            // Can't set errno directly, but return -1 to indicate error
-            return -1;
-        };
-        self.vfs.open_read(c_name.as_ptr())
+        self.vfs.open_read(name)
     }
 
     fn open_write(&self, name: &str) -> c_int {
-        let Ok(c_name) = std::ffi::CString::new(name) else {
-            // Can't set errno directly, but return -1 to indicate error
-            return -1;
-        };
-        self.vfs.open_write(c_name.as_ptr())
+        self.vfs.open_write(name)
     }
 
     fn aread(&self, fd: c_int, buffer: &mut [u8]) -> c_int {
-        let count = c_uint::try_from(buffer.len()).unwrap_or(c_uint::MAX - 1);
-        self.vfs.aread(fd, buffer.as_mut_ptr(), count)
+        self.vfs.aread(fd, buffer)
     }
 
     fn awrite(&self, fd: c_int, buffer: &[u8]) -> c_int {
-        let count = c_uint::try_from(buffer.len()).unwrap_or(c_uint::MAX - 1);
-        self.vfs.awrite(fd, buffer.as_ptr() as *mut u8, count)
+        self.vfs.awrite(fd, buffer)
     }
 
     fn aclose(&self, fd: c_int) -> c_int {
