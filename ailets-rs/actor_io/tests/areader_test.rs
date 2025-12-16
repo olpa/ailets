@@ -1,5 +1,5 @@
 use actor_io::{error_kind_to_str, AReader};
-use actor_runtime_mocked::{add_file, clear_mocks};
+use actor_runtime_mocked::VfsActorRuntime;
 use embedded_io::Read;
 
 /// Helper function to read all content from a reader into a Vec<u8>
@@ -20,11 +20,10 @@ fn read_to_end(reader: &mut AReader) -> Result<Vec<u8>, embedded_io::ErrorKind> 
 
 #[test]
 fn happy_path() {
-    clear_mocks();
+    let runtime = VfsActorRuntime::new();
+    runtime.add_file("test".to_string(), b"foo".to_vec());
 
-    add_file("test".to_string(), b"foo".to_vec());
-
-    let mut reader = AReader::new(c"test").expect("Should create reader");
+    let mut reader = AReader::new(&runtime, "test").expect("Should create reader");
     let result = read_to_end(&mut reader).expect("Should read all content");
 
     assert_eq!(result, b"foo");
@@ -32,14 +31,13 @@ fn happy_path() {
 
 #[test]
 fn read_in_chunks() {
-    clear_mocks();
-
-    add_file(
+    let runtime = VfsActorRuntime::new();
+    runtime.add_file(
         "chunks".to_string(),
         b"first\nchunk\nthird\nfourth\nfifth".to_vec(),
     );
 
-    let mut reader = AReader::new(c"chunks").expect("Should create reader");
+    let mut reader = AReader::new(&runtime, "chunks").expect("Should create reader");
     let mut buf = [0u8; 10];
 
     // Read first chunk manually
@@ -58,9 +56,8 @@ fn read_in_chunks() {
 
 #[test]
 fn cant_open_nonexistent_file() {
-    clear_mocks();
-
-    let err = AReader::new(c"no-such-file").expect_err("Should fail to create reader");
+    let runtime = VfsActorRuntime::new();
+    let err = AReader::new(&runtime, "no-such-file").expect_err("Should fail to create reader");
 
     assert_eq!(
         err,
@@ -72,14 +69,13 @@ fn cant_open_nonexistent_file() {
 
 #[test]
 fn read_error() {
-    clear_mocks();
-
-    add_file(
+    let runtime = VfsActorRuntime::new();
+    runtime.add_file(
         "fname-read-error".to_string(),
         vec![actor_runtime_mocked::WANT_ERROR as u8],
     );
 
-    let mut reader = AReader::new(c"fname-read-error").expect("Should create reader");
+    let mut reader = AReader::new(&runtime, "fname-read-error").expect("Should create reader");
     let mut buf = [0u8; 10];
 
     reader.read(&mut buf).expect_err("Should fail to read");

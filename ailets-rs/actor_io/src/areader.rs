@@ -5,49 +5,61 @@
 //! ```no_run
 //! use embedded_io::Read;
 //! use actor_io::AReader;
+//! # use actor_runtime::ActorRuntime;
+//! # fn example(runtime: &dyn ActorRuntime) -> Result<(), embedded_io::ErrorKind> {
 //!
-//! let mut reader = AReader::new(c"my_stream").unwrap();
+//! let mut reader = AReader::new(runtime, "my_stream")?;
 //!
 //! let mut buffer = Vec::new();
 //! let mut chunk = [0u8; 1024];
 //! loop {
-//!     let n = reader.read(&mut chunk).unwrap();
+//!     let n = reader.read(&mut chunk)?;
 //!     if n == 0 {
 //!         break;
 //!     }
 //!     buffer.extend_from_slice(&chunk[..n]);
 //! }
+//! # Ok(())
+//! # }
 //! ```
 
-use actor_runtime::{aclose, aread, get_errno, open_read, StdHandle};
-use core::ffi::{c_int, c_uint, CStr};
+use actor_runtime::{ActorRuntime, StdHandle};
+use core::ffi::c_int;
 
 use crate::error_mapping::errno_to_error_kind;
 
-pub struct AReader {
+pub struct AReader<'a> {
     fd: Option<c_int>,
+    runtime: &'a dyn ActorRuntime,
 }
 
-impl AReader {
+impl<'a> AReader<'a> {
     /// Create a new `AReader` for the given stream name.
     ///
     /// # Errors
     /// Returns an error if opening fails.
-    pub fn new(filename: &CStr) -> Result<Self, embedded_io::ErrorKind> {
-        let fd = unsafe { open_read(filename.as_ptr()) };
+    pub fn new(
+        runtime: &'a dyn ActorRuntime,
+        filename: &str,
+    ) -> Result<Self, embedded_io::ErrorKind> {
+        let fd = runtime.open_read(filename);
         if fd < 0 {
-            let errno = unsafe { get_errno() };
+            let errno = runtime.get_errno();
             Err(errno_to_error_kind(errno))
         } else {
-            Ok(AReader { fd: Some(fd) })
+            Ok(AReader {
+                fd: Some(fd),
+                runtime,
+            })
         }
     }
 
     /// Create a new `AReader` for the given standard handle.
     #[must_use]
-    pub fn new_from_std(handle: StdHandle) -> Self {
+    pub fn new_from_std(runtime: &'a dyn ActorRuntime, handle: StdHandle) -> Self {
         Self {
             fd: Some(handle as c_int),
+            runtime,
         }
     }
 
@@ -59,9 +71,9 @@ impl AReader {
     /// Returns an error if closing fails.
     pub fn close(&mut self) -> Result<(), embedded_io::ErrorKind> {
         if let Some(fd) = self.fd {
-            let result = unsafe { aclose(fd) };
+            let result = self.runtime.aclose(fd);
             if result < 0 {
-                let errno = unsafe { get_errno() };
+                let errno = self.runtime.get_errno();
                 return Err(errno_to_error_kind(errno));
             }
             self.fd = None;
@@ -70,28 +82,26 @@ impl AReader {
     }
 }
 
-impl Drop for AReader {
+impl Drop for AReader<'_> {
     fn drop(&mut self) {
         let _ = self.close();
     }
 }
 
-impl embedded_io::ErrorType for AReader {
+impl embedded_io::ErrorType for AReader<'_> {
     type Error = embedded_io::ErrorKind;
 }
 
-impl embedded_io::Read for AReader {
+impl embedded_io::Read for AReader<'_> {
     fn read(&mut self, buf: &mut [u8]) -> core::result::Result<usize, Self::Error> {
         let Some(fd) = self.fd else {
             return Ok(0);
         };
 
-        #[allow(clippy::cast_possible_truncation)]
-        let buf_len = buf.len() as c_uint;
-        let bytes_read = unsafe { aread(fd, buf.as_mut_ptr(), buf_len) };
+        let bytes_read = self.runtime.aread(fd, buf);
 
         if bytes_read < 0 {
-            let errno = unsafe { get_errno() };
+            let errno = self.runtime.get_errno();
             return Err(errno_to_error_kind(errno));
         }
 
@@ -100,7 +110,7 @@ impl embedded_io::Read for AReader {
     }
 }
 
-impl core::fmt::Debug for AReader {
+impl core::fmt::Debug for AReader<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("AReader").field("fd", &self.fd).finish()
     }

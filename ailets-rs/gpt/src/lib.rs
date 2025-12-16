@@ -8,7 +8,7 @@ pub mod handlers;
 pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
-use actor_runtime::{err_to_heap_c_string, StdHandle};
+use actor_runtime::{err_to_heap_c_string, FfiActorRuntime, StdHandle};
 use dagops::{DagOps, DagOpsTrait};
 
 use handlers::{
@@ -198,7 +198,7 @@ pub fn _process_gpt<W: embedded_io::Write, D: DagOpsTrait>(
 
     let mut builder = builder_cell.borrow_mut();
     builder.end_message().map_err(|e| format!("{e:?}"))?;
-    builder.end().map_err(|e| e.to_string())?;
+    builder.end().map_err(|e| e.clone())?;
 
     Ok(())
 }
@@ -207,10 +207,11 @@ pub fn _process_gpt<W: embedded_io::Write, D: DagOpsTrait>(
 /// If anything goes wrong.
 #[no_mangle]
 pub extern "C" fn process_gpt() -> *const c_char {
-    let reader = AReader::new_from_std(StdHandle::Stdin);
-    let writer = AWriter::new_from_std(StdHandle::Stdout);
+    let runtime = FfiActorRuntime::new();
+    let reader = AReader::new_from_std(&runtime, StdHandle::Stdin);
+    let writer = AWriter::new_from_std(&runtime, StdHandle::Stdout);
 
-    let dagops = DagOps::new();
+    let dagops = DagOps::new(&runtime);
     #[allow(clippy::used_underscore_items)]
     if let Err(e) = _process_gpt(reader, writer, dagops) {
         return err_to_heap_c_string(1, &format!("Failed to process GPT: {e}"));

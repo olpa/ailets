@@ -34,8 +34,9 @@ const DEFAULT_MODEL: &str = "gpt-4o-mini";
 const DEFAULT_CONTENT_TYPE: &str = "application/json";
 const DEFAULT_AUTHORIZATION: &str = "Bearer {{secret}}";
 
-pub struct StructureBuilder<W: embedded_io::Write> {
+pub struct StructureBuilder<'a, W: embedded_io::Write, R: actor_runtime::ActorRuntime> {
     writer: W,
+    runtime: &'a R,
     env_opts: EnvOpts,
     divider: Divider,
     item_attr: Option<LinkedHashMap<String, String>>,
@@ -44,9 +45,10 @@ pub struct StructureBuilder<W: embedded_io::Write> {
     last_error: Option<ActionError>,
 }
 
-impl<W: embedded_io::Write> StructureBuilder<W> {
-    pub fn new(writer: W, env_opts: EnvOpts) -> Self {
+impl<'a, W: embedded_io::Write, R: actor_runtime::ActorRuntime> StructureBuilder<'a, W, R> {
+    pub fn new(writer: W, runtime: &'a R, env_opts: EnvOpts) -> Self {
         StructureBuilder {
+            runtime,
             writer,
             env_opts,
             divider: Divider::Prologue,
@@ -676,8 +678,7 @@ impl<W: embedded_io::Write> StructureBuilder<W> {
         embedded_io::Write::write_all(&mut self.writer, b";base64,")
             .map_err(|e| format!("image key `{key}`: {e:?}"))?;
 
-        let cname = std::ffi::CString::new(key).map_err(|e| format!("{e:?}"))?;
-        let mut blob_reader = AReader::new(&cname).map_err(err_kind_to_str)?;
+        let mut blob_reader = AReader::new(self.runtime, key).map_err(err_kind_to_str)?;
 
         // Read all data and encode as base64
         let mut data = Vec::new();
@@ -743,8 +744,7 @@ impl<W: embedded_io::Write> StructureBuilder<W> {
     /// - invalid JSON in file
     pub fn toolspec_key(&mut self, key: &str) -> Result<(), String> {
         let err_kind_to_str = |e: embedded_io::ErrorKind| format!("toolspec key `{key}`: {e:?}");
-        let cname = std::ffi::CString::new(key).map_err(|e| format!("{e:?}"))?;
-        let mut blob_reader = AReader::new(&cname).map_err(err_kind_to_str)?;
+        let mut blob_reader = AReader::new(self.runtime, key).map_err(err_kind_to_str)?;
         let mut buffer = [0u8; 1024];
         let mut rjiter = scan_json::RJiter::new(&mut blob_reader, &mut buffer);
 
@@ -755,9 +755,9 @@ impl<W: embedded_io::Write> StructureBuilder<W> {
     /// - I/O
     /// - state machine errors
     /// - invalid JSON in rjiter
-    pub fn toolspec_rjiter<R: embedded_io::Read>(
+    pub fn toolspec_rjiter<RD: embedded_io::Read>(
         &mut self,
-        rjiter: &mut scan_json::RJiter<R>,
+        rjiter: &mut scan_json::RJiter<RD>,
     ) -> Result<(), String> {
         self.toolspec_rjiter_with_key(rjiter, None)
     }
@@ -766,9 +766,9 @@ impl<W: embedded_io::Write> StructureBuilder<W> {
     /// - I/O
     /// - state machine errors
     /// - invalid JSON in rjiter
-    fn toolspec_rjiter_with_key<R: embedded_io::Read>(
+    fn toolspec_rjiter_with_key<RD: embedded_io::Read>(
         &mut self,
-        rjiter: &mut scan_json::RJiter<R>,
+        rjiter: &mut scan_json::RJiter<RD>,
         key: Option<&str>,
     ) -> Result<(), String> {
         if let ItemAttrMode::RaiseError = self.item_attr_mode {

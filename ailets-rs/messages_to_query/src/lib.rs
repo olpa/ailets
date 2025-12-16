@@ -4,7 +4,7 @@ mod handlers;
 pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
-use actor_runtime::{err_to_heap_c_string, StdHandle};
+use actor_runtime::{err_to_heap_c_string, ActorRuntime, FfiActorRuntime, StdHandle};
 use env_opts::EnvOpts;
 use scan_json::matcher::StructuralPseudoname;
 use scan_json::stack::ContextIter;
@@ -20,12 +20,13 @@ const BUFFER_SIZE: u32 = 1024;
 /// If anything goes wrong.
 #[allow(clippy::used_underscore_items)]
 #[allow(clippy::too_many_lines)]
-pub fn _process_messages<W: embedded_io::Write>(
+pub fn _process_messages<W: embedded_io::Write, R: ActorRuntime>(
     mut reader: impl embedded_io::Read,
     writer: W,
+    runtime: &R,
     env_opts: EnvOpts,
 ) -> Result<(), String> {
-    let builder = StructureBuilder::new(writer, env_opts);
+    let builder = StructureBuilder::new(writer, runtime, env_opts);
     let builder_cell = RefCell::new(builder);
 
     let mut buffer = vec![0u8; BUFFER_SIZE as usize];
@@ -33,8 +34,8 @@ pub fn _process_messages<W: embedded_io::Write>(
 
     let find_action = |structural_pseudoname: StructuralPseudoname,
                        context: ContextIter,
-                       _baton: &RefCell<StructureBuilder<W>>|
-     -> Option<Action<&RefCell<StructureBuilder<W>>, _>> {
+                       _baton: &RefCell<StructureBuilder<W, R>>|
+     -> Option<Action<&RefCell<StructureBuilder<W, R>>, _>> {
         // Message boilerplate
         if iter_match(
             || ["role".as_bytes(), "#array".as_bytes()],
@@ -142,8 +143,8 @@ pub fn _process_messages<W: embedded_io::Write>(
 
     let find_end_action = |structural_pseudoname: StructuralPseudoname,
                            context: ContextIter,
-                           _baton: &RefCell<StructureBuilder<W>>|
-     -> Option<EndAction<&RefCell<StructureBuilder<W>>>> {
+                           _baton: &RefCell<StructureBuilder<W, R>>|
+     -> Option<EndAction<&RefCell<StructureBuilder<W, R>>>> {
         if iter_match(
             || ["#array".as_bytes(), "#top".as_bytes()],
             structural_pseudoname,
@@ -186,17 +187,18 @@ pub fn _process_messages<W: embedded_io::Write>(
 /// If anything goes wrong.
 #[no_mangle]
 pub extern "C" fn process_messages() -> *const c_char {
-    let reader = AReader::new_from_std(StdHandle::Stdin);
-    let writer = AWriter::new_from_std(StdHandle::Stdout);
+    let runtime = FfiActorRuntime::new();
+    let reader = AReader::new_from_std(&runtime, StdHandle::Stdin);
+    let writer = AWriter::new_from_std(&runtime, StdHandle::Stdout);
 
-    let env_reader = AReader::new_from_std(StdHandle::Env);
+    let env_reader = AReader::new_from_std(&runtime, StdHandle::Env);
     let env_opts = match EnvOpts::envopts_from_reader(env_reader) {
         Ok(opts) => opts,
         Err(e) => return err_to_heap_c_string(1, &e),
     };
 
     #[allow(clippy::used_underscore_items)]
-    if let Err(e) = _process_messages(reader, writer, env_opts) {
+    if let Err(e) = _process_messages(reader, writer, &runtime, env_opts) {
         return err_to_heap_c_string(1, &format!("Messages to query: {e}"));
     }
     std::ptr::null()

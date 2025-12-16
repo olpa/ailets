@@ -1,5 +1,5 @@
 [workspace]
-members = [ "actor_io", "actor_runtime", "actor_runtime_mocked", "cat", "gpt", "messages_to_query", "messages_to_markdown" ]
+members = [ "actor_io", "actor_runtime", "actor_runtime_mocked", "cat", "cli", "gpt", "messages_to_query", "messages_to_markdown" ]
 resolver = "2"
 
 [workspace.package]
@@ -10,16 +10,15 @@ license = "MIT"
 
 [workspace.dependencies]
 # External dependencies
-scan_json = "2.0.0"
+scan_json = "2.1"
 u8pool = "1.1.2"
-rjiter = "1.2.0"
+rjiter = "1.3"
 serde_json = "1.0.140"
 base64 = "0.22.1"
-embedded-io = "0.6"
+embedded-io = "0.7"
 getrandom = "0.3"
 serde = { version = "1.0.219", features = ["derive"] }
 linked-hash-map = "0.5.6"
-lazy_static = "1.5.0"
 hamcrest = "0.1.5"
 
 # Workspace crates

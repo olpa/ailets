@@ -2,12 +2,12 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use actor_runtime_mocked::{Vfs, VfsWriter};
+use actor_runtime_mocked::{VfsActorRuntime, VfsWriter};
 use gpt::dagops::DagOpsTrait;
 
 #[derive(Clone)]
 pub struct TrackedDagOps {
-    vfs: Rc<RefCell<Vfs>>,
+    vfs: Rc<RefCell<VfsActorRuntime>>,
     value_nodes: Rc<RefCell<Vec<String>>>,
     aliases: Rc<RefCell<Vec<String>>>,
     detached: Rc<RefCell<Vec<String>>>,
@@ -17,7 +17,7 @@ pub struct TrackedDagOps {
 impl Default for TrackedDagOps {
     fn default() -> Self {
         Self {
-            vfs: Rc::new(RefCell::new(Vfs::new())),
+            vfs: Rc::new(RefCell::new(VfsActorRuntime::new())),
             value_nodes: Rc::new(RefCell::new(Vec::new())),
             aliases: Rc::new(RefCell::new(Vec::new())),
             detached: Rc::new(RefCell::new(Vec::new())),

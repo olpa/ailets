@@ -54,24 +54,20 @@ pub trait DagOpsTrait {
     fn open_writer_to_pipe(&mut self, fd: i32) -> Result<Self::Writer, String>;
 }
 
-pub struct DagOps;
+pub struct DagOps<'a> {
+    runtime: &'a actor_runtime::FfiActorRuntime,
+}
 
-impl DagOps {
+impl<'a> DagOps<'a> {
     /// Creates a new DAG operations instance
     #[must_use]
-    pub fn new() -> Self {
-        Self
+    pub fn new(runtime: &'a actor_runtime::FfiActorRuntime) -> Self {
+        Self { runtime }
     }
 }
 
-impl Default for DagOps {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl DagOpsTrait for DagOps {
-    type Writer = actor_io::AWriter;
+impl<'a> DagOpsTrait for DagOps<'a> {
+    type Writer = actor_io::AWriter<'a>;
 
     fn value_node(&mut self, value: &[u8], explain: &str) -> Result<i32, String> {
         actor_runtime::value_node(value, explain)
@@ -102,6 +98,7 @@ impl DagOpsTrait for DagOps {
     }
 
     fn open_writer_to_pipe(&mut self, fd: i32) -> Result<Self::Writer, String> {
-        actor_io::AWriter::new_from_fd(fd).map_err(|e| actor_io::error_kind_to_str(e).to_string())
+        actor_io::AWriter::new_from_fd(self.runtime, fd)
+            .map_err(|e| actor_io::error_kind_to_str(e).to_string())
     }
 }

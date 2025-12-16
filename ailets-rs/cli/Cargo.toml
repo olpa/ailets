@@ -1,14 +1,16 @@
 [package]
-name = "actor_runtime_mocked"
-version = "0.2.0"
+name = "cli"
+version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
-[lib]
-crate-type = ["cdylib", "lib"]
-
+[[bin]]
+name = "cli"
+path = "src/main.rs"
 
 [dependencies]
+cat = { path = "../cat" }
+actor_io = { path = "../actor_io" }
 actor_runtime = { path = "../actor_runtime" }
 embedded-io.workspace = true
