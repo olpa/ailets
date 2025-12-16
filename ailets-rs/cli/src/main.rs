@@ -4,7 +4,7 @@ use std::io::Write as StdWrite;
 use std::os::raw::c_int;
 
 /// Stub `ActorRuntime` implementation for CLI testing
-/// - Reads return "Hello, world!" data
+/// - Reads return data from provided slice
 /// - Writes go to stdout
 struct StubActorRuntime {
     data: &'static [u8],
@@ -12,9 +12,9 @@ struct StubActorRuntime {
 }
 
 impl StubActorRuntime {
-    fn new() -> Self {
+    fn new(data: &'static [u8]) -> Self {
         Self {
-            data: b"Hello, world!\n",
+            data,
             position: std::cell::Cell::new(0),
         }
     }
@@ -75,11 +75,22 @@ impl ActorRuntime for StubActorRuntime {
 }
 
 fn main() {
-    let runtime = StubActorRuntime::new();
-    let reader = AReader::new_from_std(&runtime, StdHandle::Stdin);
-    let writer = AWriter::new_from_std(&runtime, StdHandle::Stdout);
+    // First cat::execute - prints "Hello, "
+    let runtime1 = StubActorRuntime::new(b"Hello, ");
+    let reader1 = AReader::new_from_std(&runtime1, StdHandle::Stdin);
+    let writer1 = AWriter::new_from_std(&runtime1, StdHandle::Stdout);
 
-    match cat::execute(reader, writer) {
+    match cat::execute(reader1, writer1) {
+        Ok(()) => {}
+        Err(e) => eprintln!("Error: {e}"),
+    }
+
+    // Second cat::execute - prints "world!"
+    let runtime2 = StubActorRuntime::new(b"world!\n");
+    let reader2 = AReader::new_from_std(&runtime2, StdHandle::Stdin);
+    let writer2 = AWriter::new_from_std(&runtime2, StdHandle::Stdout);
+
+    match cat::execute(reader2, writer2) {
         Ok(()) => {}
         Err(e) => eprintln!("Error: {e}"),
     }
