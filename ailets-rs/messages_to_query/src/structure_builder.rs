@@ -34,9 +34,9 @@ const DEFAULT_MODEL: &str = "gpt-4o-mini";
 const DEFAULT_CONTENT_TYPE: &str = "application/json";
 const DEFAULT_AUTHORIZATION: &str = "Bearer {{secret}}";
 
-pub struct StructureBuilder<'a, W: embedded_io::Write> {
+pub struct StructureBuilder<'a, W: embedded_io::Write, R: actor_runtime::ActorRuntime> {
     writer: W,
-    runtime: &'a actor_runtime::FfiActorRuntime,
+    runtime: &'a R,
     env_opts: EnvOpts,
     divider: Divider,
     item_attr: Option<LinkedHashMap<String, String>>,
@@ -45,8 +45,8 @@ pub struct StructureBuilder<'a, W: embedded_io::Write> {
     last_error: Option<ActionError>,
 }
 
-impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
-    pub fn new(writer: W, runtime: &'a actor_runtime::FfiActorRuntime, env_opts: EnvOpts) -> Self {
+impl<'a, W: embedded_io::Write, R: actor_runtime::ActorRuntime> StructureBuilder<'a, W, R> {
+    pub fn new(writer: W, runtime: &'a R, env_opts: EnvOpts) -> Self {
         StructureBuilder {
             runtime,
             writer,
@@ -755,9 +755,9 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
     /// - I/O
     /// - state machine errors
     /// - invalid JSON in rjiter
-    pub fn toolspec_rjiter<R: embedded_io::Read>(
+    pub fn toolspec_rjiter<RD: embedded_io::Read>(
         &mut self,
-        rjiter: &mut scan_json::RJiter<R>,
+        rjiter: &mut scan_json::RJiter<RD>,
     ) -> Result<(), String> {
         self.toolspec_rjiter_with_key(rjiter, None)
     }
@@ -766,9 +766,9 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
     /// - I/O
     /// - state machine errors
     /// - invalid JSON in rjiter
-    fn toolspec_rjiter_with_key<R: embedded_io::Read>(
+    fn toolspec_rjiter_with_key<RD: embedded_io::Read>(
         &mut self,
-        rjiter: &mut scan_json::RJiter<R>,
+        rjiter: &mut scan_json::RJiter<RD>,
         key: Option<&str>,
     ) -> Result<(), String> {
         if let ItemAttrMode::RaiseError = self.item_attr_mode {

@@ -198,7 +198,7 @@ pub fn _process_gpt<W: embedded_io::Write, D: DagOpsTrait>(
 
     let mut builder = builder_cell.borrow_mut();
     builder.end_message().map_err(|e| format!("{e:?}"))?;
-    builder.end().map_err(|e| e.to_string())?;
+    builder.end().map_err(|e| e.clone())?;
 
     Ok(())
 }

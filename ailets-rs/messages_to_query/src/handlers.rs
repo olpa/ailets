@@ -5,9 +5,9 @@ use scan_json::RJiter;
 use scan_json::StreamOp;
 use std::cell::RefCell;
 
-pub fn on_role<W: embedded_io::Write, R: embedded_io::Read>(
-    rjiter: &mut RJiter<R>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
+pub fn on_role<W: embedded_io::Write, RD: embedded_io::Read, RT: actor_runtime::ActorRuntime>(
+    rjiter: &mut RJiter<RD>,
+    builder_cell: &RefCell<StructureBuilder<W, RT>>,
 ) -> StreamOp {
     let role = match rjiter.next_str() {
         Ok(r) => r,
@@ -26,9 +26,13 @@ pub fn on_role<W: embedded_io::Write, R: embedded_io::Read>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_item_begin<W: embedded_io::Write, R: embedded_io::Read>(
-    _rjiter: &mut RJiter<R>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
+pub fn on_item_begin<
+    W: embedded_io::Write,
+    RD: embedded_io::Read,
+    RT: actor_runtime::ActorRuntime,
+>(
+    _rjiter: &mut RJiter<RD>,
+    builder_cell: &RefCell<StructureBuilder<W, RT>>,
 ) -> StreamOp {
     let mut builder = builder_cell.borrow_mut();
     if let Err(e) = builder.begin_item() {
@@ -39,8 +43,8 @@ pub fn on_item_begin<W: embedded_io::Write, R: embedded_io::Read>(
     StreamOp::None
 }
 
-pub fn on_item_end<W: embedded_io::Write>(
-    builder_cell: &RefCell<StructureBuilder<W>>,
+pub fn on_item_end<W: embedded_io::Write, RT: actor_runtime::ActorRuntime>(
+    builder_cell: &RefCell<StructureBuilder<W, RT>>,
 ) -> Result<(), &'static str> {
     let mut builder = builder_cell.borrow_mut();
     if let Err(e) = builder.end_item() {
@@ -51,9 +55,13 @@ pub fn on_item_end<W: embedded_io::Write>(
     Ok(())
 }
 
-pub fn on_item_type<W: embedded_io::Write, R: embedded_io::Read>(
-    rjiter: &mut RJiter<R>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
+pub fn on_item_type<
+    W: embedded_io::Write,
+    RD: embedded_io::Read,
+    RT: actor_runtime::ActorRuntime,
+>(
+    rjiter: &mut RJiter<RD>,
+    builder_cell: &RefCell<StructureBuilder<W, RT>>,
 ) -> StreamOp {
     let item_type = match rjiter.next_str() {
         Ok(t) => t,
@@ -72,9 +80,9 @@ pub fn on_item_type<W: embedded_io::Write, R: embedded_io::Read>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_text<W: embedded_io::Write, R: embedded_io::Read>(
-    rjiter: &mut RJiter<R>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
+pub fn on_text<W: embedded_io::Write, RD: embedded_io::Read, RT: actor_runtime::ActorRuntime>(
+    rjiter: &mut RJiter<RD>,
+    builder_cell: &RefCell<StructureBuilder<W, RT>>,
 ) -> StreamOp {
     let peeked = match rjiter.peek() {
         Ok(p) => p,
@@ -119,9 +127,13 @@ pub fn on_text<W: embedded_io::Write, R: embedded_io::Read>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_image_url<W: embedded_io::Write, R: embedded_io::Read>(
-    rjiter: &mut RJiter<R>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
+pub fn on_image_url<
+    W: embedded_io::Write,
+    RD: embedded_io::Read,
+    RT: actor_runtime::ActorRuntime,
+>(
+    rjiter: &mut RJiter<RD>,
+    builder_cell: &RefCell<StructureBuilder<W, RT>>,
 ) -> StreamOp {
     let peeked = match rjiter.peek() {
         Ok(p) => p,
@@ -166,9 +178,13 @@ pub fn on_image_url<W: embedded_io::Write, R: embedded_io::Read>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_image_key<W: embedded_io::Write, R: embedded_io::Read>(
-    rjiter: &mut RJiter<R>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
+pub fn on_image_key<
+    W: embedded_io::Write,
+    RD: embedded_io::Read,
+    RT: actor_runtime::ActorRuntime,
+>(
+    rjiter: &mut RJiter<RD>,
+    builder_cell: &RefCell<StructureBuilder<W, RT>>,
 ) -> StreamOp {
     let key = match rjiter.next_str() {
         Ok(k) => k,
@@ -187,9 +203,13 @@ pub fn on_image_key<W: embedded_io::Write, R: embedded_io::Read>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_image_content_type<W: embedded_io::Write, R: embedded_io::Read>(
-    rjiter: &mut RJiter<R>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
+pub fn on_image_content_type<
+    W: embedded_io::Write,
+    RD: embedded_io::Read,
+    RT: actor_runtime::ActorRuntime,
+>(
+    rjiter: &mut RJiter<RD>,
+    builder_cell: &RefCell<StructureBuilder<W, RT>>,
 ) -> StreamOp {
     let value = match rjiter.next_str() {
         Ok(v) => v,
@@ -208,9 +228,13 @@ pub fn on_image_content_type<W: embedded_io::Write, R: embedded_io::Read>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_image_detail<W: embedded_io::Write, R: embedded_io::Read>(
-    rjiter: &mut RJiter<R>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
+pub fn on_image_detail<
+    W: embedded_io::Write,
+    RD: embedded_io::Read,
+    RT: actor_runtime::ActorRuntime,
+>(
+    rjiter: &mut RJiter<RD>,
+    builder_cell: &RefCell<StructureBuilder<W, RT>>,
 ) -> StreamOp {
     let value = match rjiter.next_str() {
         Ok(v) => v,
@@ -229,9 +253,9 @@ pub fn on_image_detail<W: embedded_io::Write, R: embedded_io::Read>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_func_id<W: embedded_io::Write, R: embedded_io::Read>(
-    rjiter: &mut RJiter<R>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
+pub fn on_func_id<W: embedded_io::Write, RD: embedded_io::Read, RT: actor_runtime::ActorRuntime>(
+    rjiter: &mut RJiter<RD>,
+    builder_cell: &RefCell<StructureBuilder<W, RT>>,
 ) -> StreamOp {
     let id = match rjiter.next_str() {
         Ok(i) => i,
@@ -250,9 +274,13 @@ pub fn on_func_id<W: embedded_io::Write, R: embedded_io::Read>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_func_name<W: embedded_io::Write, R: embedded_io::Read>(
-    rjiter: &mut RJiter<R>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
+pub fn on_func_name<
+    W: embedded_io::Write,
+    RD: embedded_io::Read,
+    RT: actor_runtime::ActorRuntime,
+>(
+    rjiter: &mut RJiter<RD>,
+    builder_cell: &RefCell<StructureBuilder<W, RT>>,
 ) -> StreamOp {
     let name = match rjiter.next_str() {
         Ok(n) => n,
@@ -271,9 +299,13 @@ pub fn on_func_name<W: embedded_io::Write, R: embedded_io::Read>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_func_arguments<W: embedded_io::Write, R: embedded_io::Read>(
-    rjiter: &mut RJiter<R>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
+pub fn on_func_arguments<
+    W: embedded_io::Write,
+    RD: embedded_io::Read,
+    RT: actor_runtime::ActorRuntime,
+>(
+    rjiter: &mut RJiter<RD>,
+    builder_cell: &RefCell<StructureBuilder<W, RT>>,
 ) -> StreamOp {
     let peeked = match rjiter.peek() {
         Ok(p) => p,
@@ -318,9 +350,13 @@ pub fn on_func_arguments<W: embedded_io::Write, R: embedded_io::Read>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_toolspec<W: embedded_io::Write, R: embedded_io::Read>(
-    rjiter: &mut RJiter<R>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
+pub fn on_toolspec<
+    W: embedded_io::Write,
+    RD: embedded_io::Read,
+    RT: actor_runtime::ActorRuntime,
+>(
+    rjiter: &mut RJiter<RD>,
+    builder_cell: &RefCell<StructureBuilder<W, RT>>,
 ) -> StreamOp {
     let mut builder = builder_cell.borrow_mut();
     if let Err(e) = builder.toolspec_rjiter(rjiter) {
@@ -331,9 +367,13 @@ pub fn on_toolspec<W: embedded_io::Write, R: embedded_io::Read>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_toolspec_key<W: embedded_io::Write, R: embedded_io::Read>(
-    rjiter: &mut RJiter<R>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
+pub fn on_toolspec_key<
+    W: embedded_io::Write,
+    RD: embedded_io::Read,
+    RT: actor_runtime::ActorRuntime,
+>(
+    rjiter: &mut RJiter<RD>,
+    builder_cell: &RefCell<StructureBuilder<W, RT>>,
 ) -> StreamOp {
     let key = match rjiter.next_str() {
         Ok(k) => k,
@@ -352,9 +392,13 @@ pub fn on_toolspec_key<W: embedded_io::Write, R: embedded_io::Read>(
     StreamOp::ValueIsConsumed
 }
 
-pub fn on_tool_call_id<W: embedded_io::Write, R: embedded_io::Read>(
-    rjiter: &mut RJiter<R>,
-    builder_cell: &RefCell<StructureBuilder<W>>,
+pub fn on_tool_call_id<
+    W: embedded_io::Write,
+    RD: embedded_io::Read,
+    RT: actor_runtime::ActorRuntime,
+>(
+    rjiter: &mut RJiter<RD>,
+    builder_cell: &RefCell<StructureBuilder<W, RT>>,
 ) -> StreamOp {
     let value = match rjiter.next_str() {
         Ok(v) => v,

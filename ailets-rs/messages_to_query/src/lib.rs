@@ -4,7 +4,7 @@ mod handlers;
 pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
-use actor_runtime::{err_to_heap_c_string, FfiActorRuntime, StdHandle};
+use actor_runtime::{err_to_heap_c_string, ActorRuntime, FfiActorRuntime, StdHandle};
 use env_opts::EnvOpts;
 use scan_json::matcher::StructuralPseudoname;
 use scan_json::stack::ContextIter;
@@ -20,10 +20,10 @@ const BUFFER_SIZE: u32 = 1024;
 /// If anything goes wrong.
 #[allow(clippy::used_underscore_items)]
 #[allow(clippy::too_many_lines)]
-pub fn _process_messages<W: embedded_io::Write>(
+pub fn _process_messages<W: embedded_io::Write, R: ActorRuntime>(
     mut reader: impl embedded_io::Read,
     writer: W,
-    runtime: &FfiActorRuntime,
+    runtime: &R,
     env_opts: EnvOpts,
 ) -> Result<(), String> {
     let builder = StructureBuilder::new(writer, runtime, env_opts);
@@ -34,8 +34,8 @@ pub fn _process_messages<W: embedded_io::Write>(
 
     let find_action = |structural_pseudoname: StructuralPseudoname,
                        context: ContextIter,
-                       _baton: &RefCell<StructureBuilder<W>>|
-     -> Option<Action<&RefCell<StructureBuilder<W>>, _>> {
+                       _baton: &RefCell<StructureBuilder<W, R>>|
+     -> Option<Action<&RefCell<StructureBuilder<W, R>>, _>> {
         // Message boilerplate
         if iter_match(
             || ["role".as_bytes(), "#array".as_bytes()],
@@ -143,8 +143,8 @@ pub fn _process_messages<W: embedded_io::Write>(
 
     let find_end_action = |structural_pseudoname: StructuralPseudoname,
                            context: ContextIter,
-                           _baton: &RefCell<StructureBuilder<W>>|
-     -> Option<EndAction<&RefCell<StructureBuilder<W>>>> {
+                           _baton: &RefCell<StructureBuilder<W, R>>|
+     -> Option<EndAction<&RefCell<StructureBuilder<W, R>>>> {
         if iter_match(
             || ["#array".as_bytes(), "#top".as_bytes()],
             structural_pseudoname,

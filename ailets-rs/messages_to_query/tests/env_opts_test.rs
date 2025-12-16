@@ -1,7 +1,6 @@
 #[macro_use]
 extern crate hamcrest;
-use actor_runtime::FfiActorRuntime;
-use actor_runtime_mocked::RcWriter;
+use actor_runtime_mocked::{RcWriter, VfsActorRuntime};
 use hamcrest::prelude::*;
 use messages_to_query::env_opts::EnvOpts;
 use messages_to_query::structure_builder::StructureBuilder;
@@ -38,7 +37,7 @@ fn test_env_opts_invalid_json() {
 
 fn _build_with_env_opts(env_opts: EnvOpts) -> String {
     let writer = RcWriter::new();
-    let runtime = FfiActorRuntime::new();
+    let runtime = VfsActorRuntime::new();
     let mut builder = StructureBuilder::new(writer.clone(), &runtime, env_opts);
     builder.begin_item().unwrap();
     builder

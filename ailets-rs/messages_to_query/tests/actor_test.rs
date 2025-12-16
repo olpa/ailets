@@ -1,7 +1,6 @@
 #[macro_use]
 extern crate hamcrest;
-use actor_runtime::FfiActorRuntime;
-use actor_runtime_mocked::{add_file, RcWriter};
+use actor_runtime_mocked::{RcWriter, VfsActorRuntime};
 use hamcrest::prelude::*;
 use messages_to_query::_process_messages;
 use messages_to_query::env_opts::EnvOpts;
@@ -36,7 +35,7 @@ fn test_text_items() {
     let reader = fixture_content.as_bytes();
     let writer = RcWriter::new();
 
-    let runtime = FfiActorRuntime::new();
+    let runtime = VfsActorRuntime::new();
     _process_messages(reader, writer.clone(), &runtime, create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
@@ -61,7 +60,7 @@ fn special_symbols_in_text() {
     let reader = input.as_bytes();
     let writer = RcWriter::new();
 
-    let runtime = FfiActorRuntime::new();
+    let runtime = VfsActorRuntime::new();
     _process_messages(reader, writer.clone(), &runtime, create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
@@ -83,7 +82,7 @@ fn image_url_as_is() {
     let reader = input.as_bytes();
     let writer = RcWriter::new();
 
-    let runtime = FfiActorRuntime::new();
+    let runtime = VfsActorRuntime::new();
     _process_messages(reader, writer.clone(), &runtime, create_empty_env_opts()).unwrap();
     let output_json: Value =
         serde_json::from_str(&writer.get_output().as_str()).unwrap_or_else(|e| {
@@ -104,9 +103,8 @@ fn image_as_key() {
                        {"image_key": "media/image-as-key-2.png"}]"#;
     let reader = input.as_bytes();
     let writer = RcWriter::new();
-    add_file(String::from("media/image-as-key-2.png"), b"hello".to_vec());
-
-    let runtime = FfiActorRuntime::new();
+    let runtime = VfsActorRuntime::new();
+    runtime.add_file(String::from("media/image-as-key-2.png"), b"hello".to_vec());
     _process_messages(reader, writer.clone(), &runtime, create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
@@ -126,7 +124,7 @@ fn mix_text_and_image() {
     let reader = input.as_bytes();
     let writer = RcWriter::new();
 
-    let runtime = FfiActorRuntime::new();
+    let runtime = VfsActorRuntime::new();
     _process_messages(reader, writer.clone(), &runtime, create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
@@ -150,7 +148,7 @@ fn regression_one_item_not_two() {
     let reader = input.as_bytes();
     let writer = RcWriter::new();
 
-    let runtime = FfiActorRuntime::new();
+    let runtime = VfsActorRuntime::new();
     _process_messages(reader, writer.clone(), &runtime, create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
@@ -169,7 +167,7 @@ fn function_call() {
     let reader = input.as_bytes();
     let writer = RcWriter::new();
 
-    let runtime = FfiActorRuntime::new();
+    let runtime = VfsActorRuntime::new();
     _process_messages(reader, writer.clone(), &runtime, create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
@@ -190,7 +188,7 @@ fn special_symbols_in_function_arguments() {
     let reader = input.as_bytes();
     let writer = RcWriter::new();
 
-    let runtime = FfiActorRuntime::new();
+    let runtime = VfsActorRuntime::new();
     _process_messages(reader, writer.clone(), &runtime, create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
@@ -231,7 +229,7 @@ fn tool_specification() {
     let reader = input.as_bytes();
     let writer = RcWriter::new();
 
-    let runtime = FfiActorRuntime::new();
+    let runtime = VfsActorRuntime::new();
     _process_messages(reader, writer.clone(), &runtime, create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");
@@ -261,10 +259,6 @@ fn toolspec_by_key() {
             "additionalProperties": false
         }
     }"#;
-    add_file(
-        String::from("tools/get_user_name.json"),
-        toolspec_content.as_bytes().to_vec(),
-    );
     let input = r#"[{"type": "toolspec"}, {"toolspec_key": "tools/get_user_name.json"}]
            [{"type": "ctl"}, {"role": "user"}]
            "#;
@@ -273,7 +267,11 @@ fn toolspec_by_key() {
     let writer = RcWriter::new();
 
     // Act
-    let runtime = FfiActorRuntime::new();
+    let runtime = VfsActorRuntime::new();
+    runtime.add_file(
+        String::from("tools/get_user_name.json"),
+        toolspec_content.as_bytes().to_vec(),
+    );
     _process_messages(reader, writer.clone(), &runtime, create_empty_env_opts()).unwrap();
 
     // Assert
@@ -297,7 +295,7 @@ fn tool_role_with_tool_call_id() {
     let reader = input.as_bytes();
     let writer = RcWriter::new();
 
-    let runtime = FfiActorRuntime::new();
+    let runtime = VfsActorRuntime::new();
     _process_messages(reader, writer.clone(), &runtime, create_empty_env_opts()).unwrap();
     let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
         .expect("Failed to parse output as JSON");

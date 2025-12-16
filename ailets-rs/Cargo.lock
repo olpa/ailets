@@ -23,8 +23,8 @@ dependencies = [
 name = "actor_runtime_mocked"
 version = "0.2.0"
 dependencies = [
+ "actor_runtime",
  "embedded-io",
- "lazy_static",
 ]
 
 [[package]]
