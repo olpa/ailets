@@ -163,6 +163,57 @@ impl NotificationQueue {
         self.inner.wait(handle.id).await
     }
 
+    /// Get the internal lock for atomic condition-check + register operations.
+    ///
+    /// Use this to atomically check a condition and register a waiter.
+    pub fn get_lock(&self) -> parking_lot::RwLockWriteGuard<'_, FxHashMap<u64, HandleEntry>> {
+        self.inner.handles.write()
+    }
+
+    /// Register a waiter under lock and return receiver for waiting.
+    ///
+    /// This is the synchronous part of the wait operation. Call this while
+    /// holding a lock to atomically check a condition and register a waiter.
+    ///
+    /// Returns a receiver that will be notified when the handle is triggered.
+    pub fn register_waiter_locked(
+        &self,
+        handle: &Handle,
+        mut lock: parking_lot::RwLockWriteGuard<'_, FxHashMap<u64, HandleEntry>>,
+    ) -> Result<tokio::sync::oneshot::Receiver<i32>, QueueError> {
+        let (tx, rx) = tokio::sync::oneshot::channel();
+
+        let entry = lock
+            .get_mut(&handle.id)
+            .ok_or(QueueError::HandleNotRegistered(handle.id))?;
+
+        if entry.waiters.len() >= self.inner.config.max_waiters_per_handle {
+            return Err(QueueError::MaxWaiters);
+        }
+
+        entry.waiters.push(Waiter {
+            sender: tx,
+            debug_hint: "wait_unsafe".to_string(),
+        });
+
+        // Lock is dropped here
+        drop(lock);
+
+        Ok(rx)
+    }
+
+    /// Wait on a receiver obtained from register_waiter_locked.
+    pub async fn wait_on_receiver(
+        &self,
+        rx: tokio::sync::oneshot::Receiver<i32>,
+    ) -> Result<i32, QueueError> {
+        match rx.await {
+            Ok(-1) => Err(QueueError::HandleUnlisted),
+            Ok(arg) => Ok(arg),
+            Err(_) => Err(QueueError::HandleUnlisted),
+        }
+    }
+
     pub async fn wait_timeout(
         &self,
         handle: &Handle,
@@ -203,7 +254,7 @@ struct QueueInner {
     stats: AtomicStats,
 }
 
-struct HandleEntry {
+pub(crate) struct HandleEntry {
     debug_hint: String,
     waiters: Vec<Waiter>,
     subscribers: Vec<Subscriber>,

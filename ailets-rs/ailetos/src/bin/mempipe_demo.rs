@@ -15,11 +15,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create notification queue
     let queue = NotificationQueue::new(QueueConfig::default());
 
-    // Register handles
+    // Register writer handle
     let writer_guard = queue.register_handle("writer");
-    let reader1_guard = queue.register_handle("reader1");
-    let reader2_guard = queue.register_handle("reader2");
-    let reader3_guard = queue.register_handle("reader3");
 
     // Create mempipe
     let pipe = MemPipe::new(
@@ -29,10 +26,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None,
     );
 
-    // Create readers
-    let mut reader1 = pipe.create_reader(reader1_guard.handle().clone(), "r1");
-    let mut reader2 = pipe.create_reader(reader2_guard.handle().clone(), "r2");
-    let mut reader3 = pipe.create_reader(reader3_guard.handle().clone(), "r3");
+    // Create readers (they all use the writer's handle for notifications)
+    let mut reader1 = pipe.create_reader("r1");
+    let mut reader2 = pipe.create_reader("r2");
+    let mut reader3 = pipe.create_reader("r3");
 
     // Spawn writer task
     let writer_task = tokio::spawn(async move {

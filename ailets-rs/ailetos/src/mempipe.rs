@@ -230,7 +230,7 @@ impl Write for Writer {
 /// when position reaches end of buffer.
 pub struct Reader {
     shared: Arc<Mutex<SharedBuffer>>,
-    handle: Handle,
+    writer_handle: Handle,  // Writer's handle for notifications
     queue: NotificationQueue,
     pos: usize,
     closed: bool,
@@ -240,13 +240,13 @@ pub struct Reader {
 impl Reader {
     pub fn new(
         shared: Arc<Mutex<SharedBuffer>>,
-        handle: Handle,
+        writer_handle: Handle,
         queue: NotificationQueue,
         debug_hint: impl Into<String>,
     ) -> Self {
         Self {
             shared,
-            handle,
+            writer_handle,
             queue,
             pos: 0,
             closed: false,
@@ -262,7 +262,7 @@ impl Reader {
     /// Check if reader should wait for more data
     ///
     /// Returns (should_wait, writer_closed)
-    fn should_wait_with_autoclose(&mut self) -> (bool, bool) {
+    fn should_wait(&self) -> (bool, bool) {
         let shared = self.shared.lock().unwrap();
 
         let writer_pos = shared.buffer.len();
@@ -271,24 +271,48 @@ impl Reader {
 
         drop(shared);
 
+        // Auto-close logic: if we should wait but writer is closed, don't wait
         if should_wait && writer_closed {
-            self.closed = true;
             (false, true)
         } else {
             (should_wait, writer_closed)
         }
     }
 
+    /// Check if reader should wait, and auto-close if writer closed
+    fn should_wait_with_autoclose(&mut self) -> (bool, bool) {
+        let (should_wait, writer_closed) = self.should_wait();
+        if !should_wait && writer_closed {
+            self.closed = true;
+        }
+        (should_wait, writer_closed)
+    }
+
     /// Wait for writer to provide more data
+    ///
+    /// Uses atomic lock protocol: check condition and register waiter atomically
+    /// under queue lock to prevent missing notifications.
     async fn wait_for_writer(&mut self) -> Result<(), MemPipeError> {
-        // Check again under lock (as per Python implementation)
-        let (should_wait, _) = self.should_wait_with_autoclose();
+        // CRITICAL: Check condition and register waiter atomically under queue lock
+        // This prevents: check → writer notifies → register → wait forever
+
+        let lock = self.queue.get_lock();
+
+        // Check condition atomically (holding queue lock)
+        let (should_wait, writer_closed) = self.should_wait();
         if !should_wait {
+            drop(lock);
+            if writer_closed {
+                self.closed = true;
+            }
             return Ok(());
         }
 
-        // Wait for notification
-        match self.queue.wait(&self.handle).await {
+        // Register waiter while still holding lock (lock released inside)
+        let rx = self.queue.register_waiter_locked(&self.writer_handle, lock)?;
+
+        // Wait on receiver (lock already released, writer can notify now)
+        match self.queue.wait_on_receiver(rx).await {
             Ok(_) => Ok(()),
             Err(QueueError::HandleUnlisted) => {
                 self.closed = true;
@@ -349,14 +373,15 @@ impl Read for Reader {
                 return Ok(n);
             }
 
-            // Check if we should wait
-            let (should_wait, _) = self.should_wait_with_autoclose();
-            if !should_wait {
+            // Wait for more data (it will check condition atomically under lock)
+            // Don't check condition here - would create race with writer closing
+            self.wait_for_writer().await.map_err(|e| IoError::from(MemPipeError::from(e)))?;
+
+            // If wait_for_writer returns Ok, loop to try reading again
+            // If writer closed, wait_for_writer auto-closes reader
+            if self.closed {
                 return Ok(0); // EOF
             }
-
-            // Wait for more data
-            self.wait_for_writer().await.map_err(|e| IoError::from(MemPipeError::from(e)))?;
         }
     }
 }
@@ -396,10 +421,10 @@ impl MemPipe {
     }
 
     /// Create a new reader for this pipe
-    pub fn create_reader(&self, handle: Handle, debug_hint: impl Into<String>) -> Reader {
+    pub fn create_reader(&self, debug_hint: impl Into<String>) -> Reader {
         Reader::new(
             self.writer.shared(),
-            handle,
+            self.writer.handle.clone(),  // All readers wait on writer's handle
             self.queue.clone(),
             format!("MemPipe.Reader {}", debug_hint.into()),
         )
@@ -415,7 +440,6 @@ mod tests {
     async fn test_write_read() {
         let queue = NotificationQueue::new(QueueConfig::default());
         let writer_guard = queue.register_handle("writer");
-        let reader_guard = queue.register_handle("reader");
 
         let mut pipe = MemPipe::new(
             writer_guard.handle().clone(),
@@ -424,7 +448,7 @@ mod tests {
             None,
         );
 
-        let mut reader = pipe.create_reader(reader_guard.handle().clone(), "test_reader");
+        let mut reader = pipe.create_reader("test_reader");
 
         // Write some data
         pipe.writer_mut().write_sync(b"Hello").unwrap();
@@ -440,8 +464,6 @@ mod tests {
     async fn test_multiple_readers() {
         let queue = NotificationQueue::new(QueueConfig::default());
         let writer_guard = queue.register_handle("writer");
-        let reader1_guard = queue.register_handle("reader1");
-        let reader2_guard = queue.register_handle("reader2");
 
         let mut pipe = MemPipe::new(
             writer_guard.handle().clone(),
@@ -450,8 +472,8 @@ mod tests {
             None,
         );
 
-        let mut reader1 = pipe.create_reader(reader1_guard.handle().clone(), "r1");
-        let mut reader2 = pipe.create_reader(reader2_guard.handle().clone(), "r2");
+        let mut reader1 = pipe.create_reader("r1");
+        let mut reader2 = pipe.create_reader("r2");
 
         // Write data
         pipe.writer_mut().write_sync(b"Broadcast").unwrap();
@@ -473,7 +495,6 @@ mod tests {
     async fn test_close_propagation() {
         let queue = NotificationQueue::new(QueueConfig::default());
         let writer_guard = queue.register_handle("writer");
-        let reader_guard = queue.register_handle("reader");
 
         let mut pipe = MemPipe::new(
             writer_guard.handle().clone(),
@@ -482,7 +503,7 @@ mod tests {
             None,
         );
 
-        let mut reader = pipe.create_reader(reader_guard.handle().clone(), "test_reader");
+        let mut reader = pipe.create_reader("test_reader");
 
         // Write and close
         pipe.writer_mut().write_sync(b"Data").unwrap();
