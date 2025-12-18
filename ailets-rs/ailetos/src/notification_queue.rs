@@ -115,8 +115,8 @@ impl NotificationQueue {
         }
     }
 
-    pub fn register_handle(&self, debug_hint: impl Into<String>) -> Handle {
-        let id = self.inner.register_handle(&debug_hint.into());
+    pub fn register_handle(&self) -> Handle {
+        let id = self.inner.register_handle();
         Handle { id }
     }
 
@@ -160,10 +160,7 @@ impl NotificationQueue {
             return Err(QueueError::MaxWaiters);
         }
 
-        entry.waiters.push(Waiter {
-            sender: tx,
-            debug_hint: "wait_unsafe".to_string(),
-        });
+        entry.waiters.push(Waiter { sender: tx });
 
         // Lock is dropped here
         drop(lock);
@@ -197,9 +194,8 @@ impl NotificationQueue {
         &self,
         handle: &Handle,
         channel_size: usize,
-        debug_hint: impl Into<String>,
     ) -> Result<Subscription, QueueError> {
-        self.inner.subscribe(handle.id, channel_size, debug_hint.into())
+        self.inner.subscribe(handle.id, channel_size)
     }
 
     pub fn unsubscribe(&self, subscription: Subscription) -> Result<(), QueueError> {
@@ -224,21 +220,18 @@ struct QueueInner {
 }
 
 pub(crate) struct HandleEntry {
-    debug_hint: String,
     waiters: Vec<Waiter>,
     subscribers: Vec<Subscriber>,
 }
 
 struct Waiter {
     sender: tokio::sync::oneshot::Sender<i32>,
-    debug_hint: String,
 }
 
 #[derive(Clone)]
 struct Subscriber {
     id: u64,
     sender: crossbeam::channel::Sender<i32>,
-    debug_hint: String,
 }
 
 struct AtomicStats {
@@ -258,13 +251,12 @@ impl QueueInner {
         }
     }
 
-    fn register_handle(&self, debug_hint: &str) -> u64 {
+    fn register_handle(&self) -> u64 {
         let id = self.next_handle_id.fetch_add(1, Ordering::Relaxed);
         let mut handles = self.handles.write();
         handles.insert(
             id,
             HandleEntry {
-                debug_hint: debug_hint.to_string(),
                 waiters: Vec::new(),
                 subscribers: Vec::new(),
             },
@@ -297,10 +289,7 @@ impl QueueInner {
                 return Err(QueueError::MaxWaiters);
             }
 
-            entry.waiters.push(Waiter {
-                sender: tx,
-                debug_hint: "async_wait".to_string(),
-            });
+            entry.waiters.push(Waiter { sender: tx });
         }
 
         // Wait outside lock
@@ -350,7 +339,6 @@ impl QueueInner {
         &self,
         handle_id: u64,
         channel_size: usize,
-        debug_hint: String,
     ) -> Result<Subscription, QueueError> {
         let (tx, rx) = crossbeam::channel::bounded(channel_size);
         let subscription_id = self.next_subscription_id.fetch_add(1, Ordering::Relaxed);
@@ -367,7 +355,6 @@ impl QueueInner {
         entry.subscribers.push(Subscriber {
             id: subscription_id,
             sender: tx,
-            debug_hint: debug_hint.clone(),
         });
 
         Ok(Subscription {
@@ -413,7 +400,7 @@ mod tests {
     #[tokio::test]
     async fn test_basic_wait_notify() {
         let queue = NotificationQueue::new(QueueConfig::default());
-        let handle = queue.register_handle("test");
+        let handle = queue.register_handle();
 
         let queue_clone = queue.clone();
         let handle_clone = handle.clone();
@@ -431,9 +418,9 @@ mod tests {
     #[tokio::test]
     async fn test_subscription() {
         let queue = NotificationQueue::new(QueueConfig::default());
-        let handle = queue.register_handle("test");
+        let handle = queue.register_handle();
 
-        let sub = queue.subscribe(&handle, 10, "subscriber").unwrap();
+        let sub = queue.subscribe(&handle, 10).unwrap();
 
         queue.notify(&handle, 1).unwrap();
         queue.notify(&handle, 2).unwrap();

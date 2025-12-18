@@ -99,21 +99,18 @@ pub struct Writer {
     shared: Arc<Mutex<SharedBuffer>>,
     handle: Handle,
     queue: NotificationQueue,
-    debug_hint: String,
 }
 
 impl Writer {
     pub fn new(
         handle: Handle,
         queue: NotificationQueue,
-        debug_hint: impl Into<String>,
         external_buffer: Option<Vec<u8>>,
     ) -> Self {
         Self {
             shared: Arc::new(Mutex::new(SharedBuffer::new(external_buffer))),
             handle,
             queue,
-            debug_hint: debug_hint.into(),
         }
     }
 
@@ -234,7 +231,6 @@ pub struct Reader {
     queue: NotificationQueue,
     pos: usize,
     closed: bool,
-    debug_hint: String,
 }
 
 impl Reader {
@@ -242,7 +238,6 @@ impl Reader {
         shared: Arc<Mutex<SharedBuffer>>,
         writer_handle: Handle,
         queue: NotificationQueue,
-        debug_hint: impl Into<String>,
     ) -> Self {
         Self {
             shared,
@@ -250,7 +245,6 @@ impl Reader {
             queue,
             pos: 0,
             closed: false,
-            debug_hint: debug_hint.into(),
         }
     }
 
@@ -412,14 +406,11 @@ impl MemPipe {
     pub fn new(
         writer_handle: Handle,
         queue: NotificationQueue,
-        debug_hint: impl Into<String>,
         external_buffer: Option<Vec<u8>>,
     ) -> Self {
-        let debug_hint = debug_hint.into();
         let writer = Writer::new(
             writer_handle.clone(),
             queue.clone(),
-            format!("MemPipe.Writer {}", debug_hint),
             external_buffer,
         );
 
@@ -437,12 +428,11 @@ impl MemPipe {
     }
 
     /// Create a new reader for this pipe
-    pub fn create_reader(&self, debug_hint: impl Into<String>) -> Reader {
+    pub fn create_reader(&self) -> Reader {
         Reader::new(
             self.writer.shared(),
             self.writer.handle.clone(),  // All readers wait on writer's handle
             self.queue.clone(),
-            format!("MemPipe.Reader {}", debug_hint.into()),
         )
     }
 }
@@ -455,16 +445,15 @@ mod tests {
     #[tokio::test]
     async fn test_write_read() {
         let queue = NotificationQueue::new(QueueConfig::default());
-        let writer_handle = queue.register_handle("writer");
+        let writer_handle = queue.register_handle();
 
         let mut pipe = MemPipe::new(
             writer_handle.clone(),
             queue.clone(),
-            "test",
             None,
         );
 
-        let mut reader = pipe.create_reader("test_reader");
+        let mut reader = pipe.create_reader();
 
         // Write some data
         pipe.writer_mut().write_sync(b"Hello").unwrap();
@@ -481,17 +470,16 @@ mod tests {
     #[tokio::test]
     async fn test_multiple_readers() {
         let queue = NotificationQueue::new(QueueConfig::default());
-        let writer_handle = queue.register_handle("writer");
+        let writer_handle = queue.register_handle();
 
         let mut pipe = MemPipe::new(
             writer_handle.clone(),
             queue.clone(),
-            "test",
             None,
         );
 
-        let mut reader1 = pipe.create_reader("r1");
-        let mut reader2 = pipe.create_reader("r2");
+        let mut reader1 = pipe.create_reader();
+        let mut reader2 = pipe.create_reader();
 
         // Write data
         pipe.writer_mut().write_sync(b"Broadcast").unwrap();
@@ -514,16 +502,15 @@ mod tests {
     #[tokio::test]
     async fn test_close_propagation() {
         let queue = NotificationQueue::new(QueueConfig::default());
-        let writer_handle = queue.register_handle("writer");
+        let writer_handle = queue.register_handle();
 
         let mut pipe = MemPipe::new(
             writer_handle.clone(),
             queue.clone(),
-            "test",
             None,
         );
 
-        let mut reader = pipe.create_reader("test_reader");
+        let mut reader = pipe.create_reader();
 
         // Write and close
         pipe.writer_mut().write_sync(b"Data").unwrap();

@@ -16,20 +16,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let queue = NotificationQueue::new(QueueConfig::default());
 
     // Register writer handle
-    let writer_handle = queue.register_handle("writer");
+    let writer_handle = queue.register_handle();
 
     // Create mempipe
     let pipe = MemPipe::new(
         writer_handle.clone(),
         queue.clone(),
-        "main",
         None,
     );
 
     // Create readers (they all use the writer's handle for notifications)
-    let mut reader1 = pipe.create_reader("r1");
-    let mut reader2 = pipe.create_reader("r2");
-    let mut reader3 = pipe.create_reader("r3");
+    let mut reader1 = pipe.create_reader();
+    let mut reader2 = pipe.create_reader();
+    let mut reader3 = pipe.create_reader();
 
     // Spawn writer task
     let writer_task = tokio::spawn(async move {

@@ -50,8 +50,8 @@ impl NotificationQueue {
     /// Clients must explicitly unregister handles when done using unregister_handle().
     /// This prevents the race condition from the Python version by using clear
     /// ownership semantics.
-    pub fn register_handle(&self, debug_hint: impl Into<String>) -> Handle {
-        let id = self.inner.register_handle(&debug_hint.into());
+    pub fn register_handle(&self) -> Handle {
+        let id = self.inner.register_handle();
         Handle { id }
     }
 
@@ -173,9 +173,8 @@ impl NotificationQueue {
         &self,
         handle: &Handle,
         channel_size: usize,
-        debug_hint: impl Into<String>,
     ) -> Result<Subscription, QueueError> {
-        self.inner.subscribe(handle.id, channel_size, debug_hint.into())
+        self.inner.subscribe(handle.id, channel_size)
     }
 
     /// Unsubscribe (manual cleanup - normally Subscription drop handles this)
@@ -238,20 +237,17 @@ struct QueueInner {
 }
 
 struct HandleEntry {
-    debug_hint: String,
     waiters: Vec<Waiter>,
     subscribers: Vec<Subscriber>,
 }
 
 struct Waiter {
     sender: tokio::sync::oneshot::Sender<i32>,
-    debug_hint: String,
 }
 
 struct Subscriber {
     id: u64,
     sender: crossbeam::channel::Sender<i32>,
-    debug_hint: String,
 }
 
 struct AtomicStats {
@@ -271,13 +267,12 @@ impl QueueInner {
         }
     }
 
-    fn register_handle(&self, debug_hint: &str) -> u64 {
+    fn register_handle(&self) -> u64 {
         let id = self.next_handle_id.fetch_add(1, Ordering::Relaxed);
         let mut handles = self.handles.write();
         handles.insert(
             id,
             HandleEntry {
-                debug_hint: debug_hint.to_string(),
                 waiters: Vec::new(),
                 subscribers: Vec::new(),
             },
@@ -310,10 +305,7 @@ impl QueueInner {
                 return Err(QueueError::MaxWaiters);
             }
 
-            entry.waiters.push(Waiter {
-                sender: tx,
-                debug_hint: "async_wait".to_string(),
-            });
+            entry.waiters.push(Waiter { sender: tx });
         }
 
         // Wait outside lock
@@ -365,7 +357,6 @@ impl QueueInner {
         &self,
         handle_id: u64,
         channel_size: usize,
-        debug_hint: String,
     ) -> Result<Subscription, QueueError> {
         let (tx, rx) = crossbeam::channel::bounded(channel_size);
         let subscription_id = self.next_subscription_id.fetch_add(1, Ordering::Relaxed);
@@ -382,7 +373,6 @@ impl QueueInner {
         entry.subscribers.push(Subscriber {
             id: subscription_id,
             sender: tx,
-            debug_hint: debug_hint.clone(),
         });
 
         Ok(Subscription {
@@ -434,7 +424,7 @@ mod examples {
         let queue = NotificationQueue::new(QueueConfig::default());
 
         // Register a handle
-        let handle = queue.register_handle("test_handle");
+        let handle = queue.register_handle();
 
         // Spawn a task that waits
         let queue_clone = queue.clone();
@@ -460,10 +450,10 @@ mod examples {
     #[tokio::test]
     async fn example_subscription() {
         let queue = NotificationQueue::new(QueueConfig::default());
-        let handle = queue.register_handle("events");
+        let handle = queue.register_handle();
 
         // Subscribe with bounded channel
-        let sub = queue.subscribe(&handle, 10, "event_listener").unwrap();
+        let sub = queue.subscribe(&handle, 10).unwrap();
 
         // Send some notifications
         queue.notify(&handle, 1).unwrap();
@@ -483,10 +473,10 @@ mod examples {
     #[tokio::test]
     async fn example_buggy_client_protection() {
         let queue = NotificationQueue::new(QueueConfig::default());
-        let handle = queue.register_handle("test");
+        let handle = queue.register_handle();
 
         // Create subscription with small channel
-        let sub = queue.subscribe(&handle, 2, "slow_client").unwrap();
+        let sub = queue.subscribe(&handle, 2).unwrap();
 
         // Flood with notifications
         for i in 0..100 {

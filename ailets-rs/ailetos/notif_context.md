@@ -82,7 +82,7 @@ Created initial design in `notification_queue_design.rs`.
 ```rust
 // Main queue
 NotificationQueue::new(config) -> Self
-NotificationQueue::register_handle(debug_hint) -> Handle
+NotificationQueue::register_handle() -> Handle
 NotificationQueue::unregister_handle(handle) -> ()
 NotificationQueue::notify(handle, arg) -> Result<usize>
 
@@ -91,7 +91,7 @@ NotificationQueue::wait(handle) -> Result<i32>
 NotificationQueue::wait_timeout(handle, timeout) -> Result<i32>
 
 // Subscription (channel-based)
-NotificationQueue::subscribe(handle, channel_size, debug_hint) -> Result<Subscription>
+NotificationQueue::subscribe(handle, channel_size) -> Result<Subscription>
 Subscription::try_recv() -> Option<i32>
 Subscription::recv() -> Option<i32>
 Subscription::recv_async() -> Option<i32>
