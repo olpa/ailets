@@ -84,8 +84,7 @@ async fn read_all(name: &str, reader: &mut impl Read) {
             }
             Ok(n) => {
                 let data = String::from_utf8_lossy(&buf[..n]);
-                print!("({}): {}", name, data);
-                io::Write::flush(&mut io::stdout()).ok();
+                println!("({}): {}", name, data);
             }
             Err(e) => {
                 eprintln!("({}) Error: {}", name, e);

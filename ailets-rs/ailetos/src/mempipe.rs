@@ -292,26 +292,42 @@ impl Reader {
     ///
     /// Uses atomic lock protocol: check condition and register waiter atomically
     /// under queue lock to prevent missing notifications.
+    ///
+    /// CRITICAL: Locks queue FIRST, then checks buffer condition while holding queue lock.
+    /// This ensures the writer cannot notify between our condition check and waiter registration.
     async fn wait_for_writer(&mut self) -> Result<(), MemPipeError> {
-        // CRITICAL: Check condition and register waiter atomically under queue lock
-        // This prevents: check → writer notifies → register → wait forever
+        // Acquire queue lock first
+        let queue_lock = self.queue.get_lock();
 
-        let lock = self.queue.get_lock();
+        // Check buffer condition while holding queue lock to ensure atomicity
+        // Lock ordering: queue → buffer (writer uses: buffer → queue, no overlap)
+        let (should_wait, writer_closed) = {
+            let shared = self.shared.lock().unwrap();
+            let writer_pos = shared.buffer.len();
+            let should_wait = self.pos >= writer_pos;
+            let writer_closed = shared.closed || shared.error.is_some();
+            drop(shared); // Release buffer lock but keep queue lock
 
-        // Check condition atomically (holding queue lock)
-        let (should_wait, writer_closed) = self.should_wait();
+            // Auto-close logic
+            if should_wait && writer_closed {
+                (false, true)
+            } else {
+                (should_wait, writer_closed)
+            }
+        };
+
         if !should_wait {
-            drop(lock);
+            drop(queue_lock);
             if writer_closed {
                 self.closed = true;
             }
             return Ok(());
         }
 
-        // Register waiter while still holding lock (lock released inside)
-        let rx = self.queue.register_waiter_locked(&self.writer_handle, lock)?;
+        // Register waiter while still holding queue lock (lock released inside register_waiter_locked)
+        let rx = self.queue.register_waiter_locked(&self.writer_handle, queue_lock)?;
 
-        // Wait on receiver (lock already released, writer can notify now)
+        // Wait on receiver (queue lock already released by register_waiter_locked)
         match self.queue.wait_on_receiver(rx).await {
             Ok(_) => Ok(()),
             Err(QueueError::HandleUnlisted) => {
