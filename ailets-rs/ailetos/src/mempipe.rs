@@ -226,6 +226,7 @@ impl Write for Writer {
 /// Reads from the shared buffer at its own position. Waits for data
 /// when position reaches end of buffer.
 pub struct Reader {
+    handle: Handle,  // Reader's own handle
     shared: Arc<Mutex<SharedBuffer>>,
     writer_handle: Handle,  // Writer's handle for notifications
     queue: NotificationQueue,
@@ -235,17 +236,24 @@ pub struct Reader {
 
 impl Reader {
     pub fn new(
+        handle: Handle,
         shared: Arc<Mutex<SharedBuffer>>,
         writer_handle: Handle,
         queue: NotificationQueue,
     ) -> Self {
         Self {
+            handle,
             shared,
             writer_handle,
             queue,
             pos: 0,
             closed: false,
         }
+    }
+
+    /// Get the reader's handle
+    pub fn handle(&self) -> &Handle {
+        &self.handle
     }
 
     /// Get current error state from writer
@@ -429,7 +437,9 @@ impl MemPipe {
 
     /// Create a new reader for this pipe
     pub fn create_reader(&self) -> Reader {
+        let reader_handle = self.queue.register_handle();
         Reader::new(
+            reader_handle,
             self.writer.shared(),
             self.writer.handle.clone(),  // All readers wait on writer's handle
             self.queue.clone(),
@@ -454,6 +464,7 @@ mod tests {
         );
 
         let mut reader = pipe.create_reader();
+        let reader_handle = reader.handle().clone();
 
         // Write some data
         pipe.writer_mut().write_sync(b"Hello").unwrap();
@@ -464,6 +475,7 @@ mod tests {
         assert_eq!(n, 5);
         assert_eq!(&buf[..n], b"Hello");
 
+        queue.unregister_handle(&reader_handle);
         queue.unregister_handle(&writer_handle);
     }
 
@@ -479,7 +491,9 @@ mod tests {
         );
 
         let mut reader1 = pipe.create_reader();
+        let reader1_handle = reader1.handle().clone();
         let mut reader2 = pipe.create_reader();
+        let reader2_handle = reader2.handle().clone();
 
         // Write data
         pipe.writer_mut().write_sync(b"Broadcast").unwrap();
@@ -496,6 +510,8 @@ mod tests {
         assert_eq!(&buf1[..n1], b"Broadcast");
         assert_eq!(&buf2[..n2], b"Broadcast");
 
+        queue.unregister_handle(&reader1_handle);
+        queue.unregister_handle(&reader2_handle);
         queue.unregister_handle(&writer_handle);
     }
 
@@ -511,6 +527,7 @@ mod tests {
         );
 
         let mut reader = pipe.create_reader();
+        let reader_handle = reader.handle().clone();
 
         // Write and close
         pipe.writer_mut().write_sync(b"Data").unwrap();
@@ -525,6 +542,7 @@ mod tests {
         let n = reader.read(&mut buf).await.unwrap();
         assert_eq!(n, 0);
 
+        queue.unregister_handle(&reader_handle);
         queue.unregister_handle(&writer_handle);
     }
 }

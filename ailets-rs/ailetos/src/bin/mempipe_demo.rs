@@ -25,10 +25,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         None,
     );
 
-    // Create readers (they all use the writer's handle for notifications)
+    // Create readers (each gets its own handle)
     let mut reader1 = pipe.create_reader();
+    let reader1_handle = reader1.handle().clone();
     let mut reader2 = pipe.create_reader();
+    let reader2_handle = reader2.handle().clone();
     let mut reader3 = pipe.create_reader();
+    let reader3_handle = reader3.handle().clone();
 
     // Spawn writer task
     let writer_task = tokio::spawn(async move {
@@ -68,7 +71,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Wait for all tasks
     let _ = tokio::join!(writer_task, reader1_task, reader2_task, reader3_task);
 
-    // Unregister handle when done
+    // Unregister reader handles first, then writer handle
+    queue.unregister_handle(&reader1_handle);
+    queue.unregister_handle(&reader2_handle);
+    queue.unregister_handle(&reader3_handle);
     queue.unregister_handle(&writer_handle);
 
     println!("All tasks completed");
