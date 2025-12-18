@@ -16,11 +16,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let queue = NotificationQueue::new(QueueConfig::default());
 
     // Register writer handle
-    let writer_guard = queue.register_handle("writer");
+    let writer_handle = queue.register_handle("writer");
 
     // Create mempipe
     let pipe = MemPipe::new(
-        writer_guard.handle().clone(),
+        writer_handle.clone(),
         queue.clone(),
         "main",
         None,
@@ -68,6 +68,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Wait for all tasks
     let _ = tokio::join!(writer_task, reader1_task, reader2_task, reader3_task);
+
+    // Unregister handle when done
+    queue.unregister_handle(&writer_handle);
 
     println!("All tasks completed");
     Ok(())

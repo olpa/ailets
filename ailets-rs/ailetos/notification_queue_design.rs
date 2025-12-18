@@ -45,12 +45,19 @@ impl NotificationQueue {
         }
     }
 
-    /// Register a new handle. Returns a guard that auto-unlists on drop.
+    /// Register a new handle.
     ///
-    /// This prevents the race condition from the Python version - you can't
-    /// wait on a handle that might get unlisted from under you.
-    pub fn register_handle(&self, debug_hint: impl Into<String>) -> HandleGuard {
-        HandleGuard::new(self.inner.clone(), debug_hint.into())
+    /// Clients must explicitly unregister handles when done using unregister_handle().
+    /// This prevents the race condition from the Python version by using clear
+    /// ownership semantics.
+    pub fn register_handle(&self, debug_hint: impl Into<String>) -> Handle {
+        let id = self.inner.register_handle(&debug_hint.into());
+        Handle { id }
+    }
+
+    /// Unregister a handle, notifying all waiters.
+    pub fn unregister_handle(&self, handle: &Handle) {
+        self.inner.unlist(handle.id);
     }
 
     /// Notify all waiters and subscribers on this handle.
@@ -68,61 +75,18 @@ impl NotificationQueue {
     }
 }
 
-/// A registered handle. Automatically unlisted when dropped.
-///
-/// This is RAII-based lifecycle management - no manual whitelist/unlist needed.
-pub struct HandleGuard {
-    inner: Arc<QueueInner>,
-    handle: Handle,
-}
-
-impl HandleGuard {
-    fn new(inner: Arc<QueueInner>, debug_hint: String) -> Self {
-        let id = inner.register_handle(&debug_hint);
-        Self {
-            inner,
-            handle: Handle { id, debug_hint },
-        }
-    }
-
-    /// Get the handle to use for waiting/subscribing
-    pub fn handle(&self) -> &Handle {
-        &self.handle
-    }
-
-    /// Consume the guard and return the handle.
-    ///
-    /// WARNING: The handle will remain registered until you call
-    /// `queue.unlist()`. Only use this if you need manual control.
-    pub fn into_handle(self) -> Handle {
-        let handle = self.handle.clone();
-        std::mem::forget(self); // Prevent auto-unlist
-        handle
-    }
-}
-
-impl Drop for HandleGuard {
-    fn drop(&mut self) {
-        self.inner.unlist(self.handle.id);
-    }
-}
-
 /// A handle represents a notification channel.
 ///
-/// Cheap to clone (just an ID).
+/// Cheap to clone (just an ID). Clients must explicitly unregister
+/// handles when done using NotificationQueue::unregister_handle().
 #[derive(Debug, Clone)]
 pub struct Handle {
     id: u64,
-    debug_hint: String,
 }
 
 impl Handle {
     pub fn id(&self) -> u64 {
         self.id
-    }
-
-    pub fn debug_hint(&self) -> &str {
-        &self.debug_hint
     }
 }
 
@@ -424,10 +388,7 @@ impl QueueInner {
         Ok(Subscription {
             id: subscription_id,
             receiver: rx,
-            _handle: Handle {
-                id: handle_id,
-                debug_hint,
-            },
+            _handle: Handle { id: handle_id },
         })
     }
 
@@ -473,8 +434,7 @@ mod examples {
         let queue = NotificationQueue::new(QueueConfig::default());
 
         // Register a handle
-        let guard = queue.register_handle("test_handle");
-        let handle = guard.handle().clone();
+        let handle = queue.register_handle("test_handle");
 
         // Spawn a task that waits
         let queue_clone = queue.clone();
@@ -493,14 +453,14 @@ mod examples {
         let result = waiter.await.unwrap();
         assert_eq!(result, 42);
 
-        // Handle auto-unlists when guard drops
+        // Explicitly unregister handle when done
+        queue.unregister_handle(&handle);
     }
 
     #[tokio::test]
     async fn example_subscription() {
         let queue = NotificationQueue::new(QueueConfig::default());
-        let guard = queue.register_handle("events");
-        let handle = guard.handle().clone();
+        let handle = queue.register_handle("events");
 
         // Subscribe with bounded channel
         let sub = queue.subscribe(&handle, 10, "event_listener").unwrap();
@@ -515,13 +475,15 @@ mod examples {
         assert_eq!(sub.try_recv(), Some(2));
         assert_eq!(sub.try_recv(), Some(3));
         assert_eq!(sub.try_recv(), None); // No more
+
+        // Explicitly unregister handle when done
+        queue.unregister_handle(&handle);
     }
 
     #[tokio::test]
     async fn example_buggy_client_protection() {
         let queue = NotificationQueue::new(QueueConfig::default());
-        let guard = queue.register_handle("test");
-        let handle = guard.handle().clone();
+        let handle = queue.register_handle("test");
 
         // Create subscription with small channel
         let sub = queue.subscribe(&handle, 2, "slow_client").unwrap();
@@ -536,6 +498,9 @@ mod examples {
         assert_eq!(sub.try_recv(), Some(0));
         assert_eq!(sub.try_recv(), Some(1));
         assert_eq!(sub.try_recv(), None); // Channel was full, rest dropped
+
+        // Explicitly unregister handle when done
+        queue.unregister_handle(&handle);
     }
 }
 

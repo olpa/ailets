@@ -48,10 +48,10 @@ Created initial design in `notification_queue_design.rs`.
 
 ### Key Design Decisions
 
-1. **RAII handle lifecycle** (lines 61-93)
-   - `HandleGuard` auto-unlists on drop
+1. **Explicit handle lifecycle** (lines 61-93)
+   - Clients explicitly register and unregister handles
    - Eliminates whitelist race condition
-   - Type system prevents use-after-unlist
+   - Clear ownership semantics
 
 2. **Channels instead of callbacks** (lines 130-159)
    - `Subscription` provides channel receiver
@@ -82,7 +82,8 @@ Created initial design in `notification_queue_design.rs`.
 ```rust
 // Main queue
 NotificationQueue::new(config) -> Self
-NotificationQueue::register_handle(debug_hint) -> HandleGuard
+NotificationQueue::register_handle(debug_hint) -> Handle
+NotificationQueue::unregister_handle(handle) -> ()
 NotificationQueue::notify(handle, arg) -> Result<usize>
 
 // Waiting (async)
@@ -94,10 +95,6 @@ NotificationQueue::subscribe(handle, channel_size, debug_hint) -> Result<Subscri
 Subscription::try_recv() -> Option<i32>
 Subscription::recv() -> Option<i32>
 Subscription::recv_async() -> Option<i32>
-
-// RAII handle
-HandleGuard::handle() -> &Handle
-HandleGuard::into_handle() -> Handle  // Manual control
 ```
 
 ## Current Status
@@ -107,7 +104,7 @@ HandleGuard::into_handle() -> Handle  // Manual control
 - ✅ Defined design principles for OS core use
 - ✅ Created comprehensive API design sketch in `notification_queue_design.rs`
 - ✅ **Implemented working notification queue** in `src/notification_queue.rs`
-  - RAII handle lifecycle with `HandleGuard`
+  - Explicit handle registration/unregistration
   - Channel-based subscriptions
   - Async wait with oneshot channels
   - Resource limits (max waiters/subscribers per handle)

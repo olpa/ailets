@@ -450,15 +450,15 @@ impl MemPipe {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::notification_queue::{HandleGuard, QueueConfig};
+    use crate::notification_queue::QueueConfig;
 
     #[tokio::test]
     async fn test_write_read() {
         let queue = NotificationQueue::new(QueueConfig::default());
-        let writer_guard = queue.register_handle("writer");
+        let writer_handle = queue.register_handle("writer");
 
         let mut pipe = MemPipe::new(
-            writer_guard.handle().clone(),
+            writer_handle.clone(),
             queue.clone(),
             "test",
             None,
@@ -474,15 +474,17 @@ mod tests {
         let n = reader.read(&mut buf).await.unwrap();
         assert_eq!(n, 5);
         assert_eq!(&buf[..n], b"Hello");
+
+        queue.unregister_handle(&writer_handle);
     }
 
     #[tokio::test]
     async fn test_multiple_readers() {
         let queue = NotificationQueue::new(QueueConfig::default());
-        let writer_guard = queue.register_handle("writer");
+        let writer_handle = queue.register_handle("writer");
 
         let mut pipe = MemPipe::new(
-            writer_guard.handle().clone(),
+            writer_handle.clone(),
             queue.clone(),
             "test",
             None,
@@ -505,15 +507,17 @@ mod tests {
         assert_eq!(n2, 9);
         assert_eq!(&buf1[..n1], b"Broadcast");
         assert_eq!(&buf2[..n2], b"Broadcast");
+
+        queue.unregister_handle(&writer_handle);
     }
 
     #[tokio::test]
     async fn test_close_propagation() {
         let queue = NotificationQueue::new(QueueConfig::default());
-        let writer_guard = queue.register_handle("writer");
+        let writer_handle = queue.register_handle("writer");
 
         let mut pipe = MemPipe::new(
-            writer_guard.handle().clone(),
+            writer_handle.clone(),
             queue.clone(),
             "test",
             None,
@@ -533,5 +537,7 @@ mod tests {
         // Second read should get EOF
         let n = reader.read(&mut buf).await.unwrap();
         assert_eq!(n, 0);
+
+        queue.unregister_handle(&writer_handle);
     }
 }

@@ -63,47 +63,11 @@ pub enum QueueError {
 #[derive(Debug, Clone)]
 pub struct Handle {
     id: u64,
-    debug_hint: String,
 }
 
 impl Handle {
     pub fn id(&self) -> u64 {
         self.id
-    }
-
-    pub fn debug_hint(&self) -> &str {
-        &self.debug_hint
-    }
-}
-
-pub struct HandleGuard {
-    inner: Arc<QueueInner>,
-    handle: Handle,
-}
-
-impl HandleGuard {
-    fn new(inner: Arc<QueueInner>, debug_hint: String) -> Self {
-        let id = inner.register_handle(&debug_hint);
-        Self {
-            inner,
-            handle: Handle { id, debug_hint },
-        }
-    }
-
-    pub fn handle(&self) -> &Handle {
-        &self.handle
-    }
-
-    pub fn into_handle(self) -> Handle {
-        let handle = self.handle.clone();
-        std::mem::forget(self);
-        handle
-    }
-}
-
-impl Drop for HandleGuard {
-    fn drop(&mut self) {
-        self.inner.unlist(self.handle.id);
     }
 }
 
@@ -151,8 +115,13 @@ impl NotificationQueue {
         }
     }
 
-    pub fn register_handle(&self, debug_hint: impl Into<String>) -> HandleGuard {
-        HandleGuard::new(self.inner.clone(), debug_hint.into())
+    pub fn register_handle(&self, debug_hint: impl Into<String>) -> Handle {
+        let id = self.inner.register_handle(&debug_hint.into());
+        Handle { id }
+    }
+
+    pub fn unregister_handle(&self, handle: &Handle) {
+        self.inner.unlist(handle.id);
     }
 
     pub fn notify(&self, handle: &Handle, arg: i32) -> Result<usize, QueueError> {
@@ -404,10 +373,7 @@ impl QueueInner {
         Ok(Subscription {
             id: subscription_id,
             receiver: rx,
-            _handle: Handle {
-                id: handle_id,
-                debug_hint,
-            },
+            _handle: Handle { id: handle_id },
         })
     }
 
@@ -447,8 +413,7 @@ mod tests {
     #[tokio::test]
     async fn test_basic_wait_notify() {
         let queue = NotificationQueue::new(QueueConfig::default());
-        let guard = queue.register_handle("test");
-        let handle = guard.handle().clone();
+        let handle = queue.register_handle("test");
 
         let queue_clone = queue.clone();
         let handle_clone = handle.clone();
@@ -459,13 +424,14 @@ mod tests {
 
         let result = waiter.await.unwrap();
         assert_eq!(result, 42);
+
+        queue.unregister_handle(&handle);
     }
 
     #[tokio::test]
     async fn test_subscription() {
         let queue = NotificationQueue::new(QueueConfig::default());
-        let guard = queue.register_handle("test");
-        let handle = guard.handle().clone();
+        let handle = queue.register_handle("test");
 
         let sub = queue.subscribe(&handle, 10, "subscriber").unwrap();
 
@@ -475,5 +441,7 @@ mod tests {
         assert_eq!(sub.try_recv(), Some(1));
         assert_eq!(sub.try_recv(), Some(2));
         assert_eq!(sub.try_recv(), None);
+
+        queue.unregister_handle(&handle);
     }
 }
