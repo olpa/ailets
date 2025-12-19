@@ -133,7 +133,7 @@ impl Writer {
             }
             shared.error = Some(errno);
         }
-        self.queue.notify(&self.handle, errno)?;
+        self.queue.notify(self.handle, errno)?;
         Ok(())
     }
 
@@ -164,7 +164,7 @@ impl Writer {
         };
 
         // Notify outside lock
-        self.queue.notify(&self.handle, len as i32)?;
+        self.queue.notify(self.handle, len as i32)?;
         Ok(len)
     }
 
@@ -175,7 +175,7 @@ impl Writer {
             shared.closed = true;
         }
         // Notify with -1 to signal close
-        self.queue.notify(&self.handle, -1)?;
+        self.queue.notify(self.handle, -1)?;
         Ok(())
     }
 
@@ -327,7 +327,7 @@ impl Reader {
         }
 
         // Register waiter while still holding queue lock (lock released inside register_waiter_locked)
-        let rx = self.queue.register_waiter_locked(&self.writer_handle, queue_lock)?;
+        let rx = self.queue.register_waiter_locked(self.writer_handle, queue_lock)?;
 
         // Wait on receiver (queue lock already released by register_waiter_locked)
         match self.queue.wait_on_receiver(rx).await {
@@ -445,6 +445,16 @@ impl MemPipe {
             self.queue.clone(),
         )
     }
+
+    /// Get a reader for this pipe with an explicit handle
+    pub fn get_reader(&self, reader_handle: Handle) -> Reader {
+        Reader::new(
+            reader_handle,
+            self.writer.shared(),
+            self.writer.handle,  // All readers wait on writer's handle
+            self.queue.clone(),
+        )
+    }
 }
 
 #[cfg(test)]
@@ -475,8 +485,8 @@ mod tests {
         assert_eq!(n, 5);
         assert_eq!(&buf[..n], b"Hello");
 
-        queue.unregister_handle(&reader_handle);
-        queue.unregister_handle(&writer_handle);
+        queue.unregister_handle(reader_handle);
+        queue.unregister_handle(writer_handle);
     }
 
     #[tokio::test]
@@ -510,9 +520,9 @@ mod tests {
         assert_eq!(&buf1[..n1], b"Broadcast");
         assert_eq!(&buf2[..n2], b"Broadcast");
 
-        queue.unregister_handle(&reader1_handle);
-        queue.unregister_handle(&reader2_handle);
-        queue.unregister_handle(&writer_handle);
+        queue.unregister_handle(reader1_handle);
+        queue.unregister_handle(reader2_handle);
+        queue.unregister_handle(writer_handle);
     }
 
     #[tokio::test]
@@ -542,7 +552,7 @@ mod tests {
         let n = reader.read(&mut buf).await.unwrap();
         assert_eq!(n, 0);
 
-        queue.unregister_handle(&reader_handle);
-        queue.unregister_handle(&writer_handle);
+        queue.unregister_handle(reader_handle);
+        queue.unregister_handle(writer_handle);
     }
 }

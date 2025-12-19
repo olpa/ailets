@@ -60,12 +60,16 @@ pub enum QueueError {
 // Public API Types
 // ============================================================================
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Handle {
     id: u64,
 }
 
 impl Handle {
+    pub fn new(id: u64) -> Self {
+        Self { id }
+    }
+
     pub fn id(&self) -> u64 {
         self.id
     }
@@ -120,22 +124,26 @@ impl NotificationQueue {
         Handle { id }
     }
 
-    pub fn unregister_handle(&self, handle: &Handle) {
-        self.inner.unlist(handle.id);
+    pub fn register_handle_with_id(&self, handle: Handle) {
+        self.inner.register_handle_with_id(handle);
     }
 
-    pub fn notify(&self, handle: &Handle, arg: i32) -> Result<usize, QueueError> {
-        self.inner.notify(handle.id, arg)
+    pub fn unregister_handle(&self, handle: Handle) {
+        self.inner.unlist(handle);
     }
 
-    pub async fn wait(&self, handle: &Handle) -> Result<i32, QueueError> {
-        self.inner.wait(handle.id).await
+    pub fn notify(&self, handle: Handle, arg: i32) -> Result<usize, QueueError> {
+        self.inner.notify(handle, arg)
+    }
+
+    pub async fn wait(&self, handle: Handle) -> Result<i32, QueueError> {
+        self.inner.wait(handle).await
     }
 
     /// Get the internal lock for atomic condition-check + register operations.
     ///
     /// Use this to atomically check a condition and register a waiter.
-    pub fn get_lock(&self) -> parking_lot::RwLockWriteGuard<'_, FxHashMap<u64, HandleEntry>> {
+    pub fn get_lock(&self) -> parking_lot::RwLockWriteGuard<'_, FxHashMap<Handle, HandleEntry>> {
         self.inner.handles.write()
     }
 
@@ -147,13 +155,13 @@ impl NotificationQueue {
     /// Returns a receiver that will be notified when the handle is triggered.
     pub fn register_waiter_locked(
         &self,
-        handle: &Handle,
-        mut lock: parking_lot::RwLockWriteGuard<'_, FxHashMap<u64, HandleEntry>>,
+        handle: Handle,
+        mut lock: parking_lot::RwLockWriteGuard<'_, FxHashMap<Handle, HandleEntry>>,
     ) -> Result<tokio::sync::oneshot::Receiver<i32>, QueueError> {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         let entry = lock
-            .get_mut(&handle.id)
+            .get_mut(&handle)
             .ok_or(QueueError::HandleNotRegistered(handle.id))?;
 
         if entry.waiters.len() >= self.inner.config.max_waiters_per_handle {
@@ -182,7 +190,7 @@ impl NotificationQueue {
 
     pub async fn wait_timeout(
         &self,
-        handle: &Handle,
+        handle: Handle,
         timeout: Duration,
     ) -> Result<i32, QueueError> {
         tokio::time::timeout(timeout, self.wait(handle))
@@ -192,10 +200,10 @@ impl NotificationQueue {
 
     pub fn subscribe(
         &self,
-        handle: &Handle,
+        handle: Handle,
         channel_size: usize,
     ) -> Result<Subscription, QueueError> {
-        self.inner.subscribe(handle.id, channel_size)
+        self.inner.subscribe(handle, channel_size)
     }
 
     pub fn unsubscribe(&self, subscription: Subscription) -> Result<(), QueueError> {
@@ -215,7 +223,7 @@ struct QueueInner {
     config: QueueConfig,
     next_handle_id: AtomicU64,
     next_subscription_id: AtomicU64,
-    handles: RwLock<FxHashMap<u64, HandleEntry>>,
+    handles: RwLock<FxHashMap<Handle, HandleEntry>>,
     stats: AtomicStats,
 }
 
@@ -255,7 +263,7 @@ impl QueueInner {
         let id = self.next_handle_id.fetch_add(1, Ordering::Relaxed);
         let mut handles = self.handles.write();
         handles.insert(
-            id,
+            Handle::new(id),
             HandleEntry {
                 waiters: Vec::new(),
                 subscribers: Vec::new(),
@@ -264,9 +272,20 @@ impl QueueInner {
         id
     }
 
-    fn unlist(&self, handle_id: u64) {
+    fn register_handle_with_id(&self, handle: Handle) {
         let mut handles = self.handles.write();
-        if let Some(entry) = handles.remove(&handle_id) {
+        handles.insert(
+            handle,
+            HandleEntry {
+                waiters: Vec::new(),
+                subscribers: Vec::new(),
+            },
+        );
+    }
+
+    fn unlist(&self, handle: Handle) {
+        let mut handles = self.handles.write();
+        if let Some(entry) = handles.remove(&handle) {
             // Notify all waiters that handle is gone
             for waiter in entry.waiters {
                 let _ = waiter.sender.send(-1);
@@ -275,15 +294,15 @@ impl QueueInner {
         }
     }
 
-    async fn wait(&self, handle_id: u64) -> Result<i32, QueueError> {
+    async fn wait(&self, handle: Handle) -> Result<i32, QueueError> {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         // Add waiter under write lock
         {
             let mut handles = self.handles.write();
             let entry = handles
-                .get_mut(&handle_id)
-                .ok_or(QueueError::HandleNotRegistered(handle_id))?;
+                .get_mut(&handle)
+                .ok_or(QueueError::HandleNotRegistered(handle.id))?;
 
             if entry.waiters.len() >= self.config.max_waiters_per_handle {
                 return Err(QueueError::MaxWaiters);
@@ -300,15 +319,15 @@ impl QueueInner {
         }
     }
 
-    fn notify(&self, handle_id: u64, arg: i32) -> Result<usize, QueueError> {
+    fn notify(&self, handle: Handle, arg: i32) -> Result<usize, QueueError> {
         let mut count = 0;
 
         // Extract waiters and clone subscribers under write lock
         let (waiters, subscribers) = {
             let mut handles = self.handles.write();
             let entry = handles
-                .get_mut(&handle_id)
-                .ok_or(QueueError::HandleNotRegistered(handle_id))?;
+                .get_mut(&handle)
+                .ok_or(QueueError::HandleNotRegistered(handle.id))?;
 
             let waiters = std::mem::take(&mut entry.waiters);
             let subscribers = entry.subscribers.clone();
@@ -337,7 +356,7 @@ impl QueueInner {
 
     fn subscribe(
         &self,
-        handle_id: u64,
+        handle: Handle,
         channel_size: usize,
     ) -> Result<Subscription, QueueError> {
         let (tx, rx) = crossbeam::channel::bounded(channel_size);
@@ -345,8 +364,8 @@ impl QueueInner {
 
         let mut handles = self.handles.write();
         let entry = handles
-            .get_mut(&handle_id)
-            .ok_or(QueueError::HandleNotRegistered(handle_id))?;
+            .get_mut(&handle)
+            .ok_or(QueueError::HandleNotRegistered(handle.id))?;
 
         if entry.subscribers.len() >= self.config.max_subscribers_per_handle {
             return Err(QueueError::MaxSubscribers);
@@ -360,7 +379,7 @@ impl QueueInner {
         Ok(Subscription {
             id: subscription_id,
             receiver: rx,
-            _handle: Handle { id: handle_id },
+            _handle: handle,
         })
     }
 
@@ -404,15 +423,15 @@ mod tests {
 
         let queue_clone = queue.clone();
         let handle_clone = handle.clone();
-        let waiter = tokio::spawn(async move { queue_clone.wait(&handle_clone).await.unwrap() });
+        let waiter = tokio::spawn(async move { queue_clone.wait(handle_clone).await.unwrap() });
 
         tokio::time::sleep(Duration::from_millis(10)).await;
-        queue.notify(&handle, 42).unwrap();
+        queue.notify(handle, 42).unwrap();
 
         let result = waiter.await.unwrap();
         assert_eq!(result, 42);
 
-        queue.unregister_handle(&handle);
+        queue.unregister_handle(handle);
     }
 
     #[tokio::test]
@@ -420,15 +439,15 @@ mod tests {
         let queue = NotificationQueue::new(QueueConfig::default());
         let handle = queue.register_handle();
 
-        let sub = queue.subscribe(&handle, 10).unwrap();
+        let sub = queue.subscribe(handle, 10).unwrap();
 
-        queue.notify(&handle, 1).unwrap();
-        queue.notify(&handle, 2).unwrap();
+        queue.notify(handle, 1).unwrap();
+        queue.notify(handle, 2).unwrap();
 
         assert_eq!(sub.try_recv(), Some(1));
         assert_eq!(sub.try_recv(), Some(2));
         assert_eq!(sub.try_recv(), None);
 
-        queue.unregister_handle(&handle);
+        queue.unregister_handle(handle);
     }
 }

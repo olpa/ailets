@@ -4,7 +4,7 @@
 //! Equivalent to the Python main() in mempipe.py
 
 use ailetos::mempipe::MemPipe;
-use ailetos::notification_queue::{NotificationQueue, QueueConfig};
+use ailetos::notification_queue::{Handle, NotificationQueue, QueueConfig};
 use embedded_io_async::Read;
 use std::io::{self, BufRead};
 
@@ -15,23 +15,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Create notification queue
     let queue = NotificationQueue::new(QueueConfig::default());
 
-    // Register writer handle
-    let writer_handle = queue.register_handle();
+    // Client creates handles with explicit IDs
+    let writer_handle = Handle::new(0);
+    let reader1_handle = Handle::new(1);
+    let reader2_handle = Handle::new(2);
+    let reader3_handle = Handle::new(3);
+
+    // Register handles with queue
+    queue.register_handle_with_id(writer_handle);
+    queue.register_handle_with_id(reader1_handle);
+    queue.register_handle_with_id(reader2_handle);
+    queue.register_handle_with_id(reader3_handle);
 
     // Create mempipe
     let pipe = MemPipe::new(
-        writer_handle.clone(),
+        writer_handle,
         queue.clone(),
         None,
     );
 
-    // Create readers (each gets its own handle)
-    let mut reader1 = pipe.create_reader();
-    let reader1_handle = reader1.handle().clone();
-    let mut reader2 = pipe.create_reader();
-    let reader2_handle = reader2.handle().clone();
-    let mut reader3 = pipe.create_reader();
-    let reader3_handle = reader3.handle().clone();
+    // Create readers with explicit handles
+    let mut reader1 = pipe.get_reader(reader1_handle);
+    let mut reader2 = pipe.get_reader(reader2_handle);
+    let mut reader3 = pipe.get_reader(reader3_handle);
 
     // Spawn writer task
     let writer_task = tokio::spawn(async move {
@@ -72,10 +78,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = tokio::join!(writer_task, reader1_task, reader2_task, reader3_task);
 
     // Unregister reader handles first, then writer handle
-    queue.unregister_handle(&reader1_handle);
-    queue.unregister_handle(&reader2_handle);
-    queue.unregister_handle(&reader3_handle);
-    queue.unregister_handle(&writer_handle);
+    queue.unregister_handle(reader1_handle);
+    queue.unregister_handle(reader2_handle);
+    queue.unregister_handle(reader3_handle);
+    queue.unregister_handle(writer_handle);
 
     println!("All tasks completed");
     Ok(())
