@@ -24,31 +24,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut reader2 = pipe.get_reader(Handle::new(2));
     let mut reader3 = pipe.get_reader(Handle::new(3));
 
-    // REVIEW MARKER
-
-    // Spawn writer task
     let writer_task = tokio::spawn(async move {
-        println!("Enter text (empty line to quit):");
-        let stdin = io::stdin();
-        let mut lines = stdin.lock().lines();
-
-        while let Some(Ok(line)) = lines.next() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                break;
-            }
-
-            if let Err(e) = pipe.writer().write_sync(trimmed.as_bytes()) {
-                eprintln!("Write error: {}", e);
-                break;
-            }
-        }
-
-        pipe.writer().close().ok();
-        println!("Writer closed");
+        write_all(pipe).await;
     });
 
-    // Spawn reader tasks
     let reader1_task = tokio::spawn(async move {
         read_all("r1", &mut reader1).await;
     });
@@ -61,11 +40,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         read_all("r3", &mut reader3).await;
     });
 
-    // Wait for all tasks
     let _ = tokio::join!(writer_task, reader1_task, reader2_task, reader3_task);
 
     println!("All tasks completed");
     Ok(())
+}
+
+// FIXME REVIEW MARKER
+
+async fn write_all(pipe: MemPipe) {
+    println!("Enter text (empty line to quit):");
+    let stdin = io::stdin();
+    let mut lines = stdin.lock().lines();
+
+    while let Some(Ok(line)) = lines.next() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            break;
+        }
+
+        if let Err(e) = pipe.writer().write_sync(trimmed.as_bytes()) {
+            eprintln!("Write error: {}", e);
+            break;
+        }
+    }
+
+    pipe.writer().close().ok();
+    println!("Writer closed");
 }
 
 async fn read_all(name: &str, reader: &mut impl Read) {
