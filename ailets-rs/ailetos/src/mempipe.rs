@@ -107,6 +107,9 @@ impl Writer {
         queue: NotificationQueue,
         external_buffer: Option<Vec<u8>>,
     ) -> Self {
+        // Register handle with queue (like Python's queue.whitelist)
+        queue.register_handle_with_id(handle);
+
         Self {
             shared: Arc::new(Mutex::new(SharedBuffer::new(external_buffer))),
             handle,
@@ -176,6 +179,8 @@ impl Writer {
         }
         // Notify with -1 to signal close
         self.queue.notify(self.handle, -1)?;
+        // Unregister handle from queue (like Python's queue.unlist)
+        self.queue.unregister_handle(self.handle);
         Ok(())
     }
 
@@ -485,8 +490,7 @@ mod tests {
         assert_eq!(n, 5);
         assert_eq!(&buf[..n], b"Hello");
 
-        queue.unregister_handle(reader_handle);
-        queue.unregister_handle(writer_handle);
+        // Writer unregisters its handle on drop
     }
 
     #[tokio::test]
@@ -520,9 +524,7 @@ mod tests {
         assert_eq!(&buf1[..n1], b"Broadcast");
         assert_eq!(&buf2[..n2], b"Broadcast");
 
-        queue.unregister_handle(reader1_handle);
-        queue.unregister_handle(reader2_handle);
-        queue.unregister_handle(writer_handle);
+        // Writer unregisters its handle on drop
     }
 
     #[tokio::test]
@@ -552,7 +554,6 @@ mod tests {
         let n = reader.read(&mut buf).await.unwrap();
         assert_eq!(n, 0);
 
-        queue.unregister_handle(reader_handle);
-        queue.unregister_handle(writer_handle);
+        // Writer unregisters its handle on drop
     }
 }

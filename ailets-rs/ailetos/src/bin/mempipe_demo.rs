@@ -14,22 +14,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let queue = NotificationQueue::new(QueueConfig::default());
 
-    let writer_handle = Handle::new(0);
     let pipe = MemPipe::new(
-        writer_handle,
+        Handle::new(0),
         queue.clone(),
         None,
     );
 
-    // REVIEW MARKER
-
-    // Register writer handle with queue
-    queue.register_handle_with_id(writer_handle);
-
-    // Create readers with explicit handles (inline creation)
     let mut reader1 = pipe.get_reader(Handle::new(1));
     let mut reader2 = pipe.get_reader(Handle::new(2));
     let mut reader3 = pipe.get_reader(Handle::new(3));
+
+    // REVIEW MARKER
 
     // Spawn writer task
     let writer_task = tokio::spawn(async move {
@@ -68,9 +63,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Wait for all tasks
     let _ = tokio::join!(writer_task, reader1_task, reader2_task, reader3_task);
-
-    // Unregister writer handle
-    queue.unregister_handle(writer_handle);
 
     println!("All tasks completed");
     Ok(())
