@@ -12,32 +12,24 @@ use std::io::{self, BufRead};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
-    // Create notification queue
     let queue = NotificationQueue::new(QueueConfig::default());
 
-    // Client creates handles with explicit IDs
     let writer_handle = Handle::new(0);
-    let reader1_handle = Handle::new(1);
-    let reader2_handle = Handle::new(2);
-    let reader3_handle = Handle::new(3);
-
-    // Register handles with queue
-    queue.register_handle_with_id(writer_handle);
-    queue.register_handle_with_id(reader1_handle);
-    queue.register_handle_with_id(reader2_handle);
-    queue.register_handle_with_id(reader3_handle);
-
-    // Create mempipe
     let pipe = MemPipe::new(
         writer_handle,
         queue.clone(),
         None,
     );
 
-    // Create readers with explicit handles
-    let mut reader1 = pipe.get_reader(reader1_handle);
-    let mut reader2 = pipe.get_reader(reader2_handle);
-    let mut reader3 = pipe.get_reader(reader3_handle);
+    // REVIEW MARKER
+
+    // Register writer handle with queue
+    queue.register_handle_with_id(writer_handle);
+
+    // Create readers with explicit handles (inline creation)
+    let mut reader1 = pipe.get_reader(Handle::new(1));
+    let mut reader2 = pipe.get_reader(Handle::new(2));
+    let mut reader3 = pipe.get_reader(Handle::new(3));
 
     // Spawn writer task
     let writer_task = tokio::spawn(async move {
@@ -77,10 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Wait for all tasks
     let _ = tokio::join!(writer_task, reader1_task, reader2_task, reader3_task);
 
-    // Unregister reader handles first, then writer handle
-    queue.unregister_handle(reader1_handle);
-    queue.unregister_handle(reader2_handle);
-    queue.unregister_handle(reader3_handle);
+    // Unregister writer handle
     queue.unregister_handle(writer_handle);
 
     println!("All tasks completed");
