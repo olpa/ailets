@@ -46,8 +46,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-// FIXME REVIEW MARKER
-
 async fn write_all(pipe: MemPipe) {
     println!("Enter text (empty line to quit):");
     let stdin = io::stdin();
@@ -59,13 +57,13 @@ async fn write_all(pipe: MemPipe) {
             break;
         }
 
-        if let Err(e) = pipe.writer().write_sync(trimmed.as_bytes()) {
+        if let Err(e) = pipe.writer().write(trimmed.as_bytes()) {
             eprintln!("Write error: {}", e);
             break;
         }
     }
 
-    pipe.writer().close().ok();
+    pipe.writer().close().expect("Failed to close writer");
     println!("Writer closed");
 }
 
