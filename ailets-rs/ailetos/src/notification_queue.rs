@@ -92,20 +92,18 @@ impl std::fmt::Debug for WaitingClient {
     }
 }
 
-/// Represents a client subscribed to handle notifications
-#[derive(Clone)]
-struct SubscribedClient {
-    id: u64,
-    callback: Arc<dyn Fn(i32) + Send + Sync>,
+/// Broadcast channel for a handle (one channel per handle, multiple subscribers)
+struct BroadcastChannel {
+    sender: tokio::sync::broadcast::Sender<Handle>,
     debug_hint: String,
 }
 
-impl std::fmt::Debug for SubscribedClient {
+impl std::fmt::Debug for BroadcastChannel {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SubscribedClient")
-            .field("id", &self.id)
+        f.debug_struct("BroadcastChannel")
             .field("debug_hint", &self.debug_hint)
-            .finish_non_exhaustive()
+            .field("subscriber_count", &self.sender.receiver_count())
+            .finish()
     }
 }
 
@@ -116,8 +114,7 @@ impl std::fmt::Debug for SubscribedClient {
 pub struct InnerState {
     whitelist: HashMap<Handle, String>,
     waiting_clients: HashMap<Handle, Vec<WaitingClient>>,
-    subscribed_clients: HashMap<Handle, Vec<SubscribedClient>>,
-    next_subscription_id: u64,
+    broadcast_channels: HashMap<Handle, BroadcastChannel>,
 }
 
 impl InnerState {
@@ -125,8 +122,7 @@ impl InnerState {
         Self {
             whitelist: HashMap::new(),
             waiting_clients: HashMap::new(),
-            subscribed_clients: HashMap::new(),
-            next_subscription_id: 1,
+            broadcast_channels: HashMap::new(),
         }
     }
 }
@@ -240,12 +236,14 @@ impl NotificationQueue {
 
     /// Subscribe to the handle notification
     ///
-    /// Returns:
-    ///     The handle id of the subscription, to unsubscribe later.
-    pub fn subscribe<F>(&self, handle: Handle, callback: F, debug_hint: &str) -> Option<u64>
-    where
-        F: Fn(i32) + Send + Sync + 'static,
-    {
+    /// Returns a broadcast Receiver. All subscribers receive all notifications.
+    /// Drop the Receiver to unsubscribe (automatic cleanup).
+    ///
+    /// # Arguments
+    /// * `handle` - The handle to subscribe to
+    /// * `channel_capacity` - Capacity of the broadcast channel (only used when creating new channel)
+    /// * `debug_hint` - Debug label for this channel (only used when creating new channel)
+    pub fn subscribe(&self, handle: Handle, channel_capacity: usize, debug_hint: &str) -> Option<tokio::sync::broadcast::Receiver<Handle>> {
         let mut state = self.inner.lock().unwrap();
 
         if !state.whitelist.contains_key(&handle) {
@@ -253,77 +251,49 @@ impl NotificationQueue {
             return None;
         }
 
-        let subscription_id = state.next_subscription_id;
-        state.next_subscription_id += 1;
-
-        let client = SubscribedClient {
-            id: subscription_id,
-            callback: Arc::new(callback),
-            debug_hint: debug_hint.to_string(),
-        };
-
-        state
-            .subscribed_clients
-            .entry(handle)
-            .or_insert_with(Vec::new)
-            .push(client);
-
-        Some(subscription_id)
-    }
-
-    /// Unsubscribe from handle notifications
-    pub fn unsubscribe(&self, handle: Handle, subscription_id: u64) {
-        let mut state = self.inner.lock().unwrap();
-
-        if let Some(subscriptions) = state.subscribed_clients.get_mut(&handle) {
-            if let Some(pos) = subscriptions.iter().position(|s| s.id == subscription_id) {
-                subscriptions.remove(pos);
-                if subscriptions.is_empty() {
-                    state.subscribed_clients.remove(&handle);
-                }
-            } else {
-                log::warn!(
-                    "queue.unsubscribe: subscription {} for handle {:?} not found",
-                    subscription_id,
-                    handle
-                );
+        // Get or create broadcast channel for this handle
+        let broadcast = state.broadcast_channels.entry(handle).or_insert_with(|| {
+            let (tx, _rx) = tokio::sync::broadcast::channel(channel_capacity);
+            BroadcastChannel {
+                sender: tx,
+                debug_hint: debug_hint.to_string(),
             }
-        } else {
-            log::warn!(
-                "queue.unsubscribe: handle {:?} not in subscribed clients",
-                handle
-            );
-        }
+        });
+
+        // Subscribe to the broadcast channel (creates a new Receiver)
+        Some(broadcast.sender.subscribe())
     }
+
+    // No unsubscribe() needed - just drop the Receiver!
 
     /// Internal method to notify and optionally delete subscriptions
     fn notify_and_delete(&self, handle: Handle, arg: i32, delete_subscribed: bool) {
-        let (waiters, subscribers) = {
-            let mut state = self.inner.lock().unwrap();
+        let mut state = self.inner.lock().unwrap();
 
-            // Extract waiting clients
-            let waiters = state.waiting_clients.remove(&handle).unwrap_or_default();
+        // Extract waiting clients
+        let waiters = state.waiting_clients.remove(&handle).unwrap_or_default();
 
-            // Extract or copy subscribed clients
-            let subscribers = if delete_subscribed {
-                state.subscribed_clients.remove(&handle).unwrap_or_default()
-            } else {
-                state
-                    .subscribed_clients
-                    .get(&handle)
-                    .map(|v| v.clone())
-                    .unwrap_or_default()
-            };
+        // Get subscriber count before potential deletion
+        let subscriber_count = state.broadcast_channels.get(&handle)
+            .map(|bc| bc.sender.receiver_count())
+            .unwrap_or(0);
 
-            (waiters, subscribers)
+        // Optionally delete broadcast channel
+        let broadcast_sender = if delete_subscribed {
+            state.broadcast_channels.remove(&handle).map(|bc| bc.sender)
+        } else {
+            state.broadcast_channels.get(&handle).map(|bc| bc.sender.clone())
         };
+
+        // Release lock before notifying
+        drop(state);
 
         log::debug!(
             "queue.notify: handle {:?}, arg={}, waiters: {}, subscribers: {}",
             handle,
             arg,
             waiters.len(),
-            subscribers.len()
+            subscriber_count
         );
 
         // Notify waiting clients
@@ -331,17 +301,10 @@ impl NotificationQueue {
             let _ = waiter.sender.send(handle);
         }
 
-        // Notify subscribers
-        for subscriber in subscribers {
-            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                (subscriber.callback)(arg);
-            })) {
-                log::error!(
-                    "queue.notify: error in subscriber {}: {:?}",
-                    subscriber.debug_hint,
-                    e
-                );
-            }
+        // Notify broadcast subscribers
+        if let Some(tx) = broadcast_sender {
+            // Broadcast to all receivers (ignoring if no receivers or channel full)
+            let _ = tx.send(handle);
         }
     }
 }
@@ -355,7 +318,6 @@ impl Default for NotificationQueue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicI32, Ordering};
     use std::time::Duration;
 
     #[tokio::test]
@@ -385,27 +347,18 @@ mod tests {
 
         queue.whitelist(handle, "test");
 
-        let received = Arc::new(std::sync::Mutex::new(Vec::new()));
-        let received_clone = Arc::clone(&received);
-
-        let subscription_id = queue
-            .subscribe(
-                handle,
-                move |arg| {
-                    received_clone.lock().push(arg);
-                },
-                "test_subscriber",
-            )
-            .unwrap();
+        let mut rx = queue.subscribe(handle, 10, "test_subscriber").unwrap();
 
         queue.notify(handle, 1);
         queue.notify(handle, 2);
 
-        tokio::time::sleep(Duration::from_millis(10)).await;
+        // Receive notifications (subscribers receive the handle itself)
+        assert_eq!(rx.recv().await.unwrap(), handle);
+        assert_eq!(rx.recv().await.unwrap(), handle);
 
-        assert_eq!(*received.lock(), vec![1, 2]);
+        // Drop receiver to unsubscribe (automatic)
+        drop(rx);
 
-        queue.unsubscribe(handle, subscription_id);
         queue.unlist(handle);
     }
 

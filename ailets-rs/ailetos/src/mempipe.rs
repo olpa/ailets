@@ -456,7 +456,7 @@ mod tests {
         let reader_handle = *reader.handle();
 
         // Write some data
-        pipe.writer_mut().write(b"Hello").unwrap();
+        pipe.writer().write(b"Hello").unwrap();
 
         // Read it back
         let mut buf = [0u8; 10];
@@ -484,7 +484,7 @@ mod tests {
         let reader2_handle = *reader2.handle();
 
         // Write data
-        pipe.writer_mut().write(b"Broadcast").unwrap();
+        pipe.writer().write(b"Broadcast").unwrap();
 
         // Both readers should get the same data
         let mut buf1 = [0u8; 20];
@@ -516,8 +516,8 @@ mod tests {
         let reader_handle = *reader.handle();
 
         // Write and close
-        pipe.writer_mut().write(b"Data").unwrap();
-        pipe.writer_mut().close().unwrap();
+        pipe.writer().write(b"Data").unwrap();
+        pipe.writer().close().unwrap();
 
         // Reader should get data
         let mut buf = [0u8; 10];
