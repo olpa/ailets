@@ -71,8 +71,25 @@ impl Handle {
 
 /// Represents a client waiting for a handle notification
 struct WaitingClient {
-    sender: tokio::sync::oneshot::Sender<i32>,
+    /// Thread-safe sender that can be used to notify waiting clients from any thread.
+    ///
+    /// Proof: tokio::sync::oneshot::Sender<T> implements Send where T: Send.
+    /// Since Handle is Copy (containing only u64), Sender<Handle> is Send.
+    ///
+    /// Documentation: <https://docs.rs/tokio/latest/tokio/sync/oneshot/struct.Sender.html>
+    /// To verify: Scroll down to "Trait Implementations" section to see:
+    /// - `impl<T> Send for Sender<T> where T: Send`
+    /// - `impl<T> Sync for Sender<T> where T: Send`
+    sender: tokio::sync::oneshot::Sender<Handle>,
     debug_hint: String,
+}
+
+impl std::fmt::Debug for WaitingClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WaitingClient")
+            .field("debug_hint", &self.debug_hint)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Represents a client subscribed to handle notifications
@@ -81,6 +98,15 @@ struct SubscribedClient {
     id: u64,
     callback: Arc<dyn Fn(i32) + Send + Sync>,
     debug_hint: String,
+}
+
+impl std::fmt::Debug for SubscribedClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SubscribedClient")
+            .field("id", &self.id)
+            .field("debug_hint", &self.debug_hint)
+            .finish_non_exhaustive()
+    }
 }
 
 // ============================================================================
@@ -302,7 +328,7 @@ impl NotificationQueue {
 
         // Notify waiting clients
         for waiter in waiters {
-            let _ = waiter.sender.send(arg);
+            let _ = waiter.sender.send(handle);
         }
 
         // Notify subscribers
