@@ -10,16 +10,13 @@ use std::fmt;
 use std::io;
 use std::sync::{Arc, Mutex};
 
-use crate::notification_queue::{Handle, NotificationQueue, QueueError};
+use crate::notification_queue::{Handle, NotificationQueue};
 
 /// Error type for mempipe operations
 #[derive(Debug, thiserror::Error)]
 pub enum MemPipeError {
     #[error("IO error: {0}")]
     Io(#[from] io::Error),
-
-    #[error("Queue error: {0}")]
-    Queue(#[from] QueueError),
 
     #[error("Writer is closed")]
     WriterClosed,
@@ -70,7 +67,6 @@ impl From<MemPipeError> for io::Error {
             MemPipeError::Io(e) => e,
             MemPipeError::WriterClosed => io::Error::new(io::ErrorKind::BrokenPipe, e.to_string()),
             MemPipeError::WriterError(_) => io::Error::new(io::ErrorKind::Other, e.to_string()),
-            MemPipeError::Queue(_) => io::Error::new(io::ErrorKind::Other, e.to_string()),
         }
     }
 }
@@ -108,7 +104,7 @@ impl Writer {
         external_buffer: Option<Vec<u8>>,
     ) -> Self {
         // Register handle with queue (like Python's queue.whitelist)
-        queue.register_handle_with_id(handle);
+        queue.whitelist(handle, "writer");
 
         Self {
             shared: Arc::new(Mutex::new(SharedBuffer::new(external_buffer))),
@@ -136,7 +132,7 @@ impl Writer {
             }
             shared.error = Some(errno);
         }
-        self.queue.notify(self.handle, errno)?;
+        self.queue.notify(self.handle, errno);
         Ok(())
     }
 
@@ -167,7 +163,7 @@ impl Writer {
         };
 
         // Notify outside lock
-        self.queue.notify(self.handle, len as i32)?;
+        self.queue.notify(self.handle, len as i32);
         Ok(len)
     }
 
@@ -177,10 +173,9 @@ impl Writer {
             let mut shared = self.shared.lock().unwrap();
             shared.closed = true;
         }
-        // Notify with -1 to signal close
-        self.queue.notify(self.handle, -1)?;
         // Unregister handle from queue (like Python's queue.unlist)
-        self.queue.unregister_handle(self.handle);
+        // This will notify with -1 and wake all waiters
+        self.queue.unlist(self.handle);
         Ok(())
     }
 
@@ -331,18 +326,9 @@ impl Reader {
             return Ok(());
         }
 
-        // Register waiter while still holding queue lock (lock released inside register_waiter_locked)
-        let rx = self.queue.register_waiter_locked(self.writer_handle, queue_lock)?;
-
-        // Wait on receiver (queue lock already released by register_waiter_locked)
-        match self.queue.wait_on_receiver(rx).await {
-            Ok(_) => Ok(()),
-            Err(QueueError::HandleUnlisted) => {
-                self.closed = true;
-                Ok(())
-            }
-            Err(e) => Err(e.into()),
-        }
+        // Wait using wait_unsafe (lock is passed to wait_unsafe and released there)
+        self.queue.wait_unsafe(self.writer_handle, "reader", queue_lock).await;
+        Ok(())
     }
 
     /// Read available data from buffer
@@ -440,17 +426,6 @@ impl MemPipe {
         &mut self.writer
     }
 
-    /// Create a new reader for this pipe
-    pub fn create_reader(&self) -> Reader {
-        let reader_handle = self.queue.register_handle();
-        Reader::new(
-            reader_handle,
-            self.writer.shared(),
-            self.writer.handle.clone(),  // All readers wait on writer's handle
-            self.queue.clone(),
-        )
-    }
-
     /// Get a reader for this pipe with an explicit handle
     pub fn get_reader(&self, reader_handle: Handle) -> Reader {
         Reader::new(
@@ -465,21 +440,20 @@ impl MemPipe {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::notification_queue::QueueConfig;
 
     #[tokio::test]
     async fn test_write_read() {
-        let queue = NotificationQueue::new(QueueConfig::default());
-        let writer_handle = queue.register_handle();
+        let queue = NotificationQueue::new();
+        let writer_handle = Handle::new(1);
 
         let mut pipe = MemPipe::new(
-            writer_handle.clone(),
+            writer_handle,
             queue.clone(),
             None,
         );
 
-        let mut reader = pipe.create_reader();
-        let reader_handle = reader.handle().clone();
+        let mut reader = pipe.get_reader(Handle::new(2));
+        let reader_handle = *reader.handle();
 
         // Write some data
         pipe.writer_mut().write(b"Hello").unwrap();
@@ -495,19 +469,19 @@ mod tests {
 
     #[tokio::test]
     async fn test_multiple_readers() {
-        let queue = NotificationQueue::new(QueueConfig::default());
-        let writer_handle = queue.register_handle();
+        let queue = NotificationQueue::new();
+        let writer_handle = Handle::new(1);
 
         let mut pipe = MemPipe::new(
-            writer_handle.clone(),
+            writer_handle,
             queue.clone(),
             None,
         );
 
-        let mut reader1 = pipe.create_reader();
-        let reader1_handle = reader1.handle().clone();
-        let mut reader2 = pipe.create_reader();
-        let reader2_handle = reader2.handle().clone();
+        let mut reader1 = pipe.get_reader(Handle::new(2));
+        let reader1_handle = *reader1.handle();
+        let mut reader2 = pipe.get_reader(Handle::new(3));
+        let reader2_handle = *reader2.handle();
 
         // Write data
         pipe.writer_mut().write(b"Broadcast").unwrap();
@@ -529,17 +503,17 @@ mod tests {
 
     #[tokio::test]
     async fn test_close_propagation() {
-        let queue = NotificationQueue::new(QueueConfig::default());
-        let writer_handle = queue.register_handle();
+        let queue = NotificationQueue::new();
+        let writer_handle = Handle::new(1);
 
         let mut pipe = MemPipe::new(
-            writer_handle.clone(),
+            writer_handle,
             queue.clone(),
             None,
         );
 
-        let mut reader = pipe.create_reader();
-        let reader_handle = reader.handle().clone();
+        let mut reader = pipe.get_reader(Handle::new(2));
+        let reader_handle = *reader.handle();
 
         // Write and close
         pipe.writer_mut().write(b"Data").unwrap();

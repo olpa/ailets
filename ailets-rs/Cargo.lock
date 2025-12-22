@@ -69,6 +69,7 @@ dependencies = [
  "embedded-io-async",
  "env_logger",
  "getrandom",
+ "log",
  "parking_lot",
  "rustc-hash",
  "thiserror",

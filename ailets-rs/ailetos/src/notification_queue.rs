@@ -1,63 +1,13 @@
-//! Notification Queue - Working Implementation
+//! Notification Queue - Simplified version matching Python implementation
 //!
 //! Thread-safe notification mechanism for coordinating between sync workers
-//! and async clients. Designed for OS core use with protection against buggy clients.
+//! and async clients.
 
-use parking_lot::RwLock;
-use rustc_hash::FxHashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
-use thiserror::Error;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 // ============================================================================
-// Configuration
-// ============================================================================
-
-#[derive(Debug, Clone)]
-pub struct QueueConfig {
-    pub max_subscribers_per_handle: usize,
-    pub max_waiters_per_handle: usize,
-    pub callback_timeout: Duration,
-}
-
-impl Default for QueueConfig {
-    fn default() -> Self {
-        Self {
-            max_subscribers_per_handle: 1024,
-            max_waiters_per_handle: 1024,
-            callback_timeout: Duration::from_millis(100),
-        }
-    }
-}
-
-// ============================================================================
-// Errors
-// ============================================================================
-
-#[derive(Debug, Clone, Error)]
-pub enum QueueError {
-    #[error("Handle not registered: {0}")]
-    HandleNotRegistered(u64),
-
-    #[error("Handle was unlisted while waiting")]
-    HandleUnlisted,
-
-    #[error("Maximum subscribers reached for handle")]
-    MaxSubscribers,
-
-    #[error("Maximum waiters reached for handle")]
-    MaxWaiters,
-
-    #[error("Wait timeout")]
-    Timeout,
-
-    #[error("Subscription not found: {0}")]
-    SubscriptionNotFound(u64),
-}
-
-// ============================================================================
-// Public API Types
+// Handle Type
 // ============================================================================
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -75,31 +25,41 @@ impl Handle {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct QueueStats {
-    pub total_handles: usize,
-    pub total_waiters: usize,
-    pub total_subscribers: usize,
-    pub total_notifications: u64,
+// ============================================================================
+// Client Types
+// ============================================================================
+
+struct WaitingClient {
+    sender: tokio::sync::oneshot::Sender<i32>,
+    debug_hint: String,
 }
 
-pub struct Subscription {
+#[derive(Clone)]
+struct SubscribedClient {
     id: u64,
-    pub receiver: crossbeam::channel::Receiver<i32>,
-    _handle: Handle,
+    callback: Arc<dyn Fn(i32) + Send + Sync>,
+    debug_hint: String,
 }
 
-impl Subscription {
-    pub fn id(&self) -> u64 {
-        self.id
-    }
+// ============================================================================
+// Internal State
+// ============================================================================
 
-    pub fn try_recv(&self) -> Option<i32> {
-        self.receiver.try_recv().ok()
-    }
+pub struct InnerState {
+    whitelist: HashMap<Handle, String>,
+    waiting_clients: HashMap<Handle, Vec<WaitingClient>>,
+    subscribed_clients: HashMap<Handle, Vec<SubscribedClient>>,
+    next_subscription_id: u64,
+}
 
-    pub fn recv(&self) -> Option<i32> {
-        self.receiver.recv().ok()
+impl InnerState {
+    fn new() -> Self {
+        Self {
+            whitelist: HashMap::new(),
+            waiting_clients: HashMap::new(),
+            subscribed_clients: HashMap::new(),
+            next_subscription_id: 1,
+        }
     }
 }
 
@@ -109,345 +69,293 @@ impl Subscription {
 
 #[derive(Clone)]
 pub struct NotificationQueue {
-    inner: Arc<QueueInner>,
+    inner: Arc<Mutex<InnerState>>,
 }
 
 impl NotificationQueue {
-    pub fn new(config: QueueConfig) -> Self {
+    pub fn new() -> Self {
         Self {
-            inner: Arc::new(QueueInner::new(config)),
+            inner: Arc::new(Mutex::new(InnerState::new())),
         }
     }
 
-    pub fn register_handle(&self) -> Handle {
-        let id = self.inner.register_handle();
-        Handle { id }
+    /// Get the lock for atomic condition-check + register operations
+    pub fn get_lock(&self) -> std::sync::MutexGuard<'_, InnerState> {
+        self.inner.lock().unwrap()
     }
 
-    pub fn register_handle_with_id(&self, handle: Handle) {
-        self.inner.register_handle_with_id(handle);
+    /// Register a handle in the whitelist
+    pub fn whitelist(&self, handle: Handle, debug_hint: &str) {
+        let mut state = self.inner.lock().unwrap();
+        if state.whitelist.contains_key(&handle) {
+            log::warn!("queue.whitelist: handle {:?} already in whitelist", handle);
+        }
+        state.whitelist.insert(handle, debug_hint.to_string());
     }
 
-    pub fn unregister_handle(&self, handle: Handle) {
-        self.inner.unlist(handle);
+    /// Unregister a handle from the whitelist
+    pub fn unlist(&self, handle: Handle) {
+        let mut state = self.inner.lock().unwrap();
+        if !state.whitelist.contains_key(&handle) {
+            log::warn!("queue.unlist: handle {:?} not in whitelist", handle);
+        } else {
+            state.whitelist.remove(&handle);
+        }
+        drop(state);
+
+        // Notify with -1 and delete subscriptions
+        self.notify_and_delete(handle, -1, true);
     }
 
-    pub fn notify(&self, handle: Handle, arg: i32) -> Result<usize, QueueError> {
-        self.inner.notify(handle, arg)
+    /// Notify waiting clients and subscribers for a handle
+    pub fn notify(&self, handle: Handle, arg: i32) {
+        self.notify_and_delete(handle, arg, false);
     }
 
-    pub async fn wait(&self, handle: Handle) -> Result<i32, QueueError> {
-        self.inner.wait(handle).await
-    }
-
-    /// Get the internal lock for atomic condition-check + register operations.
+    /// Wait for handle notification (unsafe - requires careful locking by caller)
     ///
-    /// Use this to atomically check a condition and register a waiter.
-    pub fn get_lock(&self) -> parking_lot::RwLockWriteGuard<'_, FxHashMap<Handle, HandleEntry>> {
-        self.inner.handles.write()
-    }
-
-    /// Register a waiter under lock and return receiver for waiting.
+    /// IMPORTANT: To avoid race conditions, the caller should:
+    /// 1. Acquire the queue lock via get_lock()
+    /// 2. Check their wait condition while holding the lock
+    /// 3. If they need to wait, call this method while still holding the lock
+    /// 4. This method will consume the lock guard and return a Future to await
     ///
-    /// This is the synchronous part of the wait operation. Call this while
-    /// holding a lock to atomically check a condition and register a waiter.
-    ///
-    /// Returns a receiver that will be notified when the handle is triggered.
-    pub fn register_waiter_locked(
-        &self,
-        handle: Handle,
-        mut lock: parking_lot::RwLockWriteGuard<'_, FxHashMap<Handle, HandleEntry>>,
-    ) -> Result<tokio::sync::oneshot::Receiver<i32>, QueueError> {
-        let (tx, rx) = tokio::sync::oneshot::channel();
+    /// See the Python module documentation for more details.
+    pub fn wait_unsafe(&self, handle: Handle, debug_hint: &str, mut lock: std::sync::MutexGuard<'_, InnerState>) -> impl std::future::Future<Output = ()> + Send {
+        log::debug!("queue.wait_unsafe: {:?}", handle);
 
-        let entry = lock
-            .get_mut(&handle)
-            .ok_or(QueueError::HandleNotRegistered(handle.id))?;
+        // Check if handle is whitelisted and register waiter (synchronous, before any await)
+        let rx = if !lock.whitelist.contains_key(&handle) {
+            // Don't warn: the whole idea of whitelist is to
+            // avoid waiting in case of race conditions
+            drop(lock);
+            None
+        } else {
+            let (tx, rx) = tokio::sync::oneshot::channel();
+            let client = WaitingClient {
+                sender: tx,
+                debug_hint: debug_hint.to_string(),
+            };
 
-        if entry.waiters.len() >= self.inner.config.max_waiters_per_handle {
-            return Err(QueueError::MaxWaiters);
-        }
+            lock.waiting_clients
+                .entry(handle)
+                .or_insert_with(Vec::new)
+                .push(client);
 
-        entry.waiters.push(Waiter { sender: tx });
+            // Release lock before awaiting
+            drop(lock);
+            Some(rx)
+        };
 
-        // Lock is dropped here
-        drop(lock);
+        let queue = self.clone();
 
-        Ok(rx)
-    }
+        // Return async block that does the waiting
+        async move {
+            if let Some(rx) = rx {
+                // Wait for notification
+                let _ = rx.await;
 
-    /// Wait on a receiver obtained from register_waiter_locked.
-    pub async fn wait_on_receiver(
-        &self,
-        rx: tokio::sync::oneshot::Receiver<i32>,
-    ) -> Result<i32, QueueError> {
-        match rx.await {
-            Ok(-1) => Err(QueueError::HandleUnlisted),
-            Ok(arg) => Ok(arg),
-            Err(_) => Err(QueueError::HandleUnlisted),
-        }
-    }
-
-    pub async fn wait_timeout(
-        &self,
-        handle: Handle,
-        timeout: Duration,
-    ) -> Result<i32, QueueError> {
-        tokio::time::timeout(timeout, self.wait(handle))
-            .await
-            .map_err(|_| QueueError::Timeout)?
-    }
-
-    pub fn subscribe(
-        &self,
-        handle: Handle,
-        channel_size: usize,
-    ) -> Result<Subscription, QueueError> {
-        self.inner.subscribe(handle, channel_size)
-    }
-
-    pub fn unsubscribe(&self, subscription: Subscription) -> Result<(), QueueError> {
-        self.inner.unsubscribe(subscription.id)
-    }
-
-    pub fn stats(&self) -> QueueStats {
-        self.inner.stats()
-    }
-}
-
-// ============================================================================
-// Internal Implementation
-// ============================================================================
-
-struct QueueInner {
-    config: QueueConfig,
-    next_handle_id: AtomicU64,
-    next_subscription_id: AtomicU64,
-    handles: RwLock<FxHashMap<Handle, HandleEntry>>,
-    stats: AtomicStats,
-}
-
-pub(crate) struct HandleEntry {
-    waiters: Vec<Waiter>,
-    subscribers: Vec<Subscriber>,
-}
-
-struct Waiter {
-    sender: tokio::sync::oneshot::Sender<i32>,
-}
-
-#[derive(Clone)]
-struct Subscriber {
-    id: u64,
-    sender: crossbeam::channel::Sender<i32>,
-}
-
-struct AtomicStats {
-    total_notifications: AtomicU64,
-}
-
-impl QueueInner {
-    fn new(config: QueueConfig) -> Self {
-        Self {
-            config,
-            next_handle_id: AtomicU64::new(1),
-            next_subscription_id: AtomicU64::new(1),
-            handles: RwLock::new(FxHashMap::default()),
-            stats: AtomicStats {
-                total_notifications: AtomicU64::new(0),
-            },
-        }
-    }
-
-    fn register_handle(&self) -> u64 {
-        let id = self.next_handle_id.fetch_add(1, Ordering::Relaxed);
-        let mut handles = self.handles.write();
-        handles.insert(
-            Handle::new(id),
-            HandleEntry {
-                waiters: Vec::new(),
-                subscribers: Vec::new(),
-            },
-        );
-        id
-    }
-
-    fn register_handle_with_id(&self, handle: Handle) {
-        let mut handles = self.handles.write();
-        handles.insert(
-            handle,
-            HandleEntry {
-                waiters: Vec::new(),
-                subscribers: Vec::new(),
-            },
-        );
-    }
-
-    fn unlist(&self, handle: Handle) {
-        let mut handles = self.handles.write();
-        if let Some(entry) = handles.remove(&handle) {
-            // Notify all waiters that handle is gone
-            for waiter in entry.waiters {
-                let _ = waiter.sender.send(-1);
+                // Clean up: re-acquire lock and remove ourselves from waiting list
+                let mut state = queue.inner.lock().unwrap();
+                if let Some(clients) = state.waiting_clients.get_mut(&handle) {
+                    // Remove the client that just finished waiting
+                    // Note: we can't identify by sender anymore since it was moved, so we remove all
+                    // In practice, this list should be empty since notify removes all waiters
+                    clients.clear();
+                    if clients.is_empty() {
+                        state.waiting_clients.remove(&handle);
+                    }
+                }
             }
-            // Subscribers' channels will close when senders are dropped
         }
     }
 
-    async fn wait(&self, handle: Handle) -> Result<i32, QueueError> {
-        let (tx, rx) = tokio::sync::oneshot::channel();
+    /// Subscribe to handle notifications with a callback
+    ///
+    /// Returns the subscription ID to unsubscribe later, or None if handle not whitelisted
+    pub fn subscribe<F>(&self, handle: Handle, callback: F, debug_hint: &str) -> Option<u64>
+    where
+        F: Fn(i32) + Send + Sync + 'static,
+    {
+        let mut state = self.inner.lock().unwrap();
 
-        // Add waiter under write lock
-        {
-            let mut handles = self.handles.write();
-            let entry = handles
-                .get_mut(&handle)
-                .ok_or(QueueError::HandleNotRegistered(handle.id))?;
+        if !state.whitelist.contains_key(&handle) {
+            log::warn!("queue.subscribe: handle {:?} not in whitelist", handle);
+            return None;
+        }
 
-            if entry.waiters.len() >= self.config.max_waiters_per_handle {
-                return Err(QueueError::MaxWaiters);
+        let subscription_id = state.next_subscription_id;
+        state.next_subscription_id += 1;
+
+        let client = SubscribedClient {
+            id: subscription_id,
+            callback: Arc::new(callback),
+            debug_hint: debug_hint.to_string(),
+        };
+
+        state
+            .subscribed_clients
+            .entry(handle)
+            .or_insert_with(Vec::new)
+            .push(client);
+
+        Some(subscription_id)
+    }
+
+    /// Unsubscribe from handle notifications
+    pub fn unsubscribe(&self, handle: Handle, subscription_id: u64) {
+        let mut state = self.inner.lock().unwrap();
+
+        if let Some(subscriptions) = state.subscribed_clients.get_mut(&handle) {
+            if let Some(pos) = subscriptions.iter().position(|s| s.id == subscription_id) {
+                subscriptions.remove(pos);
+                if subscriptions.is_empty() {
+                    state.subscribed_clients.remove(&handle);
+                }
+            } else {
+                log::warn!(
+                    "queue.unsubscribe: subscription {} for handle {:?} not found",
+                    subscription_id,
+                    handle
+                );
             }
-
-            entry.waiters.push(Waiter { sender: tx });
-        }
-
-        // Wait outside lock
-        match rx.await {
-            Ok(-1) => Err(QueueError::HandleUnlisted),
-            Ok(arg) => Ok(arg),
-            Err(_) => Err(QueueError::HandleUnlisted),
+        } else {
+            log::warn!(
+                "queue.unsubscribe: handle {:?} not in subscribed clients",
+                handle
+            );
         }
     }
 
-    fn notify(&self, handle: Handle, arg: i32) -> Result<usize, QueueError> {
-        let mut count = 0;
-
-        // Extract waiters and clone subscribers under write lock
+    /// Internal method to notify and optionally delete subscriptions
+    fn notify_and_delete(&self, handle: Handle, arg: i32, delete_subscribed: bool) {
         let (waiters, subscribers) = {
-            let mut handles = self.handles.write();
-            let entry = handles
-                .get_mut(&handle)
-                .ok_or(QueueError::HandleNotRegistered(handle.id))?;
+            let mut state = self.inner.lock().unwrap();
 
-            let waiters = std::mem::take(&mut entry.waiters);
-            let subscribers = entry.subscribers.clone();
+            // Extract waiting clients
+            let waiters = state.waiting_clients.remove(&handle).unwrap_or_default();
+
+            // Extract or copy subscribed clients
+            let subscribers = if delete_subscribed {
+                state.subscribed_clients.remove(&handle).unwrap_or_default()
+            } else {
+                state
+                    .subscribed_clients
+                    .get(&handle)
+                    .map(|v| v.clone())
+                    .unwrap_or_default()
+            };
 
             (waiters, subscribers)
         };
 
-        // Notify outside lock
+        log::debug!(
+            "queue.notify: handle {:?}, arg={}, waiters: {}, subscribers: {}",
+            handle,
+            arg,
+            waiters.len(),
+            subscribers.len()
+        );
+
+        // Notify waiting clients
         for waiter in waiters {
-            if waiter.sender.send(arg).is_ok() {
-                count += 1;
-            }
+            let _ = waiter.sender.send(arg);
         }
 
+        // Notify subscribers
         for subscriber in subscribers {
-            if subscriber.sender.try_send(arg).is_ok() {
-                count += 1;
+            if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                (subscriber.callback)(arg);
+            })) {
+                log::error!(
+                    "queue.notify: error in subscriber {}: {:?}",
+                    subscriber.debug_hint,
+                    e
+                );
             }
         }
-
-        self.stats
-            .total_notifications
-            .fetch_add(1, Ordering::Relaxed);
-        Ok(count)
     }
+}
 
-    fn subscribe(
-        &self,
-        handle: Handle,
-        channel_size: usize,
-    ) -> Result<Subscription, QueueError> {
-        let (tx, rx) = crossbeam::channel::bounded(channel_size);
-        let subscription_id = self.next_subscription_id.fetch_add(1, Ordering::Relaxed);
-
-        let mut handles = self.handles.write();
-        let entry = handles
-            .get_mut(&handle)
-            .ok_or(QueueError::HandleNotRegistered(handle.id))?;
-
-        if entry.subscribers.len() >= self.config.max_subscribers_per_handle {
-            return Err(QueueError::MaxSubscribers);
-        }
-
-        entry.subscribers.push(Subscriber {
-            id: subscription_id,
-            sender: tx,
-        });
-
-        Ok(Subscription {
-            id: subscription_id,
-            receiver: rx,
-            _handle: handle,
-        })
-    }
-
-    fn unsubscribe(&self, subscription_id: u64) -> Result<(), QueueError> {
-        let mut handles = self.handles.write();
-        for entry in handles.values_mut() {
-            if let Some(pos) = entry
-                .subscribers
-                .iter()
-                .position(|s| s.id == subscription_id)
-            {
-                entry.subscribers.remove(pos);
-                return Ok(());
-            }
-        }
-        Err(QueueError::SubscriptionNotFound(subscription_id))
-    }
-
-    fn stats(&self) -> QueueStats {
-        let handles = self.handles.read();
-        let total_waiters: usize = handles.values().map(|e| e.waiters.len()).sum();
-        let total_subscribers: usize = handles.values().map(|e| e.subscribers.len()).sum();
-
-        QueueStats {
-            total_handles: handles.len(),
-            total_waiters,
-            total_subscribers,
-            total_notifications: self.stats.total_notifications.load(Ordering::Relaxed),
-        }
+impl Default for NotificationQueue {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicI32, Ordering};
+    use std::time::Duration;
 
     #[tokio::test]
     async fn test_basic_wait_notify() {
-        let queue = NotificationQueue::new(QueueConfig::default());
-        let handle = queue.register_handle();
+        let queue = NotificationQueue::new();
+        let handle = Handle::new(1);
+
+        queue.whitelist(handle, "test");
 
         let queue_clone = queue.clone();
-        let handle_clone = handle.clone();
-        let waiter = tokio::spawn(async move { queue_clone.wait(handle_clone).await.unwrap() });
+        let waiter = tokio::spawn(async move {
+            let lock = queue_clone.get_lock();
+            queue_clone.wait_unsafe(handle, "waiter", lock).await;
+        });
 
         tokio::time::sleep(Duration::from_millis(10)).await;
-        queue.notify(handle, 42).unwrap();
+        queue.notify(handle, 42);
 
-        let result = waiter.await.unwrap();
-        assert_eq!(result, 42);
-
-        queue.unregister_handle(handle);
+        waiter.await.unwrap();
+        queue.unlist(handle);
     }
 
     #[tokio::test]
     async fn test_subscription() {
-        let queue = NotificationQueue::new(QueueConfig::default());
-        let handle = queue.register_handle();
+        let queue = NotificationQueue::new();
+        let handle = Handle::new(2);
 
-        let sub = queue.subscribe(handle, 10).unwrap();
+        queue.whitelist(handle, "test");
 
-        queue.notify(handle, 1).unwrap();
-        queue.notify(handle, 2).unwrap();
+        let received = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let received_clone = Arc::clone(&received);
 
-        assert_eq!(sub.try_recv(), Some(1));
-        assert_eq!(sub.try_recv(), Some(2));
-        assert_eq!(sub.try_recv(), None);
+        let subscription_id = queue
+            .subscribe(
+                handle,
+                move |arg| {
+                    received_clone.lock().push(arg);
+                },
+                "test_subscriber",
+            )
+            .unwrap();
 
-        queue.unregister_handle(handle);
+        queue.notify(handle, 1);
+        queue.notify(handle, 2);
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+
+        assert_eq!(*received.lock(), vec![1, 2]);
+
+        queue.unsubscribe(handle, subscription_id);
+        queue.unlist(handle);
+    }
+
+    #[tokio::test]
+    async fn test_unlist_notifies_waiters() {
+        let queue = NotificationQueue::new();
+        let handle = Handle::new(3);
+
+        queue.whitelist(handle, "test");
+
+        let queue_clone = queue.clone();
+        let waiter = tokio::spawn(async move {
+            let lock = queue_clone.get_lock();
+            queue_clone.wait_unsafe(handle, "waiter", lock).await;
+        });
+
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        queue.unlist(handle);
+
+        waiter.await.unwrap();
     }
 }
