@@ -1,7 +1,47 @@
-//! Notification Queue - Simplified version matching Python implementation
+//! Notification Queue
 //!
 //! Thread-safe notification mechanism for coordinating between sync workers
 //! and async clients.
+//!
+//! # 1) Waiting for a handle
+//!
+//! In the first approximation, the workflow is as follows:
+//!
+//! 10. Client: check condition
+//! 20. Client: call `wait_for_handle`
+//! 30. Queue-for-client: add client to the waiting list
+//! 40. Queue-for-client: wait for handle notification
+//!
+//! 50. Worker: call `notify`
+//! 60. Queue-for-worker: extract the client(s) from the waiting list
+//! 70. Queue-for-worker: notify the event loop to awake the client(s)
+//!
+//! 80. Queue-for-client: awake and exit from `wait_for_handle`
+//!
+//! However, due to the worker being in a different thread,
+//! the step 60 "extract the client(s) from the waiting list" can happen
+//! before the step 30 "add client to the waiting list". This way, the client
+//! will not be notified about the handle event and will wait indefinitely.
+//!
+//! To avoid this, the client should acquire the lock to make the steps 10-30 atomic.
+//!
+//! To hold the lock as little as possible, here is the suggested client workflow:
+//!
+//! ```ignore
+//! if should_wait() {
+//!     do_something_preliminary();
+//! }
+//!
+//! let lock = queue.get_lock();
+//! if should_wait() {
+//!     queue.wait_unsafe(handle, debug_hint, lock).await;
+//!     // Note: lock is consumed by wait_unsafe and released before awaiting
+//! }
+//! ```
+//!
+//! # 2) Subscribing to a handle
+//!
+//! Nothing special here.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -29,11 +69,13 @@ impl Handle {
 // Client Types
 // ============================================================================
 
+/// Represents a client waiting for a handle notification
 struct WaitingClient {
     sender: tokio::sync::oneshot::Sender<i32>,
     debug_hint: String,
 }
 
+/// Represents a client subscribed to handle notifications
 #[derive(Clone)]
 struct SubscribedClient {
     id: u64,
@@ -67,6 +109,7 @@ impl InnerState {
 // Main Queue
 // ============================================================================
 
+/// Thread-safe queue for handle (as integers) notifications
 #[derive(Clone)]
 pub struct NotificationQueue {
     inner: Arc<Mutex<InnerState>>,
@@ -112,15 +155,14 @@ impl NotificationQueue {
         self.notify_and_delete(handle, arg, false);
     }
 
-    /// Wait for handle notification (unsafe - requires careful locking by caller)
+    /// Wait for the handle notification
     ///
-    /// IMPORTANT: To avoid race conditions, the caller should:
-    /// 1. Acquire the queue lock via get_lock()
-    /// 2. Check their wait condition while holding the lock
-    /// 3. If they need to wait, call this method while still holding the lock
-    /// 4. This method will consume the lock guard and return a Future to await
+    /// Precondition: The caller should acquire the lock before calling this method.
+    /// Post-condition: The lock is released after the method returns.
     ///
-    /// See the Python module documentation for more details.
+    /// See the module documentation for more details.
+    /// The word "unsafe" in the method name hints that the caller should
+    /// read the documentation.
     pub fn wait_unsafe(&self, handle: Handle, debug_hint: &str, mut lock: std::sync::MutexGuard<'_, InnerState>) -> impl std::future::Future<Output = ()> + Send {
         log::debug!("queue.wait_unsafe: {:?}", handle);
 
@@ -170,9 +212,10 @@ impl NotificationQueue {
         }
     }
 
-    /// Subscribe to handle notifications with a callback
+    /// Subscribe to the handle notification
     ///
-    /// Returns the subscription ID to unsubscribe later, or None if handle not whitelisted
+    /// Returns:
+    ///     The handle id of the subscription, to unsubscribe later.
     pub fn subscribe<F>(&self, handle: Handle, callback: F, debug_hint: &str) -> Option<u64>
     where
         F: Fn(i32) + Send + Sync + 'static,
