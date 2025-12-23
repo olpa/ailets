@@ -166,12 +166,12 @@ impl NotificationQueueArc {
         drop(state);
 
         // Notify with -1 and delete subscriptions
-        self.notify_and_delete(handle, -1, true);
+        self.notify_and_optionally_delete(handle, -1, true);
     }
 
     /// Notify waiting clients and subscribers for a handle
     pub fn notify(&self, handle: Handle, arg: i32) {
-        self.notify_and_delete(handle, arg, false);
+        self.notify_and_optionally_delete(handle, arg, false);
     }
 
     /// Wait for the handle notification
@@ -264,7 +264,7 @@ impl NotificationQueueArc {
     // No unsubscribe() needed - just drop the Receiver!
 
     /// Internal method to notify and optionally delete subscriptions
-    fn notify_and_delete(&self, handle: Handle, arg: i32, delete_subscribed: bool) {
+    fn notify_and_optionally_delete(&self, handle: Handle, arg: i32, delete_subscribed: bool) {
         let mut state = self.inner.lock().unwrap();
 
         // Extract waiting clients
