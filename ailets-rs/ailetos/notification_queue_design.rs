@@ -34,11 +34,11 @@ impl Default for QueueConfig {
 }
 
 /// The main notification queue
-pub struct NotificationQueue {
+pub struct NotificationQueueArc {
     inner: Arc<QueueInner>,
 }
 
-impl NotificationQueue {
+impl NotificationQueueArc {
     pub fn new(config: QueueConfig) -> Self {
         Self {
             inner: Arc::new(QueueInner::new(config)),
@@ -78,7 +78,7 @@ impl NotificationQueue {
 /// A handle represents a notification channel.
 ///
 /// Cheap to clone (just an ID). Clients must explicitly unregister
-/// handles when done using NotificationQueue::unregister_handle().
+/// handles when done using NotificationQueueArc::unregister_handle().
 #[derive(Debug, Clone)]
 pub struct Handle {
     id: u64,
@@ -94,7 +94,7 @@ impl Handle {
 // Waiting API - for async clients
 // ============================================================================
 
-impl NotificationQueue {
+impl NotificationQueueArc {
     /// Wait for notification on this handle (async version).
     ///
     /// Returns the notification argument, or error if handle is unlisted
@@ -162,7 +162,7 @@ impl Subscription {
     }
 }
 
-impl NotificationQueue {
+impl NotificationQueueArc {
     /// Subscribe to notifications on this handle.
     ///
     /// Returns a Subscription with a channel receiver. The channel is bounded
@@ -421,7 +421,7 @@ mod examples {
 
     #[tokio::test]
     async fn example_basic_wait() {
-        let queue = NotificationQueue::new(QueueConfig::default());
+        let queue = NotificationQueueArc::new(QueueConfig::default());
 
         // Register a handle
         let handle = queue.register_handle();
@@ -449,7 +449,7 @@ mod examples {
 
     #[tokio::test]
     async fn example_subscription() {
-        let queue = NotificationQueue::new(QueueConfig::default());
+        let queue = NotificationQueueArc::new(QueueConfig::default());
         let handle = queue.register_handle();
 
         // Subscribe with bounded channel
@@ -472,7 +472,7 @@ mod examples {
 
     #[tokio::test]
     async fn example_buggy_client_protection() {
-        let queue = NotificationQueue::new(QueueConfig::default());
+        let queue = NotificationQueueArc::new(QueueConfig::default());
         let handle = queue.register_handle();
 
         // Create subscription with small channel
@@ -494,7 +494,7 @@ mod examples {
     }
 }
 
-impl Clone for NotificationQueue {
+impl Clone for NotificationQueueArc {
     fn clone(&self) -> Self {
         Self {
             inner: Arc::clone(&self.inner),

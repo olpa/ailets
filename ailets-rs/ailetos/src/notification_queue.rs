@@ -133,11 +133,11 @@ impl InnerState {
 
 /// Thread-safe queue for handle (as integers) notifications
 #[derive(Clone)]
-pub struct NotificationQueue {
+pub struct NotificationQueueArc {
     inner: Arc<Mutex<InnerState>>,
 }
 
-impl NotificationQueue {
+impl NotificationQueueArc {
     pub fn new() -> Self {
         Self {
             inner: Arc::new(Mutex::new(InnerState::new())),
@@ -309,7 +309,7 @@ impl NotificationQueue {
     }
 }
 
-impl Default for NotificationQueue {
+impl Default for NotificationQueueArc {
     fn default() -> Self {
         Self::new()
     }
@@ -322,7 +322,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_basic_wait_notify() {
-        let queue = NotificationQueue::new();
+        let queue = NotificationQueueArc::new();
         let handle = Handle::new(1);
 
         queue.whitelist(handle, "test");
@@ -342,7 +342,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_subscription() {
-        let queue = NotificationQueue::new();
+        let queue = NotificationQueueArc::new();
         let handle = Handle::new(2);
 
         queue.whitelist(handle, "test");
@@ -364,7 +364,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unlist_notifies_waiters() {
-        let queue = NotificationQueue::new();
+        let queue = NotificationQueueArc::new();
         let handle = Handle::new(3);
 
         queue.whitelist(handle, "test");

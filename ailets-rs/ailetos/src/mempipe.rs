@@ -10,7 +10,7 @@ use std::fmt;
 use std::io;
 use std::sync::{Arc, Mutex};
 
-use crate::notification_queue::{Handle, NotificationQueue};
+use crate::notification_queue::{Handle, NotificationQueueArc};
 
 /// Error type for mempipe operations
 #[derive(Debug, thiserror::Error)]
@@ -94,13 +94,13 @@ impl SharedBuffer {
 pub struct Writer {
     shared: Arc<Mutex<SharedBuffer>>,
     handle: Handle,
-    queue: NotificationQueue,
+    queue: NotificationQueueArc,
 }
 
 impl Writer {
     pub fn new(
         handle: Handle,
-        queue: NotificationQueue,
+        queue: NotificationQueueArc,
         external_buffer: Option<Vec<u8>>,
     ) -> Self {
         // Register handle with queue (like Python's queue.whitelist)
@@ -229,7 +229,7 @@ pub struct Reader {
     handle: Handle,  // Reader's own handle
     shared: Arc<Mutex<SharedBuffer>>,
     writer_handle: Handle,  // Writer's handle for notifications
-    queue: NotificationQueue,
+    queue: NotificationQueueArc,
     pos: usize,
     closed: bool,
 }
@@ -239,7 +239,7 @@ impl Reader {
         handle: Handle,
         shared: Arc<Mutex<SharedBuffer>>,
         writer_handle: Handle,
-        queue: NotificationQueue,
+        queue: NotificationQueueArc,
     ) -> Self {
         Self {
             handle,
@@ -398,13 +398,13 @@ impl Read for Reader {
 /// In-memory pipe factory
 pub struct MemPipe {
     writer: Writer,
-    queue: NotificationQueue,
+    queue: NotificationQueueArc,
 }
 
 impl MemPipe {
     pub fn new(
         writer_handle: Handle,
-        queue: NotificationQueue,
+        queue: NotificationQueueArc,
         external_buffer: Option<Vec<u8>>,
     ) -> Self {
         let writer = Writer::new(
@@ -443,7 +443,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_write_read() {
-        let queue = NotificationQueue::new();
+        let queue = NotificationQueueArc::new();
         let writer_handle = Handle::new(1);
 
         let mut pipe = MemPipe::new(
@@ -469,7 +469,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multiple_readers() {
-        let queue = NotificationQueue::new();
+        let queue = NotificationQueueArc::new();
         let writer_handle = Handle::new(1);
 
         let mut pipe = MemPipe::new(
@@ -503,7 +503,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_close_propagation() {
-        let queue = NotificationQueue::new();
+        let queue = NotificationQueueArc::new();
         let writer_handle = Handle::new(1);
 
         let mut pipe = MemPipe::new(

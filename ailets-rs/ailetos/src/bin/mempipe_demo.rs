@@ -4,7 +4,7 @@
 //! Equivalent to the Python main() in mempipe.py
 
 use ailetos::mempipe::MemPipe;
-use ailetos::notification_queue::{Handle, NotificationQueue};
+use ailetos::notification_queue::{Handle, NotificationQueueArc};
 use embedded_io_async::Read;
 use std::io::{self, BufRead};
 
@@ -12,7 +12,7 @@ use std::io::{self, BufRead};
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
-    let queue = NotificationQueue::new();
+    let queue = NotificationQueueArc::new();
 
     let pipe = MemPipe::new(
         Handle::new(0),
