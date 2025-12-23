@@ -152,19 +152,16 @@ impl NotificationQueueArc {
     /// Register a handle in the whitelist
     pub fn whitelist(&self, handle: Handle, debug_hint: &str) {
         let mut state = self.inner.lock().unwrap();
-        if state.whitelist.contains_key(&handle) {
-            log::warn!("queue.whitelist: handle {:?} already in whitelist", handle);
+        if let Some(old_hint) = state.whitelist.insert(handle, debug_hint.to_string()) {
+            log::warn!("queue.whitelist: handle {:?} already in whitelist (was: '{}')", handle, old_hint);
         }
-        state.whitelist.insert(handle, debug_hint.to_string());
     }
 
     /// Unregister a handle from the whitelist
     pub fn unlist(&self, handle: Handle) {
         let mut state = self.inner.lock().unwrap();
-        if !state.whitelist.contains_key(&handle) {
+        if state.whitelist.remove(&handle).is_none() {
             log::warn!("queue.unlist: handle {:?} not in whitelist", handle);
-        } else {
-            state.whitelist.remove(&handle);
         }
         drop(state);
 
