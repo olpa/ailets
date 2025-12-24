@@ -326,8 +326,8 @@ impl Reader {
             return Ok(());
         }
 
-        // Wait using wait_unsafe (lock is passed to wait_unsafe and released there)
-        self.queue.wait_unsafe(self.writer_handle, "reader", queue_lock).await;
+        // Wait using wait_async (lock is passed to wait_async and released there)
+        self.queue.wait_async(self.writer_handle, "reader", queue_lock).await;
         Ok(())
     }
 

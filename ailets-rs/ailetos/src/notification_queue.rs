@@ -34,8 +34,8 @@
 //!
 //! let lock = queue.get_lock();
 //! if should_wait() {
-//!     queue.wait_unsafe(handle, debug_hint, lock).await;
-//!     // Note: lock is consumed by wait_unsafe and released before awaiting
+//!     queue.wait_async(handle, debug_hint, lock).await;
+//!     // Note: lock is consumed by wait_async and released before awaiting
 //! }
 //! ```
 //!
@@ -179,20 +179,19 @@ impl NotificationQueueArc {
     /// Precondition: The caller should acquire the lock before calling this method.
     /// Post-condition: The lock is released after the method returns.
     ///
-    /// See the module documentation for more details.
-    /// The word "unsafe" in the method name hints that the caller should
-    /// read the documentation.
-    pub fn wait_unsafe(&self, handle: Handle, debug_hint: &str, mut lock: std::sync::MutexGuard<'_, InnerState>) -> impl std::future::Future<Output = ()> + Send {
-        log::debug!("queue.wait_unsafe: {:?}", handle);
+    /// See the module documentation for more details about the lock acquisition pattern.
+    pub fn wait_async(&self, handle: Handle, debug_hint: &str, mut lock: std::sync::MutexGuard<'_, InnerState>) -> impl std::future::Future<Output = ()> + Send {
+        let (tx, rx) = tokio::sync::oneshot::channel();
 
-        // Check if handle is whitelisted and register waiter (synchronous, before any await)
-        let rx = if !lock.whitelist.contains_key(&handle) {
+        // Early exit if handle not whitelisted
+        if !lock.whitelist.contains_key(&handle) {
             // Don't warn: the whole idea of whitelist is to
             // avoid waiting in case of race conditions
             drop(lock);
-            None
+            // Immediately resolve the future by sending any value (will be ignored)
+            let _ = tx.send(Handle::new(0));
         } else {
-            let (tx, rx) = tokio::sync::oneshot::channel();
+            // Register waiter
             let client = WaitingClient {
                 sender: tx,
                 debug_hint: debug_hint.to_string(),
@@ -200,34 +199,25 @@ impl NotificationQueueArc {
 
             lock.waiting_clients
                 .entry(handle)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(client);
 
             // Release lock before awaiting
             drop(lock);
-            Some(rx)
-        };
+        }
 
-        let queue = self.clone();
-
-        // Return async block that does the waiting
+        // Wait for notification
+        // Cleanup is handled by `notify_and_optionally_delete` which removes
+        // all waiting clients from the map before sending notifications.
+        //
+        // The `rx.await` returns `Result<Handle, RecvError>`, but we ignore the result because:
+        // - Normally never fails: `notify_and_optionally_delete` always sends before dropping senders
+        // - If it fails, it means the sender was dropped without sending, which only
+        //   happens if the entire `NotificationQueueArc` is dropped while clients are waiting
+        // - If this happens, it's a catastrophic shutdown scenario caused by incorrect application
+        //   cleanup order, and there's nothing meaningful we can do here anyway
         async move {
-            if let Some(rx) = rx {
-                // Wait for notification
-                let _ = rx.await;
-
-                // Clean up: re-acquire lock and remove ourselves from waiting list
-                let mut state = queue.inner.lock().unwrap();
-                if let Some(clients) = state.waiting_clients.get_mut(&handle) {
-                    // Remove the client that just finished waiting
-                    // Note: we can't identify by sender anymore since it was moved, so we remove all
-                    // In practice, this list should be empty since notify removes all waiters
-                    clients.clear();
-                    if clients.is_empty() {
-                        state.waiting_clients.remove(&handle);
-                    }
-                }
-            }
+            let _ = rx.await;
         }
     }
 
@@ -327,7 +317,7 @@ mod tests {
         let queue_clone = queue.clone();
         let waiter = tokio::spawn(async move {
             let lock = queue_clone.get_lock();
-            queue_clone.wait_unsafe(handle, "waiter", lock).await;
+            queue_clone.wait_async(handle, "waiter", lock).await;
         });
 
         tokio::time::sleep(Duration::from_millis(10)).await;
@@ -369,7 +359,7 @@ mod tests {
         let queue_clone = queue.clone();
         let waiter = tokio::spawn(async move {
             let lock = queue_clone.get_lock();
-            queue_clone.wait_unsafe(handle, "waiter", lock).await;
+            queue_clone.wait_async(handle, "waiter", lock).await;
         });
 
         tokio::time::sleep(Duration::from_millis(10)).await;
