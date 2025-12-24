@@ -52,18 +52,29 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Handle {
-    id: u64,
+    id: i64,
 }
-
 impl Handle {
-    pub fn new(id: u64) -> Self {
+    pub fn new(id: i64) -> Self {
         Self { id }
     }
 
-    pub fn id(&self) -> u64 {
+    pub fn id(&self) -> i64 {
         self.id
     }
 }
+
+pub trait HandleType {
+    type Id;
+}
+
+impl HandleType for Handle {
+    type Id = i64;
+}
+
+/// Type that can be either a Handle id or an arbitrary signal value
+pub type IntCanBeHandle = <Handle as HandleType>::Id;
+
 
 // ============================================================================
 // Client Types
@@ -74,13 +85,13 @@ struct WaitingClient {
     /// Thread-safe sender that can be used to notify waiting clients from any thread.
     ///
     /// Proof: tokio::sync::oneshot::Sender<T> implements Send where T: Send.
-    /// Since Handle is Copy (containing only u64), Sender<Handle> is Send.
+    /// Since IntCanBeHandle is i64 (Copy), Sender<IntCanBeHandle> is Send.
     ///
     /// Documentation: <https://docs.rs/tokio/latest/tokio/sync/oneshot/struct.Sender.html>
     /// To verify: Scroll down to "Trait Implementations" section to see:
     /// - `impl<T> Send for Sender<T> where T: Send`
     /// - `impl<T> Sync for Sender<T> where T: Send`
-    sender: tokio::sync::oneshot::Sender<Handle>,
+    sender: tokio::sync::oneshot::Sender<IntCanBeHandle>,
     debug_hint: String,
 }
 
@@ -94,7 +105,7 @@ impl std::fmt::Debug for WaitingClient {
 
 /// Broadcast channel for a handle (one channel per handle, multiple subscribers)
 struct BroadcastChannel {
-    sender: tokio::sync::broadcast::Sender<Handle>,
+    sender: tokio::sync::broadcast::Sender<IntCanBeHandle>,
     debug_hint: String,
 }
 
@@ -189,7 +200,7 @@ impl NotificationQueueArc {
             // avoid waiting in case of race conditions
             drop(lock);
             // Immediately resolve the future by sending any value (will be ignored)
-            let _ = tx.send(Handle::new(0));
+            let _ = tx.send(0);
         } else {
             // Register waiter
             let client = WaitingClient {
@@ -210,7 +221,7 @@ impl NotificationQueueArc {
         // Cleanup is handled by `notify_and_optionally_delete` which removes
         // all waiting clients from the map before sending notifications.
         //
-        // The `rx.await` returns `Result<Handle, RecvError>`, but we ignore the result because:
+        // The `rx.await` returns `Result<IntCanBeHandle, RecvError>`, but we ignore the result because:
         // - Normally never fails: `notify_and_optionally_delete` always sends before dropping senders
         // - If it fails, it means the sender was dropped without sending, which only
         //   happens if the entire `NotificationQueueArc` is dropped while clients are waiting
@@ -230,7 +241,7 @@ impl NotificationQueueArc {
     /// * `handle` - The handle to subscribe to
     /// * `channel_capacity` - Capacity of the broadcast channel (only used when creating new channel)
     /// * `debug_hint` - Debug label for this channel (only used when creating new channel)
-    pub fn subscribe(&self, handle: Handle, channel_capacity: usize, debug_hint: &str) -> Option<tokio::sync::broadcast::Receiver<Handle>> {
+    pub fn subscribe(&self, handle: Handle, channel_capacity: usize, debug_hint: &str) -> Option<tokio::sync::broadcast::Receiver<IntCanBeHandle>> {
         let mut state = self.inner.lock().unwrap();
 
         if !state.whitelist.contains_key(&handle) {
@@ -270,15 +281,15 @@ impl NotificationQueueArc {
         // Notifications just wake subscribers; they execute later via async runtime
 
         for waiter in waiters {
-            let _ = waiter.sender.send(handle);
+            let _ = waiter.sender.send(handle.id());
         }
         if delete_subscribed {
             if let Some(bc) = state.broadcast_channels.remove(&handle) {
-                let _ = bc.sender.send(handle);
+                let _ = bc.sender.send(handle.id());
             }
         } else {
             if let Some(bc) = state.broadcast_channels.get(&handle) {
-                let _ = bc.sender.send(handle);
+                let _ = bc.sender.send(handle.id());
             }
         }
 
@@ -329,9 +340,9 @@ mod tests {
         queue.notify(handle, 1);
         queue.notify(handle, 2);
 
-        // Receive notifications (subscribers receive the handle itself)
-        assert_eq!(rx.recv().await.unwrap(), handle);
-        assert_eq!(rx.recv().await.unwrap(), handle);
+        // Receive notifications (subscribers receive the handle id)
+        assert_eq!(rx.recv().await.unwrap(), handle.id());
+        assert_eq!(rx.recv().await.unwrap(), handle.id());
 
         // Drop receiver to unsubscribe (automatic)
         drop(rx);
