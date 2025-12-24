@@ -1,5 +1,4 @@
 use crate::notification_queue::*;
-use std::time::Duration;
 
 #[tokio::test]
 async fn test_basic_wait_notify() {
@@ -8,13 +7,18 @@ async fn test_basic_wait_notify() {
 
     queue.whitelist(handle, "test");
 
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let queue_clone = queue.clone();
     let waiter = tokio::spawn(async move {
         let lock = queue_clone.get_lock();
-        queue_clone.wait_async(handle, "waiter", lock).await;
+        let wait_future = queue_clone.wait_async(handle, "waiter", lock);
+        // Signal that we've registered the waiter
+        ready_tx.send(()).unwrap();
+        wait_future.await;
     });
 
-    tokio::time::sleep(Duration::from_millis(10)).await;
+    // Wait for the waiter to be registered
+    ready_rx.await.unwrap();
     queue.notify(handle, 42);
 
     waiter.await.unwrap();
@@ -50,13 +54,18 @@ async fn test_unlist_notifies_waiters() {
 
     queue.whitelist(handle, "test");
 
+    let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let queue_clone = queue.clone();
     let waiter = tokio::spawn(async move {
         let lock = queue_clone.get_lock();
-        queue_clone.wait_async(handle, "waiter", lock).await;
+        let wait_future = queue_clone.wait_async(handle, "waiter", lock);
+        // Signal that we've registered the waiter
+        ready_tx.send(()).unwrap();
+        wait_future.await;
     });
 
-    tokio::time::sleep(Duration::from_millis(10)).await;
+    // Wait for the waiter to be registered
+    ready_rx.await.unwrap();
     queue.unlist(handle);
 
     waiter.await.unwrap();
