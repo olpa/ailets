@@ -257,42 +257,32 @@ impl NotificationQueueArc {
     fn notify_and_optionally_delete(&self, handle: Handle, arg: i32, delete_subscribed: bool) {
         let mut state = self.inner.lock().unwrap();
 
-        // Extract waiting clients
         let waiters = state.waiting_clients.remove(&handle).unwrap_or_default();
-
-        // Get subscriber count before potential deletion
-        let subscriber_count = state.broadcast_channels.get(&handle)
-            .map(|bc| bc.sender.receiver_count())
-            .unwrap_or(0);
-
-        // Optionally delete broadcast channel
-        let broadcast_sender = if delete_subscribed {
-            state.broadcast_channels.remove(&handle).map(|bc| bc.sender)
-        } else {
-            state.broadcast_channels.get(&handle).map(|bc| bc.sender.clone())
-        };
-
-        // Release lock before notifying
-        drop(state);
 
         log::debug!(
             "queue.notify: handle {:?}, arg={}, waiters: {}, subscribers: {}",
             handle,
             arg,
             waiters.len(),
-            subscriber_count
+            state.broadcast_channels.get(&handle).map(|bc| bc.sender.receiver_count()).unwrap_or(0)
         );
 
-        // Notify waiting clients
+        // Notifications just wake subscribers; they execute later via async runtime
+
         for waiter in waiters {
             let _ = waiter.sender.send(handle);
         }
-
-        // Notify broadcast subscribers
-        if let Some(tx) = broadcast_sender {
-            // Broadcast to all receivers (ignoring if no receivers or channel full)
-            let _ = tx.send(handle);
+        if delete_subscribed {
+            if let Some(bc) = state.broadcast_channels.remove(&handle) {
+                let _ = bc.sender.send(handle);
+            }
+        } else {
+            if let Some(bc) = state.broadcast_channels.get(&handle) {
+                let _ = bc.sender.send(handle);
+            }
         }
+
+        drop(state);
     }
 }
 
