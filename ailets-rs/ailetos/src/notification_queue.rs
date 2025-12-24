@@ -181,7 +181,7 @@ impl NotificationQueueArc {
     }
 
     /// Notify waiting clients and subscribers for a handle
-    pub fn notify(&self, handle: Handle, arg: i32) {
+    pub fn notify(&self, handle: Handle, arg: IntCanBeHandle) {
         self.notify_and_optionally_delete(handle, arg, false);
     }
 
@@ -265,7 +265,7 @@ impl NotificationQueueArc {
     // No unsubscribe() needed - just drop the Receiver!
 
     /// Internal method to notify and optionally delete subscriptions
-    fn notify_and_optionally_delete(&self, handle: Handle, arg: i32, delete_subscribed: bool) {
+    fn notify_and_optionally_delete(&self, handle: Handle, arg: IntCanBeHandle, delete_subscribed: bool) {
         let mut state = self.inner.lock().unwrap();
 
         let waiters = state.waiting_clients.remove(&handle).unwrap_or_default();
@@ -281,15 +281,15 @@ impl NotificationQueueArc {
         // Notifications just wake subscribers; they execute later via async runtime
 
         for waiter in waiters {
-            let _ = waiter.sender.send(handle.id());
+            let _ = waiter.sender.send(arg);
         }
         if delete_subscribed {
             if let Some(bc) = state.broadcast_channels.remove(&handle) {
-                let _ = bc.sender.send(handle.id());
+                let _ = bc.sender.send(arg);
             }
         } else {
             if let Some(bc) = state.broadcast_channels.get(&handle) {
-                let _ = bc.sender.send(handle.id());
+                let _ = bc.sender.send(arg);
             }
         }
 
