@@ -340,9 +340,9 @@ mod tests {
         queue.notify(handle, 1);
         queue.notify(handle, 2);
 
-        // Receive notifications (subscribers receive the handle id)
-        assert_eq!(rx.recv().await.unwrap(), handle.id());
-        assert_eq!(rx.recv().await.unwrap(), handle.id());
+        // Receive notifications (subscribers receive the arg value)
+        assert_eq!(rx.recv().await.unwrap(), 1);
+        assert_eq!(rx.recv().await.unwrap(), 2);
 
         // Drop receiver to unsubscribe (automatic)
         drop(rx);

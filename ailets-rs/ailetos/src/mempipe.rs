@@ -132,7 +132,7 @@ impl Writer {
             }
             shared.error = Some(errno);
         }
-        self.queue.notify(self.handle, errno);
+        self.queue.notify(self.handle, errno as i64);
         Ok(())
     }
 
@@ -163,7 +163,7 @@ impl Writer {
         };
 
         // Notify outside lock
-        self.queue.notify(self.handle, len as i32);
+        self.queue.notify(self.handle, len as i64);
         Ok(len)
     }
 
