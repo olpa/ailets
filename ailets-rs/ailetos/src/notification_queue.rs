@@ -169,6 +169,9 @@ impl NotificationQueueArc {
     }
 
     /// Unregister a handle from the whitelist
+    ///
+    /// Notifies all waiting clients and subscribers with the value `-1`,
+    /// then removes all subscriptions for this handle.
     pub fn unlist(&self, handle: Handle) {
         let mut state = self.inner.lock().unwrap();
         if state.whitelist.remove(&handle).is_none() {

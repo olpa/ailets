@@ -71,10 +71,6 @@ async fn test_unlist_notifies_waiters() {
     waiter.await.unwrap();
 }
 
-// ============================================================================
-// Test 1: Race Condition Handling
-// ============================================================================
-
 #[tokio::test]
 async fn test_race_condition_notify_before_wait() {
     let queue = NotificationQueueArc::new();
@@ -92,12 +88,7 @@ async fn test_race_condition_notify_before_wait() {
     // 4. Try to wait_async - should exit immediately (handle not whitelisted)
     let lock = queue.get_lock();
     queue.wait_async(handle, "waiter", lock).await;
-    // If we reach here without hanging, the test passes
 }
-
-// ============================================================================
-// Test 2: Multiple Waiters on Same Handle
-// ============================================================================
 
 #[tokio::test]
 async fn test_multiple_waiters() {
@@ -151,10 +142,6 @@ async fn test_multiple_waiters() {
     queue.unlist(handle);
 }
 
-// ============================================================================
-// Test 4: Mixed Waiters and Subscribers
-// ============================================================================
-
 #[tokio::test]
 async fn test_mixed_waiters_and_subscribers() {
     let queue = NotificationQueueArc::new();
@@ -190,10 +177,6 @@ async fn test_mixed_waiters_and_subscribers() {
     queue.unlist(handle);
 }
 
-// ============================================================================
-// Test 5: Wait on Non-Whitelisted Handle
-// ============================================================================
-
 #[tokio::test]
 async fn test_wait_on_non_whitelisted_handle() {
     let queue = NotificationQueueArc::new();
@@ -207,10 +190,6 @@ async fn test_wait_on_non_whitelisted_handle() {
     // If we reach here immediately without hanging, the test passes
 }
 
-// ============================================================================
-// Test 6: Subscribe to Non-Whitelisted Handle
-// ============================================================================
-
 #[tokio::test]
 async fn test_subscribe_to_non_whitelisted_handle() {
     let queue = NotificationQueueArc::new();
@@ -222,10 +201,6 @@ async fn test_subscribe_to_non_whitelisted_handle() {
     let result = queue.subscribe(handle, 10, "subscriber");
     assert!(result.is_none());
 }
-
-// ============================================================================
-// Test 7: Notify with No Waiters/Subscribers
-// ============================================================================
 
 #[tokio::test]
 async fn test_notify_with_no_waiters() {
@@ -239,10 +214,6 @@ async fn test_notify_with_no_waiters() {
 
     queue.unlist(handle);
 }
-
-// ============================================================================
-// Test 8: Unlist Removes Broadcast Channels
-// ============================================================================
 
 #[tokio::test]
 async fn test_unlist_removes_broadcast_channels() {
@@ -264,10 +235,6 @@ async fn test_unlist_removes_broadcast_channels() {
     assert!(rx.recv().await.is_err());
 }
 
-// ============================================================================
-// Test 9: Dropped Subscription Receiver
-// ============================================================================
-
 #[tokio::test]
 async fn test_dropped_subscription_receiver() {
     let queue = NotificationQueueArc::new();
@@ -285,12 +252,10 @@ async fn test_dropped_subscription_receiver() {
     queue.unlist(handle);
 }
 
-// ============================================================================
-// Test 11: Concurrent Operations
-// ============================================================================
-
 #[tokio::test]
 async fn test_concurrent_operations() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     let queue = NotificationQueueArc::new();
     let handle = Handle::new(18);
 
@@ -299,56 +264,87 @@ async fn test_concurrent_operations() {
     // Spawn multiple threads doing different operations
     let mut task_handles = vec![];
 
+    // Shared state for verification
+    let waiters_woken = std::sync::Arc::new(AtomicUsize::new(0));
+    let subscriber_counts = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+
     // Multiple subscribers first
+    let mut subscriber_ready_channels = vec![];
     for _ in 0..3 {
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
+        subscriber_ready_channels.push(ready_rx);
+
         let queue_clone = queue.clone();
+        let counts_clone = subscriber_counts.clone();
         task_handles.push(tokio::spawn(async move {
             if let Some(mut rx) = queue_clone.subscribe(handle, 10, "concurrent_subscriber") {
-                // Try to receive one notification
-                let _ = rx.recv().await;
+                // Signal that we've subscribed
+                let _ = ready_tx.send(());
+                // Count all notifications until -1 or channel close
+                let mut count = 0;
+                while let Ok(val) = rx.recv().await {
+                    if val == -1 { break; }  // Don't count the termination signal
+                    count += 1;
+                }
+                counts_clone.lock().unwrap().push(count);
             }
         }));
     }
 
     // Multiple waiters with ready signals
-    let mut ready_channels = vec![];
+    let mut waiter_ready_channels = vec![];
     for _ in 0..3 {
         let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-        ready_channels.push(ready_rx);
+        waiter_ready_channels.push(ready_rx);
 
         let queue_clone = queue.clone();
+        let woken_clone = waiters_woken.clone();
         task_handles.push(tokio::spawn(async move {
             let lock = queue_clone.get_lock();
             let wait_future = queue_clone.wait_async(handle, "concurrent_waiter", lock);
             let _ = ready_tx.send(());
             wait_future.await;
+            // Mark that this waiter was awakened
+            woken_clone.fetch_add(1, Ordering::SeqCst);
         }));
     }
 
-    // Wait for all waiters to be ready
-    for ready_rx in ready_channels {
+    // Wait for all subscribers to be ready
+    for ready_rx in subscriber_ready_channels {
         let _ = ready_rx.await;
     }
 
-    // Now send notifications - multiple notifiers
-    for i in 0..5 {
-        let queue_clone = queue.clone();
-        task_handles.push(tokio::spawn(async move {
-            queue_clone.notify(handle, i);
-        }));
+    // Wait for all waiters to be ready
+    for ready_rx in waiter_ready_channels {
+        let _ = ready_rx.await;
     }
+
+    // Now send notifications directly (no need to spawn for this test)
+    for i in 0..5 {
+        queue.notify(handle, i);
+    }
+
+    // Unlist to signal subscribers to stop (sends -1)
+    queue.unlist(handle);
 
     // Wait for all operations to complete
     for task_handle in task_handles {
         task_handle.await.unwrap();
     }
 
-    queue.unlist(handle);
-}
+    // Verify all waiters woke up
+    assert_eq!(waiters_woken.load(Ordering::SeqCst), 3, "All 3 waiters should wake");
 
-// ============================================================================
-// Test 13: Notification Argument Values
-// ============================================================================
+    // Verify subscribers received all notifications
+    let counts = subscriber_counts.lock().unwrap();
+    let total_notifications: usize = counts.iter().sum();
+    assert_eq!(total_notifications, 3 * 5, "Each of 3 subscribers should receive all 5 notifications");
+
+    // Verify each subscriber got exactly 5
+    for &count in counts.iter() {
+        assert_eq!(count, 5, "Each subscriber should receive exactly 5 notifications");
+    }
+}
 
 #[tokio::test]
 async fn test_notification_argument_values() {
