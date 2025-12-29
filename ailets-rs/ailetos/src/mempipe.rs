@@ -175,12 +175,16 @@ impl Writer {
         self.write_sync(data)
     }
 
-    /// Synchronous write
+    /// Synchronous write. Returns the number of bytes written, which is the size of `data`.
+    ///
+    /// # Important behavior
+    ///
+    /// - If the writer is closed, returns `WriterClosed` error even if data is empty
+    /// - If errno is set, returns `WriterError` even if data is empty
+    /// - If data is empty, returns `Ok(0)` WITHOUT notifying observers
+    ///   (this avoids unnecessary wakeups of waiting readers)
+    /// - If data is non-empty, appends to buffer and notifies all waiting observers
     pub fn write_sync(&self, data: &[u8]) -> Result<usize, MemPipeError> {
-        if data.is_empty() {
-            return Ok(0);
-        }
-
         let len = {
             let mut shared = self.shared.lock().unwrap();
 
@@ -190,6 +194,12 @@ impl Writer {
 
             if shared.errno != 0 {
                 return Err(MemPipeError::WriterError(shared.errno));
+            }
+
+            if data.is_empty() {
+                // IMPORTANT: Return early without notifying observers.
+                // Empty writes should not wake up waiting readers.
+                return Ok(0);
             }
 
             shared.buffer.extend_from_slice(data);
@@ -557,5 +567,94 @@ mod tests {
         assert_eq!(n, 0);
 
         // Writer unregisters its handle on drop
+    }
+
+    #[tokio::test]
+    async fn test_write_notifies_observers() {
+        let queue = NotificationQueueArc::new();
+        let writer_handle = Handle::new(1);
+
+        let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+
+        // Subscribe to writer's handle to observe notifications directly
+        let mut subscriber = queue
+            .subscribe(writer_handle, 10, "test_subscriber")
+            .expect("Failed to subscribe");
+
+        // Write non-empty data - this should notify observers
+        let n = pipe.writer().write_sync(b"Hello").unwrap();
+        assert_eq!(n, 5);
+
+        // Verify notification was sent
+        let notification = subscriber.recv().await.expect("Should receive notification");
+        assert_eq!(notification, 5); // Should notify with the number of bytes written
+    }
+
+    #[tokio::test]
+    async fn test_empty_write_does_not_notify() {
+        let queue = NotificationQueueArc::new();
+        let writer_handle = Handle::new(1);
+
+        let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+
+        // Subscribe to writer's handle to observe notifications directly
+        let mut subscriber = queue
+            .subscribe(writer_handle, 10, "test_subscriber")
+            .expect("Failed to subscribe");
+
+        // Empty write should succeed and return 0
+        let n = pipe.writer().write_sync(b"").unwrap();
+        assert_eq!(n, 0);
+
+        // Verify NO notification was sent for empty write
+        // Use try_recv which doesn't block - should return Err(Empty)
+        let result = subscriber.try_recv();
+        assert!(result.is_err()); // Should be empty, no notification sent
+
+        // Now write actual data
+        let n = pipe.writer().write_sync(b"Hello").unwrap();
+        assert_eq!(n, 5);
+
+        // Verify notification WAS sent for non-empty write
+        let notification = subscriber.recv().await.expect("Should receive notification");
+        assert_eq!(notification, 5);
+
+        // Another empty write after real data
+        let n = pipe.writer().write_sync(b"").unwrap();
+        assert_eq!(n, 0);
+
+        // Again, verify NO notification for empty write
+        let result = subscriber.try_recv();
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_empty_write_on_closed_writer() {
+        let queue = NotificationQueueArc::new();
+        let writer_handle = Handle::new(1);
+
+        let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+
+        // Close the writer
+        pipe.writer().close().unwrap();
+
+        // Empty write on closed writer should return error
+        let result = pipe.writer().write_sync(b"");
+        assert!(matches!(result, Err(MemPipeError::WriterClosed)));
+    }
+
+    #[tokio::test]
+    async fn test_empty_write_with_errno() {
+        let queue = NotificationQueueArc::new();
+        let writer_handle = Handle::new(1);
+
+        let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+
+        // Set error
+        pipe.writer().set_error(42).unwrap();
+
+        // Empty write should return error, not Ok(0)
+        let result = pipe.writer().write_sync(b"");
+        assert!(matches!(result, Err(MemPipeError::WriterError(42))));
     }
 }
