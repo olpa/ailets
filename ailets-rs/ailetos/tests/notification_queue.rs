@@ -1,4 +1,4 @@
-use crate::notification_queue::*;
+use ailetos::notification_queue::*;
 
 #[tokio::test]
 async fn test_basic_wait_notify() {
