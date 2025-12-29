@@ -97,7 +97,7 @@ impl From<MemPipeError> for io::Error {
 /// Shared state between Writer and Readers
 struct SharedBuffer {
     buffer: Vec<u8>,
-    error: Option<i32>,
+    errno: Option<i32>,
     closed: bool,
 }
 
@@ -105,7 +105,7 @@ impl SharedBuffer {
     fn new(external_buffer: Option<Vec<u8>>) -> Self {
         Self {
             buffer: external_buffer.unwrap_or_default(),
-            error: None,
+            errno: None,
             closed: false,
         }
     }
@@ -143,7 +143,7 @@ impl Writer {
 
     /// Get current error state
     pub fn get_error(&self) -> Option<i32> {
-        self.shared.lock().unwrap().error
+        self.shared.lock().unwrap().errno
     }
 
     /// Set error state and notify readers
@@ -153,7 +153,7 @@ impl Writer {
             if shared.closed {
                 return Ok(());
             }
-            shared.error = Some(errno);
+            shared.errno = Some(errno);
         }
         self.queue.notify(self.handle, errno as i64);
         Ok(())
@@ -177,7 +177,7 @@ impl Writer {
                 return Err(MemPipeError::WriterClosed);
             }
 
-            if let Some(errno) = shared.error {
+            if let Some(errno) = shared.errno {
                 return Err(MemPipeError::WriterError(errno));
             }
 
@@ -281,7 +281,7 @@ impl Reader {
 
     /// Get current error state from writer
     pub fn get_error(&self) -> Option<i32> {
-        self.shared.lock().unwrap().error
+        self.shared.lock().unwrap().errno
     }
 
     /// Check if reader should wait for more data
@@ -292,7 +292,7 @@ impl Reader {
 
         let writer_pos = shared.buffer.len();
         let should_wait = self.pos >= writer_pos;
-        let writer_closed = shared.closed || shared.error.is_some();
+        let writer_closed = shared.closed || shared.errno.is_some();
 
         drop(shared);
 
@@ -330,7 +330,7 @@ impl Reader {
             let shared = self.shared.lock().unwrap();
             let writer_pos = shared.buffer.len();
             let should_wait = self.pos >= writer_pos;
-            let writer_closed = shared.closed || shared.error.is_some();
+            let writer_closed = shared.closed || shared.errno.is_some();
             drop(shared); // Release buffer lock but keep queue lock
 
             // Auto-close logic
@@ -364,7 +364,7 @@ impl Reader {
 
         let shared = self.shared.lock().unwrap();
 
-        if let Some(errno) = shared.error {
+        if let Some(errno) = shared.errno {
             return Err(MemPipeError::WriterError(errno));
         }
 
