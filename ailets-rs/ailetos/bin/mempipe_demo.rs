@@ -53,7 +53,7 @@ async fn write_all(pipe: MemPipe) {
             break;
         }
 
-        if let Err(e) = pipe.writer().write(trimmed.as_bytes()) {
+        if let Err(e) = pipe.writer().write_sync(trimmed.as_bytes()) {
             eprintln!("Write error: {}", e);
             break;
         }

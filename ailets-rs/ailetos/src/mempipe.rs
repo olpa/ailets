@@ -170,8 +170,13 @@ impl Writer {
         self.shared.lock().unwrap().closed
     }
 
+    /// Async write (calls write_sync)
+    pub async fn write(&self, data: &[u8]) -> Result<usize, MemPipeError> {
+        self.write_sync(data)
+    }
+
     /// Synchronous write
-    pub fn write(&self, data: &[u8]) -> Result<usize, MemPipeError> {
+    pub fn write_sync(&self, data: &[u8]) -> Result<usize, MemPipeError> {
         if data.is_empty() {
             return Ok(0);
         }
@@ -232,7 +237,7 @@ impl ErrorType for Writer {
 
 impl embedded_io::Write for Writer {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        Writer::write(self, buf).map_err(|e| e.into())
+        Writer::write_sync(self, buf).map_err(|e| e.into())
     }
 
     fn flush(&mut self) -> Result<(), Self::Error> {
@@ -242,7 +247,7 @@ impl embedded_io::Write for Writer {
 
 impl Write for Writer {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        Writer::write(self, buf).map_err(|e| e.into())
+        Writer::write(self, buf).await.map_err(|e| e.into())
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
@@ -487,7 +492,7 @@ mod tests {
         let reader_handle = *reader.handle();
 
         // Write some data
-        pipe.writer().write(b"Hello").unwrap();
+        pipe.writer().write_sync(b"Hello").unwrap();
 
         // Read it back
         let mut buf = [0u8; 10];
@@ -511,7 +516,7 @@ mod tests {
         let reader2_handle = *reader2.handle();
 
         // Write data
-        pipe.writer().write(b"Broadcast").unwrap();
+        pipe.writer().write_sync(b"Broadcast").unwrap();
 
         // Both readers should get the same data
         let mut buf1 = [0u8; 20];
@@ -539,7 +544,7 @@ mod tests {
         let reader_handle = *reader.handle();
 
         // Write and close
-        pipe.writer().write(b"Data").unwrap();
+        pipe.writer().write_sync(b"Data").unwrap();
         pipe.writer().close().unwrap();
 
         // Reader should get data
