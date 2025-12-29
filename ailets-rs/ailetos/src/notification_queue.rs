@@ -43,9 +43,9 @@
 //!
 //! Nothing special here.
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use parking_lot::Mutex;
 
 // ============================================================================
 // Handle Type
@@ -75,7 +75,6 @@ impl HandleType for Handle {
 
 /// Type that can be either a Handle id or an arbitrary signal value
 pub type IntCanBeHandle = <Handle as HandleType>::Id;
-
 
 // ============================================================================
 // Client Types
@@ -165,7 +164,11 @@ impl NotificationQueueArc {
     pub fn whitelist(&self, handle: Handle, debug_hint: &str) {
         let mut state = self.inner.lock();
         if let Some(old_hint) = state.whitelist.insert(handle, debug_hint.to_string()) {
-            log::warn!("queue.whitelist: handle {:?} already in whitelist (was: '{}')", handle, old_hint);
+            log::warn!(
+                "queue.whitelist: handle {:?} already in whitelist (was: '{}')",
+                handle,
+                old_hint
+            );
         }
     }
 
@@ -195,7 +198,12 @@ impl NotificationQueueArc {
     /// Post-condition: The lock is released after the method returns.
     ///
     /// See the module documentation for more details about the lock acquisition pattern.
-    pub fn wait_async(&self, handle: Handle, debug_hint: &str, mut lock: parking_lot::MutexGuard<'_, InnerState>) -> impl std::future::Future<Output = ()> + Send {
+    pub fn wait_async(
+        &self,
+        handle: Handle,
+        debug_hint: &str,
+        mut lock: parking_lot::MutexGuard<'_, InnerState>,
+    ) -> impl std::future::Future<Output = ()> + Send {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         // Early exit if handle not whitelisted
@@ -212,10 +220,7 @@ impl NotificationQueueArc {
                 debug_hint: debug_hint.to_string(),
             };
 
-            lock.waiting_clients
-                .entry(handle)
-                .or_default()
-                .push(client);
+            lock.waiting_clients.entry(handle).or_default().push(client);
 
             // Release lock before awaiting
             drop(lock);
@@ -245,7 +250,12 @@ impl NotificationQueueArc {
     /// * `handle` - The handle to subscribe to
     /// * `channel_capacity` - Capacity of the broadcast channel (only used when creating new channel)
     /// * `debug_hint` - Debug label for this channel (only used when creating new channel)
-    pub fn subscribe(&self, handle: Handle, channel_capacity: usize, debug_hint: &str) -> Option<tokio::sync::broadcast::Receiver<IntCanBeHandle>> {
+    pub fn subscribe(
+        &self,
+        handle: Handle,
+        channel_capacity: usize,
+        debug_hint: &str,
+    ) -> Option<tokio::sync::broadcast::Receiver<IntCanBeHandle>> {
         let mut state = self.inner.lock();
 
         if !state.whitelist.contains_key(&handle) {
@@ -269,7 +279,12 @@ impl NotificationQueueArc {
     // No unsubscribe() needed - just drop the Receiver!
 
     /// Internal method to notify and optionally delete subscriptions
-    fn notify_and_optionally_delete(&self, handle: Handle, arg: IntCanBeHandle, delete_subscribed: bool) {
+    fn notify_and_optionally_delete(
+        &self,
+        handle: Handle,
+        arg: IntCanBeHandle,
+        delete_subscribed: bool,
+    ) {
         let mut state = self.inner.lock();
 
         let waiters = state.waiting_clients.remove(&handle).unwrap_or_default();
@@ -279,26 +294,44 @@ impl NotificationQueueArc {
             handle,
             arg,
             waiters.len(),
-            state.broadcast_channels.get(&handle).map(|bc| bc.sender.receiver_count()).unwrap_or(0)
+            state
+                .broadcast_channels
+                .get(&handle)
+                .map(|bc| bc.sender.receiver_count())
+                .unwrap_or(0)
         );
 
         // Notifications just wake subscribers; they execute later via async runtime
 
         for waiter in waiters {
             if let Err(_) = waiter.sender.send(arg) {
-                log::debug!("queue.notify: oneshot receiver dropped for handle {:?} (hint: {})", handle, waiter.debug_hint);
+                log::debug!(
+                    "queue.notify: oneshot receiver dropped for handle {:?} (hint: {})",
+                    handle,
+                    waiter.debug_hint
+                );
             }
         }
         if delete_subscribed {
             if let Some(bc) = state.broadcast_channels.remove(&handle) {
                 if let Err(e) = bc.sender.send(arg) {
-                    log::debug!("queue.notify: broadcast send failed for handle {:?} (hint: {}): {}", handle, bc.debug_hint, e);
+                    log::debug!(
+                        "queue.notify: broadcast send failed for handle {:?} (hint: {}): {}",
+                        handle,
+                        bc.debug_hint,
+                        e
+                    );
                 }
             }
         } else {
             if let Some(bc) = state.broadcast_channels.get(&handle) {
                 if let Err(e) = bc.sender.send(arg) {
-                    log::debug!("queue.notify: broadcast send failed for handle {:?} (hint: {}): {}", handle, bc.debug_hint, e);
+                    log::debug!(
+                        "queue.notify: broadcast send failed for handle {:?} (hint: {}): {}",
+                        handle,
+                        bc.debug_hint,
+                        e
+                    );
                 }
             }
         }

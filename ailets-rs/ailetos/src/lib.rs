@@ -1,2 +1,2 @@
-pub mod notification_queue;
 pub mod mempipe;
+pub mod notification_queue;

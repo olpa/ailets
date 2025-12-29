@@ -83,8 +83,13 @@ impl From<MemPipeError> for io::Error {
     fn from(e: MemPipeError) -> Self {
         match e {
             MemPipeError::Io(kind) => io::Error::new(kind, "IO error"),
-            MemPipeError::WriterClosed => io::Error::new(io::ErrorKind::BrokenPipe, "Writer is closed"),
-            MemPipeError::WriterError(code) => io::Error::new(io::ErrorKind::Other, format!("Writer is in error state: {code}")),
+            MemPipeError::WriterClosed => {
+                io::Error::new(io::ErrorKind::BrokenPipe, "Writer is closed")
+            }
+            MemPipeError::WriterError(code) => io::Error::new(
+                io::ErrorKind::Other,
+                format!("Writer is in error state: {code}"),
+            ),
         }
     }
 }
@@ -244,9 +249,9 @@ impl Write for Writer {
 /// Reads from the shared buffer at its own position. Waits for data
 /// when position reaches end of buffer.
 pub struct Reader {
-    handle: Handle,  // Reader's own handle
+    handle: Handle, // Reader's own handle
     shared: Arc<Mutex<SharedBuffer>>,
-    writer_handle: Handle,  // Writer's handle for notifications
+    writer_handle: Handle, // Writer's handle for notifications
     queue: NotificationQueueArc,
     pos: usize,
     closed: bool,
@@ -345,7 +350,9 @@ impl Reader {
         }
 
         // Wait using wait_async (lock is passed to wait_async and released there)
-        self.queue.wait_async(self.writer_handle, "reader", queue_lock).await;
+        self.queue
+            .wait_async(self.writer_handle, "reader", queue_lock)
+            .await;
         Ok(())
     }
 
@@ -402,7 +409,9 @@ impl Read for Reader {
 
             // Wait for more data (it will check condition atomically under lock)
             // Don't check condition here - would create race with writer closing
-            self.wait_for_writer().await.map_err(|e| IoError::from(MemPipeError::from(e)))?;
+            self.wait_for_writer()
+                .await
+                .map_err(|e| IoError::from(MemPipeError::from(e)))?;
 
             // If wait_for_writer returns Ok, loop to try reading again
             // If writer closed, wait_for_writer auto-closes reader
@@ -425,11 +434,7 @@ impl MemPipe {
         queue: NotificationQueueArc,
         external_buffer: Option<Vec<u8>>,
     ) -> Self {
-        let writer = Writer::new(
-            writer_handle.clone(),
-            queue.clone(),
-            external_buffer,
-        );
+        let writer = Writer::new(writer_handle.clone(), queue.clone(), external_buffer);
 
         Self { writer, queue }
     }
@@ -449,7 +454,7 @@ impl MemPipe {
         Reader::new(
             reader_handle,
             self.writer.shared(),
-            self.writer.handle,  // All readers wait on writer's handle
+            self.writer.handle, // All readers wait on writer's handle
             self.queue.clone(),
         )
     }
@@ -464,11 +469,7 @@ mod tests {
         let queue = NotificationQueueArc::new();
         let writer_handle = Handle::new(1);
 
-        let mut pipe = MemPipe::new(
-            writer_handle,
-            queue.clone(),
-            None,
-        );
+        let mut pipe = MemPipe::new(writer_handle, queue.clone(), None);
 
         let mut reader = pipe.get_reader(Handle::new(2));
         let reader_handle = *reader.handle();
@@ -490,11 +491,7 @@ mod tests {
         let queue = NotificationQueueArc::new();
         let writer_handle = Handle::new(1);
 
-        let mut pipe = MemPipe::new(
-            writer_handle,
-            queue.clone(),
-            None,
-        );
+        let mut pipe = MemPipe::new(writer_handle, queue.clone(), None);
 
         let mut reader1 = pipe.get_reader(Handle::new(2));
         let reader1_handle = *reader1.handle();
@@ -524,11 +521,7 @@ mod tests {
         let queue = NotificationQueueArc::new();
         let writer_handle = Handle::new(1);
 
-        let mut pipe = MemPipe::new(
-            writer_handle,
-            queue.clone(),
-            None,
-        );
+        let mut pipe = MemPipe::new(writer_handle, queue.clone(), None);
 
         let mut reader = pipe.get_reader(Handle::new(2));
         let reader_handle = *reader.handle();

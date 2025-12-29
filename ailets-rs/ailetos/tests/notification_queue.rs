@@ -283,7 +283,9 @@ async fn test_concurrent_operations() {
                 // Count all notifications until -1 or channel close
                 let mut count = 0;
                 while let Ok(val) = rx.recv().await {
-                    if val == -1 { break; }  // Don't count the termination signal
+                    if val == -1 {
+                        break;
+                    } // Don't count the termination signal
                     count += 1;
                 }
                 counts_clone.lock().unwrap().push(count);
@@ -333,16 +335,27 @@ async fn test_concurrent_operations() {
     }
 
     // Verify all waiters woke up
-    assert_eq!(waiters_woken.load(Ordering::SeqCst), 3, "All 3 waiters should wake");
+    assert_eq!(
+        waiters_woken.load(Ordering::SeqCst),
+        3,
+        "All 3 waiters should wake"
+    );
 
     // Verify subscribers received all notifications
     let counts = subscriber_counts.lock().unwrap();
     let total_notifications: usize = counts.iter().sum();
-    assert_eq!(total_notifications, 3 * 5, "Each of 3 subscribers should receive all 5 notifications");
+    assert_eq!(
+        total_notifications,
+        3 * 5,
+        "Each of 3 subscribers should receive all 5 notifications"
+    );
 
     // Verify each subscriber got exactly 5
     for &count in counts.iter() {
-        assert_eq!(count, 5, "Each subscriber should receive exactly 5 notifications");
+        assert_eq!(
+            count, 5,
+            "Each subscriber should receive exactly 5 notifications"
+        );
     }
 }
 
