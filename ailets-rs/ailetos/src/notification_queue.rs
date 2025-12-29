@@ -285,15 +285,21 @@ impl NotificationQueueArc {
         // Notifications just wake subscribers; they execute later via async runtime
 
         for waiter in waiters {
-            let _ = waiter.sender.send(arg);
+            if let Err(_) = waiter.sender.send(arg) {
+                log::debug!("queue.notify: oneshot receiver dropped for handle {:?} (hint: {})", handle, waiter.debug_hint);
+            }
         }
         if delete_subscribed {
             if let Some(bc) = state.broadcast_channels.remove(&handle) {
-                let _ = bc.sender.send(arg);
+                if let Err(e) = bc.sender.send(arg) {
+                    log::debug!("queue.notify: broadcast send failed for handle {:?} (hint: {}): {}", handle, bc.debug_hint, e);
+                }
             }
         } else {
             if let Some(bc) = state.broadcast_channels.get(&handle) {
-                let _ = bc.sender.send(arg);
+                if let Err(e) = bc.sender.send(arg) {
+                    log::debug!("queue.notify: broadcast send failed for handle {:?} (hint: {}): {}", handle, bc.debug_hint, e);
+                }
             }
         }
 
