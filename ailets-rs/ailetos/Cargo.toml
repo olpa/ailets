@@ -12,9 +12,6 @@ actor_runtime.workspace = true
 embedded-io.workspace = true
 embedded-io-async = "0.7"
 getrandom.workspace = true
-
-# Notification queue dependencies
-crossbeam = "0.8"
 tokio = { version = "1.41", features = ["sync", "time", "rt", "rt-multi-thread", "macros", "io-util"] }
 thiserror = "2.0"
 log = "0.4"
