@@ -97,7 +97,7 @@ impl From<MemPipeError> for io::Error {
 /// Shared state between Writer and Readers
 struct SharedBuffer {
     buffer: Vec<u8>,
-    errno: Option<i32>,
+    errno: i32,
     closed: bool,
 }
 
@@ -105,7 +105,7 @@ impl SharedBuffer {
     fn new(external_buffer: Option<Vec<u8>>) -> Self {
         Self {
             buffer: external_buffer.unwrap_or_default(),
-            errno: None,
+            errno: 0,
             closed: false,
         }
     }
@@ -124,10 +124,11 @@ impl Writer {
     pub fn new(
         handle: Handle,
         queue: NotificationQueueArc,
+        debug_hint: &str,
         external_buffer: Option<Vec<u8>>,
     ) -> Self {
         // Register handle with queue (like Python's queue.whitelist)
-        queue.whitelist(handle, "writer");
+        queue.whitelist(handle, &format!("memPipe.writer {debug_hint}"));
 
         Self {
             shared: Arc::new(Mutex::new(SharedBuffer::new(external_buffer))),
@@ -143,7 +144,12 @@ impl Writer {
 
     /// Get current error state
     pub fn get_error(&self) -> Option<i32> {
-        self.shared.lock().unwrap().errno
+        let errno = self.shared.lock().unwrap().errno;
+        if errno != 0 {
+            Some(errno)
+        } else {
+            None
+        }
     }
 
     /// Set error state and notify readers
@@ -153,7 +159,7 @@ impl Writer {
             if shared.closed {
                 return Ok(());
             }
-            shared.errno = Some(errno);
+            shared.errno = errno;
         }
         self.queue.notify(self.handle, errno as i64);
         Ok(())
@@ -177,8 +183,8 @@ impl Writer {
                 return Err(MemPipeError::WriterClosed);
             }
 
-            if let Some(errno) = shared.errno {
-                return Err(MemPipeError::WriterError(errno));
+            if shared.errno != 0 {
+                return Err(MemPipeError::WriterError(shared.errno));
             }
 
             shared.buffer.extend_from_slice(data);
@@ -281,7 +287,12 @@ impl Reader {
 
     /// Get current error state from writer
     pub fn get_error(&self) -> Option<i32> {
-        self.shared.lock().unwrap().errno
+        let errno = self.shared.lock().unwrap().errno;
+        if errno != 0 {
+            Some(errno)
+        } else {
+            None
+        }
     }
 
     /// Check if reader should wait for more data
@@ -292,7 +303,7 @@ impl Reader {
 
         let writer_pos = shared.buffer.len();
         let should_wait = self.pos >= writer_pos;
-        let writer_closed = shared.closed || shared.errno.is_some();
+        let writer_closed = shared.closed || shared.errno != 0;
 
         drop(shared);
 
@@ -330,7 +341,7 @@ impl Reader {
             let shared = self.shared.lock().unwrap();
             let writer_pos = shared.buffer.len();
             let should_wait = self.pos >= writer_pos;
-            let writer_closed = shared.closed || shared.errno.is_some();
+            let writer_closed = shared.closed || shared.errno != 0;
             drop(shared); // Release buffer lock but keep queue lock
 
             // Auto-close logic
@@ -364,8 +375,8 @@ impl Reader {
 
         let shared = self.shared.lock().unwrap();
 
-        if let Some(errno) = shared.errno {
-            return Err(MemPipeError::WriterError(errno));
+        if shared.errno != 0 {
+            return Err(MemPipeError::WriterError(shared.errno));
         }
 
         let available = shared.buffer.len().saturating_sub(self.pos);
@@ -432,9 +443,10 @@ impl MemPipe {
     pub fn new(
         writer_handle: Handle,
         queue: NotificationQueueArc,
+        hint: &str,
         external_buffer: Option<Vec<u8>>,
     ) -> Self {
-        let writer = Writer::new(writer_handle.clone(), queue.clone(), external_buffer);
+        let writer = Writer::new(writer_handle.clone(), queue.clone(), hint, external_buffer);
 
         Self { writer, queue }
     }
@@ -469,7 +481,7 @@ mod tests {
         let queue = NotificationQueueArc::new();
         let writer_handle = Handle::new(1);
 
-        let mut pipe = MemPipe::new(writer_handle, queue.clone(), None);
+        let mut pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
 
         let mut reader = pipe.get_reader(Handle::new(2));
         let reader_handle = *reader.handle();
@@ -491,7 +503,7 @@ mod tests {
         let queue = NotificationQueueArc::new();
         let writer_handle = Handle::new(1);
 
-        let mut pipe = MemPipe::new(writer_handle, queue.clone(), None);
+        let mut pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
 
         let mut reader1 = pipe.get_reader(Handle::new(2));
         let reader1_handle = *reader1.handle();
@@ -521,7 +533,7 @@ mod tests {
         let queue = NotificationQueueArc::new();
         let writer_handle = Handle::new(1);
 
-        let mut pipe = MemPipe::new(writer_handle, queue.clone(), None);
+        let mut pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
 
         let mut reader = pipe.get_reader(Handle::new(2));
         let reader_handle = *reader.handle();
