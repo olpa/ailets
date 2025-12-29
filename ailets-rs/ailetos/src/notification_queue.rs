@@ -44,7 +44,8 @@
 //! Nothing special here.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use parking_lot::Mutex;
 
 // ============================================================================
 // Handle Type
@@ -156,13 +157,13 @@ impl NotificationQueueArc {
     }
 
     /// Get the lock for atomic condition-check + register operations
-    pub fn get_lock(&self) -> std::sync::MutexGuard<'_, InnerState> {
-        self.inner.lock().unwrap()
+    pub fn get_lock(&self) -> parking_lot::MutexGuard<'_, InnerState> {
+        self.inner.lock()
     }
 
     /// Register a handle in the whitelist
     pub fn whitelist(&self, handle: Handle, debug_hint: &str) {
-        let mut state = self.inner.lock().unwrap();
+        let mut state = self.inner.lock();
         if let Some(old_hint) = state.whitelist.insert(handle, debug_hint.to_string()) {
             log::warn!("queue.whitelist: handle {:?} already in whitelist (was: '{}')", handle, old_hint);
         }
@@ -173,7 +174,7 @@ impl NotificationQueueArc {
     /// Notifies all waiting clients and subscribers with the value `-1`,
     /// then removes all subscriptions for this handle.
     pub fn unlist(&self, handle: Handle) {
-        let mut state = self.inner.lock().unwrap();
+        let mut state = self.inner.lock();
         if state.whitelist.remove(&handle).is_none() {
             log::warn!("queue.unlist: handle {:?} not in whitelist", handle);
         }
@@ -194,7 +195,7 @@ impl NotificationQueueArc {
     /// Post-condition: The lock is released after the method returns.
     ///
     /// See the module documentation for more details about the lock acquisition pattern.
-    pub fn wait_async(&self, handle: Handle, debug_hint: &str, mut lock: std::sync::MutexGuard<'_, InnerState>) -> impl std::future::Future<Output = ()> + Send {
+    pub fn wait_async(&self, handle: Handle, debug_hint: &str, mut lock: parking_lot::MutexGuard<'_, InnerState>) -> impl std::future::Future<Output = ()> + Send {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         // Early exit if handle not whitelisted
@@ -245,7 +246,7 @@ impl NotificationQueueArc {
     /// * `channel_capacity` - Capacity of the broadcast channel (only used when creating new channel)
     /// * `debug_hint` - Debug label for this channel (only used when creating new channel)
     pub fn subscribe(&self, handle: Handle, channel_capacity: usize, debug_hint: &str) -> Option<tokio::sync::broadcast::Receiver<IntCanBeHandle>> {
-        let mut state = self.inner.lock().unwrap();
+        let mut state = self.inner.lock();
 
         if !state.whitelist.contains_key(&handle) {
             log::warn!("queue.subscribe: handle {:?} not in whitelist", handle);
@@ -269,7 +270,7 @@ impl NotificationQueueArc {
 
     /// Internal method to notify and optionally delete subscriptions
     fn notify_and_optionally_delete(&self, handle: Handle, arg: IntCanBeHandle, delete_subscribed: bool) {
-        let mut state = self.inner.lock().unwrap();
+        let mut state = self.inner.lock();
 
         let waiters = state.waiting_clients.remove(&handle).unwrap_or_default();
 
