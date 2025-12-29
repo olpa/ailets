@@ -221,7 +221,7 @@ pub struct QueueStats {
 // ============================================================================
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use parking_lot::RwLock; // Faster than std::sync::RwLock
+use std::sync::RwLock;
 use rustc_hash::FxHashMap; // Faster than std HashMap for integer keys
 
 struct QueueInner {
@@ -269,7 +269,7 @@ impl QueueInner {
 
     fn register_handle(&self) -> u64 {
         let id = self.next_handle_id.fetch_add(1, Ordering::Relaxed);
-        let mut handles = self.handles.write();
+        let mut handles = self.handles.write().unwrap();
         handles.insert(
             id,
             HandleEntry {
@@ -281,7 +281,7 @@ impl QueueInner {
     }
 
     fn unlist(&self, handle_id: u64) {
-        let mut handles = self.handles.write();
+        let mut handles = self.handles.write().unwrap();
         if let Some(entry) = handles.remove(&handle_id) {
             // Notify all waiters that handle is gone
             for waiter in entry.waiters {
@@ -296,7 +296,7 @@ impl QueueInner {
 
         // Add waiter under write lock
         {
-            let mut handles = self.handles.write();
+            let mut handles = self.handles.write().unwrap();
             let entry = handles
                 .get_mut(&handle_id)
                 .ok_or(QueueError::HandleNotRegistered(handle_id))?;
@@ -321,7 +321,7 @@ impl QueueInner {
 
         // Extract waiters and subscribers under write lock
         let (waiters, subscribers) = {
-            let mut handles = self.handles.write();
+            let mut handles = self.handles.write().unwrap();
             let entry = handles
                 .get_mut(&handle_id)
                 .ok_or(QueueError::HandleNotRegistered(handle_id))?;
@@ -361,7 +361,7 @@ impl QueueInner {
         let (tx, rx) = crossbeam::channel::bounded(channel_size);
         let subscription_id = self.next_subscription_id.fetch_add(1, Ordering::Relaxed);
 
-        let mut handles = self.handles.write();
+        let mut handles = self.handles.write().unwrap();
         let entry = handles
             .get_mut(&handle_id)
             .ok_or(QueueError::HandleNotRegistered(handle_id))?;
@@ -383,7 +383,7 @@ impl QueueInner {
     }
 
     fn unsubscribe(&self, subscription_id: u64) -> Result<(), QueueError> {
-        let mut handles = self.handles.write();
+        let mut handles = self.handles.write().unwrap();
         for entry in handles.values_mut() {
             if let Some(pos) = entry
                 .subscribers
@@ -398,7 +398,7 @@ impl QueueInner {
     }
 
     fn stats(&self) -> QueueStats {
-        let handles = self.handles.read();
+        let handles = self.handles.read().unwrap();
         let total_waiters: usize = handles.values().map(|e| e.waiters.len()).sum();
         let total_subscribers: usize = handles.values().map(|e| e.subscribers.len()).sum();
 

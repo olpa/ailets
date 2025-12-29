@@ -14,7 +14,6 @@ embedded-io-async = "0.7"
 getrandom.workspace = true
 
 # Notification queue dependencies
-parking_lot = "0.12"
 rustc-hash = "2.0"
 crossbeam = "0.8"
 tokio = { version = "1.41", features = ["sync", "time", "rt", "rt-multi-thread", "macros", "io-util"] }
