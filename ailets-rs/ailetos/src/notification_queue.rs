@@ -299,9 +299,3 @@ impl NotificationQueueArc {
         drop(state);
     }
 }
-
-impl Default for NotificationQueueArc {
-    fn default() -> Self {
-        Self::new()
-    }
-}
