@@ -56,10 +56,12 @@ pub struct Handle {
     id: i64,
 }
 impl Handle {
+    #[must_use]
     pub fn new(id: i64) -> Self {
         Self { id }
     }
 
+    #[must_use]
     pub fn id(&self) -> i64 {
         self.id
     }
@@ -84,8 +86,8 @@ pub type IntCanBeHandle = <Handle as HandleType>::Id;
 struct WaitingClient {
     /// Thread-safe sender that can be used to notify waiting clients from any thread.
     ///
-    /// Proof: tokio::sync::oneshot::Sender<T> implements Send where T: Send.
-    /// Since IntCanBeHandle is i64 (Copy), Sender<IntCanBeHandle> is Send.
+    /// Proof: `tokio::sync::oneshot::Sender`<T> implements Send where T: Send.
+    /// Since `IntCanBeHandle` is i64 (Copy), Sender<IntCanBeHandle> is Send.
     ///
     /// Documentation: <https://docs.rs/tokio/latest/tokio/sync/oneshot/struct.Sender.html>
     /// To verify: Scroll down to "Trait Implementations" section to see:
@@ -149,6 +151,8 @@ pub struct NotificationQueueArc {
 }
 
 impl NotificationQueueArc {
+    #[must_use]
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
             inner: Arc::new(Mutex::new(InnerState::new())),
@@ -165,9 +169,7 @@ impl NotificationQueueArc {
         let mut state = self.inner.lock();
         if let Some(old_hint) = state.whitelist.insert(handle, debug_hint.to_string()) {
             log::warn!(
-                "queue.whitelist: handle {:?} already in whitelist (was: '{}')",
-                handle,
-                old_hint
+                "queue.whitelist: handle {handle:?} already in whitelist (was: '{old_hint}')",
             );
         }
     }
@@ -179,7 +181,7 @@ impl NotificationQueueArc {
     pub fn unlist(&self, handle: Handle) {
         let mut state = self.inner.lock();
         if state.whitelist.remove(&handle).is_none() {
-            log::warn!("queue.unlist: handle {:?} not in whitelist", handle);
+            log::warn!("queue.unlist: handle {handle:?} not in whitelist");
         }
         drop(state);
 
@@ -207,6 +209,7 @@ impl NotificationQueueArc {
         let (tx, rx) = tokio::sync::oneshot::channel();
 
         // Early exit if handle not whitelisted
+        #[allow(clippy::if_not_else)]
         if !lock.whitelist.contains_key(&handle) {
             // Don't warn: the whole idea of whitelist is to
             // avoid waiting in case of race conditions
@@ -250,6 +253,7 @@ impl NotificationQueueArc {
     /// * `handle` - The handle to subscribe to
     /// * `channel_capacity` - Capacity of the broadcast channel (only used when creating new channel)
     /// * `debug_hint` - Debug label for this channel (only used when creating new channel)
+    #[must_use]
     pub fn subscribe(
         &self,
         handle: Handle,
@@ -259,7 +263,7 @@ impl NotificationQueueArc {
         let mut state = self.inner.lock();
 
         if !state.whitelist.contains_key(&handle) {
-            log::warn!("queue.subscribe: handle {:?} not in whitelist", handle);
+            log::warn!("queue.subscribe: handle {handle:?} not in whitelist");
             return None;
         }
 
@@ -297,14 +301,13 @@ impl NotificationQueueArc {
             state
                 .broadcast_channels
                 .get(&handle)
-                .map(|bc| bc.sender.receiver_count())
-                .unwrap_or(0)
+                .map_or(0, |bc| bc.sender.receiver_count())
         );
 
         // Notifications just wake subscribers; they execute later via async runtime
 
         for waiter in waiters {
-            if let Err(_) = waiter.sender.send(arg) {
+            if waiter.sender.send(arg).is_err() {
                 log::debug!(
                     "queue.notify: oneshot receiver dropped for handle {:?} (hint: {})",
                     handle,
@@ -323,16 +326,14 @@ impl NotificationQueueArc {
                     );
                 }
             }
-        } else {
-            if let Some(bc) = state.broadcast_channels.get(&handle) {
-                if let Err(e) = bc.sender.send(arg) {
-                    log::debug!(
-                        "queue.notify: broadcast send failed for handle {:?} (hint: {}): {}",
-                        handle,
-                        bc.debug_hint,
-                        e
-                    );
-                }
+        } else if let Some(bc) = state.broadcast_channels.get(&handle) {
+            if let Err(e) = bc.sender.send(arg) {
+                log::debug!(
+                    "queue.notify: broadcast send failed for handle {:?} (hint: {}): {}",
+                    handle,
+                    bc.debug_hint,
+                    e
+                );
             }
         }
 
