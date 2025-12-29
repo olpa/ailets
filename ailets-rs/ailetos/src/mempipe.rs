@@ -13,16 +13,34 @@ use std::sync::{Arc, Mutex};
 use crate::notification_queue::{Handle, NotificationQueueArc};
 
 /// Error type for mempipe operations
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone)]
 pub enum MemPipeError {
-    #[error("IO error: {0}")]
-    Io(#[from] io::Error),
+    /// IO error from underlying operations
+    Io(io::ErrorKind),
 
-    #[error("Writer is closed")]
+    /// Writer is closed
     WriterClosed,
 
-    #[error("Writer is in error state: {0}")]
+    /// Writer is in error state with error code
     WriterError(i32),
+}
+
+impl fmt::Display for MemPipeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MemPipeError::Io(kind) => write!(f, "IO error: {kind}"),
+            MemPipeError::WriterClosed => write!(f, "Writer is closed"),
+            MemPipeError::WriterError(code) => write!(f, "Writer is in error state: {code}"),
+        }
+    }
+}
+
+impl std::error::Error for MemPipeError {}
+
+impl From<io::Error> for MemPipeError {
+    fn from(error: io::Error) -> Self {
+        MemPipeError::Io(error.kind())
+    }
 }
 
 /// Error type compatible with embedded_io
@@ -64,9 +82,9 @@ impl From<MemPipeError> for IoError {
 impl From<MemPipeError> for io::Error {
     fn from(e: MemPipeError) -> Self {
         match e {
-            MemPipeError::Io(e) => e,
-            MemPipeError::WriterClosed => io::Error::new(io::ErrorKind::BrokenPipe, e.to_string()),
-            MemPipeError::WriterError(_) => io::Error::new(io::ErrorKind::Other, e.to_string()),
+            MemPipeError::Io(kind) => io::Error::new(kind, "IO error"),
+            MemPipeError::WriterClosed => io::Error::new(io::ErrorKind::BrokenPipe, "Writer is closed"),
+            MemPipeError::WriterError(code) => io::Error::new(io::ErrorKind::Other, format!("Writer is in error state: {code}")),
         }
     }
 }
