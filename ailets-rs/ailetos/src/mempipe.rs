@@ -214,7 +214,7 @@ impl Writer {
     }
 
     /// Get shared buffer for creating readers
-    pub(crate) fn shared(&self) -> Arc<Mutex<SharedBuffer>> {
+    pub(crate) fn buffer(&self) -> Arc<Mutex<SharedBuffer>> {
         Arc::clone(&self.shared)
     }
 }
@@ -465,7 +465,7 @@ impl MemPipe {
     pub fn get_reader(&self, reader_handle: Handle) -> Reader {
         Reader::new(
             reader_handle,
-            self.writer.shared(),
+            self.writer.buffer(),
             self.writer.handle, // All readers wait on writer's handle
             self.queue.clone(),
         )
