@@ -168,3 +168,49 @@ async fn test_empty_write_with_errno() {
     let result = pipe.writer().write_sync(b"");
     assert!(matches!(result, Err(MemPipeError::WriterError(42))));
 }
+
+#[tokio::test]
+async fn test_set_error_ignored_when_writer_closed() {
+    let queue = NotificationQueueArc::new();
+    let writer_handle = Handle::new(1);
+
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+
+    // Close the writer
+    pipe.writer().close().unwrap();
+
+    // Setting error on closed writer should be ignored (returns Ok)
+    let result = pipe.writer().set_error(42);
+    assert!(result.is_ok());
+
+    // Error should still be 0 (not set)
+    assert_eq!(pipe.writer().get_error(), 0);
+}
+
+#[tokio::test]
+async fn test_set_error_does_not_notify_when_writer_closed() {
+    let queue = NotificationQueueArc::new();
+    let writer_handle = Handle::new(1);
+
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+
+    // Subscribe to writer's handle to observe notifications
+    let mut subscriber = queue
+        .subscribe(writer_handle, 10, "test_subscriber")
+        .expect("Failed to subscribe");
+
+    // Close the writer - this will send a notification with -1
+    pipe.writer().close().unwrap();
+
+    // Receive the close notification
+    let notification = subscriber.recv().await.expect("Should receive close notification");
+    assert_eq!(notification, -1);
+
+    // Now try to set error on the closed writer
+    let result = pipe.writer().set_error(42);
+    assert!(result.is_ok());
+
+    // Verify NO additional notification was sent
+    let result = subscriber.try_recv();
+    assert!(result.is_err()); // Should be empty, no notification sent
+}
