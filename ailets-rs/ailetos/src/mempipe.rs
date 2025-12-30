@@ -319,75 +319,65 @@ impl Reader {
         self.buffer.lock().unwrap().errno
     }
 
-    /// Check if reader should wait for more data
-    ///
-    /// Returns (should_wait, writer_closed)
-    fn should_wait(&self) -> (bool, bool) {
-        let shared = self.buffer.lock().unwrap();
-
-        let writer_pos = shared.buffer.len();
-        let should_wait = self.pos >= writer_pos;
-        let writer_closed = shared.closed || shared.errno != 0;
-
-        drop(shared);
-
-        // Auto-close logic: if we should wait but writer is closed, don't wait
-        if should_wait && writer_closed {
-            (false, true)
-        } else {
-            (should_wait, writer_closed)
-        }
-    }
-
     /// Check if reader should wait, and auto-close if writer closed
-    fn should_wait_with_autoclose(&mut self) -> (bool, bool) {
-        let (should_wait, writer_closed) = self.should_wait();
-        if !should_wait && writer_closed {
-            self.own_closed = true;
+    ///
+    /// Matches Python's _should_wait_with_autoclose logic exactly
+    fn should_wait_with_autoclose(&mut self) -> bool {
+        let (mut should_wait, writer_closed) = {
+            let shared = self.buffer.lock().unwrap();
+
+            let writer_pos = shared.buffer.len();
+            let should_wait = self.pos >= writer_pos;
+            let writer_closed = shared.closed || shared.errno != 0;
+
+            (should_wait, writer_closed)
+        }; // Lock released
+
+        if should_wait && writer_closed {
+            self.close();
+            should_wait = false;
         }
-        (should_wait, writer_closed)
+
+        should_wait
     }
 
     /// Wait for writer to provide more data
     ///
-    /// Uses atomic lock protocol: check condition and register waiter atomically
-    /// under queue lock to prevent missing notifications.
-    ///
-    /// CRITICAL: Locks queue FIRST, then checks buffer condition while holding queue lock.
-    /// This ensures the writer cannot notify between our condition check and waiter registration.
+    /// Matches Python's _wait_for_writer logic exactly.
+    /// Uses atomic lock protocol: acquire queue lock FIRST, then re-check condition
+    /// under lock to prevent missing notifications.
     async fn wait_for_writer(&mut self) -> Result<(), MemPipeError> {
-        // Acquire queue lock first
+        // Acquire queue lock first (matches Python: lock = self.writer.queue.get_lock())
         let queue_lock = self.queue.get_lock();
 
-        // Check buffer condition while holding queue lock to ensure atomicity
-        // Lock ordering: queue → buffer (writer uses: buffer → queue, no overlap)
-        let (should_wait, writer_closed) = {
-            let shared = self.buffer.lock().unwrap();
-            let writer_pos = shared.buffer.len();
-            let should_wait = self.pos >= writer_pos;
-            let writer_closed = shared.closed || shared.errno != 0;
-            drop(shared); // Release buffer lock but keep queue lock
-
-            // Auto-close logic
-            if should_wait && writer_closed {
-                (false, true)
-            } else {
+        // Re-check condition while holding queue lock (matches Python: with lock:)
+        // Inlined should_wait_with_autoclose logic due to Rust borrow checker
+        let should_wait = {
+            let (mut should_wait, writer_closed) = {
+                let shared = self.buffer.lock().unwrap();
+                let writer_pos = shared.buffer.len();
+                let should_wait = self.pos >= writer_pos;
+                let writer_closed = shared.closed || shared.errno != 0;
                 (should_wait, writer_closed)
+            };
+
+            if should_wait && writer_closed {
+                self.own_closed = true;
+                should_wait = false;
             }
+
+            should_wait
         };
 
-        if !should_wait {
+        if should_wait {
+            // Wait using wait_async (lock is passed to wait_async and released there)
+            self.queue
+                .wait_async(self.writer_handle, "reader", queue_lock)
+                .await;
+        } else {
             drop(queue_lock);
-            if writer_closed {
-                self.own_closed = true;
-            }
-            return Ok(());
         }
 
-        // Wait using wait_async (lock is passed to wait_async and released there)
-        self.queue
-            .wait_async(self.writer_handle, "reader", queue_lock)
-            .await;
         Ok(())
     }
 
@@ -407,46 +397,31 @@ impl Reader {
     /// waits for the writer to provide more data or close.
     /// Returns 0 (EOF) when the writer is closed and all data has been read.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, MemPipeError> {
-        loop {
-            if self.own_closed {
-                return Ok(0);
+        while !self.own_closed {
+            if self.should_wait_with_autoclose() {
+                self.wait_for_writer().await?;
+                continue;
             }
 
-            let data_read = {
-                let shared = self.buffer.lock().unwrap();
-
-                if shared.errno != 0 {
-                    return Err(MemPipeError::WriterError(shared.errno));
-                }
-
-                let available = shared.buffer.len().saturating_sub(self.pos);
-                if available > 0 {
-                    let to_read = available.min(buf.len());
-                    let end_pos = self.pos + to_read;
-
-                    buf[..to_read].copy_from_slice(&shared.buffer[self.pos..end_pos]);
-                    self.pos = end_pos;
-
-                    Some(to_read)
-                } else {
-                    None
-                }
-            }; // Lock is dropped here
-
-            if let Some(n) = data_read {
-                return Ok(n);
+            // Check for errors
+            let shared = self.buffer.lock().unwrap();
+            if shared.errno != 0 {
+                return Err(MemPipeError::WriterError(shared.errno));
             }
 
-            // Wait for more data (it will check condition atomically under lock)
-            // Don't check condition here - would create race with writer closing
-            self.wait_for_writer().await?;
+            // Read data from buffer
+            let available = shared.buffer.len().saturating_sub(self.pos);
+            let to_read = available.min(buf.len());
+            let end_pos = self.pos + to_read;
 
-            // If wait_for_writer returns Ok, loop to try reading again
-            // If writer closed, wait_for_writer auto-closes reader
-            if self.own_closed {
-                return Ok(0); // EOF
-            }
+            buf[..to_read].copy_from_slice(&shared.buffer[self.pos..end_pos]);
+            self.pos = end_pos;
+
+            drop(shared);
+            return Ok(to_read);
         }
+
+        Ok(0)
     }
 }
 
