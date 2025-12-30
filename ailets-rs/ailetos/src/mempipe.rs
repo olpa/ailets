@@ -225,9 +225,13 @@ impl Writer {
         &self.handle
     }
 
-    /// Get shared buffer for creating readers
-    pub(crate) fn buffer(&self) -> Arc<Mutex<SharedBuffer>> {
-        Arc::clone(&self.shared)
+    /// Create shared data for a new reader
+    pub(crate) fn share_with_reader(&self) -> ReaderSharedData {
+        ReaderSharedData {
+            buffer: Arc::clone(&self.shared),
+            writer_handle: self.handle,
+            queue: self.queue.clone(),
+        }
     }
 }
 
@@ -273,31 +277,33 @@ impl Write for Writer {
     }
 }
 
+/// Shared data passed from Writer to Reader
+pub(crate) struct ReaderSharedData {
+    buffer: Arc<Mutex<SharedBuffer>>,
+    writer_handle: Handle,
+    queue: NotificationQueueArc,
+}
+
 /// Reader side of the memory pipe
 ///
 /// Reads from the shared buffer at its own position. Waits for data
 /// when position reaches end of buffer.
 pub struct Reader {
-    handle: Handle, // Reader's own handle
-    shared: Arc<Mutex<SharedBuffer>>,
-    writer_handle: Handle, // Writer's handle for notifications
+    own_handle: Handle,
+    buffer: Arc<Mutex<SharedBuffer>>,
+    writer_handle: Handle,
     queue: NotificationQueueArc,
     pos: usize,
     closed: bool,
 }
 
 impl Reader {
-    pub fn new(
-        handle: Handle,
-        shared: Arc<Mutex<SharedBuffer>>,
-        writer_handle: Handle,
-        queue: NotificationQueueArc,
-    ) -> Self {
+    pub(crate) fn new(handle: Handle, shared_data: ReaderSharedData) -> Self {
         Self {
-            handle,
-            shared,
-            writer_handle,
-            queue,
+            own_handle: handle,
+            buffer: shared_data.buffer,
+            writer_handle: shared_data.writer_handle,
+            queue: shared_data.queue,
             pos: 0,
             closed: false,
         }
@@ -305,19 +311,19 @@ impl Reader {
 
     /// Get the reader's handle
     pub fn handle(&self) -> &Handle {
-        &self.handle
+        &self.own_handle
     }
 
     /// Get current error state from writer
     pub fn get_error(&self) -> i32 {
-        self.shared.lock().unwrap().errno
+        self.buffer.lock().unwrap().errno
     }
 
     /// Check if reader should wait for more data
     ///
     /// Returns (should_wait, writer_closed)
     fn should_wait(&self) -> (bool, bool) {
-        let shared = self.shared.lock().unwrap();
+        let shared = self.buffer.lock().unwrap();
 
         let writer_pos = shared.buffer.len();
         let should_wait = self.pos >= writer_pos;
@@ -356,7 +362,7 @@ impl Reader {
         // Check buffer condition while holding queue lock to ensure atomicity
         // Lock ordering: queue → buffer (writer uses: buffer → queue, no overlap)
         let (should_wait, writer_closed) = {
-            let shared = self.shared.lock().unwrap();
+            let shared = self.buffer.lock().unwrap();
             let writer_pos = shared.buffer.len();
             let should_wait = self.pos >= writer_pos;
             let writer_closed = shared.closed || shared.errno != 0;
@@ -391,7 +397,7 @@ impl Reader {
             return Ok(0);
         }
 
-        let shared = self.shared.lock().unwrap();
+        let shared = self.buffer.lock().unwrap();
 
         if shared.errno != 0 {
             return Err(MemPipeError::WriterError(shared.errno));
@@ -427,7 +433,7 @@ impl fmt::Debug for Reader {
         write!(
             f,
             "MemPipe.Reader(handle={:?}, pos={}, closed={}, writer_handle={:?})",
-            self.handle, self.pos, self.closed, self.writer_handle
+            self.own_handle, self.pos, self.closed, self.writer_handle
         )
     }
 }
@@ -491,12 +497,7 @@ impl MemPipe {
 
     /// Get a reader for this pipe with an explicit handle
     pub fn get_reader(&self, reader_handle: Handle) -> Reader {
-        Reader::new(
-            reader_handle,
-            self.writer.buffer(),
-            self.writer.handle, // All readers wait on writer's handle
-            self.queue.clone(),
-        )
+        Reader::new(reader_handle, self.writer.share_with_reader())
     }
 }
 
