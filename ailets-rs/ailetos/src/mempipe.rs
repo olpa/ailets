@@ -145,13 +145,8 @@ impl Writer {
     }
 
     /// Get current error state
-    pub fn get_error(&self) -> Option<i32> {
-        let errno = self.shared.lock().unwrap().errno;
-        if errno != 0 {
-            Some(errno)
-        } else {
-            None
-        }
+    pub fn get_error(&self) -> i32 {
+        self.shared.lock().unwrap().errno
     }
 
     /// Set error state and notify readers
@@ -314,13 +309,8 @@ impl Reader {
     }
 
     /// Get current error state from writer
-    pub fn get_error(&self) -> Option<i32> {
-        let errno = self.shared.lock().unwrap().errno;
-        if errno != 0 {
-            Some(errno)
-        } else {
-            None
-        }
+    pub fn get_error(&self) -> i32 {
+        self.shared.lock().unwrap().errno
     }
 
     /// Check if reader should wait for more data
