@@ -426,6 +426,31 @@ impl Reader {
     pub fn is_closed(&self) -> bool {
         self.closed
     }
+
+    /// Read data from the pipe
+    ///
+    /// Reads available data from the buffer. If no data is available,
+    /// waits for the writer to provide more data or close.
+    /// Returns 0 (EOF) when the writer is closed and all data has been read.
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, MemPipeError> {
+        loop {
+            // Try to read from buffer
+            let n = self.read_from_buffer(buf)?;
+            if n > 0 {
+                return Ok(n);
+            }
+
+            // Wait for more data (it will check condition atomically under lock)
+            // Don't check condition here - would create race with writer closing
+            self.wait_for_writer().await?;
+
+            // If wait_for_writer returns Ok, loop to try reading again
+            // If writer closed, wait_for_writer auto-closes reader
+            if self.closed {
+                return Ok(0); // EOF
+            }
+        }
+    }
 }
 
 impl fmt::Debug for Reader {
@@ -445,25 +470,7 @@ impl ErrorType for Reader {
 
 impl Read for Reader {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        loop {
-            // Try to read from buffer
-            let n = self.read_from_buffer(buf).map_err(|e| IoError::from(e))?;
-            if n > 0 {
-                return Ok(n);
-            }
-
-            // Wait for more data (it will check condition atomically under lock)
-            // Don't check condition here - would create race with writer closing
-            self.wait_for_writer()
-                .await
-                .map_err(|e| IoError::from(MemPipeError::from(e)))?;
-
-            // If wait_for_writer returns Ok, loop to try reading again
-            // If writer closed, wait_for_writer auto-closes reader
-            if self.closed {
-                return Ok(0); // EOF
-            }
-        }
+        Reader::read(self, buf).await.map_err(|e| e.into())
     }
 }
 

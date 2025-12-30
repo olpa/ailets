@@ -1,6 +1,5 @@
 use ailetos::mempipe::{MemPipe, MemPipeError};
 use ailetos::notification_queue::{Handle, NotificationQueueArc};
-use embedded_io_async::Read;
 
 #[tokio::test]
 async fn test_write_read() {
