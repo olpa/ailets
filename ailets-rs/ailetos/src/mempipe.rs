@@ -334,7 +334,7 @@ impl Reader {
     /// Check if reader should wait for writer
     ///
     /// Returns action to take: Wait, DontWait, or Close
-    /// Matches Python's _should_wait_with_autoclose logic
+    /// Close implies DontWait
     fn should_wait_for_writer(&self) -> WaitAction {
         let shared = self.buffer.lock().unwrap();
 
@@ -355,19 +355,15 @@ impl Reader {
 
     /// Wait for writer to provide more data
     ///
-    /// Matches Python's _wait_for_writer logic exactly.
-    /// Uses atomic lock protocol: acquire queue lock FIRST, then re-check condition
-    /// under lock to prevent missing notifications.
+    /// See the `crate::notification_queue` documentation for the workflow explanation
+    /// (check (in "read") - lock (here) - check again (here))
     ///
     /// Returns true if reader should be closed, false otherwise.
     async fn wait_for_writer(&self) -> Result<bool, MemPipeError> {
-        // Acquire queue lock first (matches Python: lock = self.writer.queue.get_lock())
         let queue_lock = self.queue.get_lock();
 
-        // Re-check condition while holding queue lock (matches Python: with lock:)
         match self.should_wait_for_writer() {
             WaitAction::Wait => {
-                // Wait using wait_async (lock is passed to wait_async and released there)
                 self.queue
                     .wait_async(self.writer_handle, "reader", queue_lock)
                     .await;
