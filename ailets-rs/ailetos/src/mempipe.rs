@@ -391,32 +391,6 @@ impl Reader {
         Ok(())
     }
 
-    /// Read available data from buffer
-    fn read_from_buffer(&mut self, buf: &mut [u8]) -> Result<usize, MemPipeError> {
-        if self.closed {
-            return Ok(0);
-        }
-
-        let shared = self.buffer.lock().unwrap();
-
-        if shared.errno != 0 {
-            return Err(MemPipeError::WriterError(shared.errno));
-        }
-
-        let available = shared.buffer.len().saturating_sub(self.pos);
-        if available == 0 {
-            return Ok(0);
-        }
-
-        let to_read = available.min(buf.len());
-        let end_pos = self.pos + to_read;
-
-        buf[..to_read].copy_from_slice(&shared.buffer[self.pos..end_pos]);
-        self.pos = end_pos;
-
-        Ok(to_read)
-    }
-
     /// Close the reader
     pub fn close(&mut self) {
         self.closed = true;
@@ -435,8 +409,32 @@ impl Reader {
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, MemPipeError> {
         loop {
             // Try to read from buffer
-            let n = self.read_from_buffer(buf)?;
-            if n > 0 {
+            if self.closed {
+                return Ok(0);
+            }
+
+            let data_read = {
+                let shared = self.buffer.lock().unwrap();
+
+                if shared.errno != 0 {
+                    return Err(MemPipeError::WriterError(shared.errno));
+                }
+
+                let available = shared.buffer.len().saturating_sub(self.pos);
+                if available > 0 {
+                    let to_read = available.min(buf.len());
+                    let end_pos = self.pos + to_read;
+
+                    buf[..to_read].copy_from_slice(&shared.buffer[self.pos..end_pos]);
+                    self.pos = end_pos;
+
+                    Some(to_read)
+                } else {
+                    None
+                }
+            }; // Lock is dropped here
+
+            if let Some(n) = data_read {
                 return Ok(n);
             }
 
