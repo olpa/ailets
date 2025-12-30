@@ -55,29 +55,38 @@ async fn test_multiple_readers() {
 }
 
 #[tokio::test]
-async fn test_close_propagation() {
+async fn test_close_sends_notification() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
 
     let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
 
-    let mut reader = pipe.get_reader(Handle::new(2));
-    let _reader_handle = *reader.handle();
+    // Subscribe to writer's handle to observe notifications
+    let mut subscriber = queue
+        .subscribe(writer_handle, 10, "test_subscriber")
+        .expect("Failed to subscribe");
 
-    // Write and close
-    pipe.writer().write_sync(b"Data").unwrap();
+    // Close the writer
     pipe.writer().close().unwrap();
 
-    // Reader should get data
-    let mut buf = [0u8; 10];
-    let n = reader.read(&mut buf).await.unwrap();
-    assert_eq!(n, 4);
+    // Verify notification was sent with -1
+    let notification = subscriber.recv().await.expect("Should receive notification");
+    assert_eq!(notification, -1);
+}
 
-    // Second read should get EOF
-    let n = reader.read(&mut buf).await.unwrap();
-    assert_eq!(n, 0);
+#[tokio::test]
+async fn test_close_unlists_handle() {
+    let queue = NotificationQueueArc::new();
+    let writer_handle = Handle::new(1);
 
-    // Writer unregisters its handle on drop
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+
+    // Close the writer
+    pipe.writer().close().unwrap();
+
+    // Try to subscribe to the handle - should return None because it's unlisted
+    let result = queue.subscribe(writer_handle, 10, "test_subscriber");
+    assert!(result.is_none()); // Should return None for unlisted handle
 }
 
 #[tokio::test]
