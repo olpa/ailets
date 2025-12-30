@@ -118,6 +118,7 @@ pub struct Writer {
     shared: Arc<Mutex<SharedBuffer>>,
     handle: Handle,
     queue: NotificationQueueArc,
+    debug_hint: String,
 }
 
 impl Writer {
@@ -134,6 +135,7 @@ impl Writer {
             shared: Arc::new(Mutex::new(SharedBuffer::new(external_buffer))),
             handle,
             queue,
+            debug_hint: debug_hint.to_string(),
         }
     }
 
@@ -231,6 +233,17 @@ impl Writer {
     /// Get shared buffer for creating readers
     pub(crate) fn buffer(&self) -> Arc<Mutex<SharedBuffer>> {
         Arc::clone(&self.shared)
+    }
+}
+
+impl fmt::Debug for Writer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let shared = self.shared.lock().unwrap();
+        write!(
+            f,
+            "MemPipe.Writer(handle={:?}, closed={}, tell={}, hint={})",
+            self.handle, shared.closed, shared.buffer.len(), self.debug_hint
+        )
     }
 }
 
@@ -419,6 +432,16 @@ impl Reader {
     }
 }
 
+impl fmt::Debug for Reader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "MemPipe.Reader(handle={:?}, pos={}, closed={}, writer_handle={:?})",
+            self.handle, self.pos, self.closed, self.writer_handle
+        )
+    }
+}
+
 // Implement embedded_io Read traits
 impl ErrorType for Reader {
     type Error = IoError;
@@ -484,5 +507,11 @@ impl MemPipe {
             self.writer.handle, // All readers wait on writer's handle
             self.queue.clone(),
         )
+    }
+}
+
+impl fmt::Debug for MemPipe {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "MemPipe(writer={:?})", self.writer)
     }
 }
