@@ -294,7 +294,7 @@ pub struct Reader {
     writer_handle: Handle,
     queue: NotificationQueueArc,
     pos: usize,
-    closed: bool,
+    own_closed: bool,
 }
 
 impl Reader {
@@ -305,7 +305,7 @@ impl Reader {
             writer_handle: shared_data.writer_handle,
             queue: shared_data.queue,
             pos: 0,
-            closed: false,
+            own_closed: false,
         }
     }
 
@@ -343,7 +343,7 @@ impl Reader {
     fn should_wait_with_autoclose(&mut self) -> (bool, bool) {
         let (should_wait, writer_closed) = self.should_wait();
         if !should_wait && writer_closed {
-            self.closed = true;
+            self.own_closed = true;
         }
         (should_wait, writer_closed)
     }
@@ -379,7 +379,7 @@ impl Reader {
         if !should_wait {
             drop(queue_lock);
             if writer_closed {
-                self.closed = true;
+                self.own_closed = true;
             }
             return Ok(());
         }
@@ -393,12 +393,12 @@ impl Reader {
 
     /// Close the reader
     pub fn close(&mut self) {
-        self.closed = true;
+        self.own_closed = true;
     }
 
     /// Check if reader is closed
     pub fn is_closed(&self) -> bool {
-        self.closed
+        self.own_closed
     }
 
     /// Read data from the pipe
@@ -408,8 +408,7 @@ impl Reader {
     /// Returns 0 (EOF) when the writer is closed and all data has been read.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, MemPipeError> {
         loop {
-            // Try to read from buffer
-            if self.closed {
+            if self.own_closed {
                 return Ok(0);
             }
 
@@ -444,7 +443,7 @@ impl Reader {
 
             // If wait_for_writer returns Ok, loop to try reading again
             // If writer closed, wait_for_writer auto-closes reader
-            if self.closed {
+            if self.own_closed {
                 return Ok(0); // EOF
             }
         }
@@ -456,7 +455,7 @@ impl fmt::Debug for Reader {
         write!(
             f,
             "MemPipe.Reader(handle={:?}, pos={}, closed={}, writer_handle={:?})",
-            self.own_handle, self.pos, self.closed, self.writer_handle
+            self.own_handle, self.pos, self.own_closed, self.writer_handle
         )
     }
 }
