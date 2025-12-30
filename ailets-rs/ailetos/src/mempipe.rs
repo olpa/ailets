@@ -284,6 +284,18 @@ pub(crate) struct ReaderSharedData {
     queue: NotificationQueueArc,
 }
 
+/// Action to take when checking if reader should wait
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WaitAction {
+    /// Reader should wait for more data
+    Wait,
+    /// Reader should not wait (data is available)
+    DontWait,
+    /// Reader should close (writer closed and no more data)
+    /// Note: Close implies DontWait
+    Close,
+}
+
 /// Reader side of the memory pipe
 ///
 /// Reads from the shared buffer at its own position. Waits for data
@@ -319,26 +331,26 @@ impl Reader {
         self.buffer.lock().unwrap().errno
     }
 
-    /// Check if reader should wait, and auto-close if writer closed
+    /// Check if reader should wait for writer
     ///
-    /// Matches Python's _should_wait_with_autoclose logic exactly
-    fn should_wait_with_autoclose(&mut self) -> bool {
-        let (mut should_wait, writer_closed) = {
-            let shared = self.buffer.lock().unwrap();
+    /// Returns action to take: Wait, DontWait, or Close
+    /// Matches Python's _should_wait_with_autoclose logic
+    fn should_wait_for_writer(&self) -> WaitAction {
+        let shared = self.buffer.lock().unwrap();
 
-            let writer_pos = shared.buffer.len();
-            let should_wait = self.pos >= writer_pos;
-            let writer_closed = shared.closed || shared.errno != 0;
+        let writer_pos = shared.buffer.len();
+        let should_wait = self.pos >= writer_pos;
+        let writer_closed = shared.closed || shared.errno != 0;
 
-            (should_wait, writer_closed)
-        }; // Lock released
+        drop(shared);
 
         if should_wait && writer_closed {
-            self.close();
-            should_wait = false;
+            WaitAction::Close
+        } else if should_wait {
+            WaitAction::Wait
+        } else {
+            WaitAction::DontWait
         }
-
-        should_wait
     }
 
     /// Wait for writer to provide more data
@@ -346,39 +358,30 @@ impl Reader {
     /// Matches Python's _wait_for_writer logic exactly.
     /// Uses atomic lock protocol: acquire queue lock FIRST, then re-check condition
     /// under lock to prevent missing notifications.
-    async fn wait_for_writer(&mut self) -> Result<(), MemPipeError> {
+    ///
+    /// Returns true if reader should be closed, false otherwise.
+    async fn wait_for_writer(&self) -> Result<bool, MemPipeError> {
         // Acquire queue lock first (matches Python: lock = self.writer.queue.get_lock())
         let queue_lock = self.queue.get_lock();
 
         // Re-check condition while holding queue lock (matches Python: with lock:)
-        // Inlined should_wait_with_autoclose logic due to Rust borrow checker
-        let should_wait = {
-            let (mut should_wait, writer_closed) = {
-                let shared = self.buffer.lock().unwrap();
-                let writer_pos = shared.buffer.len();
-                let should_wait = self.pos >= writer_pos;
-                let writer_closed = shared.closed || shared.errno != 0;
-                (should_wait, writer_closed)
-            };
-
-            if should_wait && writer_closed {
-                self.own_closed = true;
-                should_wait = false;
+        match self.should_wait_for_writer() {
+            WaitAction::Wait => {
+                // Wait using wait_async (lock is passed to wait_async and released there)
+                self.queue
+                    .wait_async(self.writer_handle, "reader", queue_lock)
+                    .await;
+                Ok(false)
             }
-
-            should_wait
-        };
-
-        if should_wait {
-            // Wait using wait_async (lock is passed to wait_async and released there)
-            self.queue
-                .wait_async(self.writer_handle, "reader", queue_lock)
-                .await;
-        } else {
-            drop(queue_lock);
+            WaitAction::Close => {
+                drop(queue_lock);
+                Ok(true) // Signal caller to close
+            }
+            WaitAction::DontWait => {
+                drop(queue_lock);
+                Ok(false)
+            }
         }
-
-        Ok(())
     }
 
     /// Close the reader
@@ -398,9 +401,22 @@ impl Reader {
     /// Returns 0 (EOF) when the writer is closed and all data has been read.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, MemPipeError> {
         while !self.own_closed {
-            if self.should_wait_with_autoclose() {
-                self.wait_for_writer().await?;
-                continue;
+            match self.should_wait_for_writer() {
+                WaitAction::Wait => {
+                    let should_close = self.wait_for_writer().await?;
+                    if should_close {
+                        self.close();
+                        return Ok(0);
+                    }
+                    continue;
+                }
+                WaitAction::Close => {
+                    self.close();
+                    return Ok(0);
+                }
+                WaitAction::DontWait => {
+                    // Proceed to read
+                }
             }
 
             // Check for errors
