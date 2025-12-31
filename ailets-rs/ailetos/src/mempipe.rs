@@ -247,8 +247,11 @@ enum WaitAction {
     /// Reader should not wait (data is available)
     DontWait,
     /// Reader should close (writer closed and no more data)
-    /// Note: Close implies DontWait
-    Close,
+    /// Note: Closed implies DontWait
+    Closed,
+    /// Error occurred (own or writer error, use get_error() to retrieve)
+    /// Note: Error implies DontWait
+    Error,
 }
 
 /// Reader side of the memory pipe
@@ -299,23 +302,36 @@ impl Reader {
 
     /// Check if reader should wait for writer
     ///
-    /// Returns action to take: Wait, DontWait, or Close
-    /// Close implies DontWait
+    /// Returns action to take: Wait, DontWait, Closed, or Error
+    ///
+    /// Priority order:
+    /// 1. Error - if reader has own error (regardless of data availability)
+    /// 2. DontWait - if data is available, allow reader to catch up
+    /// 3. Error - if caught up and writer has error
+    /// 4. Closed - if caught up and writer is closed
+    /// 5. Wait - if caught up but writer is still active
     fn should_wait_for_writer(&self) -> WaitAction {
+        // Priority 1: Check reader's own error first
+        if self.own_errno != 0 {
+            return WaitAction::Error;
+        }
+
         let shared = self.buffer.lock().unwrap();
-
         let writer_pos = shared.buffer.len();
-        let should_wait = self.pos >= writer_pos;
-        let writer_closed = shared.closed || shared.errno != 0 || self.own_errno != 0;
 
-        drop(shared);
+        // Priority 2: If data is available, allow reading it
+        if self.pos < writer_pos {
+            return WaitAction::DontWait;
+        }
 
-        if should_wait && writer_closed {
-            WaitAction::Close
-        } else if should_wait {
-            WaitAction::Wait
+        // Reader is caught up with writer (pos >= writer_pos)
+        // Priority 3: Check writer error
+        if shared.errno != 0 {
+            WaitAction::Error
+        } else if shared.closed {
+            WaitAction::Closed
         } else {
-            WaitAction::DontWait
+            WaitAction::Wait
         }
     }
 
@@ -335,11 +351,11 @@ impl Reader {
                     .await;
                 false
             }
-            WaitAction::Close => {
+            WaitAction::Closed => {
                 drop(queue_lock);
                 true // Signal caller to close
             }
-            WaitAction::DontWait => {
+            WaitAction::DontWait | WaitAction::Error => {
                 drop(queue_lock);
                 false
             }
@@ -370,26 +386,21 @@ impl Reader {
             match self.should_wait_for_writer() {
                 WaitAction::Wait => {
                     self.wait_for_writer().await;
-                    continue;
+                    continue; // restart the loop. A case of errors will be reported by "should_wait_for_writer"
                 }
-                WaitAction::Close => {
+                WaitAction::Closed => {
                     return 0;
+                }
+                WaitAction::Error => {
+                    return -1;
                 }
                 WaitAction::DontWait => {
                     // Proceed to read
                 }
             }
 
-            // Check for errors (own error first, then writer error)
-            if self.own_errno != 0 {
-                return -1;
-            }
-            let shared = self.buffer.lock().unwrap();
-            if shared.errno != 0 {
-                return -1;
-            }
-
             // Read data from buffer
+            let shared = self.buffer.lock().unwrap();
             let available = shared.buffer.len().saturating_sub(self.pos);
             let to_read = available.min(buf.len());
             let end_pos = self.pos + to_read;

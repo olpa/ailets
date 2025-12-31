@@ -1,4 +1,4 @@
-use ailetos::mempipe::{MemPipe, MemPipeError};
+use ailetos::mempipe::MemPipe;
 use ailetos::notification_queue::{Handle, NotificationQueueArc};
 
 #[tokio::test]
@@ -12,13 +12,14 @@ async fn test_write_read() {
     let _reader_handle = *reader.handle();
 
     // Write some data
-    pipe.writer().write_sync(b"Hello").unwrap();
+    let n = pipe.writer().write_sync(b"Hello");
+    assert_eq!(n, 5);
 
     // Read it back
     let mut buf = [0u8; 10];
-    let n = reader.read(&mut buf).await.unwrap();
+    let n = reader.read(&mut buf).await;
     assert_eq!(n, 5);
-    assert_eq!(&buf[..n], b"Hello");
+    assert_eq!(&buf[..n as usize], b"Hello");
 
     // Writer unregisters its handle on drop
 }
@@ -36,19 +37,20 @@ async fn test_multiple_readers() {
     let _reader2_handle = *reader2.handle();
 
     // Write data
-    pipe.writer().write_sync(b"Broadcast").unwrap();
+    let n = pipe.writer().write_sync(b"Broadcast");
+    assert_eq!(n, 9);
 
     // Both readers should get the same data
     let mut buf1 = [0u8; 20];
     let mut buf2 = [0u8; 20];
 
-    let n1 = reader1.read(&mut buf1).await.unwrap();
-    let n2 = reader2.read(&mut buf2).await.unwrap();
+    let n1 = reader1.read(&mut buf1).await;
+    let n2 = reader2.read(&mut buf2).await;
 
     assert_eq!(n1, 9);
     assert_eq!(n2, 9);
-    assert_eq!(&buf1[..n1], b"Broadcast");
-    assert_eq!(&buf2[..n2], b"Broadcast");
+    assert_eq!(&buf1[..n1 as usize], b"Broadcast");
+    assert_eq!(&buf2[..n2 as usize], b"Broadcast");
 
     // Writer unregisters its handle on drop
 }
@@ -66,7 +68,7 @@ async fn test_close_sends_notification() {
         .expect("Failed to subscribe");
 
     // Close the writer
-    pipe.writer().close().unwrap();
+    pipe.writer().close();
 
     // Verify notification was sent with -1
     let notification = subscriber.recv().await.expect("Should receive notification");
@@ -81,7 +83,7 @@ async fn test_close_unlists_handle() {
     let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
 
     // Close the writer
-    pipe.writer().close().unwrap();
+    pipe.writer().close();
 
     // Try to subscribe to the handle - should return None because it's unlisted
     let result = queue.subscribe(writer_handle, 10, "test_subscriber");
@@ -101,7 +103,7 @@ async fn test_write_notifies_observers() {
         .expect("Failed to subscribe");
 
     // Write non-empty data - this should notify observers
-    let n = pipe.writer().write_sync(b"Hello").unwrap();
+    let n = pipe.writer().write_sync(b"Hello");
     assert_eq!(n, 5);
 
     // Verify notification was sent
@@ -122,7 +124,7 @@ async fn test_empty_write_does_not_notify() {
         .expect("Failed to subscribe");
 
     // Empty write should succeed and return 0
-    let n = pipe.writer().write_sync(b"").unwrap();
+    let n = pipe.writer().write_sync(b"");
     assert_eq!(n, 0);
 
     // Verify NO notification was sent for empty write
@@ -131,7 +133,7 @@ async fn test_empty_write_does_not_notify() {
     assert!(result.is_err()); // Should be empty, no notification sent
 
     // Now write actual data
-    let n = pipe.writer().write_sync(b"Hello").unwrap();
+    let n = pipe.writer().write_sync(b"Hello");
     assert_eq!(n, 5);
 
     // Verify notification WAS sent for non-empty write
@@ -139,7 +141,7 @@ async fn test_empty_write_does_not_notify() {
     assert_eq!(notification, 5);
 
     // Another empty write after real data
-    let n = pipe.writer().write_sync(b"").unwrap();
+    let n = pipe.writer().write_sync(b"");
     assert_eq!(n, 0);
 
     // Again, verify NO notification for empty write
@@ -155,11 +157,11 @@ async fn test_empty_write_on_closed_writer() {
     let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
 
     // Close the writer
-    pipe.writer().close().unwrap();
+    pipe.writer().close();
 
-    // Empty write on closed writer should return error
+    // Empty write on closed writer should return -1 (error)
     let result = pipe.writer().write_sync(b"");
-    assert!(matches!(result, Err(MemPipeError::WriterClosed)));
+    assert_eq!(result, -1);
 }
 
 #[tokio::test]
@@ -170,11 +172,12 @@ async fn test_empty_write_with_errno() {
     let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
 
     // Set error
-    pipe.writer().set_error(42).unwrap();
+    pipe.writer().set_error(42);
 
-    // Empty write should return error, not Ok(0)
+    // Empty write should return -1 (error), not 0
     let result = pipe.writer().write_sync(b"");
-    assert!(matches!(result, Err(MemPipeError::WriterError(42))));
+    assert_eq!(result, -1);
+    assert_eq!(pipe.writer().get_error(), 42);
 }
 
 #[tokio::test]
@@ -185,11 +188,10 @@ async fn test_set_error_ignored_when_writer_closed() {
     let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
 
     // Close the writer
-    pipe.writer().close().unwrap();
+    pipe.writer().close();
 
-    // Setting error on closed writer should be ignored (returns Ok)
-    let result = pipe.writer().set_error(42);
-    assert!(result.is_ok());
+    // Setting error on closed writer should be ignored (does nothing)
+    pipe.writer().set_error(42);
 
     // Error should still be 0 (not set)
     assert_eq!(pipe.writer().get_error(), 0);
@@ -208,17 +210,211 @@ async fn test_set_error_does_not_notify_when_writer_closed() {
         .expect("Failed to subscribe");
 
     // Close the writer - this will send a notification with -1
-    pipe.writer().close().unwrap();
+    pipe.writer().close();
 
     // Receive the close notification
     let notification = subscriber.recv().await.expect("Should receive close notification");
     assert_eq!(notification, -1);
 
     // Now try to set error on the closed writer
-    let result = pipe.writer().set_error(42);
-    assert!(result.is_ok());
+    pipe.writer().set_error(42);
 
     // Verify NO additional notification was sent
     let result = subscriber.try_recv();
     assert!(result.is_err()); // Should be empty, no notification sent
+}
+
+// ============================================================================
+// Reader errno tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_reader_dont_read_when_error() {
+    let queue = NotificationQueueArc::new();
+    let writer_handle = Handle::new(1);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+
+    let mut reader = pipe.get_reader(Handle::new(2));
+
+    // Write some data
+    assert_eq!(pipe.writer().write_sync(b"hello"), 5);
+
+    // Set reader's own error
+    reader.set_error(42);
+
+    // Try to read - should return -1 (error) without reading data
+    let mut buf = [0u8; 10];
+    let result = reader.read(&mut buf).await;
+    assert_eq!(result, -1);
+    assert_eq!(reader.get_error(), 42);
+
+    // Verify data was not read by clearing error and reading
+    reader.set_error(0);
+    let result = reader.read(&mut buf).await;
+    assert_eq!(result, 5);
+    assert_eq!(&buf[..5], b"hello");
+}
+
+#[tokio::test]
+async fn test_reader_get_writer_error() {
+    let queue = NotificationQueueArc::new();
+    let writer_handle = Handle::new(1);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+
+    let reader = pipe.get_reader(Handle::new(2));
+
+    // Writer sets error
+    pipe.writer().set_error(99);
+
+    // Reader should see writer's error
+    assert_eq!(reader.get_error(), 99);
+}
+
+#[tokio::test]
+async fn test_reader_read_with_writer_error() {
+    let queue = NotificationQueueArc::new();
+    let writer_handle = Handle::new(1);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+
+    let mut reader = pipe.get_reader(Handle::new(2));
+
+    // Write some data
+    assert_eq!(pipe.writer().write_sync(b"test"), 4);
+
+    // Reader reads the data successfully
+    let mut buf = [0u8; 10];
+    let result = reader.read(&mut buf).await;
+    assert_eq!(result, 4);
+    assert_eq!(&buf[..4], b"test");
+
+    // Writer sets error
+    pipe.writer().set_error(88);
+
+    // Next read should return -1 (error)
+    let result = reader.read(&mut buf).await;
+    assert_eq!(result, -1);
+    assert_eq!(reader.get_error(), 88);
+}
+
+#[tokio::test]
+async fn test_writer_error_notifies_reader() {
+    let queue = NotificationQueueArc::new();
+    let writer_handle = Handle::new(1);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+
+    let mut reader = pipe.get_reader(Handle::new(2));
+
+    // Subscribe to writer's handle to observe when notification is sent
+    let mut subscriber = queue
+        .subscribe(writer_handle, 10, "test_subscriber")
+        .expect("Failed to subscribe");
+
+    // Spawn reader task that will wait
+    let reader_task = tokio::spawn(async move {
+        let mut buf = [0u8; 10];
+        reader.read(&mut buf).await
+    });
+
+    // Writer sets error - should notify
+    pipe.writer().set_error(55);
+
+    // Verify notification was sent
+    let notification = subscriber.recv().await.expect("Should receive notification");
+    assert_eq!(notification, 55);
+
+    // Reader should wake up with error (-1)
+    let result = reader_task.await.unwrap();
+    assert_eq!(result, -1);
+}
+
+#[tokio::test]
+async fn test_reader_own_error_takes_precedence() {
+    let queue = NotificationQueueArc::new();
+    let writer_handle = Handle::new(1);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+
+    let mut reader = pipe.get_reader(Handle::new(2));
+
+    // Writer sets error
+    pipe.writer().set_error(5);
+
+    // Reader sets own error
+    reader.set_error(10);
+
+    // get_error() should return reader's own error
+    assert_eq!(reader.get_error(), 10);
+
+    // read() should return -1 with reader's error
+    let mut buf = [0u8; 10];
+    let result = reader.read(&mut buf).await;
+    assert_eq!(result, -1);
+    assert_eq!(reader.get_error(), 10);
+}
+
+#[tokio::test]
+async fn test_reader_error_checked_before_writer() {
+    let queue = NotificationQueueArc::new();
+    let writer_handle = Handle::new(1);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+
+    let mut reader = pipe.get_reader(Handle::new(2));
+
+    // Write some data
+    assert_eq!(pipe.writer().write_sync(b"data"), 4);
+
+    // Reader sets own error first
+    reader.set_error(15);
+
+    // Writer sets error after
+    pipe.writer().set_error(20);
+
+    // Reader should see its own error
+    assert_eq!(reader.get_error(), 15);
+
+    // read() should return -1 with reader's error
+    let mut buf = [0u8; 10];
+    let result = reader.read(&mut buf).await;
+    assert_eq!(result, -1);
+}
+
+#[tokio::test]
+async fn test_multiple_readers_independent_errors() {
+    let queue = NotificationQueueArc::new();
+    let writer_handle = Handle::new(1);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+
+    let mut reader1 = pipe.get_reader(Handle::new(2));
+    let mut reader2 = pipe.get_reader(Handle::new(3));
+
+    // Each reader sets different error
+    reader1.set_error(100);
+    reader2.set_error(200);
+
+    // Each reader sees its own error
+    assert_eq!(reader1.get_error(), 100);
+    assert_eq!(reader2.get_error(), 200);
+
+    // Both return -1 on read with their own errors
+    let mut buf = [0u8; 10];
+    assert_eq!(reader1.read(&mut buf).await, -1);
+    assert_eq!(reader2.read(&mut buf).await, -1);
+}
+
+#[tokio::test]
+async fn test_writer_set_error_notifies() {
+    let queue = NotificationQueueArc::new();
+    let writer_handle = Handle::new(1);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+
+    // Subscribe to writer's handle to observe notifications
+    let mut subscriber = queue
+        .subscribe(writer_handle, 10, "test_subscriber")
+        .expect("Failed to subscribe");
+
+    // Writer sets error and notifies
+    pipe.writer().set_error(123);
+
+    // Verify notification was sent
+    let notification = subscriber.recv().await.expect("Should receive notification");
+    assert_eq!(notification, 123);
 }
