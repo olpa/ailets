@@ -53,13 +53,14 @@ async fn write_all(pipe: MemPipe) {
             break;
         }
 
-        if let Err(e) = pipe.writer().write_sync(trimmed.as_bytes()) {
-            eprintln!("Write error: {}", e);
+        let result = pipe.writer().write_sync(trimmed.as_bytes());
+        if result < 0 {
+            eprintln!("Write error: errno={}", pipe.writer().get_error());
             break;
         }
     }
 
-    pipe.writer().close().expect("Failed to close writer");
+    pipe.writer().close();
     println!("Writer closed");
 }
 

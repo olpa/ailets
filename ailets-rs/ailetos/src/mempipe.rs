@@ -7,92 +7,34 @@
 
 use embedded_io_async::{ErrorType, Read, Write};
 use std::fmt;
-use std::io;
 use std::sync::{Arc, Mutex};
 
 use crate::notification_queue::{Handle, NotificationQueueArc};
 
-/// Error type for mempipe operations
-#[derive(Debug, Clone)]
-pub enum MemPipeError {
-    /// IO error from underlying operations
-    Io(io::ErrorKind),
-
-    /// Writer is closed
-    WriterClosed,
-
-    /// Writer is in error state with error code
-    WriterError(i32),
-}
-
-impl fmt::Display for MemPipeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            MemPipeError::Io(kind) => write!(f, "IO error: {kind}"),
-            MemPipeError::WriterClosed => write!(f, "Writer is closed"),
-            MemPipeError::WriterError(code) => write!(f, "Writer is in error state: {code}"),
-        }
-    }
-}
-
-impl std::error::Error for MemPipeError {}
-
-impl From<io::Error> for MemPipeError {
-    fn from(error: io::Error) -> Self {
-        MemPipeError::Io(error.kind())
-    }
-}
-
 /// Error type compatible with embedded_io
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum IoError {
-    BrokenPipe,
-    Other,
+pub struct IoError(embedded_io::ErrorKind);
+
+impl IoError {
+    /// Create an IoError from errno value
+    pub fn from_errno(errno: i32) -> Self {
+        IoError(crate::error_mapping::errno_to_error_kind(errno))
+    }
 }
 
 impl embedded_io::Error for IoError {
     fn kind(&self) -> embedded_io::ErrorKind {
-        match self {
-            IoError::BrokenPipe => embedded_io::ErrorKind::BrokenPipe,
-            IoError::Other => embedded_io::ErrorKind::Other,
-        }
+        self.0
     }
 }
 
 impl fmt::Display for IoError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            IoError::BrokenPipe => write!(f, "broken pipe"),
-            IoError::Other => write!(f, "other error"),
-        }
+        write!(f, "{}", crate::error_mapping::error_kind_to_str(self.0))
     }
 }
 
 impl std::error::Error for IoError {}
-
-impl From<MemPipeError> for IoError {
-    fn from(e: MemPipeError) -> Self {
-        match e {
-            MemPipeError::WriterClosed => IoError::BrokenPipe,
-            _ => IoError::Other,
-        }
-    }
-}
-
-impl From<MemPipeError> for io::Error {
-    fn from(e: MemPipeError) -> Self {
-        match e {
-            MemPipeError::Io(kind) => io::Error::new(kind, "IO error"),
-            MemPipeError::WriterClosed => {
-                io::Error::new(io::ErrorKind::BrokenPipe, "Writer is closed")
-            }
-            MemPipeError::WriterError(code) => io::Error::new(
-                io::ErrorKind::Other,
-                format!("Writer is in error state: {code}"),
-            ),
-        }
-    }
-}
 
 /// Shared state between Writer and Readers
 struct SharedBuffer {
@@ -150,16 +92,15 @@ impl Writer {
     }
 
     /// Set error state and notify readers
-    pub fn set_error(&self, errno: i32) -> Result<(), MemPipeError> {
+    pub fn set_error(&self, errno: i32) {
         {
             let mut shared = self.shared.lock().unwrap();
             if shared.closed {
-                return Ok(());
+                return;
             }
             shared.errno = errno;
         }
         self.queue.notify(self.handle, errno as i64);
-        Ok(())
     }
 
     /// Check if writer is closed
@@ -168,35 +109,40 @@ impl Writer {
     }
 
     /// Async write (calls write_sync)
-    pub async fn write(&self, data: &[u8]) -> Result<usize, MemPipeError> {
+    pub async fn write(&self, data: &[u8]) -> isize {
         self.write_sync(data)
     }
 
-    /// Synchronous write. Returns the number of bytes written, which is the size of `data`.
+    /// Synchronous write (POSIX-style)
+    ///
+    /// Returns:
+    /// - Positive value: number of bytes written
+    /// - 0: empty write (no notification sent)
+    /// - -1: error (writer closed or errno is set)
     ///
     /// # Important behavior
     ///
-    /// - If the writer is closed, returns `WriterClosed` error even if data is empty
-    /// - If errno is set, returns `WriterError` even if data is empty
-    /// - If data is empty, returns `Ok(0)` WITHOUT notifying observers
+    /// - If the writer is closed, returns -1
+    /// - If errno is set, returns -1
+    /// - If data is empty, returns 0 WITHOUT notifying observers
     ///   (this avoids unnecessary wakeups of waiting readers)
     /// - If data is non-empty, appends to buffer and notifies all waiting observers
-    pub fn write_sync(&self, data: &[u8]) -> Result<usize, MemPipeError> {
+    pub fn write_sync(&self, data: &[u8]) -> isize {
         let len = {
             let mut shared = self.shared.lock().unwrap();
 
             if shared.closed {
-                return Err(MemPipeError::WriterClosed);
+                return -1;
             }
 
             if shared.errno != 0 {
-                return Err(MemPipeError::WriterError(shared.errno));
+                return -1;
             }
 
             if data.is_empty() {
                 // IMPORTANT: Return early without notifying observers.
                 // Empty writes should not wake up waiting readers.
-                return Ok(0);
+                return 0;
             }
 
             shared.buffer.extend_from_slice(data);
@@ -205,11 +151,11 @@ impl Writer {
 
         // Notify outside lock
         self.queue.notify(self.handle, len as i64);
-        Ok(len)
+        len as isize
     }
 
     /// Close the writer and notify all readers
-    pub fn close(&self) -> Result<(), MemPipeError> {
+    pub fn close(&self) {
         {
             let mut shared = self.shared.lock().unwrap();
             shared.closed = true;
@@ -217,7 +163,6 @@ impl Writer {
         // Unregister handle from queue (like Python's queue.unlist)
         // This will notify with -1 and wake all waiters
         self.queue.unlist(self.handle);
-        Ok(())
     }
 
     /// Get the handle for this writer
@@ -259,7 +204,12 @@ impl ErrorType for Writer {
 
 impl embedded_io::Write for Writer {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        Writer::write_sync(self, buf).map_err(|e| e.into())
+        let result = Writer::write_sync(self, buf);
+        if result < 0 {
+            Err(IoError::from_errno(self.get_error()))
+        } else {
+            Ok(result as usize)
+        }
     }
 
     fn flush(&mut self) -> Result<(), Self::Error> {
@@ -269,7 +219,12 @@ impl embedded_io::Write for Writer {
 
 impl Write for Writer {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        Writer::write(self, buf).await.map_err(|e| e.into())
+        let result = Writer::write(self, buf).await;
+        if result < 0 {
+            Err(IoError::from_errno(self.get_error()))
+        } else {
+            Ok(result as usize)
+        }
     }
 
     async fn flush(&mut self) -> Result<(), Self::Error> {
@@ -307,6 +262,7 @@ pub struct Reader {
     queue: NotificationQueueArc,
     pos: usize,
     own_closed: bool,
+    own_errno: i32,
 }
 
 impl Reader {
@@ -318,6 +274,7 @@ impl Reader {
             queue: shared_data.queue,
             pos: 0,
             own_closed: false,
+            own_errno: 0,
         }
     }
 
@@ -326,9 +283,18 @@ impl Reader {
         &self.own_handle
     }
 
-    /// Get current error state from writer
+    /// Get current error state (checks own error first, then writer error)
     pub fn get_error(&self) -> i32 {
-        self.buffer.lock().unwrap().errno
+        if self.own_errno != 0 {
+            self.own_errno
+        } else {
+            self.buffer.lock().unwrap().errno
+        }
+    }
+
+    /// Set reader's own error state (does not notify)
+    pub fn set_error(&mut self, errno: i32) {
+        self.own_errno = errno;
     }
 
     /// Check if reader should wait for writer
@@ -340,7 +306,7 @@ impl Reader {
 
         let writer_pos = shared.buffer.len();
         let should_wait = self.pos >= writer_pos;
-        let writer_closed = shared.closed || shared.errno != 0;
+        let writer_closed = shared.closed || shared.errno != 0 || self.own_errno != 0;
 
         drop(shared);
 
@@ -359,7 +325,7 @@ impl Reader {
     /// (check (in "read") - lock (here) - check again (here))
     ///
     /// Returns true if reader should be closed, false otherwise.
-    async fn wait_for_writer(&self) -> Result<bool, MemPipeError> {
+    async fn wait_for_writer(&self) -> bool {
         let queue_lock = self.queue.get_lock();
 
         match self.should_wait_for_writer() {
@@ -367,15 +333,15 @@ impl Reader {
                 self.queue
                     .wait_async(self.writer_handle, "reader", queue_lock)
                     .await;
-                Ok(false)
+                false
             }
             WaitAction::Close => {
                 drop(queue_lock);
-                Ok(true) // Signal caller to close
+                true // Signal caller to close
             }
             WaitAction::DontWait => {
                 drop(queue_lock);
-                Ok(false)
+                false
             }
         }
     }
@@ -390,35 +356,37 @@ impl Reader {
         self.own_closed
     }
 
-    /// Read data from the pipe
+    /// Read data from the pipe (POSIX-style)
     ///
     /// Reads available data from the buffer. If no data is available,
     /// waits for the writer to provide more data or close.
-    /// Returns 0 (EOF) when the writer is closed and all data has been read.
-    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, MemPipeError> {
+    ///
+    /// Returns:
+    /// - Positive value: number of bytes read
+    /// - 0: EOF (writer is closed and all data has been read)
+    /// - -1: error (check get_error() for error code)
+    pub async fn read(&mut self, buf: &mut [u8]) -> isize {
         while !self.own_closed {
             match self.should_wait_for_writer() {
                 WaitAction::Wait => {
-                    let should_close = self.wait_for_writer().await?;
-                    if should_close {
-                        self.close();
-                        return Ok(0);
-                    }
+                    self.wait_for_writer().await;
                     continue;
                 }
                 WaitAction::Close => {
-                    self.close();
-                    return Ok(0);
+                    return 0;
                 }
                 WaitAction::DontWait => {
                     // Proceed to read
                 }
             }
 
-            // Check for errors
+            // Check for errors (own error first, then writer error)
+            if self.own_errno != 0 {
+                return -1;
+            }
             let shared = self.buffer.lock().unwrap();
             if shared.errno != 0 {
-                return Err(MemPipeError::WriterError(shared.errno));
+                return -1;
             }
 
             // Read data from buffer
@@ -430,10 +398,10 @@ impl Reader {
             self.pos = end_pos;
 
             drop(shared);
-            return Ok(to_read);
+            return to_read as isize;
         }
 
-        Ok(0)
+        0
     }
 }
 
@@ -454,7 +422,12 @@ impl ErrorType for Reader {
 
 impl Read for Reader {
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        Reader::read(self, buf).await.map_err(|e| e.into())
+        let result = Reader::read(self, buf).await;
+        if result < 0 {
+            Err(IoError::from_errno(self.get_error()))
+        } else {
+            Ok(result as usize)
+        }
     }
 }
 
