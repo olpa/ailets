@@ -6,7 +6,7 @@ async fn test_write_read() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
 
-    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", Vec::new());
 
     let mut reader = pipe.get_reader(Handle::new(2));
     let _reader_handle = *reader.handle();
@@ -29,7 +29,7 @@ async fn test_multiple_readers() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
 
-    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", Vec::new());
 
     let mut reader1 = pipe.get_reader(Handle::new(2));
     let _reader1_handle = *reader1.handle();
@@ -60,7 +60,7 @@ async fn test_close_sends_notification() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
 
-    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", Vec::new());
 
     // Subscribe to writer's handle to observe notifications
     let mut subscriber = queue
@@ -80,7 +80,7 @@ async fn test_close_unlists_handle() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
 
-    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", Vec::new());
 
     // Close the writer
     pipe.writer().close();
@@ -95,7 +95,7 @@ async fn test_write_notifies_observers() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
 
-    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", Vec::new());
 
     // Subscribe to writer's handle to observe notifications directly
     let mut subscriber = queue
@@ -116,7 +116,7 @@ async fn test_empty_write_does_not_notify() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
 
-    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", Vec::new());
 
     // Subscribe to writer's handle to observe notifications directly
     let mut subscriber = queue
@@ -154,7 +154,7 @@ async fn test_empty_write_on_closed_writer() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
 
-    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", Vec::new());
 
     // Close the writer
     pipe.writer().close();
@@ -169,7 +169,7 @@ async fn test_empty_write_with_errno() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
 
-    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", Vec::new());
 
     // Set error
     pipe.writer().set_error(42);
@@ -184,7 +184,7 @@ async fn test_empty_write_with_errno() {
 async fn test_reader_dont_read_when_error() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", Vec::new());
 
     let mut reader = pipe.get_reader(Handle::new(2));
 
@@ -211,7 +211,7 @@ async fn test_reader_dont_read_when_error() {
 async fn test_reader_get_writer_error() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", Vec::new());
 
     let reader = pipe.get_reader(Handle::new(2));
 
@@ -226,7 +226,7 @@ async fn test_reader_get_writer_error() {
 async fn test_reader_read_with_writer_error() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", Vec::new());
 
     let mut reader = pipe.get_reader(Handle::new(2));
 
@@ -252,7 +252,7 @@ async fn test_reader_read_with_writer_error() {
 async fn test_writer_error_notifies_reader() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", Vec::new());
 
     let mut reader = pipe.get_reader(Handle::new(2));
 
@@ -283,7 +283,7 @@ async fn test_writer_error_notifies_reader() {
 async fn test_reader_own_error_takes_precedence() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", Vec::new());
 
     let mut reader = pipe.get_reader(Handle::new(2));
 
@@ -307,7 +307,7 @@ async fn test_reader_own_error_takes_precedence() {
 async fn test_reader_error_checked_before_writer() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", Vec::new());
 
     let mut reader = pipe.get_reader(Handle::new(2));
 
@@ -333,7 +333,7 @@ async fn test_reader_error_checked_before_writer() {
 async fn test_multiple_readers_independent_errors() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", Vec::new());
 
     let mut reader1 = pipe.get_reader(Handle::new(2));
     let mut reader2 = pipe.get_reader(Handle::new(3));
@@ -356,7 +356,7 @@ async fn test_multiple_readers_independent_errors() {
 async fn test_writer_set_error_notifies() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", None);
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", Vec::new());
 
     // Subscribe to writer's handle to observe notifications
     let mut subscriber = queue

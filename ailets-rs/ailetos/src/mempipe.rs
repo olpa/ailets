@@ -36,8 +36,8 @@ use crate::notification_queue::{Handle, NotificationQueueArc};
 ///     len: usize,
 /// }
 ///
-/// impl Default for FixedBuffer {
-///     fn default() -> Self {
+/// impl FixedBuffer {
+///     fn new() -> Self {
 ///         Self { data: [0; 1024], len: 0 }
 ///     }
 /// }
@@ -59,7 +59,7 @@ use crate::notification_queue::{Handle, NotificationQueueArc};
 ///     }
 /// }
 /// ```
-pub trait MemPipeBuffer: Default + Send {
+pub trait MemPipeBuffer: Send {
     /// Append data to the end of the buffer
     fn extend_from_slice(&mut self, data: &[u8]);
 
@@ -99,9 +99,9 @@ struct SharedBuffer<B: MemPipeBuffer> {
 }
 
 impl<B: MemPipeBuffer> SharedBuffer<B> {
-    fn new(external_buffer: Option<B>) -> Self {
+    fn new(buffer: B) -> Self {
         Self {
-            buffer: external_buffer.unwrap_or_default(),
+            buffer,
             errno: 0,
             closed: false,
         }
@@ -141,12 +141,12 @@ impl<B: MemPipeBuffer> Writer<B> {
         handle: Handle,
         queue: NotificationQueueArc,
         debug_hint: &str,
-        external_buffer: Option<B>,
+        buffer: B,
     ) -> Self {
         queue.whitelist(handle, &format!("memPipe.writer {debug_hint}"));
 
         Self {
-            shared: Arc::new(Mutex::new(SharedBuffer::new(external_buffer))),
+            shared: Arc::new(Mutex::new(SharedBuffer::new(buffer))),
             handle,
             queue,
             debug_hint: debug_hint.to_string(),
@@ -499,22 +499,21 @@ impl<B: MemPipeBuffer> Drop for Reader<B> {
 /// # use ailetos::notification_queue::{Handle, NotificationQueueArc};
 /// // Default Vec<u8> buffer
 /// let queue = NotificationQueueArc::new();
-/// let pipe = MemPipe::new(Handle::new(1), queue, "test", None);
+/// let pipe = MemPipe::new(Handle::new(1), queue, "test", Vec::new());
 /// ```
 pub struct MemPipe<B: MemPipeBuffer = Vec<u8>> {
     writer: Writer<B>,
 }
 
-// Specialized implementation for Vec<u8> to maintain backward compatibility
-// This allows `MemPipe::new(..., None)` to work without type annotations
+// Specialized implementation for Vec<u8> for convenience
 impl MemPipe<Vec<u8>> {
     pub fn new(
         writer_handle: Handle,
         queue: NotificationQueueArc,
         hint: &str,
-        external_buffer: Option<Vec<u8>>,
+        buffer: Vec<u8>,
     ) -> Self {
-        let writer = Writer::new(writer_handle.clone(), queue.clone(), hint, external_buffer);
+        let writer = Writer::new(writer_handle.clone(), queue.clone(), hint, buffer);
 
         Self { writer }
     }
@@ -526,9 +525,9 @@ impl<B: MemPipeBuffer> MemPipe<B> {
         writer_handle: Handle,
         queue: NotificationQueueArc,
         hint: &str,
-        external_buffer: Option<B>,
+        buffer: B,
     ) -> Self {
-        let writer = Writer::new(writer_handle.clone(), queue.clone(), hint, external_buffer);
+        let writer = Writer::new(writer_handle.clone(), queue.clone(), hint, buffer);
 
         Self { writer }
     }

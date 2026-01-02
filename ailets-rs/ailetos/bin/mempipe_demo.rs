@@ -13,7 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let queue = NotificationQueueArc::new();
 
-    let pipe = MemPipe::new(Handle::new(0), queue.clone(), "demo", None);
+    let pipe = MemPipe::new(Handle::new(0), queue.clone(), "demo", Vec::new());
 
     let mut reader1 = pipe.get_reader(Handle::new(1));
     let mut reader2 = pipe.get_reader(Handle::new(2));
