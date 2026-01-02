@@ -30,6 +30,20 @@ impl SharedBuffer {
 /// Writer side of the memory pipe
 ///
 /// Writes append to the shared buffer and notify waiting readers.
+///
+/// # Thread Safety
+///
+/// Writer is thread-safe and can be shared between threads (via Arc or references).
+/// All write operations use interior mutability with Mutex protection.
+///
+/// - **Thread-safe**: Multiple threads can call `write()`, `write_sync()`, and other
+///   methods concurrently. The internal Mutex serializes access to shared state.
+/// - **Concurrent writes**: The write lock is released before sending notifications,
+///   allowing high concurrency. Notification happens outside the critical section.
+/// - **NOT reentrant**: Using standard library Mutex, which is not reentrant. Calling
+///   `write_sync()` from within another `write_sync()` on the same thread (e.g., from
+///   a callback) would deadlock. However, this is not an issue in practice since
+///   notifications are sent after the lock is released.
 pub struct Writer {
     shared: Arc<Mutex<SharedBuffer>>,
     handle: Handle,
@@ -199,6 +213,18 @@ enum WaitAction {
 ///
 /// Reads from the shared buffer at its own position. Waits for data
 /// when position reaches end of buffer.
+///
+/// # Thread Safety
+///
+/// - **Thread-safe with Writer**: Reader safely accesses the Writer's shared buffer
+///   concurrently via Arc<Mutex>. Multiple Readers can read from the same Writer
+///   simultaneously, each maintaining its own read position.
+/// - **NOT reentrant for read()**: The `read()` method takes `&mut self` and maintains
+///   mutable state (position, closed flag, errno). Cannot call `read()` concurrently
+///   on the same Reader instance - this is enforced at compile time by Rust's borrow
+///   checker. Each Reader instance must be used from a single task/thread at a time.
+/// - **Separate Readers are independent**: Different Reader instances can operate
+///   concurrently without interfering with each other.
 pub struct Reader {
     own_handle: Handle,
     buffer: Arc<Mutex<SharedBuffer>>,
