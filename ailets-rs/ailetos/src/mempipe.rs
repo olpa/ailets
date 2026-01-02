@@ -286,6 +286,16 @@ impl Reader {
         &self.own_handle
     }
 
+    /// Close the reader
+    pub fn close(&mut self) {
+        self.own_closed = true;
+    }
+
+    /// Check if reader is closed
+    pub fn is_closed(&self) -> bool {
+        self.own_closed
+    }
+
     /// Get current error state (checks own error first, then writer error)
     pub fn get_error(&self) -> i32 {
         if self.own_errno != 0 {
@@ -360,16 +370,6 @@ impl Reader {
                 false
             }
         }
-    }
-
-    /// Close the reader
-    pub fn close(&mut self) {
-        self.own_closed = true;
-    }
-
-    /// Check if reader is closed
-    pub fn is_closed(&self) -> bool {
-        self.own_closed
     }
 
     /// Read data from the pipe (POSIX-style)
