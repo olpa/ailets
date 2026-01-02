@@ -11,15 +11,95 @@ use std::sync::Arc;
 
 use crate::notification_queue::{Handle, NotificationQueueArc};
 
+/// Trait for buffer storage used in MemPipe
+///
+/// This trait abstracts the buffer storage, allowing different implementations
+/// beyond the default `Vec<u8>`. Implementors must support:
+/// - Appending data efficiently
+/// - Querying the current length
+/// - Providing read-only slice access
+///
+/// # Safety
+///
+/// Implementors must ensure thread safety when used with `Send` bound.
+/// The buffer is protected by `Arc<Mutex<...>>` but the buffer type itself
+/// must be `Send`.
+///
+/// # Examples
+///
+/// ```
+/// use ailetos::mempipe::MemPipeBuffer;
+///
+/// // Custom fixed-size buffer
+/// struct FixedBuffer {
+///     data: [u8; 1024],
+///     len: usize,
+/// }
+///
+/// impl Default for FixedBuffer {
+///     fn default() -> Self {
+///         Self { data: [0; 1024], len: 0 }
+///     }
+/// }
+///
+/// impl MemPipeBuffer for FixedBuffer {
+///     fn extend_from_slice(&mut self, data: &[u8]) {
+///         let remaining = 1024 - self.len;
+///         let to_copy = data.len().min(remaining);
+///         self.data[self.len..self.len + to_copy].copy_from_slice(&data[..to_copy]);
+///         self.len += to_copy;
+///     }
+///
+///     fn len(&self) -> usize {
+///         self.len
+///     }
+///
+///     fn as_slice(&self) -> &[u8] {
+///         &self.data[..self.len]
+///     }
+/// }
+/// ```
+pub trait MemPipeBuffer: Default + Send {
+    /// Append data to the end of the buffer
+    fn extend_from_slice(&mut self, data: &[u8]);
+
+    /// Get the current length of the buffer
+    fn len(&self) -> usize;
+
+    /// Check if buffer is empty
+    #[allow(clippy::len_without_is_empty)]
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Get a slice of the buffer for reading
+    fn as_slice(&self) -> &[u8];
+}
+
+/// Implementation of MemPipeBuffer for Vec<u8>
+impl MemPipeBuffer for Vec<u8> {
+    fn extend_from_slice(&mut self, data: &[u8]) {
+        Vec::extend_from_slice(self, data);
+    }
+
+    fn len(&self) -> usize {
+        Vec::len(self)
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        self.as_ref()
+    }
+}
+
 /// Shared state between Writer and Readers
-struct SharedBuffer {
-    buffer: Vec<u8>,
+struct SharedBuffer<B: MemPipeBuffer> {
+    buffer: B,
     errno: i32,
     closed: bool,
 }
 
-impl SharedBuffer {
-    fn new(external_buffer: Option<Vec<u8>>) -> Self {
+impl<B: MemPipeBuffer> SharedBuffer<B> {
+    fn new(external_buffer: Option<B>) -> Self {
         Self {
             buffer: external_buffer.unwrap_or_default(),
             errno: 0,
@@ -45,19 +125,23 @@ impl SharedBuffer {
 ///   another `write_sync()` on the same thread (e.g., from a callback) would deadlock.
 ///   However, this is not an issue in practice since notifications are sent after
 ///   the lock is released.
-pub struct Writer {
-    shared: Arc<Mutex<SharedBuffer>>,
+///
+/// # Type Parameters
+///
+/// * `B` - Buffer type implementing `MemPipeBuffer`. Defaults to `Vec<u8>`.
+pub struct Writer<B: MemPipeBuffer = Vec<u8>> {
+    shared: Arc<Mutex<SharedBuffer<B>>>,
     handle: Handle,
     queue: NotificationQueueArc,
     debug_hint: String,
 }
 
-impl Writer {
+impl<B: MemPipeBuffer> Writer<B> {
     pub fn new(
         handle: Handle,
         queue: NotificationQueueArc,
         debug_hint: &str,
-        external_buffer: Option<Vec<u8>>,
+        external_buffer: Option<B>,
     ) -> Self {
         queue.whitelist(handle, &format!("memPipe.writer {debug_hint}"));
 
@@ -160,7 +244,7 @@ impl Writer {
     }
 
     /// Create shared data for a new reader
-    pub(crate) fn share_with_reader(&self) -> ReaderSharedData {
+    pub(crate) fn share_with_reader(&self) -> ReaderSharedData<B> {
         ReaderSharedData {
             buffer: Arc::clone(&self.shared),
             writer_handle: self.handle,
@@ -169,7 +253,7 @@ impl Writer {
     }
 }
 
-impl fmt::Debug for Writer {
+impl<B: MemPipeBuffer> fmt::Debug for Writer<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let shared = self.shared.lock();
         write!(
@@ -180,7 +264,7 @@ impl fmt::Debug for Writer {
     }
 }
 
-impl Drop for Writer {
+impl<B: MemPipeBuffer> Drop for Writer<B> {
     fn drop(&mut self) {
         if !self.is_closed() {
             self.close();
@@ -189,8 +273,8 @@ impl Drop for Writer {
 }
 
 /// Shared data passed from Writer to Reader
-pub(crate) struct ReaderSharedData {
-    buffer: Arc<Mutex<SharedBuffer>>,
+pub(crate) struct ReaderSharedData<B: MemPipeBuffer> {
+    buffer: Arc<Mutex<SharedBuffer<B>>>,
     writer_handle: Handle,
     queue: NotificationQueueArc,
 }
@@ -226,9 +310,13 @@ enum WaitAction {
 ///   checker. Each Reader instance must be used from a single task/thread at a time.
 /// - **Separate Readers are independent**: Different Reader instances can operate
 ///   concurrently without interfering with each other.
-pub struct Reader {
+///
+/// # Type Parameters
+///
+/// * `B` - Buffer type implementing `MemPipeBuffer`. Defaults to `Vec<u8>`.
+pub struct Reader<B: MemPipeBuffer = Vec<u8>> {
     own_handle: Handle,
-    buffer: Arc<Mutex<SharedBuffer>>,
+    buffer: Arc<Mutex<SharedBuffer<B>>>,
     writer_handle: Handle,
     queue: NotificationQueueArc,
     pos: usize,
@@ -236,8 +324,8 @@ pub struct Reader {
     own_errno: i32,
 }
 
-impl Reader {
-    pub(crate) fn new(handle: Handle, shared_data: ReaderSharedData) -> Self {
+impl<B: MemPipeBuffer> Reader<B> {
+    pub(crate) fn new(handle: Handle, shared_data: ReaderSharedData<B>) -> Self {
         Self {
             own_handle: handle,
             buffer: shared_data.buffer,
@@ -369,7 +457,7 @@ impl Reader {
             let to_read = available.min(buf.len());
             let end_pos = self.pos + to_read;
 
-            buf[..to_read].copy_from_slice(&shared.buffer[self.pos..end_pos]);
+            buf[..to_read].copy_from_slice(&shared.buffer.as_slice()[self.pos..end_pos]);
             self.pos = end_pos;
 
             drop(shared);
@@ -380,7 +468,7 @@ impl Reader {
     }
 }
 
-impl fmt::Debug for Reader {
+impl<B: MemPipeBuffer> fmt::Debug for Reader<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -390,7 +478,7 @@ impl fmt::Debug for Reader {
     }
 }
 
-impl Drop for Reader {
+impl<B: MemPipeBuffer> Drop for Reader<B> {
     fn drop(&mut self) {
         if !self.is_closed() {
             self.close();
@@ -399,11 +487,27 @@ impl Drop for Reader {
 }
 
 /// In-memory pipe factory
-pub struct MemPipe {
-    writer: Writer,
+///
+/// # Type Parameters
+///
+/// * `B` - Buffer type implementing `MemPipeBuffer`. Defaults to `Vec<u8>`.
+///
+/// # Examples
+///
+/// ```
+/// # use ailetos::mempipe::MemPipe;
+/// # use ailetos::notification_queue::{Handle, NotificationQueueArc};
+/// // Default Vec<u8> buffer
+/// let queue = NotificationQueueArc::new();
+/// let pipe = MemPipe::new(Handle::new(1), queue, "test", None);
+/// ```
+pub struct MemPipe<B: MemPipeBuffer = Vec<u8>> {
+    writer: Writer<B>,
 }
 
-impl MemPipe {
+// Specialized implementation for Vec<u8> to maintain backward compatibility
+// This allows `MemPipe::new(..., None)` to work without type annotations
+impl MemPipe<Vec<u8>> {
     pub fn new(
         writer_handle: Handle,
         queue: NotificationQueueArc,
@@ -414,24 +518,38 @@ impl MemPipe {
 
         Self { writer }
     }
+}
+
+impl<B: MemPipeBuffer> MemPipe<B> {
+    /// Create a new MemPipe with a custom buffer type
+    pub fn new_generic(
+        writer_handle: Handle,
+        queue: NotificationQueueArc,
+        hint: &str,
+        external_buffer: Option<B>,
+    ) -> Self {
+        let writer = Writer::new(writer_handle.clone(), queue.clone(), hint, external_buffer);
+
+        Self { writer }
+    }
 
     /// Get the writer side
-    pub fn writer(&self) -> &Writer {
+    pub fn writer(&self) -> &Writer<B> {
         &self.writer
     }
 
     /// Get a mutable reference to the writer
-    pub fn writer_mut(&mut self) -> &mut Writer {
+    pub fn writer_mut(&mut self) -> &mut Writer<B> {
         &mut self.writer
     }
 
     /// Get a reader for this pipe with an explicit handle
-    pub fn get_reader(&self, reader_handle: Handle) -> Reader {
+    pub fn get_reader(&self, reader_handle: Handle) -> Reader<B> {
         Reader::new(reader_handle, self.writer.share_with_reader())
     }
 }
 
-impl fmt::Debug for MemPipe {
+impl<B: MemPipeBuffer> fmt::Debug for MemPipe<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "MemPipe(writer={:?})", self.writer)
     }
