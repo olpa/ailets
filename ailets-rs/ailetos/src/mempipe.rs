@@ -5,36 +5,10 @@
 //! - Multiple Readers can read from the buffer at their own positions
 //! - Coordination via notification queue (wait when no data available)
 
-use embedded_io_async::{ErrorType, Read, Write};
 use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use crate::notification_queue::{Handle, NotificationQueueArc};
-
-/// Error type compatible with embedded_io
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct IoError(embedded_io::ErrorKind);
-
-impl IoError {
-    /// Create an IoError from errno value
-    pub fn from_errno(errno: i32) -> Self {
-        IoError(crate::error_mapping::errno_to_error_kind(errno))
-    }
-}
-
-impl embedded_io::Error for IoError {
-    fn kind(&self) -> embedded_io::ErrorKind {
-        self.0
-    }
-}
-
-impl fmt::Display for IoError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", crate::error_mapping::error_kind_to_str(self.0))
-    }
-}
-
-impl std::error::Error for IoError {}
 
 /// Shared state between Writer and Readers
 struct SharedBuffer {
@@ -193,41 +167,6 @@ impl fmt::Debug for Writer {
 impl Drop for Writer {
     fn drop(&mut self) {
         let _ = self.close();
-    }
-}
-
-// Implement embedded_io Write traits
-impl ErrorType for Writer {
-    type Error = IoError;
-}
-
-impl embedded_io::Write for Writer {
-    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        let result = Writer::write_sync(self, buf);
-        if result < 0 {
-            Err(IoError::from_errno(self.get_error()))
-        } else {
-            Ok(result as usize)
-        }
-    }
-
-    fn flush(&mut self) -> Result<(), Self::Error> {
-        Ok(())
-    }
-}
-
-impl Write for Writer {
-    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-        let result = Writer::write(self, buf).await;
-        if result < 0 {
-            Err(IoError::from_errno(self.get_error()))
-        } else {
-            Ok(result as usize)
-        }
-    }
-
-    async fn flush(&mut self) -> Result<(), Self::Error> {
-        Ok(())
     }
 }
 
@@ -422,22 +361,6 @@ impl fmt::Debug for Reader {
             "MemPipe.Reader(handle={:?}, pos={}, closed={}, writer_handle={:?})",
             self.own_handle, self.pos, self.own_closed, self.writer_handle
         )
-    }
-}
-
-// Implement embedded_io Read traits
-impl ErrorType for Reader {
-    type Error = IoError;
-}
-
-impl Read for Reader {
-    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-        let result = Reader::read(self, buf).await;
-        if result < 0 {
-            Err(IoError::from_errno(self.get_error()))
-        } else {
-            Ok(result as usize)
-        }
     }
 }
 

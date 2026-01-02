@@ -3,9 +3,8 @@
 //! Demonstrates the notification queue and mempipe implementation.
 //! Equivalent to the Python main() in mempipe.py
 
-use ailetos::mempipe::MemPipe;
+use ailetos::mempipe::{MemPipe, Reader};
 use ailetos::notification_queue::{Handle, NotificationQueueArc};
-use embedded_io_async::Read;
 use std::io::{self, BufRead};
 
 #[tokio::main]
@@ -64,23 +63,22 @@ async fn write_all(pipe: MemPipe) {
     println!("Writer closed");
 }
 
-async fn read_all(name: &str, reader: &mut impl Read) {
+async fn read_all(name: &str, reader: &mut Reader) {
     let mut buf = [0u8; 4];
 
     loop {
-        match reader.read(&mut buf).await {
-            Ok(0) => {
-                println!("({}) EOF", name);
-                break;
-            }
-            Ok(n) => {
-                let data = String::from_utf8_lossy(&buf[..n]);
-                println!("({}): {}", name, data);
-            }
-            Err(e) => {
-                eprintln!("({}) Error: {}", name, e);
-                break;
-            }
+        let result = reader.read(&mut buf).await;
+
+        if result == 0 {
+            println!("({}) EOF", name);
+            break;
+        } else if result < 0 {
+            eprintln!("({}) Error: errno={}", name, reader.get_error());
+            break;
+        } else {
+            let n = result as usize;
+            let data = String::from_utf8_lossy(&buf[..n]);
+            println!("({}): {}", name, data);
         }
     }
 }
