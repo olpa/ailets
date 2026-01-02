@@ -70,7 +70,6 @@ impl Writer {
         debug_hint: &str,
         external_buffer: Option<Vec<u8>>,
     ) -> Self {
-        // Register handle with queue (like Python's queue.whitelist)
         queue.whitelist(handle, &format!("memPipe.writer {debug_hint}"));
 
         Self {
@@ -160,7 +159,7 @@ impl Writer {
             let mut shared = self.shared.lock().unwrap();
             shared.closed = true;
         }
-        // Unregister handle from queue (like Python's queue.unlist)
+        // Unregister handle from queue
         // This will notify with -1 and wake all waiters
         self.queue.unlist(self.handle);
     }
