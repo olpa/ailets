@@ -445,7 +445,6 @@ impl Read for Reader {
 /// In-memory pipe factory
 pub struct MemPipe {
     writer: Writer,
-    queue: NotificationQueueArc,
 }
 
 impl MemPipe {
@@ -457,7 +456,7 @@ impl MemPipe {
     ) -> Self {
         let writer = Writer::new(writer_handle.clone(), queue.clone(), hint, external_buffer);
 
-        Self { writer, queue }
+        Self { writer }
     }
 
     /// Get the writer side
