@@ -162,8 +162,8 @@ impl fmt::Debug for Writer {
         let shared = self.shared.lock().unwrap();
         write!(
             f,
-            "MemPipe.Writer(handle={:?}, closed={}, tell={}, hint={})",
-            self.handle, shared.closed, shared.buffer.len(), self.debug_hint
+            "MemPipe.Writer(handle={:?}, closed={}, tell={}, errno={}, hint={})",
+            self.handle, shared.closed, shared.buffer.len(), shared.errno, self.debug_hint
         )
     }
 }
@@ -360,8 +360,8 @@ impl fmt::Debug for Reader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "MemPipe.Reader(handle={:?}, pos={}, closed={}, writer_handle={:?})",
-            self.own_handle, self.pos, self.own_closed, self.writer_handle
+            "MemPipe.Reader(handle={:?}, pos={}, closed={}, errno={}, writer_handle={:?})",
+            self.own_handle, self.pos, self.own_closed, self.own_errno, self.writer_handle
         )
     }
 }
