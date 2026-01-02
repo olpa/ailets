@@ -131,6 +131,10 @@ impl Writer {
     pub fn close(&self) {
         {
             let mut shared = self.shared.lock().unwrap();
+            if shared.closed {
+                log::warn!("Writer::close() called on already closed writer: {:?}", self);
+                return;
+            }
             shared.closed = true;
         }
         // Unregister handle from queue
@@ -166,7 +170,9 @@ impl fmt::Debug for Writer {
 
 impl Drop for Writer {
     fn drop(&mut self) {
-        let _ = self.close();
+        if !self.is_closed() {
+            self.close();
+        }
     }
 }
 
@@ -226,6 +232,10 @@ impl Reader {
 
     /// Close the reader
     pub fn close(&mut self) {
+        if self.own_closed {
+            log::warn!("Reader::close() called on already closed reader: {:?}", self);
+            return;
+        }
         self.own_closed = true;
     }
 
@@ -287,9 +297,7 @@ impl Reader {
     ///
     /// See the `crate::notification_queue` documentation for the workflow explanation
     /// (check (in "read") - lock (here) - check again (here))
-    ///
-    /// Returns true if reader should be closed, false otherwise.
-    async fn wait_for_writer(&self) -> bool {
+    async fn wait_for_writer(&self) {
         let queue_lock = self.queue.get_lock();
 
         match self.should_wait_for_writer() {
@@ -297,15 +305,9 @@ impl Reader {
                 self.queue
                     .wait_async(self.writer_handle, "reader", queue_lock)
                     .await;
-                false
             }
-            WaitAction::Closed => {
+            WaitAction::Closed | WaitAction::DontWait | WaitAction::Error => {
                 drop(queue_lock);
-                true // Signal caller to close
-            }
-            WaitAction::DontWait | WaitAction::Error => {
-                drop(queue_lock);
-                false
             }
         }
     }
@@ -361,6 +363,14 @@ impl fmt::Debug for Reader {
             "MemPipe.Reader(handle={:?}, pos={}, closed={}, writer_handle={:?})",
             self.own_handle, self.pos, self.own_closed, self.writer_handle
         )
+    }
+}
+
+impl Drop for Reader {
+    fn drop(&mut self) {
+        if !self.is_closed() {
+            self.close();
+        }
     }
 }
 
