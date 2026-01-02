@@ -5,8 +5,9 @@
 //! - Multiple Readers can read from the buffer at their own positions
 //! - Coordination via notification queue (wait when no data available)
 
+use parking_lot::Mutex;
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::notification_queue::{Handle, NotificationQueueArc};
 
@@ -34,16 +35,16 @@ impl SharedBuffer {
 /// # Thread Safety
 ///
 /// Writer is thread-safe and can be shared between threads (via Arc or references).
-/// All write operations use interior mutability with Mutex protection.
+/// All write operations use interior mutability with `parking_lot::Mutex` protection.
 ///
 /// - **Thread-safe**: Multiple threads can call `write()`, `write_sync()`, and other
 ///   methods concurrently. The internal Mutex serializes access to shared state.
 /// - **Concurrent writes**: The write lock is released before sending notifications,
 ///   allowing high concurrency. Notification happens outside the critical section.
-/// - **NOT reentrant**: Using standard library Mutex, which is not reentrant. Calling
-///   `write_sync()` from within another `write_sync()` on the same thread (e.g., from
-///   a callback) would deadlock. However, this is not an issue in practice since
-///   notifications are sent after the lock is released.
+/// - **NOT reentrant**: Mutex is not reentrant. Calling `write_sync()` from within
+///   another `write_sync()` on the same thread (e.g., from a callback) would deadlock.
+///   However, this is not an issue in practice since notifications are sent after
+///   the lock is released.
 pub struct Writer {
     shared: Arc<Mutex<SharedBuffer>>,
     handle: Handle,
@@ -70,18 +71,18 @@ impl Writer {
 
     /// Get the current position (bytes written)
     pub fn tell(&self) -> usize {
-        self.shared.lock().unwrap().buffer.len()
+        self.shared.lock().buffer.len()
     }
 
     /// Get current error state
     pub fn get_error(&self) -> i32 {
-        self.shared.lock().unwrap().errno
+        self.shared.lock().errno
     }
 
     /// Set error state and notify readers
     pub fn set_error(&self, errno: i32) {
         {
-            let mut shared = self.shared.lock().unwrap();
+            let mut shared = self.shared.lock();
             shared.errno = errno;
         }
         self.queue.notify(self.handle, -(errno as i64));
@@ -89,7 +90,7 @@ impl Writer {
 
     /// Check if writer is closed
     pub fn is_closed(&self) -> bool {
-        self.shared.lock().unwrap().closed
+        self.shared.lock().closed
     }
 
     /// Async write (calls write_sync)
@@ -113,7 +114,7 @@ impl Writer {
     /// - If data is non-empty, appends to buffer and notifies all waiting observers
     pub fn write_sync(&self, data: &[u8]) -> isize {
         let len = {
-            let mut shared = self.shared.lock().unwrap();
+            let mut shared = self.shared.lock();
 
             if shared.closed {
                 return -1;
@@ -141,7 +142,7 @@ impl Writer {
     /// Close the writer and notify all readers
     pub fn close(&self) {
         {
-            let mut shared = self.shared.lock().unwrap();
+            let mut shared = self.shared.lock();
             if shared.closed {
                 log::warn!("Writer::close() called on already closed writer: {:?}", self);
                 return;
@@ -170,7 +171,7 @@ impl Writer {
 
 impl fmt::Debug for Writer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let shared = self.shared.lock().unwrap();
+        let shared = self.shared.lock();
         write!(
             f,
             "MemPipe.Writer(handle={:?}, closed={}, tell={}, errno={}, hint={})",
@@ -217,8 +218,8 @@ enum WaitAction {
 /// # Thread Safety
 ///
 /// - **Thread-safe with Writer**: Reader safely accesses the Writer's shared buffer
-///   concurrently via Arc<Mutex>. Multiple Readers can read from the same Writer
-///   simultaneously, each maintaining its own read position.
+///   concurrently via `Arc<parking_lot::Mutex>`. Multiple Readers can read from the
+///   same Writer simultaneously, each maintaining its own read position.
 /// - **NOT reentrant for read()**: The `read()` method takes `&mut self` and maintains
 ///   mutable state (position, closed flag, errno). Cannot call `read()` concurrently
 ///   on the same Reader instance - this is enforced at compile time by Rust's borrow
@@ -272,7 +273,7 @@ impl Reader {
         if self.own_errno != 0 {
             self.own_errno
         } else {
-            self.buffer.lock().unwrap().errno
+            self.buffer.lock().errno
         }
     }
 
@@ -297,7 +298,7 @@ impl Reader {
             return WaitAction::Error;
         }
 
-        let shared = self.buffer.lock().unwrap();
+        let shared = self.buffer.lock();
         let writer_pos = shared.buffer.len();
 
         // Priority 2: If data is available, allow reading it
@@ -363,7 +364,7 @@ impl Reader {
             }
 
             // Read data from buffer
-            let shared = self.buffer.lock().unwrap();
+            let shared = self.buffer.lock();
             let available = shared.buffer.len().saturating_sub(self.pos);
             let to_read = available.min(buf.len());
             let end_pos = self.pos + to_read;
