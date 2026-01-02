@@ -68,12 +68,9 @@ impl Writer {
     pub fn set_error(&self, errno: i32) {
         {
             let mut shared = self.shared.lock().unwrap();
-            if shared.closed {
-                return;
-            }
             shared.errno = errno;
         }
-        self.queue.notify(self.handle, errno as i64);
+        self.queue.notify(self.handle, -(errno as i64));
     }
 
     /// Check if writer is closed
