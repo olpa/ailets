@@ -3,9 +3,32 @@
 //! Demonstrates the notification queue and mempipe implementation.
 //! Equivalent to the Python main() in mempipe.py
 
-use ailetos::mempipe::{MemPipe, Reader};
+use ailetos::mempipe::{MemPipe, MemPipeBuffer, Reader};
 use ailetos::notification_queue::{Handle, NotificationQueueArc};
 use std::io::{self, BufRead};
+
+// Wrapper type for Vec<u8> to implement MemPipeBuffer
+struct VecBuffer(Vec<u8>);
+
+impl VecBuffer {
+    fn new() -> Self {
+        Self(Vec::new())
+    }
+}
+
+impl MemPipeBuffer for VecBuffer {
+    fn extend_from_slice(&mut self, data: &[u8]) {
+        self.0.extend_from_slice(data);
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        &self.0
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -13,7 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let queue = NotificationQueueArc::new();
 
-    let pipe = MemPipe::new(Handle::new(0), queue.clone(), "demo", Vec::new());
+    let pipe = MemPipe::new(Handle::new(0), queue.clone(), "demo", VecBuffer::new());
 
     let mut reader1 = pipe.get_reader(Handle::new(1));
     let mut reader2 = pipe.get_reader(Handle::new(2));
@@ -41,7 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn write_all(pipe: MemPipe) {
+async fn write_all(pipe: MemPipe<VecBuffer>) {
     println!("Enter text (empty line to quit):");
     let stdin = io::stdin();
     let mut lines = stdin.lock().lines();
@@ -63,7 +86,7 @@ async fn write_all(pipe: MemPipe) {
     println!("Writer closed");
 }
 
-async fn read_all(name: &str, reader: &mut Reader) {
+async fn read_all(name: &str, reader: &mut Reader<VecBuffer>) {
     let mut buf = [0u8; 4];
 
     loop {

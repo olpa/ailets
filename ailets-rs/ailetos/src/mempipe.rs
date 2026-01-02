@@ -24,41 +24,6 @@ use crate::notification_queue::{Handle, NotificationQueueArc};
 /// Implementors must ensure thread safety when used with `Send` bound.
 /// The buffer is protected by `Arc<Mutex<...>>` but the buffer type itself
 /// must be `Send`.
-///
-/// # Examples
-///
-/// ```
-/// use ailetos::mempipe::MemPipeBuffer;
-///
-/// // Custom fixed-size buffer
-/// struct FixedBuffer {
-///     data: [u8; 1024],
-///     len: usize,
-/// }
-///
-/// impl FixedBuffer {
-///     fn new() -> Self {
-///         Self { data: [0; 1024], len: 0 }
-///     }
-/// }
-///
-/// impl MemPipeBuffer for FixedBuffer {
-///     fn extend_from_slice(&mut self, data: &[u8]) {
-///         let remaining = 1024 - self.len;
-///         let to_copy = data.len().min(remaining);
-///         self.data[self.len..self.len + to_copy].copy_from_slice(&data[..to_copy]);
-///         self.len += to_copy;
-///     }
-///
-///     fn len(&self) -> usize {
-///         self.len
-///     }
-///
-///     fn as_slice(&self) -> &[u8] {
-///         &self.data[..self.len]
-///     }
-/// }
-/// ```
 pub trait MemPipeBuffer: Send {
     /// Append data to the end of the buffer
     fn extend_from_slice(&mut self, data: &[u8]);
@@ -74,21 +39,6 @@ pub trait MemPipeBuffer: Send {
 
     /// Get a slice of the buffer for reading
     fn as_slice(&self) -> &[u8];
-}
-
-/// Implementation of MemPipeBuffer for Vec<u8>
-impl MemPipeBuffer for Vec<u8> {
-    fn extend_from_slice(&mut self, data: &[u8]) {
-        Vec::extend_from_slice(self, data);
-    }
-
-    fn len(&self) -> usize {
-        Vec::len(self)
-    }
-
-    fn as_slice(&self) -> &[u8] {
-        self.as_ref()
-    }
 }
 
 /// Shared state between Writer and Readers
@@ -128,8 +78,8 @@ impl<B: MemPipeBuffer> SharedBuffer<B> {
 ///
 /// # Type Parameters
 ///
-/// * `B` - Buffer type implementing `MemPipeBuffer`. Defaults to `Vec<u8>`.
-pub struct Writer<B: MemPipeBuffer = Vec<u8>> {
+/// * `B` - Buffer type implementing `MemPipeBuffer`.
+pub struct Writer<B: MemPipeBuffer> {
     shared: Arc<Mutex<SharedBuffer<B>>>,
     handle: Handle,
     queue: NotificationQueueArc,
@@ -313,8 +263,8 @@ enum WaitAction {
 ///
 /// # Type Parameters
 ///
-/// * `B` - Buffer type implementing `MemPipeBuffer`. Defaults to `Vec<u8>`.
-pub struct Reader<B: MemPipeBuffer = Vec<u8>> {
+/// * `B` - Buffer type implementing `MemPipeBuffer`.
+pub struct Reader<B: MemPipeBuffer> {
     own_handle: Handle,
     buffer: Arc<Mutex<SharedBuffer<B>>>,
     writer_handle: Handle,
@@ -490,38 +440,38 @@ impl<B: MemPipeBuffer> Drop for Reader<B> {
 ///
 /// # Type Parameters
 ///
-/// * `B` - Buffer type implementing `MemPipeBuffer`. Defaults to `Vec<u8>`.
+/// * `B` - Buffer type implementing `MemPipeBuffer`.
 ///
 /// # Examples
 ///
 /// ```
-/// # use ailetos::mempipe::MemPipe;
+/// # use ailetos::mempipe::{MemPipe, MemPipeBuffer};
 /// # use ailetos::notification_queue::{Handle, NotificationQueueArc};
-/// // Default Vec<u8> buffer
+/// // Define a wrapper type for Vec<u8>
+/// struct VecBuffer(Vec<u8>);
+///
+/// impl Default for VecBuffer {
+///     fn default() -> Self { Self(Vec::new()) }
+/// }
+///
+/// impl MemPipeBuffer for VecBuffer {
+///     fn extend_from_slice(&mut self, data: &[u8]) {
+///         self.0.extend_from_slice(data);
+///     }
+///     fn len(&self) -> usize { self.0.len() }
+///     fn as_slice(&self) -> &[u8] { &self.0 }
+/// }
+///
 /// let queue = NotificationQueueArc::new();
-/// let pipe = MemPipe::new(Handle::new(1), queue, "test", Vec::new());
+/// let pipe = MemPipe::new(Handle::new(1), queue, "test", VecBuffer::default());
 /// ```
-pub struct MemPipe<B: MemPipeBuffer = Vec<u8>> {
+pub struct MemPipe<B: MemPipeBuffer> {
     writer: Writer<B>,
 }
 
-// Specialized implementation for Vec<u8> for convenience
-impl MemPipe<Vec<u8>> {
-    pub fn new(
-        writer_handle: Handle,
-        queue: NotificationQueueArc,
-        hint: &str,
-        buffer: Vec<u8>,
-    ) -> Self {
-        let writer = Writer::new(writer_handle.clone(), queue.clone(), hint, buffer);
-
-        Self { writer }
-    }
-}
-
 impl<B: MemPipeBuffer> MemPipe<B> {
-    /// Create a new MemPipe with a custom buffer type
-    pub fn new_generic(
+    /// Create a new MemPipe with the provided buffer
+    pub fn new(
         writer_handle: Handle,
         queue: NotificationQueueArc,
         hint: &str,
