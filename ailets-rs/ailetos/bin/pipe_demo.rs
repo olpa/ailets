@@ -3,8 +3,8 @@
 //! Demonstrates the notification queue and pipe implementation.
 //! Equivalent to the Python main() in pipe.py
 
-use ailetos::pipe::{Pipe, Buffer, Reader};
 use ailetos::notification_queue::{Handle, NotificationQueueArc};
+use ailetos::pipe::{Buffer, Pipe, Reader};
 
 // Wrapper type for Vec<u8> to implement Buffer
 struct VecBuffer(Vec<u8>);

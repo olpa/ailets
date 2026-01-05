@@ -1,5 +1,5 @@
-use ailetos::pipe::{Pipe, Buffer};
 use ailetos::notification_queue::{Handle, NotificationQueueArc};
+use ailetos::pipe::{Buffer, Pipe};
 use std::sync::{Arc, Mutex};
 
 // Wrapper type for Vec<u8> to implement Buffer
@@ -189,7 +189,10 @@ async fn test_close_sends_notification() {
     pipe.writer().close();
 
     // Verify notification was sent with -1
-    let notification = subscriber.recv().await.expect("Should receive notification");
+    let notification = subscriber
+        .recv()
+        .await
+        .expect("Should receive notification");
     assert_eq!(notification, -1);
 }
 
@@ -225,7 +228,10 @@ async fn test_write_notifies_observers() {
     assert_eq!(n, 5);
 
     // Verify notification was sent
-    let notification = subscriber.recv().await.expect("Should receive notification");
+    let notification = subscriber
+        .recv()
+        .await
+        .expect("Should receive notification");
     assert_eq!(notification, 5); // Should notify with the number of bytes written
 }
 
@@ -255,7 +261,10 @@ async fn test_empty_write_does_not_notify() {
     assert_eq!(n, 5);
 
     // Verify notification WAS sent for non-empty write
-    let notification = subscriber.recv().await.expect("Should receive notification");
+    let notification = subscriber
+        .recv()
+        .await
+        .expect("Should receive notification");
     assert_eq!(notification, 5);
 
     // Another empty write after real data
@@ -300,14 +309,20 @@ async fn test_empty_write_does_not_wake_waiting_reader() {
 
     // Verify reader has not received anything (still waiting)
     let result = rx.try_recv();
-    assert!(result.is_err(), "Reader should still be waiting after empty write");
+    assert!(
+        result.is_err(),
+        "Reader should still be waiting after empty write"
+    );
 
     // Now write actual data - this SHOULD wake the reader
     let n = pipe.writer().write(b"Hello");
     assert_eq!(n, 5);
 
     // Verify notification was sent
-    let notification = subscriber.recv().await.expect("Should receive notification");
+    let notification = subscriber
+        .recv()
+        .await
+        .expect("Should receive notification");
     assert_eq!(notification, 5);
 
     // Reader should wake up and send data
@@ -465,7 +480,10 @@ async fn test_writer_error_notifies_reader() {
     pipe.writer().set_error(55);
 
     // Verify notification was sent (negative errno)
-    let notification = subscriber.recv().await.expect("Should receive notification");
+    let notification = subscriber
+        .recv()
+        .await
+        .expect("Should receive notification");
     assert_eq!(notification, -55);
 
     // Reader should wake up with error (-1)
@@ -561,7 +579,10 @@ async fn test_writer_set_error_notifies() {
     pipe.writer().set_error(123);
 
     // Verify notification was sent (negative errno)
-    let notification = subscriber.recv().await.expect("Should receive notification");
+    let notification = subscriber
+        .recv()
+        .await
+        .expect("Should receive notification");
     assert_eq!(notification, -123);
 }
 
@@ -588,7 +609,10 @@ async fn test_buffer_write_returns_zero() {
     assert_eq!(pipe.writer().get_error(), 28);
 
     // Notification should be -28 (negative ENOSPC)
-    let notification = subscriber.recv().await.expect("Should receive notification");
+    let notification = subscriber
+        .recv()
+        .await
+        .expect("Should receive notification");
     assert_eq!(notification, -28);
 }
 
@@ -616,7 +640,10 @@ async fn test_buffer_write_returns_negative_errno() {
     assert_eq!(pipe.writer().get_error(), 5);
 
     // Notification should be -5 (the original negative errno from buffer)
-    let notification = subscriber.recv().await.expect("Should receive notification");
+    let notification = subscriber
+        .recv()
+        .await
+        .expect("Should receive notification");
     assert_eq!(notification, -5);
 }
 
@@ -644,7 +671,10 @@ async fn test_buffer_write_partial() {
     assert_eq!(pipe.writer().get_error(), 0);
 
     // Notification should be 3 (positive count of bytes written)
-    let notification = subscriber.recv().await.expect("Should receive notification");
+    let notification = subscriber
+        .recv()
+        .await
+        .expect("Should receive notification");
     assert_eq!(notification, 3);
 
     // Verify only 3 bytes were written to buffer
@@ -674,7 +704,10 @@ async fn test_buffer_write_full_success() {
     assert_eq!(pipe.writer().get_error(), 0);
 
     // Notification should be 5
-    let notification = subscriber.recv().await.expect("Should receive notification");
+    let notification = subscriber
+        .recv()
+        .await
+        .expect("Should receive notification");
     assert_eq!(notification, 5);
 
     // Verify all 5 bytes were written to buffer

@@ -92,12 +92,7 @@ pub struct Writer<B: Buffer> {
 }
 
 impl<B: Buffer> Writer<B> {
-    pub fn new(
-        handle: Handle,
-        queue: NotificationQueueArc,
-        debug_hint: &str,
-        buffer: B,
-    ) -> Self {
+    pub fn new(handle: Handle, queue: NotificationQueueArc, debug_hint: &str, buffer: B) -> Self {
         queue.whitelist(handle, &format!("memPipe.writer {debug_hint}"));
 
         Self {
@@ -184,7 +179,11 @@ impl<B: Buffer> Writer<B> {
 
         // Notify outside lock
         self.queue.notify(self.handle, notification as i64);
-        if notification > 0 { notification } else { -1 }
+        if notification > 0 {
+            notification
+        } else {
+            -1
+        }
     }
 
     /// Close the writer and notify all readers
@@ -192,7 +191,10 @@ impl<B: Buffer> Writer<B> {
         {
             let mut shared = self.shared.lock();
             if shared.closed {
-                log::warn!("Writer::close() called on already closed writer: {:?}", self);
+                log::warn!(
+                    "Writer::close() called on already closed writer: {:?}",
+                    self
+                );
                 return;
             }
             shared.closed = true;
@@ -223,7 +225,11 @@ impl<B: Buffer> fmt::Debug for Writer<B> {
         write!(
             f,
             "Pipe.Writer(handle={:?}, closed={}, tell={}, errno={}, hint={})",
-            self.handle, shared.closed, shared.buffer.len(), shared.errno, self.debug_hint
+            self.handle,
+            shared.closed,
+            shared.buffer.len(),
+            shared.errno,
+            self.debug_hint
         )
     }
 }
@@ -309,7 +315,10 @@ impl<B: Buffer> Reader<B> {
     /// Close the reader
     pub fn close(&mut self) {
         if self.own_closed {
-            log::warn!("Reader::close() called on already closed reader: {:?}", self);
+            log::warn!(
+                "Reader::close() called on already closed reader: {:?}",
+                self
+            );
             return;
         }
         self.own_closed = true;
@@ -461,12 +470,7 @@ pub struct Pipe<B: Buffer> {
 
 impl<B: Buffer> Pipe<B> {
     /// Create a new Pipe with the provided buffer
-    pub fn new(
-        writer_handle: Handle,
-        queue: NotificationQueueArc,
-        hint: &str,
-        buffer: B,
-    ) -> Self {
+    pub fn new(writer_handle: Handle, queue: NotificationQueueArc, hint: &str, buffer: B) -> Self {
         let writer = Writer::new(writer_handle.clone(), queue.clone(), hint, buffer);
 
         Self { writer }
