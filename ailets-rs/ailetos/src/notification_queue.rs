@@ -249,6 +249,16 @@ impl NotificationQueueArc {
     /// Returns a broadcast Receiver. All subscribers receive all notifications.
     /// Drop the Receiver to unsubscribe (automatic cleanup).
     ///
+    /// # Returns
+    /// Returns `Some(Receiver)` if the handle is whitelisted, `None` if not.
+    ///
+    /// # Design Note: Why Option instead of Result?
+    /// The whitelist mechanism is designed to silently handle race conditions where
+    /// a handle might be unlisted between checking and subscribing. Returning `Option`
+    /// instead of `Result` signals that `None` is not an error but an expected possibility
+    /// that callers should handle gracefully. This encourages simpler code that accepts
+    /// race conditions rather than complex synchronization to prevent them.
+    ///
     /// # Arguments
     /// * `handle` - The handle to subscribe to
     /// * `channel_capacity` - Capacity of the broadcast channel (only used when creating new channel)

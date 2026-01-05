@@ -12,11 +12,11 @@ actor_runtime.workspace = true
 embedded-io.workspace = true
 embedded-io-async = "0.7"
 getrandom.workspace = true
-tokio = { version = "1.41", features = ["sync", "time", "rt", "rt-multi-thread", "macros", "io-util"] }
+tokio = { version = "1.41", features = ["sync", "time", "rt", "rt-multi-thread", "macros", "io-util", "io-std"] }
 log = "0.4"
 env_logger = "0.11"
 parking_lot = "0.12"
 
 [[bin]]
-name = "mempipe_demo"
-path = "bin/mempipe_demo.rs"
+name = "pipe_demo"
+path = "bin/pipe_demo.rs"
