@@ -319,6 +319,33 @@ async fn test_reader_read_with_writer_error() {
 }
 
 #[tokio::test]
+async fn test_reader_drains_buffer_before_error() {
+    let queue = NotificationQueueArc::new();
+    let writer_handle = Handle::new(1);
+    let pipe = Pipe::new(writer_handle, queue.clone(), "test", VecBuffer::new());
+
+    // Write some data
+    assert_eq!(pipe.writer().write(b"buffered"), 8);
+
+    // Writer sets error while data is still unread
+    pipe.writer().set_error(77);
+
+    // Create reader after error is set
+    let mut reader = pipe.get_reader(Handle::new(2));
+
+    // Reader should still be able to read the buffered data
+    let mut buf = [0u8; 10];
+    let result = reader.read(&mut buf).await;
+    assert_eq!(result, 8);
+    assert_eq!(&buf[..8], b"buffered");
+
+    // Now that buffer is drained, next read should return error
+    let result = reader.read(&mut buf).await;
+    assert_eq!(result, -1);
+    assert_eq!(reader.get_error(), 77);
+}
+
+#[tokio::test]
 async fn test_writer_error_notifies_reader() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
