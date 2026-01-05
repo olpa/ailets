@@ -5,7 +5,6 @@
 
 use ailetos::pipe::{Pipe, Buffer, Reader};
 use ailetos::notification_queue::{Handle, NotificationQueueArc};
-use std::io::{self, BufRead};
 
 // Wrapper type for Vec<u8> to implement Buffer
 struct VecBuffer(Vec<u8>);
@@ -67,10 +66,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn write_all(pipe: Pipe<VecBuffer>) {
     println!("Enter text (empty line to quit):");
-    let stdin = io::stdin();
-    let mut lines = stdin.lock().lines();
 
-    while let Some(Ok(line)) = lines.next() {
+    let stdin = tokio::io::stdin();
+    let reader = tokio::io::BufReader::new(stdin);
+    let mut lines = tokio::io::AsyncBufReadExt::lines(reader);
+
+    while let Ok(Some(line)) = lines.next_line().await {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             break;
