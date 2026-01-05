@@ -1,7 +1,8 @@
 //! Pipe CLI Demo
 //!
 //! Demonstrates the notification queue and pipe implementation.
-//! Equivalent to the Python main() in pipe.py
+
+use std::cmp::Ordering;
 
 use ailetos::notification_queue::{Handle, NotificationQueueArc};
 use ailetos::pipe::{Buffer, Pipe, Reader};
@@ -18,7 +19,7 @@ impl VecBuffer {
 impl Buffer for VecBuffer {
     fn write(&mut self, data: &[u8]) -> isize {
         self.0.extend_from_slice(data);
-        data.len() as isize
+        data.len().cast_signed()
     }
 
     fn len(&self) -> usize {
@@ -94,16 +95,24 @@ async fn read_all(name: &str, reader: &mut Reader<VecBuffer>) {
     loop {
         let result = reader.read(&mut buf).await;
 
-        if result == 0 {
-            println!("({}) EOF", name);
-            break;
-        } else if result < 0 {
-            eprintln!("({}) Error: errno={}", name, reader.get_error());
-            break;
-        } else {
-            let n = result as usize;
-            let data = String::from_utf8_lossy(&buf[..n]);
-            println!("({}): {}", name, data);
+        match result.cmp(&0) {
+            Ordering::Equal => {
+                println!("({name}) EOF");
+                break;
+            }
+            Ordering::Less => {
+                let errno = reader.get_error();
+                eprintln!("({name}) Error: errno={errno}");
+                break;
+            }
+            Ordering::Greater => {
+                let n = result.cast_unsigned();
+                // SAFETY: result > 0 and result is the number of bytes read into buf,
+                // so 0 < n <= buf.len(), making buf[..n] always valid
+                #[allow(clippy::indexing_slicing)]
+                let data = String::from_utf8_lossy(&buf[..n]);
+                println!("({name}): {data}");
+            }
         }
     }
 }

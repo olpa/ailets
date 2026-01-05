@@ -6,6 +6,7 @@
 //! - Coordination via notification queue (wait when no data available)
 
 use parking_lot::Mutex;
+use std::cmp::Ordering;
 use std::fmt;
 use std::sync::Arc;
 
@@ -104,11 +105,13 @@ impl<B: Buffer> Writer<B> {
     }
 
     /// Get the current position (bytes written)
+    #[must_use]
     pub fn tell(&self) -> usize {
         self.shared.lock().buffer.len()
     }
 
     /// Get current error state
+    #[must_use]
     pub fn get_error(&self) -> i32 {
         self.shared.lock().errno
     }
@@ -119,10 +122,11 @@ impl<B: Buffer> Writer<B> {
             let mut shared = self.shared.lock();
             shared.errno = errno;
         }
-        self.queue.notify(self.handle, -(errno as i64));
+        self.queue.notify(self.handle, -i64::from(errno));
     }
 
     /// Check if writer is closed
+    #[must_use]
     pub fn is_closed(&self) -> bool {
         self.shared.lock().closed
     }
@@ -140,10 +144,11 @@ impl<B: Buffer> Writer<B> {
     /// - If errno is set, returns -1
     /// - If data is empty, returns 0 WITHOUT notifying observers
     ///   (this avoids unnecessary wakeups of waiting readers)
-    /// - If data is non-empty, calls buffer.write() and:
-    ///   - If write() returns > 0: notifies observers and returns the count
-    ///   - If write() returns 0: sets errno to ENOSPC (28) and returns -1
-    ///   - If write() returns < 0: sets errno to the returned value and returns -1
+    /// - If data is non-empty, calls `buffer.write()` and:
+    ///   - If `write()` returns > 0: notifies observers and returns the count
+    ///   - If `write()` returns 0: sets errno to ENOSPC (28) and returns -1
+    ///   - If `write()` returns < 0: sets errno to the returned value and returns -1
+    #[must_use]
     pub fn write(&self, data: &[u8]) -> isize {
         let notification = {
             let mut shared = self.shared.lock();
@@ -164,16 +169,21 @@ impl<B: Buffer> Writer<B> {
 
             let write_result = shared.buffer.write(data);
 
-            if write_result > 0 {
-                write_result
-            } else if write_result == 0 {
-                // Buffer full or similar condition - treat as ENOSPC
-                shared.errno = 28; // ENOSPC
-                -28
-            } else {
-                // Negative errno from buffer
-                shared.errno = -write_result as i32;
-                write_result
+            match write_result.cmp(&0) {
+                Ordering::Greater => write_result,
+                Ordering::Equal => {
+                    // Buffer full or similar condition - treat as ENOSPC
+                    shared.errno = 28; // ENOSPC
+                    -28
+                }
+                Ordering::Less => {
+                    // Negative errno from buffer
+                    #[allow(clippy::cast_possible_truncation)]
+                    {
+                        shared.errno = -write_result as i32;
+                    }
+                    write_result
+                }
             }
         };
 
@@ -191,10 +201,7 @@ impl<B: Buffer> Writer<B> {
         {
             let mut shared = self.shared.lock();
             if shared.closed {
-                log::warn!(
-                    "Writer::close() called on already closed writer: {:?}",
-                    self
-                );
+                log::warn!("Writer::close() called on already closed writer: {self:?}");
                 return;
             }
             shared.closed = true;
@@ -205,6 +212,7 @@ impl<B: Buffer> Writer<B> {
     }
 
     /// Get the handle for this writer
+    #[must_use]
     pub fn handle(&self) -> &Handle {
         &self.handle
     }
@@ -257,10 +265,10 @@ enum WaitAction {
     /// Reader should not wait (data is available)
     DontWait,
     /// Reader should close (writer closed and no more data)
-    /// Note: Closed implies DontWait
+    /// Note: Closed implies `DontWait`
     Closed,
-    /// Error occurred (own or writer error, use get_error() to retrieve)
-    /// Note: Error implies DontWait
+    /// Error occurred (own or writer error, use `get_error()` to retrieve)
+    /// Note: Error implies `DontWait`
     Error,
 }
 
@@ -274,7 +282,7 @@ enum WaitAction {
 /// - **Thread-safe with Writer**: Reader safely accesses the Writer's shared buffer
 ///   concurrently via `Arc<parking_lot::Mutex>`. Multiple Readers can read from the
 ///   same Writer simultaneously, each maintaining its own read position.
-/// - **NOT reentrant for read()**: The `read()` method takes `&mut self` and maintains
+/// - **NOT reentrant for `read()`**: The `read()` method takes `&mut self` and maintains
 ///   mutable state (position, closed flag, errno). Cannot call `read()` concurrently
 ///   on the same Reader instance - this is enforced at compile time by Rust's borrow
 ///   checker. Each Reader instance must be used from a single task/thread at a time.
@@ -308,6 +316,7 @@ impl<B: Buffer> Reader<B> {
     }
 
     /// Get the reader's handle
+    #[must_use]
     pub fn handle(&self) -> &Handle {
         &self.own_handle
     }
@@ -315,21 +324,20 @@ impl<B: Buffer> Reader<B> {
     /// Close the reader
     pub fn close(&mut self) {
         if self.own_closed {
-            log::warn!(
-                "Reader::close() called on already closed reader: {:?}",
-                self
-            );
+            log::warn!("Reader::close() called on already closed reader: {self:?}");
             return;
         }
         self.own_closed = true;
     }
 
     /// Check if reader is closed
+    #[must_use]
     pub fn is_closed(&self) -> bool {
         self.own_closed
     }
 
     /// Get current error state (checks own error first, then writer error)
+    #[must_use]
     pub fn get_error(&self) -> i32 {
         if self.own_errno != 0 {
             self.own_errno
@@ -345,11 +353,11 @@ impl<B: Buffer> Reader<B> {
 
     /// Check if reader should wait for writer
     ///
-    /// Returns action to take: Wait, DontWait, Closed, or Error
+    /// Returns action to take: Wait, `DontWait`, Closed, or Error
     ///
     /// Priority order:
     /// 1. Error - if reader has own error (regardless of data availability)
-    /// 2. DontWait - if data is available, allow reader to catch up
+    /// 2. `DontWait` - if data is available, allow reader to catch up
     /// 3. Error - if caught up and writer has error
     /// 4. Closed - if caught up and writer is closed
     /// 5. Wait - if caught up but writer is still active
@@ -405,7 +413,7 @@ impl<B: Buffer> Reader<B> {
     /// Returns:
     /// - Positive value: number of bytes read
     /// - 0: EOF (writer is closed and all data has been read)
-    /// - -1: error (check get_error() for error code)
+    /// - -1: error (check `get_error()` for error code)
     pub async fn read(&mut self, buf: &mut [u8]) -> isize {
         while !self.own_closed {
             match self.should_wait_for_writer() {
@@ -430,11 +438,19 @@ impl<B: Buffer> Reader<B> {
             let to_read = available.min(buf.len());
             let end_pos = self.pos + to_read;
 
-            buf[..to_read].copy_from_slice(&shared.buffer.as_slice()[self.pos..end_pos]);
+            // SAFETY: The bounds are checked above:
+            // - to_read <= available <= (buffer.len() - self.pos)
+            // - to_read <= buf.len()
+            // - end_pos = self.pos + to_read, so end_pos <= buffer.len()
+            // Therefore both slices are within bounds
+            #[allow(clippy::indexing_slicing)]
+            {
+                buf[..to_read].copy_from_slice(&shared.buffer.as_slice()[self.pos..end_pos]);
+            }
             self.pos = end_pos;
 
             drop(shared);
-            return to_read as isize;
+            return to_read.cast_signed();
         }
 
         0
@@ -471,12 +487,13 @@ pub struct Pipe<B: Buffer> {
 impl<B: Buffer> Pipe<B> {
     /// Create a new Pipe with the provided buffer
     pub fn new(writer_handle: Handle, queue: NotificationQueueArc, hint: &str, buffer: B) -> Self {
-        let writer = Writer::new(writer_handle.clone(), queue.clone(), hint, buffer);
+        let writer = Writer::new(writer_handle, queue, hint, buffer);
 
         Self { writer }
     }
 
     /// Get the writer side
+    #[must_use]
     pub fn writer(&self) -> &Writer<B> {
         &self.writer
     }
@@ -487,6 +504,7 @@ impl<B: Buffer> Pipe<B> {
     }
 
     /// Get a reader for this pipe with an explicit handle
+    #[must_use]
     pub fn get_reader(&self, reader_handle: Handle) -> Reader<B> {
         Reader::new(reader_handle, self.writer.share_with_reader())
     }
