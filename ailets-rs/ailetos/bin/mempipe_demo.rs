@@ -3,11 +3,11 @@
 //! Demonstrates the notification queue and mempipe implementation.
 //! Equivalent to the Python main() in mempipe.py
 
-use ailetos::mempipe::{MemPipe, MemPipeBuffer, Reader};
+use ailetos::mempipe::{MemPipe, PipeBuffer, Reader};
 use ailetos::notification_queue::{Handle, NotificationQueueArc};
 use std::io::{self, BufRead};
 
-// Wrapper type for Vec<u8> to implement MemPipeBuffer
+// Wrapper type for Vec<u8> to implement PipeBuffer
 struct VecBuffer(Vec<u8>);
 
 impl VecBuffer {
@@ -16,9 +16,10 @@ impl VecBuffer {
     }
 }
 
-impl MemPipeBuffer for VecBuffer {
-    fn extend_from_slice(&mut self, data: &[u8]) {
+impl PipeBuffer for VecBuffer {
+    fn write(&mut self, data: &[u8]) -> isize {
         self.0.extend_from_slice(data);
+        data.len() as isize
     }
 
     fn len(&self) -> usize {

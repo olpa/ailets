@@ -1,7 +1,8 @@
-use ailetos::mempipe::{MemPipe, MemPipeBuffer};
+use ailetos::mempipe::{MemPipe, PipeBuffer};
 use ailetos::notification_queue::{Handle, NotificationQueueArc};
+use std::sync::{Arc, Mutex};
 
-// Wrapper type for Vec<u8> to implement MemPipeBuffer
+// Wrapper type for Vec<u8> to implement PipeBuffer
 struct VecBuffer(Vec<u8>);
 
 impl VecBuffer {
@@ -10,9 +11,10 @@ impl VecBuffer {
     }
 }
 
-impl MemPipeBuffer for VecBuffer {
-    fn extend_from_slice(&mut self, data: &[u8]) {
+impl PipeBuffer for VecBuffer {
+    fn write(&mut self, data: &[u8]) -> isize {
         self.0.extend_from_slice(data);
+        data.len() as isize
     }
 
     fn len(&self) -> usize {
@@ -21,6 +23,51 @@ impl MemPipeBuffer for VecBuffer {
 
     fn as_slice(&self) -> &[u8] {
         &self.0
+    }
+}
+
+// Configurable buffer for testing different write() return values
+struct ConfigurableBuffer {
+    data: Vec<u8>,
+    write_return: Arc<Mutex<Option<isize>>>,
+}
+
+impl ConfigurableBuffer {
+    fn new(write_return: Arc<Mutex<Option<isize>>>) -> Self {
+        Self {
+            data: Vec::new(),
+            write_return,
+        }
+    }
+}
+
+impl PipeBuffer for ConfigurableBuffer {
+    fn write(&mut self, data: &[u8]) -> isize {
+        let return_value = self.write_return.lock().unwrap().take();
+
+        if let Some(val) = return_value {
+            if val > 0 {
+                // Partial or full write
+                let to_write = (val as usize).min(data.len());
+                self.data.extend_from_slice(&data[..to_write]);
+                val
+            } else {
+                // Error (0 or negative)
+                val
+            }
+        } else {
+            // Default: successful write
+            self.data.extend_from_slice(data);
+            data.len() as isize
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.data.len()
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        &self.data
     }
 }
 
@@ -392,4 +439,142 @@ async fn test_writer_set_error_notifies() {
     // Verify notification was sent (negative errno)
     let notification = subscriber.recv().await.expect("Should receive notification");
     assert_eq!(notification, -123);
+}
+
+#[tokio::test]
+async fn test_buffer_write_returns_zero() {
+    // Test when buffer.write() returns 0 (buffer full)
+    let queue = NotificationQueueArc::new();
+    let writer_handle = Handle::new(1);
+
+    let write_return = Arc::new(Mutex::new(Some(0)));
+    let buffer = ConfigurableBuffer::new(write_return.clone());
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", buffer);
+
+    // Subscribe to observe notifications
+    let mut subscriber = queue
+        .subscribe(writer_handle, 10, "test_subscriber")
+        .expect("Failed to subscribe");
+
+    // Write should return -1 when buffer returns 0
+    let result = pipe.writer().write_sync(b"test");
+    assert_eq!(result, -1);
+
+    // errno should be set to ENOSPC (28)
+    assert_eq!(pipe.writer().get_error(), 28);
+
+    // Notification should be -28 (negative ENOSPC)
+    let notification = subscriber.recv().await.expect("Should receive notification");
+    assert_eq!(notification, -28);
+}
+
+#[tokio::test]
+async fn test_buffer_write_returns_negative_errno() {
+    // Test when buffer.write() returns a negative errno
+    let queue = NotificationQueueArc::new();
+    let writer_handle = Handle::new(1);
+
+    // Simulate buffer returning -5 (EIO - Input/output error)
+    let write_return = Arc::new(Mutex::new(Some(-5)));
+    let buffer = ConfigurableBuffer::new(write_return.clone());
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", buffer);
+
+    // Subscribe to observe notifications
+    let mut subscriber = queue
+        .subscribe(writer_handle, 10, "test_subscriber")
+        .expect("Failed to subscribe");
+
+    // Write should return -1 when buffer returns negative errno
+    let result = pipe.writer().write_sync(b"test");
+    assert_eq!(result, -1);
+
+    // errno should be set to 5 (the positive value of the error)
+    assert_eq!(pipe.writer().get_error(), 5);
+
+    // Notification should be -5 (the original negative errno from buffer)
+    let notification = subscriber.recv().await.expect("Should receive notification");
+    assert_eq!(notification, -5);
+}
+
+#[tokio::test]
+async fn test_buffer_write_partial() {
+    // Test when buffer.write() returns a value less than the data length (partial write)
+    let queue = NotificationQueueArc::new();
+    let writer_handle = Handle::new(1);
+
+    // Simulate buffer accepting only 3 bytes out of 5
+    let write_return = Arc::new(Mutex::new(Some(3)));
+    let buffer = ConfigurableBuffer::new(write_return.clone());
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", buffer);
+
+    // Subscribe to observe notifications
+    let mut subscriber = queue
+        .subscribe(writer_handle, 10, "test_subscriber")
+        .expect("Failed to subscribe");
+
+    // Write should return 3 (partial write)
+    let result = pipe.writer().write_sync(b"hello");
+    assert_eq!(result, 3);
+
+    // No error should be set
+    assert_eq!(pipe.writer().get_error(), 0);
+
+    // Notification should be 3 (positive count of bytes written)
+    let notification = subscriber.recv().await.expect("Should receive notification");
+    assert_eq!(notification, 3);
+
+    // Verify only 3 bytes were written to buffer
+    assert_eq!(pipe.writer().tell(), 3);
+}
+
+#[tokio::test]
+async fn test_buffer_write_full_success() {
+    // Test when buffer.write() returns the full data length (successful write)
+    let queue = NotificationQueueArc::new();
+    let writer_handle = Handle::new(1);
+
+    let write_return = Arc::new(Mutex::new(Some(5)));
+    let buffer = ConfigurableBuffer::new(write_return.clone());
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", buffer);
+
+    // Subscribe to observe notifications
+    let mut subscriber = queue
+        .subscribe(writer_handle, 10, "test_subscriber")
+        .expect("Failed to subscribe");
+
+    // Write should return 5 (full write)
+    let result = pipe.writer().write_sync(b"hello");
+    assert_eq!(result, 5);
+
+    // No error should be set
+    assert_eq!(pipe.writer().get_error(), 0);
+
+    // Notification should be 5
+    let notification = subscriber.recv().await.expect("Should receive notification");
+    assert_eq!(notification, 5);
+
+    // Verify all 5 bytes were written to buffer
+    assert_eq!(pipe.writer().tell(), 5);
+}
+
+#[tokio::test]
+async fn test_buffer_write_zero_after_successful_write() {
+    // Test that a buffer returning 0 after a successful write properly sets error
+    let queue = NotificationQueueArc::new();
+    let writer_handle = Handle::new(1);
+
+    let write_return = Arc::new(Mutex::new(None)); // First write succeeds
+    let buffer = ConfigurableBuffer::new(write_return.clone());
+    let pipe = MemPipe::new(writer_handle, queue.clone(), "test", buffer);
+
+    // First write succeeds
+    let result = pipe.writer().write_sync(b"test");
+    assert_eq!(result, 4);
+    assert_eq!(pipe.writer().get_error(), 0);
+
+    // Second write returns 0 (buffer full)
+    *write_return.lock().unwrap() = Some(0);
+    let result = pipe.writer().write_sync(b"more");
+    assert_eq!(result, -1);
+    assert_eq!(pipe.writer().get_error(), 28); // ENOSPC
 }

@@ -24,9 +24,14 @@ use crate::notification_queue::{Handle, NotificationQueueArc};
 /// Implementors must ensure thread safety when used with `Send` bound.
 /// The buffer is protected by `Arc<Mutex<...>>` but the buffer type itself
 /// must be `Send`.
-pub trait MemPipeBuffer: Send {
-    /// Append data to the end of the buffer
-    fn extend_from_slice(&mut self, data: &[u8]);
+pub trait PipeBuffer: Send {
+    /// Write data to the end of the buffer
+    ///
+    /// Returns:
+    /// - Positive value: number of bytes written
+    /// - 0: no bytes written (buffer full or other non-error condition)
+    /// - Negative value: errno indicating the error
+    fn write(&mut self, data: &[u8]) -> isize;
 
     /// Get the current length of the buffer
     fn len(&self) -> usize;
@@ -42,13 +47,13 @@ pub trait MemPipeBuffer: Send {
 }
 
 /// Shared state between Writer and Readers
-struct SharedBuffer<B: MemPipeBuffer> {
+struct SharedBuffer<B: PipeBuffer> {
     buffer: B,
     errno: i32,
     closed: bool,
 }
 
-impl<B: MemPipeBuffer> SharedBuffer<B> {
+impl<B: PipeBuffer> SharedBuffer<B> {
     fn new(buffer: B) -> Self {
         Self {
             buffer,
@@ -78,15 +83,15 @@ impl<B: MemPipeBuffer> SharedBuffer<B> {
 ///
 /// # Type Parameters
 ///
-/// * `B` - Buffer type implementing `MemPipeBuffer`.
-pub struct Writer<B: MemPipeBuffer> {
+/// * `B` - Buffer type implementing `PipeBuffer`.
+pub struct Writer<B: PipeBuffer> {
     shared: Arc<Mutex<SharedBuffer<B>>>,
     handle: Handle,
     queue: NotificationQueueArc,
     debug_hint: String,
 }
 
-impl<B: MemPipeBuffer> Writer<B> {
+impl<B: PipeBuffer> Writer<B> {
     pub fn new(
         handle: Handle,
         queue: NotificationQueueArc,
@@ -137,7 +142,7 @@ impl<B: MemPipeBuffer> Writer<B> {
     /// Returns:
     /// - Positive value: number of bytes written
     /// - 0: empty write (no notification sent)
-    /// - -1: error (writer closed or errno is set)
+    /// - -1: error (writer closed, errno is set, or buffer write failed)
     ///
     /// # Important behavior
     ///
@@ -145,9 +150,12 @@ impl<B: MemPipeBuffer> Writer<B> {
     /// - If errno is set, returns -1
     /// - If data is empty, returns 0 WITHOUT notifying observers
     ///   (this avoids unnecessary wakeups of waiting readers)
-    /// - If data is non-empty, appends to buffer and notifies all waiting observers
+    /// - If data is non-empty, calls buffer.write() and:
+    ///   - If write() returns > 0: notifies observers and returns the count
+    ///   - If write() returns 0: sets errno to ENOSPC (28) and returns -1
+    ///   - If write() returns < 0: sets errno to the returned value and returns -1
     pub fn write_sync(&self, data: &[u8]) -> isize {
-        let len = {
+        let notification = {
             let mut shared = self.shared.lock();
 
             if shared.closed {
@@ -164,13 +172,24 @@ impl<B: MemPipeBuffer> Writer<B> {
                 return 0;
             }
 
-            shared.buffer.extend_from_slice(data);
-            data.len()
+            let write_result = shared.buffer.write(data);
+
+            if write_result > 0 {
+                write_result
+            } else if write_result == 0 {
+                // Buffer full or similar condition - treat as ENOSPC
+                shared.errno = 28; // ENOSPC
+                -28
+            } else {
+                // Negative errno from buffer
+                shared.errno = -write_result as i32;
+                write_result
+            }
         };
 
         // Notify outside lock
-        self.queue.notify(self.handle, len as i64);
-        len as isize
+        self.queue.notify(self.handle, notification as i64);
+        if notification > 0 { notification } else { -1 }
     }
 
     /// Close the writer and notify all readers
@@ -203,7 +222,7 @@ impl<B: MemPipeBuffer> Writer<B> {
     }
 }
 
-impl<B: MemPipeBuffer> fmt::Debug for Writer<B> {
+impl<B: PipeBuffer> fmt::Debug for Writer<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let shared = self.shared.lock();
         write!(
@@ -214,7 +233,7 @@ impl<B: MemPipeBuffer> fmt::Debug for Writer<B> {
     }
 }
 
-impl<B: MemPipeBuffer> Drop for Writer<B> {
+impl<B: PipeBuffer> Drop for Writer<B> {
     fn drop(&mut self) {
         if !self.is_closed() {
             self.close();
@@ -223,7 +242,7 @@ impl<B: MemPipeBuffer> Drop for Writer<B> {
 }
 
 /// Shared data passed from Writer to Reader
-pub(crate) struct ReaderSharedData<B: MemPipeBuffer> {
+pub(crate) struct ReaderSharedData<B: PipeBuffer> {
     buffer: Arc<Mutex<SharedBuffer<B>>>,
     writer_handle: Handle,
     queue: NotificationQueueArc,
@@ -263,8 +282,8 @@ enum WaitAction {
 ///
 /// # Type Parameters
 ///
-/// * `B` - Buffer type implementing `MemPipeBuffer`.
-pub struct Reader<B: MemPipeBuffer> {
+/// * `B` - Buffer type implementing `PipeBuffer`.
+pub struct Reader<B: PipeBuffer> {
     own_handle: Handle,
     buffer: Arc<Mutex<SharedBuffer<B>>>,
     writer_handle: Handle,
@@ -274,7 +293,7 @@ pub struct Reader<B: MemPipeBuffer> {
     own_errno: i32,
 }
 
-impl<B: MemPipeBuffer> Reader<B> {
+impl<B: PipeBuffer> Reader<B> {
     pub(crate) fn new(handle: Handle, shared_data: ReaderSharedData<B>) -> Self {
         Self {
             own_handle: handle,
@@ -418,7 +437,7 @@ impl<B: MemPipeBuffer> Reader<B> {
     }
 }
 
-impl<B: MemPipeBuffer> fmt::Debug for Reader<B> {
+impl<B: PipeBuffer> fmt::Debug for Reader<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -428,7 +447,7 @@ impl<B: MemPipeBuffer> fmt::Debug for Reader<B> {
     }
 }
 
-impl<B: MemPipeBuffer> Drop for Reader<B> {
+impl<B: PipeBuffer> Drop for Reader<B> {
     fn drop(&mut self) {
         if !self.is_closed() {
             self.close();
@@ -440,36 +459,12 @@ impl<B: MemPipeBuffer> Drop for Reader<B> {
 ///
 /// # Type Parameters
 ///
-/// * `B` - Buffer type implementing `MemPipeBuffer`.
-///
-/// # Examples
-///
-/// ```
-/// # use ailetos::mempipe::{MemPipe, MemPipeBuffer};
-/// # use ailetos::notification_queue::{Handle, NotificationQueueArc};
-/// // Define a wrapper type for Vec<u8>
-/// struct VecBuffer(Vec<u8>);
-///
-/// impl Default for VecBuffer {
-///     fn default() -> Self { Self(Vec::new()) }
-/// }
-///
-/// impl MemPipeBuffer for VecBuffer {
-///     fn extend_from_slice(&mut self, data: &[u8]) {
-///         self.0.extend_from_slice(data);
-///     }
-///     fn len(&self) -> usize { self.0.len() }
-///     fn as_slice(&self) -> &[u8] { &self.0 }
-/// }
-///
-/// let queue = NotificationQueueArc::new();
-/// let pipe = MemPipe::new(Handle::new(1), queue, "test", VecBuffer::default());
-/// ```
-pub struct MemPipe<B: MemPipeBuffer> {
+/// * `B` - Buffer type implementing `PipeBuffer`.
+pub struct MemPipe<B: PipeBuffer> {
     writer: Writer<B>,
 }
 
-impl<B: MemPipeBuffer> MemPipe<B> {
+impl<B: PipeBuffer> MemPipe<B> {
     /// Create a new MemPipe with the provided buffer
     pub fn new(
         writer_handle: Handle,
@@ -498,7 +493,7 @@ impl<B: MemPipeBuffer> MemPipe<B> {
     }
 }
 
-impl<B: MemPipeBuffer> fmt::Debug for MemPipe<B> {
+impl<B: PipeBuffer> fmt::Debug for MemPipe<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "MemPipe(writer={:?})", self.writer)
     }
