@@ -268,6 +268,55 @@ async fn test_empty_write_does_not_notify() {
 }
 
 #[tokio::test]
+async fn test_empty_write_does_not_wake_waiting_reader() {
+    let queue = NotificationQueueArc::new();
+    let writer_handle = Handle::new(1);
+    let pipe = Pipe::new(writer_handle, queue.clone(), "test", VecBuffer::new());
+
+    let mut reader = pipe.get_reader(Handle::new(2));
+
+    // Subscribe to writer's handle to observe notifications
+    let mut subscriber = queue
+        .subscribe(writer_handle, 10, "test_subscriber")
+        .expect("Failed to subscribe");
+
+    // Channel to receive read results
+    let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+
+    // Spawn reader task that will block waiting for data
+    tokio::spawn(async move {
+        let mut buf = [0u8; 10];
+        let n = reader.read(&mut buf).await;
+        tx.send((n, buf)).await.unwrap();
+    });
+
+    // Empty write should NOT wake the reader
+    let n = pipe.writer().write(b"");
+    assert_eq!(n, 0);
+
+    // Verify NO notification was sent
+    let result = subscriber.try_recv();
+    assert!(result.is_err(), "Empty write should not send notification");
+
+    // Verify reader has not received anything (still waiting)
+    let result = rx.try_recv();
+    assert!(result.is_err(), "Reader should still be waiting after empty write");
+
+    // Now write actual data - this SHOULD wake the reader
+    let n = pipe.writer().write(b"Hello");
+    assert_eq!(n, 5);
+
+    // Verify notification was sent
+    let notification = subscriber.recv().await.expect("Should receive notification");
+    assert_eq!(notification, 5);
+
+    // Reader should wake up and send data
+    let (n, buf) = rx.recv().await.expect("Should receive data from reader");
+    assert_eq!(n, 5);
+    assert_eq!(&buf[..5], b"Hello");
+}
+
+#[tokio::test]
 async fn test_empty_write_on_closed_writer() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
