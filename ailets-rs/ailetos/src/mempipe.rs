@@ -72,12 +72,12 @@ impl<B: PipeBuffer> SharedBuffer<B> {
 /// Writer is thread-safe and can be shared between threads (via Arc or references).
 /// All write operations use interior mutability with `parking_lot::Mutex` protection.
 ///
-/// - **Thread-safe**: Multiple threads can call `write()`, `write_sync()`, and other
+/// - **Thread-safe**: Multiple threads can call `write()`, `write()`, and other
 ///   methods concurrently. The internal Mutex serializes access to shared state.
 /// - **Concurrent writes**: The write lock is released before sending notifications,
 ///   allowing high concurrency. Notification happens outside the critical section.
-/// - **NOT reentrant**: Mutex is not reentrant. Calling `write_sync()` from within
-///   another `write_sync()` on the same thread (e.g., from a callback) would deadlock.
+/// - **NOT reentrant**: Mutex is not reentrant. Calling `write()` from within
+///   another `write()` on the same thread (e.g., from a callback) would deadlock.
 ///   However, this is not an issue in practice since notifications are sent after
 ///   the lock is released.
 ///
@@ -132,12 +132,7 @@ impl<B: PipeBuffer> Writer<B> {
         self.shared.lock().closed
     }
 
-    /// Async write (calls write_sync)
-    pub async fn write(&self, data: &[u8]) -> isize {
-        self.write_sync(data)
-    }
-
-    /// Synchronous write (POSIX-style)
+    /// Write data to the pipe (POSIX-style)
     ///
     /// Returns:
     /// - Positive value: number of bytes written
@@ -154,7 +149,7 @@ impl<B: PipeBuffer> Writer<B> {
     ///   - If write() returns > 0: notifies observers and returns the count
     ///   - If write() returns 0: sets errno to ENOSPC (28) and returns -1
     ///   - If write() returns < 0: sets errno to the returned value and returns -1
-    pub fn write_sync(&self, data: &[u8]) -> isize {
+    pub fn write(&self, data: &[u8]) -> isize {
         let notification = {
             let mut shared = self.shared.lock();
 

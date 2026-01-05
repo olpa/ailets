@@ -76,7 +76,7 @@ async fn write_all(pipe: MemPipe<VecBuffer>) {
             break;
         }
 
-        let result = pipe.writer().write_sync(trimmed.as_bytes());
+        let result = pipe.writer().write(trimmed.as_bytes());
         if result < 0 {
             eprintln!("Write error: errno={}", pipe.writer().get_error());
             break;

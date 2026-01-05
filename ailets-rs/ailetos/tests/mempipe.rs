@@ -82,7 +82,7 @@ async fn test_write_read() {
     let _reader_handle = *reader.handle();
 
     // Write some data
-    let n = pipe.writer().write_sync(b"Hello");
+    let n = pipe.writer().write(b"Hello");
     assert_eq!(n, 5);
 
     // Read it back
@@ -107,7 +107,7 @@ async fn test_multiple_readers() {
     let _reader2_handle = *reader2.handle();
 
     // Write data
-    let n = pipe.writer().write_sync(b"Broadcast");
+    let n = pipe.writer().write(b"Broadcast");
     assert_eq!(n, 9);
 
     // Both readers should get the same data
@@ -173,7 +173,7 @@ async fn test_write_notifies_observers() {
         .expect("Failed to subscribe");
 
     // Write non-empty data - this should notify observers
-    let n = pipe.writer().write_sync(b"Hello");
+    let n = pipe.writer().write(b"Hello");
     assert_eq!(n, 5);
 
     // Verify notification was sent
@@ -194,7 +194,7 @@ async fn test_empty_write_does_not_notify() {
         .expect("Failed to subscribe");
 
     // Empty write should succeed and return 0
-    let n = pipe.writer().write_sync(b"");
+    let n = pipe.writer().write(b"");
     assert_eq!(n, 0);
 
     // Verify NO notification was sent for empty write
@@ -203,7 +203,7 @@ async fn test_empty_write_does_not_notify() {
     assert!(result.is_err()); // Should be empty, no notification sent
 
     // Now write actual data
-    let n = pipe.writer().write_sync(b"Hello");
+    let n = pipe.writer().write(b"Hello");
     assert_eq!(n, 5);
 
     // Verify notification WAS sent for non-empty write
@@ -211,7 +211,7 @@ async fn test_empty_write_does_not_notify() {
     assert_eq!(notification, 5);
 
     // Another empty write after real data
-    let n = pipe.writer().write_sync(b"");
+    let n = pipe.writer().write(b"");
     assert_eq!(n, 0);
 
     // Again, verify NO notification for empty write
@@ -230,7 +230,7 @@ async fn test_empty_write_on_closed_writer() {
     pipe.writer().close();
 
     // Empty write on closed writer should return -1 (error)
-    let result = pipe.writer().write_sync(b"");
+    let result = pipe.writer().write(b"");
     assert_eq!(result, -1);
 }
 
@@ -245,7 +245,7 @@ async fn test_empty_write_with_errno() {
     pipe.writer().set_error(42);
 
     // Empty write should return -1 (error), not 0
-    let result = pipe.writer().write_sync(b"");
+    let result = pipe.writer().write(b"");
     assert_eq!(result, -1);
     assert_eq!(pipe.writer().get_error(), 42);
 }
@@ -259,7 +259,7 @@ async fn test_reader_dont_read_when_error() {
     let mut reader = pipe.get_reader(Handle::new(2));
 
     // Write some data
-    assert_eq!(pipe.writer().write_sync(b"hello"), 5);
+    assert_eq!(pipe.writer().write(b"hello"), 5);
 
     // Set reader's own error
     reader.set_error(42);
@@ -301,7 +301,7 @@ async fn test_reader_read_with_writer_error() {
     let mut reader = pipe.get_reader(Handle::new(2));
 
     // Write some data
-    assert_eq!(pipe.writer().write_sync(b"test"), 4);
+    assert_eq!(pipe.writer().write(b"test"), 4);
 
     // Reader reads the data successfully
     let mut buf = [0u8; 10];
@@ -382,7 +382,7 @@ async fn test_reader_error_checked_before_writer() {
     let mut reader = pipe.get_reader(Handle::new(2));
 
     // Write some data
-    assert_eq!(pipe.writer().write_sync(b"data"), 4);
+    assert_eq!(pipe.writer().write(b"data"), 4);
 
     // Reader sets own error first
     reader.set_error(15);
@@ -457,7 +457,7 @@ async fn test_buffer_write_returns_zero() {
         .expect("Failed to subscribe");
 
     // Write should return -1 when buffer returns 0
-    let result = pipe.writer().write_sync(b"test");
+    let result = pipe.writer().write(b"test");
     assert_eq!(result, -1);
 
     // errno should be set to ENOSPC (28)
@@ -485,7 +485,7 @@ async fn test_buffer_write_returns_negative_errno() {
         .expect("Failed to subscribe");
 
     // Write should return -1 when buffer returns negative errno
-    let result = pipe.writer().write_sync(b"test");
+    let result = pipe.writer().write(b"test");
     assert_eq!(result, -1);
 
     // errno should be set to 5 (the positive value of the error)
@@ -513,7 +513,7 @@ async fn test_buffer_write_partial() {
         .expect("Failed to subscribe");
 
     // Write should return 3 (partial write)
-    let result = pipe.writer().write_sync(b"hello");
+    let result = pipe.writer().write(b"hello");
     assert_eq!(result, 3);
 
     // No error should be set
@@ -543,7 +543,7 @@ async fn test_buffer_write_full_success() {
         .expect("Failed to subscribe");
 
     // Write should return 5 (full write)
-    let result = pipe.writer().write_sync(b"hello");
+    let result = pipe.writer().write(b"hello");
     assert_eq!(result, 5);
 
     // No error should be set
@@ -568,13 +568,13 @@ async fn test_buffer_write_zero_after_successful_write() {
     let pipe = MemPipe::new(writer_handle, queue.clone(), "test", buffer);
 
     // First write succeeds
-    let result = pipe.writer().write_sync(b"test");
+    let result = pipe.writer().write(b"test");
     assert_eq!(result, 4);
     assert_eq!(pipe.writer().get_error(), 0);
 
     // Second write returns 0 (buffer full)
     *write_return.lock().unwrap() = Some(0);
-    let result = pipe.writer().write_sync(b"more");
+    let result = pipe.writer().write(b"more");
     assert_eq!(result, -1);
     assert_eq!(pipe.writer().get_error(), 28); // ENOSPC
 }
