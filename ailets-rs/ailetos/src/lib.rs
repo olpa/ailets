@@ -1,5 +1,5 @@
-pub mod mempipe;
+pub mod pipe;
 pub mod notification_queue;
 
-// Re-export PipeBuffer trait for convenience
-pub use mempipe::PipeBuffer;
+// Re-export Buffer trait for convenience
+pub use pipe::Buffer;

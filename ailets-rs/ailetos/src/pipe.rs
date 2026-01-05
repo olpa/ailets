@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use crate::notification_queue::{Handle, NotificationQueueArc};
 
-/// Trait for buffer storage used in MemPipe
+/// Trait for buffer storage used in Pipe
 ///
 /// This trait abstracts the buffer storage, allowing different implementations
 /// beyond the default `Vec<u8>`. Implementors must support:
@@ -24,7 +24,7 @@ use crate::notification_queue::{Handle, NotificationQueueArc};
 /// Implementors must ensure thread safety when used with `Send` bound.
 /// The buffer is protected by `Arc<Mutex<...>>` but the buffer type itself
 /// must be `Send`.
-pub trait PipeBuffer: Send {
+pub trait Buffer: Send {
     /// Write data to the end of the buffer
     ///
     /// Returns:
@@ -47,13 +47,13 @@ pub trait PipeBuffer: Send {
 }
 
 /// Shared state between Writer and Readers
-struct SharedBuffer<B: PipeBuffer> {
+struct SharedBuffer<B: Buffer> {
     buffer: B,
     errno: i32,
     closed: bool,
 }
 
-impl<B: PipeBuffer> SharedBuffer<B> {
+impl<B: Buffer> SharedBuffer<B> {
     fn new(buffer: B) -> Self {
         Self {
             buffer,
@@ -83,15 +83,15 @@ impl<B: PipeBuffer> SharedBuffer<B> {
 ///
 /// # Type Parameters
 ///
-/// * `B` - Buffer type implementing `PipeBuffer`.
-pub struct Writer<B: PipeBuffer> {
+/// * `B` - Buffer type implementing `Buffer`.
+pub struct Writer<B: Buffer> {
     shared: Arc<Mutex<SharedBuffer<B>>>,
     handle: Handle,
     queue: NotificationQueueArc,
     debug_hint: String,
 }
 
-impl<B: PipeBuffer> Writer<B> {
+impl<B: Buffer> Writer<B> {
     pub fn new(
         handle: Handle,
         queue: NotificationQueueArc,
@@ -217,18 +217,18 @@ impl<B: PipeBuffer> Writer<B> {
     }
 }
 
-impl<B: PipeBuffer> fmt::Debug for Writer<B> {
+impl<B: Buffer> fmt::Debug for Writer<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let shared = self.shared.lock();
         write!(
             f,
-            "MemPipe.Writer(handle={:?}, closed={}, tell={}, errno={}, hint={})",
+            "Pipe.Writer(handle={:?}, closed={}, tell={}, errno={}, hint={})",
             self.handle, shared.closed, shared.buffer.len(), shared.errno, self.debug_hint
         )
     }
 }
 
-impl<B: PipeBuffer> Drop for Writer<B> {
+impl<B: Buffer> Drop for Writer<B> {
     fn drop(&mut self) {
         if !self.is_closed() {
             self.close();
@@ -237,7 +237,7 @@ impl<B: PipeBuffer> Drop for Writer<B> {
 }
 
 /// Shared data passed from Writer to Reader
-pub(crate) struct ReaderSharedData<B: PipeBuffer> {
+pub(crate) struct ReaderSharedData<B: Buffer> {
     buffer: Arc<Mutex<SharedBuffer<B>>>,
     writer_handle: Handle,
     queue: NotificationQueueArc,
@@ -277,8 +277,8 @@ enum WaitAction {
 ///
 /// # Type Parameters
 ///
-/// * `B` - Buffer type implementing `PipeBuffer`.
-pub struct Reader<B: PipeBuffer> {
+/// * `B` - Buffer type implementing `Buffer`.
+pub struct Reader<B: Buffer> {
     own_handle: Handle,
     buffer: Arc<Mutex<SharedBuffer<B>>>,
     writer_handle: Handle,
@@ -288,7 +288,7 @@ pub struct Reader<B: PipeBuffer> {
     own_errno: i32,
 }
 
-impl<B: PipeBuffer> Reader<B> {
+impl<B: Buffer> Reader<B> {
     pub(crate) fn new(handle: Handle, shared_data: ReaderSharedData<B>) -> Self {
         Self {
             own_handle: handle,
@@ -432,17 +432,17 @@ impl<B: PipeBuffer> Reader<B> {
     }
 }
 
-impl<B: PipeBuffer> fmt::Debug for Reader<B> {
+impl<B: Buffer> fmt::Debug for Reader<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "MemPipe.Reader(handle={:?}, pos={}, closed={}, errno={}, writer_handle={:?})",
+            "Pipe.Reader(handle={:?}, pos={}, closed={}, errno={}, writer_handle={:?})",
             self.own_handle, self.pos, self.own_closed, self.own_errno, self.writer_handle
         )
     }
 }
 
-impl<B: PipeBuffer> Drop for Reader<B> {
+impl<B: Buffer> Drop for Reader<B> {
     fn drop(&mut self) {
         if !self.is_closed() {
             self.close();
@@ -454,13 +454,13 @@ impl<B: PipeBuffer> Drop for Reader<B> {
 ///
 /// # Type Parameters
 ///
-/// * `B` - Buffer type implementing `PipeBuffer`.
-pub struct MemPipe<B: PipeBuffer> {
+/// * `B` - Buffer type implementing `Buffer`.
+pub struct Pipe<B: Buffer> {
     writer: Writer<B>,
 }
 
-impl<B: PipeBuffer> MemPipe<B> {
-    /// Create a new MemPipe with the provided buffer
+impl<B: Buffer> Pipe<B> {
+    /// Create a new Pipe with the provided buffer
     pub fn new(
         writer_handle: Handle,
         queue: NotificationQueueArc,
@@ -488,8 +488,8 @@ impl<B: PipeBuffer> MemPipe<B> {
     }
 }
 
-impl<B: PipeBuffer> fmt::Debug for MemPipe<B> {
+impl<B: Buffer> fmt::Debug for Pipe<B> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "MemPipe(writer={:?})", self.writer)
+        write!(f, "Pipe(writer={:?})", self.writer)
     }
 }
