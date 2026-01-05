@@ -95,6 +95,54 @@ async fn test_write_read() {
 }
 
 #[tokio::test]
+async fn test_multiple_write_read_cycles() {
+    let queue = NotificationQueueArc::new();
+    let writer_handle = Handle::new(1);
+    let pipe = Pipe::new(writer_handle, queue.clone(), "test", VecBuffer::new());
+
+    let mut reader = pipe.get_reader(Handle::new(2));
+
+    // Cycle 1: write-write-read
+    assert_eq!(pipe.writer().write(b"Hello"), 5);
+    assert_eq!(pipe.writer().write(b" "), 1);
+    assert_eq!(pipe.writer().write(b"World"), 5);
+
+    let mut buf = [0u8; 20];
+    let n = reader.read(&mut buf).await;
+    assert_eq!(n, 11);
+    assert_eq!(&buf[..n as usize], b"Hello World");
+
+    // Cycle 2: write-write-read
+    assert_eq!(pipe.writer().write(b"Foo"), 3);
+    assert_eq!(pipe.writer().write(b"Bar"), 3);
+
+    let n = reader.read(&mut buf).await;
+    assert_eq!(n, 6);
+    assert_eq!(&buf[..n as usize], b"FooBar");
+
+    // Cycle 3: write-write-read
+    assert_eq!(pipe.writer().write(b"Test"), 4);
+    assert_eq!(pipe.writer().write(b"123"), 3);
+
+    let n = reader.read(&mut buf).await;
+    assert_eq!(n, 7);
+    assert_eq!(&buf[..n as usize], b"Test123");
+
+    // Cycle 4: single write, partial read
+    assert_eq!(pipe.writer().write(b"LongMessage"), 11);
+
+    let mut small_buf = [0u8; 5];
+    let n = reader.read(&mut small_buf).await;
+    assert_eq!(n, 5);
+    assert_eq!(&small_buf[..], b"LongM");
+
+    // Read remainder
+    let n = reader.read(&mut buf).await;
+    assert_eq!(n, 6);
+    assert_eq!(&buf[..n as usize], b"essage");
+}
+
+#[tokio::test]
 async fn test_multiple_readers() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
