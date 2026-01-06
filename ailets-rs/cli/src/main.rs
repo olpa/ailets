@@ -62,17 +62,6 @@ struct StubActorRuntime<'a> {
 }
 
 impl<'a> StubActorRuntime<'a> {
-    /// Create runtime with static input and stdout output
-    fn new(data: &'static [u8]) -> Self {
-        Self {
-            input: InputSource::Static {
-                data,
-                position: std::cell::Cell::new(0),
-            },
-            output: OutputDestination::Stdout,
-        }
-    }
-
     /// Create runtime with pipe input and stdout output
     fn from_pipe_to_stdout(reader: Reader<VecBuffer>) -> Self {
         Self {
