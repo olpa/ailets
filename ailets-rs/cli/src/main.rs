@@ -38,10 +38,10 @@ enum InputSource {
     /// Read from explicit static byte slice
     Static {
         data: &'static [u8],
-        position: std::cell::Cell<usize>,
+        position: usize,
     },
     /// Read from pipe
-    Pipe(RefCell<Reader<VecBuffer>>),
+    Pipe(Reader<VecBuffer>),
 }
 
 /// Output destination for StubActorRuntime
@@ -57,7 +57,7 @@ enum OutputDestination<'a> {
 /// - Input: explicit value or from pipe
 /// - Output: to stdout or to pipe
 struct StubActorRuntime<'a> {
-    input: InputSource,
+    input: RefCell<InputSource>,
     output: OutputDestination<'a>,
 }
 
@@ -65,7 +65,7 @@ impl<'a> StubActorRuntime<'a> {
     /// Create runtime with pipe input and stdout output
     fn from_pipe_to_stdout(reader: Reader<VecBuffer>) -> Self {
         Self {
-            input: InputSource::Pipe(RefCell::new(reader)),
+            input: RefCell::new(InputSource::Pipe(reader)),
             output: OutputDestination::Stdout,
         }
     }
@@ -73,10 +73,10 @@ impl<'a> StubActorRuntime<'a> {
     /// Create runtime with static input and pipe output
     fn to_pipe(data: &'static [u8], writer: &'a Writer<VecBuffer>) -> Self {
         Self {
-            input: InputSource::Static {
+            input: RefCell::new(InputSource::Static {
                 data,
-                position: std::cell::Cell::new(0),
-            },
+                position: 0,
+            }),
             output: OutputDestination::Pipe(writer),
         }
     }
@@ -96,9 +96,9 @@ impl<'a> ActorRuntime for StubActorRuntime<'a> {
     }
 
     fn aread(&self, _fd: c_int, buffer: &mut [u8]) -> c_int {
-        match &self.input {
+        match &mut *self.input.borrow_mut() {
             InputSource::Static { data, position } => {
-                let pos = position.get();
+                let pos = *position;
                 if pos >= data.len() {
                     return 0; // EOF
                 }
@@ -116,7 +116,7 @@ impl<'a> ActorRuntime for StubActorRuntime<'a> {
                 };
                 buffer_slice.copy_from_slice(data_slice);
 
-                position.set(pos + to_copy);
+                *position = pos + to_copy;
                 #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
                 let result = to_copy as c_int;
                 result
@@ -125,7 +125,6 @@ impl<'a> ActorRuntime for StubActorRuntime<'a> {
                 // Block on async read using block_in_place to avoid runtime nesting issues
                 let result = tokio::task::block_in_place(|| {
                     tokio::runtime::Handle::current().block_on(async {
-                        let mut reader = reader.borrow_mut();
                         reader.read(buffer).await
                     })
                 });
