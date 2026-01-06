@@ -185,7 +185,7 @@ async fn main() {
     let reader = pipe.get_reader(reader_handle);
 
     // First cat::execute - reads "Hello, world!\n" and writes to pipe
-    {
+    let task1 = tokio::spawn(async move {
         let runtime1 = StubActorRuntime::to_pipe(b"Hello, world!\n", pipe.writer());
         let areader1 = AReader::new_from_std(&runtime1, StdHandle::Stdin);
         let awriter1 = AWriter::new_from_std(&runtime1, StdHandle::Stdout);
@@ -194,18 +194,23 @@ async fn main() {
             Ok(()) => {}
             Err(e) => eprintln!("Error in first cat: {e}"),
         }
-    }
 
-    // Close the writer to signal EOF to the reader
-    pipe.writer().close();
+        // Close the writer to signal EOF to the reader
+        pipe.writer().close();
+    });
 
     // Second cat::execute - reads from pipe and writes to stdout
-    let runtime2 = StubActorRuntime::from_pipe_to_stdout(reader);
-    let areader2 = AReader::new_from_std(&runtime2, StdHandle::Stdin);
-    let awriter2 = AWriter::new_from_std(&runtime2, StdHandle::Stdout);
+    let task2 = tokio::spawn(async move {
+        let runtime2 = StubActorRuntime::from_pipe_to_stdout(reader);
+        let areader2 = AReader::new_from_std(&runtime2, StdHandle::Stdin);
+        let awriter2 = AWriter::new_from_std(&runtime2, StdHandle::Stdout);
 
-    match cat::execute(areader2, awriter2) {
-        Ok(()) => {}
-        Err(e) => eprintln!("Error in second cat: {e}"),
-    }
+        match cat::execute(areader2, awriter2) {
+            Ok(()) => {}
+            Err(e) => eprintln!("Error in second cat: {e}"),
+        }
+    });
+
+    // Wait for both tasks to complete
+    let _ = tokio::join!(task1, task2);
 }
