@@ -181,8 +181,10 @@ version = "0.1.0"
 dependencies = [
  "actor_io",
  "actor_runtime",
+ "ailetos",
  "cat",
  "embedded-io",
+ "tokio",
 ]
 
 [[package]]

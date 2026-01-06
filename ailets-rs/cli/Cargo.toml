@@ -13,4 +13,6 @@ path = "src/main.rs"
 cat = { path = "../cat" }
 actor_io = { path = "../actor_io" }
 actor_runtime = { path = "../actor_runtime" }
+ailetos = { path = "../ailetos" }
 embedded-io.workspace = true
+tokio = { version = "1", features = ["rt", "macros"] }
