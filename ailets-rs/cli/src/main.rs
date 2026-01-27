@@ -46,27 +46,21 @@ pub struct PipeId(usize);
 enum IoRequest {
     /// Open a stream for reading (returns file descriptor)
     OpenRead {
-        actor_id: ActorId,
-        name: String,
         response: oneshot::Sender<c_int>,
     },
     /// Open a stream for writing (returns file descriptor)
     OpenWrite {
-        actor_id: ActorId,
-        name: String,
         response: oneshot::Sender<c_int>,
     },
     /// Read from a file descriptor (async operation)
     Read {
         actor_id: ActorId,
-        fd: c_int,
         len: usize,
         response: oneshot::Sender<Vec<u8>>,
     },
     /// Write to a file descriptor (async operation)
     Write {
         actor_id: ActorId,
-        fd: c_int,
         data: Vec<u8>,
         response: oneshot::Sender<c_int>,
     },
@@ -183,16 +177,15 @@ impl SystemRuntime {
     async fn run(mut self) {
         while let Some(request) = self.request_rx.recv().await {
             match request {
-                IoRequest::OpenRead { actor_id: _, name: _, response } => {
-                    // For now, we ignore the name and just return a dummy fd
-                    // The actor_id tells us what to read from
+                IoRequest::OpenRead { response } => {
+                    // Return dummy fd for stdin
                     let _ = response.send(0); // fd = 0
                 }
-                IoRequest::OpenWrite { actor_id: _, name: _, response } => {
-                    // For now, we ignore the name and just return a dummy fd
+                IoRequest::OpenWrite { response } => {
+                    // Return dummy fd for stdout
                     let _ = response.send(1); // fd = 1
                 }
-                IoRequest::Read { actor_id, fd: _, len, response } => {
+                IoRequest::Read { actor_id, len, response } => {
                     // Determine where to read from based on actor_id
                     if let Some(input_source) = self.actor_inputs.get(&actor_id) {
                         match input_source {
@@ -225,7 +218,7 @@ impl SystemRuntime {
                         let _ = response.send(vec![]);
                     }
                 }
-                IoRequest::Write { actor_id, fd: _, data, response } => {
+                IoRequest::Write { actor_id, data, response } => {
                     // Determine where to write based on actor_id
                     if let Some(output_dest) = self.actor_outputs.get(&actor_id) {
                         let result = match output_dest {
@@ -303,14 +296,12 @@ impl ActorRuntime for StubActorRuntime {
         0 // No error
     }
 
-    fn open_read(&self, name: &str) -> c_int {
+    fn open_read(&self, _name: &str) -> c_int {
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
 
         self.system_tx
             .send(IoRequest::OpenRead {
-                actor_id: self.actor_id,
-                name: name.to_string(),
                 response: tx,
             })
             .unwrap();
@@ -318,14 +309,12 @@ impl ActorRuntime for StubActorRuntime {
         rx.blocking_recv().unwrap()
     }
 
-    fn open_write(&self, name: &str) -> c_int {
+    fn open_write(&self, _name: &str) -> c_int {
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
 
         self.system_tx
             .send(IoRequest::OpenWrite {
-                actor_id: self.actor_id,
-                name: name.to_string(),
                 response: tx,
             })
             .unwrap();
@@ -333,14 +322,13 @@ impl ActorRuntime for StubActorRuntime {
         rx.blocking_recv().unwrap()
     }
 
-    fn aread(&self, fd: c_int, buffer: &mut [u8]) -> c_int {
+    fn aread(&self, _fd: c_int, buffer: &mut [u8]) -> c_int {
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
 
         self.system_tx
             .send(IoRequest::Read {
                 actor_id: self.actor_id,
-                fd,
                 len: buffer.len(),
                 response: tx,
             })
@@ -359,14 +347,13 @@ impl ActorRuntime for StubActorRuntime {
         }
     }
 
-    fn awrite(&self, fd: c_int, buffer: &[u8]) -> c_int {
+    fn awrite(&self, _fd: c_int, buffer: &[u8]) -> c_int {
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
 
         self.system_tx
             .send(IoRequest::Write {
                 actor_id: self.actor_id,
-                fd,
                 data: buffer.to_vec(),
                 response: tx,
             })
