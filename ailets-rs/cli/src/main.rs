@@ -416,7 +416,7 @@ async fn main() {
     let runtime2 = system_runtime.create_actor_runtime(actor2_id);
 
     // Spawn SystemRuntime task
-    tokio::spawn(async move {
+    let system_task = tokio::spawn(async move {
         system_runtime.run().await;
     });
 
@@ -448,6 +448,17 @@ async fn main() {
         eprintln!("Task2: Done");
     });
 
-    // Wait for both actors to complete
-    let _ = tokio::join!(task1, task2);
+    // Wait for all tasks to complete
+    let (system_result, task1_result, task2_result) = tokio::join!(system_task, task1, task2);
+
+    // Check for panics or errors
+    if let Err(e) = system_result {
+        eprintln!("SystemRuntime task failed: {e}");
+    }
+    if let Err(e) = task1_result {
+        eprintln!("Task1 failed: {e}");
+    }
+    if let Err(e) = task2_result {
+        eprintln!("Task2 failed: {e}");
+    }
 }
