@@ -40,7 +40,7 @@ struct ActorId(usize);
 
 /// Unique identifier for pipes in the system
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct PipeId(usize);
+pub struct PipeId(usize);
 
 /// I/O requests sent from ActorRuntime to SystemRuntime
 enum IoRequest {
@@ -116,15 +116,17 @@ struct SystemRuntime {
 }
 
 impl SystemRuntime {
-    fn new(request_rx: mpsc::UnboundedReceiver<IoRequest>) -> Self {
-        Self {
+    fn new() -> (Self, mpsc::UnboundedSender<IoRequest>) {
+        let (system_tx, request_rx) = mpsc::unbounded_channel();
+        let runtime = Self {
             pipes: HashMap::new(),
             pipe_readers: HashMap::new(),
             actor_inputs: HashMap::new(),
             actor_outputs: HashMap::new(),
             stdin_positions: HashMap::new(),
             request_rx,
-        }
+        };
+        (runtime, system_tx)
     }
 
     /// Factory method to create an ActorRuntime for a specific actor
@@ -265,7 +267,7 @@ pub struct StubActorRuntime {
     /// This actor's unique identifier
     actor_id: ActorId,
     /// Channel to send async I/O requests to SystemRuntime
-    pub system_tx: mpsc::UnboundedSender<IoRequest>,
+    system_tx: mpsc::UnboundedSender<IoRequest>,
 }
 
 impl StubActorRuntime {
@@ -371,11 +373,15 @@ impl ActorRuntime for StubActorRuntime {
     }
 }
 
+impl StubActorRuntime {
+    /// Close a pipe writer to signal EOF to the reader
+    pub fn close_pipe_writer(&self, pipe_id: PipeId) {
+        let _ = self.system_tx.send(IoRequest::CloseWriter { pipe_id });
+    }
+}
+
 #[tokio::main]
 async fn main() {
-    // Create channel for actor -> SystemRuntime communication
-    let (system_tx, system_rx) = mpsc::unbounded_channel();
-
     // Create notification queue for pipe
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
@@ -385,8 +391,8 @@ async fn main() {
     let pipe = Pipe::new(writer_handle, queue.clone(), "cat-pipe", VecBuffer::new());
     let reader = pipe.get_reader(reader_handle);
 
-    // Create SystemRuntime and configure it
-    let mut system_runtime = SystemRuntime::new(system_rx);
+    // Create SystemRuntime and get the channel for actor communication
+    let (mut system_runtime, system_tx) = SystemRuntime::new();
 
     // Define actor IDs
     let actor1_id = ActorId(1);
@@ -432,7 +438,7 @@ async fn main() {
 
         // Close the writer to signal EOF to the reader
         eprintln!("Task1: Closing writer");
-        let _ = runtime1.system_tx.send(IoRequest::CloseWriter { pipe_id: close_pipe_id });
+        runtime1.close_pipe_writer(close_pipe_id);
         eprintln!("Task1: Done");
     });
 
