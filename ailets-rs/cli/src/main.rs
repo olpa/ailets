@@ -76,10 +76,6 @@ enum IoRequest {
         fd: c_int,
         response: oneshot::Sender<c_int>,
     },
-    /// Close a pipe writer (no response needed)
-    CloseWriter {
-        pipe_id: PipeId,
-    },
 }
 
 /// Input source configuration for an actor
@@ -115,6 +111,10 @@ struct SystemRuntime {
     system_tx: mpsc::UnboundedSender<IoRequest>,
     /// Receives I/O requests from actors
     request_rx: mpsc::UnboundedReceiver<IoRequest>,
+    /// Counter for generating unique pipe IDs
+    next_pipe_id: usize,
+    /// Counter for generating unique notification queue handles
+    next_handle_id: i64,
 }
 
 impl SystemRuntime {
@@ -128,12 +128,34 @@ impl SystemRuntime {
             stdin_positions: HashMap::new(),
             system_tx,
             request_rx,
+            next_pipe_id: 1,
+            next_handle_id: 1,
         }
     }
 
     /// Factory method to create an ActorRuntime for a specific actor
     fn create_actor_runtime(&self, actor_id: ActorId) -> StubActorRuntime {
         StubActorRuntime::new(actor_id, self.system_tx.clone())
+    }
+
+    /// Create a new pipe and return its ID
+    fn create_pipe(&mut self, name: &str) -> PipeId {
+        let pipe_id = PipeId(self.next_pipe_id);
+        self.next_pipe_id += 1;
+
+        let queue = NotificationQueueArc::new();
+        let writer_handle = Handle::new(self.next_handle_id);
+        self.next_handle_id += 1;
+        let reader_handle = Handle::new(self.next_handle_id);
+        self.next_handle_id += 1;
+
+        let pipe = Pipe::new(writer_handle, queue, name, VecBuffer::new());
+        let reader = pipe.get_reader(reader_handle);
+
+        self.pipes.insert(pipe_id, pipe);
+        self.pipe_readers.insert(pipe_id, reader);
+
+        pipe_id
     }
 
     /// Configure an actor to read from stdin (static data for testing)
@@ -155,16 +177,6 @@ impl SystemRuntime {
     /// Configure an actor to write to a pipe
     fn set_actor_output_pipe(&mut self, actor_id: ActorId, pipe_id: PipeId) {
         self.actor_outputs.insert(actor_id, ActorOutputDestination::Pipe(pipe_id));
-    }
-
-    /// Register a pipe reader
-    fn add_pipe_reader(&mut self, pipe_id: PipeId, reader: Reader<VecBuffer>) {
-        self.pipe_readers.insert(pipe_id, reader);
-    }
-
-    /// Register a pipe (stores the whole pipe to access the writer)
-    fn add_pipe(&mut self, pipe_id: PipeId, pipe: Pipe<VecBuffer>) {
-        self.pipes.insert(pipe_id, pipe);
     }
 
     /// Main event loop - processes I/O requests asynchronously
@@ -247,15 +259,19 @@ impl SystemRuntime {
                         let _ = response.send(-1);
                     }
                 }
-                IoRequest::Close { actor_id: _, fd: _, response } => {
-                    // For now, just acknowledge the close
-                    let _ = response.send(0);
-                }
-                IoRequest::CloseWriter { pipe_id } => {
-                    // Close the writer for the specified pipe
-                    if let Some(pipe) = self.pipes.get(&pipe_id) {
-                        pipe.writer().close();
+                IoRequest::Close { actor_id, fd, response } => {
+                    // Close the underlying resource if it's a pipe
+                    // fd=1 is stdout/writer, fd=0 is stdin/reader
+                    if fd == 1 {
+                        // Closing a writer
+                        if let Some(ActorOutputDestination::Pipe(pipe_id)) = self.actor_outputs.get(&actor_id) {
+                            if let Some(pipe) = self.pipes.get(pipe_id) {
+                                pipe.writer().close();
+                            }
+                        }
                     }
+                    // Readers don't need explicit close - they clean up on drop
+                    let _ = response.send(0);
                 }
             }
         }
@@ -375,24 +391,8 @@ impl ActorRuntime for StubActorRuntime {
     }
 }
 
-impl StubActorRuntime {
-    /// Close a pipe writer to signal EOF to the reader
-    pub fn close_pipe_writer(&self, pipe_id: PipeId) {
-        let _ = self.system_tx.send(IoRequest::CloseWriter { pipe_id });
-    }
-}
-
 #[tokio::main]
 async fn main() {
-    // Create notification queue for pipe
-    let queue = NotificationQueueArc::new();
-    let writer_handle = Handle::new(1);
-    let reader_handle = Handle::new(2);
-
-    // Create pipe and extract reader
-    let pipe = Pipe::new(writer_handle, queue.clone(), "cat-pipe", VecBuffer::new());
-    let reader = pipe.get_reader(reader_handle);
-
     // Create SystemRuntime and configure it
     let mut system_runtime = SystemRuntime::new();
 
@@ -400,8 +400,8 @@ async fn main() {
     let actor1_id = ActorId(1);
     let actor2_id = ActorId(2);
 
-    // Define pipe ID
-    let pipe_id = PipeId(1);
+    // Create pipe connecting actor1 to actor2
+    let pipe_id = system_runtime.create_pipe("cat-pipe");
 
     // Configure Actor 1: reads from stdin (static data), writes to pipe
     system_runtime.set_actor_stdin(actor1_id, b"Hello, world!\n");
@@ -410,10 +410,6 @@ async fn main() {
     // Configure Actor 2: reads from pipe, writes to stdout
     system_runtime.set_actor_input_pipe(actor2_id, pipe_id);
     system_runtime.set_actor_stdout(actor2_id);
-
-    // Register pipe reader and pipe in SystemRuntime
-    system_runtime.add_pipe_reader(pipe_id, reader);
-    system_runtime.add_pipe(pipe_id, pipe);
 
     // Get ActorRuntimes from SystemRuntime (before moving system_runtime)
     let runtime1 = system_runtime.create_actor_runtime(actor1_id);
@@ -425,10 +421,8 @@ async fn main() {
     });
 
     // First actor: reads from stdin (static data) and writes to pipe
-    let close_pipe_id = pipe_id;
     let task1 = tokio::task::spawn_blocking(move || {
         eprintln!("Task1: Starting");
-        // Use ActorRuntime obtained from SystemRuntime
         let areader1 = AReader::new_from_std(&runtime1, StdHandle::Stdin);
         let awriter1 = AWriter::new_from_std(&runtime1, StdHandle::Stdout);
 
@@ -437,17 +431,12 @@ async fn main() {
             Ok(()) => eprintln!("Task1: Cat completed successfully"),
             Err(e) => eprintln!("Error in first cat: {e}"),
         }
-
-        // Close the writer to signal EOF to the reader
-        eprintln!("Task1: Closing writer");
-        runtime1.close_pipe_writer(close_pipe_id);
         eprintln!("Task1: Done");
     });
 
     // Second actor: reads from pipe and writes to stdout
     let task2 = tokio::task::spawn_blocking(move || {
         eprintln!("Task2: Starting");
-        // Use ActorRuntime obtained from SystemRuntime
         let areader2 = AReader::new_from_std(&runtime2, StdHandle::Stdin);
         let awriter2 = AWriter::new_from_std(&runtime2, StdHandle::Stdout);
 
