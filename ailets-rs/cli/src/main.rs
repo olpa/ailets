@@ -46,10 +46,12 @@ pub struct PipeId(usize);
 enum IoRequest {
     /// Open a stream for reading (returns file descriptor)
     OpenRead {
+        actor_id: ActorId,
         response: oneshot::Sender<c_int>,
     },
     /// Open a stream for writing (returns file descriptor)
     OpenWrite {
+        actor_id: ActorId,
         response: oneshot::Sender<c_int>,
     },
     /// Read from a file descriptor (async operation)
@@ -152,36 +154,43 @@ impl SystemRuntime {
         pipe_id
     }
 
-    /// Configure an actor to read from stdin (static data for testing)
-    fn set_actor_stdin(&mut self, actor_id: ActorId, data: &'static [u8]) {
-        self.actor_inputs.insert(actor_id, ActorInputSource::Stdin(data));
-        self.stdin_positions.insert(actor_id, 0);
-    }
-
-    /// Configure an actor to read from a pipe
-    fn set_actor_input_pipe(&mut self, actor_id: ActorId, pipe_id: PipeId) {
-        self.actor_inputs.insert(actor_id, ActorInputSource::Pipe(pipe_id));
-    }
-
-    /// Configure an actor to write to stdout
-    fn set_actor_stdout(&mut self, actor_id: ActorId) {
-        self.actor_outputs.insert(actor_id, ActorOutputDestination::Stdout);
-    }
-
-    /// Configure an actor to write to a pipe
-    fn set_actor_output_pipe(&mut self, actor_id: ActorId, pipe_id: PipeId) {
-        self.actor_outputs.insert(actor_id, ActorOutputDestination::Pipe(pipe_id));
-    }
-
     /// Main event loop - processes I/O requests asynchronously
     async fn run(mut self) {
         while let Some(request) = self.request_rx.recv().await {
             match request {
-                IoRequest::OpenRead { response } => {
+                IoRequest::OpenRead { actor_id, response } => {
+                    // Set up input source based on actor_id
+                    match actor_id {
+                        ActorId(1) => {
+                            // Actor 1 reads from stdin (static data)
+                            self.actor_inputs.insert(actor_id, ActorInputSource::Stdin(b"Hello, world!\n"));
+                            self.stdin_positions.insert(actor_id, 0);
+                        }
+                        ActorId(2) => {
+                            // Actor 2 reads from pipe (pipe ID 1)
+                            self.actor_inputs.insert(actor_id, ActorInputSource::Pipe(PipeId(1)));
+                        }
+                        _ => {}
+                    }
                     // Return dummy fd for stdin
                     let _ = response.send(0); // fd = 0
                 }
-                IoRequest::OpenWrite { response } => {
+                IoRequest::OpenWrite { actor_id, response } => {
+                    // Set up output destination based on actor_id
+                    match actor_id {
+                        ActorId(1) => {
+                            // Actor 1 writes to pipe (create pipe with ID 1)
+                            if !self.pipes.contains_key(&PipeId(1)) {
+                                self.create_pipe("cat-pipe");
+                            }
+                            self.actor_outputs.insert(actor_id, ActorOutputDestination::Pipe(PipeId(1)));
+                        }
+                        ActorId(2) => {
+                            // Actor 2 writes to stdout
+                            self.actor_outputs.insert(actor_id, ActorOutputDestination::Stdout);
+                        }
+                        _ => {}
+                    }
                     // Return dummy fd for stdout
                     let _ = response.send(1); // fd = 1
                 }
@@ -274,6 +283,7 @@ impl SystemRuntime {
 /// Stub `ActorRuntime` implementation for CLI testing
 /// Acts as a pure proxy to SystemRuntime for all I/O operations
 /// Provides sync-to-async adapters (blocking on async operations)
+#[derive(Clone)]
 pub struct StubActorRuntime {
     /// This actor's unique identifier
     actor_id: ActorId,
@@ -289,40 +299,59 @@ impl StubActorRuntime {
             system_tx,
         }
     }
+
+    /// Setup standard handles by opening stdin and stdout
+    /// This should be called before using AReader::new_from_std() or AWriter::new_from_std()
+    fn setup_std_handles(&self) {
+        self.open_read("stdin");
+        self.open_write("stdout");
+    }
 }
 
 impl ActorRuntime for StubActorRuntime {
     fn get_errno(&self) -> c_int {
+        eprintln!("[StubActorRuntime] Actor {:?}: get_errno() entry", self.actor_id);
         0 // No error
     }
 
     fn open_read(&self, _name: &str) -> c_int {
+        eprintln!("[StubActorRuntime] Actor {:?}: open_read() entry", self.actor_id);
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
 
         self.system_tx
             .send(IoRequest::OpenRead {
+                actor_id: self.actor_id,
                 response: tx,
             })
             .unwrap();
 
-        rx.blocking_recv().unwrap()
+        eprintln!("[StubActorRuntime] Actor {:?}: open_read() before blocking_recv", self.actor_id);
+        let result = rx.blocking_recv().unwrap();
+        eprintln!("[StubActorRuntime] Actor {:?}: open_read() after blocking_recv, result={}", self.actor_id, result);
+        result
     }
 
     fn open_write(&self, _name: &str) -> c_int {
+        eprintln!("[StubActorRuntime] Actor {:?}: open_write() entry", self.actor_id);
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
 
         self.system_tx
             .send(IoRequest::OpenWrite {
+                actor_id: self.actor_id,
                 response: tx,
             })
             .unwrap();
 
-        rx.blocking_recv().unwrap()
+        eprintln!("[StubActorRuntime] Actor {:?}: open_write() before blocking_recv", self.actor_id);
+        let result = rx.blocking_recv().unwrap();
+        eprintln!("[StubActorRuntime] Actor {:?}: open_write() after blocking_recv, result={}", self.actor_id, result);
+        result
     }
 
     fn aread(&self, _fd: c_int, buffer: &mut [u8]) -> c_int {
+        eprintln!("[StubActorRuntime] Actor {:?}: aread() entry, buffer.len={}", self.actor_id, buffer.len());
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
 
@@ -335,7 +364,9 @@ impl ActorRuntime for StubActorRuntime {
             .unwrap();
 
         // Block waiting for SystemRuntime to complete the async read
+        eprintln!("[StubActorRuntime] Actor {:?}: aread() before blocking_recv", self.actor_id);
         let data = rx.blocking_recv().unwrap();
+        eprintln!("[StubActorRuntime] Actor {:?}: aread() after blocking_recv, data.len={}", self.actor_id, data.len());
 
         // Copy result into buffer
         let n = data.len().min(buffer.len());
@@ -348,6 +379,7 @@ impl ActorRuntime for StubActorRuntime {
     }
 
     fn awrite(&self, _fd: c_int, buffer: &[u8]) -> c_int {
+        eprintln!("[StubActorRuntime] Actor {:?}: awrite() entry, buffer.len={}", self.actor_id, buffer.len());
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
 
@@ -359,10 +391,14 @@ impl ActorRuntime for StubActorRuntime {
             })
             .unwrap();
 
-        rx.blocking_recv().unwrap()
+        eprintln!("[StubActorRuntime] Actor {:?}: awrite() before blocking_recv", self.actor_id);
+        let result = rx.blocking_recv().unwrap();
+        eprintln!("[StubActorRuntime] Actor {:?}: awrite() after blocking_recv, result={}", self.actor_id, result);
+        result
     }
 
     fn aclose(&self, fd: c_int) -> c_int {
+        eprintln!("[StubActorRuntime] Actor {:?}: aclose() entry, fd={}", self.actor_id, fd);
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
 
@@ -374,29 +410,21 @@ impl ActorRuntime for StubActorRuntime {
             })
             .unwrap();
 
-        rx.blocking_recv().unwrap()
+        eprintln!("[StubActorRuntime] Actor {:?}: aclose() before blocking_recv", self.actor_id);
+        let result = rx.blocking_recv().unwrap();
+        eprintln!("[StubActorRuntime] Actor {:?}: aclose() after blocking_recv, result={}", self.actor_id, result);
+        result
     }
 }
 
 #[tokio::main]
 async fn main() {
-    // Create SystemRuntime and configure it
-    let mut system_runtime = SystemRuntime::new();
+    // Create SystemRuntime (stubbing happens dynamically when actors open handles)
+    let system_runtime = SystemRuntime::new();
 
     // Define actor IDs
     let actor1_id = ActorId(1);
     let actor2_id = ActorId(2);
-
-    // Create pipe connecting actor1 to actor2
-    let pipe_id = system_runtime.create_pipe("cat-pipe");
-
-    // Configure Actor 1: reads from stdin (static data), writes to pipe
-    system_runtime.set_actor_stdin(actor1_id, b"Hello, world!\n");
-    system_runtime.set_actor_output_pipe(actor1_id, pipe_id);
-
-    // Configure Actor 2: reads from pipe, writes to stdout
-    system_runtime.set_actor_input_pipe(actor2_id, pipe_id);
-    system_runtime.set_actor_stdout(actor2_id);
 
     // Get ActorRuntimes from SystemRuntime (before moving system_runtime)
     let runtime1 = system_runtime.create_actor_runtime(actor1_id);
@@ -407,9 +435,26 @@ async fn main() {
         system_runtime.run().await;
     });
 
+    // Setup handles in correct order: runtime1 first (creates pipe), then runtime2 (connects to pipe)
+    let setup_task = tokio::task::spawn_blocking({
+        let runtime1 = runtime1.clone();
+        let runtime2 = runtime2.clone();
+        move || {
+            eprintln!("Setup: Setting up runtime1 handles");
+            runtime1.setup_std_handles();
+            eprintln!("Setup: Setting up runtime2 handles");
+            runtime2.setup_std_handles();
+            eprintln!("Setup: All handles configured");
+        }
+    });
+
+    // Wait for setup to complete before starting tasks
+    setup_task.await.expect("Setup task failed");
+
     // First actor: reads from stdin (static data) and writes to pipe
     let task1 = tokio::task::spawn_blocking(move || {
         eprintln!("Task1: Starting");
+
         let areader1 = AReader::new_from_std(&runtime1, StdHandle::Stdin);
         let awriter1 = AWriter::new_from_std(&runtime1, StdHandle::Stdout);
 
@@ -424,6 +469,7 @@ async fn main() {
     // Second actor: reads from pipe and writes to stdout
     let task2 = tokio::task::spawn_blocking(move || {
         eprintln!("Task2: Starting");
+
         let areader2 = AReader::new_from_std(&runtime2, StdHandle::Stdin);
         let awriter2 = AWriter::new_from_std(&runtime2, StdHandle::Stdout);
 
