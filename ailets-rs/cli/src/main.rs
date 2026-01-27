@@ -111,27 +111,29 @@ struct SystemRuntime {
     actor_outputs: HashMap<ActorId, ActorOutputDestination>,
     /// Track static data position for stdin readers
     stdin_positions: HashMap<ActorId, usize>,
+    /// Channel to send I/O requests to this runtime
+    system_tx: mpsc::UnboundedSender<IoRequest>,
     /// Receives I/O requests from actors
     request_rx: mpsc::UnboundedReceiver<IoRequest>,
 }
 
 impl SystemRuntime {
-    fn new() -> (Self, mpsc::UnboundedSender<IoRequest>) {
+    fn new() -> Self {
         let (system_tx, request_rx) = mpsc::unbounded_channel();
-        let runtime = Self {
+        Self {
             pipes: HashMap::new(),
             pipe_readers: HashMap::new(),
             actor_inputs: HashMap::new(),
             actor_outputs: HashMap::new(),
             stdin_positions: HashMap::new(),
+            system_tx,
             request_rx,
-        };
-        (runtime, system_tx)
+        }
     }
 
     /// Factory method to create an ActorRuntime for a specific actor
-    fn create_actor_runtime(&self, actor_id: ActorId, system_tx: mpsc::UnboundedSender<IoRequest>) -> StubActorRuntime {
-        StubActorRuntime::new(actor_id, system_tx)
+    fn create_actor_runtime(&self, actor_id: ActorId) -> StubActorRuntime {
+        StubActorRuntime::new(actor_id, self.system_tx.clone())
     }
 
     /// Configure an actor to read from stdin (static data for testing)
@@ -391,8 +393,8 @@ async fn main() {
     let pipe = Pipe::new(writer_handle, queue.clone(), "cat-pipe", VecBuffer::new());
     let reader = pipe.get_reader(reader_handle);
 
-    // Create SystemRuntime and get the channel for actor communication
-    let (mut system_runtime, system_tx) = SystemRuntime::new();
+    // Create SystemRuntime and configure it
+    let mut system_runtime = SystemRuntime::new();
 
     // Define actor IDs
     let actor1_id = ActorId(1);
@@ -414,8 +416,8 @@ async fn main() {
     system_runtime.add_pipe(pipe_id, pipe);
 
     // Get ActorRuntimes from SystemRuntime (before moving system_runtime)
-    let runtime1 = system_runtime.create_actor_runtime(actor1_id, system_tx.clone());
-    let runtime2 = system_runtime.create_actor_runtime(actor2_id, system_tx.clone());
+    let runtime1 = system_runtime.create_actor_runtime(actor1_id);
+    let runtime2 = system_runtime.create_actor_runtime(actor2_id);
 
     // Spawn SystemRuntime task
     tokio::spawn(async move {
