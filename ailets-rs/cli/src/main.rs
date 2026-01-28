@@ -134,6 +134,22 @@ impl SystemRuntime {
         StubActorRuntime::new(actor_id, self.system_tx.clone())
     }
 
+    /// Setup standard handles for all actors
+    /// This configures the I/O mappings directly instead of going through the request channel
+    fn setup_std_handles(&mut self) {
+        // Create the pipe for actor1 -> actor2 communication
+        let pipe_id = self.create_pipe("cat-pipe");
+
+        // Actor 1: reads from stdin (static data), writes to pipe
+        self.actor_inputs.insert(ActorId(1), ActorInputSource::Stdin(b"Hello, world!\n"));
+        self.stdin_positions.insert(ActorId(1), 0);
+        self.actor_outputs.insert(ActorId(1), ActorOutputDestination::Pipe(pipe_id));
+
+        // Actor 2: reads from pipe, writes to stdout
+        self.actor_inputs.insert(ActorId(2), ActorInputSource::Pipe(pipe_id));
+        self.actor_outputs.insert(ActorId(2), ActorOutputDestination::Stdout);
+    }
+
     /// Create a new pipe and return its ID
     fn create_pipe(&mut self, name: &str) -> PipeId {
         let pipe_id = PipeId(self.next_pipe_id);
@@ -299,13 +315,6 @@ impl StubActorRuntime {
             system_tx,
         }
     }
-
-    /// Setup standard handles by opening stdin and stdout
-    /// This should be called before using AReader::new_from_std() or AWriter::new_from_std()
-    fn setup_std_handles(&self) {
-        self.open_read("stdin");
-        self.open_write("stdout");
-    }
 }
 
 impl ActorRuntime for StubActorRuntime {
@@ -419,8 +428,8 @@ impl ActorRuntime for StubActorRuntime {
 
 #[tokio::main]
 async fn main() {
-    // Create SystemRuntime (stubbing happens dynamically when actors open handles)
-    let system_runtime = SystemRuntime::new();
+    // Create SystemRuntime and setup standard handles for all actors
+    let mut system_runtime = SystemRuntime::new();
 
     // Define actor IDs
     let actor1_id = ActorId(1);
@@ -430,26 +439,15 @@ async fn main() {
     let runtime1 = system_runtime.create_actor_runtime(actor1_id);
     let runtime2 = system_runtime.create_actor_runtime(actor2_id);
 
+    // Setup standard handles for all actors directly on SystemRuntime
+    eprintln!("Setup: Setting up standard handles for all actors");
+    system_runtime.setup_std_handles();
+    eprintln!("Setup: All handles configured");
+
     // Spawn SystemRuntime task
     let system_task = tokio::spawn(async move {
         system_runtime.run().await;
     });
-
-    // Setup handles in correct order: runtime1 first (creates pipe), then runtime2 (connects to pipe)
-    let setup_task = tokio::task::spawn_blocking({
-        let runtime1 = runtime1.clone();
-        let runtime2 = runtime2.clone();
-        move || {
-            eprintln!("Setup: Setting up runtime1 handles");
-            runtime1.setup_std_handles();
-            eprintln!("Setup: Setting up runtime2 handles");
-            runtime2.setup_std_handles();
-            eprintln!("Setup: All handles configured");
-        }
-    });
-
-    // Wait for setup to complete before starting tasks
-    setup_task.await.expect("Setup task failed");
 
     // First actor: reads from stdin (static data) and writes to pipe
     let task1 = tokio::task::spawn_blocking(move || {
