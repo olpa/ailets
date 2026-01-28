@@ -46,12 +46,10 @@ pub struct PipeId(usize);
 enum IoRequest {
     /// Open a stream for reading (returns file descriptor)
     OpenRead {
-        actor_id: ActorId,
         response: oneshot::Sender<c_int>,
     },
     /// Open a stream for writing (returns file descriptor)
     OpenWrite {
-        actor_id: ActorId,
         response: oneshot::Sender<c_int>,
     },
     /// Read from a file descriptor (async operation)
@@ -76,8 +74,6 @@ enum IoRequest {
 
 /// Input source configuration for an actor
 enum ActorInputSource {
-    /// Read from stdin (for now, represented as static data for testing)
-    Stdin(&'static [u8]),
     /// Read from a pipe
     Pipe(PipeId),
 }
@@ -101,8 +97,6 @@ struct SystemRuntime {
     actor_inputs: HashMap<ActorId, ActorInputSource>,
     /// Output configuration for each actor
     actor_outputs: HashMap<ActorId, ActorOutputDestination>,
-    /// Track static data position for stdin readers
-    stdin_positions: HashMap<ActorId, usize>,
     /// Channel to send I/O requests to this runtime
     system_tx: mpsc::UnboundedSender<IoRequest>,
     /// Receives I/O requests from actors
@@ -121,7 +115,6 @@ impl SystemRuntime {
             pipe_readers: HashMap::new(),
             actor_inputs: HashMap::new(),
             actor_outputs: HashMap::new(),
-            stdin_positions: HashMap::new(),
             system_tx,
             request_rx,
             next_pipe_id: 1,
@@ -137,16 +130,23 @@ impl SystemRuntime {
     /// Setup standard handles for all actors
     /// This configures the I/O mappings directly instead of going through the request channel
     fn setup_std_handles(&mut self) {
-        // Create the pipe for actor1 -> actor2 communication
-        let pipe_id = self.create_pipe("cat-pipe");
+        // Create pipe 1: pre-filled with test data for Actor 1 to read from
+        let input_pipe_id = self.create_pipe("input-data");
+        if let Some(pipe) = self.pipes.get(&input_pipe_id) {
+            let test_data = b"Hello, world!\n";
+            let written = pipe.writer().write(test_data);
+            assert_eq!(written, test_data.len() as isize, "Failed to write test data to input pipe");
+        }
 
-        // Actor 1: reads from stdin (static data), writes to pipe
-        self.actor_inputs.insert(ActorId(1), ActorInputSource::Stdin(b"Hello, world!\n"));
-        self.stdin_positions.insert(ActorId(1), 0);
-        self.actor_outputs.insert(ActorId(1), ActorOutputDestination::Pipe(pipe_id));
+        // Create pipe 2: for Actor 1 -> Actor 2 communication
+        let cat_pipe_id = self.create_pipe("cat-pipe");
 
-        // Actor 2: reads from pipe, writes to stdout
-        self.actor_inputs.insert(ActorId(2), ActorInputSource::Pipe(pipe_id));
+        // Actor 1: reads from input pipe, writes to cat pipe
+        self.actor_inputs.insert(ActorId(1), ActorInputSource::Pipe(input_pipe_id));
+        self.actor_outputs.insert(ActorId(1), ActorOutputDestination::Pipe(cat_pipe_id));
+
+        // Actor 2: reads from cat pipe, writes to stdout
+        self.actor_inputs.insert(ActorId(2), ActorInputSource::Pipe(cat_pipe_id));
         self.actor_outputs.insert(ActorId(2), ActorOutputDestination::Stdout);
     }
 
@@ -174,70 +174,27 @@ impl SystemRuntime {
     async fn run(mut self) {
         while let Some(request) = self.request_rx.recv().await {
             match request {
-                IoRequest::OpenRead { actor_id, response } => {
-                    // Set up input source based on actor_id
-                    match actor_id {
-                        ActorId(1) => {
-                            // Actor 1 reads from stdin (static data)
-                            self.actor_inputs.insert(actor_id, ActorInputSource::Stdin(b"Hello, world!\n"));
-                            self.stdin_positions.insert(actor_id, 0);
-                        }
-                        ActorId(2) => {
-                            // Actor 2 reads from pipe (pipe ID 1)
-                            self.actor_inputs.insert(actor_id, ActorInputSource::Pipe(PipeId(1)));
-                        }
-                        _ => {}
-                    }
-                    // Return dummy fd for stdin
+                IoRequest::OpenRead { response, .. } => {
+                    // Input sources are pre-configured in setup_std_handles()
+                    // Just return dummy fd
                     let _ = response.send(0); // fd = 0
                 }
-                IoRequest::OpenWrite { actor_id, response } => {
-                    // Set up output destination based on actor_id
-                    match actor_id {
-                        ActorId(1) => {
-                            // Actor 1 writes to pipe (create pipe with ID 1)
-                            if !self.pipes.contains_key(&PipeId(1)) {
-                                self.create_pipe("cat-pipe");
-                            }
-                            self.actor_outputs.insert(actor_id, ActorOutputDestination::Pipe(PipeId(1)));
-                        }
-                        ActorId(2) => {
-                            // Actor 2 writes to stdout
-                            self.actor_outputs.insert(actor_id, ActorOutputDestination::Stdout);
-                        }
-                        _ => {}
-                    }
-                    // Return dummy fd for stdout
+                IoRequest::OpenWrite { response, .. } => {
+                    // Output destinations are pre-configured in setup_std_handles()
+                    // Just return dummy fd
                     let _ = response.send(1); // fd = 1
                 }
                 IoRequest::Read { actor_id, len, response } => {
-                    // Determine where to read from based on actor_id
-                    if let Some(input_source) = self.actor_inputs.get(&actor_id) {
-                        match input_source {
-                            ActorInputSource::Stdin(data) => {
-                                // Read from static stdin data
-                                let pos = *self.stdin_positions.get(&actor_id).unwrap_or(&0);
-                                let remaining = data.get(pos..).unwrap_or(&[]);
-                                let to_copy = remaining.len().min(len);
-                                let result = remaining[..to_copy].to_vec();
-
-                                // Update position
-                                self.stdin_positions.insert(actor_id, pos + to_copy);
-
-                                let _ = response.send(result);
-                            }
-                            ActorInputSource::Pipe(pipe_id) => {
-                                // Read from pipe (async)
-                                if let Some(reader) = self.pipe_readers.get_mut(pipe_id) {
-                                    let mut buf = vec![0; len];
-                                    let n = reader.read(&mut buf).await;
-                                    #[allow(clippy::cast_sign_loss)]
-                                    buf.truncate(n as usize);
-                                    let _ = response.send(buf);
-                                } else {
-                                    let _ = response.send(vec![]);
-                                }
-                            }
+                    // All reads are from pipes now
+                    if let Some(ActorInputSource::Pipe(pipe_id)) = self.actor_inputs.get(&actor_id) {
+                        if let Some(reader) = self.pipe_readers.get_mut(pipe_id) {
+                            let mut buf = vec![0; len];
+                            let n = reader.read(&mut buf).await;
+                            #[allow(clippy::cast_sign_loss)]
+                            buf.truncate(n as usize);
+                            let _ = response.send(buf);
+                        } else {
+                            let _ = response.send(vec![]);
                         }
                     } else {
                         let _ = response.send(vec![]);
@@ -330,7 +287,6 @@ impl ActorRuntime for StubActorRuntime {
 
         self.system_tx
             .send(IoRequest::OpenRead {
-                actor_id: self.actor_id,
                 response: tx,
             })
             .unwrap();
@@ -348,7 +304,6 @@ impl ActorRuntime for StubActorRuntime {
 
         self.system_tx
             .send(IoRequest::OpenWrite {
-                actor_id: self.actor_id,
                 response: tx,
             })
             .unwrap();
