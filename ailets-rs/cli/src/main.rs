@@ -258,12 +258,18 @@ impl SystemRuntime {
                     if let Some(output_dest) = self.actor_outputs.get(&actor_id) {
                         let result = match output_dest {
                             ActorOutputDestination::Stdout => {
-                                // Write to stdout (sync)
-                                match std::io::stdout().write(&data) {
+                                // Write to stdout (sync) and flush immediately
+                                let mut stdout = std::io::stdout();
+                                match stdout.write(&data) {
                                     Ok(n) => {
-                                        #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-                                        {
-                                            n as c_int
+                                        // Flush to ensure output is immediately visible
+                                        if stdout.flush().is_err() {
+                                            -1
+                                        } else {
+                                            #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+                                            {
+                                                n as c_int
+                                            }
                                         }
                                     }
                                     Err(_) => -1,
