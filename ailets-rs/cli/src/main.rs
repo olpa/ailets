@@ -42,6 +42,17 @@ struct ActorId(usize);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PipeId(usize);
 
+/// A wrapper around a raw mutable slice pointer that can be sent between threads.
+/// SAFETY: This is only safe because the sender (aread) blocks until the receiver
+/// (SystemRuntime handler) sends a response, ensuring:
+/// 1. The buffer remains valid (stack frame doesn't unwind)
+/// 2. No concurrent access (sender is blocked)
+/// 3. Proper synchronization (channel enforces happens-before)
+struct SendableBuffer(*mut [u8]);
+
+// SAFETY: See SendableBuffer documentation above
+unsafe impl Send for SendableBuffer {}
+
 /// I/O requests sent from ActorRuntime to SystemRuntime
 enum IoRequest {
     /// Open a stream for reading (returns file descriptor)
@@ -53,10 +64,12 @@ enum IoRequest {
         response: oneshot::Sender<c_int>,
     },
     /// Read from a file descriptor (async operation)
+    /// SAFETY: The buffer pointer must remain valid until the response is sent.
+    /// This is guaranteed because aread() blocks waiting for the response.
     Read {
         actor_id: ActorId,
-        len: usize,
-        response: oneshot::Sender<Vec<u8>>,
+        buffer: SendableBuffer,
+        response: oneshot::Sender<c_int>,
     },
     /// Write to a file descriptor (async operation)
     Write {
@@ -184,20 +197,22 @@ impl SystemRuntime {
                     // Just return dummy fd
                     let _ = response.send(1); // fd = 1
                 }
-                IoRequest::Read { actor_id, len, response } => {
+                IoRequest::Read { actor_id, buffer, response } => {
+                    // SAFETY: The buffer pointer is valid because aread() is blocked
+                    // waiting for our response, keeping its stack frame alive
+                    let buf = unsafe { &mut *buffer.0 };
+
                     // All reads are from pipes now
                     if let Some(ActorInputSource::Pipe(pipe_id)) = self.actor_inputs.get(&actor_id) {
                         if let Some(reader) = self.pipe_readers.get_mut(pipe_id) {
-                            let mut buf = vec![0; len];
-                            let n = reader.read(&mut buf).await;
-                            #[allow(clippy::cast_sign_loss)]
-                            buf.truncate(n as usize);
-                            let _ = response.send(buf);
+                            let n = reader.read(buf).await;
+                            #[allow(clippy::cast_possible_truncation)]
+                            let _ = response.send(n as c_int);
                         } else {
-                            let _ = response.send(vec![]);
+                            let _ = response.send(0);
                         }
                     } else {
-                        let _ = response.send(vec![]);
+                        let _ = response.send(0);
                     }
                 }
                 IoRequest::Write { actor_id, data, response } => {
@@ -319,27 +334,27 @@ impl ActorRuntime for StubActorRuntime {
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
 
+        // SAFETY: We're passing a raw pointer to our buffer and will block until
+        // the handler finishes using it. The buffer remains valid because:
+        // 1. Our stack frame stays alive (we block via blocking_recv)
+        // 2. Only the handler accesses the buffer while we're blocked
+        // 3. The channel ensures happens-before ordering
+        let buffer_ptr = SendableBuffer(buffer as *mut [u8]);
+
         self.system_tx
             .send(IoRequest::Read {
                 actor_id: self.actor_id,
-                len: buffer.len(),
+                buffer: buffer_ptr,
                 response: tx,
             })
             .unwrap();
 
         // Block waiting for SystemRuntime to complete the async read
         eprintln!("[StubActorRuntime] Actor {:?}: aread() before blocking_recv", self.actor_id);
-        let data = rx.blocking_recv().unwrap();
-        eprintln!("[StubActorRuntime] Actor {:?}: aread() after blocking_recv, data.len={}", self.actor_id, data.len());
+        let bytes_read = rx.blocking_recv().unwrap();
+        eprintln!("[StubActorRuntime] Actor {:?}: aread() after blocking_recv, bytes_read={}", self.actor_id, bytes_read);
 
-        // Copy result into buffer
-        let n = data.len().min(buffer.len());
-        buffer[..n].copy_from_slice(&data[..n]);
-
-        #[allow(clippy::cast_possible_truncation)]
-        {
-            n as c_int
-        }
+        bytes_read
     }
 
     fn awrite(&self, _fd: c_int, buffer: &[u8]) -> c_int {
