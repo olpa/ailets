@@ -48,7 +48,44 @@ pub struct PipeId(usize);
 /// 1. The buffer remains valid (stack frame doesn't unwind)
 /// 2. No concurrent access (sender is blocked)
 /// 3. Proper synchronization (channel enforces happens-before)
-struct SendableBuffer(*mut [u8]);
+struct SendableBuffer {
+    ptr: *mut [u8],
+    #[cfg(debug_assertions)]
+    consumed: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl SendableBuffer {
+    /// Create a new SendableBuffer from a mutable slice reference.
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure:
+    /// 1. The pointer remains valid until consumed via `into_raw()`
+    /// 2. The caller will block waiting for a response before the buffer goes out of scope
+    /// 3. No other references to this buffer exist during the async operation
+    /// 4. The SendableBuffer is consumed exactly once via `into_raw()`
+    unsafe fn new(buffer: &mut [u8]) -> Self {
+        Self {
+            ptr: buffer as *mut [u8],
+            #[cfg(debug_assertions)]
+            consumed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }
+    }
+
+    /// Consume the SendableBuffer and return the raw pointer.
+    /// This prevents accidental reuse of the same buffer.
+    fn into_raw(self) -> *mut [u8] {
+        #[cfg(debug_assertions)]
+        {
+            let already_consumed = self.consumed.swap(true, std::sync::atomic::Ordering::SeqCst);
+            assert!(
+                !already_consumed,
+                "SendableBuffer used twice - this violates the safety contract!"
+            );
+        }
+        self.ptr
+    }
+}
 
 // SAFETY: See SendableBuffer documentation above
 unsafe impl Send for SendableBuffer {}
@@ -199,8 +236,9 @@ impl SystemRuntime {
                 }
                 IoRequest::Read { actor_id, buffer, response } => {
                     // SAFETY: The buffer pointer is valid because aread() is blocked
-                    // waiting for our response, keeping its stack frame alive
-                    let buf = unsafe { &mut *buffer.0 };
+                    // waiting for our response, keeping its stack frame alive.
+                    // We consume the SendableBuffer here to prevent reuse.
+                    let buf = unsafe { &mut *buffer.into_raw() };
 
                     // All reads are from pipes now
                     if let Some(ActorInputSource::Pipe(pipe_id)) = self.actor_inputs.get(&actor_id) {
@@ -339,7 +377,8 @@ impl ActorRuntime for StubActorRuntime {
         // 1. Our stack frame stays alive (we block via blocking_recv)
         // 2. Only the handler accesses the buffer while we're blocked
         // 3. The channel ensures happens-before ordering
-        let buffer_ptr = SendableBuffer(buffer as *mut [u8]);
+        // 4. The SendableBuffer is consumed exactly once in the handler
+        let buffer_ptr = unsafe { SendableBuffer::new(buffer) };
 
         self.system_tx
             .send(IoRequest::Read {
