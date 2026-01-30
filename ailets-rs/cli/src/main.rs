@@ -2,9 +2,12 @@ use actor_io::{AReader, AWriter};
 use actor_runtime::{ActorRuntime, StdHandle};
 use ailetos::notification_queue::{Handle, NotificationQueueArc};
 use ailetos::pipe::{Buffer, Pipe, Reader};
+use futures::stream::{FuturesUnordered, StreamExt};
 use std::collections::HashMap;
 use std::io::Write as StdWrite;
 use std::os::raw::c_int;
+use std::pin::Pin;
+use std::future::Future;
 use tokio::sync::{mpsc, oneshot};
 
 /// Simple Vec<u8> wrapper implementing Buffer trait for pipe usage
@@ -224,90 +227,170 @@ impl SystemRuntime {
 
     /// Main event loop - processes I/O requests asynchronously
     async fn run(mut self) {
-        while let Some(request) = self.request_rx.recv().await {
-            match request {
-                IoRequest::OpenRead { response, .. } => {
-                    // Input sources are pre-configured in setup_std_handles()
-                    // Just return dummy fd
-                    let _ = response.send(0); // fd = 0
-                }
-                IoRequest::OpenWrite { response, .. } => {
-                    // Output destinations are pre-configured in setup_std_handles()
-                    // Just return dummy fd
-                    let _ = response.send(1); // fd = 1
-                }
-                IoRequest::Read { actor_id, buffer, response } => {
-                    // SAFETY: The buffer pointer is valid because aread() is blocked
-                    // waiting for our response, keeping its stack frame alive.
-                    // We consume the SendableBuffer here to prevent reuse.
-                    let buf = unsafe { &mut *buffer.into_raw() };
+        /// Result of a completed I/O operation
+        enum IoEvent {
+            /// Read completed - need to return reader to the map
+            ReadComplete {
+                pipe_id: PipeId,
+                reader: Reader<VecBuffer>,
+                bytes_read: isize,
+                response: oneshot::Sender<c_int>,
+            },
+            /// Synchronous operation completed (write, open, close)
+            SyncComplete {
+                result: c_int,
+                response: oneshot::Sender<c_int>,
+            },
+        }
 
-                    // All reads are from pipes now
-                    if let Some(ActorInputSource::Pipe(pipe_id)) = self.actor_inputs.get(&actor_id) {
-                        if let Some(reader) = self.pipe_readers.get_mut(pipe_id) {
-                            let n = reader.read(buf).await;
-                            #[allow(clippy::cast_possible_truncation)]
-                            let _ = response.send(n as c_int);
-                        } else {
-                            let _ = response.send(0);
-                        }
-                    } else {
-                        let _ = response.send(0);
-                    }
-                }
-                IoRequest::Write { actor_id, data, response } => {
-                    // Determine where to write based on actor_id
-                    if let Some(output_dest) = self.actor_outputs.get(&actor_id) {
-                        let result = match output_dest {
-                            ActorOutputDestination::Stdout => {
-                                // Write to stdout (sync) and flush immediately
-                                let mut stdout = std::io::stdout();
-                                match stdout.write(&data) {
-                                    Ok(n) => {
-                                        // Flush to ensure output is immediately visible
-                                        if stdout.flush().is_err() {
-                                            -1
+        type IoFuture = Pin<Box<dyn Future<Output = IoEvent> + Send>>;
+
+        let mut pending_ops: FuturesUnordered<IoFuture> = FuturesUnordered::new();
+        let mut request_rx_open = true;
+
+        loop {
+            // Exit when no more requests can come and no operations are pending
+            if !request_rx_open && pending_ops.is_empty() {
+                eprintln!("[SystemRuntime] No more work, exiting");
+                break;
+            }
+
+            tokio::select! {
+                // Handle new requests from actors
+                request = self.request_rx.recv(), if request_rx_open => {
+                    match request {
+                        Some(request) => {
+                            eprintln!("[SystemRuntime] Received request");
+                            match request {
+                                IoRequest::OpenRead { response } => {
+                                    eprintln!("[SystemRuntime] Processing OpenRead");
+                                    let fut: IoFuture = Box::pin(async move {
+                                        IoEvent::SyncComplete { result: 0, response }
+                                    });
+                                    pending_ops.push(fut);
+                                }
+                                IoRequest::OpenWrite { response } => {
+                                    eprintln!("[SystemRuntime] Processing OpenWrite");
+                                    let fut: IoFuture = Box::pin(async move {
+                                        IoEvent::SyncComplete { result: 1, response }
+                                    });
+                                    pending_ops.push(fut);
+                                }
+                                IoRequest::Read { actor_id, buffer, response } => {
+                                    eprintln!("[SystemRuntime] Processing Read for {:?}", actor_id);
+
+                                    if let Some(ActorInputSource::Pipe(pipe_id)) = self.actor_inputs.get(&actor_id) {
+                                        let pipe_id = *pipe_id;
+                                        if let Some(mut reader) = self.pipe_readers.remove(&pipe_id) {
+                                            eprintln!("[SystemRuntime] Read {:?}: spawning async read for pipe {:?}", actor_id, pipe_id);
+                                            let fut: IoFuture = Box::pin(async move {
+                                                // SAFETY: Buffer remains valid because aread() blocks until response
+                                                let buf = unsafe { &mut *buffer.into_raw() };
+                                                let bytes_read = reader.read(buf).await;
+                                                eprintln!("[SystemRuntime] Read for pipe {:?} completed: {} bytes", pipe_id, bytes_read);
+                                                IoEvent::ReadComplete {
+                                                    pipe_id,
+                                                    reader,
+                                                    bytes_read,
+                                                    response,
+                                                }
+                                            });
+                                            pending_ops.push(fut);
                                         } else {
-                                            #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-                                            {
-                                                n as c_int
+                                            eprintln!("[SystemRuntime] Read {:?}: reader not available (already in use?)", actor_id);
+                                            let fut: IoFuture = Box::pin(async move {
+                                                IoEvent::SyncComplete { result: 0, response }
+                                            });
+                                            pending_ops.push(fut);
+                                        }
+                                    } else {
+                                        eprintln!("[SystemRuntime] Read {:?}: no input source configured", actor_id);
+                                        let fut: IoFuture = Box::pin(async move {
+                                            IoEvent::SyncComplete { result: 0, response }
+                                        });
+                                        pending_ops.push(fut);
+                                    }
+                                }
+                                IoRequest::Write { actor_id, data, response } => {
+                                    eprintln!("[SystemRuntime] Processing Write for {:?}, {} bytes", actor_id, data.len());
+                                    let result = if let Some(output_dest) = self.actor_outputs.get(&actor_id) {
+                                        match output_dest {
+                                            ActorOutputDestination::Stdout => {
+                                                eprintln!("[SystemRuntime] Write {:?}: writing to stdout", actor_id);
+                                                let mut stdout = std::io::stdout();
+                                                match stdout.write(&data) {
+                                                    Ok(n) => {
+                                                        if stdout.flush().is_err() {
+                                                            -1
+                                                        } else {
+                                                            #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+                                                            { n as c_int }
+                                                        }
+                                                    }
+                                                    Err(_) => -1,
+                                                }
+                                            }
+                                            ActorOutputDestination::Pipe(pipe_id) => {
+                                                eprintln!("[SystemRuntime] Write {:?}: writing to pipe {:?}", actor_id, pipe_id);
+                                                if let Some(pipe) = self.pipes.get(pipe_id) {
+                                                    let n = pipe.writer().write(&data);
+                                                    eprintln!("[SystemRuntime] Write {:?}: pipe write returned {}", actor_id, n);
+                                                    #[allow(clippy::cast_possible_truncation)]
+                                                    { n as c_int }
+                                                } else {
+                                                    eprintln!("[SystemRuntime] Write {:?}: pipe not found", actor_id);
+                                                    -1
+                                                }
+                                            }
+                                        }
+                                    } else {
+                                        eprintln!("[SystemRuntime] Write {:?}: no output destination", actor_id);
+                                        -1
+                                    };
+                                    let fut: IoFuture = Box::pin(async move {
+                                        IoEvent::SyncComplete { result, response }
+                                    });
+                                    pending_ops.push(fut);
+                                    eprintln!("[SystemRuntime] Write {:?} queued", actor_id);
+                                }
+                                IoRequest::Close { actor_id, fd, response } => {
+                                    eprintln!("[SystemRuntime] Processing Close for {:?}, fd={}", actor_id, fd);
+                                    if fd == 1 {
+                                        if let Some(ActorOutputDestination::Pipe(pipe_id)) = self.actor_outputs.get(&actor_id) {
+                                            if let Some(pipe) = self.pipes.get(pipe_id) {
+                                                pipe.writer().close();
                                             }
                                         }
                                     }
-                                    Err(_) => -1,
+                                    let fut: IoFuture = Box::pin(async move {
+                                        IoEvent::SyncComplete { result: 0, response }
+                                    });
+                                    pending_ops.push(fut);
+                                    eprintln!("[SystemRuntime] Close {:?} queued", actor_id);
                                 }
-                            }
-                            ActorOutputDestination::Pipe(pipe_id) => {
-                                // Write to pipe (sync)
-                                if let Some(pipe) = self.pipes.get(pipe_id) {
-                                    let n = pipe.writer().write(&data);
-                                    #[allow(clippy::cast_possible_truncation)]
-                                    {
-                                        n as c_int
-                                    }
-                                } else {
-                                    -1
-                                }
-                            }
-                        };
-                        let _ = response.send(result);
-                    } else {
-                        let _ = response.send(-1);
-                    }
-                }
-                IoRequest::Close { actor_id, fd, response } => {
-                    // Close the underlying resource if it's a pipe
-                    // fd=1 is stdout/writer, fd=0 is stdin/reader
-                    if fd == 1 {
-                        // Closing a writer
-                        if let Some(ActorOutputDestination::Pipe(pipe_id)) = self.actor_outputs.get(&actor_id) {
-                            if let Some(pipe) = self.pipes.get(pipe_id) {
-                                pipe.writer().close();
                             }
                         }
+                        None => {
+                            eprintln!("[SystemRuntime] Request channel closed");
+                            request_rx_open = false;
+                        }
                     }
-                    // Readers don't need explicit close - they clean up on drop
-                    let _ = response.send(0);
+                }
+
+                // Handle completed operations
+                Some(event) = pending_ops.next(), if !pending_ops.is_empty() => {
+                    match event {
+                        IoEvent::ReadComplete { pipe_id, reader, bytes_read, response } => {
+                            eprintln!("[SystemRuntime] Read completed for pipe {:?}, {} bytes", pipe_id, bytes_read);
+                            // Put reader back
+                            self.pipe_readers.insert(pipe_id, reader);
+                            #[allow(clippy::cast_possible_truncation)]
+                            let _ = response.send(bytes_read as c_int);
+                        }
+                        IoEvent::SyncComplete { result, response } => {
+                            let _ = response.send(result);
+                        }
+                    }
                 }
             }
         }

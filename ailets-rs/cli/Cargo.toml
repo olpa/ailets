@@ -16,3 +16,4 @@ actor_runtime = { path = "../actor_runtime" }
 ailetos = { path = "../ailetos" }
 embedded-io.workspace = true
 tokio = { version = "1", features = ["rt", "macros"] }
+futures = "0.3"
