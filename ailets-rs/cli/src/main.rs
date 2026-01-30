@@ -151,6 +151,8 @@ struct SystemRuntime {
     system_tx: mpsc::UnboundedSender<IoRequest>,
     /// Receives I/O requests from actors
     request_rx: mpsc::UnboundedReceiver<IoRequest>,
+    /// Shared notification queue for all pipes
+    notification_queue: NotificationQueueArc,
     /// Counter for generating unique pipe IDs
     next_pipe_id: usize,
     /// Counter for generating unique notification queue handles
@@ -167,6 +169,7 @@ impl SystemRuntime {
             actor_outputs: HashMap::new(),
             system_tx,
             request_rx,
+            notification_queue: NotificationQueueArc::new(),
             next_pipe_id: 1,
             next_handle_id: 1,
         }
@@ -205,13 +208,12 @@ impl SystemRuntime {
         let pipe_id = PipeId(self.next_pipe_id);
         self.next_pipe_id += 1;
 
-        let queue = NotificationQueueArc::new();
         let writer_handle = Handle::new(self.next_handle_id);
         self.next_handle_id += 1;
         let reader_handle = Handle::new(self.next_handle_id);
         self.next_handle_id += 1;
 
-        let pipe = Pipe::new(writer_handle, queue, name, VecBuffer::new());
+        let pipe = Pipe::new(writer_handle, self.notification_queue.clone(), name, VecBuffer::new());
         let reader = pipe.get_reader(reader_handle);
 
         self.pipes.insert(pipe_id, pipe);
