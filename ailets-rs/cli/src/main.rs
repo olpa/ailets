@@ -141,7 +141,7 @@ enum ActorOutputDestination {
 
 /// Result of a completed I/O operation
 enum IoEvent {
-    /// Read completed - need to return reader to the map
+    /// Read completed - need to return reader to its slot
     ReadComplete {
         pipe_id: PipeId,
         reader: Reader<VecBuffer>,
@@ -163,8 +163,8 @@ type IoFuture = Pin<Box<dyn Future<Output = IoEvent> + Send>>;
 struct SystemRuntime {
     /// All pipes in the system (we store the whole pipe to access both reader and writer)
     pipes: HashMap<PipeId, Pipe<VecBuffer>>,
-    /// All pipe readers in the system (readers are async)
-    pipe_readers: HashMap<PipeId, Reader<VecBuffer>>,
+    /// All pipe readers in the system (readers are async, None when in use)
+    pipe_readers: HashMap<PipeId, Option<Reader<VecBuffer>>>,
     /// Input configuration for each actor
     actor_inputs: HashMap<ActorId, ActorInputSource>,
     /// Output configuration for each actor
@@ -239,7 +239,7 @@ impl SystemRuntime {
         let reader = pipe.get_reader(reader_handle);
 
         self.pipes.insert(pipe_id, pipe);
-        self.pipe_readers.insert(pipe_id, reader);
+        self.pipe_readers.insert(pipe_id, Some(reader));
 
         pipe_id
     }
@@ -271,7 +271,7 @@ impl SystemRuntime {
 
         if let Some(ActorInputSource::Pipe(pipe_id)) = self.actor_inputs.get(&actor_id) {
             let pipe_id = *pipe_id;
-            if let Some(mut reader) = self.pipe_readers.remove(&pipe_id) {
+            if let Some(mut reader) = self.pipe_readers.get_mut(&pipe_id).and_then(Option::take) {
                 eprintln!("[SystemRuntime] Read {:?}: spawning async read for pipe {:?}", actor_id, pipe_id);
                 Box::pin(async move {
                     // SAFETY: Buffer remains valid because aread() blocks until response
@@ -378,7 +378,9 @@ impl SystemRuntime {
     ) {
         eprintln!("[SystemRuntime] Read completed for pipe {:?}, {} bytes", pipe_id, bytes_read);
         // Put reader back
-        self.pipe_readers.insert(pipe_id, reader);
+        if let Some(slot) = self.pipe_readers.get_mut(&pipe_id) {
+            *slot = Some(reader);
+        }
         #[allow(clippy::cast_possible_truncation)]
         let _ = response.send(bytes_read as c_int);
     }
