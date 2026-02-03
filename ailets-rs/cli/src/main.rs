@@ -211,6 +211,8 @@ impl SystemRuntime {
             let test_data = b"Hello, world!\n";
             let written = pipe.writer().write(test_data);
             assert_eq!(written, test_data.len() as isize, "Failed to write test data to input pipe");
+            // Close the writer to signal EOF to readers
+            pipe.writer().close();
         }
 
         // Create pipe 2: for Actor 1 -> Actor 2 communication
