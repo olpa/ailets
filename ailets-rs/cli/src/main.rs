@@ -169,8 +169,8 @@ struct SystemRuntime {
     actor_inputs: HashMap<ActorId, ActorInputSource>,
     /// Output configuration for each actor
     actor_outputs: HashMap<ActorId, ActorOutputDestination>,
-    /// Channel to send I/O requests to this runtime
-    system_tx: mpsc::UnboundedSender<IoRequest>,
+    /// Channel to send I/O requests to this runtime (None after run() starts)
+    system_tx: Option<mpsc::UnboundedSender<IoRequest>>,
     /// Receives I/O requests from actors
     request_rx: mpsc::UnboundedReceiver<IoRequest>,
     /// Shared notification queue for all pipes
@@ -189,7 +189,7 @@ impl SystemRuntime {
             pipe_readers: HashMap::new(),
             actor_inputs: HashMap::new(),
             actor_outputs: HashMap::new(),
-            system_tx,
+            system_tx: Some(system_tx),
             request_rx,
             notification_queue: NotificationQueueArc::new(),
             next_pipe_id: 1,
@@ -199,7 +199,7 @@ impl SystemRuntime {
 
     /// Factory method to create an ActorRuntime for a specific actor
     fn create_actor_runtime(&self, actor_id: ActorId) -> StubActorRuntime {
-        StubActorRuntime::new(actor_id, self.system_tx.clone())
+        StubActorRuntime::new(actor_id, self.system_tx.as_ref().expect("system_tx taken").clone())
     }
 
     /// Setup standard handles for all actors
@@ -397,6 +397,9 @@ impl SystemRuntime {
 
     /// Main event loop - processes I/O requests asynchronously
     async fn run(mut self) {
+        // Drop our copy of the sender so channel closes when all actors finish
+        drop(self.system_tx.take());
+
         let mut pending_ops: FuturesUnordered<IoFuture> = FuturesUnordered::new();
         let mut request_rx_open = true;
 
