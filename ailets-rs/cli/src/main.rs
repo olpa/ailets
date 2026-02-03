@@ -43,7 +43,7 @@ struct ActorId(usize);
 
 /// Unique identifier for pipes in the system
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PipeId(usize);
+pub struct PipeId(i64);
 
 /// A wrapper around a raw mutable slice pointer that can be sent between threads.
 /// SAFETY: This is only safe because the sender (aread) blocks until the receiver
@@ -175,10 +175,8 @@ struct SystemRuntime {
     request_rx: mpsc::UnboundedReceiver<IoRequest>,
     /// Shared notification queue for all pipes
     notification_queue: NotificationQueueArc,
-    /// Counter for generating unique pipe IDs
-    next_pipe_id: usize,
-    /// Counter for generating unique notification queue handles
-    next_handle_id: i64,
+    /// Counter for generating unique IDs (pipes and handles)
+    next_id: i64,
 }
 
 impl SystemRuntime {
@@ -192,8 +190,7 @@ impl SystemRuntime {
             system_tx: Some(system_tx),
             request_rx,
             notification_queue: NotificationQueueArc::new(),
-            next_pipe_id: 1,
-            next_handle_id: 1,
+            next_id: 1,
         }
     }
 
@@ -229,13 +226,13 @@ impl SystemRuntime {
 
     /// Create a new pipe and return its ID
     fn create_pipe(&mut self, name: &str) -> PipeId {
-        let pipe_id = PipeId(self.next_pipe_id);
-        self.next_pipe_id += 1;
+        let pipe_id = PipeId(self.next_id);
+        self.next_id += 1;
 
-        let writer_handle = Handle::new(self.next_handle_id);
-        self.next_handle_id += 1;
-        let reader_handle = Handle::new(self.next_handle_id);
-        self.next_handle_id += 1;
+        let writer_handle = Handle::new(self.next_id);
+        self.next_id += 1;
+        let reader_handle = Handle::new(self.next_id);
+        self.next_id += 1;
 
         let pipe = Pipe::new(writer_handle, self.notification_queue.clone(), name, VecBuffer::new());
         let reader = pipe.get_reader(reader_handle);
