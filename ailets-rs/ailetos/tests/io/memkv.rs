@@ -1,4 +1,4 @@
-//! Integration tests for KV module
+//! Integration tests for MemKV module
 
 use ailetos::{KVBuffers, KVError, MemKV, OpenMode};
 
@@ -8,15 +8,12 @@ async fn test_open_write_then_read() {
 
     // Write creates a new buffer
     let buffer = kv.open("test/path", OpenMode::Write).await.unwrap();
-    {
-        let mut data = buffer.lock();
-        data.extend_from_slice(b"hello world");
-    }
+    buffer.append(b"hello world").unwrap();
 
     // Read returns the same buffer
     let buffer2 = kv.open("test/path", OpenMode::Read).await.unwrap();
-    let data = buffer2.lock();
-    assert_eq!(data.as_slice(), b"hello world");
+    let guard = buffer2.lock();
+    assert_eq!(&*guard, b"hello world");
 }
 
 #[tokio::test]
@@ -25,21 +22,15 @@ async fn test_open_append() {
 
     // Append creates new buffer if not exists
     let buffer = kv.open("test/path", OpenMode::Append).await.unwrap();
-    {
-        let mut data = buffer.lock();
-        data.extend_from_slice(b"first");
-    }
+    buffer.append(b"first").unwrap();
 
     // Append returns existing buffer
     let buffer2 = kv.open("test/path", OpenMode::Append).await.unwrap();
-    {
-        let mut data = buffer2.lock();
-        data.extend_from_slice(b" second");
-    }
+    buffer2.append(b" second").unwrap();
 
     // Verify both writes are in the buffer
-    let data = buffer.lock();
-    assert_eq!(data.as_slice(), b"first second");
+    let guard = buffer.lock();
+    assert_eq!(&*guard, b"first second");
 }
 
 #[tokio::test]
@@ -60,17 +51,12 @@ async fn test_open_write_overwrites() {
 
     // Write initial data
     let buffer = kv.open("test/path", OpenMode::Write).await.unwrap();
-    {
-        let mut data = buffer.lock();
-        data.extend_from_slice(b"initial data");
-    }
+    buffer.append(b"initial data").unwrap();
 
     // Write again overwrites
     let buffer2 = kv.open("test/path", OpenMode::Write).await.unwrap();
-    {
-        let data = buffer2.lock();
-        assert!(data.is_empty(), "Write mode should create empty buffer");
-    }
+    let guard = buffer2.lock();
+    assert!(guard.is_empty(), "Write mode should create empty buffer");
 }
 
 #[tokio::test]

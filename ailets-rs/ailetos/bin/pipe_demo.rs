@@ -5,31 +5,8 @@
 use std::cmp::Ordering;
 
 use ailetos::notification_queue::{Handle, NotificationQueueArc};
-use ailetos::pipe::{Buffer, Pipe, Reader};
-
-// Wrapper type for Vec<u8> to implement Buffer
-struct VecBuffer(Vec<u8>);
-
-impl VecBuffer {
-    fn new() -> Self {
-        Self(Vec::new())
-    }
-}
-
-impl Buffer for VecBuffer {
-    fn write(&mut self, data: &[u8]) -> isize {
-        self.0.extend_from_slice(data);
-        data.len().cast_signed()
-    }
-
-    fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    fn as_slice(&self) -> &[u8] {
-        &self.0
-    }
-}
+use ailetos::pipe::{Pipe, Reader};
+use ailetos::Buffer;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -37,7 +14,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let queue = NotificationQueueArc::new();
 
-    let pipe = Pipe::new(Handle::new(0), queue.clone(), "demo", VecBuffer::new());
+    let pipe = Pipe::new(Handle::new(0), queue.clone(), "demo", Buffer::new());
 
     let mut reader1 = pipe.get_reader(Handle::new(1));
     let mut reader2 = pipe.get_reader(Handle::new(2));
@@ -65,7 +42,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn write_all(pipe: Pipe<VecBuffer>) {
+async fn write_all(pipe: Pipe) {
     println!("Enter text (empty line to quit):");
 
     let stdin = tokio::io::stdin();
@@ -89,7 +66,7 @@ async fn write_all(pipe: Pipe<VecBuffer>) {
     println!("Writer closed");
 }
 
-async fn read_all(name: &str, reader: &mut Reader<VecBuffer>) {
+async fn read_all(name: &str, reader: &mut Reader) {
     let mut buf = [0u8; 4];
 
     loop {

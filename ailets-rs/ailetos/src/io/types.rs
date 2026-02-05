@@ -1,9 +1,7 @@
-//! Key-value buffer storage types and traits
+//! Key-value storage types and traits
 
-use parking_lot::Mutex;
-use std::fmt;
+use super::buffer::Buffer;
 use std::future::Future;
-use std::sync::Arc;
 
 /// Mode for opening a buffer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,9 +14,6 @@ pub enum OpenMode {
     Append,
 }
 
-/// A handle to a buffer in the KV store
-pub type KVBuffer = Arc<Mutex<Vec<u8>>>;
-
 /// Errors that can occur in KV operations
 #[derive(Debug)]
 pub enum KVError {
@@ -26,8 +21,8 @@ pub enum KVError {
     NotFound(String),
 }
 
-impl fmt::Display for KVError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl std::fmt::Display for KVError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotFound(path) => write!(f, "Path not found: {path}"),
         }
@@ -38,7 +33,7 @@ impl std::error::Error for KVError {}
 
 /// Trait for key-value buffer storage backends
 ///
-/// Provides async operations for storing and retrieving byte buffers.
+/// Provides async operations for storing and retrieving buffers.
 /// Each buffer is identified by a string path.
 pub trait KVBuffers: Send + Sync {
     /// Open a buffer at path with given mode.
@@ -50,7 +45,7 @@ pub trait KVBuffers: Send + Sync {
         &self,
         path: &str,
         mode: OpenMode,
-    ) -> impl Future<Output = Result<KVBuffer, KVError>> + Send;
+    ) -> impl Future<Output = Result<Buffer, KVError>> + Send;
 
     /// Flush buffer to backing store.
     ///

@@ -10,52 +10,18 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::sync::Arc;
 
+use crate::io::Buffer;
 use crate::notification_queue::{Handle, NotificationQueueArc};
 
-/// Trait for buffer storage used in Pipe
-///
-/// This trait abstracts the buffer storage, allowing different implementations
-/// beyond the default `Vec<u8>`. Implementors must support:
-/// - Appending data efficiently
-/// - Querying the current length
-/// - Providing read-only slice access
-///
-/// # Safety
-///
-/// Implementors must ensure thread safety when used with `Send` bound.
-/// The buffer is protected by `Arc<Mutex<...>>` but the buffer type itself
-/// must be `Send`.
-pub trait Buffer: Send {
-    /// Write data to the end of the buffer
-    ///
-    /// Returns:
-    /// - Positive value: number of bytes written
-    /// - 0: no bytes written (buffer full or other non-error condition)
-    /// - Negative value: errno indicating the error
-    fn write(&mut self, data: &[u8]) -> isize;
-
-    /// Get the current length of the buffer
-    fn len(&self) -> usize;
-
-    /// Check if buffer is empty
-    #[allow(clippy::len_without_is_empty)]
-    fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-
-    /// Get a slice of the buffer for reading
-    fn as_slice(&self) -> &[u8];
-}
-
 /// Shared state between Writer and Readers
-struct SharedBuffer<B: Buffer> {
-    buffer: B,
+struct SharedBuffer {
+    buffer: Buffer,
     errno: i32,
     closed: bool,
 }
 
-impl<B: Buffer> SharedBuffer<B> {
-    fn new(buffer: B) -> Self {
+impl SharedBuffer {
+    fn new(buffer: Buffer) -> Self {
         Self {
             buffer,
             errno: 0,
@@ -81,19 +47,15 @@ impl<B: Buffer> SharedBuffer<B> {
 ///   another `write()` on the same thread (e.g., from a callback) would deadlock.
 ///   However, this is not an issue in practice since notifications are sent after
 ///   the lock is released.
-///
-/// # Type Parameters
-///
-/// * `B` - Buffer type implementing `Buffer`.
-pub struct Writer<B: Buffer> {
-    shared: Arc<Mutex<SharedBuffer<B>>>,
+pub struct Writer {
+    shared: Arc<Mutex<SharedBuffer>>,
     handle: Handle,
     queue: NotificationQueueArc,
     debug_hint: String,
 }
 
-impl<B: Buffer> Writer<B> {
-    pub fn new(handle: Handle, queue: NotificationQueueArc, debug_hint: &str, buffer: B) -> Self {
+impl Writer {
+    pub fn new(handle: Handle, queue: NotificationQueueArc, debug_hint: &str, buffer: Buffer) -> Self {
         queue.whitelist(handle, &format!("memPipe.writer {debug_hint}"));
 
         Self {
@@ -144,10 +106,9 @@ impl<B: Buffer> Writer<B> {
     /// - If errno is set, returns -1
     /// - If data is empty, returns 0 WITHOUT notifying observers
     ///   (this avoids unnecessary wakeups of waiting readers)
-    /// - If data is non-empty, calls `buffer.write()` and:
-    ///   - If `write()` returns > 0: notifies observers and returns the count
-    ///   - If `write()` returns 0: sets errno to ENOSPC (28) and returns -1
-    ///   - If `write()` returns < 0: sets errno to the returned value and returns -1
+    /// - If data is non-empty, appends to buffer and:
+    ///   - If successful: notifies observers and returns the count
+    ///   - If failed: sets errno and returns -1
     #[must_use]
     pub fn write(&self, data: &[u8]) -> isize {
         let notification = {
@@ -167,32 +128,26 @@ impl<B: Buffer> Writer<B> {
                 return 0;
             }
 
-            let write_result = shared.buffer.write(data);
-
-            match write_result.cmp(&0) {
-                Ordering::Greater => write_result,
-                Ordering::Equal => {
-                    // Buffer full or similar condition - treat as ENOSPC
+            match shared.buffer.append(data) {
+                Ok(()) => {
+                    #[allow(clippy::cast_possible_wrap)]
+                    {
+                        data.len() as isize
+                    }
+                }
+                Err(_) => {
+                    // Buffer append failed - treat as ENOSPC
                     shared.errno = 28; // ENOSPC
                     -28
-                }
-                Ordering::Less => {
-                    // Negative errno from buffer
-                    #[allow(clippy::cast_possible_truncation)]
-                    {
-                        shared.errno = -write_result as i32;
-                    }
-                    write_result
                 }
             }
         };
 
         // Notify outside lock
         self.queue.notify(self.handle, notification as i64);
-        if notification > 0 {
-            notification
-        } else {
-            -1
+        match notification.cmp(&0) {
+            Ordering::Greater => notification,
+            Ordering::Equal | Ordering::Less => -1,
         }
     }
 
@@ -218,7 +173,7 @@ impl<B: Buffer> Writer<B> {
     }
 
     /// Create shared data for a new reader
-    pub(crate) fn share_with_reader(&self) -> ReaderSharedData<B> {
+    pub(crate) fn share_with_reader(&self) -> ReaderSharedData {
         ReaderSharedData {
             buffer: Arc::clone(&self.shared),
             writer_handle: self.handle,
@@ -227,7 +182,7 @@ impl<B: Buffer> Writer<B> {
     }
 }
 
-impl<B: Buffer> fmt::Debug for Writer<B> {
+impl fmt::Debug for Writer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let shared = self.shared.lock();
         write!(
@@ -242,7 +197,7 @@ impl<B: Buffer> fmt::Debug for Writer<B> {
     }
 }
 
-impl<B: Buffer> Drop for Writer<B> {
+impl Drop for Writer {
     fn drop(&mut self) {
         if !self.is_closed() {
             self.close();
@@ -251,8 +206,8 @@ impl<B: Buffer> Drop for Writer<B> {
 }
 
 /// Shared data passed from Writer to Reader
-pub(crate) struct ReaderSharedData<B: Buffer> {
-    buffer: Arc<Mutex<SharedBuffer<B>>>,
+pub(crate) struct ReaderSharedData {
+    buffer: Arc<Mutex<SharedBuffer>>,
     writer_handle: Handle,
     queue: NotificationQueueArc,
 }
@@ -288,13 +243,9 @@ enum WaitAction {
 ///   checker. Each Reader instance must be used from a single task/thread at a time.
 /// - **Separate Readers are independent**: Different Reader instances can operate
 ///   concurrently without interfering with each other.
-///
-/// # Type Parameters
-///
-/// * `B` - Buffer type implementing `Buffer`.
-pub struct Reader<B: Buffer> {
+pub struct Reader {
     own_handle: Handle,
-    buffer: Arc<Mutex<SharedBuffer<B>>>,
+    buffer: Arc<Mutex<SharedBuffer>>,
     writer_handle: Handle,
     queue: NotificationQueueArc,
     pos: usize,
@@ -302,8 +253,8 @@ pub struct Reader<B: Buffer> {
     own_errno: i32,
 }
 
-impl<B: Buffer> Reader<B> {
-    pub(crate) fn new(handle: Handle, shared_data: ReaderSharedData<B>) -> Self {
+impl Reader {
+    pub(crate) fn new(handle: Handle, shared_data: ReaderSharedData) -> Self {
         Self {
             own_handle: handle,
             buffer: shared_data.buffer,
@@ -434,7 +385,8 @@ impl<B: Buffer> Reader<B> {
 
             // Read data from buffer
             let shared = self.buffer.lock();
-            let available = shared.buffer.len().saturating_sub(self.pos);
+            let buffer_guard = shared.buffer.lock();
+            let available = buffer_guard.len().saturating_sub(self.pos);
             let to_read = available.min(buf.len());
             let end_pos = self.pos + to_read;
 
@@ -445,10 +397,11 @@ impl<B: Buffer> Reader<B> {
             // Therefore both slices are within bounds
             #[allow(clippy::indexing_slicing)]
             {
-                buf[..to_read].copy_from_slice(&shared.buffer.as_slice()[self.pos..end_pos]);
+                buf[..to_read].copy_from_slice(&buffer_guard[self.pos..end_pos]);
             }
             self.pos = end_pos;
 
+            drop(buffer_guard);
             drop(shared);
             return to_read.cast_signed();
         }
@@ -457,7 +410,7 @@ impl<B: Buffer> Reader<B> {
     }
 }
 
-impl<B: Buffer> fmt::Debug for Reader<B> {
+impl fmt::Debug for Reader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
@@ -467,7 +420,7 @@ impl<B: Buffer> fmt::Debug for Reader<B> {
     }
 }
 
-impl<B: Buffer> Drop for Reader<B> {
+impl Drop for Reader {
     fn drop(&mut self) {
         if !self.is_closed() {
             self.close();
@@ -476,17 +429,13 @@ impl<B: Buffer> Drop for Reader<B> {
 }
 
 /// In-memory pipe factory
-///
-/// # Type Parameters
-///
-/// * `B` - Buffer type implementing `Buffer`.
-pub struct Pipe<B: Buffer> {
-    writer: Writer<B>,
+pub struct Pipe {
+    writer: Writer,
 }
 
-impl<B: Buffer> Pipe<B> {
+impl Pipe {
     /// Create a new Pipe with the provided buffer
-    pub fn new(writer_handle: Handle, queue: NotificationQueueArc, hint: &str, buffer: B) -> Self {
+    pub fn new(writer_handle: Handle, queue: NotificationQueueArc, hint: &str, buffer: Buffer) -> Self {
         let writer = Writer::new(writer_handle, queue, hint, buffer);
 
         Self { writer }
@@ -494,23 +443,23 @@ impl<B: Buffer> Pipe<B> {
 
     /// Get the writer side
     #[must_use]
-    pub fn writer(&self) -> &Writer<B> {
+    pub fn writer(&self) -> &Writer {
         &self.writer
     }
 
     /// Get a mutable reference to the writer
-    pub fn writer_mut(&mut self) -> &mut Writer<B> {
+    pub fn writer_mut(&mut self) -> &mut Writer {
         &mut self.writer
     }
 
     /// Get a reader for this pipe with an explicit handle
     #[must_use]
-    pub fn get_reader(&self, reader_handle: Handle) -> Reader<B> {
+    pub fn get_reader(&self, reader_handle: Handle) -> Reader {
         Reader::new(reader_handle, self.writer.share_with_reader())
     }
 }
 
-impl<B: Buffer> fmt::Debug for Pipe<B> {
+impl fmt::Debug for Pipe {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Pipe(writer={:?})", self.writer)
     }

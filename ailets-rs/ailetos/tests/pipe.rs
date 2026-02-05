@@ -1,82 +1,13 @@
 use ailetos::notification_queue::{Handle, NotificationQueueArc};
-use ailetos::pipe::{Buffer, Pipe};
-use std::sync::{Arc, Mutex};
-
-// Wrapper type for Vec<u8> to implement Buffer
-struct VecBuffer(Vec<u8>);
-
-impl VecBuffer {
-    fn new() -> Self {
-        Self(Vec::new())
-    }
-}
-
-impl Buffer for VecBuffer {
-    fn write(&mut self, data: &[u8]) -> isize {
-        self.0.extend_from_slice(data);
-        data.len() as isize
-    }
-
-    fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    fn as_slice(&self) -> &[u8] {
-        &self.0
-    }
-}
-
-// Configurable buffer for testing different write() return values
-struct ConfigurableBuffer {
-    data: Vec<u8>,
-    write_return: Arc<Mutex<Option<isize>>>,
-}
-
-impl ConfigurableBuffer {
-    fn new(write_return: Arc<Mutex<Option<isize>>>) -> Self {
-        Self {
-            data: Vec::new(),
-            write_return,
-        }
-    }
-}
-
-impl Buffer for ConfigurableBuffer {
-    fn write(&mut self, data: &[u8]) -> isize {
-        let return_value = self.write_return.lock().unwrap().take();
-
-        if let Some(val) = return_value {
-            if val > 0 {
-                // Partial or full write
-                let to_write = (val as usize).min(data.len());
-                self.data.extend_from_slice(&data[..to_write]);
-                val
-            } else {
-                // Error (0 or negative)
-                val
-            }
-        } else {
-            // Default: successful write
-            self.data.extend_from_slice(data);
-            data.len() as isize
-        }
-    }
-
-    fn len(&self) -> usize {
-        self.data.len()
-    }
-
-    fn as_slice(&self) -> &[u8] {
-        &self.data
-    }
-}
+use ailetos::pipe::Pipe;
+use ailetos::Buffer;
 
 #[tokio::test]
 async fn test_write_read() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
 
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", VecBuffer::new());
+    let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     let mut reader = pipe.get_reader(Handle::new(2));
     let _reader_handle = *reader.handle();
@@ -98,7 +29,7 @@ async fn test_write_read() {
 async fn test_multiple_write_read_cycles() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", VecBuffer::new());
+    let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     let mut reader = pipe.get_reader(Handle::new(2));
 
@@ -147,7 +78,7 @@ async fn test_multiple_readers() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
 
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", VecBuffer::new());
+    let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     let mut reader1 = pipe.get_reader(Handle::new(2));
     let _reader1_handle = *reader1.handle();
@@ -178,7 +109,7 @@ async fn test_close_sends_notification() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
 
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", VecBuffer::new());
+    let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     // Subscribe to writer's handle to observe notifications
     let mut subscriber = queue
@@ -201,7 +132,7 @@ async fn test_close_unlists_handle() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
 
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", VecBuffer::new());
+    let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     // Close the writer
     pipe.writer().close();
@@ -216,7 +147,7 @@ async fn test_write_notifies_observers() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
 
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", VecBuffer::new());
+    let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     // Subscribe to writer's handle to observe notifications directly
     let mut subscriber = queue
@@ -240,7 +171,7 @@ async fn test_empty_write_does_not_notify() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
 
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", VecBuffer::new());
+    let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     // Subscribe to writer's handle to observe notifications directly
     let mut subscriber = queue
@@ -280,7 +211,7 @@ async fn test_empty_write_does_not_notify() {
 async fn test_empty_write_does_not_wake_waiting_reader() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", VecBuffer::new());
+    let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     let mut reader = pipe.get_reader(Handle::new(2));
 
@@ -336,7 +267,7 @@ async fn test_empty_write_on_closed_writer() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
 
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", VecBuffer::new());
+    let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     // Close the writer
     pipe.writer().close();
@@ -351,7 +282,7 @@ async fn test_empty_write_with_errno() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
 
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", VecBuffer::new());
+    let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     // Set error
     pipe.writer().set_error(42);
@@ -366,7 +297,7 @@ async fn test_empty_write_with_errno() {
 async fn test_reader_dont_read_when_error() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", VecBuffer::new());
+    let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     let mut reader = pipe.get_reader(Handle::new(2));
 
@@ -393,7 +324,7 @@ async fn test_reader_dont_read_when_error() {
 async fn test_reader_get_writer_error() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", VecBuffer::new());
+    let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     let reader = pipe.get_reader(Handle::new(2));
 
@@ -408,7 +339,7 @@ async fn test_reader_get_writer_error() {
 async fn test_reader_read_with_writer_error() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", VecBuffer::new());
+    let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     let mut reader = pipe.get_reader(Handle::new(2));
 
@@ -434,7 +365,7 @@ async fn test_reader_read_with_writer_error() {
 async fn test_reader_drains_buffer_before_error() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", VecBuffer::new());
+    let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     // Write some data
     assert_eq!(pipe.writer().write(b"buffered"), 8);
@@ -461,7 +392,7 @@ async fn test_reader_drains_buffer_before_error() {
 async fn test_writer_error_notifies_reader() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", VecBuffer::new());
+    let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     let mut reader = pipe.get_reader(Handle::new(2));
 
@@ -495,7 +426,7 @@ async fn test_writer_error_notifies_reader() {
 async fn test_reader_own_error_takes_precedence() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", VecBuffer::new());
+    let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     let mut reader = pipe.get_reader(Handle::new(2));
 
@@ -519,7 +450,7 @@ async fn test_reader_own_error_takes_precedence() {
 async fn test_reader_error_checked_before_writer() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", VecBuffer::new());
+    let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     let mut reader = pipe.get_reader(Handle::new(2));
 
@@ -545,7 +476,7 @@ async fn test_reader_error_checked_before_writer() {
 async fn test_multiple_readers_independent_errors() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", VecBuffer::new());
+    let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     let mut reader1 = pipe.get_reader(Handle::new(2));
     let mut reader2 = pipe.get_reader(Handle::new(3));
@@ -568,7 +499,7 @@ async fn test_multiple_readers_independent_errors() {
 async fn test_writer_set_error_notifies() {
     let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", VecBuffer::new());
+    let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     // Subscribe to writer's handle to observe notifications
     let mut subscriber = queue
@@ -584,154 +515,4 @@ async fn test_writer_set_error_notifies() {
         .await
         .expect("Should receive notification");
     assert_eq!(notification, -123);
-}
-
-#[tokio::test]
-async fn test_buffer_write_returns_zero() {
-    // Test when buffer.write() returns 0 (buffer full)
-    let queue = NotificationQueueArc::new();
-    let writer_handle = Handle::new(1);
-
-    let write_return = Arc::new(Mutex::new(Some(0)));
-    let buffer = ConfigurableBuffer::new(write_return.clone());
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", buffer);
-
-    // Subscribe to observe notifications
-    let mut subscriber = queue
-        .subscribe(writer_handle, 10, "test_subscriber")
-        .expect("Failed to subscribe");
-
-    // Write should return -1 when buffer returns 0
-    let result = pipe.writer().write(b"test");
-    assert_eq!(result, -1);
-
-    // errno should be set to ENOSPC (28)
-    assert_eq!(pipe.writer().get_error(), 28);
-
-    // Notification should be -28 (negative ENOSPC)
-    let notification = subscriber
-        .recv()
-        .await
-        .expect("Should receive notification");
-    assert_eq!(notification, -28);
-}
-
-#[tokio::test]
-async fn test_buffer_write_returns_negative_errno() {
-    // Test when buffer.write() returns a negative errno
-    let queue = NotificationQueueArc::new();
-    let writer_handle = Handle::new(1);
-
-    // Simulate buffer returning -5 (EIO - Input/output error)
-    let write_return = Arc::new(Mutex::new(Some(-5)));
-    let buffer = ConfigurableBuffer::new(write_return.clone());
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", buffer);
-
-    // Subscribe to observe notifications
-    let mut subscriber = queue
-        .subscribe(writer_handle, 10, "test_subscriber")
-        .expect("Failed to subscribe");
-
-    // Write should return -1 when buffer returns negative errno
-    let result = pipe.writer().write(b"test");
-    assert_eq!(result, -1);
-
-    // errno should be set to 5 (the positive value of the error)
-    assert_eq!(pipe.writer().get_error(), 5);
-
-    // Notification should be -5 (the original negative errno from buffer)
-    let notification = subscriber
-        .recv()
-        .await
-        .expect("Should receive notification");
-    assert_eq!(notification, -5);
-}
-
-#[tokio::test]
-async fn test_buffer_write_partial() {
-    // Test when buffer.write() returns a value less than the data length (partial write)
-    let queue = NotificationQueueArc::new();
-    let writer_handle = Handle::new(1);
-
-    // Simulate buffer accepting only 3 bytes out of 5
-    let write_return = Arc::new(Mutex::new(Some(3)));
-    let buffer = ConfigurableBuffer::new(write_return.clone());
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", buffer);
-
-    // Subscribe to observe notifications
-    let mut subscriber = queue
-        .subscribe(writer_handle, 10, "test_subscriber")
-        .expect("Failed to subscribe");
-
-    // Write should return 3 (partial write)
-    let result = pipe.writer().write(b"hello");
-    assert_eq!(result, 3);
-
-    // No error should be set
-    assert_eq!(pipe.writer().get_error(), 0);
-
-    // Notification should be 3 (positive count of bytes written)
-    let notification = subscriber
-        .recv()
-        .await
-        .expect("Should receive notification");
-    assert_eq!(notification, 3);
-
-    // Verify only 3 bytes were written to buffer
-    assert_eq!(pipe.writer().tell(), 3);
-}
-
-#[tokio::test]
-async fn test_buffer_write_full_success() {
-    // Test when buffer.write() returns the full data length (successful write)
-    let queue = NotificationQueueArc::new();
-    let writer_handle = Handle::new(1);
-
-    let write_return = Arc::new(Mutex::new(Some(5)));
-    let buffer = ConfigurableBuffer::new(write_return.clone());
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", buffer);
-
-    // Subscribe to observe notifications
-    let mut subscriber = queue
-        .subscribe(writer_handle, 10, "test_subscriber")
-        .expect("Failed to subscribe");
-
-    // Write should return 5 (full write)
-    let result = pipe.writer().write(b"hello");
-    assert_eq!(result, 5);
-
-    // No error should be set
-    assert_eq!(pipe.writer().get_error(), 0);
-
-    // Notification should be 5
-    let notification = subscriber
-        .recv()
-        .await
-        .expect("Should receive notification");
-    assert_eq!(notification, 5);
-
-    // Verify all 5 bytes were written to buffer
-    assert_eq!(pipe.writer().tell(), 5);
-}
-
-#[tokio::test]
-async fn test_buffer_write_zero_after_successful_write() {
-    // Test that a buffer returning 0 after a successful write properly sets error
-    let queue = NotificationQueueArc::new();
-    let writer_handle = Handle::new(1);
-
-    let write_return = Arc::new(Mutex::new(None)); // First write succeeds
-    let buffer = ConfigurableBuffer::new(write_return.clone());
-    let pipe = Pipe::new(writer_handle, queue.clone(), "test", buffer);
-
-    // First write succeeds
-    let result = pipe.writer().write(b"test");
-    assert_eq!(result, 4);
-    assert_eq!(pipe.writer().get_error(), 0);
-
-    // Second write returns 0 (buffer full)
-    *write_return.lock().unwrap() = Some(0);
-    let result = pipe.writer().write(b"more");
-    assert_eq!(result, -1);
-    assert_eq!(pipe.writer().get_error(), 28); // ENOSPC
 }

@@ -1,15 +1,15 @@
 //! In-memory implementation of KVBuffers
 
-use super::types::{KVBuffer, KVBuffers, KVError, OpenMode};
+use super::buffer::Buffer;
+use super::types::{KVBuffers, KVError, OpenMode};
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::Arc;
 
 /// In-memory implementation of KVBuffers
 ///
 /// Simple hash map based storage, useful for testing and single-process use.
 pub struct MemKV {
-    buffers: Mutex<HashMap<String, KVBuffer>>,
+    buffers: Mutex<HashMap<String, Buffer>>,
 }
 
 impl MemKV {
@@ -29,7 +29,7 @@ impl Default for MemKV {
 }
 
 impl KVBuffers for MemKV {
-    async fn open(&self, path: &str, mode: OpenMode) -> Result<KVBuffer, KVError> {
+    async fn open(&self, path: &str, mode: OpenMode) -> Result<Buffer, KVError> {
         let mut buffers = self.buffers.lock();
 
         match mode {
@@ -38,16 +38,16 @@ impl KVBuffers for MemKV {
                 .cloned()
                 .ok_or_else(|| KVError::NotFound(path.to_string())),
             OpenMode::Write => {
-                let buffer = Arc::new(Mutex::new(Vec::new()));
-                buffers.insert(path.to_string(), Arc::clone(&buffer));
+                let buffer = Buffer::new();
+                buffers.insert(path.to_string(), buffer.clone());
                 Ok(buffer)
             }
             OpenMode::Append => {
                 if let Some(buffer) = buffers.get(path) {
-                    Ok(Arc::clone(buffer))
+                    Ok(buffer.clone())
                 } else {
-                    let buffer = Arc::new(Mutex::new(Vec::new()));
-                    buffers.insert(path.to_string(), Arc::clone(&buffer));
+                    let buffer = Buffer::new();
+                    buffers.insert(path.to_string(), buffer.clone());
                     Ok(buffer)
                 }
             }
