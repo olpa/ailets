@@ -49,7 +49,7 @@ pub trait KVBuffers: Send + Sync {
 
     /// Flush buffer to backing store.
     ///
-    /// No-op for in-memory implementations like MemKV.
+    /// No-op for in-memory implementations like `MemKV`.
     fn flush(&self, path: &str) -> impl Future<Output = Result<(), KVError>> + Send;
 
     /// List paths with given prefix.

@@ -1,11 +1,11 @@
-//! In-memory implementation of KVBuffers
+//! In-memory implementation of `KVBuffers`
 
 use super::buffer::Buffer;
 use super::types::{KVBuffers, KVError, OpenMode};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 
-/// In-memory implementation of KVBuffers
+/// In-memory implementation of `KVBuffers`
 ///
 /// Simple hash map based storage, useful for testing and single-process use.
 pub struct MemKV {
@@ -13,7 +13,7 @@ pub struct MemKV {
 }
 
 impl MemKV {
-    /// Create a new empty MemKV store
+    /// Create a new empty `MemKV` store
     #[must_use]
     pub fn new() -> Self {
         Self {

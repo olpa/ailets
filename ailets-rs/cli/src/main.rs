@@ -212,6 +212,7 @@ impl SystemRuntime {
     }
 
     /// Create a new pipe and return its ID
+    #[allow(clippy::expect_used)] // MemKV::open with Write mode always succeeds
     async fn create_pipe(&mut self, name: &str) -> PipeId {
         let pipe_id = PipeId(self.next_id);
         self.next_id += 1;
@@ -228,12 +229,7 @@ impl SystemRuntime {
             .await
             .expect("Failed to create buffer in KV store");
 
-        let pipe = Pipe::new(
-            writer_handle,
-            self.notification_queue.clone(),
-            name,
-            buffer,
-        );
+        let pipe = Pipe::new(writer_handle, self.notification_queue.clone(), name, buffer);
         let reader = pipe.get_reader(reader_handle);
 
         self.pipes.insert(pipe_id, pipe);
@@ -305,9 +301,7 @@ impl SystemRuntime {
                 })
             }
         } else {
-            eprintln!(
-                "[SystemRuntime] Read {actor_id:?}: no input source configured"
-            );
+            eprintln!("[SystemRuntime] Read {actor_id:?}: no input source configured");
             Box::pin(async move {
                 IoEvent::SyncComplete {
                     result: 0,
@@ -352,14 +346,10 @@ impl SystemRuntime {
                     }
                 }
                 ActorOutputDestination::Pipe(pipe_id) => {
-                    eprintln!(
-                        "[SystemRuntime] Write {actor_id:?}: writing to pipe {pipe_id:?}"
-                    );
+                    eprintln!("[SystemRuntime] Write {actor_id:?}: writing to pipe {pipe_id:?}");
                     if let Some(pipe) = self.pipes.get(pipe_id) {
                         let n = pipe.writer().write(data);
-                        eprintln!(
-                            "[SystemRuntime] Write {actor_id:?}: pipe write returned {n}"
-                        );
+                        eprintln!("[SystemRuntime] Write {actor_id:?}: pipe write returned {n}");
                         #[allow(clippy::cast_possible_truncation)]
                         {
                             n as c_int
@@ -371,9 +361,7 @@ impl SystemRuntime {
                 }
             }
         } else {
-            eprintln!(
-                "[SystemRuntime] Write {actor_id:?}: no output destination"
-            );
+            eprintln!("[SystemRuntime] Write {actor_id:?}: no output destination");
             -1
         };
         eprintln!("[SystemRuntime] Write {actor_id:?} queued");
@@ -387,9 +375,7 @@ impl SystemRuntime {
         fd: c_int,
         response: oneshot::Sender<c_int>,
     ) -> IoFuture {
-        eprintln!(
-            "[SystemRuntime] Processing Close for {actor_id:?}, fd={fd}"
-        );
+        eprintln!("[SystemRuntime] Processing Close for {actor_id:?}, fd={fd}");
         if fd == 1 {
             if let Some(ActorOutputDestination::Pipe(pipe_id)) = self.actor_outputs.get(&actor_id) {
                 if let Some(pipe) = self.pipes.get(pipe_id) {
@@ -414,9 +400,7 @@ impl SystemRuntime {
         bytes_read: isize,
         response: oneshot::Sender<c_int>,
     ) {
-        eprintln!(
-            "[SystemRuntime] Read completed for pipe {pipe_id:?}, {bytes_read} bytes"
-        );
+        eprintln!("[SystemRuntime] Read completed for pipe {pipe_id:?}, {bytes_read} bytes");
         // Put reader back
         if let Some(slot) = self.pipe_readers.get_mut(&pipe_id) {
             *slot = Some(reader);

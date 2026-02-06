@@ -80,6 +80,10 @@ impl Buffer {
     /// Writes all data or fails. Currently infallible for in-memory buffers,
     /// but returns Result for future compatibility with bounded buffers or
     /// persistent storage.
+    ///
+    /// # Errors
+    ///
+    /// Returns `BufferError::Failed` if the write fails (reserved for future use).
     pub fn append(&self, data: &[u8]) -> Result<(), BufferError> {
         let mut buf = self.0.lock();
         buf.extend_from_slice(data);

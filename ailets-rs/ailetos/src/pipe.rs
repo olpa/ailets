@@ -55,7 +55,13 @@ pub struct Writer {
 }
 
 impl Writer {
-    pub fn new(handle: Handle, queue: NotificationQueueArc, debug_hint: &str, buffer: Buffer) -> Self {
+    #[must_use]
+    pub fn new(
+        handle: Handle,
+        queue: NotificationQueueArc,
+        debug_hint: &str,
+        buffer: Buffer,
+    ) -> Self {
         queue.whitelist(handle, &format!("memPipe.writer {debug_hint}"));
 
         Self {
@@ -128,18 +134,15 @@ impl Writer {
                 return 0;
             }
 
-            match shared.buffer.append(data) {
-                Ok(()) => {
-                    #[allow(clippy::cast_possible_wrap)]
-                    {
-                        data.len() as isize
-                    }
+            if shared.buffer.append(data).is_ok() {
+                #[allow(clippy::cast_possible_wrap)]
+                {
+                    data.len() as isize
                 }
-                Err(_) => {
-                    // Buffer append failed - treat as ENOSPC
-                    shared.errno = 28; // ENOSPC
-                    -28
-                }
+            } else {
+                // Buffer append failed - treat as ENOSPC
+                shared.errno = 28; // ENOSPC
+                -28
             }
         };
 
@@ -435,7 +438,13 @@ pub struct Pipe {
 
 impl Pipe {
     /// Create a new Pipe with the provided buffer
-    pub fn new(writer_handle: Handle, queue: NotificationQueueArc, hint: &str, buffer: Buffer) -> Self {
+    #[must_use]
+    pub fn new(
+        writer_handle: Handle,
+        queue: NotificationQueueArc,
+        hint: &str,
+        buffer: Buffer,
+    ) -> Self {
         let writer = Writer::new(writer_handle, queue, hint, buffer);
 
         Self { writer }
