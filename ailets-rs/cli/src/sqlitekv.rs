@@ -1,7 +1,21 @@
 //! SQLite-backed implementation of `KVBuffers`
 //!
 //! This implementation stores buffers in a SQLite database, providing persistence
-//! across program runs. Uses thread-local connections for multi-threaded access.
+//! across program runs. Uses a mutex-wrapped connection for thread-safe access.
+//!
+//! # Thread Safety
+//!
+//! The SQLite connection is wrapped in `Arc<Mutex<Connection>>`. While `Connection`
+//! implements `Send`, it does not implement `Sync` (marked `!Sync`), so shared access
+//! across threads requires explicit synchronization.
+//!
+//! As stated in rusqlite issue #342: "Seems like a `Mutex<rusqlite::Connection>` is
+//! the way to go." This is because certain SQLite APIs are not thread-safe even in
+//! serialized mode.
+//!
+//! References:
+//! - `Connection` trait bounds: <https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html>
+//! - Multi-threaded usage discussion: <https://github.com/rusqlite/rusqlite/issues/342>
 
 use ailetos::{Buffer, KVBuffers, KVError, OpenMode};
 use parking_lot::Mutex;
@@ -9,20 +23,19 @@ use rusqlite::{params, Connection};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
-use std::thread::ThreadId;
 
 /// SQLite-backed key-value buffer storage
 ///
 /// Buffers are loaded from the database on first access and can be flushed back.
 /// The in-memory cache ensures efficient access during runtime.
-/// Uses thread-local connections to handle SQLite's threading restrictions.
+///
+/// Thread safety is achieved by wrapping the SQLite connection in a `Mutex`.
+/// See the module documentation for thread safety details and references.
 pub struct SqliteKV {
-    /// Path to the SQLite database file
-    db_path: String,
     /// In-memory cache of buffers (lazily loaded from DB)
     buffers: Arc<Mutex<HashMap<String, Buffer>>>,
-    /// Per-thread SQLite connections
-    connections: Arc<Mutex<HashMap<ThreadId, Connection>>>,
+    /// Shared SQLite connection protected by mutex
+    conn: Arc<Mutex<Connection>>,
 }
 
 impl SqliteKV {
@@ -34,10 +47,7 @@ impl SqliteKV {
     ///
     /// Returns error if database cannot be opened or table creation fails.
     pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, rusqlite::Error> {
-        let db_path = db_path.as_ref().to_string_lossy().to_string();
-
-        // Open initial connection to create table
-        let conn = Connection::open(&db_path)?;
+        let conn = Connection::open(db_path)?;
         conn.execute(
             "CREATE TABLE IF NOT EXISTS kv_buffers (
                 path TEXT PRIMARY KEY,
@@ -46,34 +56,15 @@ impl SqliteKV {
             [],
         )?;
 
-        let mut connections = HashMap::new();
-        connections.insert(std::thread::current().id(), conn);
-
         Ok(Self {
-            db_path,
             buffers: Arc::new(Mutex::new(HashMap::new())),
-            connections: Arc::new(Mutex::new(connections)),
+            conn: Arc::new(Mutex::new(conn)),
         })
-    }
-
-    /// Get or create a connection for the current thread
-    fn get_connection(&self) -> Result<Connection, rusqlite::Error> {
-        let thread_id = std::thread::current().id();
-        let mut connections = self.connections.lock();
-
-        if !connections.contains_key(&thread_id) {
-            let conn = Connection::open(&self.db_path)?;
-            connections.insert(thread_id, conn);
-        }
-
-        // We need to return a connection, but we can't hold the lock
-        // Let's open a new connection each time for simplicity
-        Connection::open(&self.db_path)
     }
 
     /// Load a buffer from the database if it exists
     fn load_from_db(&self, path: &str) -> Result<Option<Vec<u8>>, rusqlite::Error> {
-        let conn = self.get_connection()?;
+        let conn = self.conn.lock();
         let mut stmt = conn.prepare("SELECT data FROM kv_buffers WHERE path = ?")?;
 
         let result = stmt.query_row(params![path], |row| row.get::<_, Vec<u8>>(0));
@@ -87,7 +78,7 @@ impl SqliteKV {
 
     /// Save a buffer to the database
     fn save_to_db(&self, path: &str, data: &[u8]) -> Result<(), rusqlite::Error> {
-        let conn = self.get_connection()?;
+        let conn = self.conn.lock();
         conn.execute(
             "INSERT OR REPLACE INTO kv_buffers (path, data) VALUES (?, ?)",
             params![path, data],
@@ -168,8 +159,7 @@ impl KVBuffers for SqliteKV {
             format!("{dir_name}/")
         };
 
-        let conn = self.get_connection()
-            .map_err(|_e| KVError::NotFound(dir_name.to_string()))?;
+        let conn = self.conn.lock();
         let mut stmt = conn
             .prepare("SELECT path FROM kv_buffers WHERE path LIKE ? ORDER BY path")
             .map_err(|_e| KVError::NotFound(dir_name.to_string()))?;
@@ -190,8 +180,7 @@ impl KVBuffers for SqliteKV {
         buffers.clear();
 
         // Clear database
-        let conn = self.get_connection()
-            .map_err(|_e| KVError::NotFound("destroy".to_string()))?;
+        let conn = self.conn.lock();
         conn.execute("DELETE FROM kv_buffers", [])
             .map_err(|_e| KVError::NotFound("destroy".to_string()))?;
 
