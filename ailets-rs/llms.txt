@@ -4,4 +4,13 @@ crate `actor_runtime_mocked`: Mock implementation of actor runtime for testing p
 
 crate `actor_io`: Provides high-level reader and writer abstractions over the actor runtime's low-level I/O operations. See `actor_io/doc/llms.txt` for more details.
 
+crate `ailetos`: Low-level coordination and storage primitives.
+  - `notification_queue`: Async notification queue for coordinating readers and writers.
+  - `pipe`: In-memory pipe with async coordination via notification queue. Provides Buffer trait, Writer, Reader, and Pipe types for broadcast-style communication.
+  - `io::kv`: Key-value buffer storage layer. Provides async storage operations with multiple backend support:
+    - `KVBuffers` trait: async operations for open, flush, listdir, destroy
+    - `MemKV`: in-memory implementation using HashMap
+    - `OpenMode`: Read (error if not found), Write (create/overwrite), Append (get or create)
+    - Returns `Arc<Mutex<Vec<u8>>>` handles for direct buffer access
+
 create `rjiter` and `scan_json`: streaming json processing. See <https://raw.githubusercontent.com/olpa/streaming_json/refs/heads/master/rjiter/doc/llms.txt> and <https://raw.githubusercontent.com/olpa/streaming_json/refs/heads/master/scan_json/doc/llms.txt> for more details, local copies might be at `../../streaming_json/rjiter/doc/llms.txt` and `../../streaming_json/scan_json/doc/llms.txt`.

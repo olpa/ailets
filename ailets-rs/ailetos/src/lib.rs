@@ -1,5 +1,9 @@
+pub mod io;
 pub mod notification_queue;
 pub mod pipe;
 
-// Re-export Buffer trait for convenience
-pub use pipe::Buffer;
+// Re-export Buffer type for convenience
+pub use io::{Buffer, BufferError, BufferReadGuard};
+
+// Re-export KV types for convenience
+pub use io::{KVBuffers, KVError, MemKV, OpenMode};
