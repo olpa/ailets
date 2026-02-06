@@ -1,7 +1,8 @@
 use actor_io::{AReader, AWriter};
 use actor_runtime::{ActorRuntime, StdHandle};
 use ailetos::notification_queue::{Handle, NotificationQueueArc};
-use ailetos::pipe::{Buffer, Pipe, Reader};
+use ailetos::pipe::{Pipe, Reader};
+use ailetos::{KVBuffers, MemKV, OpenMode};
 use futures::stream::{FuturesUnordered, StreamExt};
 use std::collections::HashMap;
 use std::future::Future;
@@ -9,33 +10,6 @@ use std::io::Write as StdWrite;
 use std::os::raw::c_int;
 use std::pin::Pin;
 use tokio::sync::{mpsc, oneshot};
-
-/// Simple Vec<u8> wrapper implementing Buffer trait for pipe usage
-struct VecBuffer(Vec<u8>);
-
-impl VecBuffer {
-    fn new() -> Self {
-        Self(Vec::new())
-    }
-}
-
-impl Buffer for VecBuffer {
-    fn write(&mut self, data: &[u8]) -> isize {
-        self.0.extend_from_slice(data);
-        #[allow(clippy::cast_possible_wrap)]
-        {
-            data.len() as isize
-        }
-    }
-
-    fn len(&self) -> usize {
-        self.0.len()
-    }
-
-    fn as_slice(&self) -> &[u8] {
-        &self.0
-    }
-}
 
 /// Unique identifier for actors in the system
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -142,7 +116,7 @@ enum IoEvent {
     /// Read completed - need to return reader to its slot
     ReadComplete {
         pipe_id: PipeId,
-        reader: Reader<VecBuffer>,
+        reader: Reader,
         bytes_read: isize,
         response: oneshot::Sender<c_int>,
     },
@@ -160,9 +134,9 @@ type IoFuture = Pin<Box<dyn Future<Output = IoEvent> + Send>>;
 /// Actors communicate with it via channels
 struct SystemRuntime {
     /// All pipes in the system (we store the whole pipe to access both reader and writer)
-    pipes: HashMap<PipeId, Pipe<VecBuffer>>,
+    pipes: HashMap<PipeId, Pipe>,
     /// All pipe readers in the system (readers are async, None when in use)
-    pipe_readers: HashMap<PipeId, Option<Reader<VecBuffer>>>,
+    pipe_readers: HashMap<PipeId, Option<Reader>>,
     /// Input configuration for each actor
     actor_inputs: HashMap<ActorId, ActorInputSource>,
     /// Output configuration for each actor
@@ -173,6 +147,8 @@ struct SystemRuntime {
     request_rx: mpsc::UnboundedReceiver<IoRequest>,
     /// Shared notification queue for all pipes
     notification_queue: NotificationQueueArc,
+    /// Key-value store for pipe buffers
+    kv: MemKV,
     /// Counter for generating unique IDs (pipes and handles)
     next_id: i64,
 }
@@ -188,6 +164,7 @@ impl SystemRuntime {
             system_tx: Some(system_tx),
             request_rx,
             notification_queue: NotificationQueueArc::new(),
+            kv: MemKV::new(),
             next_id: 1,
         }
     }
@@ -203,9 +180,9 @@ impl SystemRuntime {
 
     /// Setup standard handles for all actors
     /// This configures the I/O mappings directly instead of going through the request channel
-    fn setup_std_handles(&mut self) {
+    async fn setup_std_handles(&mut self) {
         // Create pipe 1: pre-filled with test data for Actor 1 to read from
-        let input_pipe_id = self.create_pipe("input-data");
+        let input_pipe_id = self.create_pipe("pipes/input-data").await;
         if let Some(pipe) = self.pipes.get(&input_pipe_id) {
             let test_data = b"Hello, world!\n";
             let written = pipe.writer().write(test_data);
@@ -219,7 +196,7 @@ impl SystemRuntime {
         }
 
         // Create pipe 2: for Actor 1 -> Actor 2 communication
-        let cat_pipe_id = self.create_pipe("cat-pipe");
+        let cat_pipe_id = self.create_pipe("pipes/cat-pipe").await;
 
         // Actor 1: reads from input pipe, writes to cat pipe
         self.actor_inputs
@@ -235,7 +212,7 @@ impl SystemRuntime {
     }
 
     /// Create a new pipe and return its ID
-    fn create_pipe(&mut self, name: &str) -> PipeId {
+    async fn create_pipe(&mut self, name: &str) -> PipeId {
         let pipe_id = PipeId(self.next_id);
         self.next_id += 1;
 
@@ -244,11 +221,18 @@ impl SystemRuntime {
         let reader_handle = Handle::new(self.next_id);
         self.next_id += 1;
 
+        // Get buffer from KV store
+        let buffer = self
+            .kv
+            .open(name, OpenMode::Write)
+            .await
+            .expect("Failed to create buffer in KV store");
+
         let pipe = Pipe::new(
             writer_handle,
             self.notification_queue.clone(),
             name,
-            VecBuffer::new(),
+            buffer,
         );
         let reader = pipe.get_reader(reader_handle);
 
@@ -426,7 +410,7 @@ impl SystemRuntime {
     fn handle_read_complete(
         &mut self,
         pipe_id: PipeId,
-        reader: Reader<VecBuffer>,
+        reader: Reader,
         bytes_read: isize,
         response: oneshot::Sender<c_int>,
     ) {
@@ -697,7 +681,7 @@ async fn main() {
 
     // Setup standard handles for all actors directly on SystemRuntime
     eprintln!("Setup: Setting up standard handles for all actors");
-    system_runtime.setup_std_handles();
+    system_runtime.setup_std_handles().await;
     eprintln!("Setup: All handles configured");
 
     // Spawn SystemRuntime task
