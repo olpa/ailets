@@ -17,3 +17,5 @@ ailetos = { path = "../ailetos" }
 embedded-io.workspace = true
 tokio = { version = "1", features = ["rt", "macros"] }
 futures = "0.3"
+rusqlite = { version = "0.32", features = ["bundled"] }
+parking_lot = "0.12"
