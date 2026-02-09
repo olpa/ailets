@@ -1,9 +1,12 @@
+mod sqlitekv;
+
 use actor_io::{AReader, AWriter};
 use actor_runtime::{ActorRuntime, StdHandle};
 use ailetos::notification_queue::{Handle, NotificationQueueArc};
 use ailetos::pipe::{Pipe, Reader};
-use ailetos::{KVBuffers, MemKV, OpenMode};
+use ailetos::{KVBuffers, OpenMode};
 use futures::stream::{FuturesUnordered, StreamExt};
+use sqlitekv::SqliteKV;
 use std::collections::HashMap;
 use std::future::Future;
 use std::io::Write as StdWrite;
@@ -148,7 +151,7 @@ struct SystemRuntime {
     /// Shared notification queue for all pipes
     notification_queue: NotificationQueueArc,
     /// Key-value store for pipe buffers
-    kv: MemKV,
+    kv: SqliteKV,
     /// Counter for generating unique IDs (pipes and handles)
     next_id: i64,
 }
@@ -156,6 +159,12 @@ struct SystemRuntime {
 impl SystemRuntime {
     fn new() -> Self {
         let (system_tx, request_rx) = mpsc::unbounded_channel();
+
+        // Remove existing database file if it exists
+        let _ = std::fs::remove_file("example.db");
+        let kv = SqliteKV::new("example.db")
+            .expect("Failed to create SqliteKV");
+
         Self {
             pipes: HashMap::new(),
             pipe_readers: HashMap::new(),
@@ -164,7 +173,7 @@ impl SystemRuntime {
             system_tx: Some(system_tx),
             request_rx,
             notification_queue: NotificationQueueArc::new(),
-            kv: MemKV::new(),
+            kv,
             next_id: 1,
         }
     }
@@ -376,17 +385,23 @@ impl SystemRuntime {
         response: oneshot::Sender<c_int>,
     ) -> IoFuture {
         eprintln!("[SystemRuntime] Processing Close for {actor_id:?}, fd={fd}");
+        let mut result = 0;
         if fd == 1 {
             if let Some(ActorOutputDestination::Pipe(pipe_id)) = self.actor_outputs.get(&actor_id) {
                 if let Some(pipe) = self.pipes.get(pipe_id) {
+                    let buffer = pipe.writer().buffer();
                     pipe.writer().close();
+                    if let Err(e) = self.kv.flush_buffer(&buffer) {
+                        eprintln!("[SystemRuntime] Failed to flush buffer: {e}");
+                        result = -1;
+                    }
                 }
             }
         }
         eprintln!("[SystemRuntime] Close {actor_id:?} queued");
         Box::pin(async move {
             IoEvent::SyncComplete {
-                result: 0,
+                result,
                 response,
             }
         })

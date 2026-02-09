@@ -130,3 +130,11 @@ impl Default for Buffer {
         Self::new()
     }
 }
+
+impl Buffer {
+    /// Check if two buffers refer to the same underlying storage
+    #[must_use]
+    pub fn ptr_eq(&self, other: &Buffer) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
