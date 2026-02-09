@@ -99,6 +99,12 @@ impl Writer {
         self.shared.lock().closed
     }
 
+    /// Get a reference-counted handle to the underlying buffer
+    #[must_use]
+    pub fn buffer(&self) -> Buffer {
+        self.shared.lock().buffer.clone()
+    }
+
     /// Write data to the pipe (POSIX-style)
     ///
     /// Returns:

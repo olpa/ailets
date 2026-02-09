@@ -47,11 +47,6 @@ pub trait KVBuffers: Send + Sync {
         mode: OpenMode,
     ) -> impl Future<Output = Result<Buffer, KVError>> + Send;
 
-    /// Flush buffer to backing store.
-    ///
-    /// No-op for in-memory implementations like `MemKV`.
-    fn flush(&self, path: &str) -> impl Future<Output = Result<(), KVError>> + Send;
-
     /// List paths with given prefix.
     ///
     /// If the prefix does not end with '/', one is added for matching.

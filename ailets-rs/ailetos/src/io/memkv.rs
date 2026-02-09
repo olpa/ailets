@@ -54,11 +54,6 @@ impl KVBuffers for MemKV {
         }
     }
 
-    async fn flush(&self, _path: &str) -> Result<(), KVError> {
-        // No-op for in-memory storage
-        Ok(())
-    }
-
     async fn listdir(&self, dir_name: &str) -> Result<Vec<String>, KVError> {
         let prefix = if dir_name.ends_with('/') {
             dir_name.to_string()

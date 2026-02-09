@@ -385,17 +385,23 @@ impl SystemRuntime {
         response: oneshot::Sender<c_int>,
     ) -> IoFuture {
         eprintln!("[SystemRuntime] Processing Close for {actor_id:?}, fd={fd}");
+        let mut result = 0;
         if fd == 1 {
             if let Some(ActorOutputDestination::Pipe(pipe_id)) = self.actor_outputs.get(&actor_id) {
                 if let Some(pipe) = self.pipes.get(pipe_id) {
+                    let buffer = pipe.writer().buffer();
                     pipe.writer().close();
+                    if let Err(e) = self.kv.flush_buffer(&buffer) {
+                        eprintln!("[SystemRuntime] Failed to flush buffer: {e}");
+                        result = -1;
+                    }
                 }
             }
         }
         eprintln!("[SystemRuntime] Close {actor_id:?} queued");
         Box::pin(async move {
             IoEvent::SyncComplete {
-                result: 0,
+                result,
                 response,
             }
         })
