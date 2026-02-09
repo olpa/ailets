@@ -49,7 +49,7 @@ impl SqliteKV {
     pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, rusqlite::Error> {
         let conn = Connection::open(db_path)?;
         conn.execute(
-            "CREATE TABLE IF NOT EXISTS kv_buffers (
+            "CREATE TABLE IF NOT EXISTS vfs (
                 path TEXT PRIMARY KEY,
                 data BLOB NOT NULL
             )",
@@ -65,7 +65,7 @@ impl SqliteKV {
     /// Load a buffer from the database if it exists
     fn load_from_db(&self, path: &str) -> Result<Option<Vec<u8>>, rusqlite::Error> {
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare("SELECT data FROM kv_buffers WHERE path = ?")?;
+        let mut stmt = conn.prepare("SELECT data FROM vfs WHERE path = ?")?;
 
         let result = stmt.query_row(params![path], |row| row.get::<_, Vec<u8>>(0));
 
@@ -80,7 +80,7 @@ impl SqliteKV {
     fn save_to_db(&self, path: &str, data: &[u8]) -> Result<(), rusqlite::Error> {
         let conn = self.conn.lock();
         conn.execute(
-            "INSERT OR REPLACE INTO kv_buffers (path, data) VALUES (?, ?)",
+            "INSERT OR REPLACE INTO vfs (path, data) VALUES (?, ?)",
             params![path, data],
         )?;
         Ok(())
@@ -161,7 +161,7 @@ impl KVBuffers for SqliteKV {
 
         let conn = self.conn.lock();
         let mut stmt = conn
-            .prepare("SELECT path FROM kv_buffers WHERE path LIKE ? ORDER BY path")
+            .prepare("SELECT path FROM vfs WHERE path LIKE ? ORDER BY path")
             .map_err(|_e| KVError::NotFound(dir_name.to_string()))?;
 
         let pattern = format!("{prefix}%");
@@ -181,7 +181,7 @@ impl KVBuffers for SqliteKV {
 
         // Clear database
         let conn = self.conn.lock();
-        conn.execute("DELETE FROM kv_buffers", [])
+        conn.execute("DELETE FROM vfs", [])
             .map_err(|_e| KVError::NotFound("destroy".to_string()))?;
 
         Ok(())
