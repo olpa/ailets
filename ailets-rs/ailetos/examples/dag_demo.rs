@@ -1,0 +1,65 @@
+use ailetos::{Dag, NodeKind, NodeState};
+
+fn main() {
+    let mut dag = Dag::new();
+
+    // Create a structure similar to the Python example
+    let value_13 = dag.add_node("value.13 (chat messages)".to_string(), NodeKind::Concrete);
+    dag.set_state(value_13, NodeState::Terminated).unwrap();
+
+    let messages_to_query_15 = dag.add_node("gpt.messages_to_query.15".to_string(), NodeKind::Concrete);
+    dag.add_dependency(messages_to_query_15, value_13).unwrap();
+
+    let query_16 = dag.add_node("query.16".to_string(), NodeKind::Concrete);
+    dag.add_dependency(query_16, messages_to_query_15).unwrap();
+
+    let response_to_messages_17 = dag.add_node("gpt.response_to_messages.17".to_string(), NodeKind::Concrete);
+    dag.add_dependency(response_to_messages_17, query_16).unwrap();
+
+    let messages_to_markdown_18 = dag.add_node("messages_to_markdown.18".to_string(), NodeKind::Concrete);
+    dag.add_dependency(messages_to_markdown_18, response_to_messages_17).unwrap();
+
+    println!("Dependency tree:");
+    print!("{}", dag.dump(messages_to_markdown_18));
+
+    println!("\n\nDiamond dependency structure:");
+    let mut dag2 = Dag::new();
+
+    let d = dag2.add_node("D".to_string(), NodeKind::Concrete);
+    dag2.set_state(d, NodeState::Terminated).unwrap();
+
+    let b = dag2.add_node("B".to_string(), NodeKind::Concrete);
+    dag2.set_state(b, NodeState::Running).unwrap();
+    dag2.add_dependency(b, d).unwrap();
+
+    let c = dag2.add_node("C".to_string(), NodeKind::Concrete);
+    dag2.add_dependency(c, d).unwrap();
+
+    let a = dag2.add_node("A".to_string(), NodeKind::Concrete);
+    dag2.add_dependency(a, b).unwrap();
+    dag2.add_dependency(a, c).unwrap();
+
+    print!("{}", dag2.dump(a));
+
+    println!("\n\nAlias resolution (aliases are not shown):");
+    let mut dag3 = Dag::new();
+
+    let node1 = dag3.add_node("concrete_node_1".to_string(), NodeKind::Concrete);
+    dag3.set_state(node1, NodeState::Terminated).unwrap();
+
+    let node2 = dag3.add_node("concrete_node_2".to_string(), NodeKind::Concrete);
+    dag3.set_state(node2, NodeState::Terminated).unwrap();
+
+    let alias = dag3.add_node(
+        "my_alias".to_string(),
+        NodeKind::Alias {
+            targets: vec![node1, node2],
+        },
+    );
+
+    let root = dag3.add_node("root".to_string(), NodeKind::Concrete);
+    dag3.add_dependency(root, alias).unwrap();
+
+    print!("{}", dag3.dump(root));
+    println!("(Notice: 'my_alias' is not shown, only the concrete nodes it refers to)");
+}

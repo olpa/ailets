@@ -130,7 +130,73 @@ impl Dag {
             visited: HashSet::new(),
         }
     }
+
+    /// Prints the dependency tree for a given node
+    pub fn dump(&self, pid: PID) -> String {
+        let mut output = String::new();
+        let mut visited = HashSet::new();
+        self.dump_recursive(pid, "", true, &mut output, &mut visited);
+        output
+    }
+
+    fn dump_recursive(
+        &self,
+        pid: PID,
+        prefix: &str,
+        is_last: bool,
+        output: &mut String,
+        visited: &mut HashSet<PID>,
+    ) {
+        // Get node info
+        let node = match self.get_node(pid) {
+            Some(n) => n,
+            None => {
+                output.push_str(&format!("{}├── [PID {} not found]\n", prefix, pid));
+                return;
+            }
+        };
+
+        // Format the current node line
+        let connector = if is_last { "└── " } else { "├── " };
+        let state_symbol = match node.state {
+            NodeState::NotStarted => "⋯ not built",
+            NodeState::Running => "⚙ running",
+            NodeState::Terminated => "✓ built",
+        };
+
+        output.push_str(&format!(
+            "{}{}{} [{}]\n",
+            prefix, connector, node.idname, state_symbol
+        ));
+
+        // Check for cycles
+        if visited.contains(&pid) {
+            let extension = if is_last { "    " } else { "│   " };
+            output.push_str(&format!("{}{}[circular reference]\n", prefix, extension));
+            return;
+        }
+        visited.insert(pid);
+
+        // Get resolved dependencies (aliases are resolved to concrete nodes)
+        let deps: Vec<PID> = self.resolve_dependencies(pid).collect();
+        if deps.is_empty() {
+            visited.remove(&pid);
+            return;
+        }
+
+        // Prepare prefix for children
+        let child_prefix = format!("{}{}", prefix, if is_last { "    " } else { "│   " });
+
+        // Recursively dump dependencies
+        for (idx, &dep_pid) in deps.iter().enumerate() {
+            let is_last_child = idx == deps.len() - 1;
+            self.dump_recursive(dep_pid, &child_prefix, is_last_child, output, visited);
+        }
+
+        visited.remove(&pid);
+    }
 }
+
 
 impl Default for Dag {
     fn default() -> Self {
@@ -586,5 +652,147 @@ mod tests {
         assert_eq!(dag.nodes.len(), 100);
         assert_eq!(dag.get_dependencies(pids[50]).len(), 1);
         assert_eq!(dag.get_dependents(pids[50]).len(), 1);
+    }
+
+    // 6. Dump Function Tests
+    #[test]
+    fn test_dump_single_node() {
+        let mut dag = Dag::new();
+        let pid = dag.add_node("root".to_string(), NodeKind::Concrete);
+
+        let output = dag.dump(pid);
+        assert!(output.contains("root"));
+        assert!(output.contains("⋯ not built"));
+    }
+
+    #[test]
+    fn test_dump_linear_chain() {
+        let mut dag = Dag::new();
+        let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
+        let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
+        let pid3 = dag.add_node("node3".to_string(), NodeKind::Concrete);
+
+        dag.add_dependency(pid1, pid2).unwrap();
+        dag.add_dependency(pid2, pid3).unwrap();
+
+        let output = dag.dump(pid1);
+        assert!(output.contains("node1"));
+        assert!(output.contains("node2"));
+        assert!(output.contains("node3"));
+        assert!(output.contains("└──"));
+    }
+
+    #[test]
+    fn test_dump_multiple_dependencies() {
+        let mut dag = Dag::new();
+        let root = dag.add_node("root".to_string(), NodeKind::Concrete);
+        let dep1 = dag.add_node("dep1".to_string(), NodeKind::Concrete);
+        let dep2 = dag.add_node("dep2".to_string(), NodeKind::Concrete);
+
+        dag.add_dependency(root, dep1).unwrap();
+        dag.add_dependency(root, dep2).unwrap();
+
+        let output = dag.dump(root);
+        assert!(output.contains("root"));
+        assert!(output.contains("dep1"));
+        assert!(output.contains("dep2"));
+        assert!(output.contains("├──"));
+        assert!(output.contains("└──"));
+    }
+
+    #[test]
+    fn test_dump_different_states() {
+        let mut dag = Dag::new();
+        let root = dag.add_node("root".to_string(), NodeKind::Concrete);
+        let running = dag.add_node("running_node".to_string(), NodeKind::Concrete);
+        let finished = dag.add_node("finished_node".to_string(), NodeKind::Concrete);
+
+        dag.set_state(running, NodeState::Running).unwrap();
+        dag.set_state(finished, NodeState::Terminated).unwrap();
+
+        dag.add_dependency(root, running).unwrap();
+        dag.add_dependency(root, finished).unwrap();
+
+        let output = dag.dump(root);
+        assert!(output.contains("⋯ not built")); // root
+        assert!(output.contains("⚙ running"));
+        assert!(output.contains("✓ built"));
+    }
+
+    #[test]
+    fn test_dump_diamond_structure() {
+        let mut dag = Dag::new();
+        let a = dag.add_node("A".to_string(), NodeKind::Concrete);
+        let b = dag.add_node("B".to_string(), NodeKind::Concrete);
+        let c = dag.add_node("C".to_string(), NodeKind::Concrete);
+        let d = dag.add_node("D".to_string(), NodeKind::Concrete);
+
+        dag.add_dependency(a, b).unwrap();
+        dag.add_dependency(a, c).unwrap();
+        dag.add_dependency(b, d).unwrap();
+        dag.add_dependency(c, d).unwrap();
+
+        let output = dag.dump(a);
+        // D should appear twice (once under B, once under C)
+        let d_count = output.matches("D").count();
+        assert_eq!(d_count, 2);
+    }
+
+    #[test]
+    fn test_dump_nonexistent_node() {
+        let dag = Dag::new();
+        let output = dag.dump(999);
+        assert!(output.contains("not found"));
+    }
+
+    #[test]
+    fn test_dump_node_with_no_dependencies() {
+        let mut dag = Dag::new();
+        let pid = dag.add_node("lonely_node".to_string(), NodeKind::Concrete);
+
+        let output = dag.dump(pid);
+        assert!(output.contains("lonely_node"));
+        // Should just show the node itself, no dependencies
+        assert_eq!(output.lines().count(), 1);
+    }
+
+    #[test]
+    fn test_dump_deep_tree() {
+        let mut dag = Dag::new();
+        let mut current = dag.add_node("level0".to_string(), NodeKind::Concrete);
+
+        for i in 1..=5 {
+            let next = dag.add_node(format!("level{}", i), NodeKind::Concrete);
+            dag.add_dependency(current, next).unwrap();
+            current = next;
+        }
+
+        let output = dag.dump(1); // Start from level0
+        assert!(output.contains("level0"));
+        assert!(output.contains("level5"));
+        // Linear chain uses └── for each level
+        assert!(output.contains("└──"));
+    }
+
+    #[test]
+    fn test_dump_with_alias_resolution() {
+        let mut dag = Dag::new();
+        let node1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
+        let node2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
+        let alias = dag.add_node(
+            "alias_name".to_string(),
+            NodeKind::Alias {
+                targets: vec![node1, node2],
+            },
+        );
+        let root = dag.add_node("root".to_string(), NodeKind::Concrete);
+
+        dag.add_dependency(root, alias).unwrap();
+
+        let output = dag.dump(root);
+        // Aliases should be resolved, so we see concrete nodes, not the alias
+        assert!(output.contains("node1"));
+        assert!(output.contains("node2"));
+        assert!(!output.contains("alias_name")); // Alias name should NOT appear
     }
 }

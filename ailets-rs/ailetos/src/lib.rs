@@ -3,6 +3,9 @@ pub mod io;
 pub mod notification_queue;
 pub mod pipe;
 
+// Re-export DAG types for convenience
+pub use dag::{Dag, DagError, Node, NodeKind, NodeState, PID};
+
 // Re-export Buffer type for convenience
 pub use io::{Buffer, BufferError, BufferReadGuard};
 
