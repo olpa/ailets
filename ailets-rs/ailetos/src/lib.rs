@@ -1,3 +1,4 @@
+pub mod dag;
 pub mod io;
 pub mod notification_queue;
 pub mod pipe;
