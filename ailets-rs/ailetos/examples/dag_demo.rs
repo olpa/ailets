@@ -1,4 +1,4 @@
-use ailetos::{Dag, NodeKind, NodeState};
+use ailetos::{Dag, DependsOn, For, NodeKind, NodeState};
 
 fn main() {
     let mut dag = Dag::new();
@@ -8,16 +8,16 @@ fn main() {
     dag.set_state(value_13, NodeState::Terminated).unwrap();
 
     let messages_to_query_15 = dag.add_node("gpt.messages_to_query.15".to_string(), NodeKind::Concrete);
-    dag.add_dependency(messages_to_query_15, value_13).unwrap();
+    dag.add_dependency(For(messages_to_query_15), DependsOn(value_13)).unwrap();
 
     let query_16 = dag.add_node("query.16".to_string(), NodeKind::Concrete);
-    dag.add_dependency(query_16, messages_to_query_15).unwrap();
+    dag.add_dependency(For(query_16), DependsOn(messages_to_query_15)).unwrap();
 
     let response_to_messages_17 = dag.add_node("gpt.response_to_messages.17".to_string(), NodeKind::Concrete);
-    dag.add_dependency(response_to_messages_17, query_16).unwrap();
+    dag.add_dependency(For(response_to_messages_17), DependsOn(query_16)).unwrap();
 
     let messages_to_markdown_18 = dag.add_node("messages_to_markdown.18".to_string(), NodeKind::Concrete);
-    dag.add_dependency(messages_to_markdown_18, response_to_messages_17).unwrap();
+    dag.add_dependency(For(messages_to_markdown_18), DependsOn(response_to_messages_17)).unwrap();
 
     println!("Dependency tree:");
     print!("{}", dag.dump(messages_to_markdown_18));
@@ -30,14 +30,14 @@ fn main() {
 
     let b = dag2.add_node("B".to_string(), NodeKind::Concrete);
     dag2.set_state(b, NodeState::Running).unwrap();
-    dag2.add_dependency(b, d).unwrap();
+    dag2.add_dependency(For(b), DependsOn(d)).unwrap();
 
     let c = dag2.add_node("C".to_string(), NodeKind::Concrete);
-    dag2.add_dependency(c, d).unwrap();
+    dag2.add_dependency(For(c), DependsOn(d)).unwrap();
 
     let a = dag2.add_node("A".to_string(), NodeKind::Concrete);
-    dag2.add_dependency(a, b).unwrap();
-    dag2.add_dependency(a, c).unwrap();
+    dag2.add_dependency(For(a), DependsOn(b)).unwrap();
+    dag2.add_dependency(For(a), DependsOn(c)).unwrap();
 
     print!("{}", dag2.dump(a));
 
@@ -51,11 +51,11 @@ fn main() {
     dag3.set_state(node2, NodeState::Terminated).unwrap();
 
     let alias = dag3.add_node("my_alias".to_string(), NodeKind::Alias);
-    dag3.add_dependency(alias, node1).unwrap();
-    dag3.add_dependency(alias, node2).unwrap();
+    dag3.add_dependency(For(alias), DependsOn(node1)).unwrap();
+    dag3.add_dependency(For(alias), DependsOn(node2)).unwrap();
 
     let root = dag3.add_node("root".to_string(), NodeKind::Concrete);
-    dag3.add_dependency(root, alias).unwrap();
+    dag3.add_dependency(For(root), DependsOn(alias)).unwrap();
 
     print!("{}", dag3.dump(root));
     println!("(Notice: 'my_alias' is not shown, only the concrete nodes it refers to)");

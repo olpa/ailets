@@ -27,8 +27,8 @@ fn test_add_alias_node() {
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
     let alias_pid = dag.add_node("alias".to_string(), NodeKind::Alias);
-    dag.add_dependency(alias_pid, pid1).unwrap();
-    dag.add_dependency(alias_pid, pid2).unwrap();
+    dag.add_dependency(For(alias_pid), DependsOn(pid1)).unwrap();
+    dag.add_dependency(For(alias_pid), DependsOn(pid2)).unwrap();
 
     let node = dag.get_node(alias_pid).unwrap();
     assert_eq!(node.idname, "alias");
@@ -86,7 +86,7 @@ fn test_add_single_dependency() {
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
 
-    assert!(dag.add_dependency(pid1, pid2).is_ok());
+    assert!(dag.add_dependency(For(pid1), DependsOn(pid2)).is_ok());
     let deps = dag.get_dependencies(pid1);
     assert_eq!(deps, &[pid2]);
 }
@@ -98,8 +98,8 @@ fn test_add_multiple_dependencies() {
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
     let pid3 = dag.add_node("node3".to_string(), NodeKind::Concrete);
 
-    assert!(dag.add_dependency(pid1, pid2).is_ok());
-    assert!(dag.add_dependency(pid1, pid3).is_ok());
+    assert!(dag.add_dependency(For(pid1), DependsOn(pid2)).is_ok());
+    assert!(dag.add_dependency(For(pid1), DependsOn(pid3)).is_ok());
 
     let deps = dag.get_dependencies(pid1);
     assert_eq!(deps.len(), 2);
@@ -128,7 +128,7 @@ fn test_add_dependency_from_nonexistent_node() {
     let mut dag = Dag::new();
     let pid = dag.add_node("node".to_string(), NodeKind::Concrete);
 
-    let result = dag.add_dependency(999, pid);
+    let result = dag.add_dependency(For(999), DependsOn(pid));
     assert_eq!(result, Err(DagError::NodeNotFound(999)));
 }
 
@@ -137,7 +137,7 @@ fn test_add_dependency_to_nonexistent_node() {
     let mut dag = Dag::new();
     let pid = dag.add_node("node".to_string(), NodeKind::Concrete);
 
-    let result = dag.add_dependency(pid, 999);
+    let result = dag.add_dependency(For(pid), DependsOn(999));
     assert_eq!(result, Err(DagError::NodeNotFound(999)));
 }
 
@@ -160,7 +160,7 @@ fn test_get_dependents_single() {
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
 
-    dag.add_dependency(pid1, pid2).unwrap();
+    dag.add_dependency(For(pid1), DependsOn(pid2)).unwrap();
 
     let dependents = dag.get_dependents(pid2);
     assert_eq!(dependents, &[pid1]);
@@ -173,8 +173,8 @@ fn test_get_dependents_multiple() {
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
     let pid3 = dag.add_node("node3".to_string(), NodeKind::Concrete);
 
-    dag.add_dependency(pid1, pid3).unwrap();
-    dag.add_dependency(pid2, pid3).unwrap();
+    dag.add_dependency(For(pid1), DependsOn(pid3)).unwrap();
+    dag.add_dependency(For(pid2), DependsOn(pid3)).unwrap();
 
     let dependents = dag.get_dependents(pid3);
     assert_eq!(dependents.len(), 2);
@@ -188,7 +188,7 @@ fn test_dependency_creates_reverse() {
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
 
-    dag.add_dependency(pid1, pid2).unwrap();
+    dag.add_dependency(For(pid1), DependsOn(pid2)).unwrap();
 
     assert_eq!(dag.get_dependencies(pid1), &[pid2]);
     assert_eq!(dag.get_dependents(pid2), &[pid1]);
@@ -210,7 +210,7 @@ fn test_resolve_concrete_node() {
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
 
-    dag.add_dependency(pid1, pid2).unwrap();
+    dag.add_dependency(For(pid1), DependsOn(pid2)).unwrap();
 
     let resolved: Vec<PID> = dag.resolve_dependencies(pid1).collect();
     assert_eq!(resolved, vec![pid2]);
@@ -222,11 +222,11 @@ fn test_resolve_single_alias() {
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
     let alias_pid = dag.add_node("alias".to_string(), NodeKind::Alias);
-    dag.add_dependency(alias_pid, pid1).unwrap();
-    dag.add_dependency(alias_pid, pid2).unwrap();
+    dag.add_dependency(For(alias_pid), DependsOn(pid1)).unwrap();
+    dag.add_dependency(For(alias_pid), DependsOn(pid2)).unwrap();
     let pid3 = dag.add_node("node3".to_string(), NodeKind::Concrete);
 
-    dag.add_dependency(pid3, alias_pid).unwrap();
+    dag.add_dependency(For(pid3), DependsOn(alias_pid)).unwrap();
 
     let resolved: Vec<PID> = dag.resolve_dependencies(pid3).collect();
     assert_eq!(resolved.len(), 2);
@@ -240,13 +240,13 @@ fn test_resolve_nested_alias() {
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
     let alias1 = dag.add_node("alias1".to_string(), NodeKind::Alias);
-    dag.add_dependency(alias1, pid1).unwrap();
-    dag.add_dependency(alias1, pid2).unwrap();
+    dag.add_dependency(For(alias1), DependsOn(pid1)).unwrap();
+    dag.add_dependency(For(alias1), DependsOn(pid2)).unwrap();
     let alias2 = dag.add_node("alias2".to_string(), NodeKind::Alias);
-    dag.add_dependency(alias2, alias1).unwrap();
+    dag.add_dependency(For(alias2), DependsOn(alias1)).unwrap();
     let pid3 = dag.add_node("node3".to_string(), NodeKind::Concrete);
 
-    dag.add_dependency(pid3, alias2).unwrap();
+    dag.add_dependency(For(pid3), DependsOn(alias2)).unwrap();
 
     let resolved: Vec<PID> = dag.resolve_dependencies(pid3).collect();
     assert_eq!(resolved.len(), 2);
@@ -261,9 +261,9 @@ fn test_resolve_with_duplicates() {
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
     let pid3 = dag.add_node("node3".to_string(), NodeKind::Concrete);
 
-    dag.add_dependency(pid3, pid1).unwrap();
-    dag.add_dependency(pid3, pid2).unwrap();
-    dag.add_dependency(pid3, pid1).unwrap(); // Duplicate
+    dag.add_dependency(For(pid3), DependsOn(pid1)).unwrap();
+    dag.add_dependency(For(pid3), DependsOn(pid2)).unwrap();
+    dag.add_dependency(For(pid3), DependsOn(pid1)).unwrap(); // Duplicate
 
     let resolved: Vec<PID> = dag.resolve_dependencies(pid3).collect();
     assert_eq!(resolved.len(), 2); // Should deduplicate
@@ -277,7 +277,7 @@ fn test_resolve_empty_alias() {
     let alias_pid = dag.add_node("alias".to_string(), NodeKind::Alias);
     let pid = dag.add_node("node".to_string(), NodeKind::Concrete);
 
-    dag.add_dependency(pid, alias_pid).unwrap();
+    dag.add_dependency(For(pid), DependsOn(alias_pid)).unwrap();
 
     let resolved: Vec<PID> = dag.resolve_dependencies(pid).collect();
     assert_eq!(resolved.len(), 0);
@@ -295,12 +295,12 @@ fn test_resolve_circular_alias() {
     let mut dag = Dag::new();
     let alias1 = dag.add_node("alias1".to_string(), NodeKind::Alias);
     let alias2 = dag.add_node("alias2".to_string(), NodeKind::Alias);
-    dag.add_dependency(alias2, alias1).unwrap();
+    dag.add_dependency(For(alias2), DependsOn(alias1)).unwrap();
     // Create circular reference
-    dag.add_dependency(alias1, alias2).unwrap();
+    dag.add_dependency(For(alias1), DependsOn(alias2)).unwrap();
 
     let pid = dag.add_node("node".to_string(), NodeKind::Concrete);
-    dag.add_dependency(pid, alias1).unwrap();
+    dag.add_dependency(For(pid), DependsOn(alias1)).unwrap();
 
     let resolved: Vec<PID> = dag.resolve_dependencies(pid).collect();
     // Should not infinite loop, returns empty due to deduplication
@@ -318,10 +318,10 @@ fn test_diamond_dependency() {
     let c = dag.add_node("C".to_string(), NodeKind::Concrete);
     let a = dag.add_node("A".to_string(), NodeKind::Concrete);
 
-    dag.add_dependency(b, d).unwrap();
-    dag.add_dependency(c, d).unwrap();
-    dag.add_dependency(a, b).unwrap();
-    dag.add_dependency(a, c).unwrap();
+    dag.add_dependency(For(b), DependsOn(d)).unwrap();
+    dag.add_dependency(For(c), DependsOn(d)).unwrap();
+    dag.add_dependency(For(a), DependsOn(b)).unwrap();
+    dag.add_dependency(For(a), DependsOn(c)).unwrap();
 
     let deps_a = dag.get_dependencies(a);
     assert_eq!(deps_a.len(), 2);
@@ -340,11 +340,11 @@ fn test_concrete_node_depends_on_alias() {
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
     let alias = dag.add_node("alias".to_string(), NodeKind::Alias);
-    dag.add_dependency(alias, pid1).unwrap();
-    dag.add_dependency(alias, pid2).unwrap();
+    dag.add_dependency(For(alias), DependsOn(pid1)).unwrap();
+    dag.add_dependency(For(alias), DependsOn(pid2)).unwrap();
     let pid3 = dag.add_node("node3".to_string(), NodeKind::Concrete);
 
-    assert!(dag.add_dependency(pid3, alias).is_ok());
+    assert!(dag.add_dependency(For(pid3), DependsOn(alias)).is_ok());
 
     let deps = dag.get_dependencies(pid3);
     assert_eq!(deps, &[alias]);
@@ -360,12 +360,12 @@ fn test_alias_depends_on_alias() {
     let mut dag = Dag::new();
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let alias1 = dag.add_node("alias1".to_string(), NodeKind::Alias);
-    dag.add_dependency(alias1, pid1).unwrap();
+    dag.add_dependency(For(alias1), DependsOn(pid1)).unwrap();
     let alias2 = dag.add_node("alias2".to_string(), NodeKind::Alias);
-    dag.add_dependency(alias2, alias1).unwrap();
+    dag.add_dependency(For(alias2), DependsOn(alias1)).unwrap();
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
 
-    assert!(dag.add_dependency(pid2, alias2).is_ok());
+    assert!(dag.add_dependency(For(pid2), DependsOn(alias2)).is_ok());
 
     let resolved: Vec<PID> = dag.resolve_dependencies(pid2).collect();
     assert_eq!(resolved, vec![pid1]);
@@ -384,7 +384,7 @@ fn test_dag_with_many_nodes() {
 
     // Add dependencies: each node depends on the previous
     for i in 1..100 {
-        dag.add_dependency(pids[i], pids[i - 1]).unwrap();
+        dag.add_dependency(For(pids[i]), DependsOn(pids[i - 1])).unwrap();
     }
 
     // Verify all nodes exist
@@ -415,8 +415,8 @@ fn test_dump_linear_chain() {
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
     let pid3 = dag.add_node("node3".to_string(), NodeKind::Concrete);
 
-    dag.add_dependency(pid1, pid2).unwrap();
-    dag.add_dependency(pid2, pid3).unwrap();
+    dag.add_dependency(For(pid1), DependsOn(pid2)).unwrap();
+    dag.add_dependency(For(pid2), DependsOn(pid3)).unwrap();
 
     let output = dag.dump(pid1);
     assert!(output.contains("node1"));
@@ -432,8 +432,8 @@ fn test_dump_multiple_dependencies() {
     let dep1 = dag.add_node("dep1".to_string(), NodeKind::Concrete);
     let dep2 = dag.add_node("dep2".to_string(), NodeKind::Concrete);
 
-    dag.add_dependency(root, dep1).unwrap();
-    dag.add_dependency(root, dep2).unwrap();
+    dag.add_dependency(For(root), DependsOn(dep1)).unwrap();
+    dag.add_dependency(For(root), DependsOn(dep2)).unwrap();
 
     let output = dag.dump(root);
     assert!(output.contains("root"));
@@ -453,8 +453,8 @@ fn test_dump_different_states() {
     dag.set_state(running, NodeState::Running).unwrap();
     dag.set_state(finished, NodeState::Terminated).unwrap();
 
-    dag.add_dependency(root, running).unwrap();
-    dag.add_dependency(root, finished).unwrap();
+    dag.add_dependency(For(root), DependsOn(running)).unwrap();
+    dag.add_dependency(For(root), DependsOn(finished)).unwrap();
 
     let output = dag.dump(root);
     assert!(output.contains("⋯ not built")); // root
@@ -470,10 +470,10 @@ fn test_dump_diamond_structure() {
     let c = dag.add_node("C".to_string(), NodeKind::Concrete);
     let d = dag.add_node("D".to_string(), NodeKind::Concrete);
 
-    dag.add_dependency(a, b).unwrap();
-    dag.add_dependency(a, c).unwrap();
-    dag.add_dependency(b, d).unwrap();
-    dag.add_dependency(c, d).unwrap();
+    dag.add_dependency(For(a), DependsOn(b)).unwrap();
+    dag.add_dependency(For(a), DependsOn(c)).unwrap();
+    dag.add_dependency(For(b), DependsOn(d)).unwrap();
+    dag.add_dependency(For(c), DependsOn(d)).unwrap();
 
     let output = dag.dump(a);
     // D should appear twice (once under B, once under C)
@@ -506,7 +506,7 @@ fn test_dump_deep_tree() {
 
     for i in 1..=5 {
         let next = dag.add_node(format!("level{}", i), NodeKind::Concrete);
-        dag.add_dependency(current, next).unwrap();
+        dag.add_dependency(For(current), DependsOn(next)).unwrap();
         current = next;
     }
 
@@ -523,11 +523,11 @@ fn test_dump_with_alias_resolution() {
     let node1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let node2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
     let alias = dag.add_node("alias_name".to_string(), NodeKind::Alias);
-    dag.add_dependency(alias, node1).unwrap();
-    dag.add_dependency(alias, node2).unwrap();
+    dag.add_dependency(For(alias), DependsOn(node1)).unwrap();
+    dag.add_dependency(For(alias), DependsOn(node2)).unwrap();
     let root = dag.add_node("root".to_string(), NodeKind::Concrete);
 
-    dag.add_dependency(root, alias).unwrap();
+    dag.add_dependency(For(root), DependsOn(alias)).unwrap();
 
     let output = dag.dump(root);
     // Aliases should be resolved, so we see concrete nodes, not the alias

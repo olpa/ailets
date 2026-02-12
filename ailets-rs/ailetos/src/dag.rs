@@ -2,6 +2,14 @@ use std::collections::HashSet;
 
 pub type PID = i64;
 
+/// Wrapper for the dependent node in `add_dependency(For(A), DependsOn(B))`.
+/// Reads as: "for node A, add dependency on B".
+pub struct For(pub PID);
+
+/// Wrapper for the dependency node in `add_dependency(For(A), DependsOn(B))`.
+/// Reads as: "A depends on B".
+pub struct DependsOn(pub PID);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeState {
     NotStarted,
@@ -79,7 +87,10 @@ impl Dag {
         }
     }
 
-    pub fn add_dependency(&mut self, from: PID, to: PID) -> Result<(), DagError> {
+    pub fn add_dependency(&mut self, node: For, dependency: DependsOn) -> Result<(), DagError> {
+        let For(from) = node;
+        let DependsOn(to) = dependency;
+
         // Validate both nodes exist
         if self.get_node(from).is_none() {
             return Err(DagError::NodeNotFound(from));
