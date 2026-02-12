@@ -1,14 +1,15 @@
 use std::collections::HashSet;
+use std::sync::Arc;
 
-pub type PID = i64;
+use crate::idgen::{Handle, IdGen};
 
 /// Wrapper for the dependent node in `add_dependency(For(A), DependsOn(B))`.
 /// Reads as: "for node A, add dependency on B".
-pub struct For(pub PID);
+pub struct For(pub Handle);
 
 /// Wrapper for the dependency node in `add_dependency(For(A), DependsOn(B))`.
 /// Reads as: "A depends on B".
-pub struct DependsOn(pub PID);
+pub struct DependsOn(pub Handle);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NodeState {
@@ -25,7 +26,7 @@ pub enum NodeKind {
 
 #[derive(Debug, Clone)]
 pub struct Node {
-    pub pid: PID,
+    pub pid: Handle,
     pub idname: String,
     pub kind: NodeKind,
     pub state: NodeState,
@@ -35,30 +36,29 @@ pub struct Node {
 pub struct Dag {
     nodes: Vec<Node>,
     // Forward dependencies: "What does X depend on?"
-    deps: Vec<(PID, Vec<PID>)>,
+    deps: Vec<(Handle, Vec<Handle>)>,
     // Reverse dependencies: "What depends on X?"
-    reverse_deps: Vec<(PID, Vec<PID>)>,
-    next_pid: PID,
+    reverse_deps: Vec<(Handle, Vec<Handle>)>,
+    idgen: Arc<IdGen>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DagError {
-    NodeNotFound(PID),
+    NodeNotFound(Handle),
 }
 
 impl Dag {
-    pub fn new() -> Self {
+    pub fn new(idgen: Arc<IdGen>) -> Self {
         Self {
             nodes: Vec::new(),
             deps: Vec::new(),
             reverse_deps: Vec::new(),
-            next_pid: 1,
+            idgen,
         }
     }
 
-    pub fn add_node(&mut self, idname: String, kind: NodeKind) -> PID {
-        let pid = self.next_pid;
-        self.next_pid += 1;
+    pub fn add_node(&mut self, idname: String, kind: NodeKind) -> Handle {
+        let pid = Handle::new(self.idgen.get_next());
 
         self.nodes.push(Node {
             pid,
@@ -70,15 +70,15 @@ impl Dag {
         pid
     }
 
-    pub fn get_node(&self, pid: PID) -> Option<&Node> {
+    pub fn get_node(&self, pid: Handle) -> Option<&Node> {
         self.nodes.iter().find(|n| n.pid == pid)
     }
 
-    pub fn get_node_mut(&mut self, pid: PID) -> Option<&mut Node> {
+    pub fn get_node_mut(&mut self, pid: Handle) -> Option<&mut Node> {
         self.nodes.iter_mut().find(|n| n.pid == pid)
     }
 
-    pub fn set_state(&mut self, pid: PID, state: NodeState) -> Result<(), DagError> {
+    pub fn set_state(&mut self, pid: Handle, state: NodeState) -> Result<(), DagError> {
         if let Some(node) = self.get_node_mut(pid) {
             node.state = state;
             Ok(())
@@ -106,7 +106,7 @@ impl Dag {
         }
     }
 
-    pub fn get_direct_dependencies(&self, pid: PID) -> impl Iterator<Item = PID> + '_ {
+    pub fn get_direct_dependencies(&self, pid: Handle) -> impl Iterator<Item = Handle> + '_ {
         self.deps
             .iter()
             .find(|(p, _)| *p == pid)
@@ -116,7 +116,7 @@ impl Dag {
             .copied()
     }
 
-    pub fn get_direct_dependents(&self, pid: PID) -> impl Iterator<Item = PID> + '_ {
+    pub fn get_direct_dependents(&self, pid: Handle) -> impl Iterator<Item = Handle> + '_ {
         self.reverse_deps
             .iter()
             .find(|(p, _)| *p == pid)
@@ -126,8 +126,8 @@ impl Dag {
             .copied()
     }
 
-    pub fn resolve_dependencies(&self, pid: PID) -> DependencyIterator<'_> {
-        let to_visit: Vec<PID> = self.get_direct_dependencies(pid).collect();
+    pub fn resolve_dependencies(&self, pid: Handle) -> DependencyIterator<'_> {
+        let to_visit: Vec<Handle> = self.get_direct_dependencies(pid).collect();
 
         DependencyIterator {
             dag: self,
@@ -137,7 +137,7 @@ impl Dag {
     }
 
     /// Prints the dependency tree for a given node
-    pub fn dump(&self, pid: PID) -> String {
+    pub fn dump(&self, pid: Handle) -> String {
         let mut output = String::new();
         let mut visited = HashSet::new();
         self.dump_recursive(pid, "", true, &mut output, &mut visited);
@@ -146,17 +146,17 @@ impl Dag {
 
     fn dump_recursive(
         &self,
-        pid: PID,
+        pid: Handle,
         prefix: &str,
         is_last: bool,
         output: &mut String,
-        visited: &mut HashSet<PID>,
+        visited: &mut HashSet<Handle>,
     ) {
         // Get node info
         let node = match self.get_node(pid) {
             Some(n) => n,
             None => {
-                output.push_str(&format!("{}├── [PID {} not found]\n", prefix, pid));
+                output.push_str(&format!("{}├── [PID {:?} not found]\n", prefix, pid));
                 return;
             }
         };
@@ -183,7 +183,7 @@ impl Dag {
         visited.insert(pid);
 
         // Get resolved dependencies (aliases are resolved to concrete nodes)
-        let deps: Vec<PID> = self.resolve_dependencies(pid).collect();
+        let deps: Vec<Handle> = self.resolve_dependencies(pid).collect();
         if deps.is_empty() {
             visited.remove(&pid);
             return;
@@ -203,20 +203,14 @@ impl Dag {
 }
 
 
-impl Default for Dag {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 pub struct DependencyIterator<'a> {
     dag: &'a Dag,
-    to_visit: Vec<PID>,
-    visited: HashSet<PID>,
+    to_visit: Vec<Handle>,
+    visited: HashSet<Handle>,
 }
 
 impl<'a> Iterator for DependencyIterator<'a> {
-    type Item = PID;
+    type Item = Handle;
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(pid) = self.to_visit.pop() {

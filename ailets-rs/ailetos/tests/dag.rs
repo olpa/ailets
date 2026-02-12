@@ -1,4 +1,7 @@
+use std::sync::Arc;
+
 use ailetos::dag::*;
+use ailetos::{Handle, IdGen};
 
 // --------------------------------------------------------------------
 // Node Creation and Basic Operations
@@ -6,15 +9,17 @@ use ailetos::dag::*;
 
 #[test]
 fn test_create_empty_dag() {
-    let dag = Dag::new();
-    assert!(dag.get_node(1).is_none());
+    let idgen = Arc::new(IdGen::new());
+    let dag = Dag::new(idgen);
+    assert!(dag.get_node(Handle::new(1)).is_none());
 }
 
 #[test]
 fn test_add_concrete_node() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let pid = dag.add_node("test_node".to_string(), NodeKind::Concrete);
-    assert_eq!(pid, 1);
+    assert_eq!(pid.id(), 1);
     let node = dag.get_node(pid).unwrap();
     assert_eq!(node.idname, "test_node");
     assert_eq!(node.kind, NodeKind::Concrete);
@@ -23,7 +28,8 @@ fn test_add_concrete_node() {
 
 #[test]
 fn test_add_alias_node() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
     let alias_pid = dag.add_node("alias".to_string(), NodeKind::Alias);
@@ -33,26 +39,29 @@ fn test_add_alias_node() {
     let node = dag.get_node(alias_pid).unwrap();
     assert_eq!(node.idname, "alias");
     assert_eq!(node.kind, NodeKind::Alias);
-    let targets: Vec<PID> = dag.get_direct_dependencies(alias_pid).collect();
+    let targets: Vec<Handle> = dag.get_direct_dependencies(alias_pid).collect();
     assert_eq!(targets, vec![pid1, pid2]);
 }
 
 #[test]
 fn test_get_existing_node() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let pid = dag.add_node("test".to_string(), NodeKind::Concrete);
     assert!(dag.get_node(pid).is_some());
 }
 
 #[test]
 fn test_get_nonexistent_node() {
-    let dag = Dag::new();
-    assert!(dag.get_node(999).is_none());
+    let idgen = Arc::new(IdGen::new());
+    let dag = Dag::new(idgen);
+    assert!(dag.get_node(Handle::new(999)).is_none());
 }
 
 #[test]
 fn test_pid_uniqueness() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
     let pid3 = dag.add_node("node3".to_string(), NodeKind::Concrete);
@@ -60,14 +69,15 @@ fn test_pid_uniqueness() {
     assert_ne!(pid1, pid2);
     assert_ne!(pid2, pid3);
     assert_ne!(pid1, pid3);
-    assert_eq!(pid1, 1);
-    assert_eq!(pid2, 2);
-    assert_eq!(pid3, 3);
+    assert_eq!(pid1.id(), 1);
+    assert_eq!(pid2.id(), 2);
+    assert_eq!(pid3.id(), 3);
 }
 
 #[test]
 fn test_multiple_nodes_with_same_idname() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let pid1 = dag.add_node("same_name".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("same_name".to_string(), NodeKind::Concrete);
 
@@ -82,18 +92,20 @@ fn test_multiple_nodes_with_same_idname() {
 
 #[test]
 fn test_add_single_dependency() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
 
     dag.add_dependency(For(pid1), DependsOn(pid2));
-    let deps: Vec<PID> = dag.get_direct_dependencies(pid1).collect();
+    let deps: Vec<Handle> = dag.get_direct_dependencies(pid1).collect();
     assert_eq!(deps, vec![pid2]);
 }
 
 #[test]
 fn test_add_multiple_dependencies() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
     let pid3 = dag.add_node("node3".to_string(), NodeKind::Concrete);
@@ -101,7 +113,7 @@ fn test_add_multiple_dependencies() {
     dag.add_dependency(For(pid1), DependsOn(pid2));
     dag.add_dependency(For(pid1), DependsOn(pid3));
 
-    let deps: Vec<PID> = dag.get_direct_dependencies(pid1).collect();
+    let deps: Vec<Handle> = dag.get_direct_dependencies(pid1).collect();
     assert_eq!(deps.len(), 2);
     assert!(deps.contains(&pid2));
     assert!(deps.contains(&pid3));
@@ -109,7 +121,8 @@ fn test_add_multiple_dependencies() {
 
 #[test]
 fn test_get_direct_dependencies_empty() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let pid = dag.add_node("node".to_string(), NodeKind::Concrete);
 
     assert_eq!(dag.get_direct_dependencies(pid).count(), 0);
@@ -117,8 +130,9 @@ fn test_get_direct_dependencies_empty() {
 
 #[test]
 fn test_get_direct_dependencies_nonexistent_node() {
-    let dag = Dag::new();
-    assert_eq!(dag.get_direct_dependencies(999).count(), 0);
+    let idgen = Arc::new(IdGen::new());
+    let dag = Dag::new(idgen);
+    assert_eq!(dag.get_direct_dependencies(Handle::new(999)).count(), 0);
 }
 
 // --------------------------------------------------------------------
@@ -127,7 +141,8 @@ fn test_get_direct_dependencies_nonexistent_node() {
 
 #[test]
 fn test_get_direct_dependents_empty() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let pid = dag.add_node("node".to_string(), NodeKind::Concrete);
 
     assert_eq!(dag.get_direct_dependents(pid).count(), 0);
@@ -135,19 +150,21 @@ fn test_get_direct_dependents_empty() {
 
 #[test]
 fn test_get_direct_dependents_single() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
 
     dag.add_dependency(For(pid1), DependsOn(pid2));
 
-    let dependents: Vec<PID> = dag.get_direct_dependents(pid2).collect();
+    let dependents: Vec<Handle> = dag.get_direct_dependents(pid2).collect();
     assert_eq!(dependents, vec![pid1]);
 }
 
 #[test]
 fn test_get_direct_dependents_multiple() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
     let pid3 = dag.add_node("node3".to_string(), NodeKind::Concrete);
@@ -155,7 +172,7 @@ fn test_get_direct_dependents_multiple() {
     dag.add_dependency(For(pid1), DependsOn(pid3));
     dag.add_dependency(For(pid2), DependsOn(pid3));
 
-    let dependents: Vec<PID> = dag.get_direct_dependents(pid3).collect();
+    let dependents: Vec<Handle> = dag.get_direct_dependents(pid3).collect();
     assert_eq!(dependents.len(), 2);
     assert!(dependents.contains(&pid1));
     assert!(dependents.contains(&pid2));
@@ -163,22 +180,24 @@ fn test_get_direct_dependents_multiple() {
 
 #[test]
 fn test_dependency_creates_reverse() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
 
     dag.add_dependency(For(pid1), DependsOn(pid2));
 
-    let deps: Vec<PID> = dag.get_direct_dependencies(pid1).collect();
-    let dependents: Vec<PID> = dag.get_direct_dependents(pid2).collect();
+    let deps: Vec<Handle> = dag.get_direct_dependencies(pid1).collect();
+    let dependents: Vec<Handle> = dag.get_direct_dependents(pid2).collect();
     assert_eq!(deps, vec![pid2]);
     assert_eq!(dependents, vec![pid1]);
 }
 
 #[test]
 fn test_get_direct_dependents_nonexistent_node() {
-    let dag = Dag::new();
-    assert_eq!(dag.get_direct_dependents(999).count(), 0);
+    let idgen = Arc::new(IdGen::new());
+    let dag = Dag::new(idgen);
+    assert_eq!(dag.get_direct_dependents(Handle::new(999)).count(), 0);
 }
 
 // --------------------------------------------------------------------
@@ -186,19 +205,21 @@ fn test_get_direct_dependents_nonexistent_node() {
 //
 #[test]
 fn test_resolve_concrete_node() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
 
     dag.add_dependency(For(pid1), DependsOn(pid2));
 
-    let resolved: Vec<PID> = dag.resolve_dependencies(pid1).collect();
+    let resolved: Vec<Handle> = dag.resolve_dependencies(pid1).collect();
     assert_eq!(resolved, vec![pid2]);
 }
 
 #[test]
 fn test_resolve_single_alias() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
     let alias_pid = dag.add_node("alias".to_string(), NodeKind::Alias);
@@ -208,7 +229,7 @@ fn test_resolve_single_alias() {
 
     dag.add_dependency(For(pid3), DependsOn(alias_pid));
 
-    let resolved: Vec<PID> = dag.resolve_dependencies(pid3).collect();
+    let resolved: Vec<Handle> = dag.resolve_dependencies(pid3).collect();
     assert_eq!(resolved.len(), 2);
     assert!(resolved.contains(&pid1));
     assert!(resolved.contains(&pid2));
@@ -216,7 +237,8 @@ fn test_resolve_single_alias() {
 
 #[test]
 fn test_resolve_nested_alias() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
     let alias1 = dag.add_node("alias1".to_string(), NodeKind::Alias);
@@ -228,7 +250,7 @@ fn test_resolve_nested_alias() {
 
     dag.add_dependency(For(pid3), DependsOn(alias2));
 
-    let resolved: Vec<PID> = dag.resolve_dependencies(pid3).collect();
+    let resolved: Vec<Handle> = dag.resolve_dependencies(pid3).collect();
     assert_eq!(resolved.len(), 2);
     assert!(resolved.contains(&pid1));
     assert!(resolved.contains(&pid2));
@@ -236,7 +258,8 @@ fn test_resolve_nested_alias() {
 
 #[test]
 fn test_resolve_with_duplicates() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
     let pid3 = dag.add_node("node3".to_string(), NodeKind::Concrete);
@@ -245,7 +268,7 @@ fn test_resolve_with_duplicates() {
     dag.add_dependency(For(pid3), DependsOn(pid2));
     dag.add_dependency(For(pid3), DependsOn(pid1)); // Duplicate
 
-    let resolved: Vec<PID> = dag.resolve_dependencies(pid3).collect();
+    let resolved: Vec<Handle> = dag.resolve_dependencies(pid3).collect();
     assert_eq!(resolved.len(), 2); // Should deduplicate
     assert!(resolved.contains(&pid1));
     assert!(resolved.contains(&pid2));
@@ -253,26 +276,29 @@ fn test_resolve_with_duplicates() {
 
 #[test]
 fn test_resolve_empty_alias() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let alias_pid = dag.add_node("alias".to_string(), NodeKind::Alias);
     let pid = dag.add_node("node".to_string(), NodeKind::Concrete);
 
     dag.add_dependency(For(pid), DependsOn(alias_pid));
 
-    let resolved: Vec<PID> = dag.resolve_dependencies(pid).collect();
+    let resolved: Vec<Handle> = dag.resolve_dependencies(pid).collect();
     assert_eq!(resolved.len(), 0);
 }
 
 #[test]
 fn test_resolve_nonexistent_node() {
-    let dag = Dag::new();
-    let resolved: Vec<PID> = dag.resolve_dependencies(999).collect();
+    let idgen = Arc::new(IdGen::new());
+    let dag = Dag::new(idgen);
+    let resolved: Vec<Handle> = dag.resolve_dependencies(Handle::new(999)).collect();
     assert_eq!(resolved.len(), 0);
 }
 
 #[test]
 fn test_resolve_circular_alias() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let alias1 = dag.add_node("alias1".to_string(), NodeKind::Alias);
     let alias2 = dag.add_node("alias2".to_string(), NodeKind::Alias);
     dag.add_dependency(For(alias2), DependsOn(alias1));
@@ -282,7 +308,7 @@ fn test_resolve_circular_alias() {
     let pid = dag.add_node("node".to_string(), NodeKind::Concrete);
     dag.add_dependency(For(pid), DependsOn(alias1));
 
-    let resolved: Vec<PID> = dag.resolve_dependencies(pid).collect();
+    let resolved: Vec<Handle> = dag.resolve_dependencies(pid).collect();
     // Should not infinite loop, returns empty due to deduplication
     assert_eq!(resolved.len(), 0);
 }
@@ -292,7 +318,8 @@ fn test_resolve_circular_alias() {
 //
 #[test]
 fn test_diamond_dependency() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let d = dag.add_node("D".to_string(), NodeKind::Concrete);
     let b = dag.add_node("B".to_string(), NodeKind::Concrete);
     let c = dag.add_node("C".to_string(), NodeKind::Concrete);
@@ -303,12 +330,12 @@ fn test_diamond_dependency() {
     dag.add_dependency(For(a), DependsOn(b));
     dag.add_dependency(For(a), DependsOn(c));
 
-    let deps_a: Vec<PID> = dag.get_direct_dependencies(a).collect();
+    let deps_a: Vec<Handle> = dag.get_direct_dependencies(a).collect();
     assert_eq!(deps_a.len(), 2);
     assert!(deps_a.contains(&b));
     assert!(deps_a.contains(&c));
 
-    let dependents_d: Vec<PID> = dag.get_direct_dependents(d).collect();
+    let dependents_d: Vec<Handle> = dag.get_direct_dependents(d).collect();
     assert_eq!(dependents_d.len(), 2);
     assert!(dependents_d.contains(&b));
     assert!(dependents_d.contains(&c));
@@ -316,7 +343,8 @@ fn test_diamond_dependency() {
 
 #[test]
 fn test_concrete_node_depends_on_alias() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
     let alias = dag.add_node("alias".to_string(), NodeKind::Alias);
@@ -326,10 +354,10 @@ fn test_concrete_node_depends_on_alias() {
 
     dag.add_dependency(For(pid3), DependsOn(alias));
 
-    let deps: Vec<PID> = dag.get_direct_dependencies(pid3).collect();
+    let deps: Vec<Handle> = dag.get_direct_dependencies(pid3).collect();
     assert_eq!(deps, vec![alias]);
 
-    let resolved: Vec<PID> = dag.resolve_dependencies(pid3).collect();
+    let resolved: Vec<Handle> = dag.resolve_dependencies(pid3).collect();
     assert_eq!(resolved.len(), 2);
     assert!(resolved.contains(&pid1));
     assert!(resolved.contains(&pid2));
@@ -337,7 +365,8 @@ fn test_concrete_node_depends_on_alias() {
 
 #[test]
 fn test_alias_depends_on_alias() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let alias1 = dag.add_node("alias1".to_string(), NodeKind::Alias);
     dag.add_dependency(For(alias1), DependsOn(pid1));
@@ -347,13 +376,14 @@ fn test_alias_depends_on_alias() {
 
     dag.add_dependency(For(pid2), DependsOn(alias2));
 
-    let resolved: Vec<PID> = dag.resolve_dependencies(pid2).collect();
+    let resolved: Vec<Handle> = dag.resolve_dependencies(pid2).collect();
     assert_eq!(resolved, vec![pid1]);
 }
 
 #[test]
 fn test_dag_with_many_nodes() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let mut pids = Vec::new();
 
     // Create 100 nodes
@@ -380,7 +410,8 @@ fn test_dag_with_many_nodes() {
 //
 #[test]
 fn test_dump_single_node() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let pid = dag.add_node("root".to_string(), NodeKind::Concrete);
 
     let output = dag.dump(pid);
@@ -390,7 +421,8 @@ fn test_dump_single_node() {
 
 #[test]
 fn test_dump_linear_chain() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
     let pid3 = dag.add_node("node3".to_string(), NodeKind::Concrete);
@@ -407,7 +439,8 @@ fn test_dump_linear_chain() {
 
 #[test]
 fn test_dump_multiple_dependencies() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let root = dag.add_node("root".to_string(), NodeKind::Concrete);
     let dep1 = dag.add_node("dep1".to_string(), NodeKind::Concrete);
     let dep2 = dag.add_node("dep2".to_string(), NodeKind::Concrete);
@@ -425,7 +458,8 @@ fn test_dump_multiple_dependencies() {
 
 #[test]
 fn test_dump_different_states() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let root = dag.add_node("root".to_string(), NodeKind::Concrete);
     let running = dag.add_node("running_node".to_string(), NodeKind::Concrete);
     let finished = dag.add_node("finished_node".to_string(), NodeKind::Concrete);
@@ -444,7 +478,8 @@ fn test_dump_different_states() {
 
 #[test]
 fn test_dump_diamond_structure() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let a = dag.add_node("A".to_string(), NodeKind::Concrete);
     let b = dag.add_node("B".to_string(), NodeKind::Concrete);
     let c = dag.add_node("C".to_string(), NodeKind::Concrete);
@@ -463,14 +498,16 @@ fn test_dump_diamond_structure() {
 
 #[test]
 fn test_dump_nonexistent_node() {
-    let dag = Dag::new();
-    let output = dag.dump(999);
+    let idgen = Arc::new(IdGen::new());
+    let dag = Dag::new(idgen);
+    let output = dag.dump(Handle::new(999));
     assert!(output.contains("not found"));
 }
 
 #[test]
 fn test_dump_node_with_no_dependencies() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let pid = dag.add_node("lonely_node".to_string(), NodeKind::Concrete);
 
     let output = dag.dump(pid);
@@ -481,8 +518,10 @@ fn test_dump_node_with_no_dependencies() {
 
 #[test]
 fn test_dump_deep_tree() {
-    let mut dag = Dag::new();
-    let mut current = dag.add_node("level0".to_string(), NodeKind::Concrete);
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
+    let level0 = dag.add_node("level0".to_string(), NodeKind::Concrete);
+    let mut current = level0;
 
     for i in 1..=5 {
         let next = dag.add_node(format!("level{}", i), NodeKind::Concrete);
@@ -490,7 +529,7 @@ fn test_dump_deep_tree() {
         current = next;
     }
 
-    let output = dag.dump(1); // Start from level0
+    let output = dag.dump(level0);
     assert!(output.contains("level0"));
     assert!(output.contains("level5"));
     // Linear chain uses └── for each level
@@ -499,7 +538,8 @@ fn test_dump_deep_tree() {
 
 #[test]
 fn test_dump_with_alias_resolution() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
     let node1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let node2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
     let alias = dag.add_node("alias_name".to_string(), NodeKind::Alias);

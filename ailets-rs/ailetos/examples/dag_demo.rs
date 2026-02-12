@@ -1,7 +1,10 @@
-use ailetos::{Dag, DependsOn, For, NodeKind, NodeState};
+use std::sync::Arc;
+
+use ailetos::{Dag, DependsOn, For, IdGen, NodeKind, NodeState};
 
 fn main() {
-    let mut dag = Dag::new();
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen.clone());
 
     // Create a structure similar to the Python example
     let value_13 = dag.add_node("value.13 (chat messages)".to_string(), NodeKind::Concrete);
@@ -23,7 +26,7 @@ fn main() {
     print!("{}", dag.dump(messages_to_markdown_18));
 
     println!("\n\nDiamond dependency structure:");
-    let mut dag2 = Dag::new();
+    let mut dag2 = Dag::new(idgen.clone());
 
     let d = dag2.add_node("D".to_string(), NodeKind::Concrete);
     dag2.set_state(d, NodeState::Terminated).unwrap();
@@ -42,7 +45,7 @@ fn main() {
     print!("{}", dag2.dump(a));
 
     println!("\n\nAlias resolution (aliases are not shown):");
-    let mut dag3 = Dag::new();
+    let mut dag3 = Dag::new(idgen.clone());
 
     let node1 = dag3.add_node("concrete_node_1".to_string(), NodeKind::Concrete);
     dag3.set_state(node1, NodeState::Terminated).unwrap();
