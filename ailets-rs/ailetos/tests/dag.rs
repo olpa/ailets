@@ -26,21 +26,15 @@ fn test_add_alias_node() {
     let mut dag = Dag::new();
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
-    let alias_pid = dag.add_node(
-        "alias".to_string(),
-        NodeKind::Alias {
-            targets: vec![pid1, pid2],
-        },
-    );
+    let alias_pid = dag.add_node("alias".to_string(), NodeKind::Alias);
+    dag.add_dependency(alias_pid, pid1).unwrap();
+    dag.add_dependency(alias_pid, pid2).unwrap();
 
     let node = dag.get_node(alias_pid).unwrap();
     assert_eq!(node.idname, "alias");
-    match &node.kind {
-        NodeKind::Alias { targets } => {
-            assert_eq!(targets, &vec![pid1, pid2]);
-        }
-        _ => panic!("Expected alias node"),
-    }
+    assert_eq!(node.kind, NodeKind::Alias);
+    let targets = dag.get_dependencies(alias_pid);
+    assert_eq!(targets, &[pid1, pid2]);
 }
 
 #[test]
@@ -227,12 +221,9 @@ fn test_resolve_single_alias() {
     let mut dag = Dag::new();
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
-    let alias_pid = dag.add_node(
-        "alias".to_string(),
-        NodeKind::Alias {
-            targets: vec![pid1, pid2],
-        },
-    );
+    let alias_pid = dag.add_node("alias".to_string(), NodeKind::Alias);
+    dag.add_dependency(alias_pid, pid1).unwrap();
+    dag.add_dependency(alias_pid, pid2).unwrap();
     let pid3 = dag.add_node("node3".to_string(), NodeKind::Concrete);
 
     dag.add_dependency(pid3, alias_pid).unwrap();
@@ -248,18 +239,11 @@ fn test_resolve_nested_alias() {
     let mut dag = Dag::new();
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
-    let alias1 = dag.add_node(
-        "alias1".to_string(),
-        NodeKind::Alias {
-            targets: vec![pid1, pid2],
-        },
-    );
-    let alias2 = dag.add_node(
-        "alias2".to_string(),
-        NodeKind::Alias {
-            targets: vec![alias1],
-        },
-    );
+    let alias1 = dag.add_node("alias1".to_string(), NodeKind::Alias);
+    dag.add_dependency(alias1, pid1).unwrap();
+    dag.add_dependency(alias1, pid2).unwrap();
+    let alias2 = dag.add_node("alias2".to_string(), NodeKind::Alias);
+    dag.add_dependency(alias2, alias1).unwrap();
     let pid3 = dag.add_node("node3".to_string(), NodeKind::Concrete);
 
     dag.add_dependency(pid3, alias2).unwrap();
@@ -290,10 +274,7 @@ fn test_resolve_with_duplicates() {
 #[test]
 fn test_resolve_empty_alias() {
     let mut dag = Dag::new();
-    let alias_pid = dag.add_node(
-        "alias".to_string(),
-        NodeKind::Alias { targets: vec![] },
-    );
+    let alias_pid = dag.add_node("alias".to_string(), NodeKind::Alias);
     let pid = dag.add_node("node".to_string(), NodeKind::Concrete);
 
     dag.add_dependency(pid, alias_pid).unwrap();
@@ -312,21 +293,11 @@ fn test_resolve_nonexistent_node() {
 #[test]
 fn test_resolve_circular_alias() {
     let mut dag = Dag::new();
-    let alias1 = dag.add_node(
-        "alias1".to_string(),
-        NodeKind::Alias { targets: vec![] },
-    );
-    let alias2 = dag.add_node(
-        "alias2".to_string(),
-        NodeKind::Alias { targets: vec![alias1] },
-    );
-
-    // Manually create circular reference
-    if let Some(node) = dag.get_node_mut(alias1) {
-        if let NodeKind::Alias { targets } = &mut node.kind {
-            targets.push(alias2);
-        }
-    }
+    let alias1 = dag.add_node("alias1".to_string(), NodeKind::Alias);
+    let alias2 = dag.add_node("alias2".to_string(), NodeKind::Alias);
+    dag.add_dependency(alias2, alias1).unwrap();
+    // Create circular reference
+    dag.add_dependency(alias1, alias2).unwrap();
 
     let pid = dag.add_node("node".to_string(), NodeKind::Concrete);
     dag.add_dependency(pid, alias1).unwrap();
@@ -368,12 +339,9 @@ fn test_concrete_node_depends_on_alias() {
     let mut dag = Dag::new();
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
-    let alias = dag.add_node(
-        "alias".to_string(),
-        NodeKind::Alias {
-            targets: vec![pid1, pid2],
-        },
-    );
+    let alias = dag.add_node("alias".to_string(), NodeKind::Alias);
+    dag.add_dependency(alias, pid1).unwrap();
+    dag.add_dependency(alias, pid2).unwrap();
     let pid3 = dag.add_node("node3".to_string(), NodeKind::Concrete);
 
     assert!(dag.add_dependency(pid3, alias).is_ok());
@@ -391,18 +359,10 @@ fn test_concrete_node_depends_on_alias() {
 fn test_alias_depends_on_alias() {
     let mut dag = Dag::new();
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
-    let alias1 = dag.add_node(
-        "alias1".to_string(),
-        NodeKind::Alias {
-            targets: vec![pid1],
-        },
-    );
-    let alias2 = dag.add_node(
-        "alias2".to_string(),
-        NodeKind::Alias {
-            targets: vec![alias1],
-        },
-    );
+    let alias1 = dag.add_node("alias1".to_string(), NodeKind::Alias);
+    dag.add_dependency(alias1, pid1).unwrap();
+    let alias2 = dag.add_node("alias2".to_string(), NodeKind::Alias);
+    dag.add_dependency(alias2, alias1).unwrap();
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
 
     assert!(dag.add_dependency(pid2, alias2).is_ok());
@@ -562,12 +522,9 @@ fn test_dump_with_alias_resolution() {
     let mut dag = Dag::new();
     let node1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let node2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
-    let alias = dag.add_node(
-        "alias_name".to_string(),
-        NodeKind::Alias {
-            targets: vec![node1, node2],
-        },
-    );
+    let alias = dag.add_node("alias_name".to_string(), NodeKind::Alias);
+    dag.add_dependency(alias, node1).unwrap();
+    dag.add_dependency(alias, node2).unwrap();
     let root = dag.add_node("root".to_string(), NodeKind::Concrete);
 
     dag.add_dependency(root, alias).unwrap();

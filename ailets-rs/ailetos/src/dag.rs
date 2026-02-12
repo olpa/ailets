@@ -12,7 +12,7 @@ pub enum NodeState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NodeKind {
     Concrete,
-    Alias { targets: Vec<PID> },
+    Alias,
 }
 
 #[derive(Debug, Clone)]
@@ -219,8 +219,8 @@ impl<'a> Iterator for DependencyIterator<'a> {
                 if let Some(node) = self.dag.get_node(pid) {
                     match &node.kind {
                         NodeKind::Concrete => return Some(pid),
-                        NodeKind::Alias { targets } => {
-                            self.to_visit.extend(targets);
+                        NodeKind::Alias => {
+                            self.to_visit.extend(self.dag.get_dependencies(pid));
                         }
                     }
                 }

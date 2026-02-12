@@ -50,12 +50,9 @@ fn main() {
     let node2 = dag3.add_node("concrete_node_2".to_string(), NodeKind::Concrete);
     dag3.set_state(node2, NodeState::Terminated).unwrap();
 
-    let alias = dag3.add_node(
-        "my_alias".to_string(),
-        NodeKind::Alias {
-            targets: vec![node1, node2],
-        },
-    );
+    let alias = dag3.add_node("my_alias".to_string(), NodeKind::Alias);
+    dag3.add_dependency(alias, node1).unwrap();
+    dag3.add_dependency(alias, node2).unwrap();
 
     let root = dag3.add_node("root".to_string(), NodeKind::Concrete);
     dag3.add_dependency(root, alias).unwrap();
