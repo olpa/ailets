@@ -116,24 +116,28 @@ impl Dag {
         Ok(())
     }
 
-    pub fn get_dependencies(&self, pid: PID) -> &[PID] {
+    pub fn get_direct_dependencies(&self, pid: PID) -> impl Iterator<Item = PID> + '_ {
         self.deps
             .iter()
             .find(|(p, _)| *p == pid)
             .map(|(_, deps)| deps.as_slice())
             .unwrap_or(&[])
+            .iter()
+            .copied()
     }
 
-    pub fn get_dependents(&self, pid: PID) -> &[PID] {
+    pub fn get_dependents(&self, pid: PID) -> impl Iterator<Item = PID> + '_ {
         self.reverse_deps
             .iter()
             .find(|(p, _)| *p == pid)
             .map(|(_, rdeps)| rdeps.as_slice())
             .unwrap_or(&[])
+            .iter()
+            .copied()
     }
 
     pub fn resolve_dependencies(&self, pid: PID) -> DependencyIterator<'_> {
-        let to_visit = self.get_dependencies(pid).to_vec();
+        let to_visit: Vec<PID> = self.get_direct_dependencies(pid).collect();
 
         DependencyIterator {
             dag: self,
@@ -231,7 +235,7 @@ impl<'a> Iterator for DependencyIterator<'a> {
                     match &node.kind {
                         NodeKind::Concrete => return Some(pid),
                         NodeKind::Alias => {
-                            self.to_visit.extend(self.dag.get_dependencies(pid));
+                            self.to_visit.extend(self.dag.get_direct_dependencies(pid));
                         }
                     }
                 }
