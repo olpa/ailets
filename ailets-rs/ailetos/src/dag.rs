@@ -87,17 +87,9 @@ impl Dag {
         }
     }
 
-    pub fn add_dependency(&mut self, node: For, dependency: DependsOn) -> Result<(), DagError> {
+    pub fn add_dependency(&mut self, node: For, dependency: DependsOn) {
         let For(from) = node;
         let DependsOn(to) = dependency;
-
-        // Validate both nodes exist
-        if self.get_node(from).is_none() {
-            return Err(DagError::NodeNotFound(from));
-        }
-        if self.get_node(to).is_none() {
-            return Err(DagError::NodeNotFound(to));
-        }
 
         // Update forward deps
         if let Some((_, deps)) = self.deps.iter_mut().find(|(p, _)| *p == from) {
@@ -112,8 +104,6 @@ impl Dag {
         } else {
             self.reverse_deps.push((to, vec![from]));
         }
-
-        Ok(())
     }
 
     pub fn get_direct_dependencies(&self, pid: PID) -> impl Iterator<Item = PID> + '_ {
