@@ -116,7 +116,7 @@ impl Dag {
             .copied()
     }
 
-    pub fn get_dependents(&self, pid: PID) -> impl Iterator<Item = PID> + '_ {
+    pub fn get_direct_dependents(&self, pid: PID) -> impl Iterator<Item = PID> + '_ {
         self.reverse_deps
             .iter()
             .find(|(p, _)| *p == pid)

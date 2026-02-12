@@ -77,7 +77,7 @@ fn test_multiple_nodes_with_same_idname() {
 }
 
 // --------------------------------------------------------------------
-// Forward Dependencies
+// Direct Dependencies
 //
 
 #[test]
@@ -122,31 +122,31 @@ fn test_get_direct_dependencies_nonexistent_node() {
 }
 
 // --------------------------------------------------------------------
-// Reverse Dependencies
+// Dependents (Reverse Lookup)
 //
 
 #[test]
-fn test_get_dependents_empty() {
+fn test_get_direct_dependents_empty() {
     let mut dag = Dag::new();
     let pid = dag.add_node("node".to_string(), NodeKind::Concrete);
 
-    assert_eq!(dag.get_dependents(pid).count(), 0);
+    assert_eq!(dag.get_direct_dependents(pid).count(), 0);
 }
 
 #[test]
-fn test_get_dependents_single() {
+fn test_get_direct_dependents_single() {
     let mut dag = Dag::new();
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
 
     dag.add_dependency(For(pid1), DependsOn(pid2));
 
-    let dependents: Vec<PID> = dag.get_dependents(pid2).collect();
+    let dependents: Vec<PID> = dag.get_direct_dependents(pid2).collect();
     assert_eq!(dependents, vec![pid1]);
 }
 
 #[test]
-fn test_get_dependents_multiple() {
+fn test_get_direct_dependents_multiple() {
     let mut dag = Dag::new();
     let pid1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
     let pid2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
@@ -155,7 +155,7 @@ fn test_get_dependents_multiple() {
     dag.add_dependency(For(pid1), DependsOn(pid3));
     dag.add_dependency(For(pid2), DependsOn(pid3));
 
-    let dependents: Vec<PID> = dag.get_dependents(pid3).collect();
+    let dependents: Vec<PID> = dag.get_direct_dependents(pid3).collect();
     assert_eq!(dependents.len(), 2);
     assert!(dependents.contains(&pid1));
     assert!(dependents.contains(&pid2));
@@ -170,19 +170,19 @@ fn test_dependency_creates_reverse() {
     dag.add_dependency(For(pid1), DependsOn(pid2));
 
     let deps: Vec<PID> = dag.get_direct_dependencies(pid1).collect();
-    let dependents: Vec<PID> = dag.get_dependents(pid2).collect();
+    let dependents: Vec<PID> = dag.get_direct_dependents(pid2).collect();
     assert_eq!(deps, vec![pid2]);
     assert_eq!(dependents, vec![pid1]);
 }
 
 #[test]
-fn test_get_dependents_nonexistent_node() {
+fn test_get_direct_dependents_nonexistent_node() {
     let dag = Dag::new();
-    assert_eq!(dag.get_dependents(999).count(), 0);
+    assert_eq!(dag.get_direct_dependents(999).count(), 0);
 }
 
 // --------------------------------------------------------------------
-// Dependency Iterator (Alias Resolution)
+// Alias Resolution
 //
 #[test]
 fn test_resolve_concrete_node() {
@@ -308,7 +308,7 @@ fn test_diamond_dependency() {
     assert!(deps_a.contains(&b));
     assert!(deps_a.contains(&c));
 
-    let dependents_d: Vec<PID> = dag.get_dependents(d).collect();
+    let dependents_d: Vec<PID> = dag.get_direct_dependents(d).collect();
     assert_eq!(dependents_d.len(), 2);
     assert!(dependents_d.contains(&b));
     assert!(dependents_d.contains(&c));
@@ -372,7 +372,7 @@ fn test_dag_with_many_nodes() {
         assert!(dag.get_node(*pid).is_some());
     }
     assert_eq!(dag.get_direct_dependencies(pids[50]).count(), 1);
-    assert_eq!(dag.get_dependents(pids[50]).count(), 1);
+    assert_eq!(dag.get_direct_dependents(pids[50]).count(), 1);
 }
 
 // --------------------------------------------------------------------
