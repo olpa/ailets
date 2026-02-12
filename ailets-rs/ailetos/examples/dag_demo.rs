@@ -8,7 +8,7 @@ fn main() {
 
     // Create a structure similar to the Python example
     let value_13 = dag.add_node("value.13 (chat messages)".to_string(), NodeKind::Concrete);
-    dag.set_state(value_13, NodeState::Terminated).unwrap();
+    dag.set_state(value_13, NodeState::Terminated);
 
     let messages_to_query_15 = dag.add_node("gpt.messages_to_query.15".to_string(), NodeKind::Concrete);
     dag.add_dependency(For(messages_to_query_15), DependsOn(value_13));
@@ -29,10 +29,10 @@ fn main() {
     let mut dag2 = Dag::new(idgen.clone());
 
     let d = dag2.add_node("D".to_string(), NodeKind::Concrete);
-    dag2.set_state(d, NodeState::Terminated).unwrap();
+    dag2.set_state(d, NodeState::Terminated);
 
     let b = dag2.add_node("B".to_string(), NodeKind::Concrete);
-    dag2.set_state(b, NodeState::Running).unwrap();
+    dag2.set_state(b, NodeState::Running);
     dag2.add_dependency(For(b), DependsOn(d));
 
     let c = dag2.add_node("C".to_string(), NodeKind::Concrete);
@@ -48,10 +48,10 @@ fn main() {
     let mut dag3 = Dag::new(idgen.clone());
 
     let node1 = dag3.add_node("concrete_node_1".to_string(), NodeKind::Concrete);
-    dag3.set_state(node1, NodeState::Terminated).unwrap();
+    dag3.set_state(node1, NodeState::Terminated);
 
     let node2 = dag3.add_node("concrete_node_2".to_string(), NodeKind::Concrete);
-    dag3.set_state(node2, NodeState::Terminated).unwrap();
+    dag3.set_state(node2, NodeState::Terminated);
 
     let alias = dag3.add_node("my_alias".to_string(), NodeKind::Alias);
     dag3.add_dependency(For(alias), DependsOn(node1));

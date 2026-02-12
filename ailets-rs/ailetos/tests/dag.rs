@@ -464,8 +464,8 @@ fn test_dump_different_states() {
     let running = dag.add_node("running_node".to_string(), NodeKind::Concrete);
     let finished = dag.add_node("finished_node".to_string(), NodeKind::Concrete);
 
-    dag.set_state(running, NodeState::Running).unwrap();
-    dag.set_state(finished, NodeState::Terminated).unwrap();
+    dag.set_state(running, NodeState::Running);
+    dag.set_state(finished, NodeState::Terminated);
 
     dag.add_dependency(For(root), DependsOn(running));
     dag.add_dependency(For(root), DependsOn(finished));

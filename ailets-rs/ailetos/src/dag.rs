@@ -42,10 +42,6 @@ pub struct Dag {
     idgen: Arc<IdGen>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DagError {
-    NodeNotFound(Handle),
-}
 
 impl Dag {
     pub fn new(idgen: Arc<IdGen>) -> Self {
@@ -78,12 +74,9 @@ impl Dag {
         self.nodes.iter_mut().find(|n| n.pid == pid)
     }
 
-    pub fn set_state(&mut self, pid: Handle, state: NodeState) -> Result<(), DagError> {
+    pub fn set_state(&mut self, pid: Handle, state: NodeState) {
         if let Some(node) = self.get_node_mut(pid) {
             node.state = state;
-            Ok(())
-        } else {
-            Err(DagError::NodeNotFound(pid))
         }
     }
 
