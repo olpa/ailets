@@ -35,7 +35,7 @@ pub struct Node {
 #[derive(Debug)]
 pub struct Dag {
     nodes: Vec<Node>,
-    // Dependencies: each (from, to) edge means "from depends on to"
+    // Dependencies: each (for_node, depends_on) edge
     deps: Vec<(Handle, Handle)>,
     idgen: Arc<IdGen>,
 }
@@ -78,24 +78,24 @@ impl Dag {
     }
 
     pub fn add_dependency(&mut self, node: For, dependency: DependsOn) {
-        let For(from) = node;
-        let DependsOn(to) = dependency;
+        let For(for_node) = node;
+        let DependsOn(depends_on) = dependency;
 
-        self.deps.push((from, to));
+        self.deps.push((for_node, depends_on));
     }
 
     pub fn get_direct_dependencies(&self, pid: Handle) -> impl Iterator<Item = Handle> + '_ {
         self.deps
             .iter()
-            .filter(move |(from, _)| *from == pid)
-            .map(|(_, to)| *to)
+            .filter(move |(for_node, _)| *for_node == pid)
+            .map(|(_, depends_on)| *depends_on)
     }
 
     pub fn get_direct_dependents(&self, pid: Handle) -> impl Iterator<Item = Handle> + '_ {
         self.deps
             .iter()
-            .filter(move |(_, to)| *to == pid)
-            .map(|(from, _)| *from)
+            .filter(move |(_, depends_on)| *depends_on == pid)
+            .map(|(for_node, _)| *for_node)
     }
 
     pub fn resolve_dependencies(&self, pid: Handle) -> DependencyIterator<'_> {
