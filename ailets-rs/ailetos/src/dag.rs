@@ -35,10 +35,10 @@ pub struct Node {
 #[derive(Debug)]
 pub struct Dag {
     nodes: Vec<Node>,
-    // Forward dependencies: "What does X depend on?"
-    deps: Vec<(Handle, Vec<Handle>)>,
-    // Reverse dependencies: "What depends on X?"
-    reverse_deps: Vec<(Handle, Vec<Handle>)>,
+    // Forward dependencies: "What does X depend on?" - each (from, to) edge
+    deps: Vec<(Handle, Handle)>,
+    // Reverse dependencies: "What depends on X?" - each (to, from) edge
+    reverse_deps: Vec<(Handle, Handle)>,
     idgen: Arc<IdGen>,
 }
 
@@ -84,39 +84,22 @@ impl Dag {
         let For(from) = node;
         let DependsOn(to) = dependency;
 
-        // Update forward deps
-        if let Some((_, deps)) = self.deps.iter_mut().find(|(p, _)| *p == from) {
-            deps.push(to);
-        } else {
-            self.deps.push((from, vec![to]));
-        }
-
-        // Update reverse deps
-        if let Some((_, rdeps)) = self.reverse_deps.iter_mut().find(|(p, _)| *p == to) {
-            rdeps.push(from);
-        } else {
-            self.reverse_deps.push((to, vec![from]));
-        }
+        self.deps.push((from, to));
+        self.reverse_deps.push((to, from));
     }
 
     pub fn get_direct_dependencies(&self, pid: Handle) -> impl Iterator<Item = Handle> + '_ {
         self.deps
             .iter()
-            .find(|(p, _)| *p == pid)
-            .map(|(_, deps)| deps.as_slice())
-            .unwrap_or(&[])
-            .iter()
-            .copied()
+            .filter(move |(from, _)| *from == pid)
+            .map(|(_, to)| *to)
     }
 
     pub fn get_direct_dependents(&self, pid: Handle) -> impl Iterator<Item = Handle> + '_ {
         self.reverse_deps
             .iter()
-            .find(|(p, _)| *p == pid)
-            .map(|(_, rdeps)| rdeps.as_slice())
-            .unwrap_or(&[])
-            .iter()
-            .copied()
+            .filter(move |(to, _)| *to == pid)
+            .map(|(_, from)| *from)
     }
 
     pub fn resolve_dependencies(&self, pid: Handle) -> DependencyIterator<'_> {
