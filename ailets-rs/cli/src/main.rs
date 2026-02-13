@@ -468,6 +468,24 @@ impl SystemRuntime {
         let _ = response.send(result);
     }
 
+    /// Prepare actor runtimes for all nodes in the DAG
+    fn prepare_actors(&self, dag: &Dag, target: Handle) -> Vec<(ActorId, String, StubActorRuntime)> {
+        let scheduler = Scheduler::new(dag, target);
+        let mut actor_infos = Vec::new();
+
+        for node_handle in scheduler.iter() {
+            let node = dag.get_node(node_handle).expect("node exists");
+            let idname = node.idname.clone();
+            eprintln!("Node to build: {:?} ({})", node_handle, idname);
+            #[allow(clippy::cast_sign_loss)]
+            let actor_id = ActorId(node_handle.id() as usize);
+            let runtime = self.create_actor_runtime(actor_id);
+            actor_infos.push((actor_id, idname, runtime));
+        }
+
+        actor_infos
+    }
+
     /// Main event loop - processes I/O requests asynchronously
     async fn run(mut self) {
         // Drop our copy of the sender so channel closes when all actors finish
@@ -704,72 +722,12 @@ impl ActorRuntime for StubActorRuntime {
     }
 }
 
-fn build_flow(dag: &mut Dag) -> Handle {
-    // val: value node (pre-filled with "(mee too)")
-    let val = dag.add_node("val".into(), NodeKind::Concrete);
-
-    // stdin: reads from stdin
-    // TODO: implement actual OS stdin reading, currently simulated with pre-filled pipe
-    let stdin = dag.add_node("stdin".into(), NodeKind::Concrete);
-
-    // foo: copies from stdin
-    let foo = dag.add_node("foo".into(), NodeKind::Concrete);
-    dag.add_dependency(For(foo), DependsOn(stdin));
-
-    // bar: copies from val
-    // TODO: bar should also depend on foo, but multiple inputs are not yet supported.
-    // For now, we only read from val and ignore foo.
-    let bar = dag.add_node("bar".into(), NodeKind::Concrete);
-    dag.add_dependency(For(bar), DependsOn(val));
-
-    // baz: copies from bar
-    let baz = dag.add_node("baz".into(), NodeKind::Concrete);
-    dag.add_dependency(For(baz), DependsOn(bar));
-
-    // .end alias to baz
-    let end = dag.add_node(".end".into(), NodeKind::Alias);
-    dag.add_dependency(For(end), DependsOn(baz));
-
-    end
-}
-
-#[tokio::main]
-async fn main() {
-    let idgen = Arc::new(IdGen::new());
-    let mut dag = Dag::new(idgen);
-
-    let end_node = build_flow(&mut dag);
-
-    eprintln!("Dependency tree:\n{}", dag.dump(end_node));
-
-    // Create Scheduler and SystemRuntime
-    let scheduler = Scheduler::new(&dag, end_node);
-    let mut system_runtime = SystemRuntime::new();
-
-    // Create actor runtimes and collect node info for each node from the scheduler
-    let mut actor_infos = Vec::new();
-    for node_handle in scheduler.iter() {
-        let node = dag.get_node(node_handle).expect("node exists");
-        let idname = node.idname.clone();
-        eprintln!("Node to build: {:?} ({})", node_handle, idname);
-        #[allow(clippy::cast_sign_loss)]
-        let actor_id = ActorId(node_handle.id() as usize);
-        let runtime = system_runtime.create_actor_runtime(actor_id);
-        actor_infos.push((actor_id, idname, runtime));
-    }
-
-    // Setup pipes based on DAG dependencies
-    eprintln!("Setup: Setting up pipes based on DAG");
-    system_runtime.setup_pipes_from_dag(&dag, end_node).await;
-    eprintln!("Setup: All pipes configured");
-
-    // Spawn SystemRuntime task
-    let system_task = tokio::spawn(async move {
-        system_runtime.run().await;
-    });
-
-    // Spawn tasks for each node from the scheduler, dispatching by idname
+/// Spawn actor tasks for each node in the system
+fn spawn_actor_tasks(
+    actor_infos: Vec<(ActorId, String, StubActorRuntime)>,
+) -> Vec<tokio::task::JoinHandle<()>> {
     let mut tasks = Vec::new();
+
     for (actor_id, idname, runtime) in actor_infos {
         let task = tokio::task::spawn_blocking(move || {
             eprintln!("Task {:?} ({}): Starting", actor_id, idname);
@@ -804,15 +762,85 @@ async fn main() {
         tasks.push(task);
     }
 
+    tasks
+}
+
+/// Run the system: spawn system runtime and actor tasks, wait for completion
+async fn run_system(
+    system_runtime: SystemRuntime,
+    actor_infos: Vec<(ActorId, String, StubActorRuntime)>,
+) {
+    // Spawn SystemRuntime task
+    let system_task = tokio::spawn(async move {
+        system_runtime.run().await;
+    });
+
+    // Spawn actor tasks
+    let actor_tasks = spawn_actor_tasks(actor_infos);
+
     // Wait for system runtime
     if let Err(e) = system_task.await {
         eprintln!("SystemRuntime task failed: {e}");
     }
 
     // Wait for all actor tasks
-    for task in tasks {
+    for task in actor_tasks {
         if let Err(e) = task.await {
             eprintln!("Task failed: {e}");
         }
     }
+}
+
+fn build_flow(dag: &mut Dag) -> Handle {
+    // val: value node (pre-filled with "(mee too)")
+    let val = dag.add_node("val".into(), NodeKind::Concrete);
+
+    // stdin: reads from stdin
+    // TODO: implement actual OS stdin reading, currently simulated with pre-filled pipe
+    let stdin = dag.add_node("stdin".into(), NodeKind::Concrete);
+
+    // foo: copies from stdin
+    let foo = dag.add_node("foo".into(), NodeKind::Concrete);
+    dag.add_dependency(For(foo), DependsOn(stdin));
+
+    // bar: copies from val
+    // TODO: bar should also depend on foo, but multiple inputs are not yet supported.
+    // For now, we only read from val and ignore foo.
+    let bar = dag.add_node("bar".into(), NodeKind::Concrete);
+    dag.add_dependency(For(bar), DependsOn(val));
+
+    // baz: copies from bar
+    let baz = dag.add_node("baz".into(), NodeKind::Concrete);
+    dag.add_dependency(For(baz), DependsOn(bar));
+
+    // .end alias to baz
+    let end = dag.add_node(".end".into(), NodeKind::Alias);
+    dag.add_dependency(For(end), DependsOn(baz));
+
+    end
+}
+
+#[tokio::main]
+async fn main() {
+    // Create DAG and build flow
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
+    let end_node = build_flow(&mut dag);
+
+    // Print dependency tree
+    eprintln!("Dependency tree:\n{}", dag.dump(end_node));
+
+    // Create system runtime
+    let mut system_runtime = SystemRuntime::new();
+
+    // Prepare actor runtimes
+    let actor_infos = system_runtime.prepare_actors(&dag, end_node);
+
+    // Setup pipes based on DAG dependencies
+    eprintln!("Setup: Setting up pipes based on DAG");
+    system_runtime.setup_pipes_from_dag(&dag, end_node).await;
+    eprintln!("Setup: All pipes configured");
+
+    // Run the system
+    run_system(system_runtime, actor_infos).await;
 }
