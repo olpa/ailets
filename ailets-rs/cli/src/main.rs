@@ -1,10 +1,16 @@
+mod scheduler;
 mod sqlitekv;
+
+use std::sync::Arc;
 
 use actor_io::{AReader, AWriter};
 use actor_runtime::{ActorRuntime, StdHandle};
-use ailetos::notification_queue::{Handle, NotificationQueueArc};
+use ailetos::dag::{Dag, DependsOn, For, NodeKind};
+use ailetos::idgen::{Handle, IdGen};
+use ailetos::notification_queue::NotificationQueueArc;
 use ailetos::pipe::{Pipe, Reader};
 use ailetos::{KVBuffers, OpenMode};
+use scheduler::Scheduler;
 use futures::stream::{FuturesUnordered, StreamExt};
 use sqlitekv::SqliteKV;
 use std::collections::HashMap;
@@ -667,16 +673,31 @@ impl ActorRuntime for StubActorRuntime {
 
 #[tokio::main]
 async fn main() {
+    // Create DAG with two "cat" nodes
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
+
+    let cat1 = dag.add_node("cat".into(), NodeKind::Concrete);
+    let cat2 = dag.add_node("cat".into(), NodeKind::Concrete);
+    dag.add_dependency(For(cat2), DependsOn(cat1));
+
+    // Create Scheduler and get nodes to build
+    let scheduler = Scheduler::new(&dag, cat2);
+    let nodes_to_build: Vec<_> = scheduler.iter().collect();
+
+    eprintln!("Nodes to build: {:?}", nodes_to_build);
+
     // Create SystemRuntime and setup standard handles for all actors
     let mut system_runtime = SystemRuntime::new();
 
-    // Define actor IDs
-    let actor1_id = ActorId(1);
-    let actor2_id = ActorId(2);
-
-    // Get ActorRuntimes from SystemRuntime (before moving system_runtime)
-    let runtime1 = system_runtime.create_actor_runtime(actor1_id);
-    let runtime2 = system_runtime.create_actor_runtime(actor2_id);
+    // Create actor runtimes for each node
+    let mut actor_runtimes = Vec::new();
+    for node_handle in &nodes_to_build {
+        #[allow(clippy::cast_sign_loss)]
+        let actor_id = ActorId(node_handle.id() as usize);
+        let runtime = system_runtime.create_actor_runtime(actor_id);
+        actor_runtimes.push((actor_id, runtime));
+    }
 
     // Setup standard handles for all actors directly on SystemRuntime
     eprintln!("Setup: Setting up standard handles for all actors");
@@ -688,47 +709,34 @@ async fn main() {
         system_runtime.run().await;
     });
 
-    // First actor: reads from stdin (static data) and writes to pipe
-    let task1 = tokio::task::spawn_blocking(move || {
-        eprintln!("Task1: Starting");
+    // Spawn tasks for each node from the scheduler
+    let mut tasks = Vec::new();
+    for (actor_id, runtime) in actor_runtimes {
+        let task = tokio::task::spawn_blocking(move || {
+            eprintln!("Task {:?}: Starting", actor_id);
 
-        let areader1 = AReader::new_from_std(&runtime1, StdHandle::Stdin);
-        let awriter1 = AWriter::new_from_std(&runtime1, StdHandle::Stdout);
+            let areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
+            let awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
 
-        eprintln!("Task1: About to execute cat");
-        match cat::execute(areader1, awriter1) {
-            Ok(()) => eprintln!("Task1: Cat completed successfully"),
-            Err(e) => eprintln!("Error in first cat: {e}"),
-        }
-        eprintln!("Task1: Done");
-    });
+            eprintln!("Task {:?}: About to execute cat", actor_id);
+            match cat::execute(areader, awriter) {
+                Ok(()) => eprintln!("Task {:?}: Cat completed successfully", actor_id),
+                Err(e) => eprintln!("Error in cat {:?}: {e}", actor_id),
+            }
+            eprintln!("Task {:?}: Done", actor_id);
+        });
+        tasks.push(task);
+    }
 
-    // Second actor: reads from pipe and writes to stdout
-    let task2 = tokio::task::spawn_blocking(move || {
-        eprintln!("Task2: Starting");
-
-        let areader2 = AReader::new_from_std(&runtime2, StdHandle::Stdin);
-        let awriter2 = AWriter::new_from_std(&runtime2, StdHandle::Stdout);
-
-        eprintln!("Task2: About to execute cat");
-        match cat::execute(areader2, awriter2) {
-            Ok(()) => eprintln!("Task2: Cat completed successfully"),
-            Err(e) => eprintln!("Error in second cat: {e}"),
-        }
-        eprintln!("Task2: Done");
-    });
-
-    // Wait for all tasks to complete
-    let (system_result, task1_result, task2_result) = tokio::join!(system_task, task1, task2);
-
-    // Check for panics or errors
-    if let Err(e) = system_result {
+    // Wait for system runtime
+    if let Err(e) = system_task.await {
         eprintln!("SystemRuntime task failed: {e}");
     }
-    if let Err(e) = task1_result {
-        eprintln!("Task1 failed: {e}");
-    }
-    if let Err(e) = task2_result {
-        eprintln!("Task2 failed: {e}");
+
+    // Wait for all actor tasks
+    for task in tasks {
+        if let Err(e) = task.await {
+            eprintln!("Task failed: {e}");
+        }
     }
 }
