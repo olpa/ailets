@@ -47,36 +47,7 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-// ============================================================================
-// Handle Type
-// ============================================================================
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Handle {
-    id: i64,
-}
-impl Handle {
-    #[must_use]
-    pub fn new(id: i64) -> Self {
-        Self { id }
-    }
-
-    #[must_use]
-    pub fn id(&self) -> i64 {
-        self.id
-    }
-}
-
-pub trait HandleType {
-    type Id;
-}
-
-impl HandleType for Handle {
-    type Id = i64;
-}
-
-/// Type that can be either a Handle id or an arbitrary signal value
-pub type IntCanBeHandle = <Handle as HandleType>::Id;
+use crate::idgen::{Handle, IntCanBeHandle};
 
 // ============================================================================
 // Client Types

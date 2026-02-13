@@ -1,4 +1,5 @@
-use ailetos::notification_queue::{Handle, NotificationQueueArc};
+use ailetos::idgen::Handle;
+use ailetos::notification_queue::NotificationQueueArc;
 use ailetos::pipe::Pipe;
 use ailetos::Buffer;
 

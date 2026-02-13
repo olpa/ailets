@@ -3,8 +3,10 @@
 //! Demonstrates the notification queue and pipe implementation.
 
 use std::cmp::Ordering;
+use std::sync::Arc;
 
-use ailetos::notification_queue::{Handle, NotificationQueueArc};
+use ailetos::idgen::{Handle, IdGen};
+use ailetos::notification_queue::NotificationQueueArc;
 use ailetos::pipe::{Pipe, Reader};
 use ailetos::Buffer;
 
@@ -12,13 +14,19 @@ use ailetos::Buffer;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
+    let idgen = Arc::new(IdGen::new());
     let queue = NotificationQueueArc::new();
 
-    let pipe = Pipe::new(Handle::new(0), queue.clone(), "demo", Buffer::new());
+    let pipe = Pipe::new(
+        Handle::new(idgen.get_next()),
+        queue.clone(),
+        "demo",
+        Buffer::new(),
+    );
 
-    let mut reader1 = pipe.get_reader(Handle::new(1));
-    let mut reader2 = pipe.get_reader(Handle::new(2));
-    let mut reader3 = pipe.get_reader(Handle::new(3));
+    let mut reader1 = pipe.get_reader(Handle::new(idgen.get_next()));
+    let mut reader2 = pipe.get_reader(Handle::new(idgen.get_next()));
+    let mut reader3 = pipe.get_reader(Handle::new(idgen.get_next()));
 
     let writer_task = tokio::spawn(async move {
         write_all(pipe).await;

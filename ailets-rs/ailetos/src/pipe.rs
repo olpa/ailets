@@ -10,8 +10,9 @@ use std::cmp::Ordering;
 use std::fmt;
 use std::sync::Arc;
 
+use crate::idgen::Handle;
 use crate::io::Buffer;
-use crate::notification_queue::{Handle, NotificationQueueArc};
+use crate::notification_queue::NotificationQueueArc;
 
 /// Shared state between Writer and Readers
 struct SharedBuffer {

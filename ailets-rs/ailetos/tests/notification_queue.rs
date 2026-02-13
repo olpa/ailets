@@ -1,4 +1,5 @@
-use ailetos::notification_queue::*;
+use ailetos::idgen::Handle;
+use ailetos::notification_queue::NotificationQueueArc;
 
 #[tokio::test]
 async fn test_basic_wait_notify() {
