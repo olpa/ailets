@@ -35,10 +35,8 @@ pub struct Node {
 #[derive(Debug)]
 pub struct Dag {
     nodes: Vec<Node>,
-    // Forward dependencies: "What does X depend on?" - each (from, to) edge
+    // Dependencies: each (from, to) edge means "from depends on to"
     deps: Vec<(Handle, Handle)>,
-    // Reverse dependencies: "What depends on X?" - each (to, from) edge
-    reverse_deps: Vec<(Handle, Handle)>,
     idgen: Arc<IdGen>,
 }
 
@@ -48,7 +46,6 @@ impl Dag {
         Self {
             nodes: Vec::new(),
             deps: Vec::new(),
-            reverse_deps: Vec::new(),
             idgen,
         }
     }
@@ -85,7 +82,6 @@ impl Dag {
         let DependsOn(to) = dependency;
 
         self.deps.push((from, to));
-        self.reverse_deps.push((to, from));
     }
 
     pub fn get_direct_dependencies(&self, pid: Handle) -> impl Iterator<Item = Handle> + '_ {
@@ -96,10 +92,10 @@ impl Dag {
     }
 
     pub fn get_direct_dependents(&self, pid: Handle) -> impl Iterator<Item = Handle> + '_ {
-        self.reverse_deps
+        self.deps
             .iter()
-            .filter(move |(to, _)| *to == pid)
-            .map(|(_, from)| *from)
+            .filter(move |(_, to)| *to == pid)
+            .map(|(from, _)| *from)
     }
 
     pub fn resolve_dependencies(&self, pid: Handle) -> DependencyIterator<'_> {
