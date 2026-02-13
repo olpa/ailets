@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use ailetos::dag::Dag;
+use ailetos::dag::{Dag, NodeKind};
 use ailetos::idgen::Handle;
 
 pub struct Scheduler<'a> {
@@ -40,6 +40,7 @@ impl<'a> SchedulerIter<'a> {
     }
 
     /// Build the full topological order, then drain it.
+    /// Only concrete nodes are included; aliases are traversed but not yielded.
     fn build_order(&mut self) {
         // DFS-based topological sort
         while let Some(node) = self.stack.pop() {
@@ -48,12 +49,17 @@ impl<'a> SchedulerIter<'a> {
             }
             self.visited.insert(node);
 
+            let Some(node_info) = self.dag.get_node(node) else {
+                continue;
+            };
+
             // Get dependencies and push them to stack
             let deps: Vec<Handle> = self.dag.resolve_dependencies(node).collect();
 
-            // Push current node to be processed after its dependencies
-            // We'll reverse at the end
-            self.result.push(node);
+            // Only add concrete nodes to result; skip aliases
+            if node_info.kind == NodeKind::Concrete {
+                self.result.push(node);
+            }
 
             for dep in deps {
                 if !self.visited.contains(&dep) {

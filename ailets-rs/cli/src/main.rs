@@ -193,37 +193,70 @@ impl SystemRuntime {
         )
     }
 
-    /// Setup standard handles for all actors
-    /// This configures the I/O mappings directly instead of going through the request channel
-    async fn setup_std_handles(&mut self) {
-        // Create pipe 1: pre-filled with test data for Actor 1 to read from
-        let input_pipe_id = self.create_pipe("pipes/input-data").await;
-        if let Some(pipe) = self.pipes.get(&input_pipe_id) {
-            let test_data = b"Hello, world!\n";
-            let written = pipe.writer().write(test_data);
-            assert_eq!(
-                written,
-                test_data.len().cast_signed(),
-                "Failed to write test data to input pipe"
-            );
-            // Close the writer to signal EOF to readers
-            pipe.writer().close();
+    /// Setup pipes based on DAG dependencies
+    /// Each node gets an output pipe, and inputs are wired to dependency outputs
+    async fn setup_pipes_from_dag(&mut self, dag: &Dag, target: Handle) {
+        // Map from node handle to its output pipe
+        let mut node_output_pipes: HashMap<Handle, PipeId> = HashMap::new();
+
+        // Resolve the alias to get the actual target (concrete node)
+        let actual_target: Handle = dag
+            .resolve_dependencies(target)
+            .next()
+            .unwrap_or(target);
+
+        // Create output pipe for each concrete node
+        let scheduler = Scheduler::new(dag, target);
+        for node_handle in scheduler.iter() {
+            let node = dag.get_node(node_handle).expect("node exists");
+            let pipe_name = format!("pipes/{}-{}", node.idname, node_handle.id());
+            let pipe_id = self.create_pipe(&pipe_name).await;
+            node_output_pipes.insert(node_handle, pipe_id);
+
+            #[allow(clippy::cast_sign_loss)]
+            let actor_id = ActorId(node_handle.id() as usize);
+
+            // Wire output: target writes to stdout, others write to their pipe
+            if node_handle == actual_target {
+                self.actor_outputs
+                    .insert(actor_id, ActorOutputDestination::Stdout);
+            } else {
+                self.actor_outputs
+                    .insert(actor_id, ActorOutputDestination::Pipe(pipe_id));
+            }
+
+            // Wire input from first dependency
+            // TODO: support multiple dependencies - currently only reads from first dep
+            let deps: Vec<Handle> = dag.resolve_dependencies(node_handle).collect();
+            if let Some(dep_handle) = deps.first() {
+                if let Some(&dep_pipe_id) = node_output_pipes.get(dep_handle) {
+                    self.actor_inputs
+                        .insert(actor_id, ActorInputSource::Pipe(dep_pipe_id));
+                }
+            }
+
+            // Pre-fill special nodes
+            match node.idname.as_str() {
+                "val" => {
+                    // Value node: pre-fill with static data
+                    let data = b"(mee too)";
+                    if let Some(pipe) = self.pipes.get(&pipe_id) {
+                        let _ = pipe.writer().write(data);
+                        pipe.writer().close();
+                    }
+                }
+                "stdin" => {
+                    // TODO: implement actual OS stdin reading
+                    // For now, pre-fill with simulated stdin data
+                    let data = b"simulated stdin\n";
+                    if let Some(pipe) = self.pipes.get(&pipe_id) {
+                        let _ = pipe.writer().write(data);
+                        pipe.writer().close();
+                    }
+                }
+                _ => {}
+            }
         }
-
-        // Create pipe 2: for Actor 1 -> Actor 2 communication
-        let cat_pipe_id = self.create_pipe("pipes/cat-pipe").await;
-
-        // Actor 1: reads from input pipe, writes to cat pipe
-        self.actor_inputs
-            .insert(ActorId(1), ActorInputSource::Pipe(input_pipe_id));
-        self.actor_outputs
-            .insert(ActorId(1), ActorOutputDestination::Pipe(cat_pipe_id));
-
-        // Actor 2: reads from cat pipe, writes to stdout
-        self.actor_inputs
-            .insert(ActorId(2), ActorInputSource::Pipe(cat_pipe_id));
-        self.actor_outputs
-            .insert(ActorId(2), ActorOutputDestination::Stdout);
     }
 
     /// Create a new pipe and return its ID
@@ -671,55 +704,102 @@ impl ActorRuntime for StubActorRuntime {
     }
 }
 
+fn build_flow(dag: &mut Dag) -> Handle {
+    // val: value node (pre-filled with "(mee too)")
+    let val = dag.add_node("val".into(), NodeKind::Concrete);
+
+    // stdin: reads from stdin
+    // TODO: implement actual OS stdin reading, currently simulated with pre-filled pipe
+    let stdin = dag.add_node("stdin".into(), NodeKind::Concrete);
+
+    // foo: copies from stdin
+    let foo = dag.add_node("foo".into(), NodeKind::Concrete);
+    dag.add_dependency(For(foo), DependsOn(stdin));
+
+    // bar: copies from val
+    // TODO: bar should also depend on foo, but multiple inputs are not yet supported.
+    // For now, we only read from val and ignore foo.
+    let bar = dag.add_node("bar".into(), NodeKind::Concrete);
+    dag.add_dependency(For(bar), DependsOn(val));
+
+    // baz: copies from bar
+    let baz = dag.add_node("baz".into(), NodeKind::Concrete);
+    dag.add_dependency(For(baz), DependsOn(bar));
+
+    // .end alias to baz
+    let end = dag.add_node(".end".into(), NodeKind::Alias);
+    dag.add_dependency(For(end), DependsOn(baz));
+
+    end
+}
+
 #[tokio::main]
 async fn main() {
-    // Create DAG with two "cat" nodes
     let idgen = Arc::new(IdGen::new());
     let mut dag = Dag::new(idgen);
 
-    let cat1 = dag.add_node("cat".into(), NodeKind::Concrete);
-    let cat2 = dag.add_node("cat".into(), NodeKind::Concrete);
-    dag.add_dependency(For(cat2), DependsOn(cat1));
+    let end_node = build_flow(&mut dag);
+
+    eprintln!("Dependency tree:\n{}", dag.dump(end_node));
 
     // Create Scheduler and SystemRuntime
-    let scheduler = Scheduler::new(&dag, cat2);
+    let scheduler = Scheduler::new(&dag, end_node);
     let mut system_runtime = SystemRuntime::new();
 
-    // Create actor runtimes for each node from the scheduler
-    let mut actor_runtimes = Vec::new();
+    // Create actor runtimes and collect node info for each node from the scheduler
+    let mut actor_infos = Vec::new();
     for node_handle in scheduler.iter() {
-        eprintln!("Node to build: {:?}", node_handle);
+        let node = dag.get_node(node_handle).expect("node exists");
+        let idname = node.idname.clone();
+        eprintln!("Node to build: {:?} ({})", node_handle, idname);
         #[allow(clippy::cast_sign_loss)]
         let actor_id = ActorId(node_handle.id() as usize);
         let runtime = system_runtime.create_actor_runtime(actor_id);
-        actor_runtimes.push((actor_id, runtime));
+        actor_infos.push((actor_id, idname, runtime));
     }
 
-    // Setup standard handles for all actors directly on SystemRuntime
-    eprintln!("Setup: Setting up standard handles for all actors");
-    system_runtime.setup_std_handles().await;
-    eprintln!("Setup: All handles configured");
+    // Setup pipes based on DAG dependencies
+    eprintln!("Setup: Setting up pipes based on DAG");
+    system_runtime.setup_pipes_from_dag(&dag, end_node).await;
+    eprintln!("Setup: All pipes configured");
 
     // Spawn SystemRuntime task
     let system_task = tokio::spawn(async move {
         system_runtime.run().await;
     });
 
-    // Spawn tasks for each node from the scheduler
+    // Spawn tasks for each node from the scheduler, dispatching by idname
     let mut tasks = Vec::new();
-    for (actor_id, runtime) in actor_runtimes {
+    for (actor_id, idname, runtime) in actor_infos {
         let task = tokio::task::spawn_blocking(move || {
-            eprintln!("Task {:?}: Starting", actor_id);
+            eprintln!("Task {:?} ({}): Starting", actor_id, idname);
 
-            let areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
-            let awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
-
-            eprintln!("Task {:?}: About to execute cat", actor_id);
-            match cat::execute(areader, awriter) {
-                Ok(()) => eprintln!("Task {:?}: Cat completed successfully", actor_id),
-                Err(e) => eprintln!("Error in cat {:?}: {e}", actor_id),
+            match idname.as_str() {
+                "val" => {
+                    // Value node: data is pre-filled, nothing to do
+                    eprintln!("Task {:?} ({}): Value node, skipping", actor_id, idname);
+                }
+                "stdin" => {
+                    // TODO: implement actual OS stdin reading
+                    // For now, data is pre-filled in the pipe, just copy to output
+                    let areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
+                    let awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
+                    match cat::execute(areader, awriter) {
+                        Ok(()) => eprintln!("Task {:?} ({}): completed", actor_id, idname),
+                        Err(e) => eprintln!("Error in {:?} ({}): {e}", actor_id, idname),
+                    }
+                }
+                _ => {
+                    // Default: cat actor (copy from stdin to stdout)
+                    let areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
+                    let awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
+                    match cat::execute(areader, awriter) {
+                        Ok(()) => eprintln!("Task {:?} ({}): completed", actor_id, idname),
+                        Err(e) => eprintln!("Error in {:?} ({}): {e}", actor_id, idname),
+                    }
+                }
             }
-            eprintln!("Task {:?}: Done", actor_id);
+            eprintln!("Task {:?} ({}): Done", actor_id, idname);
         });
         tasks.push(task);
     }
