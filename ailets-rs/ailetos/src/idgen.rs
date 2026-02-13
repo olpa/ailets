@@ -35,6 +35,7 @@ pub struct IdGen {
 }
 
 impl IdGen {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             next_id: AtomicI64::new(1),

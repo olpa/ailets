@@ -1,14 +1,17 @@
 use std::collections::HashSet;
+use std::fmt::Write;
 use std::sync::Arc;
 
 use crate::idgen::{Handle, IdGen};
 
 /// Wrapper for the dependent node in `add_dependency(For(A), DependsOn(B))`.
 /// Reads as: "for node A, add dependency on B".
+#[derive(Clone, Copy)]
 pub struct For(pub Handle);
 
 /// Wrapper for the dependency node in `add_dependency(For(A), DependsOn(B))`.
 /// Reads as: "A depends on B".
+#[derive(Clone, Copy)]
 pub struct DependsOn(pub Handle);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,7 +43,6 @@ pub struct Dag {
     idgen: Arc<IdGen>,
 }
 
-
 impl Dag {
     pub fn new(idgen: Arc<IdGen>) -> Self {
         Self {
@@ -63,6 +65,7 @@ impl Dag {
         pid
     }
 
+    #[must_use]
     pub fn get_node(&self, pid: Handle) -> Option<&Node> {
         self.nodes.iter().find(|n| n.pid == pid)
     }
@@ -98,6 +101,7 @@ impl Dag {
             .map(|(for_node, _)| *for_node)
     }
 
+    #[must_use]
     pub fn resolve_dependencies(&self, pid: Handle) -> DependencyIterator<'_> {
         let to_visit: Vec<Handle> = self.get_direct_dependencies(pid).collect();
 
@@ -109,6 +113,7 @@ impl Dag {
     }
 
     /// Prints the dependency tree for a given node
+    #[must_use]
     pub fn dump(&self, pid: Handle) -> String {
         let mut output = String::new();
         let mut visited = HashSet::new();
@@ -125,12 +130,9 @@ impl Dag {
         visited: &mut HashSet<Handle>,
     ) {
         // Get node info
-        let node = match self.get_node(pid) {
-            Some(n) => n,
-            None => {
-                output.push_str(&format!("{}├── [PID {:?} not found]\n", prefix, pid));
-                return;
-            }
+        let Some(node) = self.get_node(pid) else {
+            let _ = writeln!(output, "{prefix}├── [PID {pid:?} not found]");
+            return;
         };
 
         // Format the current node line
@@ -141,15 +143,12 @@ impl Dag {
             NodeState::Terminated => "✓ built",
         };
 
-        output.push_str(&format!(
-            "{}{}{} [{}]\n",
-            prefix, connector, node.idname, state_symbol
-        ));
+        let _ = writeln!(output, "{prefix}{connector}{} [{state_symbol}]", node.idname);
 
         // Check for cycles
         if visited.contains(&pid) {
             let extension = if is_last { "    " } else { "│   " };
-            output.push_str(&format!("{}{}[circular reference]\n", prefix, extension));
+            let _ = writeln!(output, "{prefix}{extension}[circular reference]");
             return;
         }
         visited.insert(pid);
@@ -174,14 +173,13 @@ impl Dag {
     }
 }
 
-
 pub struct DependencyIterator<'a> {
     dag: &'a Dag,
     to_visit: Vec<Handle>,
     visited: HashSet<Handle>,
 }
 
-impl<'a> Iterator for DependencyIterator<'a> {
+impl Iterator for DependencyIterator<'_> {
     type Item = Handle;
 
     fn next(&mut self) -> Option<Self::Item> {

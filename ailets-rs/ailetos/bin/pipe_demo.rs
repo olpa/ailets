@@ -17,7 +17,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let idgen = Arc::new(IdGen::new());
     let queue = NotificationQueueArc::new();
 
-    let pipe = Pipe::new(Handle::new(idgen.get_next()), queue.clone(), "demo", Buffer::new());
+    let pipe = Pipe::new(
+        Handle::new(idgen.get_next()),
+        queue.clone(),
+        "demo",
+        Buffer::new(),
+    );
 
     let mut reader1 = pipe.get_reader(Handle::new(idgen.get_next()));
     let mut reader2 = pipe.get_reader(Handle::new(idgen.get_next()));
