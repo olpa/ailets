@@ -681,18 +681,14 @@ async fn main() {
     let cat2 = dag.add_node("cat".into(), NodeKind::Concrete);
     dag.add_dependency(For(cat2), DependsOn(cat1));
 
-    // Create Scheduler and get nodes to build
+    // Create Scheduler and SystemRuntime
     let scheduler = Scheduler::new(&dag, cat2);
-    let nodes_to_build: Vec<_> = scheduler.iter().collect();
-
-    eprintln!("Nodes to build: {:?}", nodes_to_build);
-
-    // Create SystemRuntime and setup standard handles for all actors
     let mut system_runtime = SystemRuntime::new();
 
-    // Create actor runtimes for each node
+    // Create actor runtimes for each node from the scheduler
     let mut actor_runtimes = Vec::new();
-    for node_handle in &nodes_to_build {
+    for node_handle in scheduler.iter() {
+        eprintln!("Node to build: {:?}", node_handle);
         #[allow(clippy::cast_sign_loss)]
         let actor_id = ActorId(node_handle.id() as usize);
         let runtime = system_runtime.create_actor_runtime(actor_id);
