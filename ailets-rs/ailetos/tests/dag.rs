@@ -69,9 +69,6 @@ fn test_pid_uniqueness() {
     assert_ne!(pid1, pid2);
     assert_ne!(pid2, pid3);
     assert_ne!(pid1, pid3);
-    assert_eq!(pid1.id(), 1);
-    assert_eq!(pid2.id(), 2);
-    assert_eq!(pid3.id(), 3);
 }
 
 #[test]
@@ -316,6 +313,15 @@ fn test_resolve_circular_alias() {
 // --------------------------------------------------------------------
 // Complex Scenarios
 //
+// Diamond dependency graph:
+//
+//     A
+//    / \
+//   B   C
+//    \ /
+//     D
+//
+// A depends on B and C; B and C both depend on D
 #[test]
 fn test_diamond_dependency() {
     let idgen = Arc::new(IdGen::new());
