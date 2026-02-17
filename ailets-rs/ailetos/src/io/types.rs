@@ -54,4 +54,12 @@ pub trait KVBuffers: Send + Sync {
 
     /// Clear all buffers.
     fn destroy(&self) -> impl Future<Output = Result<(), KVError>> + Send;
+
+    /// Flush a buffer to persistent storage (if applicable).
+    ///
+    /// For in-memory implementations, this is a no-op.
+    /// For persistent implementations (e.g., SQLite), this writes the buffer to storage.
+    fn flush_buffer(&self, _buffer: &Buffer) -> Result<(), KVError> {
+        Ok(())
+    }
 }

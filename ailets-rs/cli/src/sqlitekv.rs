@@ -86,22 +86,6 @@ impl SqliteKV {
         Ok(())
     }
 
-    /// Flush a buffer to the database by finding it via pointer equality
-    pub fn flush_buffer(&self, target: &Buffer) -> Result<(), KVError> {
-        let buffers = self.buffers.lock();
-
-        for (path, buffer) in buffers.iter() {
-            if buffer.ptr_eq(target) {
-                let guard = target.lock();
-                let data = &*guard;
-                self.save_to_db(path, data)
-                    .map_err(|_e| KVError::NotFound(path.to_string()))?;
-                return Ok(());
-            }
-        }
-
-        Ok(())
-    }
 }
 
 impl KVBuffers for SqliteKV {
@@ -184,6 +168,22 @@ impl KVBuffers for SqliteKV {
         let conn = self.conn.lock();
         conn.execute("DELETE FROM vfs", [])
             .map_err(|_e| KVError::NotFound("destroy".to_string()))?;
+
+        Ok(())
+    }
+
+    fn flush_buffer(&self, target: &Buffer) -> Result<(), KVError> {
+        let buffers = self.buffers.lock();
+
+        for (path, buffer) in buffers.iter() {
+            if buffer.ptr_eq(target) {
+                let guard = target.lock();
+                let data = &*guard;
+                self.save_to_db(path, data)
+                    .map_err(|_e| KVError::NotFound(path.to_string()))?;
+                return Ok(());
+            }
+        }
 
         Ok(())
     }

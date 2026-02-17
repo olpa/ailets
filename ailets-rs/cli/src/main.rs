@@ -141,7 +141,7 @@ type IoFuture = Pin<Box<dyn Future<Output = IoEvent> + Send>>;
 
 /// `SystemRuntime` manages all async I/O operations
 /// Actors communicate with it via channels
-struct SystemRuntime {
+struct SystemRuntime<K: KVBuffers> {
     /// All pipes in the system (we store the whole pipe to access both reader and writer)
     pipes: HashMap<PipeId, Pipe>,
     /// All pipe readers in the system (readers are async, None when in use)
@@ -157,19 +157,14 @@ struct SystemRuntime {
     /// Shared notification queue for all pipes
     notification_queue: NotificationQueueArc,
     /// Key-value store for pipe buffers
-    kv: SqliteKV,
+    kv: K,
     /// Counter for generating unique IDs (pipes and handles)
     next_id: i64,
 }
 
-impl SystemRuntime {
-    fn new() -> Self {
+impl<K: KVBuffers> SystemRuntime<K> {
+    fn new(kv: K) -> Self {
         let (system_tx, request_rx) = mpsc::unbounded_channel();
-
-        // Remove existing database file if it exists
-        let _ = std::fs::remove_file("example.db");
-        let kv = SqliteKV::new("example.db")
-            .expect("Failed to create SqliteKV");
 
         Self {
             pipes: HashMap::new(),
@@ -766,8 +761,8 @@ fn spawn_actor_tasks(
 }
 
 /// Run the system: spawn system runtime and actor tasks, wait for completion
-async fn run_system(
-    system_runtime: SystemRuntime,
+async fn run_system<K: KVBuffers + 'static>(
+    system_runtime: SystemRuntime<K>,
     actor_infos: Vec<(ActorId, String, StubActorRuntime)>,
 ) {
     // Spawn SystemRuntime task
@@ -830,8 +825,12 @@ async fn main() {
     // Print dependency tree
     eprintln!("Dependency tree:\n{}", dag.dump(end_node));
 
+    // Create key-value store for pipe buffers
+    let _ = std::fs::remove_file("example.db");
+    let kv = SqliteKV::new("example.db").expect("Failed to create SqliteKV");
+
     // Create system runtime
-    let mut system_runtime = SystemRuntime::new();
+    let mut system_runtime = SystemRuntime::new(kv);
 
     // Prepare actor runtimes
     let actor_infos = system_runtime.prepare_actors(&dag, end_node);
