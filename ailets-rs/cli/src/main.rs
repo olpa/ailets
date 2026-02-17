@@ -1,10 +1,16 @@
+mod scheduler;
 mod sqlitekv;
+
+use std::sync::Arc;
 
 use actor_io::{AReader, AWriter};
 use actor_runtime::{ActorRuntime, StdHandle};
-use ailetos::notification_queue::{Handle, NotificationQueueArc};
+use ailetos::dag::{Dag, DependsOn, For, NodeKind};
+use ailetos::idgen::{Handle, IdGen};
+use ailetos::notification_queue::NotificationQueueArc;
 use ailetos::pipe::{Pipe, Reader};
 use ailetos::{KVBuffers, OpenMode};
+use scheduler::Scheduler;
 use futures::stream::{FuturesUnordered, StreamExt};
 use sqlitekv::SqliteKV;
 use std::collections::HashMap;
@@ -135,7 +141,7 @@ type IoFuture = Pin<Box<dyn Future<Output = IoEvent> + Send>>;
 
 /// `SystemRuntime` manages all async I/O operations
 /// Actors communicate with it via channels
-struct SystemRuntime {
+struct SystemRuntime<K: KVBuffers> {
     /// All pipes in the system (we store the whole pipe to access both reader and writer)
     pipes: HashMap<PipeId, Pipe>,
     /// All pipe readers in the system (readers are async, None when in use)
@@ -151,19 +157,14 @@ struct SystemRuntime {
     /// Shared notification queue for all pipes
     notification_queue: NotificationQueueArc,
     /// Key-value store for pipe buffers
-    kv: SqliteKV,
+    kv: K,
     /// Counter for generating unique IDs (pipes and handles)
     next_id: i64,
 }
 
-impl SystemRuntime {
-    fn new() -> Self {
+impl<K: KVBuffers> SystemRuntime<K> {
+    fn new(kv: K) -> Self {
         let (system_tx, request_rx) = mpsc::unbounded_channel();
-
-        // Remove existing database file if it exists
-        let _ = std::fs::remove_file("example.db");
-        let kv = SqliteKV::new("example.db")
-            .expect("Failed to create SqliteKV");
 
         Self {
             pipes: HashMap::new(),
@@ -187,37 +188,70 @@ impl SystemRuntime {
         )
     }
 
-    /// Setup standard handles for all actors
-    /// This configures the I/O mappings directly instead of going through the request channel
-    async fn setup_std_handles(&mut self) {
-        // Create pipe 1: pre-filled with test data for Actor 1 to read from
-        let input_pipe_id = self.create_pipe("pipes/input-data").await;
-        if let Some(pipe) = self.pipes.get(&input_pipe_id) {
-            let test_data = b"Hello, world!\n";
-            let written = pipe.writer().write(test_data);
-            assert_eq!(
-                written,
-                test_data.len().cast_signed(),
-                "Failed to write test data to input pipe"
-            );
-            // Close the writer to signal EOF to readers
-            pipe.writer().close();
+    /// Setup pipes based on DAG dependencies
+    /// Each node gets an output pipe, and inputs are wired to dependency outputs
+    async fn setup_pipes_from_dag(&mut self, dag: &Dag, target: Handle) {
+        // Map from node handle to its output pipe
+        let mut node_output_pipes: HashMap<Handle, PipeId> = HashMap::new();
+
+        // Resolve the alias to get the actual target (concrete node)
+        let actual_target: Handle = dag
+            .resolve_dependencies(target)
+            .next()
+            .unwrap_or(target);
+
+        // Create output pipe for each concrete node
+        let scheduler = Scheduler::new(dag, target);
+        for node_handle in scheduler.iter() {
+            let node = dag.get_node(node_handle).expect("node exists");
+            let pipe_name = format!("pipes/{}-{}", node.idname, node_handle.id());
+            let pipe_id = self.create_pipe(&pipe_name).await;
+            node_output_pipes.insert(node_handle, pipe_id);
+
+            #[allow(clippy::cast_sign_loss)]
+            let actor_id = ActorId(node_handle.id() as usize);
+
+            // Wire output: target writes to stdout, others write to their pipe
+            if node_handle == actual_target {
+                self.actor_outputs
+                    .insert(actor_id, ActorOutputDestination::Stdout);
+            } else {
+                self.actor_outputs
+                    .insert(actor_id, ActorOutputDestination::Pipe(pipe_id));
+            }
+
+            // Wire input from first dependency
+            // TODO: support multiple dependencies - currently only reads from first dep
+            let deps: Vec<Handle> = dag.resolve_dependencies(node_handle).collect();
+            if let Some(dep_handle) = deps.first() {
+                if let Some(&dep_pipe_id) = node_output_pipes.get(dep_handle) {
+                    self.actor_inputs
+                        .insert(actor_id, ActorInputSource::Pipe(dep_pipe_id));
+                }
+            }
+
+            // Pre-fill special nodes
+            match node.idname.as_str() {
+                "val" => {
+                    // Value node: pre-fill with static data
+                    let data = b"(mee too)";
+                    if let Some(pipe) = self.pipes.get(&pipe_id) {
+                        let _ = pipe.writer().write(data);
+                        pipe.writer().close();
+                    }
+                }
+                "stdin" => {
+                    // TODO: implement actual OS stdin reading
+                    // For now, pre-fill with simulated stdin data
+                    let data = b"simulated stdin\n";
+                    if let Some(pipe) = self.pipes.get(&pipe_id) {
+                        let _ = pipe.writer().write(data);
+                        pipe.writer().close();
+                    }
+                }
+                _ => {}
+            }
         }
-
-        // Create pipe 2: for Actor 1 -> Actor 2 communication
-        let cat_pipe_id = self.create_pipe("pipes/cat-pipe").await;
-
-        // Actor 1: reads from input pipe, writes to cat pipe
-        self.actor_inputs
-            .insert(ActorId(1), ActorInputSource::Pipe(input_pipe_id));
-        self.actor_outputs
-            .insert(ActorId(1), ActorOutputDestination::Pipe(cat_pipe_id));
-
-        // Actor 2: reads from cat pipe, writes to stdout
-        self.actor_inputs
-            .insert(ActorId(2), ActorInputSource::Pipe(cat_pipe_id));
-        self.actor_outputs
-            .insert(ActorId(2), ActorOutputDestination::Stdout);
     }
 
     /// Create a new pipe and return its ID
@@ -427,6 +461,24 @@ impl SystemRuntime {
     /// Handler for `SyncComplete` events
     fn handle_sync_complete(result: c_int, response: oneshot::Sender<c_int>) {
         let _ = response.send(result);
+    }
+
+    /// Prepare actor runtimes for all nodes in the DAG
+    fn prepare_actors(&self, dag: &Dag, target: Handle) -> Vec<(ActorId, String, StubActorRuntime)> {
+        let scheduler = Scheduler::new(dag, target);
+        let mut actor_infos = Vec::new();
+
+        for node_handle in scheduler.iter() {
+            let node = dag.get_node(node_handle).expect("node exists");
+            let idname = node.idname.clone();
+            eprintln!("Node to build: {:?} ({})", node_handle, idname);
+            #[allow(clippy::cast_sign_loss)]
+            let actor_id = ActorId(node_handle.id() as usize);
+            let runtime = self.create_actor_runtime(actor_id);
+            actor_infos.push((actor_id, idname, runtime));
+        }
+
+        actor_infos
     }
 
     /// Main event loop - processes I/O requests asynchronously
@@ -665,70 +717,129 @@ impl ActorRuntime for StubActorRuntime {
     }
 }
 
-#[tokio::main]
-async fn main() {
-    // Create SystemRuntime and setup standard handles for all actors
-    let mut system_runtime = SystemRuntime::new();
+/// Spawn actor tasks for each node in the system
+fn spawn_actor_tasks(
+    actor_infos: Vec<(ActorId, String, StubActorRuntime)>,
+) -> Vec<tokio::task::JoinHandle<()>> {
+    let mut tasks = Vec::new();
 
-    // Define actor IDs
-    let actor1_id = ActorId(1);
-    let actor2_id = ActorId(2);
+    for (actor_id, idname, runtime) in actor_infos {
+        let task = tokio::task::spawn_blocking(move || {
+            eprintln!("Task {:?} ({}): Starting", actor_id, idname);
 
-    // Get ActorRuntimes from SystemRuntime (before moving system_runtime)
-    let runtime1 = system_runtime.create_actor_runtime(actor1_id);
-    let runtime2 = system_runtime.create_actor_runtime(actor2_id);
+            match idname.as_str() {
+                "val" => {
+                    // Value node: data is pre-filled, nothing to do
+                    eprintln!("Task {:?} ({}): Value node, skipping", actor_id, idname);
+                }
+                "stdin" => {
+                    // TODO: implement actual OS stdin reading
+                    // For now, data is pre-filled in the pipe, just copy to output
+                    let areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
+                    let awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
+                    match cat::execute(areader, awriter) {
+                        Ok(()) => eprintln!("Task {:?} ({}): completed", actor_id, idname),
+                        Err(e) => eprintln!("Error in {:?} ({}): {e}", actor_id, idname),
+                    }
+                }
+                _ => {
+                    // Default: cat actor (copy from stdin to stdout)
+                    let areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
+                    let awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
+                    match cat::execute(areader, awriter) {
+                        Ok(()) => eprintln!("Task {:?} ({}): completed", actor_id, idname),
+                        Err(e) => eprintln!("Error in {:?} ({}): {e}", actor_id, idname),
+                    }
+                }
+            }
+            eprintln!("Task {:?} ({}): Done", actor_id, idname);
+        });
+        tasks.push(task);
+    }
 
-    // Setup standard handles for all actors directly on SystemRuntime
-    eprintln!("Setup: Setting up standard handles for all actors");
-    system_runtime.setup_std_handles().await;
-    eprintln!("Setup: All handles configured");
+    tasks
+}
 
+/// Run the system: spawn system runtime and actor tasks, wait for completion
+async fn run_system<K: KVBuffers + 'static>(
+    system_runtime: SystemRuntime<K>,
+    actor_infos: Vec<(ActorId, String, StubActorRuntime)>,
+) {
     // Spawn SystemRuntime task
     let system_task = tokio::spawn(async move {
         system_runtime.run().await;
     });
 
-    // First actor: reads from stdin (static data) and writes to pipe
-    let task1 = tokio::task::spawn_blocking(move || {
-        eprintln!("Task1: Starting");
+    // Spawn actor tasks
+    let actor_tasks = spawn_actor_tasks(actor_infos);
 
-        let areader1 = AReader::new_from_std(&runtime1, StdHandle::Stdin);
-        let awriter1 = AWriter::new_from_std(&runtime1, StdHandle::Stdout);
-
-        eprintln!("Task1: About to execute cat");
-        match cat::execute(areader1, awriter1) {
-            Ok(()) => eprintln!("Task1: Cat completed successfully"),
-            Err(e) => eprintln!("Error in first cat: {e}"),
-        }
-        eprintln!("Task1: Done");
-    });
-
-    // Second actor: reads from pipe and writes to stdout
-    let task2 = tokio::task::spawn_blocking(move || {
-        eprintln!("Task2: Starting");
-
-        let areader2 = AReader::new_from_std(&runtime2, StdHandle::Stdin);
-        let awriter2 = AWriter::new_from_std(&runtime2, StdHandle::Stdout);
-
-        eprintln!("Task2: About to execute cat");
-        match cat::execute(areader2, awriter2) {
-            Ok(()) => eprintln!("Task2: Cat completed successfully"),
-            Err(e) => eprintln!("Error in second cat: {e}"),
-        }
-        eprintln!("Task2: Done");
-    });
-
-    // Wait for all tasks to complete
-    let (system_result, task1_result, task2_result) = tokio::join!(system_task, task1, task2);
-
-    // Check for panics or errors
-    if let Err(e) = system_result {
+    // Wait for system runtime
+    if let Err(e) = system_task.await {
         eprintln!("SystemRuntime task failed: {e}");
     }
-    if let Err(e) = task1_result {
-        eprintln!("Task1 failed: {e}");
+
+    // Wait for all actor tasks
+    for task in actor_tasks {
+        if let Err(e) = task.await {
+            eprintln!("Task failed: {e}");
+        }
     }
-    if let Err(e) = task2_result {
-        eprintln!("Task2 failed: {e}");
-    }
+}
+
+fn build_flow(dag: &mut Dag) -> Handle {
+    // val: value node (pre-filled with "(mee too)")
+    let val = dag.add_node("val".into(), NodeKind::Concrete);
+
+    // stdin: reads from stdin
+    // TODO: implement actual OS stdin reading, currently simulated with pre-filled pipe
+    let stdin = dag.add_node("stdin".into(), NodeKind::Concrete);
+
+    // foo: copies from stdin
+    let foo = dag.add_node("foo".into(), NodeKind::Concrete);
+    dag.add_dependency(For(foo), DependsOn(stdin));
+
+    // bar: copies from val
+    // TODO: bar should also depend on foo, but multiple inputs are not yet supported.
+    // For now, we only read from val and ignore foo.
+    let bar = dag.add_node("bar".into(), NodeKind::Concrete);
+    dag.add_dependency(For(bar), DependsOn(val));
+
+    // baz: copies from bar
+    let baz = dag.add_node("baz".into(), NodeKind::Concrete);
+    dag.add_dependency(For(baz), DependsOn(bar));
+
+    // .end alias to baz
+    let end = dag.add_node(".end".into(), NodeKind::Alias);
+    dag.add_dependency(For(end), DependsOn(baz));
+
+    end
+}
+
+#[tokio::main]
+async fn main() {
+    // Create DAG and build flow
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
+    let end_node = build_flow(&mut dag);
+
+    // Print dependency tree
+    eprintln!("Dependency tree:\n{}", dag.dump(end_node));
+
+    // Create key-value store for pipe buffers
+    let _ = std::fs::remove_file("example.db");
+    let kv = SqliteKV::new("example.db").expect("Failed to create SqliteKV");
+
+    // Create system runtime
+    let mut system_runtime = SystemRuntime::new(kv);
+
+    // Prepare actor runtimes
+    let actor_infos = system_runtime.prepare_actors(&dag, end_node);
+
+    // Setup pipes based on DAG dependencies
+    eprintln!("Setup: Setting up pipes based on DAG");
+    system_runtime.setup_pipes_from_dag(&dag, end_node).await;
+    eprintln!("Setup: All pipes configured");
+
+    // Run the system
+    run_system(system_runtime, actor_infos).await;
 }
