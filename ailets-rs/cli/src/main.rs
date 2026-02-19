@@ -25,6 +25,19 @@ use tokio::sync::{mpsc, oneshot};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct ActorId(usize);
 
+/// Global unique identifier for a pipe endpoint (reader or writer)
+/// Used by SystemRuntime to identify channels across all actors
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+struct ChannelHandle(usize);
+
+/// A channel endpoint - either a reader or writer
+enum Channel {
+    /// Reader channel - holds the Reader (None when in use during async read)
+    Reader(Option<Reader>),
+    /// Writer channel - holds the actor's output destination info
+    Writer { actor_id: ActorId },
+}
+
 /// A wrapper around a raw mutable slice pointer that can be sent between threads.
 /// SAFETY: This is only safe because the sender (aread) blocks until the receiver
 /// (`SystemRuntime` handler) sends a response, ensuring:
@@ -77,36 +90,35 @@ unsafe impl Send for SendableBuffer {}
 
 /// I/O requests sent from `ActorRuntime` to `SystemRuntime`
 enum IoRequest {
-    /// Open a stream for reading (returns file descriptor)
-    OpenRead { response: oneshot::Sender<c_int> },
-    /// Open a stream for writing (returns file descriptor)
-    OpenWrite { response: oneshot::Sender<c_int> },
-    /// Read from a file descriptor (async operation)
+    /// Open a stream for reading (returns global ChannelHandle)
+    OpenRead {
+        actor_id: ActorId,
+        response: oneshot::Sender<ChannelHandle>,
+    },
+    /// Open a stream for writing (returns global ChannelHandle)
+    OpenWrite {
+        actor_id: ActorId,
+        response: oneshot::Sender<ChannelHandle>,
+    },
+    /// Read from a channel (async operation)
     /// SAFETY: The buffer pointer must remain valid until the response is sent.
     /// This is guaranteed because `aread()` blocks waiting for the response.
     Read {
-        actor_id: ActorId,
+        handle: ChannelHandle,
         buffer: SendableBuffer,
         response: oneshot::Sender<c_int>,
     },
-    /// Write to a file descriptor (async operation)
+    /// Write to a channel (async operation)
     Write {
-        actor_id: ActorId,
+        handle: ChannelHandle,
         data: Vec<u8>,
         response: oneshot::Sender<c_int>,
     },
-    /// Close a file descriptor
+    /// Close a channel
     Close {
-        actor_id: ActorId,
-        fd: c_int,
+        handle: ChannelHandle,
         response: oneshot::Sender<c_int>,
     },
-}
-
-/// Input source configuration for an actor
-enum ActorInputSource {
-    /// Read from dependency actor's output pipe
-    Pipe(Handle),
 }
 
 /// Output destination configuration for an actor
@@ -121,7 +133,7 @@ enum ActorOutputDestination {
 enum IoEvent {
     /// Read completed - need to return reader to its slot
     ReadComplete {
-        actor_id: ActorId,
+        handle: ChannelHandle,
         reader: Reader,
         bytes_read: isize,
         response: oneshot::Sender<c_int>,
@@ -141,10 +153,12 @@ type IoFuture = Pin<Box<dyn Future<Output = IoEvent> + Send>>;
 struct SystemRuntime<K: KVBuffers> {
     /// Pool of output pipes (one per actor)
     pipe_pool: PipePool<K>,
-    /// Readers for each actor (None when in use during async read)
-    actor_readers: HashMap<ActorId, Option<Reader>>,
-    /// Input configuration for each actor
-    actor_inputs: HashMap<ActorId, ActorInputSource>,
+    /// Global channel table: ChannelHandle → Channel (reader or writer endpoint)
+    channels: HashMap<ChannelHandle, Channel>,
+    /// Next channel handle ID
+    next_channel_id: usize,
+    /// Input pipe handle for each actor (dependency's output pipe)
+    actor_input_pipes: HashMap<ActorId, Handle>,
     /// Output configuration for each actor
     actor_outputs: HashMap<ActorId, ActorOutputDestination>,
     /// Maps ActorId to the node Handle (for pipe_pool lookups)
@@ -164,14 +178,22 @@ impl<K: KVBuffers> SystemRuntime<K> {
 
         Self {
             pipe_pool: PipePool::new(kv, notification_queue),
-            actor_readers: HashMap::new(),
-            actor_inputs: HashMap::new(),
+            channels: HashMap::new(),
+            next_channel_id: 0,
+            actor_input_pipes: HashMap::new(),
             actor_outputs: HashMap::new(),
             actor_handles: HashMap::new(),
             system_tx: Some(system_tx),
             request_rx,
             id_gen,
         }
+    }
+
+    /// Allocate a new global channel handle
+    fn alloc_channel_handle(&mut self) -> ChannelHandle {
+        let handle = ChannelHandle(self.next_channel_id);
+        self.next_channel_id += 1;
+        handle
     }
 
     /// Factory method to create an `ActorRuntime` for a specific actor
@@ -184,7 +206,7 @@ impl<K: KVBuffers> SystemRuntime<K> {
     }
 
     /// Setup pipes and wiring based on DAG dependencies
-    /// Each node gets an output pipe, and readers are created for dependencies
+    /// Each node gets an output pipe, input pipe handles are recorded for later channel creation
     async fn setup_pipes_from_dag(&mut self, dag: &Dag, target: Handle) {
         // Resolve the alias to get the actual target (concrete node)
         let actual_target: Handle = dag
@@ -216,15 +238,12 @@ impl<K: KVBuffers> SystemRuntime<K> {
                     .insert(actor_id, ActorOutputDestination::Pipe);
             }
 
-            // Wire input from first dependency and create reader
+            // Record input pipe handle from first dependency
+            // Actual reader creation happens in handle_open_read when actor calls open_read
             // TODO: support multiple dependencies - currently only reads from first dep
             let deps: Vec<Handle> = dag.resolve_dependencies(node_handle).collect();
             if let Some(&dep_handle) = deps.first() {
-                // Create reader for the dependency's output pipe
-                let reader = self.pipe_pool.open_reader(dep_handle, &self.id_gen);
-                self.actor_readers.insert(actor_id, Some(reader));
-                self.actor_inputs
-                    .insert(actor_id, ActorInputSource::Pipe(dep_handle));
+                self.actor_input_pipes.insert(actor_id, dep_handle);
             }
 
             // Pre-fill special nodes
@@ -249,61 +268,62 @@ impl<K: KVBuffers> SystemRuntime<K> {
         }
     }
 
-    /// Handler for `OpenRead` requests
-    fn handle_open_read(response: oneshot::Sender<c_int>) -> IoFuture {
-        eprintln!("[SystemRuntime] Processing OpenRead");
-        Box::pin(async move {
-            IoEvent::SyncComplete {
-                result: 0,
-                response,
-            }
-        })
+    /// Handler for `OpenRead` requests - creates reader and returns ChannelHandle
+    fn handle_open_read(&mut self, actor_id: ActorId, response: oneshot::Sender<ChannelHandle>) {
+        eprintln!("[SystemRuntime] Processing OpenRead for {actor_id:?}");
+
+        if let Some(&dep_handle) = self.actor_input_pipes.get(&actor_id) {
+            // Create reader for the dependency's output pipe
+            let reader = self.pipe_pool.open_reader(dep_handle, &self.id_gen);
+            let channel_handle = self.alloc_channel_handle();
+            self.channels.insert(channel_handle, Channel::Reader(Some(reader)));
+            eprintln!("[SystemRuntime] OpenRead {actor_id:?}: created {channel_handle:?} for dep {dep_handle:?}");
+            let _ = response.send(channel_handle);
+        } else {
+            eprintln!("[SystemRuntime] OpenRead {actor_id:?}: no input pipe configured");
+            // Return a dummy handle - reads will fail
+            let channel_handle = self.alloc_channel_handle();
+            let _ = response.send(channel_handle);
+        }
     }
 
-    /// Handler for `OpenWrite` requests
-    fn handle_open_write(response: oneshot::Sender<c_int>) -> IoFuture {
-        eprintln!("[SystemRuntime] Processing OpenWrite");
-        Box::pin(async move {
-            IoEvent::SyncComplete {
-                result: 1,
-                response,
-            }
-        })
+    /// Handler for `OpenWrite` requests - returns ChannelHandle for actor's output
+    fn handle_open_write(&mut self, actor_id: ActorId, response: oneshot::Sender<ChannelHandle>) {
+        eprintln!("[SystemRuntime] Processing OpenWrite for {actor_id:?}");
+
+        let channel_handle = self.alloc_channel_handle();
+        // Store the actor_id so we can look up output destination in handle_write
+        self.channels.insert(channel_handle, Channel::Writer { actor_id });
+        eprintln!("[SystemRuntime] OpenWrite {actor_id:?}: created {channel_handle:?}");
+        let _ = response.send(channel_handle);
     }
 
-    /// Handler for Read requests
+    /// Handler for Read requests - uses ChannelHandle to find reader
     fn handle_read(
         &mut self,
-        actor_id: ActorId,
+        handle: ChannelHandle,
         buffer: SendableBuffer,
         response: oneshot::Sender<c_int>,
     ) -> IoFuture {
-        eprintln!("[SystemRuntime] Processing Read for {actor_id:?}");
+        eprintln!("[SystemRuntime] Processing Read for {handle:?}");
 
-        if let Some(ActorInputSource::Pipe(dep_handle)) = self.actor_inputs.get(&actor_id) {
-            let dep_handle = *dep_handle;
-            if let Some(mut reader) = self.actor_readers.get_mut(&actor_id).and_then(Option::take) {
-                eprintln!(
-                    "[SystemRuntime] Read {actor_id:?}: spawning async read from dep {dep_handle:?}"
-                );
+        if let Some(Channel::Reader(reader_slot)) = self.channels.get_mut(&handle) {
+            if let Some(mut reader) = reader_slot.take() {
+                eprintln!("[SystemRuntime] Read {handle:?}: spawning async read");
                 Box::pin(async move {
                     // SAFETY: Buffer remains valid because aread() blocks until response
                     let buf = unsafe { &mut *buffer.into_raw() };
                     let bytes_read = reader.read(buf).await;
-                    eprintln!(
-                        "[SystemRuntime] Read for {actor_id:?} completed: {bytes_read} bytes"
-                    );
+                    eprintln!("[SystemRuntime] Read for {handle:?} completed: {bytes_read} bytes");
                     IoEvent::ReadComplete {
-                        actor_id,
+                        handle,
                         reader,
                         bytes_read,
                         response,
                     }
                 })
             } else {
-                eprintln!(
-                    "[SystemRuntime] Read {actor_id:?}: reader not available (already in use?)"
-                );
+                eprintln!("[SystemRuntime] Read {handle:?}: reader not available (already in use?)");
                 Box::pin(async move {
                     IoEvent::SyncComplete {
                         result: 0,
@@ -312,7 +332,7 @@ impl<K: KVBuffers> SystemRuntime<K> {
                 })
             }
         } else {
-            eprintln!("[SystemRuntime] Read {actor_id:?}: no input source configured");
+            eprintln!("[SystemRuntime] Read {handle:?}: channel not found or not a reader");
             Box::pin(async move {
                 IoEvent::SyncComplete {
                     result: 0,
@@ -322,86 +342,98 @@ impl<K: KVBuffers> SystemRuntime<K> {
         }
     }
 
-    /// Handler for Write requests
+    /// Handler for Write requests - uses ChannelHandle to find writer
     fn handle_write(
         &self,
-        actor_id: ActorId,
+        handle: ChannelHandle,
         data: &[u8],
         response: oneshot::Sender<c_int>,
     ) -> IoFuture {
         eprintln!(
-            "[SystemRuntime] Processing Write for {:?}, {} bytes",
-            actor_id,
+            "[SystemRuntime] Processing Write for {handle:?}, {} bytes",
             data.len()
         );
-        let result = if let Some(output_dest) = self.actor_outputs.get(&actor_id) {
-            match output_dest {
-                ActorOutputDestination::Stdout => {
-                    eprintln!("[SystemRuntime] Write {actor_id:?}: writing to stdout");
-                    let mut stdout = std::io::stdout();
-                    match stdout.write(data) {
-                        Ok(n) => {
-                            if stdout.flush().is_err() {
-                                -1
-                            } else {
-                                #[allow(
-                                    clippy::cast_possible_truncation,
-                                    clippy::cast_possible_wrap
-                                )]
-                                {
-                                    n as c_int
+
+        let result = if let Some(Channel::Writer { actor_id }) = self.channels.get(&handle) {
+            let actor_id = *actor_id;
+            if let Some(output_dest) = self.actor_outputs.get(&actor_id) {
+                match output_dest {
+                    ActorOutputDestination::Stdout => {
+                        eprintln!("[SystemRuntime] Write {handle:?}: writing to stdout");
+                        let mut stdout = std::io::stdout();
+                        match stdout.write(data) {
+                            Ok(n) => {
+                                if stdout.flush().is_err() {
+                                    -1
+                                } else {
+                                    #[allow(
+                                        clippy::cast_possible_truncation,
+                                        clippy::cast_possible_wrap
+                                    )]
+                                    {
+                                        n as c_int
+                                    }
                                 }
                             }
+                            Err(_) => -1,
                         }
-                        Err(_) => -1,
+                    }
+                    ActorOutputDestination::Pipe => {
+                        if let Some(&actor_handle) = self.actor_handles.get(&actor_id) {
+                            eprintln!("[SystemRuntime] Write {handle:?}: writing to pipe");
+                            let pipe = self.pipe_pool.get_pipe(actor_handle);
+                            let n = pipe.writer().write(data);
+                            eprintln!("[SystemRuntime] Write {handle:?}: pipe write returned {n}");
+                            #[allow(clippy::cast_possible_truncation)]
+                            {
+                                n as c_int
+                            }
+                        } else {
+                            eprintln!("[SystemRuntime] Write {handle:?}: actor handle not found");
+                            -1
+                        }
                     }
                 }
-                ActorOutputDestination::Pipe => {
-                    if let Some(&actor_handle) = self.actor_handles.get(&actor_id) {
-                        eprintln!("[SystemRuntime] Write {actor_id:?}: writing to pipe");
-                        let pipe = self.pipe_pool.get_pipe(actor_handle);
-                        let n = pipe.writer().write(data);
-                        eprintln!("[SystemRuntime] Write {actor_id:?}: pipe write returned {n}");
-                        #[allow(clippy::cast_possible_truncation)]
-                        {
-                            n as c_int
-                        }
-                    } else {
-                        eprintln!("[SystemRuntime] Write {actor_id:?}: actor handle not found");
-                        -1
-                    }
-                }
+            } else {
+                eprintln!("[SystemRuntime] Write {handle:?}: no output destination for actor");
+                -1
             }
         } else {
-            eprintln!("[SystemRuntime] Write {actor_id:?}: no output destination");
+            eprintln!("[SystemRuntime] Write {handle:?}: channel not found or not a writer");
             -1
         };
-        eprintln!("[SystemRuntime] Write {actor_id:?} queued");
+        eprintln!("[SystemRuntime] Write {handle:?} completed");
         Box::pin(async move { IoEvent::SyncComplete { result, response } })
     }
 
-    /// Handler for Close requests
-    fn handle_close(
-        &self,
-        actor_id: ActorId,
-        fd: c_int,
-        response: oneshot::Sender<c_int>,
-    ) -> IoFuture {
-        eprintln!("[SystemRuntime] Processing Close for {actor_id:?}, fd={fd}");
+    /// Handler for Close requests - uses ChannelHandle
+    fn handle_close(&mut self, handle: ChannelHandle, response: oneshot::Sender<c_int>) -> IoFuture {
+        eprintln!("[SystemRuntime] Processing Close for {handle:?}");
         let mut result = 0;
-        if fd == 1 {
-            if let Some(ActorOutputDestination::Pipe) = self.actor_outputs.get(&actor_id) {
-                if let Some(&actor_handle) = self.actor_handles.get(&actor_id) {
-                    let pipe = self.pipe_pool.get_pipe(actor_handle);
-                    pipe.writer().close();
-                    if let Err(e) = self.pipe_pool.flush_buffer(actor_handle) {
-                        eprintln!("[SystemRuntime] Failed to flush buffer: {e}");
-                        result = -1;
+
+        if let Some(channel) = self.channels.remove(&handle) {
+            match channel {
+                Channel::Reader(_) => {
+                    eprintln!("[SystemRuntime] Close {handle:?}: closed reader");
+                }
+                Channel::Writer { actor_id } => {
+                    if let Some(ActorOutputDestination::Pipe) = self.actor_outputs.get(&actor_id) {
+                        if let Some(&actor_handle) = self.actor_handles.get(&actor_id) {
+                            let pipe = self.pipe_pool.get_pipe(actor_handle);
+                            pipe.writer().close();
+                            if let Err(e) = self.pipe_pool.flush_buffer(actor_handle) {
+                                eprintln!("[SystemRuntime] Failed to flush buffer: {e}");
+                                result = -1;
+                            }
+                        }
                     }
+                    eprintln!("[SystemRuntime] Close {handle:?}: closed writer");
                 }
             }
+        } else {
+            eprintln!("[SystemRuntime] Close {handle:?}: channel not found");
         }
-        eprintln!("[SystemRuntime] Close {actor_id:?} queued");
+
         Box::pin(async move {
             IoEvent::SyncComplete {
                 result,
@@ -413,14 +445,14 @@ impl<K: KVBuffers> SystemRuntime<K> {
     /// Handler for `ReadComplete` events
     fn handle_read_complete(
         &mut self,
-        actor_id: ActorId,
+        handle: ChannelHandle,
         reader: Reader,
         bytes_read: isize,
         response: oneshot::Sender<c_int>,
     ) {
-        eprintln!("[SystemRuntime] Read completed for {actor_id:?}, {bytes_read} bytes");
-        // Put reader back
-        if let Some(slot) = self.actor_readers.get_mut(&actor_id) {
+        eprintln!("[SystemRuntime] Read completed for {handle:?}, {bytes_read} bytes");
+        // Put reader back into the channel
+        if let Some(Channel::Reader(slot)) = self.channels.get_mut(&handle) {
             *slot = Some(reader);
         }
         #[allow(clippy::cast_possible_truncation)]
@@ -470,24 +502,28 @@ impl<K: KVBuffers> SystemRuntime<K> {
                 request = self.request_rx.recv(), if request_rx_open => {
                     if let Some(request) = request {
                         eprintln!("[SystemRuntime] Received request");
-                        let fut: IoFuture = match request {
-                            IoRequest::OpenRead { response } => {
-                                Self::handle_open_read(response)
+                        match request {
+                            IoRequest::OpenRead { actor_id, response } => {
+                                // Handled synchronously - creates channel and responds
+                                self.handle_open_read(actor_id, response);
                             }
-                            IoRequest::OpenWrite { response } => {
-                                Self::handle_open_write(response)
+                            IoRequest::OpenWrite { actor_id, response } => {
+                                // Handled synchronously - creates channel and responds
+                                self.handle_open_write(actor_id, response);
                             }
-                            IoRequest::Read { actor_id, buffer, response } => {
-                                self.handle_read(actor_id, buffer, response)
+                            IoRequest::Read { handle, buffer, response } => {
+                                let fut = self.handle_read(handle, buffer, response);
+                                pending_ops.push(fut);
                             }
-                            IoRequest::Write { actor_id, data, response } => {
-                                self.handle_write(actor_id, &data, response)
+                            IoRequest::Write { handle, data, response } => {
+                                let fut = self.handle_write(handle, &data, response);
+                                pending_ops.push(fut);
                             }
-                            IoRequest::Close { actor_id, fd, response } => {
-                                self.handle_close(actor_id, fd, response)
+                            IoRequest::Close { handle, response } => {
+                                let fut = self.handle_close(handle, response);
+                                pending_ops.push(fut);
                             }
                         };
-                        pending_ops.push(fut);
                     } else {
                         eprintln!("[SystemRuntime] Request channel closed");
                         request_rx_open = false;
@@ -497,8 +533,8 @@ impl<K: KVBuffers> SystemRuntime<K> {
                 // Handle completed operations
                 Some(event) = pending_ops.next(), if !pending_ops.is_empty() => {
                     match event {
-                        IoEvent::ReadComplete { actor_id, reader, bytes_read, response } => {
-                            self.handle_read_complete(actor_id, reader, bytes_read, response);
+                        IoEvent::ReadComplete { handle, reader, bytes_read, response } => {
+                            self.handle_read_complete(handle, reader, bytes_read, response);
                         }
                         IoEvent::SyncComplete { result, response } => {
                             Self::handle_sync_complete(result, response);
@@ -510,15 +546,63 @@ impl<K: KVBuffers> SystemRuntime<K> {
     }
 }
 
+/// Per-actor file descriptor table
+/// Maps POSIX-style fd numbers to global ChannelHandles
+struct FdTable {
+    /// fd → ChannelHandle mapping
+    table: HashMap<c_int, ChannelHandle>,
+    /// Next fd to allocate
+    next_fd: c_int,
+}
+
+impl FdTable {
+    fn new() -> Self {
+        Self {
+            table: HashMap::new(),
+            next_fd: 0,
+        }
+    }
+
+    /// Allocate a new fd and associate it with a ChannelHandle
+    fn insert(&mut self, handle: ChannelHandle) -> c_int {
+        let fd = self.next_fd;
+        self.next_fd += 1;
+        self.table.insert(fd, handle);
+        fd
+    }
+
+    /// Look up the ChannelHandle for a given fd
+    fn get(&self, fd: c_int) -> Option<ChannelHandle> {
+        self.table.get(&fd).copied()
+    }
+
+    /// Remove an fd mapping
+    fn remove(&mut self, fd: c_int) -> Option<ChannelHandle> {
+        self.table.remove(&fd)
+    }
+}
+
 /// Stub `ActorRuntime` implementation for CLI testing
 /// Acts as a pure proxy to `SystemRuntime` for all I/O operations
 /// Provides sync-to-async adapters (blocking on async operations)
-#[derive(Clone)]
+/// Maintains a per-actor fd table for POSIX-style fd semantics
 pub struct StubActorRuntime {
     /// This actor's unique identifier
     actor_id: ActorId,
     /// Channel to send async I/O requests to `SystemRuntime`
     system_tx: mpsc::UnboundedSender<IoRequest>,
+    /// Per-actor fd table (POSIX fd → global ChannelHandle)
+    fd_table: std::sync::Mutex<FdTable>,
+}
+
+impl Clone for StubActorRuntime {
+    fn clone(&self) -> Self {
+        Self {
+            actor_id: self.actor_id,
+            system_tx: self.system_tx.clone(),
+            fd_table: std::sync::Mutex::new(FdTable::new()),
+        }
+    }
 }
 
 impl StubActorRuntime {
@@ -527,6 +611,7 @@ impl StubActorRuntime {
         Self {
             actor_id,
             system_tx,
+            fd_table: std::sync::Mutex::new(FdTable::new()),
         }
     }
 }
@@ -550,19 +635,25 @@ impl ActorRuntime for StubActorRuntime {
         let (tx, rx) = oneshot::channel();
 
         self.system_tx
-            .send(IoRequest::OpenRead { response: tx })
+            .send(IoRequest::OpenRead {
+                actor_id: self.actor_id,
+                response: tx,
+            })
             .unwrap();
 
         eprintln!(
             "[StubActorRuntime] Actor {:?}: open_read() before blocking_recv",
             self.actor_id
         );
-        let result = rx.blocking_recv().unwrap();
+        let channel_handle = rx.blocking_recv().unwrap();
+
+        // Allocate local fd and map to global channel handle
+        let fd = self.fd_table.lock().unwrap().insert(channel_handle);
         eprintln!(
-            "[StubActorRuntime] Actor {:?}: open_read() after blocking_recv, result={}",
-            self.actor_id, result
+            "[StubActorRuntime] Actor {:?}: open_read() fd={} -> {:?}",
+            self.actor_id, fd, channel_handle
         );
-        result
+        fd
     }
 
     fn open_write(&self, _name: &str) -> c_int {
@@ -574,27 +665,45 @@ impl ActorRuntime for StubActorRuntime {
         let (tx, rx) = oneshot::channel();
 
         self.system_tx
-            .send(IoRequest::OpenWrite { response: tx })
+            .send(IoRequest::OpenWrite {
+                actor_id: self.actor_id,
+                response: tx,
+            })
             .unwrap();
 
         eprintln!(
             "[StubActorRuntime] Actor {:?}: open_write() before blocking_recv",
             self.actor_id
         );
-        let result = rx.blocking_recv().unwrap();
+        let channel_handle = rx.blocking_recv().unwrap();
+
+        // Allocate local fd and map to global channel handle
+        let fd = self.fd_table.lock().unwrap().insert(channel_handle);
         eprintln!(
-            "[StubActorRuntime] Actor {:?}: open_write() after blocking_recv, result={}",
-            self.actor_id, result
+            "[StubActorRuntime] Actor {:?}: open_write() fd={} -> {:?}",
+            self.actor_id, fd, channel_handle
         );
-        result
+        fd
     }
 
-    fn aread(&self, _fd: c_int, buffer: &mut [u8]) -> c_int {
+    fn aread(&self, fd: c_int, buffer: &mut [u8]) -> c_int {
         eprintln!(
-            "[StubActorRuntime] Actor {:?}: aread() entry, buffer.len={}",
-            self.actor_id,
-            buffer.len()
+            "[StubActorRuntime] Actor {:?}: aread(fd={}) entry, buffer.len={}",
+            self.actor_id, fd, buffer.len()
         );
+
+        // Look up the channel handle for this fd
+        let channel_handle = match self.fd_table.lock().unwrap().get(fd) {
+            Some(h) => h,
+            None => {
+                eprintln!(
+                    "[StubActorRuntime] Actor {:?}: aread() fd={} not found",
+                    self.actor_id, fd
+                );
+                return -1;
+            }
+        };
+
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
 
@@ -608,7 +717,7 @@ impl ActorRuntime for StubActorRuntime {
 
         self.system_tx
             .send(IoRequest::Read {
-                actor_id: self.actor_id,
+                handle: channel_handle,
                 buffer: buffer_ptr,
                 response: tx,
             })
@@ -628,18 +737,30 @@ impl ActorRuntime for StubActorRuntime {
         bytes_read
     }
 
-    fn awrite(&self, _fd: c_int, buffer: &[u8]) -> c_int {
+    fn awrite(&self, fd: c_int, buffer: &[u8]) -> c_int {
         eprintln!(
-            "[StubActorRuntime] Actor {:?}: awrite() entry, buffer.len={}",
-            self.actor_id,
-            buffer.len()
+            "[StubActorRuntime] Actor {:?}: awrite(fd={}) entry, buffer.len={}",
+            self.actor_id, fd, buffer.len()
         );
+
+        // Look up the channel handle for this fd
+        let channel_handle = match self.fd_table.lock().unwrap().get(fd) {
+            Some(h) => h,
+            None => {
+                eprintln!(
+                    "[StubActorRuntime] Actor {:?}: awrite() fd={} not found",
+                    self.actor_id, fd
+                );
+                return -1;
+            }
+        };
+
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
 
         self.system_tx
             .send(IoRequest::Write {
-                actor_id: self.actor_id,
+                handle: channel_handle,
                 data: buffer.to_vec(),
                 response: tx,
             })
@@ -662,13 +783,25 @@ impl ActorRuntime for StubActorRuntime {
             "[StubActorRuntime] Actor {:?}: aclose() entry, fd={}",
             self.actor_id, fd
         );
+
+        // Look up and remove the channel handle for this fd
+        let channel_handle = match self.fd_table.lock().unwrap().remove(fd) {
+            Some(h) => h,
+            None => {
+                eprintln!(
+                    "[StubActorRuntime] Actor {:?}: aclose() fd={} not found",
+                    self.actor_id, fd
+                );
+                return -1;
+            }
+        };
+
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
 
         self.system_tx
             .send(IoRequest::Close {
-                actor_id: self.actor_id,
-                fd,
+                handle: channel_handle,
                 response: tx,
             })
             .unwrap();
