@@ -8,8 +8,9 @@ use actor_runtime::{ActorRuntime, StdHandle};
 use ailetos::dag::{Dag, DependsOn, For, NodeKind};
 use ailetos::idgen::{Handle, IdGen};
 use ailetos::notification_queue::NotificationQueueArc;
-use ailetos::pipe::{Pipe, Reader};
-use ailetos::{KVBuffers, OpenMode};
+use ailetos::pipe::Reader;
+use ailetos::pipepool::PipePool;
+use ailetos::KVBuffers;
 use scheduler::Scheduler;
 use futures::stream::{FuturesUnordered, StreamExt};
 use sqlitekv::SqliteKV;
@@ -23,10 +24,6 @@ use tokio::sync::{mpsc, oneshot};
 /// Unique identifier for actors in the system
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct ActorId(usize);
-
-/// Unique identifier for pipes in the system
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PipeId(i64);
 
 /// A wrapper around a raw mutable slice pointer that can be sent between threads.
 /// SAFETY: This is only safe because the sender (aread) blocks until the receiver
@@ -108,23 +105,23 @@ enum IoRequest {
 
 /// Input source configuration for an actor
 enum ActorInputSource {
-    /// Read from a pipe
-    Pipe(PipeId),
+    /// Read from dependency actor's output pipe
+    Pipe(Handle),
 }
 
 /// Output destination configuration for an actor
 enum ActorOutputDestination {
     /// Write to stdout
     Stdout,
-    /// Write to a pipe
-    Pipe(PipeId),
+    /// Write to own output pipe
+    Pipe,
 }
 
 /// Result of a completed I/O operation
 enum IoEvent {
     /// Read completed - need to return reader to its slot
     ReadComplete {
-        pipe_id: PipeId,
+        actor_id: ActorId,
         reader: Reader,
         bytes_read: isize,
         response: oneshot::Sender<c_int>,
@@ -142,40 +139,38 @@ type IoFuture = Pin<Box<dyn Future<Output = IoEvent> + Send>>;
 /// `SystemRuntime` manages all async I/O operations
 /// Actors communicate with it via channels
 struct SystemRuntime<K: KVBuffers> {
-    /// All pipes in the system (we store the whole pipe to access both reader and writer)
-    pipes: HashMap<PipeId, Pipe>,
-    /// All pipe readers in the system (readers are async, None when in use)
-    pipe_readers: HashMap<PipeId, Option<Reader>>,
+    /// Pool of output pipes (one per actor)
+    pipe_pool: PipePool<K>,
+    /// Readers for each actor (None when in use during async read)
+    actor_readers: HashMap<ActorId, Option<Reader>>,
     /// Input configuration for each actor
     actor_inputs: HashMap<ActorId, ActorInputSource>,
     /// Output configuration for each actor
     actor_outputs: HashMap<ActorId, ActorOutputDestination>,
+    /// Maps ActorId to the node Handle (for pipe_pool lookups)
+    actor_handles: HashMap<ActorId, Handle>,
     /// Channel to send I/O requests to this runtime (None after `run()` starts)
     system_tx: Option<mpsc::UnboundedSender<IoRequest>>,
     /// Receives I/O requests from actors
     request_rx: mpsc::UnboundedReceiver<IoRequest>,
-    /// Shared notification queue for all pipes
-    notification_queue: NotificationQueueArc,
-    /// Key-value store for pipe buffers
-    kv: K,
-    /// Counter for generating unique IDs (pipes and handles)
-    next_id: i64,
+    /// ID generator for handles
+    id_gen: Arc<IdGen>,
 }
 
 impl<K: KVBuffers> SystemRuntime<K> {
-    fn new(kv: K) -> Self {
+    fn new(kv: K, id_gen: Arc<IdGen>) -> Self {
         let (system_tx, request_rx) = mpsc::unbounded_channel();
+        let notification_queue = NotificationQueueArc::new();
 
         Self {
-            pipes: HashMap::new(),
-            pipe_readers: HashMap::new(),
+            pipe_pool: PipePool::new(kv, notification_queue),
+            actor_readers: HashMap::new(),
             actor_inputs: HashMap::new(),
             actor_outputs: HashMap::new(),
+            actor_handles: HashMap::new(),
             system_tx: Some(system_tx),
             request_rx,
-            notification_queue: NotificationQueueArc::new(),
-            kv,
-            next_id: 1,
+            id_gen,
         }
     }
 
@@ -188,12 +183,9 @@ impl<K: KVBuffers> SystemRuntime<K> {
         )
     }
 
-    /// Setup pipes based on DAG dependencies
-    /// Each node gets an output pipe, and inputs are wired to dependency outputs
+    /// Setup pipes and wiring based on DAG dependencies
+    /// Each node gets an output pipe, and readers are created for dependencies
     async fn setup_pipes_from_dag(&mut self, dag: &Dag, target: Handle) {
-        // Map from node handle to its output pipe
-        let mut node_output_pipes: HashMap<Handle, PipeId> = HashMap::new();
-
         // Resolve the alias to get the actual target (concrete node)
         let actual_target: Handle = dag
             .resolve_dependencies(target)
@@ -205,11 +197,15 @@ impl<K: KVBuffers> SystemRuntime<K> {
         for node_handle in scheduler.iter() {
             let node = dag.get_node(node_handle).expect("node exists");
             let pipe_name = format!("pipes/{}-{}", node.idname, node_handle.id());
-            let pipe_id = self.create_pipe(&pipe_name).await;
-            node_output_pipes.insert(node_handle, pipe_id);
 
             #[allow(clippy::cast_sign_loss)]
             let actor_id = ActorId(node_handle.id() as usize);
+
+            // Create output pipe for this actor
+            self.pipe_pool
+                .create_output_pipe(node_handle, &pipe_name, &self.id_gen)
+                .await;
+            self.actor_handles.insert(actor_id, node_handle);
 
             // Wire output: target writes to stdout, others write to their pipe
             if node_handle == actual_target {
@@ -217,17 +213,18 @@ impl<K: KVBuffers> SystemRuntime<K> {
                     .insert(actor_id, ActorOutputDestination::Stdout);
             } else {
                 self.actor_outputs
-                    .insert(actor_id, ActorOutputDestination::Pipe(pipe_id));
+                    .insert(actor_id, ActorOutputDestination::Pipe);
             }
 
-            // Wire input from first dependency
+            // Wire input from first dependency and create reader
             // TODO: support multiple dependencies - currently only reads from first dep
             let deps: Vec<Handle> = dag.resolve_dependencies(node_handle).collect();
-            if let Some(dep_handle) = deps.first() {
-                if let Some(&dep_pipe_id) = node_output_pipes.get(dep_handle) {
-                    self.actor_inputs
-                        .insert(actor_id, ActorInputSource::Pipe(dep_pipe_id));
-                }
+            if let Some(&dep_handle) = deps.first() {
+                // Create reader for the dependency's output pipe
+                let reader = self.pipe_pool.open_reader(dep_handle, &self.id_gen);
+                self.actor_readers.insert(actor_id, Some(reader));
+                self.actor_inputs
+                    .insert(actor_id, ActorInputSource::Pipe(dep_handle));
             }
 
             // Pre-fill special nodes
@@ -235,50 +232,21 @@ impl<K: KVBuffers> SystemRuntime<K> {
                 "val" => {
                     // Value node: pre-fill with static data
                     let data = b"(mee too)";
-                    if let Some(pipe) = self.pipes.get(&pipe_id) {
-                        let _ = pipe.writer().write(data);
-                        pipe.writer().close();
-                    }
+                    let pipe = self.pipe_pool.get_pipe(node_handle);
+                    let _ = pipe.writer().write(data);
+                    pipe.writer().close();
                 }
                 "stdin" => {
                     // TODO: implement actual OS stdin reading
                     // For now, pre-fill with simulated stdin data
                     let data = b"simulated stdin\n";
-                    if let Some(pipe) = self.pipes.get(&pipe_id) {
-                        let _ = pipe.writer().write(data);
-                        pipe.writer().close();
-                    }
+                    let pipe = self.pipe_pool.get_pipe(node_handle);
+                    let _ = pipe.writer().write(data);
+                    pipe.writer().close();
                 }
                 _ => {}
             }
         }
-    }
-
-    /// Create a new pipe and return its ID
-    #[allow(clippy::expect_used)] // MemKV::open with Write mode always succeeds
-    async fn create_pipe(&mut self, name: &str) -> PipeId {
-        let pipe_id = PipeId(self.next_id);
-        self.next_id += 1;
-
-        let writer_handle = Handle::new(self.next_id);
-        self.next_id += 1;
-        let reader_handle = Handle::new(self.next_id);
-        self.next_id += 1;
-
-        // Get buffer from KV store
-        let buffer = self
-            .kv
-            .open(name, OpenMode::Write)
-            .await
-            .expect("Failed to create buffer in KV store");
-
-        let pipe = Pipe::new(writer_handle, self.notification_queue.clone(), name, buffer);
-        let reader = pipe.get_reader(reader_handle);
-
-        self.pipes.insert(pipe_id, pipe);
-        self.pipe_readers.insert(pipe_id, Some(reader));
-
-        pipe_id
     }
 
     /// Handler for `OpenRead` requests
@@ -312,21 +280,21 @@ impl<K: KVBuffers> SystemRuntime<K> {
     ) -> IoFuture {
         eprintln!("[SystemRuntime] Processing Read for {actor_id:?}");
 
-        if let Some(ActorInputSource::Pipe(pipe_id)) = self.actor_inputs.get(&actor_id) {
-            let pipe_id = *pipe_id;
-            if let Some(mut reader) = self.pipe_readers.get_mut(&pipe_id).and_then(Option::take) {
+        if let Some(ActorInputSource::Pipe(dep_handle)) = self.actor_inputs.get(&actor_id) {
+            let dep_handle = *dep_handle;
+            if let Some(mut reader) = self.actor_readers.get_mut(&actor_id).and_then(Option::take) {
                 eprintln!(
-                    "[SystemRuntime] Read {actor_id:?}: spawning async read for pipe {pipe_id:?}"
+                    "[SystemRuntime] Read {actor_id:?}: spawning async read from dep {dep_handle:?}"
                 );
                 Box::pin(async move {
                     // SAFETY: Buffer remains valid because aread() blocks until response
                     let buf = unsafe { &mut *buffer.into_raw() };
                     let bytes_read = reader.read(buf).await;
                     eprintln!(
-                        "[SystemRuntime] Read for pipe {pipe_id:?} completed: {bytes_read} bytes"
+                        "[SystemRuntime] Read for {actor_id:?} completed: {bytes_read} bytes"
                     );
                     IoEvent::ReadComplete {
-                        pipe_id,
+                        actor_id,
                         reader,
                         bytes_read,
                         response,
@@ -388,9 +356,10 @@ impl<K: KVBuffers> SystemRuntime<K> {
                         Err(_) => -1,
                     }
                 }
-                ActorOutputDestination::Pipe(pipe_id) => {
-                    eprintln!("[SystemRuntime] Write {actor_id:?}: writing to pipe {pipe_id:?}");
-                    if let Some(pipe) = self.pipes.get(pipe_id) {
+                ActorOutputDestination::Pipe => {
+                    if let Some(&actor_handle) = self.actor_handles.get(&actor_id) {
+                        eprintln!("[SystemRuntime] Write {actor_id:?}: writing to pipe");
+                        let pipe = self.pipe_pool.get_pipe(actor_handle);
                         let n = pipe.writer().write(data);
                         eprintln!("[SystemRuntime] Write {actor_id:?}: pipe write returned {n}");
                         #[allow(clippy::cast_possible_truncation)]
@@ -398,7 +367,7 @@ impl<K: KVBuffers> SystemRuntime<K> {
                             n as c_int
                         }
                     } else {
-                        eprintln!("[SystemRuntime] Write {actor_id:?}: pipe not found");
+                        eprintln!("[SystemRuntime] Write {actor_id:?}: actor handle not found");
                         -1
                     }
                 }
@@ -421,11 +390,11 @@ impl<K: KVBuffers> SystemRuntime<K> {
         eprintln!("[SystemRuntime] Processing Close for {actor_id:?}, fd={fd}");
         let mut result = 0;
         if fd == 1 {
-            if let Some(ActorOutputDestination::Pipe(pipe_id)) = self.actor_outputs.get(&actor_id) {
-                if let Some(pipe) = self.pipes.get(pipe_id) {
-                    let buffer = pipe.writer().buffer();
+            if let Some(ActorOutputDestination::Pipe) = self.actor_outputs.get(&actor_id) {
+                if let Some(&actor_handle) = self.actor_handles.get(&actor_id) {
+                    let pipe = self.pipe_pool.get_pipe(actor_handle);
                     pipe.writer().close();
-                    if let Err(e) = self.kv.flush_buffer(&buffer) {
+                    if let Err(e) = self.pipe_pool.flush_buffer(actor_handle) {
                         eprintln!("[SystemRuntime] Failed to flush buffer: {e}");
                         result = -1;
                     }
@@ -444,14 +413,14 @@ impl<K: KVBuffers> SystemRuntime<K> {
     /// Handler for `ReadComplete` events
     fn handle_read_complete(
         &mut self,
-        pipe_id: PipeId,
+        actor_id: ActorId,
         reader: Reader,
         bytes_read: isize,
         response: oneshot::Sender<c_int>,
     ) {
-        eprintln!("[SystemRuntime] Read completed for pipe {pipe_id:?}, {bytes_read} bytes");
+        eprintln!("[SystemRuntime] Read completed for {actor_id:?}, {bytes_read} bytes");
         // Put reader back
-        if let Some(slot) = self.pipe_readers.get_mut(&pipe_id) {
+        if let Some(slot) = self.actor_readers.get_mut(&actor_id) {
             *slot = Some(reader);
         }
         #[allow(clippy::cast_possible_truncation)]
@@ -528,8 +497,8 @@ impl<K: KVBuffers> SystemRuntime<K> {
                 // Handle completed operations
                 Some(event) = pending_ops.next(), if !pending_ops.is_empty() => {
                     match event {
-                        IoEvent::ReadComplete { pipe_id, reader, bytes_read, response } => {
-                            self.handle_read_complete(pipe_id, reader, bytes_read, response);
+                        IoEvent::ReadComplete { actor_id, reader, bytes_read, response } => {
+                            self.handle_read_complete(actor_id, reader, bytes_read, response);
                         }
                         IoEvent::SyncComplete { result, response } => {
                             Self::handle_sync_complete(result, response);
@@ -819,7 +788,7 @@ fn build_flow(dag: &mut Dag) -> Handle {
 async fn main() {
     // Create DAG and build flow
     let idgen = Arc::new(IdGen::new());
-    let mut dag = Dag::new(idgen);
+    let mut dag = Dag::new(Arc::clone(&idgen));
     let end_node = build_flow(&mut dag);
 
     // Print dependency tree
@@ -830,7 +799,7 @@ async fn main() {
     let kv = SqliteKV::new("example.db").expect("Failed to create SqliteKV");
 
     // Create system runtime
-    let mut system_runtime = SystemRuntime::new(kv);
+    let mut system_runtime = SystemRuntime::new(kv, idgen);
 
     // Prepare actor runtimes
     let actor_infos = system_runtime.prepare_actors(&dag, end_node);
