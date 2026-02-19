@@ -614,6 +614,63 @@ impl StubActorRuntime {
             fd_table: std::sync::Mutex::new(FdTable::new()),
         }
     }
+
+    /// Pre-open standard handles (stdin=0, stdout=1) before actor starts.
+    /// This provides POSIX semantics where standard fds are ready at process start.
+    #[allow(clippy::unwrap_used)]
+    pub fn setup_std_handles(&self) {
+        eprintln!(
+            "[StubActorRuntime] Actor {:?}: setup_std_handles()",
+            self.actor_id
+        );
+
+        // Open stdin (fd 0)
+        let stdin_fd = self.open_read("stdin");
+        assert_eq!(stdin_fd, 0, "stdin should be fd 0");
+
+        // Open stdout (fd 1)
+        let stdout_fd = self.open_write("stdout");
+        assert_eq!(stdout_fd, 1, "stdout should be fd 1");
+
+        eprintln!(
+            "[StubActorRuntime] Actor {:?}: std handles ready (stdin={}, stdout={})",
+            self.actor_id, stdin_fd, stdout_fd
+        );
+    }
+
+    /// Close all open handles when actor finishes.
+    /// Closes in reverse order (highest fd first) to handle any dependencies.
+    #[allow(clippy::unwrap_used)]
+    pub fn close_all_handles(&self) {
+        eprintln!(
+            "[StubActorRuntime] Actor {:?}: close_all_handles()",
+            self.actor_id
+        );
+
+        // Get all open fds
+        let fds: Vec<c_int> = {
+            let table = self.fd_table.lock().unwrap();
+            table.table.keys().copied().collect()
+        };
+
+        // Close in reverse order
+        let mut fds = fds;
+        fds.sort();
+        fds.reverse();
+
+        for fd in fds {
+            eprintln!(
+                "[StubActorRuntime] Actor {:?}: closing fd {}",
+                self.actor_id, fd
+            );
+            let _ = self.aclose(fd);
+        }
+
+        eprintln!(
+            "[StubActorRuntime] Actor {:?}: all handles closed",
+            self.actor_id
+        );
+    }
 }
 
 #[allow(clippy::unwrap_used)] // Stub implementation for testing - panics are acceptable
@@ -832,26 +889,41 @@ fn spawn_actor_tasks(
             match idname.as_str() {
                 "val" => {
                     // Value node: data is pre-filled, nothing to do
+                    // No std handles needed - this node doesn't do I/O
                     eprintln!("Task {:?} ({}): Value node, skipping", actor_id, idname);
                 }
                 "stdin" => {
                     // TODO: implement actual OS stdin reading
                     // For now, data is pre-filled in the pipe, just copy to output
+
+                    // Setup std handles before actor runs
+                    runtime.setup_std_handles();
+
                     let areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
                     let awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
                     match cat::execute(areader, awriter) {
                         Ok(()) => eprintln!("Task {:?} ({}): completed", actor_id, idname),
                         Err(e) => eprintln!("Error in {:?} ({}): {e}", actor_id, idname),
                     }
+
+                    // Close all handles after actor finishes
+                    runtime.close_all_handles();
                 }
                 _ => {
                     // Default: cat actor (copy from stdin to stdout)
+
+                    // Setup std handles before actor runs
+                    runtime.setup_std_handles();
+
                     let areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
                     let awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
                     match cat::execute(areader, awriter) {
                         Ok(()) => eprintln!("Task {:?} ({}): completed", actor_id, idname),
                         Err(e) => eprintln!("Error in {:?} ({}): {e}", actor_id, idname),
                     }
+
+                    // Close all handles after actor finishes
+                    runtime.close_all_handles();
                 }
             }
             eprintln!("Task {:?} ({}): Done", actor_id, idname);
