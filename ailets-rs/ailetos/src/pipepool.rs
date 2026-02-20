@@ -52,6 +52,12 @@ impl<K: KVBuffers> PipePool<K> {
         self.pipes.push((actor_handle, pipe));
     }
 
+    /// Check if a pipe exists for the given actor
+    #[must_use]
+    pub fn has_pipe(&self, actor_handle: Handle) -> bool {
+        self.pipes.iter().any(|(h, _)| *h == actor_handle)
+    }
+
     /// Get the pipe for the given actor
     ///
     /// # Panics

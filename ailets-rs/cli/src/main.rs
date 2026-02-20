@@ -11,19 +11,14 @@ use ailetos::notification_queue::NotificationQueueArc;
 use ailetos::pipe::Reader;
 use ailetos::pipepool::PipePool;
 use ailetos::KVBuffers;
-use scheduler::Scheduler;
 use futures::stream::{FuturesUnordered, StreamExt};
+use scheduler::Scheduler;
 use sqlitekv::SqliteKV;
 use std::collections::HashMap;
 use std::future::Future;
-use std::io::Write as StdWrite;
 use std::os::raw::c_int;
 use std::pin::Pin;
 use tokio::sync::{mpsc, oneshot};
-
-/// Unique identifier for actors in the system
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-struct ActorId(usize);
 
 /// Global unique identifier for a pipe endpoint (reader or writer)
 /// Used by SystemRuntime to identify channels across all actors
@@ -34,8 +29,8 @@ struct ChannelHandle(usize);
 enum Channel {
     /// Reader channel - holds the Reader (None when in use during async read)
     Reader(Option<Reader>),
-    /// Writer channel - holds the actor's output destination info
-    Writer { actor_id: ActorId },
+    /// Writer channel - holds the actor's node handle for pipe lookup
+    Writer { node_handle: Handle },
 }
 
 /// A wrapper around a raw mutable slice pointer that can be sent between threads.
@@ -92,12 +87,12 @@ unsafe impl Send for SendableBuffer {}
 enum IoRequest {
     /// Open a stream for reading (returns global ChannelHandle)
     OpenRead {
-        actor_id: ActorId,
+        node_handle: Handle,
         response: oneshot::Sender<ChannelHandle>,
     },
     /// Open a stream for writing (returns global ChannelHandle)
     OpenWrite {
-        actor_id: ActorId,
+        node_handle: Handle,
         response: oneshot::Sender<ChannelHandle>,
     },
     /// Read from a channel (async operation)
@@ -119,14 +114,6 @@ enum IoRequest {
         handle: ChannelHandle,
         response: oneshot::Sender<c_int>,
     },
-}
-
-/// Output destination configuration for an actor
-enum ActorOutputDestination {
-    /// Write to stdout
-    Stdout,
-    /// Write to own output pipe
-    Pipe,
 }
 
 /// Result of a completed I/O operation
@@ -157,12 +144,6 @@ struct SystemRuntime<K: KVBuffers> {
     channels: HashMap<ChannelHandle, Channel>,
     /// Next channel handle ID
     next_channel_id: usize,
-    /// Input pipe handle for each actor (dependency's output pipe)
-    actor_input_pipes: HashMap<ActorId, Handle>,
-    /// Output configuration for each actor
-    actor_outputs: HashMap<ActorId, ActorOutputDestination>,
-    /// Maps ActorId to the node Handle (for pipe_pool lookups)
-    actor_handles: HashMap<ActorId, Handle>,
     /// Channel to send I/O requests to this runtime (None after `run()` starts)
     system_tx: Option<mpsc::UnboundedSender<IoRequest>>,
     /// Receives I/O requests from actors
@@ -180,9 +161,6 @@ impl<K: KVBuffers> SystemRuntime<K> {
             pipe_pool: PipePool::new(kv, notification_queue),
             channels: HashMap::new(),
             next_channel_id: 0,
-            actor_input_pipes: HashMap::new(),
-            actor_outputs: HashMap::new(),
-            actor_handles: HashMap::new(),
             system_tx: Some(system_tx),
             request_rx,
             id_gen,
@@ -196,105 +174,43 @@ impl<K: KVBuffers> SystemRuntime<K> {
         handle
     }
 
-    /// Factory method to create an `ActorRuntime` for a specific actor
-    #[allow(clippy::expect_used)] // Called before run(), system_tx is always Some
-    fn create_actor_runtime(&self, actor_id: ActorId) -> StubActorRuntime {
-        StubActorRuntime::new(
-            actor_id,
-            self.system_tx.as_ref().expect("system_tx taken").clone(),
-        )
+    /// Get the sender for creating actor runtimes
+    #[allow(clippy::expect_used)]
+    fn get_system_tx(&self) -> mpsc::UnboundedSender<IoRequest> {
+        self.system_tx.as_ref().expect("system_tx taken").clone()
     }
 
-    /// Setup pipes and wiring based on DAG dependencies
-    /// Each node gets an output pipe, input pipe handles are recorded for later channel creation
-    async fn setup_pipes_from_dag(&mut self, dag: &Dag, target: Handle) {
-        // Resolve the alias to get the actual target (concrete node)
-        let actual_target: Handle = dag
-            .resolve_dependencies(target)
-            .next()
-            .unwrap_or(target);
+    /// Handler for `OpenRead` requests
+    /// Currently returns a dummy handle - dependency wiring not yet implemented
+    fn handle_open_read(&mut self, node_handle: Handle, response: oneshot::Sender<ChannelHandle>) {
+        eprintln!("[SystemRuntime] Processing OpenRead for {node_handle:?}");
+        // No dependency wiring for now - just return a dummy handle
+        let channel_handle = self.alloc_channel_handle();
+        eprintln!("[SystemRuntime] OpenRead {node_handle:?}: no input configured, dummy {channel_handle:?}");
+        let _ = response.send(channel_handle);
+    }
 
-        // Create output pipe for each concrete node
-        let scheduler = Scheduler::new(dag, target);
-        for node_handle in scheduler.iter() {
-            let node = dag.get_node(node_handle).expect("node exists");
-            let pipe_name = format!("pipes/{}-{}", node.idname, node_handle.id());
+    /// Handler for `OpenWrite` requests - creates output pipe and returns ChannelHandle
+    async fn handle_open_write(
+        &mut self,
+        node_handle: Handle,
+        response: oneshot::Sender<ChannelHandle>,
+    ) {
+        eprintln!("[SystemRuntime] Processing OpenWrite for {node_handle:?}");
 
-            #[allow(clippy::cast_sign_loss)]
-            let actor_id = ActorId(node_handle.id() as usize);
-
-            // Create output pipe for this actor
+        // Create output pipe for this actor if it doesn't exist yet
+        if !self.pipe_pool.has_pipe(node_handle) {
+            let pipe_name = format!("pipes/actor-{}", node_handle.id());
             self.pipe_pool
                 .create_output_pipe(node_handle, &pipe_name, &self.id_gen)
                 .await;
-            self.actor_handles.insert(actor_id, node_handle);
-
-            // Wire output: target writes to stdout, others write to their pipe
-            if node_handle == actual_target {
-                self.actor_outputs
-                    .insert(actor_id, ActorOutputDestination::Stdout);
-            } else {
-                self.actor_outputs
-                    .insert(actor_id, ActorOutputDestination::Pipe);
-            }
-
-            // Record input pipe handle from first dependency
-            // Actual reader creation happens in handle_open_read when actor calls open_read
-            // TODO: support multiple dependencies - currently only reads from first dep
-            let deps: Vec<Handle> = dag.resolve_dependencies(node_handle).collect();
-            if let Some(&dep_handle) = deps.first() {
-                self.actor_input_pipes.insert(actor_id, dep_handle);
-            }
-
-            // Pre-fill special nodes
-            match node.idname.as_str() {
-                "val" => {
-                    // Value node: pre-fill with static data
-                    let data = b"(mee too)";
-                    let pipe = self.pipe_pool.get_pipe(node_handle);
-                    let _ = pipe.writer().write(data);
-                    pipe.writer().close();
-                }
-                "stdin" => {
-                    // TODO: implement actual OS stdin reading
-                    // For now, pre-fill with simulated stdin data
-                    let data = b"simulated stdin\n";
-                    let pipe = self.pipe_pool.get_pipe(node_handle);
-                    let _ = pipe.writer().write(data);
-                    pipe.writer().close();
-                }
-                _ => {}
-            }
+            eprintln!("[SystemRuntime] OpenWrite {node_handle:?}: created pipe");
         }
-    }
-
-    /// Handler for `OpenRead` requests - creates reader and returns ChannelHandle
-    fn handle_open_read(&mut self, actor_id: ActorId, response: oneshot::Sender<ChannelHandle>) {
-        eprintln!("[SystemRuntime] Processing OpenRead for {actor_id:?}");
-
-        if let Some(&dep_handle) = self.actor_input_pipes.get(&actor_id) {
-            // Create reader for the dependency's output pipe
-            let reader = self.pipe_pool.open_reader(dep_handle, &self.id_gen);
-            let channel_handle = self.alloc_channel_handle();
-            self.channels.insert(channel_handle, Channel::Reader(Some(reader)));
-            eprintln!("[SystemRuntime] OpenRead {actor_id:?}: created {channel_handle:?} for dep {dep_handle:?}");
-            let _ = response.send(channel_handle);
-        } else {
-            eprintln!("[SystemRuntime] OpenRead {actor_id:?}: no input pipe configured");
-            // Return a dummy handle - reads will fail
-            let channel_handle = self.alloc_channel_handle();
-            let _ = response.send(channel_handle);
-        }
-    }
-
-    /// Handler for `OpenWrite` requests - returns ChannelHandle for actor's output
-    fn handle_open_write(&mut self, actor_id: ActorId, response: oneshot::Sender<ChannelHandle>) {
-        eprintln!("[SystemRuntime] Processing OpenWrite for {actor_id:?}");
 
         let channel_handle = self.alloc_channel_handle();
-        // Store the actor_id so we can look up output destination in handle_write
-        self.channels.insert(channel_handle, Channel::Writer { actor_id });
-        eprintln!("[SystemRuntime] OpenWrite {actor_id:?}: created {channel_handle:?}");
+        self.channels
+            .insert(channel_handle, Channel::Writer { node_handle });
+        eprintln!("[SystemRuntime] OpenWrite {node_handle:?}: created {channel_handle:?}");
         let _ = response.send(channel_handle);
     }
 
@@ -342,7 +258,7 @@ impl<K: KVBuffers> SystemRuntime<K> {
         }
     }
 
-    /// Handler for Write requests - uses ChannelHandle to find writer
+    /// Handler for Write requests - writes to actor's pipe
     fn handle_write(
         &self,
         handle: ChannelHandle,
@@ -354,49 +270,15 @@ impl<K: KVBuffers> SystemRuntime<K> {
             data.len()
         );
 
-        let result = if let Some(Channel::Writer { actor_id }) = self.channels.get(&handle) {
-            let actor_id = *actor_id;
-            if let Some(output_dest) = self.actor_outputs.get(&actor_id) {
-                match output_dest {
-                    ActorOutputDestination::Stdout => {
-                        eprintln!("[SystemRuntime] Write {handle:?}: writing to stdout");
-                        let mut stdout = std::io::stdout();
-                        match stdout.write(data) {
-                            Ok(n) => {
-                                if stdout.flush().is_err() {
-                                    -1
-                                } else {
-                                    #[allow(
-                                        clippy::cast_possible_truncation,
-                                        clippy::cast_possible_wrap
-                                    )]
-                                    {
-                                        n as c_int
-                                    }
-                                }
-                            }
-                            Err(_) => -1,
-                        }
-                    }
-                    ActorOutputDestination::Pipe => {
-                        if let Some(&actor_handle) = self.actor_handles.get(&actor_id) {
-                            eprintln!("[SystemRuntime] Write {handle:?}: writing to pipe");
-                            let pipe = self.pipe_pool.get_pipe(actor_handle);
-                            let n = pipe.writer().write(data);
-                            eprintln!("[SystemRuntime] Write {handle:?}: pipe write returned {n}");
-                            #[allow(clippy::cast_possible_truncation)]
-                            {
-                                n as c_int
-                            }
-                        } else {
-                            eprintln!("[SystemRuntime] Write {handle:?}: actor handle not found");
-                            -1
-                        }
-                    }
-                }
-            } else {
-                eprintln!("[SystemRuntime] Write {handle:?}: no output destination for actor");
-                -1
+        let result = if let Some(Channel::Writer { node_handle }) = self.channels.get(&handle) {
+            let node_handle = *node_handle;
+            eprintln!("[SystemRuntime] Write {handle:?}: writing to pipe");
+            let pipe = self.pipe_pool.get_pipe(node_handle);
+            let n = pipe.writer().write(data);
+            eprintln!("[SystemRuntime] Write {handle:?}: pipe write returned {n}");
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                n as c_int
             }
         } else {
             eprintln!("[SystemRuntime] Write {handle:?}: channel not found or not a writer");
@@ -407,7 +289,11 @@ impl<K: KVBuffers> SystemRuntime<K> {
     }
 
     /// Handler for Close requests - uses ChannelHandle
-    fn handle_close(&mut self, handle: ChannelHandle, response: oneshot::Sender<c_int>) -> IoFuture {
+    fn handle_close(
+        &mut self,
+        handle: ChannelHandle,
+        response: oneshot::Sender<c_int>,
+    ) -> IoFuture {
         eprintln!("[SystemRuntime] Processing Close for {handle:?}");
         let mut result = 0;
 
@@ -416,16 +302,12 @@ impl<K: KVBuffers> SystemRuntime<K> {
                 Channel::Reader(_) => {
                     eprintln!("[SystemRuntime] Close {handle:?}: closed reader");
                 }
-                Channel::Writer { actor_id } => {
-                    if let Some(ActorOutputDestination::Pipe) = self.actor_outputs.get(&actor_id) {
-                        if let Some(&actor_handle) = self.actor_handles.get(&actor_id) {
-                            let pipe = self.pipe_pool.get_pipe(actor_handle);
-                            pipe.writer().close();
-                            if let Err(e) = self.pipe_pool.flush_buffer(actor_handle) {
-                                eprintln!("[SystemRuntime] Failed to flush buffer: {e}");
-                                result = -1;
-                            }
-                        }
+                Channel::Writer { node_handle } => {
+                    let pipe = self.pipe_pool.get_pipe(node_handle);
+                    pipe.writer().close();
+                    if let Err(e) = self.pipe_pool.flush_buffer(node_handle) {
+                        eprintln!("[SystemRuntime] Failed to flush buffer: {e}");
+                        result = -1;
                     }
                     eprintln!("[SystemRuntime] Close {handle:?}: closed writer");
                 }
@@ -464,24 +346,6 @@ impl<K: KVBuffers> SystemRuntime<K> {
         let _ = response.send(result);
     }
 
-    /// Prepare actor runtimes for all nodes in the DAG
-    fn prepare_actors(&self, dag: &Dag, target: Handle) -> Vec<(ActorId, String, StubActorRuntime)> {
-        let scheduler = Scheduler::new(dag, target);
-        let mut actor_infos = Vec::new();
-
-        for node_handle in scheduler.iter() {
-            let node = dag.get_node(node_handle).expect("node exists");
-            let idname = node.idname.clone();
-            eprintln!("Node to build: {:?} ({})", node_handle, idname);
-            #[allow(clippy::cast_sign_loss)]
-            let actor_id = ActorId(node_handle.id() as usize);
-            let runtime = self.create_actor_runtime(actor_id);
-            actor_infos.push((actor_id, idname, runtime));
-        }
-
-        actor_infos
-    }
-
     /// Main event loop - processes I/O requests asynchronously
     async fn run(mut self) {
         // Drop our copy of the sender so channel closes when all actors finish
@@ -503,13 +367,11 @@ impl<K: KVBuffers> SystemRuntime<K> {
                     if let Some(request) = request {
                         eprintln!("[SystemRuntime] Received request");
                         match request {
-                            IoRequest::OpenRead { actor_id, response } => {
-                                // Handled synchronously - creates channel and responds
-                                self.handle_open_read(actor_id, response);
+                            IoRequest::OpenRead { node_handle, response } => {
+                                self.handle_open_read(node_handle, response);
                             }
-                            IoRequest::OpenWrite { actor_id, response } => {
-                                // Handled synchronously - creates channel and responds
-                                self.handle_open_write(actor_id, response);
+                            IoRequest::OpenWrite { node_handle, response } => {
+                                self.handle_open_write(node_handle, response).await;
                             }
                             IoRequest::Read { handle, buffer, response } => {
                                 let fut = self.handle_read(handle, buffer, response);
@@ -587,8 +449,8 @@ impl FdTable {
 /// Provides sync-to-async adapters (blocking on async operations)
 /// Maintains a per-actor fd table for POSIX-style fd semantics
 pub struct StubActorRuntime {
-    /// This actor's unique identifier
-    actor_id: ActorId,
+    /// This actor's node handle (used as actor identifier)
+    node_handle: Handle,
     /// Channel to send async I/O requests to `SystemRuntime`
     system_tx: mpsc::UnboundedSender<IoRequest>,
     /// Per-actor fd table (POSIX fd → global ChannelHandle)
@@ -598,7 +460,7 @@ pub struct StubActorRuntime {
 impl Clone for StubActorRuntime {
     fn clone(&self) -> Self {
         Self {
-            actor_id: self.actor_id,
+            node_handle: self.node_handle,
             system_tx: self.system_tx.clone(),
             fd_table: std::sync::Mutex::new(FdTable::new()),
         }
@@ -606,10 +468,10 @@ impl Clone for StubActorRuntime {
 }
 
 impl StubActorRuntime {
-    /// Create a new `ActorRuntime` for the given actor ID
-    fn new(actor_id: ActorId, system_tx: mpsc::UnboundedSender<IoRequest>) -> Self {
+    /// Create a new `ActorRuntime` for the given node handle
+    fn new(node_handle: Handle, system_tx: mpsc::UnboundedSender<IoRequest>) -> Self {
         Self {
-            actor_id,
+            node_handle,
             system_tx,
             fd_table: std::sync::Mutex::new(FdTable::new()),
         }
@@ -621,7 +483,7 @@ impl StubActorRuntime {
     pub fn setup_std_handles(&self) {
         eprintln!(
             "[StubActorRuntime] Actor {:?}: setup_std_handles()",
-            self.actor_id
+            self.node_handle
         );
 
         // Open stdin (fd 0)
@@ -634,7 +496,7 @@ impl StubActorRuntime {
 
         eprintln!(
             "[StubActorRuntime] Actor {:?}: std handles ready (stdin={}, stdout={})",
-            self.actor_id, stdin_fd, stdout_fd
+            self.node_handle, stdin_fd, stdout_fd
         );
     }
 
@@ -644,7 +506,7 @@ impl StubActorRuntime {
     pub fn close_all_handles(&self) {
         eprintln!(
             "[StubActorRuntime] Actor {:?}: close_all_handles()",
-            self.actor_id
+            self.node_handle
         );
 
         // Get all open fds
@@ -661,14 +523,14 @@ impl StubActorRuntime {
         for fd in fds {
             eprintln!(
                 "[StubActorRuntime] Actor {:?}: closing fd {}",
-                self.actor_id, fd
+                self.node_handle, fd
             );
             let _ = self.aclose(fd);
         }
 
         eprintln!(
             "[StubActorRuntime] Actor {:?}: all handles closed",
-            self.actor_id
+            self.node_handle
         );
     }
 }
@@ -678,7 +540,7 @@ impl ActorRuntime for StubActorRuntime {
     fn get_errno(&self) -> c_int {
         eprintln!(
             "[StubActorRuntime] Actor {:?}: get_errno() entry",
-            self.actor_id
+            self.node_handle
         );
         0 // No error
     }
@@ -686,21 +548,21 @@ impl ActorRuntime for StubActorRuntime {
     fn open_read(&self, _name: &str) -> c_int {
         eprintln!(
             "[StubActorRuntime] Actor {:?}: open_read() entry",
-            self.actor_id
+            self.node_handle
         );
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
 
         self.system_tx
             .send(IoRequest::OpenRead {
-                actor_id: self.actor_id,
+                node_handle: self.node_handle,
                 response: tx,
             })
             .unwrap();
 
         eprintln!(
             "[StubActorRuntime] Actor {:?}: open_read() before blocking_recv",
-            self.actor_id
+            self.node_handle
         );
         let channel_handle = rx.blocking_recv().unwrap();
 
@@ -708,7 +570,7 @@ impl ActorRuntime for StubActorRuntime {
         let fd = self.fd_table.lock().unwrap().insert(channel_handle);
         eprintln!(
             "[StubActorRuntime] Actor {:?}: open_read() fd={} -> {:?}",
-            self.actor_id, fd, channel_handle
+            self.node_handle, fd, channel_handle
         );
         fd
     }
@@ -716,21 +578,21 @@ impl ActorRuntime for StubActorRuntime {
     fn open_write(&self, _name: &str) -> c_int {
         eprintln!(
             "[StubActorRuntime] Actor {:?}: open_write() entry",
-            self.actor_id
+            self.node_handle
         );
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
 
         self.system_tx
             .send(IoRequest::OpenWrite {
-                actor_id: self.actor_id,
+                node_handle: self.node_handle,
                 response: tx,
             })
             .unwrap();
 
         eprintln!(
             "[StubActorRuntime] Actor {:?}: open_write() before blocking_recv",
-            self.actor_id
+            self.node_handle
         );
         let channel_handle = rx.blocking_recv().unwrap();
 
@@ -738,7 +600,7 @@ impl ActorRuntime for StubActorRuntime {
         let fd = self.fd_table.lock().unwrap().insert(channel_handle);
         eprintln!(
             "[StubActorRuntime] Actor {:?}: open_write() fd={} -> {:?}",
-            self.actor_id, fd, channel_handle
+            self.node_handle, fd, channel_handle
         );
         fd
     }
@@ -746,7 +608,7 @@ impl ActorRuntime for StubActorRuntime {
     fn aread(&self, fd: c_int, buffer: &mut [u8]) -> c_int {
         eprintln!(
             "[StubActorRuntime] Actor {:?}: aread(fd={}) entry, buffer.len={}",
-            self.actor_id, fd, buffer.len()
+            self.node_handle, fd, buffer.len()
         );
 
         // Look up the channel handle for this fd
@@ -755,7 +617,7 @@ impl ActorRuntime for StubActorRuntime {
             None => {
                 eprintln!(
                     "[StubActorRuntime] Actor {:?}: aread() fd={} not found",
-                    self.actor_id, fd
+                    self.node_handle, fd
                 );
                 return -1;
             }
@@ -783,12 +645,12 @@ impl ActorRuntime for StubActorRuntime {
         // Block waiting for SystemRuntime to complete the async read
         eprintln!(
             "[StubActorRuntime] Actor {:?}: aread() before blocking_recv",
-            self.actor_id
+            self.node_handle
         );
         let bytes_read = rx.blocking_recv().unwrap();
         eprintln!(
             "[StubActorRuntime] Actor {:?}: aread() after blocking_recv, bytes_read={}",
-            self.actor_id, bytes_read
+            self.node_handle, bytes_read
         );
 
         bytes_read
@@ -797,7 +659,7 @@ impl ActorRuntime for StubActorRuntime {
     fn awrite(&self, fd: c_int, buffer: &[u8]) -> c_int {
         eprintln!(
             "[StubActorRuntime] Actor {:?}: awrite(fd={}) entry, buffer.len={}",
-            self.actor_id, fd, buffer.len()
+            self.node_handle, fd, buffer.len()
         );
 
         // Look up the channel handle for this fd
@@ -806,7 +668,7 @@ impl ActorRuntime for StubActorRuntime {
             None => {
                 eprintln!(
                     "[StubActorRuntime] Actor {:?}: awrite() fd={} not found",
-                    self.actor_id, fd
+                    self.node_handle, fd
                 );
                 return -1;
             }
@@ -825,12 +687,12 @@ impl ActorRuntime for StubActorRuntime {
 
         eprintln!(
             "[StubActorRuntime] Actor {:?}: awrite() before blocking_recv",
-            self.actor_id
+            self.node_handle
         );
         let result = rx.blocking_recv().unwrap();
         eprintln!(
             "[StubActorRuntime] Actor {:?}: awrite() after blocking_recv, result={}",
-            self.actor_id, result
+            self.node_handle, result
         );
         result
     }
@@ -838,7 +700,7 @@ impl ActorRuntime for StubActorRuntime {
     fn aclose(&self, fd: c_int) -> c_int {
         eprintln!(
             "[StubActorRuntime] Actor {:?}: aclose() entry, fd={}",
-            self.actor_id, fd
+            self.node_handle, fd
         );
 
         // Look up and remove the channel handle for this fd
@@ -847,7 +709,7 @@ impl ActorRuntime for StubActorRuntime {
             None => {
                 eprintln!(
                     "[StubActorRuntime] Actor {:?}: aclose() fd={} not found",
-                    self.actor_id, fd
+                    self.node_handle, fd
                 );
                 return -1;
             }
@@ -865,12 +727,12 @@ impl ActorRuntime for StubActorRuntime {
 
         eprintln!(
             "[StubActorRuntime] Actor {:?}: aclose() before blocking_recv",
-            self.actor_id
+            self.node_handle
         );
         let result = rx.blocking_recv().unwrap();
         eprintln!(
             "[StubActorRuntime] Actor {:?}: aclose() after blocking_recv, result={}",
-            self.actor_id, result
+            self.node_handle, result
         );
         result
     }
@@ -878,36 +740,41 @@ impl ActorRuntime for StubActorRuntime {
 
 /// Spawn actor tasks for each node in the system
 fn spawn_actor_tasks(
-    actor_infos: Vec<(ActorId, String, StubActorRuntime)>,
+    dag: &Dag,
+    target: Handle,
+    system_tx: mpsc::UnboundedSender<IoRequest>,
 ) -> Vec<tokio::task::JoinHandle<()>> {
+    let scheduler = Scheduler::new(dag, target);
     let mut tasks = Vec::new();
 
-    for (actor_id, idname, runtime) in actor_infos {
+    for node_handle in scheduler.iter() {
+        let node = dag.get_node(node_handle).expect("node exists");
+        let idname = node.idname.clone();
+        eprintln!("Node to build: {:?} ({})", node_handle, idname);
+
+        // Create runtime for this actor
+        let runtime = StubActorRuntime::new(node_handle, system_tx.clone());
+
         let task = tokio::task::spawn_blocking(move || {
-            eprintln!("Task {:?} ({}): Starting", actor_id, idname);
+            eprintln!("Task {:?} ({}): Starting", node_handle, idname);
 
             match idname.as_str() {
                 "val" => {
-                    // Value node: data is pre-filled, nothing to do
-                    // No std handles needed - this node doesn't do I/O
-                    eprintln!("Task {:?} ({}): Value node, skipping", actor_id, idname);
+                    // Value node: write static data to output and close
+                    let fd = runtime.open_write("stdout");
+                    let data = b"(mee too)";
+                    let _ = runtime.awrite(fd, data);
+                    let _ = runtime.aclose(fd);
+                    eprintln!("Task {:?} ({}): Value node completed", node_handle, idname);
                 }
                 "stdin" => {
                     // TODO: implement actual OS stdin reading
-                    // For now, data is pre-filled in the pipe, just copy to output
-
-                    // Setup std handles before actor runs
-                    runtime.setup_std_handles();
-
-                    let areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
-                    let awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
-                    match cat::execute(areader, awriter) {
-                        Ok(()) => eprintln!("Task {:?} ({}): completed", actor_id, idname),
-                        Err(e) => eprintln!("Error in {:?} ({}): {e}", actor_id, idname),
-                    }
-
-                    // Close all handles after actor finishes
-                    runtime.close_all_handles();
+                    // For now, write simulated stdin data to output
+                    let fd = runtime.open_write("stdout");
+                    let data = b"simulated stdin\n";
+                    let _ = runtime.awrite(fd, data);
+                    let _ = runtime.aclose(fd);
+                    eprintln!("Task {:?} ({}): Stdin node completed", node_handle, idname);
                 }
                 _ => {
                     // Default: cat actor (copy from stdin to stdout)
@@ -918,15 +785,15 @@ fn spawn_actor_tasks(
                     let areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
                     let awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
                     match cat::execute(areader, awriter) {
-                        Ok(()) => eprintln!("Task {:?} ({}): completed", actor_id, idname),
-                        Err(e) => eprintln!("Error in {:?} ({}): {e}", actor_id, idname),
+                        Ok(()) => eprintln!("Task {:?} ({}): completed", node_handle, idname),
+                        Err(e) => eprintln!("Error in {:?} ({}): {e}", node_handle, idname),
                     }
 
                     // Close all handles after actor finishes
                     runtime.close_all_handles();
                 }
             }
-            eprintln!("Task {:?} ({}): Done", actor_id, idname);
+            eprintln!("Task {:?} ({}): Done", node_handle, idname);
         });
         tasks.push(task);
     }
@@ -937,15 +804,19 @@ fn spawn_actor_tasks(
 /// Run the system: spawn system runtime and actor tasks, wait for completion
 async fn run_system<K: KVBuffers + 'static>(
     system_runtime: SystemRuntime<K>,
-    actor_infos: Vec<(ActorId, String, StubActorRuntime)>,
+    dag: &Dag,
+    target: Handle,
 ) {
+    // Get sender before moving system_runtime
+    let system_tx = system_runtime.get_system_tx();
+
     // Spawn SystemRuntime task
     let system_task = tokio::spawn(async move {
         system_runtime.run().await;
     });
 
     // Spawn actor tasks
-    let actor_tasks = spawn_actor_tasks(actor_infos);
+    let actor_tasks = spawn_actor_tasks(dag, target, system_tx);
 
     // Wait for system runtime
     if let Err(e) = system_task.await {
@@ -1004,16 +875,8 @@ async fn main() {
     let kv = SqliteKV::new("example.db").expect("Failed to create SqliteKV");
 
     // Create system runtime
-    let mut system_runtime = SystemRuntime::new(kv, idgen);
-
-    // Prepare actor runtimes
-    let actor_infos = system_runtime.prepare_actors(&dag, end_node);
-
-    // Setup pipes based on DAG dependencies
-    eprintln!("Setup: Setting up pipes based on DAG");
-    system_runtime.setup_pipes_from_dag(&dag, end_node).await;
-    eprintln!("Setup: All pipes configured");
+    let system_runtime = SystemRuntime::new(kv, idgen);
 
     // Run the system
-    run_system(system_runtime, actor_infos).await;
+    run_system(system_runtime, &dag, end_node).await;
 }
