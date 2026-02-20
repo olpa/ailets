@@ -83,8 +83,21 @@ impl SendableBuffer {
 // SAFETY: See SendableBuffer documentation above
 unsafe impl Send for SendableBuffer {}
 
+/// Standard handles pre-opened for an actor
+#[derive(Debug, Clone, Copy)]
+struct StdHandles {
+    stdin: ChannelHandle,
+    stdout: ChannelHandle,
+}
+
 /// I/O requests sent from `ActorRuntime` to `SystemRuntime`
 enum IoRequest {
+    /// Setup standard handles for an actor (returns stdin and stdout ChannelHandles)
+    SetupStdHandles {
+        node_handle: Handle,
+        dependencies: Vec<Handle>,
+        response: oneshot::Sender<StdHandles>,
+    },
     /// Open a stream for reading (returns global ChannelHandle)
     OpenRead {
         node_handle: Handle,
@@ -165,6 +178,63 @@ impl<K: KVBuffers> SystemRuntime<K> {
             request_rx,
             id_gen,
         }
+    }
+
+    /// Pre-open standard handles (stdin, stdout) for an actor just before it runs.
+    /// Expects at most one dependency for stdin, otherwise panics.
+    async fn preopen_std_handles(
+        &mut self,
+        node_handle: Handle,
+        dependencies: &[Handle],
+    ) -> StdHandles {
+        eprintln!("[SystemRuntime] Setting up std handles for actor {:?}", node_handle);
+
+        // Pre-open stdin: check dependencies
+        if dependencies.len() > 1 {
+            panic!(
+                "Actor {:?} has {} dependencies, expected at most 1 for stdin",
+                node_handle,
+                dependencies.len()
+            );
+        }
+
+        let stdin = if let Some(&dep_handle) = dependencies.first() {
+            eprintln!("[SystemRuntime] Actor {:?}: opening stdin from dependency {:?}", node_handle, dep_handle);
+
+            // Create reader for the dependency's pipe
+            let pipe = self.pipe_pool.get_pipe(dep_handle);
+            // Generate a unique handle for this reader
+            let reader_handle = Handle::new(self.id_gen.get_next());
+            let reader = pipe.get_reader(reader_handle);
+
+            let channel_handle = self.alloc_channel_handle();
+            self.channels.insert(channel_handle, Channel::Reader(Some(reader)));
+            eprintln!("[SystemRuntime] Actor {:?}: stdin configured as {:?}", node_handle, channel_handle);
+            channel_handle
+        } else {
+            eprintln!("[SystemRuntime] Actor {:?}: no dependencies, stdin will be dummy", node_handle);
+            let channel_handle = self.alloc_channel_handle();
+            // No reader, just a dummy channel
+            eprintln!("[SystemRuntime] Actor {:?}: stdin configured as dummy {:?}", node_handle, channel_handle);
+            channel_handle
+        };
+
+        // Pre-open stdout: create output pipe
+        eprintln!("[SystemRuntime] Actor {:?}: opening stdout", node_handle);
+
+        if !self.pipe_pool.has_pipe(node_handle) {
+            let pipe_name = format!("pipes/actor-{}", node_handle.id());
+            self.pipe_pool
+                .create_output_pipe(node_handle, &pipe_name, &self.id_gen)
+                .await;
+            eprintln!("[SystemRuntime] Actor {:?}: created output pipe", node_handle);
+        }
+
+        let stdout = self.alloc_channel_handle();
+        self.channels.insert(stdout, Channel::Writer { node_handle });
+        eprintln!("[SystemRuntime] Actor {:?}: stdout configured as {:?}", node_handle, stdout);
+
+        StdHandles { stdin, stdout }
     }
 
     /// Allocate a new global channel handle
@@ -367,6 +437,10 @@ impl<K: KVBuffers> SystemRuntime<K> {
                     if let Some(request) = request {
                         eprintln!("[SystemRuntime] Received request");
                         match request {
+                            IoRequest::SetupStdHandles { node_handle, dependencies, response } => {
+                                let handles = self.preopen_std_handles(node_handle, &dependencies).await;
+                                let _ = response.send(handles);
+                            }
                             IoRequest::OpenRead { node_handle, response } => {
                                 self.handle_open_read(node_handle, response);
                             }
@@ -477,26 +551,45 @@ impl StubActorRuntime {
         }
     }
 
-    /// Pre-open standard handles (stdin=0, stdout=1) before actor starts.
-    /// This provides POSIX semantics where standard fds are ready at process start.
+    /// Request SystemRuntime to set up standard handles before actor starts.
+    /// This pre-opens stdin (fd 0) and stdout (fd 1) with the correct channel handles.
+    /// Dependencies must be provided from the DAG.
     #[allow(clippy::unwrap_used)]
-    pub fn setup_std_handles(&self) {
+    pub fn request_std_handles_setup(&self, dependencies: Vec<Handle>) {
         eprintln!(
-            "[StubActorRuntime] Actor {:?}: setup_std_handles()",
-            self.node_handle
+            "[StubActorRuntime] Actor {:?}: requesting std handles setup with deps {:?}",
+            self.node_handle, dependencies
         );
 
-        // Open stdin (fd 0)
-        let stdin_fd = self.open_read("stdin");
-        assert_eq!(stdin_fd, 0, "stdin should be fd 0");
+        // Send request to SystemRuntime and block for response
+        let (tx, rx) = oneshot::channel();
 
-        // Open stdout (fd 1)
-        let stdout_fd = self.open_write("stdout");
-        assert_eq!(stdout_fd, 1, "stdout should be fd 1");
+        self.system_tx
+            .send(IoRequest::SetupStdHandles {
+                node_handle: self.node_handle,
+                dependencies,
+                response: tx,
+            })
+            .unwrap();
+
+        let std_handles = rx.blocking_recv().unwrap();
+
+        // Map the pre-opened channel handles to fd 0 (stdin) and fd 1 (stdout)
+        {
+            let mut table = self.fd_table.lock().unwrap();
+
+            // Insert stdin as fd 0
+            let stdin_fd = table.insert(std_handles.stdin);
+            assert_eq!(stdin_fd, 0, "stdin should be fd 0");
+
+            // Insert stdout as fd 1
+            let stdout_fd = table.insert(std_handles.stdout);
+            assert_eq!(stdout_fd, 1, "stdout should be fd 1");
+        }
 
         eprintln!(
-            "[StubActorRuntime] Actor {:?}: std handles ready (stdin={}, stdout={})",
-            self.node_handle, stdin_fd, stdout_fd
+            "[StubActorRuntime] Actor {:?}: std handles ready (stdin=0, stdout=1)",
+            self.node_handle
         );
     }
 
@@ -752,6 +845,9 @@ fn spawn_actor_tasks(
         let idname = node.idname.clone();
         eprintln!("Node to build: {:?} ({})", node_handle, idname);
 
+        // Get dependencies for this node
+        let dependencies: Vec<Handle> = dag.get_direct_dependencies(node_handle).collect();
+
         // Create runtime for this actor
         let runtime = StubActorRuntime::new(node_handle, system_tx.clone());
 
@@ -779,8 +875,8 @@ fn spawn_actor_tasks(
                 _ => {
                     // Default: cat actor (copy from stdin to stdout)
 
-                    // Setup std handles before actor runs
-                    runtime.setup_std_handles();
+                    // Request SystemRuntime to setup std handles before actor runs
+                    runtime.request_std_handles_setup(dependencies);
 
                     let areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
                     let awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
