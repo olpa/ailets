@@ -1,5 +1,7 @@
 mod scheduler;
 mod sqlitekv;
+mod stdin_source;
+mod val;
 
 use std::sync::Arc;
 
@@ -201,6 +203,15 @@ impl<K: KVBuffers> SystemRuntime<K> {
         let stdin = if let Some(&dep_handle) = dependencies.first() {
             eprintln!("[SystemRuntime] Actor {:?}: opening stdin from dependency {:?}", node_handle, dep_handle);
 
+            // Ensure the dependency's output pipe exists (create if needed)
+            if !self.pipe_pool.has_pipe(dep_handle) {
+                let dep_pipe_name = format!("pipes/actor-{}", dep_handle.id());
+                self.pipe_pool
+                    .create_output_pipe(dep_handle, &dep_pipe_name, &self.id_gen)
+                    .await;
+                eprintln!("[SystemRuntime] Actor {:?}: created dependency {:?} output pipe", node_handle, dep_handle);
+            }
+
             // Create reader for the dependency's pipe
             let pipe = self.pipe_pool.get_pipe(dep_handle);
             // Generate a unique handle for this reader
@@ -212,10 +223,24 @@ impl<K: KVBuffers> SystemRuntime<K> {
             eprintln!("[SystemRuntime] Actor {:?}: stdin configured as {:?}", node_handle, channel_handle);
             channel_handle
         } else {
-            eprintln!("[SystemRuntime] Actor {:?}: no dependencies, stdin will be dummy", node_handle);
+            eprintln!("[SystemRuntime] Actor {:?}: no dependencies, creating empty stdin", node_handle);
+
+            // Create an empty/closed pipe to provide an empty reader
+            let empty_pipe_name = format!("pipes/empty-stdin-{}", node_handle.id());
+            let empty_handle = Handle::new(self.id_gen.get_next());
+            self.pipe_pool.create_output_pipe(empty_handle, &empty_pipe_name, &self.id_gen).await;
+
+            // Immediately close the writer to signal EOF
+            let empty_pipe = self.pipe_pool.get_pipe(empty_handle);
+            empty_pipe.writer().close();
+
+            // Create reader from the closed pipe
+            let reader_handle = Handle::new(self.id_gen.get_next());
+            let reader = empty_pipe.get_reader(reader_handle);
+
             let channel_handle = self.alloc_channel_handle();
-            // No reader, just a dummy channel
-            eprintln!("[SystemRuntime] Actor {:?}: stdin configured as dummy {:?}", node_handle, channel_handle);
+            self.channels.insert(channel_handle, Channel::Reader(Some(reader)));
+            eprintln!("[SystemRuntime] Actor {:?}: empty stdin configured as {:?}", node_handle, channel_handle);
             channel_handle
         };
 
@@ -854,41 +879,28 @@ fn spawn_actor_tasks(
         let task = tokio::task::spawn_blocking(move || {
             eprintln!("Task {:?} ({}): Starting", node_handle, idname);
 
-            match idname.as_str() {
-                "val" => {
-                    // Value node: write static data to output and close
-                    let fd = runtime.open_write("stdout");
-                    let data = b"(mee too)";
-                    let _ = runtime.awrite(fd, data);
-                    let _ = runtime.aclose(fd);
-                    eprintln!("Task {:?} ({}): Value node completed", node_handle, idname);
-                }
-                "stdin" => {
-                    // TODO: implement actual OS stdin reading
-                    // For now, write simulated stdin data to output
-                    let fd = runtime.open_write("stdout");
-                    let data = b"simulated stdin\n";
-                    let _ = runtime.awrite(fd, data);
-                    let _ = runtime.aclose(fd);
-                    eprintln!("Task {:?} ({}): Stdin node completed", node_handle, idname);
-                }
-                _ => {
-                    // Default: cat actor (copy from stdin to stdout)
+            // Request SystemRuntime to setup std handles before actor runs
+            runtime.request_std_handles_setup(dependencies);
 
-                    // Request SystemRuntime to setup std handles before actor runs
-                    runtime.request_std_handles_setup(dependencies);
+            // Create reader and writer unconditionally
+            let areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
+            let awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
 
-                    let areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
-                    let awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
-                    match cat::execute(areader, awriter) {
-                        Ok(()) => eprintln!("Task {:?} ({}): completed", node_handle, idname),
-                        Err(e) => eprintln!("Error in {:?} ({}): {e}", node_handle, idname),
-                    }
+            // Execute the appropriate actor based on idname
+            let result = match idname.as_str() {
+                "val" => val::execute(areader, awriter),
+                "stdin" => stdin_source::execute(areader, awriter),
+                _ => cat::execute(areader, awriter),
+            };
 
-                    // Close all handles after actor finishes
-                    runtime.close_all_handles();
-                }
+            match result {
+                Ok(()) => eprintln!("Task {:?} ({}): completed", node_handle, idname),
+                Err(e) => eprintln!("Error in {:?} ({}): {e}", node_handle, idname),
             }
+
+            // Close all handles after actor finishes
+            runtime.close_all_handles();
+
             eprintln!("Task {:?} ({}): Done", node_handle, idname);
         });
         tasks.push(task);
