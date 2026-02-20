@@ -67,10 +67,12 @@ dependencies = [
  "embedded-io",
  "embedded-io-async",
  "env_logger",
+ "futures",
  "getrandom",
  "log",
  "parking_lot",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

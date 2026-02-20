@@ -4,6 +4,8 @@ pub mod io;
 pub mod notification_queue;
 pub mod pipe;
 pub mod pipepool;
+pub mod stub_actor_runtime;
+pub mod system_runtime;
 
 // Re-export DAG types for convenience
 pub use dag::{Dag, DependsOn, For, Node, NodeKind, NodeState};
@@ -19,3 +21,12 @@ pub use io::{KVBuffers, KVError, MemKV, OpenMode};
 
 // Re-export PipePool for convenience
 pub use pipepool::PipePool;
+
+// Re-export system runtime types for convenience
+pub use system_runtime::{
+    Channel, ChannelHandle, FdTable, IoEvent, IoFuture, IoRequest, SendableBuffer, StdHandles,
+    SystemRuntime,
+};
+
+// Re-export stub actor runtime
+pub use stub_actor_runtime::StubActorRuntime;
