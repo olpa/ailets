@@ -1,0 +1,139 @@
+{
+  "name": "value.13",
+  "deps": [],
+  "explain": "Prompt",
+  "is_finished": true,
+  "errno": null
+}
+{
+  "name": ".prompt_to_messages.15",
+  "deps": [
+    {
+      "source": ".prompt",
+      "name": "",
+      "slot": "",
+      "schema": null
+    }
+  ],
+  "explain": null,
+  "is_finished": true,
+  "errno": 0
+}
+{
+  "name": ".gpt4o.messages_to_query.16",
+  "deps": [
+    {
+      "source": ".chat_messages",
+      "name": "",
+      "slot": "",
+      "schema": null
+    },
+    {
+      "source": ".toolspecs",
+      "name": "toolspecs",
+      "slot": "",
+      "schema": null
+    }
+  ],
+  "explain": null,
+  "is_finished": true,
+  "errno": 0
+}
+{
+  "name": ".query.17",
+  "deps": [
+    {
+      "source": ".gpt4o.messages_to_query.16",
+      "name": "",
+      "slot": "",
+      "schema": null
+    }
+  ],
+  "explain": null,
+  "is_finished": true,
+  "errno": -1
+}
+{
+  "name": ".gpt4o.response_to_messages.18",
+  "deps": [
+    {
+      "source": ".query.17",
+      "name": "",
+      "slot": "",
+      "schema": null
+    }
+  ],
+  "explain": null,
+  "is_finished": false,
+  "errno": null
+}
+{
+  "name": ".messages_to_markdown.19",
+  "deps": [
+    {
+      "source": ".model_output",
+      "name": "",
+      "slot": "",
+      "schema": null
+    }
+  ],
+  "explain": null,
+  "is_finished": false,
+  "errno": null
+}
+{
+  "alias": ".toolspecs",
+  "names": []
+}
+{
+  "alias": ".prompt",
+  "names": [
+    "value.13"
+  ]
+}
+{
+  "alias": ".chat_messages",
+  "names": [
+    ".prompt_to_messages.15"
+  ]
+}
+{
+  "alias": ".model_output",
+  "names": [
+    ".gpt4o.response_to_messages.18"
+  ]
+}
+{
+  "path": "value.13",
+  "content": "{\"type\": \"text\", \"text\": \"Hello!\"}"
+}
+{
+  "path": ".prompt_to_messages.15",
+  "content": "[{\"role\": \"user\", \"content\": [{\"type\": \"text\", \"text\": \"Hello!\"}]}]"
+}
+{
+  "path": ".gpt4o.messages_to_query.16",
+  "content": "{ \"url\": \"https://api.openai.com/v1/chat/completions\",\n\"method\": \"POST\",\n\"headers\": { \"Content-type\": \"application/json\", \"Authorization\": \"Bearer {{secret('openai','gpt4o')}}\" },\n\"body\": { \"model\": \"gpt-4o-mini\", \"stream\": true, \"messages\": [{\"role\":\"user\",\"content\":[\n{\"type\":\"text\",\"text\":\"Hello!\"}\n]}]}}\n"
+}
+{
+  "pipe": "value.13",
+  "is_closed": true
+}
+{
+  "pipe": ".prompt_to_messages.15",
+  "is_closed": true
+}
+{
+  "pipe": ".gpt4o.messages_to_query.16",
+  "is_closed": true
+}
+{
+  "env": {
+    ".messages_to_markdown.19": {
+      "handles": {
+        "1": "print"
+      }
+    }
+  },
+  "errno": -1
+}
