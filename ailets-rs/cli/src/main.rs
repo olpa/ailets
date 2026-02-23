@@ -111,11 +111,10 @@ fn build_flow(dag: &mut Dag) -> Handle {
     let foo = dag.add_node("foo".into(), NodeKind::Concrete);
     dag.add_dependency(For(foo), DependsOn(stdin));
 
-    // bar: copies from val
-    // TODO: bar should also depend on foo, but multiple inputs are not yet supported.
-    // For now, we only read from val and ignore foo.
+    // bar: copies from val and foo (merged sequentially)
     let bar = dag.add_node("bar".into(), NodeKind::Concrete);
     dag.add_dependency(For(bar), DependsOn(val));
+    dag.add_dependency(For(bar), DependsOn(foo));
 
     // baz: copies from bar
     let baz = dag.add_node("baz".into(), NodeKind::Concrete);

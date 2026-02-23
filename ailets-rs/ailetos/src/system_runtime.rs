@@ -184,7 +184,7 @@ impl<K: KVBuffers> SystemRuntime<K> {
     }
 
     /// Pre-open standard handles (stdin, stdout) for an actor just before it runs.
-    /// Expects at most one dependency for stdin, otherwise panics.
+    /// When an actor has multiple dependencies, their outputs are merged sequentially.
     async fn preopen_std_handles(
         &mut self,
         node_handle: Handle,
@@ -193,15 +193,53 @@ impl<K: KVBuffers> SystemRuntime<K> {
         debug!(actor = ?node_handle, "setting up std handles");
 
         // Pre-open stdin: check dependencies
-        if dependencies.len() > 1 {
-            panic!(
-                "Actor {:?} has {} dependencies, expected at most 1 for stdin",
-                node_handle,
-                dependencies.len()
-            );
-        }
+        let stdin = if dependencies.len() > 1 {
+            debug!(actor = ?node_handle, deps = dependencies.len(), "multiple dependencies, creating merge pipe");
 
-        let stdin = if let Some(&dep_handle) = dependencies.first() {
+            let merge_name = format!("pipes/merge-stdin-{}", node_handle.id());
+            let merge_writer = self.pipe_pool.create_merge_writer(&merge_name, &self.id_gen).await;
+
+            // Collect readers for all dependencies
+            let mut dep_readers = Vec::new();
+            for &dep_handle in dependencies {
+                if !self.pipe_pool.has_pipe(dep_handle) {
+                    let dep_pipe_name = format!("pipes/actor-{}", dep_handle.id());
+                    self.pipe_pool
+                        .create_output_pipe(dep_handle, &dep_pipe_name, &self.id_gen)
+                        .await;
+                    debug!(actor = ?node_handle, dependency = ?dep_handle, "created dependency output pipe");
+                }
+                let reader_handle = Handle::new(self.id_gen.get_next());
+                let reader = self.pipe_pool.get_pipe(dep_handle).get_reader(reader_handle);
+                dep_readers.push(reader);
+            }
+
+            // Create actor's stdin reader from the merge writer's shared data
+            let merge_reader_handle = Handle::new(self.id_gen.get_next());
+            let merge_reader = Reader::new(merge_reader_handle, merge_writer.share_with_reader());
+
+            // Spawn background task: reads each dep reader sequentially, writes to merge writer.
+            // When the task finishes, merge_writer is dropped, closing the pipe and signalling EOF.
+            tokio::spawn(async move {
+                let mut buf = vec![0u8; 4096];
+                for mut reader in dep_readers {
+                    loop {
+                        let n = reader.read(&mut buf).await;
+                        if n <= 0 {
+                            break;
+                        }
+                        #[allow(clippy::cast_sign_loss)]
+                        merge_writer.write(&buf[..n as usize]);
+                    }
+                }
+                // merge_writer dropped here → auto-closes → notifies merge_reader EOF
+            });
+
+            let channel_handle = self.alloc_channel_handle();
+            self.channels.insert(channel_handle, Channel::Reader(Some(merge_reader)));
+            trace!(actor = ?node_handle, channel = ?channel_handle, "merge stdin configured");
+            channel_handle
+        } else if let Some(&dep_handle) = dependencies.first() {
             debug!(actor = ?node_handle, dependency = ?dep_handle, "opening stdin from dependency");
 
             // Ensure the dependency's output pipe exists (create if needed)

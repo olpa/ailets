@@ -6,7 +6,7 @@
 use crate::idgen::{Handle, IdGen};
 use crate::io::{KVBuffers, OpenMode};
 use crate::notification_queue::NotificationQueueArc;
-use crate::pipe::{Pipe, Reader};
+use crate::pipe::{Pipe, Reader, Writer};
 
 /// Pool of output pipes, one per actor (identified by Handle)
 pub struct PipePool<K: KVBuffers> {
@@ -83,6 +83,19 @@ impl<K: KVBuffers> PipePool<K> {
         let pipe = self.get_pipe(actor_handle);
         let reader_handle = Handle::new(id_gen.get_next());
         pipe.get_reader(reader_handle)
+    }
+
+    /// Create a standalone Writer backed by KV storage (not wrapped in a Pipe).
+    ///
+    /// Used to create merge writers for actors with multiple dependencies.
+    pub async fn create_merge_writer(&mut self, name: &str, id_gen: &IdGen) -> Writer {
+        let writer_handle = Handle::new(id_gen.get_next());
+        let buffer = self
+            .kv
+            .open(name, OpenMode::Write)
+            .await
+            .expect("Failed to create merge buffer in KV store");
+        Writer::new(writer_handle, self.notification_queue.clone(), name, buffer)
     }
 
     /// Flush the buffer for the given actor's pipe
