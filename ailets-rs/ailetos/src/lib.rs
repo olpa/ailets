@@ -1,6 +1,7 @@
 pub mod dag;
 pub mod idgen;
 pub mod io;
+pub mod merge_reader;
 pub mod notification_queue;
 pub mod pipe;
 pub mod pipepool;

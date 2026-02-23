@@ -215,7 +215,10 @@ impl Drop for Writer {
     }
 }
 
-/// Shared data passed from Writer to Reader
+/// Shared data passed from Writer to Reader.
+///
+/// This can be cloned to create multiple independent readers from the same source.
+#[derive(Clone)]
 pub(crate) struct ReaderSharedData {
     buffer: Arc<Mutex<SharedBuffer>>,
     writer_handle: Handle,
