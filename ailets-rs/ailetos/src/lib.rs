@@ -1,6 +1,7 @@
 pub mod dag;
 pub mod idgen;
 pub mod io;
+pub mod merge_reader;
 pub mod notification_queue;
 pub mod pipe;
 pub mod pipepool;
@@ -8,7 +9,7 @@ pub mod stub_actor_runtime;
 pub mod system_runtime;
 
 // Re-export DAG types for convenience
-pub use dag::{Dag, DependsOn, For, Node, NodeKind, NodeState};
+pub use dag::{Dag, DependsOn, For, Node, NodeKind, NodeState, OwnedDependencyIterator};
 
 // Re-export idgen types for convenience
 pub use idgen::{Handle, HandleType, IdGen, IntCanBeHandle};

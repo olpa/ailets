@@ -198,3 +198,48 @@ impl Iterator for DependencyIterator<'_> {
         None
     }
 }
+
+/// Owned variant of `DependencyIterator` that holds `Arc<Dag>`.
+///
+/// This allows the iterator to be stored in structs that need to own their data,
+/// such as `MergeReader` which is moved during async operations.
+pub struct OwnedDependencyIterator {
+    dag: Arc<Dag>,
+    to_visit: Vec<Handle>,
+    visited: HashSet<Handle>,
+}
+
+impl OwnedDependencyIterator {
+    /// Create a new owned dependency iterator for the given node.
+    ///
+    /// Resolves aliases and yields only concrete dependency nodes.
+    #[must_use]
+    pub fn new(dag: Arc<Dag>, pid: Handle) -> Self {
+        let to_visit: Vec<Handle> = dag.get_direct_dependencies(pid).collect();
+        Self {
+            dag,
+            to_visit,
+            visited: HashSet::new(),
+        }
+    }
+}
+
+impl Iterator for OwnedDependencyIterator {
+    type Item = Handle;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(pid) = self.to_visit.pop() {
+            if self.visited.insert(pid) {
+                if let Some(node) = self.dag.get_node(pid) {
+                    match &node.kind {
+                        NodeKind::Concrete => return Some(pid),
+                        NodeKind::Alias => {
+                            self.to_visit.extend(self.dag.get_direct_dependencies(pid));
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+}

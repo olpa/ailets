@@ -18,7 +18,7 @@ use tracing::{debug, info, warn};
 
 /// Spawn actor tasks for each node in the system
 fn spawn_actor_tasks(
-    dag: &Dag,
+    dag: &Arc<Dag>,
     target: Handle,
     system_tx: mpsc::UnboundedSender<IoRequest>,
 ) -> Vec<tokio::task::JoinHandle<()>> {
@@ -30,9 +30,6 @@ fn spawn_actor_tasks(
         let idname = node.idname.clone();
         debug!(node = ?node_handle, name = %idname, "spawning actor task");
 
-        // Get dependencies for this node
-        let dependencies: Vec<Handle> = dag.get_direct_dependencies(node_handle).collect();
-
         // Create runtime for this actor
         let runtime = StubActorRuntime::new(node_handle, system_tx.clone());
 
@@ -40,7 +37,7 @@ fn spawn_actor_tasks(
             debug!(node = ?node_handle, name = %idname, "task starting");
 
             // Request SystemRuntime to setup std handles before actor runs
-            runtime.request_std_handles_setup(dependencies);
+            runtime.request_std_handles_setup();
 
             // Create reader and writer unconditionally
             let areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
@@ -72,7 +69,7 @@ fn spawn_actor_tasks(
 /// Run the system: spawn system runtime and actor tasks, wait for completion
 async fn run_system<K: KVBuffers + 'static>(
     system_runtime: SystemRuntime<K>,
-    dag: &Dag,
+    dag: &Arc<Dag>,
     target: Handle,
 ) {
     // Get sender before moving system_runtime
@@ -111,11 +108,10 @@ fn build_flow(dag: &mut Dag) -> Handle {
     let foo = dag.add_node("foo".into(), NodeKind::Concrete);
     dag.add_dependency(For(foo), DependsOn(stdin));
 
-    // bar: copies from val
-    // TODO: bar should also depend on foo, but multiple inputs are not yet supported.
-    // For now, we only read from val and ignore foo.
+    // bar: copies from val and foo (merged sequentially)
     let bar = dag.add_node("bar".into(), NodeKind::Concrete);
     dag.add_dependency(For(bar), DependsOn(val));
+    dag.add_dependency(For(bar), DependsOn(foo));
 
     // baz: copies from bar
     let baz = dag.add_node("baz".into(), NodeKind::Concrete);
@@ -146,12 +142,15 @@ async fn main() {
     // Print dependency tree
     info!("Dependency tree:\n{}", dag.dump(end_node));
 
+    // Wrap DAG in Arc for sharing with SystemRuntime
+    let dag = Arc::new(dag);
+
     // Create key-value store for pipe buffers
     let _ = std::fs::remove_file("example.db");
     let kv = SqliteKV::new("example.db").expect("Failed to create SqliteKV");
 
     // Create system runtime
-    let system_runtime = SystemRuntime::new(kv, idgen);
+    let system_runtime = SystemRuntime::new(Arc::clone(&dag), kv, idgen);
 
     // Run the system
     run_system(system_runtime, &dag, end_node).await;

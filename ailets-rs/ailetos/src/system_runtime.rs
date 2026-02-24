@@ -17,9 +17,10 @@ use futures::stream::{FuturesUnordered, StreamExt};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, trace, warn, info};
 
+use crate::dag::{Dag, OwnedDependencyIterator};
 use crate::idgen::{Handle, IdGen};
+use crate::merge_reader::MergeReader;
 use crate::notification_queue::NotificationQueueArc;
-use crate::pipe::Reader;
 use crate::pipepool::PipePool;
 use crate::KVBuffers;
 
@@ -29,9 +30,9 @@ use crate::KVBuffers;
 pub struct ChannelHandle(pub usize);
 
 /// A channel endpoint - either a reader or writer
-pub enum Channel {
-    /// Reader channel - holds the Reader (None when in use during async read)
-    Reader(Option<Reader>),
+pub enum Channel<K: KVBuffers> {
+    /// Reader channel - holds the MergeReader (None when in use during async read)
+    Reader(Option<MergeReader<K>>),
     /// Writer channel - holds the actor's node handle for pipe lookup
     Writer { node_handle: Handle },
 }
@@ -95,10 +96,10 @@ pub struct StdHandles {
 
 /// I/O requests sent from `ActorRuntime` to `SystemRuntime`
 pub enum IoRequest {
-    /// Setup standard handles for an actor (returns stdin and stdout ChannelHandles)
+    /// Setup standard handles for an actor (returns stdin and stdout ChannelHandles).
+    /// Dependencies are obtained from the DAG inside SystemRuntime.
     SetupStdHandles {
         node_handle: Handle,
-        dependencies: Vec<Handle>,
         response: oneshot::Sender<StdHandles>,
     },
     /// Open a stream for reading (returns global ChannelHandle)
@@ -133,11 +134,11 @@ pub enum IoRequest {
 }
 
 /// Result of a completed I/O operation
-pub enum IoEvent {
+pub enum IoEvent<K: KVBuffers> {
     /// Read completed - need to return reader to its slot
     ReadComplete {
         handle: ChannelHandle,
-        reader: Reader,
+        reader: MergeReader<K>,
         bytes_read: isize,
         response: oneshot::Sender<c_int>,
     },
@@ -149,15 +150,17 @@ pub enum IoEvent {
 }
 
 /// Type alias for I/O futures
-pub type IoFuture = Pin<Box<dyn Future<Output = IoEvent> + Send>>;
+pub type IoFuture<K> = Pin<Box<dyn Future<Output = IoEvent<K>> + Send>>;
 
 /// `SystemRuntime` manages all async I/O operations
 /// Actors communicate with it via channels
 pub struct SystemRuntime<K: KVBuffers> {
+    /// The DAG describing actor dependencies
+    dag: Arc<Dag>,
     /// Pool of output pipes (one per actor)
-    pipe_pool: PipePool<K>,
+    pipe_pool: Arc<PipePool<K>>,
     /// Global channel table: ChannelHandle → Channel (reader or writer endpoint)
-    channels: HashMap<ChannelHandle, Channel>,
+    channels: HashMap<ChannelHandle, Channel<K>>,
     /// Next channel handle ID
     next_channel_id: usize,
     /// Channel to send I/O requests to this runtime (None after `run()` starts)
@@ -168,13 +171,14 @@ pub struct SystemRuntime<K: KVBuffers> {
     id_gen: Arc<IdGen>,
 }
 
-impl<K: KVBuffers> SystemRuntime<K> {
-    pub fn new(kv: K, id_gen: Arc<IdGen>) -> Self {
+impl<K: KVBuffers + 'static> SystemRuntime<K> {
+    pub fn new(dag: Arc<Dag>, kv: K, id_gen: Arc<IdGen>) -> Self {
         let (system_tx, request_rx) = mpsc::unbounded_channel();
         let notification_queue = NotificationQueueArc::new();
 
         Self {
-            pipe_pool: PipePool::new(kv, notification_queue),
+            dag,
+            pipe_pool: Arc::new(PipePool::new(kv, notification_queue)),
             channels: HashMap::new(),
             next_channel_id: 0,
             system_tx: Some(system_tx),
@@ -184,66 +188,33 @@ impl<K: KVBuffers> SystemRuntime<K> {
     }
 
     /// Pre-open standard handles (stdin, stdout) for an actor just before it runs.
-    /// Expects at most one dependency for stdin, otherwise panics.
-    async fn preopen_std_handles(
-        &mut self,
-        node_handle: Handle,
-        dependencies: &[Handle],
-    ) -> StdHandles {
+    ///
+    /// Always uses MergeReader for stdin, regardless of dependency count:
+    /// - 0 dependencies: MergeReader with empty deps (returns EOF immediately)
+    /// - 1 dependency: MergeReader with single dep
+    /// - N dependencies: MergeReader reads from each sequentially
+    ///
+    /// Dependencies are obtained from the DAG using `OwnedDependencyIterator`.
+    async fn preopen_std_handles(&mut self, node_handle: Handle) -> StdHandles {
         debug!(actor = ?node_handle, "setting up std handles");
 
-        // Pre-open stdin: check dependencies
-        if dependencies.len() > 1 {
-            panic!(
-                "Actor {:?} has {} dependencies, expected at most 1 for stdin",
-                node_handle,
-                dependencies.len()
-            );
-        }
+        // Create OwnedDependencyIterator from DAG
+        let dep_iterator = OwnedDependencyIterator::new(
+            Arc::clone(&self.dag),
+            node_handle,
+        );
 
-        let stdin = if let Some(&dep_handle) = dependencies.first() {
-            debug!(actor = ?node_handle, dependency = ?dep_handle, "opening stdin from dependency");
+        // Create MergeReader with the dependency iterator
+        let merge_reader = MergeReader::new(
+            dep_iterator,
+            Arc::clone(&self.pipe_pool),
+            Arc::clone(&self.id_gen),
+        );
 
-            // Ensure the dependency's output pipe exists (create if needed)
-            if !self.pipe_pool.has_pipe(dep_handle) {
-                let dep_pipe_name = format!("pipes/actor-{}", dep_handle.id());
-                self.pipe_pool
-                    .create_output_pipe(dep_handle, &dep_pipe_name, &self.id_gen)
-                    .await;
-                debug!(actor = ?node_handle, dependency = ?dep_handle, "created dependency output pipe");
-            }
-
-            // Create reader for the dependency's pipe
-            let pipe = self.pipe_pool.get_pipe(dep_handle);
-            // Generate a unique handle for this reader
-            let reader_handle = Handle::new(self.id_gen.get_next());
-            let reader = pipe.get_reader(reader_handle);
-
-            let channel_handle = self.alloc_channel_handle();
-            self.channels.insert(channel_handle, Channel::Reader(Some(reader)));
-            trace!(actor = ?node_handle, channel = ?channel_handle, "stdin configured");
-            channel_handle
-        } else {
-            debug!(actor = ?node_handle, "no dependencies, creating empty stdin");
-
-            // Create an empty/closed pipe to provide an empty reader
-            let empty_pipe_name = format!("pipes/empty-stdin-{}", node_handle.id());
-            let empty_handle = Handle::new(self.id_gen.get_next());
-            self.pipe_pool.create_output_pipe(empty_handle, &empty_pipe_name, &self.id_gen).await;
-
-            // Immediately close the writer to signal EOF
-            let empty_pipe = self.pipe_pool.get_pipe(empty_handle);
-            empty_pipe.writer().close();
-
-            // Create reader from the closed pipe
-            let reader_handle = Handle::new(self.id_gen.get_next());
-            let reader = empty_pipe.get_reader(reader_handle);
-
-            let channel_handle = self.alloc_channel_handle();
-            self.channels.insert(channel_handle, Channel::Reader(Some(reader)));
-            trace!(actor = ?node_handle, channel = ?channel_handle, "empty stdin configured");
-            channel_handle
-        };
+        let stdin = self.alloc_channel_handle();
+        self.channels
+            .insert(stdin, Channel::Reader(Some(merge_reader)));
+        trace!(actor = ?node_handle, channel = ?stdin, "stdin configured with MergeReader");
 
         // Pre-open stdout: create output pipe
         debug!(actor = ?node_handle, "opening stdout");
@@ -316,7 +287,7 @@ impl<K: KVBuffers> SystemRuntime<K> {
         handle: ChannelHandle,
         buffer: SendableBuffer,
         response: oneshot::Sender<c_int>,
-    ) -> IoFuture {
+    ) -> IoFuture<K> {
         trace!(channel = ?handle, "processing Read");
 
         if let Some(Channel::Reader(reader_slot)) = self.channels.get_mut(&handle) {
@@ -360,7 +331,7 @@ impl<K: KVBuffers> SystemRuntime<K> {
         handle: ChannelHandle,
         data: &[u8],
         response: oneshot::Sender<c_int>,
-    ) -> IoFuture {
+    ) -> IoFuture<K> {
         trace!(channel = ?handle, bytes = data.len(), "processing Write");
 
         let result = if let Some(Channel::Writer { node_handle }) = self.channels.get(&handle) {
@@ -386,7 +357,7 @@ impl<K: KVBuffers> SystemRuntime<K> {
         &mut self,
         handle: ChannelHandle,
         response: oneshot::Sender<c_int>,
-    ) -> IoFuture {
+    ) -> IoFuture<K> {
         trace!(channel = ?handle, "processing Close");
         let mut result = 0;
 
@@ -421,7 +392,7 @@ impl<K: KVBuffers> SystemRuntime<K> {
     fn handle_read_complete(
         &mut self,
         handle: ChannelHandle,
-        reader: Reader,
+        reader: MergeReader<K>,
         bytes_read: isize,
         response: oneshot::Sender<c_int>,
     ) {
@@ -444,7 +415,7 @@ impl<K: KVBuffers> SystemRuntime<K> {
         // Drop our copy of the sender so channel closes when all actors finish
         drop(self.system_tx.take());
 
-        let mut pending_ops: FuturesUnordered<IoFuture> = FuturesUnordered::new();
+        let mut pending_ops: FuturesUnordered<IoFuture<K>> = FuturesUnordered::new();
         let mut request_rx_open = true;
 
         loop {
@@ -460,8 +431,8 @@ impl<K: KVBuffers> SystemRuntime<K> {
                     if let Some(request) = request {
                         trace!("received request");
                         match request {
-                            IoRequest::SetupStdHandles { node_handle, dependencies, response } => {
-                                let handles = self.preopen_std_handles(node_handle, &dependencies).await;
+                            IoRequest::SetupStdHandles { node_handle, response } => {
+                                let handles = self.preopen_std_handles(node_handle).await;
                                 let _ = response.send(handles);
                             }
                             IoRequest::OpenRead { node_handle, response } => {

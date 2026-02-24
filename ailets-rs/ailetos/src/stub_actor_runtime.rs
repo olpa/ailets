@@ -48,10 +48,10 @@ impl StubActorRuntime {
 
     /// Request SystemRuntime to set up standard handles before actor starts.
     /// This pre-opens stdin (fd 0) and stdout (fd 1) with the correct channel handles.
-    /// Dependencies must be provided from the DAG.
+    /// Dependencies are obtained from the DAG inside SystemRuntime.
     #[allow(clippy::unwrap_used)]
-    pub fn request_std_handles_setup(&self, dependencies: Vec<Handle>) {
-        trace!(actor = ?self.node_handle, deps = ?dependencies, "requesting std handles setup");
+    pub fn request_std_handles_setup(&self) {
+        trace!(actor = ?self.node_handle, "requesting std handles setup");
 
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
@@ -59,7 +59,6 @@ impl StubActorRuntime {
         self.system_tx
             .send(IoRequest::SetupStdHandles {
                 node_handle: self.node_handle,
-                dependencies,
                 response: tx,
             })
             .unwrap();
