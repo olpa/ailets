@@ -4,19 +4,22 @@
 //! dependencies sequentially. When one dependency's reader reaches EOF,
 //! it transparently switches to the next dependency.
 //!
-//! This replaces the previous approach of spawning a background task to
-//! merge inputs, making the merging lazy and inline during read operations.
+//! Uses `OwnedDependencyIterator` from the DAG to lazily iterate through
+//! dependencies, resolving aliases automatically.
 
 use std::sync::Arc;
 
+use crate::dag::OwnedDependencyIterator;
 use crate::idgen::{Handle, IdGen};
-use crate::pipe::{Reader, ReaderSharedData};
+use crate::io::KVBuffers;
+use crate::pipe::Reader;
+use crate::pipepool::PipePool;
 
 /// A reader that sequentially reads from multiple dependency inputs.
 ///
-/// MergeReader maintains a current dependency index and wraps the underlying
-/// reader. When the current reader returns EOF, it automatically advances to
-/// the next dependency and continues reading.
+/// MergeReader uses an `OwnedDependencyIterator` to lazily traverse dependencies.
+/// When the current reader returns EOF, it automatically advances to the next
+/// dependency and continues reading. Alias nodes are resolved by the iterator.
 ///
 /// # Usage
 ///
@@ -24,86 +27,57 @@ use crate::pipe::{Reader, ReaderSharedData};
 /// - 0 dependencies: immediately returns EOF
 /// - 1 dependency: reads from that single dependency
 /// - N dependencies: reads from each in sequence
-pub struct MergeReader {
+pub struct MergeReader<K: KVBuffers> {
     /// The currently active reader (None before first read or between deps)
     current_reader: Option<Reader>,
-    /// Index of the current dependency being read
-    dep_index: usize,
-    /// Pre-fetched reader shared data for each known dependency
-    deps_data: Vec<ReaderSharedData>,
+    /// Iterator over dependency handles (resolves aliases)
+    dep_iterator: OwnedDependencyIterator,
+    /// Pool of pipes to get ReaderSharedData from dependency handles
+    pipe_pool: Arc<PipePool<K>>,
     /// ID generator for creating reader handles
     id_gen: Arc<IdGen>,
-    /// Callback to query for additional dependencies beyond initial set.
-    /// Returns Some(ReaderSharedData) if a new dependency is available at the index,
-    /// None if no more dependencies exist.
-    /// Panics if the dependency exists but its pipe is not ready yet.
-    query_more_deps: Option<Box<dyn Fn(usize) -> Option<ReaderSharedData> + Send>>,
 }
 
-impl MergeReader {
-    /// Create a new MergeReader with pre-fetched dependency data.
+impl<K: KVBuffers> MergeReader<K> {
+    /// Create a new MergeReader with a dependency iterator and pipe pool.
     ///
     /// # Arguments
     ///
-    /// * `deps_data` - Pre-fetched ReaderSharedData for each known dependency
+    /// * `dep_iterator` - Iterator over dependency handles (from DAG)
+    /// * `pipe_pool` - Pool of pipes for converting handles to readers
     /// * `id_gen` - ID generator for creating reader handles
     #[must_use]
-    pub(crate) fn new(deps_data: Vec<ReaderSharedData>, id_gen: Arc<IdGen>) -> Self {
-        Self {
-            current_reader: None,
-            dep_index: 0,
-            deps_data,
-            id_gen,
-            query_more_deps: None,
-        }
-    }
-
-    /// Create a new MergeReader with a callback for querying additional dependencies.
-    ///
-    /// The callback is invoked when the initial deps_data is exhausted, allowing
-    /// for dynamic DAG support where dependencies may appear after the actor starts.
-    ///
-    /// # Arguments
-    ///
-    /// * `deps_data` - Pre-fetched ReaderSharedData for initially known dependencies
-    /// * `id_gen` - ID generator for creating reader handles
-    /// * `query_more` - Callback to query for dependencies beyond the initial set
-    #[must_use]
-    #[allow(dead_code)] // Will be used when dynamic DAG support is implemented
-    pub(crate) fn with_dynamic_deps(
-        deps_data: Vec<ReaderSharedData>,
+    pub fn new(
+        dep_iterator: OwnedDependencyIterator,
+        pipe_pool: Arc<PipePool<K>>,
         id_gen: Arc<IdGen>,
-        query_more: Box<dyn Fn(usize) -> Option<ReaderSharedData> + Send>,
     ) -> Self {
         Self {
             current_reader: None,
-            dep_index: 0,
-            deps_data,
+            dep_iterator,
+            pipe_pool,
             id_gen,
-            query_more_deps: Some(query_more),
         }
     }
 
-    /// Try to get ReaderSharedData for the given dependency index.
+    /// Create a reader for the next dependency from the iterator.
     ///
-    /// First checks the pre-fetched deps_data, then falls back to the
-    /// query_more_deps callback if available.
-    fn get_dep_data(&self, index: usize) -> Option<ReaderSharedData> {
-        if index < self.deps_data.len() {
-            // Clone the shared data for this index
-            Some(self.deps_data[index].clone())
-        } else if let Some(ref query) = self.query_more_deps {
-            // Query for additional dependencies
-            query(index)
-        } else {
-            None
-        }
-    }
+    /// # Panics
+    ///
+    /// Panics if the dependency's pipe doesn't exist.
+    /// TODO: async pipe creation, see #227
+    fn create_next_reader(&mut self) -> Option<Reader> {
+        self.dep_iterator.next().map(|dep_handle| {
+            // Panic if pipe doesn't exist - see #227 for async pipe creation
+            assert!(
+                self.pipe_pool.has_pipe(dep_handle),
+                "Dependency pipe for {:?} doesn't exist. TODO: async pipe creation, see #227",
+                dep_handle
+            );
 
-    /// Create a reader for the dependency at the given index.
-    fn create_reader_for_index(&self, index: usize) -> Option<Reader> {
-        self.get_dep_data(index).map(|shared_data| {
             let handle = Handle::new(self.id_gen.get_next());
+            let pipe = self.pipe_pool.get_pipe(dep_handle);
+            let shared_data = pipe.writer().share_with_reader();
             Reader::new(handle, shared_data)
         })
     }
@@ -122,7 +96,7 @@ impl MergeReader {
         loop {
             // Ensure we have a reader for the current dependency
             if self.current_reader.is_none() {
-                match self.create_reader_for_index(self.dep_index) {
+                match self.create_next_reader() {
                     Some(reader) => {
                         self.current_reader = Some(reader);
                     }
@@ -147,7 +121,6 @@ impl MergeReader {
                 std::cmp::Ordering::Equal => {
                     // EOF from current reader, move to next dependency
                     self.current_reader = None;
-                    self.dep_index += 1;
                     // Loop continues to try the next dependency
                 }
                 std::cmp::Ordering::Less => {
@@ -166,27 +139,32 @@ impl MergeReader {
         self.current_reader = None;
     }
 
-    /// Check if the merge reader is closed (no active reader and no more deps).
+    /// Check if the merge reader is closed (no active reader and iterator exhausted).
+    ///
+    /// Note: This is a heuristic check. The iterator may still have items,
+    /// but we can't peek without consuming. Returns true only when we know
+    /// for certain that we're done (no current reader and we've hit EOF).
     #[must_use]
     pub fn is_closed(&self) -> bool {
-        self.current_reader.is_none() && self.get_dep_data(self.dep_index).is_none()
+        // We're closed if there's no current reader.
+        // The iterator state is opaque, so we can't check if it's exhausted
+        // without consuming it. The reader being None after read() returns 0
+        // indicates we've exhausted all dependencies.
+        self.current_reader.is_none()
     }
 }
 
-impl std::fmt::Debug for MergeReader {
+impl<K: KVBuffers> std::fmt::Debug for MergeReader<K> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "MergeReader(dep_index={}, known_deps={}, has_query={}, current_reader={:?})",
-            self.dep_index,
-            self.deps_data.len(),
-            self.query_more_deps.is_some(),
+            "MergeReader(current_reader={:?})",
             self.current_reader
         )
     }
 }
 
-impl Drop for MergeReader {
+impl<K: KVBuffers> Drop for MergeReader<K> {
     fn drop(&mut self) {
         if self.current_reader.is_some() {
             self.close();

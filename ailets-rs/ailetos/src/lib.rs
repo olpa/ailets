@@ -9,7 +9,7 @@ pub mod stub_actor_runtime;
 pub mod system_runtime;
 
 // Re-export DAG types for convenience
-pub use dag::{Dag, DependsOn, For, Node, NodeKind, NodeState};
+pub use dag::{Dag, DependsOn, For, Node, NodeKind, NodeState, OwnedDependencyIterator};
 
 // Re-export idgen types for convenience
 pub use idgen::{Handle, HandleType, IdGen, IntCanBeHandle};
