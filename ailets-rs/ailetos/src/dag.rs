@@ -33,6 +33,7 @@ pub struct Node {
     pub idname: String,
     pub kind: NodeKind,
     pub state: NodeState,
+    pub explain: Option<String>,
 }
 
 #[derive(Debug)]
@@ -53,6 +54,15 @@ impl Dag {
     }
 
     pub fn add_node(&mut self, idname: String, kind: NodeKind) -> Handle {
+        self.add_node_with_explain(idname, kind, None)
+    }
+
+    pub fn add_node_with_explain(
+        &mut self,
+        idname: String,
+        kind: NodeKind,
+        explain: Option<String>,
+    ) -> Handle {
         let pid = Handle::new(self.idgen.get_next());
 
         self.nodes.push(Node {
@@ -60,6 +70,7 @@ impl Dag {
             idname,
             kind,
             state: NodeState::NotStarted,
+            explain,
         });
 
         pid
@@ -143,7 +154,16 @@ impl Dag {
             NodeState::Terminated => "✓ built",
         };
 
-        let _ = writeln!(output, "{prefix}{connector}{} [{state_symbol}]", node.idname);
+        let explain_suffix = node
+            .explain
+            .as_ref()
+            .map(|e| format!(" # {}", e))
+            .unwrap_or_default();
+        let _ = writeln!(
+            output,
+            "{prefix}{connector}{} [{state_symbol}]{explain_suffix}",
+            node.idname
+        );
 
         // Check for cycles
         if visited.contains(&pid) {
