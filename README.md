@@ -64,7 +64,7 @@ ailets dalle --prompt "linux logo"
 - [x] Command-line tool complete
 - [x] Proof of concept (async-orchestration) implemented in Python
 - [~] In progress: Rewriting actors in Rust
-- [ ] To do: Rewrite the runtime in Rust
+- [~] In progress: Rewrite the runtime in Rust
 - [ ] To do: Rewrite the command-line tool in Rust
 - [ ] To do: Integrate Ailets with hosts
 
