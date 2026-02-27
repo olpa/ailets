@@ -1,125 +1,33 @@
-mod scheduler;
 mod sqlitekv;
 mod stdin_source;
-mod val;
 
-use std::sync::Arc;
-
-use actor_io::{AReader, AWriter};
-use actor_runtime::StdHandle;
-use ailetos::dag::{Dag, DependsOn, For, NodeKind};
-use ailetos::idgen::{Handle, IdGen};
-use ailetos::KVBuffers;
-use ailetos::{IoRequest, StubActorRuntime, SystemRuntime};
-use scheduler::Scheduler;
+use ailetos::idgen::Handle;
+use ailetos::Environment;
 use sqlitekv::SqliteKV;
-use tokio::sync::mpsc;
-use tracing::{debug, info, warn};
+use tracing::info;
 
-/// Spawn actor tasks for each node in the system
-fn spawn_actor_tasks(
-    dag: &Arc<Dag>,
-    target: Handle,
-    system_tx: mpsc::UnboundedSender<IoRequest>,
-) -> Vec<tokio::task::JoinHandle<()>> {
-    let scheduler = Scheduler::new(dag, target);
-    let mut tasks = Vec::new();
-
-    for node_handle in scheduler.iter() {
-        let node = dag.get_node(node_handle).expect("node exists");
-        let idname = node.idname.clone();
-        debug!(node = ?node_handle, name = %idname, "spawning actor task");
-
-        // Create runtime for this actor
-        let runtime = StubActorRuntime::new(node_handle, system_tx.clone());
-
-        let task = tokio::task::spawn_blocking(move || {
-            debug!(node = ?node_handle, name = %idname, "task starting");
-
-            // Request SystemRuntime to setup std handles before actor runs
-            runtime.request_std_handles_setup();
-
-            // Create reader and writer unconditionally
-            let areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
-            let awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
-
-            // Execute the appropriate actor based on idname
-            let result = match idname.as_str() {
-                "val" => val::execute(areader, awriter),
-                "stdin" => stdin_source::execute(areader, awriter),
-                _ => cat::execute(areader, awriter),
-            };
-
-            match result {
-                Ok(()) => debug!(node = ?node_handle, name = %idname, "task completed"),
-                Err(e) => warn!(node = ?node_handle, name = %idname, error = %e, "task error"),
-            }
-
-            // Close all handles after actor finishes
-            runtime.close_all_handles();
-
-            debug!(node = ?node_handle, name = %idname, "task done");
-        });
-        tasks.push(task);
-    }
-
-    tasks
-}
-
-/// Run the system: spawn system runtime and actor tasks, wait for completion
-async fn run_system<K: KVBuffers + 'static>(
-    system_runtime: SystemRuntime<K>,
-    dag: &Arc<Dag>,
-    target: Handle,
-) {
-    // Get sender before moving system_runtime
-    let system_tx = system_runtime.get_system_tx();
-
-    // Spawn SystemRuntime task
-    let system_task = tokio::spawn(async move {
-        system_runtime.run().await;
-    });
-
-    // Spawn actor tasks
-    let actor_tasks = spawn_actor_tasks(dag, target, system_tx);
-
-    // Wait for system runtime
-    if let Err(e) = system_task.await {
-        warn!(error = %e, "SystemRuntime task failed");
-    }
-
-    // Wait for all actor tasks
-    for task in actor_tasks {
-        if let Err(e) = task.await {
-            warn!(error = %e, "actor task failed");
-        }
-    }
-}
-
-fn build_flow(dag: &mut Dag) -> Handle {
-    // val: value node (pre-filled with "(mee too)")
-    let val = dag.add_node("val".into(), NodeKind::Concrete);
-
-    // stdin: reads from stdin
-    // TODO: implement actual OS stdin reading, currently simulated with pre-filled pipe
-    let stdin = dag.add_node("stdin".into(), NodeKind::Concrete);
-
-    // foo: copies from stdin
-    let foo = dag.add_node("foo".into(), NodeKind::Concrete);
-    dag.add_dependency(For(foo), DependsOn(stdin));
-
-    // bar: copies from val and foo (merged sequentially)
-    let bar = dag.add_node("bar".into(), NodeKind::Concrete);
-    dag.add_dependency(For(bar), DependsOn(val));
-    dag.add_dependency(For(bar), DependsOn(foo));
-
-    // baz: copies from bar
-    let baz = dag.add_node("baz".into(), NodeKind::Concrete);
-    dag.add_dependency(For(baz), DependsOn(bar));
-
-    // .end alias to baz
-    let end = dag.add_node(".end".into(), NodeKind::Alias);
-    dag.add_dependency(For(end), DependsOn(baz));
+/// Build the data flow graph
+///
+/// This matches the Python version in example.py:
+/// ```python
+/// def build_flow(env: Environment) -> None:
+///     val = env.dagops.add_value_node(...)
+///     stdin = env.dagops.add_node("stdin", stdin_actor, [], ...)
+///     foo = env.dagops.add_node("foo", copy_actor, [Dependency(stdin.name)], ...)
+///     bar = env.dagops.add_node("bar", copy_actor, [Dependency(val.name), Dependency(foo.name)], ...)
+///     baz = env.dagops.add_node("baz", copy_actor, [Dependency(bar.name)], ...)
+///     env.dagops.alias(".end", baz.name)
+/// ```
+fn build_flow(env: &mut Environment<SqliteKV>) -> Handle {
+    let val = env.add_value_node(
+        "(mee too)".as_bytes().to_vec(),
+        Some("Static text".to_string()),
+    );
+    let stdin = env.add_node("stdin".to_string(), &[], Some("Read from stdin".to_string()));
+    let foo = env.add_node("cat".to_string(), &[stdin], Some("Copy".to_string()));
+    let bar = env.add_node("cat".to_string(), &[val, foo], Some("Copy".to_string()));
+    let baz = env.add_node("cat".to_string(), &[bar], Some("Copy".to_string()));
+    let end = env.add_alias(".end".to_string(), baz);
 
     end
 }
@@ -130,28 +38,30 @@ async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info"))
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
 
-    // Create DAG and build flow
-    let idgen = Arc::new(IdGen::new());
-    let mut dag = Dag::new(Arc::clone(&idgen));
-    let end_node = build_flow(&mut dag);
-
-    // Print dependency tree
-    info!("Dependency tree:\n{}", dag.dump(end_node));
-
-    // Wrap DAG in Arc for sharing with SystemRuntime
-    let dag = Arc::new(dag);
-
-    // Create key-value store for pipe buffers
+    // Create key-value store
     let _ = std::fs::remove_file("example.db");
     let kv = SqliteKV::new("example.db").expect("Failed to create SqliteKV");
 
-    // Create system runtime
-    let system_runtime = SystemRuntime::new(Arc::clone(&dag), kv, idgen);
+    // Create environment
+    let mut env = Environment::new(kv);
 
-    // Run the system
-    run_system(system_runtime, &dag, end_node).await;
+    // Register actors in the environment
+    // Note: "value" nodes are handled specially by the Environment, no actor needed
+    env.actor_registry.register("stdin", stdin_source::execute);
+    env.actor_registry.register("cat", cat::execute);
+
+    // Build the flow
+    let end_node = build_flow(&mut env);
+
+    // Print dependency tree
+    info!("Dependency tree:\n{}", env.dag.dump(end_node));
+
+    // TODO: Attach host stdout to the output actor
+
+    // Run the system (matches Python: env.processes.run_nodes(node_iter))
+    env.run(end_node).await;
 }

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
-use ailetos::dag::{Dag, NodeKind};
-use ailetos::idgen::Handle;
+use crate::dag::{Dag, NodeKind};
+use crate::idgen::Handle;
 
 pub struct Scheduler<'a> {
     dag: &'a Dag,

@@ -1,4 +1,4 @@
-//! Stub implementation of ActorRuntime for CLI testing
+//! Blocking ActorRuntime implementation
 //!
 //! This module provides a blocking ActorRuntime implementation that bridges
 //! synchronous actor code with the async SystemRuntime. It maintains per-actor
@@ -13,11 +13,11 @@ use tracing::{trace, warn};
 use crate::idgen::Handle;
 use crate::system_runtime::{FdTable, IoRequest, SendableBuffer};
 
-/// Stub `ActorRuntime` implementation for CLI testing
+/// Blocking `ActorRuntime` implementation
 /// Acts as a pure proxy to `SystemRuntime` for all I/O operations
 /// Provides sync-to-async adapters (blocking on async operations)
 /// Maintains a per-actor fd table for POSIX-style fd semantics
-pub struct StubActorRuntime {
+pub struct BlockingActorRuntime {
     /// This actor's node handle (used as actor identifier)
     node_handle: Handle,
     /// Channel to send async I/O requests to `SystemRuntime`
@@ -26,7 +26,7 @@ pub struct StubActorRuntime {
     fd_table: std::sync::Mutex<FdTable>,
 }
 
-impl Clone for StubActorRuntime {
+impl Clone for BlockingActorRuntime {
     fn clone(&self) -> Self {
         Self {
             node_handle: self.node_handle,
@@ -36,7 +36,7 @@ impl Clone for StubActorRuntime {
     }
 }
 
-impl StubActorRuntime {
+impl BlockingActorRuntime {
     /// Create a new `ActorRuntime` for the given node handle
     pub fn new(node_handle: Handle, system_tx: mpsc::UnboundedSender<IoRequest>) -> Self {
         Self {
@@ -107,8 +107,8 @@ impl StubActorRuntime {
     }
 }
 
-#[allow(clippy::unwrap_used)] // Stub implementation for testing - panics are acceptable
-impl ActorRuntime for StubActorRuntime {
+#[allow(clippy::unwrap_used)] // Blocking implementation - panics on channel failures
+impl ActorRuntime for BlockingActorRuntime {
     fn get_errno(&self) -> c_int {
         trace!(actor = ?self.node_handle, "get_errno");
         0 // No error

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::fmt::Write;
 use std::sync::Arc;
 
@@ -33,6 +33,7 @@ pub struct Node {
     pub idname: String,
     pub kind: NodeKind,
     pub state: NodeState,
+    pub explain: Option<String>,
 }
 
 #[derive(Debug)]
@@ -53,6 +54,15 @@ impl Dag {
     }
 
     pub fn add_node(&mut self, idname: String, kind: NodeKind) -> Handle {
+        self.add_node_with_explain(idname, kind, None)
+    }
+
+    pub fn add_node_with_explain(
+        &mut self,
+        idname: String,
+        kind: NodeKind,
+        explain: Option<String>,
+    ) -> Handle {
         let pid = Handle::new(self.idgen.get_next());
 
         self.nodes.push(Node {
@@ -60,6 +70,7 @@ impl Dag {
             idname,
             kind,
             state: NodeState::NotStarted,
+            explain,
         });
 
         pid
@@ -103,7 +114,7 @@ impl Dag {
 
     #[must_use]
     pub fn resolve_dependencies(&self, pid: Handle) -> DependencyIterator<'_> {
-        let to_visit: Vec<Handle> = self.get_direct_dependencies(pid).collect();
+        let to_visit: VecDeque<Handle> = self.get_direct_dependencies(pid).collect();
 
         DependencyIterator {
             dag: self,
@@ -143,7 +154,17 @@ impl Dag {
             NodeState::Terminated => "✓ built",
         };
 
-        let _ = writeln!(output, "{prefix}{connector}{} [{state_symbol}]", node.idname);
+        let explain_suffix = node
+            .explain
+            .as_ref()
+            .map(|e| format!(" # {}", e))
+            .unwrap_or_default();
+        let _ = writeln!(
+            output,
+            "{prefix}{connector}{}.{} [{state_symbol}]{explain_suffix}",
+            node.idname,
+            node.pid.id()
+        );
 
         // Check for cycles
         if visited.contains(&pid) {
@@ -175,7 +196,7 @@ impl Dag {
 
 pub struct DependencyIterator<'a> {
     dag: &'a Dag,
-    to_visit: Vec<Handle>,
+    to_visit: VecDeque<Handle>,
     visited: HashSet<Handle>,
 }
 
@@ -183,7 +204,7 @@ impl Iterator for DependencyIterator<'_> {
     type Item = Handle;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(pid) = self.to_visit.pop() {
+        while let Some(pid) = self.to_visit.pop_front() {
             if self.visited.insert(pid) {
                 if let Some(node) = self.dag.get_node(pid) {
                     match &node.kind {
@@ -205,7 +226,7 @@ impl Iterator for DependencyIterator<'_> {
 /// such as `MergeReader` which is moved during async operations.
 pub struct OwnedDependencyIterator {
     dag: Arc<Dag>,
-    to_visit: Vec<Handle>,
+    to_visit: VecDeque<Handle>,
     visited: HashSet<Handle>,
 }
 
@@ -215,7 +236,7 @@ impl OwnedDependencyIterator {
     /// Resolves aliases and yields only concrete dependency nodes.
     #[must_use]
     pub fn new(dag: Arc<Dag>, pid: Handle) -> Self {
-        let to_visit: Vec<Handle> = dag.get_direct_dependencies(pid).collect();
+        let to_visit: VecDeque<Handle> = dag.get_direct_dependencies(pid).collect();
         Self {
             dag,
             to_visit,
@@ -228,7 +249,7 @@ impl Iterator for OwnedDependencyIterator {
     type Item = Handle;
 
     fn next(&mut self) -> Option<Self::Item> {
-        while let Some(pid) = self.to_visit.pop() {
+        while let Some(pid) = self.to_visit.pop_front() {
             if self.visited.insert(pid) {
                 if let Some(node) = self.dag.get_node(pid) {
                     match &node.kind {

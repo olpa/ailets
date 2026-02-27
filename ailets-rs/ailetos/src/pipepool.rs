@@ -37,7 +37,7 @@ impl<K: KVBuffers> PipePool<K> {
     ///
     /// # Panics
     /// Panics if the actor already has an output pipe
-    pub async fn create_output_pipe(&self, actor_handle: Handle, name: &str, id_gen: &IdGen) {
+    pub async fn create_output_pipe(&self, actor_handle: Handle, name: &str, id_gen: &IdGen) -> Handle {
         // Check if actor already has a pipe (lock scope)
         {
             let pipes = self.pipes.lock();
@@ -60,6 +60,8 @@ impl<K: KVBuffers> PipePool<K> {
         // Insert pipe (lock scope)
         let mut pipes = self.pipes.lock();
         pipes.push((actor_handle, pipe));
+
+        writer_handle
     }
 
     /// Check if a pipe exists for the given actor
@@ -117,11 +119,12 @@ impl<K: KVBuffers> PipePool<K> {
     ///
     /// # Errors
     /// Returns an error if flushing fails
-    pub fn flush_buffer(&self, actor_handle: Handle) -> Result<(), crate::io::KVError> {
-        let pipe_ref = self.get_pipe(actor_handle);
-        let buffer = pipe_ref.writer().buffer();
-        drop(pipe_ref); // Release lock before flush
-        self.kv.flush_buffer(&buffer)
+    pub async fn flush_buffer(&self, actor_handle: Handle) -> Result<(), crate::io::KVError> {
+        let buffer = {
+            let pipe_ref = self.get_pipe(actor_handle);
+            pipe_ref.writer().buffer()
+        }; // pipe_ref dropped here, lock released
+        self.kv.flush_buffer(&buffer).await
     }
 }
 

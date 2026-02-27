@@ -1,10 +1,12 @@
 pub mod dag;
+pub mod environment;
 pub mod idgen;
 pub mod io;
 pub mod merge_reader;
 pub mod notification_queue;
 pub mod pipe;
 pub mod pipepool;
+pub mod scheduler;
 pub mod stub_actor_runtime;
 pub mod system_runtime;
 
@@ -29,5 +31,11 @@ pub use system_runtime::{
     SystemRuntime,
 };
 
-// Re-export stub actor runtime
-pub use stub_actor_runtime::StubActorRuntime;
+// Re-export blocking actor runtime
+pub use stub_actor_runtime::BlockingActorRuntime;
+
+// Re-export environment types
+pub use environment::{ActorFn, ActorRegistry, Environment, ValueNodeData};
+
+// Re-export scheduler
+pub use scheduler::Scheduler;
