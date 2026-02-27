@@ -6,6 +6,68 @@
 //! - Channel management (reader/writer endpoints)
 //! - File descriptor table management per actor
 //! - Async I/O operations with sync-to-async bridging
+//!
+//! # ARCHITECTURE: Sync-to-Async Bridge Pattern
+//!
+//! This module uses a specific pattern `Box::pin(async move { ... })` in handlers
+//! like `handle_close`, `handle_read`, and `handle_write`. This pattern is essential
+//! for bridging synchronous actor code with asynchronous I/O operations.
+//!
+//! ## The Sync-to-Async Bridge
+//!
+//! Actors run synchronously and call blocking functions like `aread()`, `awrite()`,
+//! and `aclose()` (see `stub_actor_runtime.rs`). These functions:
+//! 1. Send an `IoRequest` to `SystemRuntime` via an async channel
+//! 2. Call `blocking_recv()` to wait for the response
+//! 3. Return the result to the actor
+//!
+//! The actor thread is **blocked** while waiting for the async operation to complete.
+//!
+//! ## Why pending_ops?
+//!
+//! The `pending_ops` queue (a `FuturesUnordered`) allows `SystemRuntime` to:
+//! 1. **Accept multiple requests concurrently** - While one actor is blocked waiting
+//!    for a slow read operation, other actors can send their requests
+//! 2. **Process I/O operations in parallel** - Multiple reads/writes can execute
+//!    concurrently using `tokio::select!` to poll both new requests and pending operations
+//! 3. **Maintain responsiveness** - The runtime doesn't block waiting for one operation
+//!    to complete before accepting new requests
+//!
+//! ## Why Box::pin(async move { ... }) inside handlers?
+//!
+//! Handlers cannot be `async fn` because:
+//! 1. An `async fn` returns a future that captures `&mut self` by reference
+//! 2. This borrow would need a `'static` lifetime for `pending_ops`
+//! 3. This prevents any other use of `self` in the `tokio::select!` loop
+//!
+//! Instead, handlers:
+//! 1. Perform synchronous setup with `&mut self` (e.g., remove channel)
+//! 2. Clone any Arc references needed for async work
+//! 3. Return `Box::pin(async move { ... })` that owns all its data
+//! 4. The `&mut self` borrow ends when the handler returns
+//! 5. The returned future can be pushed to `pending_ops` without borrowing issues
+//!
+//! **Important**: We cannot move `Box::pin` to the call site because even
+//! `Box::pin(self.async_handler(...))` still borrows `&mut self` for `'static`.
+//!
+//! ## Example Flow (Close operation)
+//!
+//! 1. Actor calls `aclose(fd)` (blocking)
+//! 2. `aclose` sends `IoRequest::Close` and blocks on `rx.blocking_recv()`
+//! 3. `SystemRuntime::run` receives the request in `tokio::select!`
+//! 4. Calls `handle_close()` which:
+//!    - Removes the channel from `self.channels` (synchronous)
+//!    - Closes the writer pipe (synchronous)
+//!    - Clones `pipe_pool` Arc
+//!    - Returns `Box::pin(async move { pipe_pool.flush_buffer().await })`
+//! 5. The `&mut self` borrow ends, future is pushed to `pending_ops`
+//! 6. `SystemRuntime` continues processing new requests immediately
+//! 7. When the flush completes, `pending_ops.next()` yields the result
+//! 8. Response is sent back to the actor via oneshot channel
+//! 9. Actor's `blocking_recv()` returns, unblocking the actor thread
+//!
+//! This architecture bridges synchronous actor code with async I/O operations
+//! while maintaining concurrency across multiple actors.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -282,6 +344,9 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
     }
 
     /// Handler for Read requests - uses ChannelHandle to find reader
+    ///
+    /// Uses the Sync-to-Async Bridge pattern (see module-level docs:
+    /// "ARCHITECTURE: Sync-to-Async Bridge Pattern")
     fn handle_read(
         &mut self,
         handle: ChannelHandle,
@@ -293,6 +358,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         if let Some(Channel::Reader(reader_slot)) = self.channels.get_mut(&handle) {
             if let Some(mut reader) = reader_slot.take() {
                 trace!(channel = ?handle, "spawning async read");
+                // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
                 Box::pin(async move {
                     // SAFETY: Buffer remains valid because aread() blocks until response
                     let buf = unsafe { &mut *buffer.into_raw() };
@@ -307,6 +373,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                 })
             } else {
                 warn!(channel = ?handle, "reader not available (already in use?)");
+                // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
                 Box::pin(async move {
                     IoEvent::SyncComplete {
                         result: 0,
@@ -316,6 +383,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
             }
         } else {
             warn!(channel = ?handle, "channel not found or not a reader");
+            // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
             Box::pin(async move {
                 IoEvent::SyncComplete {
                     result: 0,
@@ -326,6 +394,9 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
     }
 
     /// Handler for Write requests - writes to actor's pipe
+    ///
+    /// Uses the Sync-to-Async Bridge pattern (see module-level docs:
+    /// "ARCHITECTURE: Sync-to-Async Bridge Pattern")
     fn handle_write(
         &self,
         handle: ChannelHandle,
@@ -349,10 +420,14 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
             -1
         };
         trace!(channel = ?handle, "write completed");
+        // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
         Box::pin(async move { IoEvent::SyncComplete { result, response } })
     }
 
     /// Handler for Close requests - uses ChannelHandle
+    ///
+    /// Uses the Sync-to-Async Bridge pattern (see module-level docs:
+    /// "ARCHITECTURE: Sync-to-Async Bridge Pattern")
     fn handle_close(
         &mut self,
         handle: ChannelHandle,
@@ -364,6 +439,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
             match channel {
                 Channel::Reader(_) => {
                     trace!(channel = ?handle, "closed reader");
+                    // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
                     Box::pin(async move {
                         IoEvent::SyncComplete {
                             result: 0,
@@ -372,18 +448,13 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                     })
                 }
                 Channel::Writer { node_handle } => {
-                    let pipe = self.pipe_pool.get_pipe(node_handle);
-                    pipe.writer().close();
+                    self.pipe_pool.get_pipe(node_handle).writer().close();
                     trace!(channel = ?handle, "closed writer");
 
-                    // Clone pipe_pool for async block
                     let pipe_pool = Arc::clone(&self.pipe_pool);
-
+                    // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
                     Box::pin(async move {
-                        // Flush buffer asynchronously
-                        let result = pipe_pool.flush_buffer(node_handle).await;
-
-                        let result_code = match result {
+                        let result_code = match pipe_pool.flush_buffer(node_handle).await {
                             Ok(()) => 0,
                             Err(e) => {
                                 warn!(error = ?e, "failed to flush buffer");
@@ -400,6 +471,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
             }
         } else {
             warn!(channel = ?handle, "channel not found");
+            // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
             Box::pin(async move {
                 IoEvent::SyncComplete {
                     result: -1,
