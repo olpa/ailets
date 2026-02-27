@@ -149,6 +149,82 @@ impl<K: KVBuffers> Environment<K> {
         self.value_nodes.get(&handle).map(|v| v.data.as_slice())
     }
 
+    /// Spawn a task for a value node
+    fn spawn_value_node_task(
+        node_handle: Handle,
+        idname: String,
+        value_data: ValueNodeData,
+        runtime: StubActorRuntime,
+    ) -> tokio::task::JoinHandle<()> {
+        use actor_io::{AReader, AWriter};
+        use actor_runtime::StdHandle;
+        use embedded_io::Write;
+
+        tokio::task::spawn_blocking(move || {
+            debug!(node = ?node_handle, name = %idname, "value node task starting");
+
+            runtime.request_std_handles_setup();
+
+            let mut areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
+            let mut awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
+
+            // Write the value data
+            let result = awriter
+                .write_all(&value_data.data)
+                .map_err(|e| format!("Failed to write value: {:?}", e))
+                .and_then(|_| {
+                    awriter
+                        .close()
+                        .map_err(|e| format!("Failed to close writer: {:?}", e))
+                })
+                .and_then(|_| {
+                    areader
+                        .close()
+                        .map_err(|e| format!("Failed to close reader: {:?}", e))
+                });
+
+            match result {
+                Ok(()) => debug!(node = ?node_handle, name = %idname, "value node completed"),
+                Err(e) => warn!(node = ?node_handle, name = %idname, error = %e, "value node error"),
+            }
+
+            runtime.close_all_handles();
+            debug!(node = ?node_handle, name = %idname, "value node done");
+        })
+    }
+
+    /// Spawn a task for a regular actor node
+    fn spawn_actor_node_task(
+        node_handle: Handle,
+        idname: String,
+        actor_fn: ActorFn,
+        runtime: StubActorRuntime,
+    ) -> tokio::task::JoinHandle<()> {
+        use actor_io::{AReader, AWriter};
+        use actor_runtime::StdHandle;
+
+        tokio::task::spawn_blocking(move || {
+            debug!(node = ?node_handle, name = %idname, "task starting");
+
+            runtime.request_std_handles_setup();
+
+            let areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
+            let awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
+
+            let result = actor_fn(areader, awriter);
+
+            match result {
+                Ok(()) => debug!(node = ?node_handle, name = %idname, "task completed"),
+                Err(e) => {
+                    warn!(node = ?node_handle, name = %idname, error = %e, "task error")
+                }
+            }
+
+            runtime.close_all_handles();
+            debug!(node = ?node_handle, name = %idname, "task done");
+        })
+    }
+
     /// Spawn actor tasks for all nodes in the system
     fn spawn_actor_tasks(
         dag: &Arc<Dag>,
@@ -157,10 +233,6 @@ impl<K: KVBuffers> Environment<K> {
         actor_registry: &ActorRegistry,
         value_nodes: &HashMap<Handle, ValueNodeData>,
     ) -> Vec<tokio::task::JoinHandle<()>> {
-        use actor_io::{AReader, AWriter};
-        use actor_runtime::StdHandle;
-        use embedded_io::Write;
-
         let scheduler = Scheduler::new(dag, target);
         let mut tasks = Vec::new();
 
@@ -169,68 +241,14 @@ impl<K: KVBuffers> Environment<K> {
             let idname = node.idname.clone();
             debug!(node = ?node_handle, name = %idname, "spawning actor task");
 
-            // Check if this is a value node
-            let value_data = value_nodes.get(&node_handle).cloned();
-
             let runtime = StubActorRuntime::new(node_handle, system_tx.clone());
 
-            let task = if let Some(value_data) = value_data {
-                // Value node: spawn a task that just writes the value
-                tokio::task::spawn_blocking(move || {
-                    debug!(node = ?node_handle, name = %idname, "value node task starting");
-
-                    runtime.request_std_handles_setup();
-
-                    let mut areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
-                    let mut awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
-
-                    // Write the value data
-                    let result = awriter
-                        .write_all(&value_data.data)
-                        .map_err(|e| format!("Failed to write value: {:?}", e))
-                        .and_then(|_| {
-                            awriter
-                                .close()
-                                .map_err(|e| format!("Failed to close writer: {:?}", e))
-                        })
-                        .and_then(|_| {
-                            areader
-                                .close()
-                                .map_err(|e| format!("Failed to close reader: {:?}", e))
-                        });
-
-                    match result {
-                        Ok(()) => debug!(node = ?node_handle, name = %idname, "value node completed"),
-                        Err(e) => warn!(node = ?node_handle, name = %idname, error = %e, "value node error"),
-                    }
-
-                    runtime.close_all_handles();
-                    debug!(node = ?node_handle, name = %idname, "value node done");
-                })
+            // Check if this is a value node
+            let task = if let Some(value_data) = value_nodes.get(&node_handle).cloned() {
+                Self::spawn_value_node_task(node_handle, idname, value_data, runtime)
             } else {
-                // Regular actor node
                 let actor_fn = actor_registry.get(&idname);
-
-                tokio::task::spawn_blocking(move || {
-                    debug!(node = ?node_handle, name = %idname, "task starting");
-
-                    runtime.request_std_handles_setup();
-
-                    let areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
-                    let awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
-
-                    let result = actor_fn(areader, awriter);
-
-                    match result {
-                        Ok(()) => debug!(node = ?node_handle, name = %idname, "task completed"),
-                        Err(e) => {
-                            warn!(node = ?node_handle, name = %idname, error = %e, "task error")
-                        }
-                    }
-
-                    runtime.close_all_handles();
-                    debug!(node = ?node_handle, name = %idname, "task done");
-                })
+                Self::spawn_actor_node_task(node_handle, idname, actor_fn, runtime)
             };
 
             tasks.push(task);
