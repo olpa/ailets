@@ -19,25 +19,14 @@ use tracing::info;
 ///     env.dagops.alias(".end", baz.name)
 /// ```
 fn build_flow(env: &mut Environment<SqliteKV>) -> Handle {
-    // val: value node with static text
     let val = env.add_value_node(
         "(mee too)".as_bytes().to_vec(),
         Some("Static text".to_string()),
     );
-
-    // stdin: reads from stdin
     let stdin = env.add_node("stdin".to_string(), &[], Some("Read from stdin".to_string()));
-
-    // foo: copies from stdin
     let foo = env.add_node("cat".to_string(), &[stdin], Some("Copy".to_string()));
-
-    // bar: copies from val and foo
     let bar = env.add_node("cat".to_string(), &[val, foo], Some("Copy".to_string()));
-
-    // baz: copies from bar
     let baz = env.add_node("cat".to_string(), &[bar], Some("Copy".to_string()));
-
-    // .end: alias to baz
     let end = env.add_alias(".end".to_string(), baz);
 
     end
@@ -45,7 +34,7 @@ fn build_flow(env: &mut Environment<SqliteKV>) -> Handle {
 
 #[tokio::main]
 async fn main() {
-    // Initialize tracing subscriber (matches Python logging setup)
+    // Initialize tracing subscriber
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -53,11 +42,11 @@ async fn main() {
         )
         .init();
 
-    // Create key-value store (matches Python: kv = SqliteKV("example.db"))
+    // Create key-value store
     let _ = std::fs::remove_file("example.db");
     let kv = SqliteKV::new("example.db").expect("Failed to create SqliteKV");
 
-    // Create environment (matches Python: env = Environment(node_registry, kv=kv))
+    // Create environment
     let mut env = Environment::new(kv);
 
     // Register actors in the environment
@@ -65,11 +54,13 @@ async fn main() {
     env.actor_registry.register("stdin", stdin_source::execute);
     env.actor_registry.register("cat", cat::execute);
 
-    // Build the flow (matches Python: build_flow(env))
+    // Build the flow
     let end_node = build_flow(&mut env);
 
-    // Print dependency tree (matches Python: print_dependency_tree(...))
+    // Print dependency tree
     info!("Dependency tree:\n{}", env.dag.dump(end_node));
+
+    // TODO: Attach host stdout to the output actor
 
     // Run the system (matches Python: env.processes.run_nodes(node_iter))
     env.run(end_node).await;
