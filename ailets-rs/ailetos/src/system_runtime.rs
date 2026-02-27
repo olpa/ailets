@@ -221,10 +221,10 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
         if !self.pipe_pool.has_pipe(node_handle) {
             let pipe_name = format!("pipes/actor-{}", node_handle.id());
-            self.pipe_pool
+            let pipe_handle = self.pipe_pool
                 .create_output_pipe(node_handle, &pipe_name, &self.id_gen)
                 .await;
-            debug!(actor = ?node_handle, "created output pipe");
+            debug!(actor = ?node_handle, pipe = ?pipe_handle, "created output pipe");
         }
 
         let stdout = self.alloc_channel_handle();

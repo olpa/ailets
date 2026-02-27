@@ -161,8 +161,9 @@ impl Dag {
             .unwrap_or_default();
         let _ = writeln!(
             output,
-            "{prefix}{connector}{} [{state_symbol}]{explain_suffix}",
-            node.idname
+            "{prefix}{connector}{}.{} [{state_symbol}]{explain_suffix}",
+            node.idname,
+            node.pid.id()
         );
 
         // Check for cycles

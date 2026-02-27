@@ -37,7 +37,7 @@ impl<K: KVBuffers> PipePool<K> {
     ///
     /// # Panics
     /// Panics if the actor already has an output pipe
-    pub async fn create_output_pipe(&self, actor_handle: Handle, name: &str, id_gen: &IdGen) {
+    pub async fn create_output_pipe(&self, actor_handle: Handle, name: &str, id_gen: &IdGen) -> Handle {
         // Check if actor already has a pipe (lock scope)
         {
             let pipes = self.pipes.lock();
@@ -60,6 +60,8 @@ impl<K: KVBuffers> PipePool<K> {
         // Insert pipe (lock scope)
         let mut pipes = self.pipes.lock();
         pipes.push((actor_handle, pipe));
+
+        writer_handle
     }
 
     /// Check if a pipe exists for the given actor
