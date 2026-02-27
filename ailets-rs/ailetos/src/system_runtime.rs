@@ -359,33 +359,61 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         response: oneshot::Sender<c_int>,
     ) -> IoFuture<K> {
         trace!(channel = ?handle, "processing Close");
-        let mut result = 0;
 
         if let Some(channel) = self.channels.remove(&handle) {
             match channel {
                 Channel::Reader(_) => {
                     trace!(channel = ?handle, "closed reader");
+                    Box::pin(async move {
+                        IoEvent::SyncComplete {
+                            result: 0,
+                            response,
+                        }
+                    })
                 }
                 Channel::Writer { node_handle } => {
                     let pipe = self.pipe_pool.get_pipe(node_handle);
                     pipe.writer().close();
-                    if let Err(e) = self.pipe_pool.flush_buffer(node_handle) {
-                        warn!(error = ?e, "failed to flush buffer");
-                        result = -1;
-                    }
                     trace!(channel = ?handle, "closed writer");
+
+                    // Clone pipe_pool for async block
+                    let pipe_pool = Arc::clone(&self.pipe_pool);
+
+                    Box::pin(async move {
+                        // Flush buffer in a blocking task to avoid blocking the async runtime
+                        let result = tokio::task::spawn_blocking(move || {
+                            pipe_pool.flush_buffer(node_handle)
+                        })
+                        .await
+                        .unwrap_or_else(|e| {
+                            warn!(error = ?e, "flush task panicked");
+                            Err(crate::io::KVError::NotFound("flush failed".to_string()))
+                        });
+
+                        let result_code = match result {
+                            Ok(()) => 0,
+                            Err(e) => {
+                                warn!(error = ?e, "failed to flush buffer");
+                                -1
+                            }
+                        };
+
+                        IoEvent::SyncComplete {
+                            result: result_code,
+                            response,
+                        }
+                    })
                 }
             }
         } else {
             warn!(channel = ?handle, "channel not found");
+            Box::pin(async move {
+                IoEvent::SyncComplete {
+                    result: -1,
+                    response,
+                }
+            })
         }
-
-        Box::pin(async move {
-            IoEvent::SyncComplete {
-                result,
-                response,
-            }
-        })
     }
 
     /// Handler for `ReadComplete` events
