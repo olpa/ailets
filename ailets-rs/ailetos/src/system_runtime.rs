@@ -380,15 +380,8 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                     let pipe_pool = Arc::clone(&self.pipe_pool);
 
                     Box::pin(async move {
-                        // Flush buffer in a blocking task to avoid blocking the async runtime
-                        let result = tokio::task::spawn_blocking(move || {
-                            pipe_pool.flush_buffer(node_handle)
-                        })
-                        .await
-                        .unwrap_or_else(|e| {
-                            warn!(error = ?e, "flush task panicked");
-                            Err(crate::io::KVError::NotFound("flush failed".to_string()))
-                        });
+                        // Flush buffer asynchronously
+                        let result = pipe_pool.flush_buffer(node_handle).await;
 
                         let result_code = match result {
                             Ok(()) => 0,

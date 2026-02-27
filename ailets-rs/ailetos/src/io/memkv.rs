@@ -76,4 +76,9 @@ impl KVBuffers for MemKV {
         buffers.clear();
         Ok(())
     }
+
+    async fn flush_buffer(&self, _buffer: &Buffer) -> Result<(), KVError> {
+        // No-op for in-memory storage
+        Ok(())
+    }
 }

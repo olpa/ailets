@@ -59,7 +59,8 @@ pub trait KVBuffers: Send + Sync {
     ///
     /// For in-memory implementations, this is a no-op.
     /// For persistent implementations (e.g., SQLite), this writes the buffer to storage.
-    fn flush_buffer(&self, _buffer: &Buffer) -> Result<(), KVError> {
-        Ok(())
-    }
+    fn flush_buffer(
+        &self,
+        buffer: &Buffer,
+    ) -> impl Future<Output = Result<(), KVError>> + Send;
 }

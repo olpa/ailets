@@ -76,16 +76,6 @@ impl SqliteKV {
         }
     }
 
-    /// Save a buffer to the database
-    fn save_to_db(&self, path: &str, data: &[u8]) -> Result<(), rusqlite::Error> {
-        let conn = self.conn.lock();
-        conn.execute(
-            "INSERT OR REPLACE INTO vfs (path, data) VALUES (?, ?)",
-            params![path, data],
-        )?;
-        Ok(())
-    }
-
 }
 
 impl KVBuffers for SqliteKV {
@@ -172,18 +162,39 @@ impl KVBuffers for SqliteKV {
         Ok(())
     }
 
-    fn flush_buffer(&self, target: &Buffer) -> Result<(), KVError> {
-        let buffers = self.buffers.lock();
+    async fn flush_buffer(&self, target: &Buffer) -> Result<(), KVError> {
+        // Find the path and clone the data while holding the lock
+        let (path, data) = {
+            let buffers = self.buffers.lock();
 
-        for (path, buffer) in buffers.iter() {
-            if buffer.ptr_eq(target) {
-                let guard = target.lock();
-                let data = &*guard;
-                self.save_to_db(path, data)
-                    .map_err(|_e| KVError::NotFound(path.to_string()))?;
-                return Ok(());
+            let mut result = None;
+            for (path, buffer) in buffers.iter() {
+                if buffer.ptr_eq(target) {
+                    let guard = target.lock();
+                    let data = guard.to_vec();
+                    result = Some((path.clone(), data));
+                    break;
+                }
             }
-        }
+
+            match result {
+                Some(r) => r,
+                None => return Ok(()), // Buffer not found, nothing to flush
+            }
+        };
+
+        // Perform the blocking database write in a blocking task
+        let conn = Arc::clone(&self.conn);
+        tokio::task::spawn_blocking(move || {
+            let conn = conn.lock();
+            conn.execute(
+                "INSERT OR REPLACE INTO vfs (path, data) VALUES (?, ?)",
+                params![path, data],
+            )
+            .map_err(|_e| KVError::NotFound(path.clone()))
+        })
+        .await
+        .unwrap_or_else(|_| Err(KVError::NotFound("flush task panicked".to_string())))?;
 
         Ok(())
     }
