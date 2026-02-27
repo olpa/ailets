@@ -31,8 +31,8 @@ pub use system_runtime::{
     SystemRuntime,
 };
 
-// Re-export stub actor runtime
-pub use stub_actor_runtime::StubActorRuntime;
+// Re-export blocking actor runtime
+pub use stub_actor_runtime::BlockingActorRuntime;
 
 // Re-export environment types
 pub use environment::{ActorFn, ActorRegistry, Environment, ValueNodeData};

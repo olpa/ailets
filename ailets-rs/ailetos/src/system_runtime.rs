@@ -16,7 +16,7 @@
 //! ## The Sync-to-Async Bridge
 //!
 //! Actors run synchronously and call blocking functions like `aread()`, `awrite()`,
-//! and `aclose()` (see `stub_actor_runtime.rs`). These functions:
+//! and `aclose()` (see `BlockingActorRuntime`). These functions:
 //! 1. Send an `IoRequest` to `SystemRuntime` via an async channel
 //! 2. Call `blocking_recv()` to wait for the response
 //! 3. Return the result to the actor

@@ -15,7 +15,7 @@ use tracing::{debug, warn};
 use crate::dag::{Dag, DependsOn, For, NodeKind};
 use crate::idgen::{Handle, IdGen};
 use crate::scheduler::Scheduler;
-use crate::{IoRequest, KVBuffers, StubActorRuntime, SystemRuntime};
+use crate::{BlockingActorRuntime, IoRequest, KVBuffers, SystemRuntime};
 
 /// Value node data - bytes to write to the node's output pipe
 #[derive(Debug, Clone)]
@@ -154,7 +154,7 @@ impl<K: KVBuffers> Environment<K> {
         node_handle: Handle,
         idname: String,
         value_data: ValueNodeData,
-        runtime: StubActorRuntime,
+        runtime: BlockingActorRuntime,
     ) -> tokio::task::JoinHandle<()> {
         use actor_io::{AReader, AWriter};
         use actor_runtime::StdHandle;
@@ -198,7 +198,7 @@ impl<K: KVBuffers> Environment<K> {
         node_handle: Handle,
         idname: String,
         actor_fn: ActorFn,
-        runtime: StubActorRuntime,
+        runtime: BlockingActorRuntime,
     ) -> tokio::task::JoinHandle<()> {
         use actor_io::{AReader, AWriter};
         use actor_runtime::StdHandle;
@@ -241,7 +241,7 @@ impl<K: KVBuffers> Environment<K> {
             let idname = node.idname.clone();
             debug!(node = ?node_handle, name = %idname, "spawning actor task");
 
-            let runtime = StubActorRuntime::new(node_handle, system_tx.clone());
+            let runtime = BlockingActorRuntime::new(node_handle, system_tx.clone());
 
             // Check if this is a value node
             let task = if let Some(value_data) = value_nodes.get(&node_handle).cloned() {
