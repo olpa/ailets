@@ -1,9 +1,7 @@
-mod sqlitekv;
-mod stdin_source;
-
 use ailetos::idgen::Handle;
 use ailetos::Environment;
-use sqlitekv::SqliteKV;
+use cli::sqlitekv::SqliteKV;
+use cli::stdin_source;
 use tracing::info;
 
 /// Build the data flow graph
@@ -64,4 +62,9 @@ async fn main() {
 
     // Run the system (matches Python: env.processes.run_nodes(node_iter))
     env.run(end_node).await;
+
+    // NOTE: KV is owned by Environment which is consumed by run().
+    // The FlushCoordinator's Drop will detect that shutdown wasn't called
+    // and log an error, but won't crash. This is expected behavior for this CLI.
+    // For library use, callers should call kv.shutdown().await before dropping.
 }
