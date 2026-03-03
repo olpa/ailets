@@ -88,7 +88,7 @@ use crate::KVBuffers;
 /// Global unique identifier for a pipe endpoint (reader or writer)
 /// Used by `SystemRuntime` to identify channels across all actors
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ChannelHandle(pub usize);
+pub struct ChannelHandle(pub isize);
 
 /// A channel endpoint - either a reader or writer
 pub enum Channel<K: KVBuffers> {
@@ -226,7 +226,7 @@ pub struct SystemRuntime<K: KVBuffers> {
     /// Global channel table: `ChannelHandle` → Channel (reader or writer endpoint)
     channels: HashMap<ChannelHandle, Channel<K>>,
     /// Next channel handle ID
-    next_channel_id: usize,
+    next_channel_id: isize,
     /// Channel to send I/O requests to this runtime (None after `run()` starts)
     system_tx: Option<mpsc::UnboundedSender<IoRequest>>,
     /// Receives I/O requests from actors
