@@ -21,6 +21,8 @@ pub enum KVError {
     NotFound(String),
     /// Buffer operation failed
     BufferError(super::buffer::BufferError),
+    /// Attempted to create a duplicate resource
+    AlreadyExists(String),
 }
 
 impl std::fmt::Display for KVError {
@@ -28,6 +30,7 @@ impl std::fmt::Display for KVError {
         match self {
             Self::NotFound(path) => write!(f, "Path not found: {path}"),
             Self::BufferError(e) => write!(f, "Buffer error: {e}"),
+            Self::AlreadyExists(msg) => write!(f, "Already exists: {msg}"),
         }
     }
 }

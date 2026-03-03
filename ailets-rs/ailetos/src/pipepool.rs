@@ -37,16 +37,17 @@ impl<K: KVBuffers> PipePool<K> {
 
     /// Create an output pipe for the given actor
     ///
-    /// # Panics
-    /// Panics if the actor already has an output pipe
-    ///
     /// # Errors
-    /// Returns an error if creating the buffer fails
+    /// Returns an error if creating the buffer fails or if the actor already has a pipe
     pub async fn create_output_pipe(&self, actor_handle: Handle, name: &str, id_gen: &IdGen) -> Result<Handle, crate::io::KVError> {
         // Check if actor already has a pipe (lock scope)
         {
             let pipes = self.pipes.lock();
-            assert!(!pipes.iter().any(|(h, _)| *h == actor_handle), "Actor {actor_handle:?} already has an output pipe");
+            if pipes.iter().any(|(h, _)| *h == actor_handle) {
+                return Err(crate::io::KVError::AlreadyExists(
+                    format!("Actor {actor_handle:?} already has an output pipe")
+                ));
+            }
         }
 
         let writer_handle = Handle::new(id_gen.get_next());
@@ -75,21 +76,17 @@ impl<K: KVBuffers> PipePool<K> {
 
     /// Get the pipe for the given actor
     ///
-    /// # Panics
-    /// Panics if the actor doesn't have an output pipe.
-    /// Callers should use `has_pipe()` to check before calling if unsure.
+    /// Returns `None` if the actor doesn't have an output pipe.
     #[must_use]
-    #[allow(clippy::panic)]
-    pub fn get_pipe(&self, actor_handle: Handle) -> PipeRef<'_> {
+    pub fn get_pipe(&self, actor_handle: Handle) -> Option<PipeRef<'_>> {
         let pipes = self.pipes.lock();
         let index = pipes
             .iter()
-            .position(|(h, _)| *h == actor_handle)
-            .unwrap_or_else(|| panic!("Actor {actor_handle:?} doesn't have an output pipe"));
-        PipeRef {
+            .position(|(h, _)| *h == actor_handle)?;
+        Some(PipeRef {
             guard: pipes,
             index,
-        }
+        })
     }
 
     /// Open a reader for the given actor's output pipe
@@ -97,13 +94,12 @@ impl<K: KVBuffers> PipePool<K> {
     /// Creates a new Reader instance. Multiple readers can be created
     /// for the same pipe.
     ///
-    /// # Panics
-    /// Panics if the actor doesn't have an output pipe
+    /// Returns `None` if the actor doesn't have an output pipe.
     #[must_use]
-    pub fn open_reader(&self, actor_handle: Handle, id_gen: &IdGen) -> Reader {
-        let pipe_ref = self.get_pipe(actor_handle);
+    pub fn open_reader(&self, actor_handle: Handle, id_gen: &IdGen) -> Option<Reader> {
+        let pipe_ref = self.get_pipe(actor_handle)?;
         let reader_handle = Handle::new(id_gen.get_next());
-        pipe_ref.get_reader(reader_handle)
+        Some(pipe_ref.get_reader(reader_handle))
     }
 
     /// Create a standalone Writer backed by KV storage (not wrapped in a Pipe).
@@ -124,10 +120,11 @@ impl<K: KVBuffers> PipePool<K> {
     /// Flush the buffer for the given actor's pipe
     ///
     /// # Errors
-    /// Returns an error if flushing fails
+    /// Returns an error if flushing fails or if the pipe doesn't exist
     pub async fn flush_buffer(&self, actor_handle: Handle) -> Result<(), crate::io::KVError> {
         let buffer = {
-            let pipe_ref = self.get_pipe(actor_handle);
+            let pipe_ref = self.get_pipe(actor_handle)
+                .ok_or_else(|| crate::io::KVError::NotFound(format!("Pipe for actor {actor_handle:?}")))?;
             pipe_ref.writer().buffer()
         }; // pipe_ref dropped here, lock released
         self.kv.flush_buffer(&buffer).await

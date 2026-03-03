@@ -430,12 +430,16 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         let result = if let Some(Channel::Writer { node_handle }) = self.channels.get(&handle) {
             let node_handle = *node_handle;
             trace!(channel = ?handle, "writing to pipe");
-            let pipe = self.pipe_pool.get_pipe(node_handle);
-            let n = pipe.writer().write(data);
-            trace!(channel = ?handle, bytes = n, "pipe write returned");
-            #[allow(clippy::cast_possible_truncation)]
-            {
-                n as c_int
+            if let Some(pipe) = self.pipe_pool.get_pipe(node_handle) {
+                let n = pipe.writer().write(data);
+                trace!(channel = ?handle, bytes = n, "pipe write returned");
+                #[allow(clippy::cast_possible_truncation)]
+                {
+                    n as c_int
+                }
+            } else {
+                warn!(channel = ?handle, node = ?node_handle, "pipe not found for writer");
+                -1
             }
         } else {
             warn!(channel = ?handle, "channel not found or not a writer");
@@ -470,8 +474,12 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                     })
                 }
                 Channel::Writer { node_handle } => {
-                    self.pipe_pool.get_pipe(node_handle).writer().close();
-                    trace!(channel = ?handle, "closed writer");
+                    if let Some(pipe) = self.pipe_pool.get_pipe(node_handle) {
+                        pipe.writer().close();
+                        trace!(channel = ?handle, "closed writer");
+                    } else {
+                        warn!(channel = ?handle, node = ?node_handle, "pipe not found for close");
+                    }
 
                     let pipe_pool = Arc::clone(&self.pipe_pool);
                     // See: ARCHITECTURE: Sync-to-Async Bridge Pattern

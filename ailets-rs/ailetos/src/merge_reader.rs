@@ -62,22 +62,13 @@ impl<K: KVBuffers> MergeReader<K> {
 
     /// Create a reader for the next dependency from the iterator.
     ///
-    /// # Panics
-    ///
-    /// Panics if the dependency's pipe doesn't exist.
-    /// TODO: async pipe creation, see #227
+    /// Returns `None` if there are no more dependencies or if a dependency's pipe doesn't exist.
     fn create_next_reader(&mut self) -> Option<Reader> {
-        self.dep_iterator.next().map(|dep_handle| {
-            // Panic if pipe doesn't exist - see #227 for async pipe creation
-            assert!(
-                self.pipe_pool.has_pipe(dep_handle),
-                "Dependency pipe for {dep_handle:?} doesn't exist. TODO: async pipe creation, see #227"
-            );
-
+        self.dep_iterator.next().and_then(|dep_handle| {
             let handle = Handle::new(self.id_gen.get_next());
-            let pipe = self.pipe_pool.get_pipe(dep_handle);
+            let pipe = self.pipe_pool.get_pipe(dep_handle)?;
             let shared_data = pipe.writer().share_with_reader();
-            Reader::new(handle, shared_data)
+            Some(Reader::new(handle, shared_data))
         })
     }
 
@@ -93,7 +84,7 @@ impl<K: KVBuffers> MergeReader<K> {
     /// - -1: error (check underlying reader's error)
     ///
     /// # Panics
-    /// Should not panic in practice. The internal unwrap is guarded by an `is_none()` check
+    /// Should not panic. The internal unwrap is guarded by an `is_none()` check
     /// immediately before it, ensuring the Option is always Some.
     pub async fn read(&mut self, buf: &mut [u8]) -> isize {
         loop {
