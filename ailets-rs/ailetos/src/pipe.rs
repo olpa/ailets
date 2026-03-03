@@ -9,6 +9,7 @@ use parking_lot::Mutex;
 use std::cmp::Ordering;
 use std::fmt;
 use std::sync::Arc;
+use tracing::error;
 
 use crate::idgen::Handle;
 use crate::io::Buffer;
@@ -403,15 +404,32 @@ impl Reader {
             let to_read = available.min(buf.len());
             let end_pos = self.pos + to_read;
 
-            // SAFETY: The bounds are checked above:
-            // - to_read <= available <= (buffer.len() - self.pos)
-            // - to_read <= buf.len()
-            // - end_pos = self.pos + to_read, so end_pos <= buffer.len()
-            // Therefore both slices are within bounds
-            #[allow(clippy::indexing_slicing)]
-            {
-                buf[..to_read].copy_from_slice(&buffer_guard[self.pos..end_pos]);
-            }
+            // Use safe slice access with bounds checking
+            // These should always succeed based on the calculations above, but we handle errors gracefully
+            let dest_slice = match buf.get_mut(..to_read) {
+                Some(s) => s,
+                None => {
+                    error!(
+                        buf_len = buf.len(),
+                        to_read = to_read,
+                        "CRITICAL: destination buffer slice out of bounds"
+                    );
+                    return -1;
+                }
+            };
+            let src_slice = match buffer_guard.get(self.pos..end_pos) {
+                Some(s) => s,
+                None => {
+                    error!(
+                        buffer_len = buffer_guard.len(),
+                        pos = self.pos,
+                        end_pos = end_pos,
+                        "CRITICAL: source buffer slice out of bounds"
+                    );
+                    return -1;
+                }
+            };
+            dest_slice.copy_from_slice(src_slice);
             self.pos = end_pos;
 
             drop(buffer_guard);
