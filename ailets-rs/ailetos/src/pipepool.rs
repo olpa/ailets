@@ -3,6 +3,8 @@
 //! Each actor has one output pipe. Readers are created on-demand
 //! when consuming actors need to read from dependencies.
 
+use std::sync::Arc;
+
 use parking_lot::Mutex;
 
 use crate::idgen::{Handle, IdGen};
@@ -19,13 +21,13 @@ pub struct PipePool<K: KVBuffers> {
     /// Shared notification queue for all pipes
     notification_queue: NotificationQueueArc,
     /// Key-value store for pipe buffers
-    kv: K,
+    kv: Arc<K>,
 }
 
 impl<K: KVBuffers> PipePool<K> {
     /// Create a new empty pipe pool
     #[must_use]
-    pub fn new(kv: K, notification_queue: NotificationQueueArc) -> Self {
+    pub fn new(kv: Arc<K>, notification_queue: NotificationQueueArc) -> Self {
         Self {
             pipes: Mutex::new(Vec::new()),
             notification_queue,

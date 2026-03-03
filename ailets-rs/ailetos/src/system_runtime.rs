@@ -234,7 +234,7 @@ pub struct SystemRuntime<K: KVBuffers> {
 }
 
 impl<K: KVBuffers + 'static> SystemRuntime<K> {
-    pub fn new(dag: Arc<Dag>, kv: K, id_gen: Arc<IdGen>) -> Self {
+    pub fn new(dag: Arc<Dag>, kv: Arc<K>, id_gen: Arc<IdGen>) -> Self {
         let (system_tx, request_rx) = mpsc::unbounded_channel();
         let notification_queue = NotificationQueueArc::new();
 

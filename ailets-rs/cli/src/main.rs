@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use ailetos::idgen::Handle;
 use ailetos::Environment;
 use cli::sqlitekv::SqliteKV;
@@ -42,10 +44,10 @@ async fn main() {
 
     // Create key-value store
     let _ = std::fs::remove_file("example.db");
-    let kv = SqliteKV::new("example.db").expect("Failed to create SqliteKV");
+    let kv = Arc::new(SqliteKV::new("example.db").expect("Failed to create SqliteKV"));
 
     // Create environment
-    let mut env = Environment::new(kv);
+    let mut env = Environment::new(Arc::clone(&kv));
 
     // Register actors in the environment
     // Note: "value" nodes are handled specially by the Environment, no actor needed
@@ -63,8 +65,10 @@ async fn main() {
     // Run the system (matches Python: env.processes.run_nodes(node_iter))
     env.run(end_node).await;
 
-    // NOTE: KV is owned by Environment which is consumed by run().
-    // The FlushCoordinator's Drop will detect that shutdown wasn't called
-    // and log an error, but won't crash. This is expected behavior for this CLI.
-    // For library use, callers should call kv.shutdown().await before dropping.
+    // Shutdown the KV store
+    Arc::try_unwrap(kv)
+        .unwrap_or_else(|_| panic!("KV still has other references"))
+        .shutdown()
+        .await
+        .expect("Failed to shutdown KV");
 }

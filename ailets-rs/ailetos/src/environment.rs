@@ -62,7 +62,7 @@ impl Default for ActorRegistry {
 pub struct Environment<K: KVBuffers> {
     pub dag: Dag,
     pub idgen: Arc<IdGen>,
-    pub kv: K,
+    pub kv: Arc<K>,
     pub actor_registry: ActorRegistry,
     /// Value data for value nodes (keyed by node handle)
     value_nodes: HashMap<Handle, ValueNodeData>,
@@ -70,7 +70,7 @@ pub struct Environment<K: KVBuffers> {
 
 impl<K: KVBuffers> Environment<K> {
     /// Create a new environment
-    pub fn new(kv: K) -> Self {
+    pub fn new(kv: Arc<K>) -> Self {
         let idgen = Arc::new(IdGen::new());
         let dag = Dag::new(Arc::clone(&idgen));
 
@@ -266,7 +266,7 @@ impl<K: KVBuffers> Environment<K> {
         let dag = Arc::new(self.dag);
 
         // Create system runtime
-        let system_runtime = SystemRuntime::new(Arc::clone(&dag), self.kv, self.idgen);
+        let system_runtime = SystemRuntime::new(Arc::clone(&dag), Arc::clone(&self.kv), self.idgen);
 
         // Get sender before moving system_runtime
         let system_tx = system_runtime.get_system_tx();
