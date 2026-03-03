@@ -77,7 +77,7 @@ use std::sync::Arc;
 
 use futures::stream::{FuturesUnordered, StreamExt};
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, trace, warn, info};
+use tracing::{debug, error, info, trace, warn};
 
 use crate::dag::{Dag, OwnedDependencyIterator};
 use crate::idgen::{Handle, IdGen};
@@ -132,19 +132,17 @@ impl SendableBuffer {
     /// Consume the `SendableBuffer` and return the raw pointer.
     /// This prevents accidental reuse of the same buffer.
     ///
-    /// # Panics
-    /// In debug builds, panics if the buffer has already been consumed via `into_raw()`.
-    /// This violates the safety contract and indicates a programming error.
+    /// If the buffer has already been consumed, logs a critical error but still returns
+    /// the pointer. This violates the safety contract and indicates a serious programming error.
     #[must_use]
     pub fn into_raw(self) -> *mut [u8] {
-        #[cfg(debug_assertions)]
-        {
-            let already_consumed = self
-                .consumed
-                .swap(true, std::sync::atomic::Ordering::SeqCst);
-            assert!(
-                !already_consumed,
-                "SendableBuffer used twice - this violates the safety contract!"
+        let already_consumed = self
+            .consumed
+            .swap(true, std::sync::atomic::Ordering::SeqCst);
+        if already_consumed {
+            error!(
+                "CRITICAL: SendableBuffer used twice - safety contract violated! \
+                 This may lead to use-after-free or double-free bugs."
             );
         }
         self.ptr
@@ -428,11 +426,16 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
             let node_handle = *node_handle;
             trace!(channel = ?handle, "writing to pipe");
             if let Some(pipe) = self.pipe_pool.get_pipe(node_handle) {
-                let n = pipe.writer().write(data);
-                trace!(channel = ?handle, bytes = n, "pipe write returned");
-                #[allow(clippy::cast_possible_truncation)]
-                {
-                    n as c_int
+                if let Some(writer) = pipe.writer() {
+                    let n = writer.write(data);
+                    trace!(channel = ?handle, bytes = n, "pipe write returned");
+                    #[allow(clippy::cast_possible_truncation)]
+                    {
+                        n as c_int
+                    }
+                } else {
+                    warn!(channel = ?handle, node = ?node_handle, "writer not accessible (internal error)");
+                    -1
                 }
             } else {
                 warn!(channel = ?handle, node = ?node_handle, "pipe not found for writer");
@@ -472,8 +475,12 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                 }
                 Channel::Writer { node_handle } => {
                     if let Some(pipe) = self.pipe_pool.get_pipe(node_handle) {
-                        pipe.writer().close();
-                        trace!(channel = ?handle, "closed writer");
+                        if let Some(writer) = pipe.writer() {
+                            writer.close();
+                            trace!(channel = ?handle, "closed writer");
+                        } else {
+                            warn!(channel = ?handle, node = ?node_handle, "writer not accessible (internal error)");
+                        }
                     } else {
                         warn!(channel = ?handle, node = ?node_handle, "pipe not found for close");
                     }

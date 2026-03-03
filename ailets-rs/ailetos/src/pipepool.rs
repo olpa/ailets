@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use parking_lot::Mutex;
+use tracing::error;
 
 use crate::idgen::{Handle, IdGen};
 use crate::io::{KVBuffers, OpenMode};
@@ -99,7 +100,7 @@ impl<K: KVBuffers> PipePool<K> {
     pub fn open_reader(&self, actor_handle: Handle, id_gen: &IdGen) -> Option<Reader> {
         let pipe_ref = self.get_pipe(actor_handle)?;
         let reader_handle = Handle::new(id_gen.get_next());
-        Some(pipe_ref.get_reader(reader_handle))
+        pipe_ref.get_reader(reader_handle)
     }
 
     /// Create a standalone Writer backed by KV storage (not wrapped in a Pipe).
@@ -125,7 +126,9 @@ impl<K: KVBuffers> PipePool<K> {
         let buffer = {
             let pipe_ref = self.get_pipe(actor_handle)
                 .ok_or_else(|| crate::io::KVError::NotFound(format!("Pipe for actor {actor_handle:?}")))?;
-            pipe_ref.writer().buffer()
+            let writer = pipe_ref.writer()
+                .ok_or_else(|| crate::io::KVError::NotFound(format!("Writer for actor {actor_handle:?}")))?;
+            writer.buffer()
         }; // pipe_ref dropped here, lock released
         self.kv.flush_buffer(&buffer).await
     }
@@ -140,31 +143,37 @@ pub struct PipeRef<'a> {
 impl PipeRef<'_> {
     /// Get the writer side of the pipe
     ///
-    /// # Panics
-    /// Should not panic in practice. The index is validated in `get_pipe()` before
-    /// creating the `PipeRef`, and the lock is held for the lifetime of the reference.
+    /// Returns `None` if the index is invalid (should never happen in practice,
+    /// as the index is validated in `get_pipe()` and the lock is held).
     #[must_use]
-    #[allow(clippy::expect_used)]
-    pub fn writer(&self) -> &Writer {
-        self.guard
-            .get(self.index)
-            .expect("PipeRef index valid (verified in get_pipe)")
-            .1
-            .writer()
+    pub fn writer(&self) -> Option<&Writer> {
+        match self.guard.get(self.index) {
+            Some((_, pipe)) => Some(pipe.writer()),
+            None => {
+                error!(
+                    index = self.index,
+                    "CRITICAL: PipeRef index invalid despite lock held"
+                );
+                None
+            }
+        }
     }
 
     /// Get a reader for this pipe with an explicit handle
     ///
-    /// # Panics
-    /// Should not panic in practice. The index is validated in `get_pipe()` before
-    /// creating the `PipeRef`, and the lock is held for the lifetime of the reference.
+    /// Returns `None` if the index is invalid (should never happen in practice,
+    /// as the index is validated in `get_pipe()` and the lock is held).
     #[must_use]
-    #[allow(clippy::expect_used)]
-    pub fn get_reader(&self, reader_handle: Handle) -> Reader {
-        self.guard
-            .get(self.index)
-            .expect("PipeRef index valid (verified in get_pipe)")
-            .1
-            .get_reader(reader_handle)
+    pub fn get_reader(&self, reader_handle: Handle) -> Option<Reader> {
+        match self.guard.get(self.index) {
+            Some((_, pipe)) => Some(pipe.get_reader(reader_handle)),
+            None => {
+                error!(
+                    index = self.index,
+                    "CRITICAL: PipeRef index invalid despite lock held"
+                );
+                None
+            }
+        }
     }
 }

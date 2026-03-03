@@ -69,7 +69,8 @@ impl<K: KVBuffers> MergeReader<K> {
         self.dep_iterator.next().and_then(|dep_handle| {
             let handle = Handle::new(self.id_gen.get_next());
             let pipe = self.pipe_pool.get_pipe(dep_handle)?;
-            let shared_data = pipe.writer().share_with_reader();
+            let writer = pipe.writer()?;
+            let shared_data = writer.share_with_reader();
             Some(Reader::new(handle, shared_data))
         })
     }

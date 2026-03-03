@@ -88,11 +88,23 @@ impl BlockingActorRuntime {
 
             // Insert stdin as fd 0
             let stdin_fd = table.insert(std_handles.stdin);
-            assert_eq!(stdin_fd, 0, "stdin should be fd 0");
+            if stdin_fd != 0 {
+                error!(
+                    actor = ?self.node_handle,
+                    actual_fd = stdin_fd,
+                    "CRITICAL: stdin assigned unexpected fd (expected 0)"
+                );
+            }
 
             // Insert stdout as fd 1
             let stdout_fd = table.insert(std_handles.stdout);
-            assert_eq!(stdout_fd, 1, "stdout should be fd 1");
+            if stdout_fd != 1 {
+                error!(
+                    actor = ?self.node_handle,
+                    actual_fd = stdout_fd,
+                    "CRITICAL: stdout assigned unexpected fd (expected 1)"
+                );
+            }
         }
 
         trace!(actor = ?self.node_handle, "std handles ready (stdin=0, stdout=1)");
