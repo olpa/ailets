@@ -17,8 +17,6 @@
 //! - `Connection` trait bounds: <https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html>
 //! - Multi-threaded usage discussion: <https://github.com/rusqlite/rusqlite/issues/342>
 
-#![allow(clippy::expect_used)]
-
 use super::flush_coordinator::FlushCoordinator;
 use crate::{Buffer, KVBuffers, KVError, OpenMode};
 use parking_lot::Mutex;
