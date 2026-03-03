@@ -131,6 +131,10 @@ impl SendableBuffer {
 
     /// Consume the `SendableBuffer` and return the raw pointer.
     /// This prevents accidental reuse of the same buffer.
+    ///
+    /// # Panics
+    /// In debug builds, panics if the buffer has already been consumed via `into_raw()`.
+    /// This violates the safety contract and indicates a programming error.
     #[must_use]
     pub fn into_raw(self) -> *mut [u8] {
         #[cfg(debug_assertions)]
@@ -284,10 +288,16 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
         if !self.pipe_pool.has_pipe(node_handle) {
             let pipe_name = format!("pipes/actor-{}", node_handle.id());
-            let pipe_handle = self.pipe_pool
+            match self.pipe_pool
                 .create_output_pipe(node_handle, &pipe_name, &self.id_gen)
-                .await;
-            debug!(actor = ?node_handle, pipe = ?pipe_handle, "created output pipe");
+                .await {
+                Ok(pipe_handle) => {
+                    debug!(actor = ?node_handle, pipe = ?pipe_handle, "created output pipe");
+                }
+                Err(e) => {
+                    warn!(actor = ?node_handle, error = %e, "failed to create output pipe");
+                }
+            }
         }
 
         let stdout = self.alloc_channel_handle();
@@ -305,6 +315,10 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
     }
 
     /// Get the sender for creating actor runtimes
+    ///
+    /// # Panics
+    /// Panics if called after `run()` has started, which consumes the sender.
+    /// This is a programming error - the sender should only be retrieved during setup.
     #[allow(clippy::expect_used)]
     #[must_use]
     pub fn get_system_tx(&self) -> mpsc::UnboundedSender<IoRequest> {
@@ -332,10 +346,16 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         // Create output pipe for this actor if it doesn't exist yet
         if !self.pipe_pool.has_pipe(node_handle) {
             let pipe_name = format!("pipes/actor-{}", node_handle.id());
-            self.pipe_pool
+            match self.pipe_pool
                 .create_output_pipe(node_handle, &pipe_name, &self.id_gen)
-                .await;
-            debug!(node = ?node_handle, "created pipe");
+                .await {
+                Ok(_) => {
+                    debug!(node = ?node_handle, "created pipe");
+                }
+                Err(e) => {
+                    warn!(node = ?node_handle, error = %e, "failed to create output pipe");
+                }
+            }
         }
 
         let channel_handle = self.alloc_channel_handle();

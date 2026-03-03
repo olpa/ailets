@@ -39,7 +39,10 @@ impl<K: KVBuffers> PipePool<K> {
     ///
     /// # Panics
     /// Panics if the actor already has an output pipe
-    pub async fn create_output_pipe(&self, actor_handle: Handle, name: &str, id_gen: &IdGen) -> Handle {
+    ///
+    /// # Errors
+    /// Returns an error if creating the buffer fails
+    pub async fn create_output_pipe(&self, actor_handle: Handle, name: &str, id_gen: &IdGen) -> Result<Handle, crate::io::KVError> {
         // Check if actor already has a pipe (lock scope)
         {
             let pipes = self.pipes.lock();
@@ -52,8 +55,7 @@ impl<K: KVBuffers> PipePool<K> {
         let buffer = self
             .kv
             .open(name, OpenMode::Write)
-            .await
-            .expect("Failed to create buffer in KV store");
+            .await?;
 
         let pipe = Pipe::new(writer_handle, self.notification_queue.clone(), name, buffer);
 
@@ -61,7 +63,7 @@ impl<K: KVBuffers> PipePool<K> {
         let mut pipes = self.pipes.lock();
         pipes.push((actor_handle, pipe));
 
-        writer_handle
+        Ok(writer_handle)
     }
 
     /// Check if a pipe exists for the given actor
@@ -74,8 +76,10 @@ impl<K: KVBuffers> PipePool<K> {
     /// Get the pipe for the given actor
     ///
     /// # Panics
-    /// Panics if the actor doesn't have an output pipe
+    /// Panics if the actor doesn't have an output pipe.
+    /// Callers should use `has_pipe()` to check before calling if unsure.
     #[must_use]
+    #[allow(clippy::panic)]
     pub fn get_pipe(&self, actor_handle: Handle) -> PipeRef<'_> {
         let pipes = self.pipes.lock();
         let index = pipes
@@ -105,14 +109,16 @@ impl<K: KVBuffers> PipePool<K> {
     /// Create a standalone Writer backed by KV storage (not wrapped in a Pipe).
     ///
     /// Used to create merge writers for actors with multiple dependencies.
-    pub async fn create_merge_writer(&self, name: &str, id_gen: &IdGen) -> Writer {
+    ///
+    /// # Errors
+    /// Returns an error if creating the buffer fails
+    pub async fn create_merge_writer(&self, name: &str, id_gen: &IdGen) -> Result<Writer, crate::io::KVError> {
         let writer_handle = Handle::new(id_gen.get_next());
         let buffer = self
             .kv
             .open(name, OpenMode::Write)
-            .await
-            .expect("Failed to create merge buffer in KV store");
-        Writer::new(writer_handle, self.notification_queue.clone(), name, buffer)
+            .await?;
+        Ok(Writer::new(writer_handle, self.notification_queue.clone(), name, buffer))
     }
 
     /// Flush the buffer for the given actor's pipe
@@ -136,14 +142,32 @@ pub struct PipeRef<'a> {
 
 impl PipeRef<'_> {
     /// Get the writer side of the pipe
+    ///
+    /// # Panics
+    /// Should not panic in practice. The index is validated in `get_pipe()` before
+    /// creating the `PipeRef`, and the lock is held for the lifetime of the reference.
     #[must_use]
+    #[allow(clippy::expect_used)]
     pub fn writer(&self) -> &Writer {
-        self.guard[self.index].1.writer()
+        self.guard
+            .get(self.index)
+            .expect("PipeRef index valid (verified in get_pipe)")
+            .1
+            .writer()
     }
 
     /// Get a reader for this pipe with an explicit handle
+    ///
+    /// # Panics
+    /// Should not panic in practice. The index is validated in `get_pipe()` before
+    /// creating the `PipeRef`, and the lock is held for the lifetime of the reference.
     #[must_use]
+    #[allow(clippy::expect_used)]
     pub fn get_reader(&self, reader_handle: Handle) -> Reader {
-        self.guard[self.index].1.get_reader(reader_handle)
+        self.guard
+            .get(self.index)
+            .expect("PipeRef index valid (verified in get_pipe)")
+            .1
+            .get_reader(reader_handle)
     }
 }

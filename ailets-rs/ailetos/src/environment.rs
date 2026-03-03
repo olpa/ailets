@@ -46,11 +46,8 @@ impl ActorRegistry {
 
     /// Get an actor function by name
     #[must_use]
-    pub fn get(&self, name: &str) -> ActorFn {
-        self.actors
-            .get(name)
-            .copied()
-            .unwrap_or_else(|| panic!("Actor '{name}' not registered"))
+    pub fn get(&self, name: &str) -> Option<ActorFn> {
+        self.actors.get(name).copied()
     }
 }
 
@@ -242,7 +239,10 @@ impl<K: KVBuffers> Environment<K> {
         let mut tasks = Vec::new();
 
         for node_handle in scheduler.iter() {
-            let node = dag.get_node(node_handle).expect("node exists");
+            let Some(node) = dag.get_node(node_handle) else {
+                warn!(node = ?node_handle, "node not found in DAG, skipping");
+                continue;
+            };
             let idname = node.idname.clone();
             debug!(node = ?node_handle, name = %idname, "spawning actor task");
 
@@ -250,13 +250,16 @@ impl<K: KVBuffers> Environment<K> {
 
             // Check if this is a value node
             let task = if let Some(value_data) = value_nodes.get(&node_handle).cloned() {
-                Self::spawn_value_node_task(node_handle, idname, value_data, runtime)
+                Some(Self::spawn_value_node_task(node_handle, idname.clone(), value_data, runtime))
             } else {
-                let actor_fn = actor_registry.get(&idname);
-                Self::spawn_actor_node_task(node_handle, idname, actor_fn, runtime)
+                actor_registry.get(&idname).map(|actor_fn| Self::spawn_actor_node_task(node_handle, idname.clone(), actor_fn, runtime))
             };
 
-            tasks.push(task);
+            if let Some(task) = task {
+                tasks.push(task);
+            } else if !value_nodes.contains_key(&node_handle) {
+                warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
+            }
         }
 
         tasks

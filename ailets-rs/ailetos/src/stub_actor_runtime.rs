@@ -50,6 +50,10 @@ impl BlockingActorRuntime {
     /// Request `SystemRuntime` to set up standard handles before actor starts.
     /// This pre-opens stdin (fd 0) and stdout (fd 1) with the correct channel handles.
     /// Dependencies are obtained from the DAG inside `SystemRuntime`.
+    ///
+    /// # Panics
+    /// Panics if the system channel is disconnected or if the mutex is poisoned.
+    /// These conditions indicate a critical system failure.
     #[allow(clippy::unwrap_used)]
     pub fn request_std_handles_setup(&self) {
         trace!(actor = ?self.node_handle, "requesting std handles setup");
@@ -84,6 +88,9 @@ impl BlockingActorRuntime {
 
     /// Close all open handles when actor finishes.
     /// Closes in reverse order (highest fd first) to handle any dependencies.
+    ///
+    /// # Panics
+    /// Panics if the fd table mutex is poisoned. This indicates a critical system failure.
     #[allow(clippy::unwrap_used)]
     pub fn close_all_handles(&self) {
         trace!(actor = ?self.node_handle, "close_all_handles");

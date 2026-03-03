@@ -91,6 +91,10 @@ impl<K: KVBuffers> MergeReader<K> {
     /// - Positive value: number of bytes read
     /// - 0: EOF (all dependencies exhausted)
     /// - -1: error (check underlying reader's error)
+    ///
+    /// # Panics
+    /// Should not panic in practice. The internal unwrap is guarded by an `is_none()` check
+    /// immediately before it, ensuring the Option is always Some.
     pub async fn read(&mut self, buf: &mut [u8]) -> isize {
         loop {
             // Ensure we have a reader for the current dependency
