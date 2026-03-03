@@ -145,18 +145,15 @@ impl Writer {
             if shared.buffer.append(data).is_ok() {
                 // Safe conversion from usize to isize
                 // On 64-bit platforms, check if length exceeds isize::MAX
-                match isize::try_from(data.len()) {
-                    Ok(n) => n,
-                    Err(_) => {
-                        // Write succeeded but length exceeds isize::MAX
-                        // This should never happen in practice with realistic I/O sizes
-                        error!(
-                            data_len = data.len(),
-                            isize_max = isize::MAX,
-                            "CRITICAL: write length exceeds isize::MAX"
-                        );
-                        isize::MAX
-                    }
+                if let Ok(n) = isize::try_from(data.len()) { n } else {
+                    // Write succeeded but length exceeds isize::MAX
+                    // This should never happen in practice with realistic I/O sizes
+                    error!(
+                        data_len = data.len(),
+                        isize_max = isize::MAX,
+                        "CRITICAL: write length exceeds isize::MAX"
+                    );
+                    isize::MAX
                 }
             } else {
                 // Buffer append failed - treat as ENOSPC
@@ -417,28 +414,22 @@ impl Reader {
 
             // Use safe slice access with bounds checking
             // These should always succeed based on the calculations above, but we handle errors gracefully
-            let dest_slice = match buf.get_mut(..to_read) {
-                Some(s) => s,
-                None => {
-                    error!(
-                        buf_len = buf.len(),
-                        to_read = to_read,
-                        "CRITICAL: destination buffer slice out of bounds"
-                    );
-                    return -1;
-                }
+            let Some(dest_slice) = buf.get_mut(..to_read) else {
+                error!(
+                    buf_len = buf.len(),
+                    to_read = to_read,
+                    "CRITICAL: destination buffer slice out of bounds"
+                );
+                return -1;
             };
-            let src_slice = match buffer_guard.get(self.pos..end_pos) {
-                Some(s) => s,
-                None => {
-                    error!(
-                        buffer_len = buffer_guard.len(),
-                        pos = self.pos,
-                        end_pos = end_pos,
-                        "CRITICAL: source buffer slice out of bounds"
-                    );
-                    return -1;
-                }
+            let Some(src_slice) = buffer_guard.get(self.pos..end_pos) else {
+                error!(
+                    buffer_len = buffer_guard.len(),
+                    pos = self.pos,
+                    end_pos = end_pos,
+                    "CRITICAL: source buffer slice out of bounds"
+                );
+                return -1;
             };
             dest_slice.copy_from_slice(src_slice);
             self.pos = end_pos;

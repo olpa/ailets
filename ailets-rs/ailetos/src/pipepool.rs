@@ -147,15 +147,12 @@ impl PipeRef<'_> {
     /// as the index is validated in `get_pipe()` and the lock is held).
     #[must_use]
     pub fn writer(&self) -> Option<&Writer> {
-        match self.guard.get(self.index) {
-            Some((_, pipe)) => Some(pipe.writer()),
-            None => {
-                error!(
-                    index = self.index,
-                    "CRITICAL: PipeRef index invalid despite lock held"
-                );
-                None
-            }
+        if let Some((_, pipe)) = self.guard.get(self.index) { Some(pipe.writer()) } else {
+            error!(
+                index = self.index,
+                "CRITICAL: PipeRef index invalid despite lock held"
+            );
+            None
         }
     }
 
@@ -165,15 +162,12 @@ impl PipeRef<'_> {
     /// as the index is validated in `get_pipe()` and the lock is held).
     #[must_use]
     pub fn get_reader(&self, reader_handle: Handle) -> Option<Reader> {
-        match self.guard.get(self.index) {
-            Some((_, pipe)) => Some(pipe.get_reader(reader_handle)),
-            None => {
-                error!(
-                    index = self.index,
-                    "CRITICAL: PipeRef index invalid despite lock held"
-                );
-                None
-            }
+        if let Some((_, pipe)) = self.guard.get(self.index) { Some(pipe.get_reader(reader_handle)) } else {
+            error!(
+                index = self.index,
+                "CRITICAL: PipeRef index invalid despite lock held"
+            );
+            None
         }
     }
 }
