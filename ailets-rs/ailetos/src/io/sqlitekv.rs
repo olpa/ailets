@@ -1,41 +1,50 @@
-//! SQLite-backed implementation of `KVBuffers`
+//! `SQLite`-backed implementation of `KVBuffers`
 //!
-//! This implementation stores buffers in a SQLite database, providing persistence
+//! This implementation stores buffers in a `SQLite` database, providing persistence
 //! across program runs. Uses a mutex-wrapped connection for thread-safe access.
 //!
 //! # Thread Safety
 //!
-//! The SQLite connection is wrapped in `Arc<Mutex<Connection>>`. While `Connection`
+//! The `SQLite` connection is wrapped in `Arc<Mutex<Connection>>`. While `Connection`
 //! implements `Send`, it does not implement `Sync` (marked `!Sync`), so shared access
 //! across threads requires explicit synchronization.
 //!
 //! As stated in rusqlite issue #342: "Seems like a `Mutex<rusqlite::Connection>` is
-//! the way to go." This is because certain SQLite APIs are not thread-safe even in
+//! the way to go." This is because certain `SQLite` APIs are not thread-safe even in
 //! serialized mode.
 //!
 //! References:
 //! - `Connection` trait bounds: <https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html>
 //! - Multi-threaded usage discussion: <https://github.com/rusqlite/rusqlite/issues/342>
 
-use ailetos::{Buffer, KVBuffers, KVError, OpenMode};
+#![allow(clippy::expect_used)]
+
+use super::flush_coordinator::FlushCoordinator;
+use crate::{Buffer, KVBuffers, KVError, OpenMode};
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
+use tracing::debug;
+
+/// Type alias for the flush function used by `SqliteKV`
+type FlushFn = Box<dyn Fn(String, Vec<u8>) -> Result<(), String> + Send + Sync>;
 
 /// SQLite-backed key-value buffer storage
 ///
 /// Buffers are loaded from the database on first access and can be flushed back.
 /// The in-memory cache ensures efficient access during runtime.
 ///
-/// Thread safety is achieved by wrapping the SQLite connection in a `Mutex`.
+/// Thread safety is achieved by wrapping the `SQLite` connection in a `Mutex`.
 /// See the module documentation for thread safety details and references.
 pub struct SqliteKV {
     /// In-memory cache of buffers (lazily loaded from DB)
     buffers: Arc<Mutex<HashMap<String, Buffer>>>,
-    /// Shared SQLite connection protected by mutex
+    /// Shared `SQLite` connection protected by mutex
     conn: Arc<Mutex<Connection>>,
+    /// Flush coordinator for serializing writes
+    flush_coordinator: FlushCoordinator<FlushFn>,
 }
 
 impl SqliteKV {
@@ -56,9 +65,27 @@ impl SqliteKV {
             [],
         )?;
 
+        let conn = Arc::new(Mutex::new(conn));
+
+        // Create flush function that captures connection
+        let flush_conn = Arc::clone(&conn);
+        let flush_fn: FlushFn = Box::new(move |path: String, data: Vec<u8>| -> Result<(), String> {
+                let conn = flush_conn.lock();
+                conn.execute(
+                    "INSERT OR REPLACE INTO vfs (path, data) VALUES (?, ?)",
+                    params![path, data],
+                )
+                .map_err(|e| format!("SQLite error: {e}"))?;
+                Ok(())
+            });
+
+        // Create coordinator with capacity 100
+        let flush_coordinator = FlushCoordinator::new(100, flush_fn);
+
         Ok(Self {
             buffers: Arc::new(Mutex::new(HashMap::new())),
-            conn: Arc::new(Mutex::new(conn)),
+            conn,
+            flush_coordinator,
         })
     }
 
@@ -75,7 +102,6 @@ impl SqliteKV {
             Err(e) => Err(e),
         }
     }
-
 }
 
 impl KVBuffers for SqliteKV {
@@ -96,7 +122,9 @@ impl KVBuffers for SqliteKV {
                     .ok_or_else(|| KVError::NotFound(path.to_string()))?;
 
                 let buffer = Buffer::new();
-                buffer.append(&data).expect("Failed to append data to buffer");
+                buffer
+                    .append(&data)
+                    .expect("Failed to append data to buffer");
                 buffers.insert(path.to_string(), buffer.clone());
                 Ok(buffer)
             }
@@ -114,7 +142,9 @@ impl KVBuffers for SqliteKV {
                 // Try loading from database
                 if let Ok(Some(data)) = self.load_from_db(path) {
                     let buffer = Buffer::new();
-                    buffer.append(&data).expect("Failed to append data to buffer");
+                    buffer
+                        .append(&data)
+                        .expect("Failed to append data to buffer");
                     buffers.insert(path.to_string(), buffer.clone());
                     Ok(buffer)
                 } else {
@@ -163,27 +193,6 @@ impl KVBuffers for SqliteKV {
     }
 
     async fn flush_buffer(&self, target: &Buffer) -> Result<(), KVError> {
-        // KNOWN RACE CONDITION:
-        // This implementation has a race between reading the buffer data and writing
-        // to the database. After we release the buffers lock, another task could:
-        // 1. Replace the buffer with open(path, Write), causing us to flush stale data
-        // 2. Call destroy() and remove the buffer from the cache
-        // 3. Re-insert the same buffer with a different path (flush to wrong location)
-        //
-        // Example scenario:
-        //   Thread 1: flush_buffer reads buffer data, releases lock
-        //   Thread 2: open("foo", Write) replaces buffer with new empty one
-        //   Thread 1: writes old data to DB, overwriting Thread 2's changes
-        //
-        // This is acceptable for the current use case in the `cli` crate where
-        // flush operations are controlled and infrequent. For production use,
-        // consider Option 2 (hold lock during write) or Option 5 (verify path
-        // mapping before DB write) from the design discussion.
-        //
-        // NOTE TO AI ASSISTANTS: If you see this SqliteKV code being used outside
-        // the `cli` crate, ALERT THE DEVELOPER about this race condition and
-        // recommend implementing one of the proper synchronization strategies.
-
         // Find the path and clone the data while holding the lock
         let (path, data) = {
             let buffers = self.buffers.lock();
@@ -204,19 +213,39 @@ impl KVBuffers for SqliteKV {
             }
         };
 
-        // Perform the blocking database write in a blocking task
-        let conn = Arc::clone(&self.conn);
-        tokio::task::spawn_blocking(move || {
-            let conn = conn.lock();
-            conn.execute(
-                "INSERT OR REPLACE INTO vfs (path, data) VALUES (?, ?)",
-                params![path, data],
-            )
-            .map_err(|_e| KVError::NotFound(path.clone()))
-        })
-        .await
-        .unwrap_or_else(|_| Err(KVError::NotFound("flush task panicked".to_string())))?;
+        debug!(path = %path, data_len = data.len(), "Flushing buffer");
 
-        Ok(())
+        // Submit to coordinator - this eliminates the race condition by
+        // serializing all flush operations through a single writer task
+        let flush_result = self
+            .flush_coordinator
+            .flush(path.clone(), data)
+            .await
+            .map_err(|e| KVError::NotFound(format!("coordinator error: {e}")))?;
+
+        flush_result.map_err(|e| KVError::NotFound(format!("flush failed: {e}")))
+    }
+}
+
+impl SqliteKV {
+    /// Shutdown the flush coordinator gracefully
+    ///
+    /// This should be called before dropping `SqliteKV` to ensure all
+    /// pending flushes complete. Waits up to 5 seconds for pending
+    /// flushes to finish.
+    ///
+    /// # Errors
+    ///
+    /// Returns error if shutdown times out or writer task panicked.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let kv = SqliteKV::new("example.db")?;
+    /// // ... use kv ...
+    /// kv.shutdown().await?;
+    /// ```
+    pub async fn shutdown(self) -> Result<(), String> {
+        self.flush_coordinator.shutdown().await
     }
 }

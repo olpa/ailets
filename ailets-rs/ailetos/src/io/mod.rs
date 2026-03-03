@@ -33,9 +33,17 @@
 //! ```
 
 pub mod buffer;
+#[cfg(feature = "sqlitekv")]
+pub mod flush_coordinator;
 pub mod memkv;
+#[cfg(feature = "sqlitekv")]
+pub mod sqlitekv;
 pub mod types;
 
 pub use buffer::{Buffer, BufferError, BufferReadGuard};
+#[cfg(feature = "sqlitekv")]
+pub use flush_coordinator::{CoordinatorError, FlushCoordinator, FlushFn};
 pub use memkv::MemKV;
+#[cfg(feature = "sqlitekv")]
+pub use sqlitekv::SqliteKV;
 pub use types::{KVBuffers, KVError, OpenMode};

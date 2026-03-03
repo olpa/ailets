@@ -21,6 +21,8 @@ pub use io::{Buffer, BufferError, BufferReadGuard};
 
 // Re-export KV types for convenience
 pub use io::{KVBuffers, KVError, MemKV, OpenMode};
+#[cfg(feature = "sqlitekv")]
+pub use io::{CoordinatorError, FlushCoordinator, FlushFn, SqliteKV};
 
 // Re-export PipePool for convenience
 pub use pipepool::PipePool;

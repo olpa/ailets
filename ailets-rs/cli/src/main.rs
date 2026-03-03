@@ -1,9 +1,10 @@
-mod sqlitekv;
-mod stdin_source;
+#![allow(clippy::expect_used, clippy::panic, clippy::disallowed_names)]
+
+use std::sync::Arc;
 
 use ailetos::idgen::Handle;
-use ailetos::Environment;
-use sqlitekv::SqliteKV;
+use ailetos::{Environment, SqliteKV};
+use cli::stdin_source;
 use tracing::info;
 
 /// Build the data flow graph
@@ -23,13 +24,16 @@ fn build_flow(env: &mut Environment<SqliteKV>) -> Handle {
         "(mee too)".as_bytes().to_vec(),
         Some("Static text".to_string()),
     );
-    let stdin = env.add_node("stdin".to_string(), &[], Some("Read from stdin".to_string()));
+    let stdin = env.add_node(
+        "stdin".to_string(),
+        &[],
+        Some("Read from stdin".to_string()),
+    );
     let foo = env.add_node("cat".to_string(), &[stdin], Some("Copy".to_string()));
     let bar = env.add_node("cat".to_string(), &[val, foo], Some("Copy".to_string()));
     let baz = env.add_node("cat".to_string(), &[bar], Some("Copy".to_string()));
-    let end = env.add_alias(".end".to_string(), baz);
 
-    end
+    env.add_alias(".end".to_string(), baz)
 }
 
 #[tokio::main]
@@ -44,10 +48,10 @@ async fn main() {
 
     // Create key-value store
     let _ = std::fs::remove_file("example.db");
-    let kv = SqliteKV::new("example.db").expect("Failed to create SqliteKV");
+    let kv = Arc::new(SqliteKV::new("example.db").expect("Failed to create SqliteKV"));
 
     // Create environment
-    let mut env = Environment::new(kv);
+    let mut env = Environment::new(Arc::clone(&kv));
 
     // Register actors in the environment
     // Note: "value" nodes are handled specially by the Environment, no actor needed
@@ -64,4 +68,11 @@ async fn main() {
 
     // Run the system (matches Python: env.processes.run_nodes(node_iter))
     env.run(end_node).await;
+
+    // Shutdown the KV store
+    Arc::try_unwrap(kv)
+        .unwrap_or_else(|_| panic!("KV still has other references"))
+        .shutdown()
+        .await
+        .expect("Failed to shutdown KV");
 }
