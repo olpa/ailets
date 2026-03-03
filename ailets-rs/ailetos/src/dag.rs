@@ -157,7 +157,7 @@ impl Dag {
         let explain_suffix = node
             .explain
             .as_ref()
-            .map(|e| format!(" # {}", e))
+            .map(|e| format!(" # {e}"))
             .unwrap_or_default();
         let _ = writeln!(
             output,

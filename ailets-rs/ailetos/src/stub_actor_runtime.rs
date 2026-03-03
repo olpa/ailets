@@ -1,8 +1,8 @@
-//! Blocking ActorRuntime implementation
+//! Blocking `ActorRuntime` implementation
 //!
-//! This module provides a blocking ActorRuntime implementation that bridges
-//! synchronous actor code with the async SystemRuntime. It maintains per-actor
-//! state (fd table) and proxies all I/O operations to SystemRuntime.
+//! This module provides a blocking `ActorRuntime` implementation that bridges
+//! synchronous actor code with the async `SystemRuntime`. It maintains per-actor
+//! state (fd table) and proxies all I/O operations to `SystemRuntime`.
 
 use std::os::raw::c_int;
 
@@ -22,7 +22,7 @@ pub struct BlockingActorRuntime {
     node_handle: Handle,
     /// Channel to send async I/O requests to `SystemRuntime`
     system_tx: mpsc::UnboundedSender<IoRequest>,
-    /// Per-actor fd table (POSIX fd → global ChannelHandle)
+    /// Per-actor fd table (POSIX fd → global `ChannelHandle`)
     fd_table: std::sync::Mutex<FdTable>,
 }
 
@@ -38,6 +38,7 @@ impl Clone for BlockingActorRuntime {
 
 impl BlockingActorRuntime {
     /// Create a new `ActorRuntime` for the given node handle
+    #[must_use]
     pub fn new(node_handle: Handle, system_tx: mpsc::UnboundedSender<IoRequest>) -> Self {
         Self {
             node_handle,
@@ -46,9 +47,9 @@ impl BlockingActorRuntime {
         }
     }
 
-    /// Request SystemRuntime to set up standard handles before actor starts.
+    /// Request `SystemRuntime` to set up standard handles before actor starts.
     /// This pre-opens stdin (fd 0) and stdout (fd 1) with the correct channel handles.
-    /// Dependencies are obtained from the DAG inside SystemRuntime.
+    /// Dependencies are obtained from the DAG inside `SystemRuntime`.
     #[allow(clippy::unwrap_used)]
     pub fn request_std_handles_setup(&self) {
         trace!(actor = ?self.node_handle, "requesting std handles setup");
@@ -95,7 +96,7 @@ impl BlockingActorRuntime {
 
         // Close in reverse order
         let mut fds = fds;
-        fds.sort();
+        fds.sort_unstable();
         fds.reverse();
 
         for fd in fds {
@@ -160,12 +161,9 @@ impl ActorRuntime for BlockingActorRuntime {
         trace!(actor = ?self.node_handle, fd = fd, buflen = buffer.len(), "aread");
 
         // Look up the channel handle for this fd
-        let channel_handle = match self.fd_table.lock().unwrap().get(fd) {
-            Some(h) => h,
-            None => {
-                warn!(actor = ?self.node_handle, fd = fd, "aread: fd not found");
-                return -1;
-            }
+        let Some(channel_handle) = self.fd_table.lock().unwrap().get(fd) else {
+            warn!(actor = ?self.node_handle, fd = fd, "aread: fd not found");
+            return -1;
         };
 
         // Send request to SystemRuntime and block for response
@@ -199,12 +197,9 @@ impl ActorRuntime for BlockingActorRuntime {
         trace!(actor = ?self.node_handle, fd = fd, buflen = buffer.len(), "awrite");
 
         // Look up the channel handle for this fd
-        let channel_handle = match self.fd_table.lock().unwrap().get(fd) {
-            Some(h) => h,
-            None => {
-                warn!(actor = ?self.node_handle, fd = fd, "awrite: fd not found");
-                return -1;
-            }
+        let Some(channel_handle) = self.fd_table.lock().unwrap().get(fd) else {
+            warn!(actor = ?self.node_handle, fd = fd, "awrite: fd not found");
+            return -1;
         };
 
         // Send request to SystemRuntime and block for response
@@ -228,12 +223,9 @@ impl ActorRuntime for BlockingActorRuntime {
         trace!(actor = ?self.node_handle, fd = fd, "aclose");
 
         // Look up and remove the channel handle for this fd
-        let channel_handle = match self.fd_table.lock().unwrap().remove(fd) {
-            Some(h) => h,
-            None => {
-                warn!(actor = ?self.node_handle, fd = fd, "aclose: fd not found");
-                return -1;
-            }
+        let Some(channel_handle) = self.fd_table.lock().unwrap().remove(fd) else {
+            warn!(actor = ?self.node_handle, fd = fd, "aclose: fd not found");
+            return -1;
         };
 
         // Send request to SystemRuntime and block for response

@@ -1,6 +1,6 @@
-//! MergeReader - sequential reader over multiple dependency inputs
+//! `MergeReader` - sequential reader over multiple dependency inputs
 //!
-//! MergeReader provides a unified stdin stream for actors by reading from
+//! `MergeReader` provides a unified stdin stream for actors by reading from
 //! dependencies sequentially. When one dependency's reader reaches EOF,
 //! it transparently switches to the next dependency.
 //!
@@ -17,13 +17,13 @@ use crate::pipepool::PipePool;
 
 /// A reader that sequentially reads from multiple dependency inputs.
 ///
-/// MergeReader uses an `OwnedDependencyIterator` to lazily traverse dependencies.
+/// `MergeReader` uses an `OwnedDependencyIterator` to lazily traverse dependencies.
 /// When the current reader returns EOF, it automatically advances to the next
 /// dependency and continues reading. Alias nodes are resolved by the iterator.
 ///
 /// # Usage
 ///
-/// MergeReader is always used for stdin, regardless of dependency count:
+/// `MergeReader` is always used for stdin, regardless of dependency count:
 /// - 0 dependencies: immediately returns EOF
 /// - 1 dependency: reads from that single dependency
 /// - N dependencies: reads from each in sequence
@@ -32,14 +32,14 @@ pub struct MergeReader<K: KVBuffers> {
     current_reader: Option<Reader>,
     /// Iterator over dependency handles (resolves aliases)
     dep_iterator: OwnedDependencyIterator,
-    /// Pool of pipes to get ReaderSharedData from dependency handles
+    /// Pool of pipes to get `ReaderSharedData` from dependency handles
     pipe_pool: Arc<PipePool<K>>,
     /// ID generator for creating reader handles
     id_gen: Arc<IdGen>,
 }
 
 impl<K: KVBuffers> MergeReader<K> {
-    /// Create a new MergeReader with a dependency iterator and pipe pool.
+    /// Create a new `MergeReader` with a dependency iterator and pipe pool.
     ///
     /// # Arguments
     ///
@@ -71,8 +71,7 @@ impl<K: KVBuffers> MergeReader<K> {
             // Panic if pipe doesn't exist - see #227 for async pipe creation
             assert!(
                 self.pipe_pool.has_pipe(dep_handle),
-                "Dependency pipe for {:?} doesn't exist. TODO: async pipe creation, see #227",
-                dep_handle
+                "Dependency pipe for {dep_handle:?} doesn't exist. TODO: async pipe creation, see #227"
             );
 
             let handle = Handle::new(self.id_gen.get_next());
@@ -114,17 +113,13 @@ impl<K: KVBuffers> MergeReader<K> {
             let n = reader.read(buf).await;
 
             match n.cmp(&0) {
-                std::cmp::Ordering::Greater => {
-                    // Successfully read data
-                    return n;
-                }
                 std::cmp::Ordering::Equal => {
                     // EOF from current reader, move to next dependency
                     self.current_reader = None;
                     // Loop continues to try the next dependency
                 }
-                std::cmp::Ordering::Less => {
-                    // Error from reader
+                std::cmp::Ordering::Greater | std::cmp::Ordering::Less => {
+                    // Successfully read data (positive) or error (negative)
                     return n;
                 }
             }

@@ -32,6 +32,7 @@ pub struct ActorRegistry {
 }
 
 impl ActorRegistry {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             actors: HashMap::new(),
@@ -44,11 +45,12 @@ impl ActorRegistry {
     }
 
     /// Get an actor function by name
+    #[must_use]
     pub fn get(&self, name: &str) -> ActorFn {
         self.actors
             .get(name)
             .copied()
-            .unwrap_or_else(|| panic!("Actor '{}' not registered", name))
+            .unwrap_or_else(|| panic!("Actor '{name}' not registered"))
     }
 }
 
@@ -135,16 +137,19 @@ impl<K: KVBuffers> Environment<K> {
     }
 
     /// Get a node by handle
+    #[must_use]
     pub fn get_node(&self, handle: Handle) -> Option<&crate::dag::Node> {
         self.dag.get_node(handle)
     }
 
     /// Check if a node is a value node
+    #[must_use]
     pub fn is_value_node(&self, handle: Handle) -> bool {
         self.value_nodes.contains_key(&handle)
     }
 
     /// Get value data for a value node
+    #[must_use]
     pub fn get_value_data(&self, handle: Handle) -> Option<&[u8]> {
         self.value_nodes.get(&handle).map(|v| v.data.as_slice())
     }
@@ -171,16 +176,16 @@ impl<K: KVBuffers> Environment<K> {
             // Write the value data
             let result = awriter
                 .write_all(&value_data.data)
-                .map_err(|e| format!("Failed to write value: {:?}", e))
-                .and_then(|_| {
+                .map_err(|e| format!("Failed to write value: {e:?}"))
+                .and_then(|()| {
                     awriter
                         .close()
-                        .map_err(|e| format!("Failed to close writer: {:?}", e))
+                        .map_err(|e| format!("Failed to close writer: {e:?}"))
                 })
-                .and_then(|_| {
+                .and_then(|()| {
                     areader
                         .close()
-                        .map_err(|e| format!("Failed to close reader: {:?}", e))
+                        .map_err(|e| format!("Failed to close reader: {e:?}"))
                 });
 
             match result {
@@ -216,7 +221,7 @@ impl<K: KVBuffers> Environment<K> {
             match result {
                 Ok(()) => debug!(node = ?node_handle, name = %idname, "task completed"),
                 Err(e) => {
-                    warn!(node = ?node_handle, name = %idname, error = %e, "task error")
+                    warn!(node = ?node_handle, name = %idname, error = %e, "task error");
                 }
             }
 
@@ -229,7 +234,7 @@ impl<K: KVBuffers> Environment<K> {
     fn spawn_actor_tasks(
         dag: &Arc<Dag>,
         target: Handle,
-        system_tx: mpsc::UnboundedSender<IoRequest>,
+        system_tx: &mpsc::UnboundedSender<IoRequest>,
         actor_registry: &ActorRegistry,
         value_nodes: &HashMap<Handle, ValueNodeData>,
     ) -> Vec<tokio::task::JoinHandle<()>> {
@@ -278,7 +283,7 @@ impl<K: KVBuffers> Environment<K> {
 
         // Spawn actor tasks
         let actor_tasks =
-            Self::spawn_actor_tasks(&dag, target, system_tx, &self.actor_registry, &self.value_nodes);
+            Self::spawn_actor_tasks(&dag, target, &system_tx, &self.actor_registry, &self.value_nodes);
 
         // Wait for system runtime
         if let Err(e) = system_task.await {

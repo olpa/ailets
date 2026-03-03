@@ -1,4 +1,4 @@
-//! PipePool - manages output pipes for actors
+//! `PipePool` - manages output pipes for actors
 //!
 //! Each actor has one output pipe. Readers are created on-demand
 //! when consuming actors need to read from dependencies.
@@ -43,9 +43,7 @@ impl<K: KVBuffers> PipePool<K> {
         // Check if actor already has a pipe (lock scope)
         {
             let pipes = self.pipes.lock();
-            if pipes.iter().any(|(h, _)| *h == actor_handle) {
-                panic!("Actor {actor_handle:?} already has an output pipe");
-            }
+            assert!(!pipes.iter().any(|(h, _)| *h == actor_handle), "Actor {actor_handle:?} already has an output pipe");
         }
 
         let writer_handle = Handle::new(id_gen.get_next());

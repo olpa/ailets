@@ -23,7 +23,7 @@
 //!
 //! The actor thread is **blocked** while waiting for the async operation to complete.
 //!
-//! ## Why pending_ops?
+//! ## Why `pending_ops`?
 //!
 //! The `pending_ops` queue (a `FuturesUnordered`) allows `SystemRuntime` to:
 //! 1. **Accept multiple requests concurrently** - While one actor is blocked waiting
@@ -33,7 +33,7 @@
 //! 3. **Maintain responsiveness** - The runtime doesn't block waiting for one operation
 //!    to complete before accepting new requests
 //!
-//! ## Why Box::pin(async move { ... }) inside handlers?
+//! ## Why `Box::pin(async` move { ... }) inside handlers?
 //!
 //! Handlers cannot be `async fn` because:
 //! 1. An `async fn` returns a future that captures `&mut self` by reference
@@ -87,13 +87,13 @@ use crate::pipepool::PipePool;
 use crate::KVBuffers;
 
 /// Global unique identifier for a pipe endpoint (reader or writer)
-/// Used by SystemRuntime to identify channels across all actors
+/// Used by `SystemRuntime` to identify channels across all actors
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ChannelHandle(pub usize);
 
 /// A channel endpoint - either a reader or writer
 pub enum Channel<K: KVBuffers> {
-    /// Reader channel - holds the MergeReader (None when in use during async read)
+    /// Reader channel - holds the `MergeReader` (None when in use during async read)
     Reader(Option<MergeReader<K>>),
     /// Writer channel - holds the actor's node handle for pipe lookup
     Writer { node_handle: Handle },
@@ -131,6 +131,7 @@ impl SendableBuffer {
 
     /// Consume the `SendableBuffer` and return the raw pointer.
     /// This prevents accidental reuse of the same buffer.
+    #[must_use]
     pub fn into_raw(self) -> *mut [u8] {
         #[cfg(debug_assertions)]
         {
@@ -158,18 +159,18 @@ pub struct StdHandles {
 
 /// I/O requests sent from `ActorRuntime` to `SystemRuntime`
 pub enum IoRequest {
-    /// Setup standard handles for an actor (returns stdin and stdout ChannelHandles).
-    /// Dependencies are obtained from the DAG inside SystemRuntime.
+    /// Setup standard handles for an actor (returns stdin and stdout `ChannelHandles`).
+    /// Dependencies are obtained from the DAG inside `SystemRuntime`.
     SetupStdHandles {
         node_handle: Handle,
         response: oneshot::Sender<StdHandles>,
     },
-    /// Open a stream for reading (returns global ChannelHandle)
+    /// Open a stream for reading (returns global `ChannelHandle`)
     OpenRead {
         node_handle: Handle,
         response: oneshot::Sender<ChannelHandle>,
     },
-    /// Open a stream for writing (returns global ChannelHandle)
+    /// Open a stream for writing (returns global `ChannelHandle`)
     OpenWrite {
         node_handle: Handle,
         response: oneshot::Sender<ChannelHandle>,
@@ -221,7 +222,7 @@ pub struct SystemRuntime<K: KVBuffers> {
     dag: Arc<Dag>,
     /// Pool of output pipes (one per actor)
     pipe_pool: Arc<PipePool<K>>,
-    /// Global channel table: ChannelHandle → Channel (reader or writer endpoint)
+    /// Global channel table: `ChannelHandle` → Channel (reader or writer endpoint)
     channels: HashMap<ChannelHandle, Channel<K>>,
     /// Next channel handle ID
     next_channel_id: usize,
@@ -251,10 +252,10 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
     /// Pre-open standard handles (stdin, stdout) for an actor just before it runs.
     ///
-    /// Always uses MergeReader for stdin, regardless of dependency count:
-    /// - 0 dependencies: MergeReader with empty deps (returns EOF immediately)
-    /// - 1 dependency: MergeReader with single dep
-    /// - N dependencies: MergeReader reads from each sequentially
+    /// Always uses `MergeReader` for stdin, regardless of dependency count:
+    /// - 0 dependencies: `MergeReader` with empty deps (returns EOF immediately)
+    /// - 1 dependency: `MergeReader` with single dep
+    /// - N dependencies: `MergeReader` reads from each sequentially
     ///
     /// Dependencies are obtained from the DAG using `OwnedDependencyIterator`.
     async fn preopen_std_handles(&mut self, node_handle: Handle) -> StdHandles {
@@ -305,6 +306,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
     /// Get the sender for creating actor runtimes
     #[allow(clippy::expect_used)]
+    #[must_use]
     pub fn get_system_tx(&self) -> mpsc::UnboundedSender<IoRequest> {
         self.system_tx.as_ref().expect("system_tx taken").clone()
     }
@@ -319,7 +321,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         let _ = response.send(channel_handle);
     }
 
-    /// Handler for `OpenWrite` requests - creates output pipe and returns ChannelHandle
+    /// Handler for `OpenWrite` requests - creates output pipe and returns `ChannelHandle`
     async fn handle_open_write(
         &mut self,
         node_handle: Handle,
@@ -343,7 +345,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         let _ = response.send(channel_handle);
     }
 
-    /// Handler for Read requests - uses ChannelHandle to find reader
+    /// Handler for Read requests - uses `ChannelHandle` to find reader
     ///
     /// Uses the Sync-to-Async Bridge pattern (see module-level docs:
     /// "ARCHITECTURE: Sync-to-Async Bridge Pattern")
@@ -424,7 +426,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         Box::pin(async move { IoEvent::SyncComplete { result, response } })
     }
 
-    /// Handler for Close requests - uses ChannelHandle
+    /// Handler for Close requests - uses `ChannelHandle`
     ///
     /// Uses the Sync-to-Async Bridge pattern (see module-level docs:
     /// "ARCHITECTURE: Sync-to-Async Bridge Pattern")
@@ -546,7 +548,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                                 let fut = self.handle_close(handle, response);
                                 pending_ops.push(fut);
                             }
-                        };
+                        }
                     } else {
                         debug!("request channel closed");
                         request_rx_open = false;
@@ -570,15 +572,16 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 }
 
 /// Per-actor file descriptor table
-/// Maps POSIX-style fd numbers to global ChannelHandles
+/// Maps POSIX-style fd numbers to global `ChannelHandles`
 pub struct FdTable {
-    /// fd → ChannelHandle mapping
+    /// fd → `ChannelHandle` mapping
     table: HashMap<c_int, ChannelHandle>,
     /// Next fd to allocate
     next_fd: c_int,
 }
 
 impl FdTable {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             table: HashMap::new(),
@@ -586,7 +589,7 @@ impl FdTable {
         }
     }
 
-    /// Allocate a new fd and associate it with a ChannelHandle
+    /// Allocate a new fd and associate it with a `ChannelHandle`
     pub fn insert(&mut self, handle: ChannelHandle) -> c_int {
         let fd = self.next_fd;
         self.next_fd += 1;
@@ -594,7 +597,8 @@ impl FdTable {
         fd
     }
 
-    /// Look up the ChannelHandle for a given fd
+    /// Look up the `ChannelHandle` for a given fd
+    #[must_use]
     pub fn get(&self, fd: c_int) -> Option<ChannelHandle> {
         self.table.get(&fd).copied()
     }
