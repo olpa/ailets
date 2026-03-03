@@ -23,12 +23,11 @@
 //! and automatic cleanup in the Drop implementation.
 
 use actor_runtime::{ActorRuntime, StdHandle};
-use core::ffi::c_int;
 
 use crate::error_mapping::errno_to_error_kind;
 
 pub struct AWriter<'a> {
-    fd: Option<c_int>,
+    fd: Option<isize>,
     runtime: &'a dyn ActorRuntime,
 }
 
@@ -57,7 +56,7 @@ impl<'a> AWriter<'a> {
     #[must_use]
     pub fn new_from_std(runtime: &'a dyn ActorRuntime, handle: StdHandle) -> Self {
         Self {
-            fd: Some(handle as c_int),
+            fd: Some(handle as isize),
             runtime,
         }
     }
@@ -68,7 +67,7 @@ impl<'a> AWriter<'a> {
     /// Returns an error if the file descriptor is invalid (negative).
     pub fn new_from_fd(
         runtime: &'a dyn ActorRuntime,
-        fd: c_int,
+        fd: isize,
     ) -> Result<Self, embedded_io::ErrorKind> {
         if fd < 0 {
             Err(embedded_io::ErrorKind::InvalidInput)

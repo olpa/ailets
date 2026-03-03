@@ -143,9 +143,20 @@ impl Writer {
             }
 
             if shared.buffer.append(data).is_ok() {
-                #[allow(clippy::cast_possible_wrap)]
-                {
-                    data.len() as isize
+                // Safe conversion from usize to isize
+                // On 64-bit platforms, check if length exceeds isize::MAX
+                match isize::try_from(data.len()) {
+                    Ok(n) => n,
+                    Err(_) => {
+                        // Write succeeded but length exceeds isize::MAX
+                        // This should never happen in practice with realistic I/O sizes
+                        error!(
+                            data_len = data.len(),
+                            isize_max = isize::MAX,
+                            "CRITICAL: write length exceeds isize::MAX"
+                        );
+                        isize::MAX
+                    }
                 }
             } else {
                 // Buffer append failed - treat as ENOSPC

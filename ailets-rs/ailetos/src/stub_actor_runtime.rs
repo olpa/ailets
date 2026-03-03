@@ -4,8 +4,6 @@
 //! synchronous actor code with the async `SystemRuntime`. It maintains per-actor
 //! state (fd table) and proxies all I/O operations to `SystemRuntime`.
 
-use std::os::raw::c_int;
-
 use actor_runtime::ActorRuntime;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{error, trace, warn};
@@ -118,7 +116,7 @@ impl BlockingActorRuntime {
         trace!(actor = ?self.node_handle, "close_all_handles");
 
         // Get all open fds
-        let fds: Vec<c_int> = {
+        let fds: Vec<isize> = {
             match self.fd_table.lock() {
                 Ok(table) => table.keys().copied().collect(),
                 Err(e) => {
@@ -144,12 +142,12 @@ impl BlockingActorRuntime {
 
 #[allow(clippy::unwrap_used)] // Blocking implementation - panics on channel failures
 impl ActorRuntime for BlockingActorRuntime {
-    fn get_errno(&self) -> c_int {
+    fn get_errno(&self) -> isize {
         trace!(actor = ?self.node_handle, "get_errno");
         0 // No error
     }
 
-    fn open_read(&self, _name: &str) -> c_int {
+    fn open_read(&self, _name: &str) -> isize {
         trace!(actor = ?self.node_handle, "open_read");
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
@@ -183,7 +181,7 @@ impl ActorRuntime for BlockingActorRuntime {
         fd
     }
 
-    fn open_write(&self, _name: &str) -> c_int {
+    fn open_write(&self, _name: &str) -> isize {
         trace!(actor = ?self.node_handle, "open_write");
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
@@ -217,7 +215,7 @@ impl ActorRuntime for BlockingActorRuntime {
         fd
     }
 
-    fn aread(&self, fd: c_int, buffer: &mut [u8]) -> c_int {
+    fn aread(&self, fd: isize, buffer: &mut [u8]) -> isize {
         trace!(actor = ?self.node_handle, fd = fd, buflen = buffer.len(), "aread");
 
         // Look up the channel handle for this fd
@@ -266,7 +264,7 @@ impl ActorRuntime for BlockingActorRuntime {
         bytes_read
     }
 
-    fn awrite(&self, fd: c_int, buffer: &[u8]) -> c_int {
+    fn awrite(&self, fd: isize, buffer: &[u8]) -> isize {
         trace!(actor = ?self.node_handle, fd = fd, buflen = buffer.len(), "awrite");
 
         // Look up the channel handle for this fd
@@ -305,7 +303,7 @@ impl ActorRuntime for BlockingActorRuntime {
         result
     }
 
-    fn aclose(&self, fd: c_int) -> c_int {
+    fn aclose(&self, fd: isize) -> isize {
         trace!(actor = ?self.node_handle, fd = fd, "aclose");
 
         // Look up and remove the channel handle for this fd

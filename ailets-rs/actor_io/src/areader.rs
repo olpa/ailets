@@ -24,12 +24,11 @@
 //! ```
 
 use actor_runtime::{ActorRuntime, StdHandle};
-use core::ffi::c_int;
 
 use crate::error_mapping::errno_to_error_kind;
 
 pub struct AReader<'a> {
-    fd: Option<c_int>,
+    fd: Option<isize>,
     runtime: &'a dyn ActorRuntime,
 }
 
@@ -58,7 +57,7 @@ impl<'a> AReader<'a> {
     #[must_use]
     pub fn new_from_std(runtime: &'a dyn ActorRuntime, handle: StdHandle) -> Self {
         Self {
-            fd: Some(handle as c_int),
+            fd: Some(handle as isize),
             runtime,
         }
     }

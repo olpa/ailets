@@ -3,12 +3,10 @@
 //! This module provides functions to convert errno values to `embedded_io::ErrorKind`
 //! and to convert error kinds to human-readable static strings.
 
-use core::ffi::c_int;
-
 /// Convert errno to `embedded_io::ErrorKind`
 #[must_use]
 #[allow(clippy::match_same_arms)] // We explicitly list common errno values for documentation
-pub fn errno_to_error_kind(errno: c_int) -> embedded_io::ErrorKind {
+pub fn errno_to_error_kind(errno: isize) -> embedded_io::ErrorKind {
     match errno {
         1 | 13 => embedded_io::ErrorKind::PermissionDenied, // EPERM, EACCES
         2 => embedded_io::ErrorKind::NotFound,              // ENOENT

@@ -71,7 +71,6 @@
 
 use std::collections::HashMap;
 use std::future::Future;
-use std::os::raw::c_int;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -183,18 +182,18 @@ pub enum IoRequest {
     Read {
         handle: ChannelHandle,
         buffer: SendableBuffer,
-        response: oneshot::Sender<c_int>,
+        response: oneshot::Sender<isize>,
     },
     /// Write to a channel (async operation)
     Write {
         handle: ChannelHandle,
         data: Vec<u8>,
-        response: oneshot::Sender<c_int>,
+        response: oneshot::Sender<isize>,
     },
     /// Close a channel
     Close {
         handle: ChannelHandle,
-        response: oneshot::Sender<c_int>,
+        response: oneshot::Sender<isize>,
     },
 }
 
@@ -205,12 +204,12 @@ pub enum IoEvent<K: KVBuffers> {
         handle: ChannelHandle,
         reader: MergeReader<K>,
         bytes_read: isize,
-        response: oneshot::Sender<c_int>,
+        response: oneshot::Sender<isize>,
     },
     /// Synchronous operation completed (write, open, close)
     SyncComplete {
-        result: c_int,
-        response: oneshot::Sender<c_int>,
+        result: isize,
+        response: oneshot::Sender<isize>,
     },
 }
 
@@ -368,7 +367,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         &mut self,
         handle: ChannelHandle,
         buffer: SendableBuffer,
-        response: oneshot::Sender<c_int>,
+        response: oneshot::Sender<isize>,
     ) -> IoFuture<K> {
         trace!(channel = ?handle, "processing Read");
 
@@ -418,7 +417,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         &self,
         handle: ChannelHandle,
         data: &[u8],
-        response: oneshot::Sender<c_int>,
+        response: oneshot::Sender<isize>,
     ) -> IoFuture<K> {
         trace!(channel = ?handle, bytes = data.len(), "processing Write");
 
@@ -429,10 +428,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                 if let Some(writer) = pipe.writer() {
                     let n = writer.write(data);
                     trace!(channel = ?handle, bytes = n, "pipe write returned");
-                    #[allow(clippy::cast_possible_truncation)]
-                    {
-                        n as c_int
-                    }
+                    n
                 } else {
                     warn!(channel = ?handle, node = ?node_handle, "writer not accessible (internal error)");
                     -1
@@ -457,7 +453,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
     fn handle_close(
         &mut self,
         handle: ChannelHandle,
-        response: oneshot::Sender<c_int>,
+        response: oneshot::Sender<isize>,
     ) -> IoFuture<K> {
         trace!(channel = ?handle, "processing Close");
 
@@ -521,19 +517,18 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         handle: ChannelHandle,
         reader: MergeReader<K>,
         bytes_read: isize,
-        response: oneshot::Sender<c_int>,
+        response: oneshot::Sender<isize>,
     ) {
         trace!(channel = ?handle, bytes = bytes_read, "read completed");
         // Put reader back into the channel
         if let Some(Channel::Reader(slot)) = self.channels.get_mut(&handle) {
             *slot = Some(reader);
         }
-        #[allow(clippy::cast_possible_truncation)]
-        let _ = response.send(bytes_read as c_int);
+        let _ = response.send(bytes_read);
     }
 
     /// Handler for `SyncComplete` events
-    fn handle_sync_complete(result: c_int, response: oneshot::Sender<c_int>) {
+    fn handle_sync_complete(result: isize, response: oneshot::Sender<isize>) {
         let _ = response.send(result);
     }
 
@@ -607,9 +602,9 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 /// Maps POSIX-style fd numbers to global `ChannelHandles`
 pub struct FdTable {
     /// fd → `ChannelHandle` mapping
-    table: HashMap<c_int, ChannelHandle>,
+    table: HashMap<isize, ChannelHandle>,
     /// Next fd to allocate
-    next_fd: c_int,
+    next_fd: isize,
 }
 
 impl FdTable {
@@ -622,7 +617,7 @@ impl FdTable {
     }
 
     /// Allocate a new fd and associate it with a `ChannelHandle`
-    pub fn insert(&mut self, handle: ChannelHandle) -> c_int {
+    pub fn insert(&mut self, handle: ChannelHandle) -> isize {
         let fd = self.next_fd;
         self.next_fd += 1;
         self.table.insert(fd, handle);
@@ -631,17 +626,17 @@ impl FdTable {
 
     /// Look up the `ChannelHandle` for a given fd
     #[must_use]
-    pub fn get(&self, fd: c_int) -> Option<ChannelHandle> {
+    pub fn get(&self, fd: isize) -> Option<ChannelHandle> {
         self.table.get(&fd).copied()
     }
 
     /// Remove an fd mapping
-    pub fn remove(&mut self, fd: c_int) -> Option<ChannelHandle> {
+    pub fn remove(&mut self, fd: isize) -> Option<ChannelHandle> {
         self.table.remove(&fd)
     }
 
     /// Get all open file descriptors
-    pub fn keys(&self) -> impl Iterator<Item = &c_int> {
+    pub fn keys(&self) -> impl Iterator<Item = &isize> {
         self.table.keys()
     }
 }
