@@ -9,6 +9,8 @@
 
 use std::sync::Arc;
 
+use tracing::warn;
+
 use crate::dag::OwnedDependencyIterator;
 use crate::idgen::{Handle, IdGen};
 use crate::io::KVBuffers;
@@ -83,9 +85,6 @@ impl<K: KVBuffers> MergeReader<K> {
     /// - 0: EOF (all dependencies exhausted)
     /// - -1: error (check underlying reader's error)
     ///
-    /// # Panics
-    /// Should not panic. The internal unwrap is guarded by an `is_none()` check
-    /// immediately before it, ensuring the Option is always Some.
     pub async fn read(&mut self, buf: &mut [u8]) -> isize {
         loop {
             // Ensure we have a reader for the current dependency
@@ -102,21 +101,24 @@ impl<K: KVBuffers> MergeReader<K> {
             }
 
             // Read from current reader
-            // SAFETY: We just ensured current_reader is Some above
-            #[allow(clippy::unwrap_used)]
-            let reader = self.current_reader.as_mut().unwrap();
-            let n = reader.read(buf).await;
+            if let Some(reader) = self.current_reader.as_mut() {
+                let n = reader.read(buf).await;
 
-            match n.cmp(&0) {
-                std::cmp::Ordering::Equal => {
-                    // EOF from current reader, move to next dependency
-                    self.current_reader = None;
-                    // Loop continues to try the next dependency
+                match n.cmp(&0) {
+                    std::cmp::Ordering::Equal => {
+                        // EOF from current reader, move to next dependency
+                        self.current_reader = None;
+                        // Loop continues to try the next dependency
+                    }
+                    std::cmp::Ordering::Greater | std::cmp::Ordering::Less => {
+                        // Successfully read data (positive) or error (negative)
+                        return n;
+                    }
                 }
-                std::cmp::Ordering::Greater | std::cmp::Ordering::Less => {
-                    // Successfully read data (positive) or error (negative)
-                    return n;
-                }
+            } else {
+                // Should not happen: we checked is_none() above
+                warn!("MergeReader: current_reader is None unexpectedly");
+                return 0;
             }
         }
     }

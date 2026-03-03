@@ -316,13 +316,10 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
     /// Get the sender for creating actor runtimes
     ///
-    /// # Panics
-    /// Panics if called after `run()` has started, which consumes the sender.
-    /// This is a programming error - the sender should only be retrieved during setup.
-    #[allow(clippy::expect_used)]
+    /// Returns `None` if called after `run()` has started (which consumes the sender).
     #[must_use]
-    pub fn get_system_tx(&self) -> mpsc::UnboundedSender<IoRequest> {
-        self.system_tx.as_ref().expect("system_tx taken").clone()
+    pub fn get_system_tx(&self) -> Option<mpsc::UnboundedSender<IoRequest>> {
+        self.system_tx.clone()
     }
 
     /// Handler for `OpenRead` requests

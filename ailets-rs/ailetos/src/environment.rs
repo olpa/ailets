@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 use crate::dag::{Dag, DependsOn, For, NodeKind};
 use crate::idgen::{Handle, IdGen};
@@ -277,7 +277,10 @@ impl<K: KVBuffers> Environment<K> {
         let system_runtime = SystemRuntime::new(Arc::clone(&dag), Arc::clone(&self.kv), self.idgen);
 
         // Get sender before moving system_runtime
-        let system_tx = system_runtime.get_system_tx();
+        let Some(system_tx) = system_runtime.get_system_tx() else {
+            error!("Failed to get system_tx - system runtime already started");
+            return;
+        };
 
         // Spawn SystemRuntime task
         let system_task = tokio::spawn(async move {
