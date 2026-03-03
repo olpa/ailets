@@ -1,3 +1,5 @@
+#![allow(clippy::expect_used, clippy::panic, clippy::disallowed_names)]
+
 use std::sync::Arc;
 
 use ailetos::idgen::Handle;
@@ -23,13 +25,16 @@ fn build_flow(env: &mut Environment<SqliteKV>) -> Handle {
         "(mee too)".as_bytes().to_vec(),
         Some("Static text".to_string()),
     );
-    let stdin = env.add_node("stdin".to_string(), &[], Some("Read from stdin".to_string()));
+    let stdin = env.add_node(
+        "stdin".to_string(),
+        &[],
+        Some("Read from stdin".to_string()),
+    );
     let foo = env.add_node("cat".to_string(), &[stdin], Some("Copy".to_string()));
     let bar = env.add_node("cat".to_string(), &[val, foo], Some("Copy".to_string()));
     let baz = env.add_node("cat".to_string(), &[bar], Some("Copy".to_string()));
-    let end = env.add_alias(".end".to_string(), baz);
 
-    end
+    env.add_alias(".end".to_string(), baz)
 }
 
 #[tokio::main]

@@ -42,7 +42,7 @@ struct FlushRequest {
     response: oneshot::Sender<Result<(), String>>,
 }
 
-/// Trait for flush functions - allows different backends (SQLite, S3, etc.)
+/// Trait for flush functions - allows different backends (`SQLite`, S3, etc.)
 ///
 /// Implementors must be thread-safe and callable multiple times.
 pub trait FlushFn: Fn(String, Vec<u8>) -> Result<(), String> + Send + Sync {}
@@ -75,7 +75,8 @@ where
     request_tx: Option<mpsc::Sender<FlushRequest>>,
     /// Join handle for writer task (for shutdown)
     writer_task: Option<tokio::task::JoinHandle<()>>,
-    /// Function to perform actual flush operation
+    /// Function to perform actual flush operation (kept alive via Arc)
+    #[allow(dead_code)]
     flush_fn: Arc<F>,
 }
 
@@ -236,10 +237,7 @@ where
         path: String,
         data: Vec<u8>,
     ) -> Result<Result<(), String>, CoordinatorError> {
-        let request_tx = self
-            .request_tx
-            .as_ref()
-            .ok_or(CoordinatorError::Shutdown)?;
+        let request_tx = self.request_tx.as_ref().ok_or(CoordinatorError::Shutdown)?;
 
         let (response_tx, response_rx) = oneshot::channel();
 
@@ -258,9 +256,7 @@ where
         debug!(path = %path, "Flush request submitted");
 
         // Wait for response from writer task
-        response_rx
-            .await
-            .map_err(|_| CoordinatorError::Shutdown)
+        response_rx.await.map_err(|_| CoordinatorError::Shutdown)
     }
 
     /// Gracefully shutdown coordinator

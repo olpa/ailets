@@ -1,21 +1,23 @@
-//! SQLite-backed implementation of `KVBuffers`
+//! `SQLite`-backed implementation of `KVBuffers`
 //!
-//! This implementation stores buffers in a SQLite database, providing persistence
+//! This implementation stores buffers in a `SQLite` database, providing persistence
 //! across program runs. Uses a mutex-wrapped connection for thread-safe access.
 //!
 //! # Thread Safety
 //!
-//! The SQLite connection is wrapped in `Arc<Mutex<Connection>>`. While `Connection`
+//! The `SQLite` connection is wrapped in `Arc<Mutex<Connection>>`. While `Connection`
 //! implements `Send`, it does not implement `Sync` (marked `!Sync`), so shared access
 //! across threads requires explicit synchronization.
 //!
 //! As stated in rusqlite issue #342: "Seems like a `Mutex<rusqlite::Connection>` is
-//! the way to go." This is because certain SQLite APIs are not thread-safe even in
+//! the way to go." This is because certain `SQLite` APIs are not thread-safe even in
 //! serialized mode.
 //!
 //! References:
 //! - `Connection` trait bounds: <https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html>
 //! - Multi-threaded usage discussion: <https://github.com/rusqlite/rusqlite/issues/342>
+
+#![allow(clippy::expect_used)]
 
 use crate::flush_coordinator::FlushCoordinator;
 use ailetos::{Buffer, KVBuffers, KVError, OpenMode};
@@ -26,20 +28,23 @@ use std::path::Path;
 use std::sync::Arc;
 use tracing::debug;
 
+/// Type alias for the flush function used by `SqliteKV`
+type FlushFn = Box<dyn Fn(String, Vec<u8>) -> Result<(), String> + Send + Sync>;
+
 /// SQLite-backed key-value buffer storage
 ///
 /// Buffers are loaded from the database on first access and can be flushed back.
 /// The in-memory cache ensures efficient access during runtime.
 ///
-/// Thread safety is achieved by wrapping the SQLite connection in a `Mutex`.
+/// Thread safety is achieved by wrapping the `SQLite` connection in a `Mutex`.
 /// See the module documentation for thread safety details and references.
 pub struct SqliteKV {
     /// In-memory cache of buffers (lazily loaded from DB)
     buffers: Arc<Mutex<HashMap<String, Buffer>>>,
-    /// Shared SQLite connection protected by mutex
+    /// Shared `SQLite` connection protected by mutex
     conn: Arc<Mutex<Connection>>,
     /// Flush coordinator for serializing writes
-    flush_coordinator: FlushCoordinator<Box<dyn Fn(String, Vec<u8>) -> Result<(), String> + Send + Sync>>,
+    flush_coordinator: FlushCoordinator<FlushFn>,
 }
 
 impl SqliteKV {
@@ -64,8 +69,7 @@ impl SqliteKV {
 
         // Create flush function that captures connection
         let flush_conn = Arc::clone(&conn);
-        let flush_fn: Box<dyn Fn(String, Vec<u8>) -> Result<(), String> + Send + Sync> =
-            Box::new(move |path: String, data: Vec<u8>| -> Result<(), String> {
+        let flush_fn: FlushFn = Box::new(move |path: String, data: Vec<u8>| -> Result<(), String> {
                 let conn = flush_conn.lock();
                 conn.execute(
                     "INSERT OR REPLACE INTO vfs (path, data) VALUES (?, ?)",
@@ -98,7 +102,6 @@ impl SqliteKV {
             Err(e) => Err(e),
         }
     }
-
 }
 
 impl KVBuffers for SqliteKV {
@@ -119,7 +122,9 @@ impl KVBuffers for SqliteKV {
                     .ok_or_else(|| KVError::NotFound(path.to_string()))?;
 
                 let buffer = Buffer::new();
-                buffer.append(&data).expect("Failed to append data to buffer");
+                buffer
+                    .append(&data)
+                    .expect("Failed to append data to buffer");
                 buffers.insert(path.to_string(), buffer.clone());
                 Ok(buffer)
             }
@@ -137,7 +142,9 @@ impl KVBuffers for SqliteKV {
                 // Try loading from database
                 if let Ok(Some(data)) = self.load_from_db(path) {
                     let buffer = Buffer::new();
-                    buffer.append(&data).expect("Failed to append data to buffer");
+                    buffer
+                        .append(&data)
+                        .expect("Failed to append data to buffer");
                     buffers.insert(path.to_string(), buffer.clone());
                     Ok(buffer)
                 } else {
@@ -223,7 +230,7 @@ impl KVBuffers for SqliteKV {
 impl SqliteKV {
     /// Shutdown the flush coordinator gracefully
     ///
-    /// This should be called before dropping SqliteKV to ensure all
+    /// This should be called before dropping `SqliteKV` to ensure all
     /// pending flushes complete. Waits up to 5 seconds for pending
     /// flushes to finish.
     ///
