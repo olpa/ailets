@@ -19,17 +19,26 @@ pub enum OpenMode {
 pub enum KVError {
     /// Path was not found in the store
     NotFound(String),
+    /// Buffer operation failed
+    BufferError(super::buffer::BufferError),
 }
 
 impl std::fmt::Display for KVError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotFound(path) => write!(f, "Path not found: {path}"),
+            Self::BufferError(e) => write!(f, "Buffer error: {e}"),
         }
     }
 }
 
 impl std::error::Error for KVError {}
+
+impl From<super::buffer::BufferError> for KVError {
+    fn from(e: super::buffer::BufferError) -> Self {
+        Self::BufferError(e)
+    }
+}
 
 /// Trait for key-value buffer storage backends
 ///

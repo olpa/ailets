@@ -122,9 +122,7 @@ impl KVBuffers for SqliteKV {
                     .ok_or_else(|| KVError::NotFound(path.to_string()))?;
 
                 let buffer = Buffer::new();
-                buffer
-                    .append(&data)
-                    .expect("Failed to append data to buffer");
+                buffer.append(&data)?;
                 buffers.insert(path.to_string(), buffer.clone());
                 Ok(buffer)
             }
@@ -142,9 +140,7 @@ impl KVBuffers for SqliteKV {
                 // Try loading from database
                 if let Ok(Some(data)) = self.load_from_db(path) {
                     let buffer = Buffer::new();
-                    buffer
-                        .append(&data)
-                        .expect("Failed to append data to buffer");
+                    buffer.append(&data)?;
                     buffers.insert(path.to_string(), buffer.clone());
                     Ok(buffer)
                 } else {
