@@ -149,11 +149,7 @@ impl<K: KVBuffers> MergeReader<K> {
 
 impl<K: KVBuffers> std::fmt::Debug for MergeReader<K> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "MergeReader(current_reader={:?})",
-            self.current_reader
-        )
+        write!(f, "MergeReader(current_reader={:?})", self.current_reader)
     }
 }
 

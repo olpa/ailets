@@ -67,7 +67,8 @@ impl SqliteKV {
 
         // Create flush function that captures connection
         let flush_conn = Arc::clone(&conn);
-        let flush_fn: FlushFn = Box::new(move |path: String, data: Vec<u8>| -> Result<(), String> {
+        let flush_fn: FlushFn =
+            Box::new(move |path: String, data: Vec<u8>| -> Result<(), String> {
                 let conn = flush_conn.lock();
                 conn.execute(
                     "INSERT OR REPLACE INTO vfs (path, data) VALUES (?, ?)",

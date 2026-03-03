@@ -263,10 +263,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         debug!(actor = ?node_handle, "setting up std handles");
 
         // Create OwnedDependencyIterator from DAG
-        let dep_iterator = OwnedDependencyIterator::new(
-            Arc::clone(&self.dag),
-            node_handle,
-        );
+        let dep_iterator = OwnedDependencyIterator::new(Arc::clone(&self.dag), node_handle);
 
         // Create MergeReader with the dependency iterator
         let merge_reader = MergeReader::new(
@@ -285,9 +282,11 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
         if !self.pipe_pool.has_pipe(node_handle) {
             let pipe_name = format!("pipes/actor-{}", node_handle.id());
-            match self.pipe_pool
+            match self
+                .pipe_pool
                 .create_output_pipe(node_handle, &pipe_name, &self.id_gen)
-                .await {
+                .await
+            {
                 Ok(pipe_handle) => {
                     debug!(actor = ?node_handle, pipe = ?pipe_handle, "created output pipe");
                 }
@@ -298,7 +297,8 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         }
 
         let stdout = self.alloc_channel_handle();
-        self.channels.insert(stdout, Channel::Writer { node_handle });
+        self.channels
+            .insert(stdout, Channel::Writer { node_handle });
         trace!(actor = ?node_handle, channel = ?stdout, "stdout configured");
 
         StdHandles { stdin, stdout }
@@ -340,9 +340,11 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         // Create output pipe for this actor if it doesn't exist yet
         if !self.pipe_pool.has_pipe(node_handle) {
             let pipe_name = format!("pipes/actor-{}", node_handle.id());
-            match self.pipe_pool
+            match self
+                .pipe_pool
                 .create_output_pipe(node_handle, &pipe_name, &self.id_gen)
-                .await {
+                .await
+            {
                 Ok(_) => {
                     debug!(node = ?node_handle, "created pipe");
                 }

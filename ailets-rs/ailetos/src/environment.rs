@@ -109,12 +109,7 @@ impl<K: KVBuffers> Environment<K> {
     ///
     /// # Returns
     /// The handle to the created node
-    pub fn add_node(
-        &mut self,
-        idname: String,
-        deps: &[Handle],
-        explain: Option<String>,
-    ) -> Handle {
+    pub fn add_node(&mut self, idname: String, deps: &[Handle], explain: Option<String>) -> Handle {
         let handle = self
             .dag
             .add_node_with_explain(idname, NodeKind::Concrete, explain);
@@ -187,7 +182,9 @@ impl<K: KVBuffers> Environment<K> {
 
             match result {
                 Ok(()) => debug!(node = ?node_handle, name = %idname, "value node completed"),
-                Err(e) => warn!(node = ?node_handle, name = %idname, error = %e, "value node error"),
+                Err(e) => {
+                    warn!(node = ?node_handle, name = %idname, error = %e, "value node error");
+                }
             }
 
             runtime.close_all_handles();
@@ -250,9 +247,16 @@ impl<K: KVBuffers> Environment<K> {
 
             // Check if this is a value node
             let task = if let Some(value_data) = value_nodes.get(&node_handle).cloned() {
-                Some(Self::spawn_value_node_task(node_handle, idname.clone(), value_data, runtime))
+                Some(Self::spawn_value_node_task(
+                    node_handle,
+                    idname.clone(),
+                    value_data,
+                    runtime,
+                ))
             } else {
-                actor_registry.get(&idname).map(|actor_fn| Self::spawn_actor_node_task(node_handle, idname.clone(), actor_fn, runtime))
+                actor_registry.get(&idname).map(|actor_fn| {
+                    Self::spawn_actor_node_task(node_handle, idname.clone(), actor_fn, runtime)
+                })
             };
 
             if let Some(task) = task {
@@ -288,8 +292,13 @@ impl<K: KVBuffers> Environment<K> {
         });
 
         // Spawn actor tasks
-        let actor_tasks =
-            Self::spawn_actor_tasks(&dag, target, &system_tx, &self.actor_registry, &self.value_nodes);
+        let actor_tasks = Self::spawn_actor_tasks(
+            &dag,
+            target,
+            &system_tx,
+            &self.actor_registry,
+            &self.value_nodes,
+        );
 
         // Wait for system runtime
         if let Err(e) = system_task.await {

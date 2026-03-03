@@ -40,24 +40,26 @@ impl<K: KVBuffers> PipePool<K> {
     ///
     /// # Errors
     /// Returns an error if creating the buffer fails or if the actor already has a pipe
-    pub async fn create_output_pipe(&self, actor_handle: Handle, name: &str, id_gen: &IdGen) -> Result<Handle, crate::io::KVError> {
+    pub async fn create_output_pipe(
+        &self,
+        actor_handle: Handle,
+        name: &str,
+        id_gen: &IdGen,
+    ) -> Result<Handle, crate::io::KVError> {
         // Check if actor already has a pipe (lock scope)
         {
             let pipes = self.pipes.lock();
             if pipes.iter().any(|(h, _)| *h == actor_handle) {
-                return Err(crate::io::KVError::AlreadyExists(
-                    format!("Actor {actor_handle:?} already has an output pipe")
-                ));
+                return Err(crate::io::KVError::AlreadyExists(format!(
+                    "Actor {actor_handle:?} already has an output pipe"
+                )));
             }
         }
 
         let writer_handle = Handle::new(id_gen.get_next());
 
         // Get buffer from KV store (outside lock)
-        let buffer = self
-            .kv
-            .open(name, OpenMode::Write)
-            .await?;
+        let buffer = self.kv.open(name, OpenMode::Write).await?;
 
         let pipe = Pipe::new(writer_handle, self.notification_queue.clone(), name, buffer);
 
@@ -81,9 +83,7 @@ impl<K: KVBuffers> PipePool<K> {
     #[must_use]
     pub fn get_pipe(&self, actor_handle: Handle) -> Option<PipeRef<'_>> {
         let pipes = self.pipes.lock();
-        let index = pipes
-            .iter()
-            .position(|(h, _)| *h == actor_handle)?;
+        let index = pipes.iter().position(|(h, _)| *h == actor_handle)?;
         Some(PipeRef {
             guard: pipes,
             index,
@@ -109,13 +109,19 @@ impl<K: KVBuffers> PipePool<K> {
     ///
     /// # Errors
     /// Returns an error if creating the buffer fails
-    pub async fn create_merge_writer(&self, name: &str, id_gen: &IdGen) -> Result<Writer, crate::io::KVError> {
+    pub async fn create_merge_writer(
+        &self,
+        name: &str,
+        id_gen: &IdGen,
+    ) -> Result<Writer, crate::io::KVError> {
         let writer_handle = Handle::new(id_gen.get_next());
-        let buffer = self
-            .kv
-            .open(name, OpenMode::Write)
-            .await?;
-        Ok(Writer::new(writer_handle, self.notification_queue.clone(), name, buffer))
+        let buffer = self.kv.open(name, OpenMode::Write).await?;
+        Ok(Writer::new(
+            writer_handle,
+            self.notification_queue.clone(),
+            name,
+            buffer,
+        ))
     }
 
     /// Flush the buffer for the given actor's pipe
@@ -124,10 +130,12 @@ impl<K: KVBuffers> PipePool<K> {
     /// Returns an error if flushing fails or if the pipe doesn't exist
     pub async fn flush_buffer(&self, actor_handle: Handle) -> Result<(), crate::io::KVError> {
         let buffer = {
-            let pipe_ref = self.get_pipe(actor_handle)
-                .ok_or_else(|| crate::io::KVError::NotFound(format!("Pipe for actor {actor_handle:?}")))?;
-            let writer = pipe_ref.writer()
-                .ok_or_else(|| crate::io::KVError::NotFound(format!("Writer for actor {actor_handle:?}")))?;
+            let pipe_ref = self.get_pipe(actor_handle).ok_or_else(|| {
+                crate::io::KVError::NotFound(format!("Pipe for actor {actor_handle:?}"))
+            })?;
+            let writer = pipe_ref.writer().ok_or_else(|| {
+                crate::io::KVError::NotFound(format!("Writer for actor {actor_handle:?}"))
+            })?;
             writer.buffer()
         }; // pipe_ref dropped here, lock released
         self.kv.flush_buffer(&buffer).await
@@ -147,7 +155,9 @@ impl PipeRef<'_> {
     /// as the index is validated in `get_pipe()` and the lock is held).
     #[must_use]
     pub fn writer(&self) -> Option<&Writer> {
-        if let Some((_, pipe)) = self.guard.get(self.index) { Some(pipe.writer()) } else {
+        if let Some((_, pipe)) = self.guard.get(self.index) {
+            Some(pipe.writer())
+        } else {
             error!(
                 index = self.index,
                 "CRITICAL: PipeRef index invalid despite lock held"
@@ -162,7 +172,9 @@ impl PipeRef<'_> {
     /// as the index is validated in `get_pipe()` and the lock is held).
     #[must_use]
     pub fn get_reader(&self, reader_handle: Handle) -> Option<Reader> {
-        if let Some((_, pipe)) = self.guard.get(self.index) { Some(pipe.get_reader(reader_handle)) } else {
+        if let Some((_, pipe)) = self.guard.get(self.index) {
+            Some(pipe.get_reader(reader_handle))
+        } else {
             error!(
                 index = self.index,
                 "CRITICAL: PipeRef index invalid despite lock held"

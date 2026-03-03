@@ -145,7 +145,9 @@ impl Writer {
             if shared.buffer.append(data).is_ok() {
                 // Safe conversion from usize to isize
                 // On 64-bit platforms, check if length exceeds isize::MAX
-                if let Ok(n) = isize::try_from(data.len()) { n } else {
+                if let Ok(n) = isize::try_from(data.len()) {
+                    n
+                } else {
                     // Write succeeded but length exceeds isize::MAX
                     // This should never happen in practice with realistic I/O sizes
                     error!(

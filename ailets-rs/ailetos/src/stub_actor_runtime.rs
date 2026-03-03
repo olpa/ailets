@@ -220,10 +220,14 @@ impl ActorRuntime for BlockingActorRuntime {
 
         // Look up the channel handle for this fd
         let channel_handle = match self.fd_table.lock() {
-            Ok(table) => if let Some(handle) = table.get(fd) { handle } else {
-                warn!(actor = ?self.node_handle, fd = fd, "aread: fd not found");
-                return -1;
-            },
+            Ok(table) => {
+                if let Some(handle) = table.get(fd) {
+                    handle
+                } else {
+                    warn!(actor = ?self.node_handle, fd = fd, "aread: fd not found");
+                    return -1;
+                }
+            }
             Err(e) => {
                 error!(actor = ?self.node_handle, fd = fd, error = ?e, "aread: fd_table lock poisoned");
                 return -1;
@@ -269,10 +273,14 @@ impl ActorRuntime for BlockingActorRuntime {
 
         // Look up the channel handle for this fd
         let channel_handle = match self.fd_table.lock() {
-            Ok(table) => if let Some(handle) = table.get(fd) { handle } else {
-                warn!(actor = ?self.node_handle, fd = fd, "awrite: fd not found");
-                return -1;
-            },
+            Ok(table) => {
+                if let Some(handle) = table.get(fd) {
+                    handle
+                } else {
+                    warn!(actor = ?self.node_handle, fd = fd, "awrite: fd not found");
+                    return -1;
+                }
+            }
             Err(e) => {
                 error!(actor = ?self.node_handle, fd = fd, error = ?e, "awrite: fd_table lock poisoned");
                 return -1;
@@ -308,10 +316,14 @@ impl ActorRuntime for BlockingActorRuntime {
 
         // Look up and remove the channel handle for this fd
         let channel_handle = match self.fd_table.lock() {
-            Ok(mut table) => if let Some(handle) = table.remove(fd) { handle } else {
-                warn!(actor = ?self.node_handle, fd = fd, "aclose: fd not found");
-                return -1;
-            },
+            Ok(mut table) => {
+                if let Some(handle) = table.remove(fd) {
+                    handle
+                } else {
+                    warn!(actor = ?self.node_handle, fd = fd, "aclose: fd not found");
+                    return -1;
+                }
+            }
             Err(e) => {
                 error!(actor = ?self.node_handle, fd = fd, error = ?e, "aclose: fd_table lock poisoned");
                 return -1;
