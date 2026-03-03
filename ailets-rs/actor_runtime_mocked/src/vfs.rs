@@ -246,9 +246,7 @@ impl Vfs {
 
     #[must_use]
     pub fn get_errno(&self) -> isize {
-        #[allow(clippy::cast_possible_truncation)]
-        let errno_i16 = self.io_errno.load(Ordering::Relaxed) as i16;
-        isize::from(errno_i16)
+        self.io_errno.load(Ordering::Relaxed) as isize
     }
 }
 
