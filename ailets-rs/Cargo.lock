@@ -71,6 +71,7 @@ dependencies = [
  "getrandom",
  "log",
  "parking_lot",
+ "rusqlite",
  "tokio",
  "tracing",
 ]
@@ -197,8 +198,6 @@ dependencies = [
  "cat",
  "embedded-io",
  "futures",
- "parking_lot",
- "rusqlite",
  "tokio",
  "tracing",
  "tracing-subscriber",

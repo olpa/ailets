@@ -19,8 +19,8 @@
 
 #![allow(clippy::expect_used)]
 
-use crate::flush_coordinator::FlushCoordinator;
-use ailetos::{Buffer, KVBuffers, KVError, OpenMode};
+use super::flush_coordinator::FlushCoordinator;
+use crate::{Buffer, KVBuffers, KVError, OpenMode};
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use std::collections::HashMap;

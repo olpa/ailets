@@ -3,8 +3,7 @@
 use std::sync::Arc;
 
 use ailetos::idgen::Handle;
-use ailetos::Environment;
-use cli::sqlitekv::SqliteKV;
+use ailetos::{Environment, SqliteKV};
 use cli::stdin_source;
 use tracing::info;
 
