@@ -7,18 +7,6 @@ use ailetos::{Environment, SqliteKV};
 use cli::stdin_source;
 use tracing::info;
 
-/// Build the data flow graph
-///
-/// This matches the Python version in example.py:
-/// ```python
-/// def build_flow(env: Environment) -> None:
-///     val = env.dagops.add_value_node(...)
-///     stdin = env.dagops.add_node("stdin", stdin_actor, [], ...)
-///     foo = env.dagops.add_node("foo", copy_actor, [Dependency(stdin.name)], ...)
-///     bar = env.dagops.add_node("bar", copy_actor, [Dependency(val.name), Dependency(foo.name)], ...)
-///     baz = env.dagops.add_node("baz", copy_actor, [Dependency(bar.name)], ...)
-///     env.dagops.alias(".end", baz.name)
-/// ```
 fn build_flow(env: &mut Environment<SqliteKV>) -> Handle {
     let val = env.add_value_node(
         "(mee too)".as_bytes().to_vec(),
@@ -29,9 +17,9 @@ fn build_flow(env: &mut Environment<SqliteKV>) -> Handle {
         &[],
         Some("Read from stdin".to_string()),
     );
-    let foo = env.add_node("cat".to_string(), &[stdin], Some("Copy".to_string()));
-    let bar = env.add_node("cat".to_string(), &[val, foo], Some("Copy".to_string()));
-    let baz = env.add_node("cat".to_string(), &[bar], Some("Copy".to_string()));
+    let foo = env.add_node("cat".to_string(), &[stdin], Some("Copy.foo".to_string()));
+    let bar = env.add_node("cat".to_string(), &[val, foo], Some("Copy.bar".to_string()));
+    let baz = env.add_node("cat".to_string(), &[bar], Some("Copy.baz".to_string()));
 
     env.add_alias(".end".to_string(), baz)
 }
