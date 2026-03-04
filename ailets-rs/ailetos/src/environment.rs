@@ -300,6 +300,9 @@ impl<K: KVBuffers> Environment<K> {
             &self.value_nodes,
         );
 
+        // Drop our sender so the channel can close when all actors finish
+        drop(system_tx);
+
         // Wait for system runtime
         if let Err(e) = system_task.await {
             warn!(error = %e, "SystemRuntime task failed");
