@@ -111,7 +111,8 @@ impl Vfs {
         if let Some(vfs_index) = files.iter().position(|f| f.name == name) {
             let handle = FileHandle { vfs_index, pos: 0 };
             handles.push(handle);
-            return isize::try_from(handles.len()).unwrap_or(-1) - 1;
+            let handle_index = handles.len() - 1;
+            return isize::try_from(handle_index).unwrap_or(-1);
         }
 
         self.io_errno.store(2, Ordering::Relaxed); // ENOENT - No such file or directory
