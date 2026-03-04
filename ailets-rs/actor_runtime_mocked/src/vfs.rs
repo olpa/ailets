@@ -16,7 +16,7 @@
 /// `aread`, `awrite`:
 /// - stops on `IO_INTERRUPT` or `WANT_ERROR`.
 /// - return an error if `WANT_ERROR` is encountered.
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::Mutex;
 
 struct VfsFile {
@@ -32,7 +32,7 @@ struct FileHandle {
 pub struct Vfs {
     files: Mutex<Vec<VfsFile>>,
     handles: Mutex<Vec<FileHandle>>,
-    io_errno: AtomicI32,
+    io_errno: AtomicIsize,
 }
 
 pub const WANT_ERROR: char = '\u{0001}';
@@ -50,7 +50,7 @@ impl Vfs {
         Self {
             files: Mutex::new(Vec::new()),
             handles: Mutex::new(Vec::new()),
-            io_errno: AtomicI32::new(0),
+            io_errno: AtomicIsize::new(0),
         }
     }
 
@@ -247,7 +247,7 @@ impl Vfs {
 
     #[must_use]
     pub fn get_errno(&self) -> isize {
-        self.io_errno.load(Ordering::Relaxed) as isize
+        self.io_errno.load(Ordering::Relaxed)
     }
 }
 

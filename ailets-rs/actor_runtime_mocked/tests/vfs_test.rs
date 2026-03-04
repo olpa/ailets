@@ -101,7 +101,7 @@ fn read_returns_all_content() {
     let mut buffer = [0u8; 32];
     let bytes_read = vfs.aread(fd, &mut buffer);
 
-    assert_eq!(bytes_read, content.len() as i32);
+    assert_eq!(bytes_read, content.len() as isize);
     assert_eq!(&buffer[..content.len()], content);
 
     // Verify EOF (should return 0 bytes)
@@ -166,7 +166,7 @@ fn write_returns_bytes_written() {
     let content = b"Hello world!";
     let bytes_written = vfs.awrite(fd, content);
 
-    assert_eq!(bytes_written, content.len() as i32);
+    assert_eq!(bytes_written, content.len() as isize);
 
     // Verify written content
     let written = vfs.get_file("test").unwrap();
@@ -184,7 +184,7 @@ fn write_all_content() {
     // Write some content
     let content = b"Hello world!";
     let bytes_written = vfs.awrite(fd, content);
-    assert_eq!(bytes_written, content.len() as i32);
+    assert_eq!(bytes_written, content.len() as isize);
 
     // Verify written content
     let written = vfs.get_file("test").unwrap();
