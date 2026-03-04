@@ -123,12 +123,49 @@ impl Dag {
         }
     }
 
-    /// Prints the dependency tree for a given node
+    /// Prints the dependency tree for a given node (no colors)
+    ///
+    /// If the starting node is an alias, it is skipped and its resolved
+    /// dependencies are printed as root nodes instead.
     #[must_use]
     pub fn dump(&self, pid: Handle) -> String {
+        self.dump_impl(pid, false)
+    }
+
+    /// Prints the dependency tree for a given node with ANSI colors
+    ///
+    /// If the starting node is an alias, it is skipped and its resolved
+    /// dependencies are printed as root nodes instead.
+    #[must_use]
+    pub fn dump_colored(&self, pid: Handle) -> String {
+        self.dump_impl(pid, true)
+    }
+
+    fn dump_impl(&self, pid: Handle, use_colors: bool) -> String {
         let mut output = String::new();
         let mut visited = HashSet::new();
-        self.dump_recursive(pid, "", true, &mut output, &mut visited);
+
+        // If starting from an alias, skip it and dump its resolved dependencies
+        if let Some(node) = self.get_node(pid) {
+            if node.kind == NodeKind::Alias {
+                let deps: Vec<Handle> = self.resolve_dependencies(pid).collect();
+                for (idx, &dep_pid) in deps.iter().enumerate() {
+                    let is_last = idx == deps.len() - 1;
+                    self.dump_recursive(
+                        dep_pid,
+                        "",
+                        is_last,
+                        true,
+                        use_colors,
+                        &mut output,
+                        &mut visited,
+                    );
+                }
+                return output;
+            }
+        }
+
+        self.dump_recursive(pid, "", true, true, use_colors, &mut output, &mut visited);
         output
     }
 
@@ -137,21 +174,44 @@ impl Dag {
         pid: Handle,
         prefix: &str,
         is_last: bool,
+        is_root: bool,
+        use_colors: bool,
         output: &mut String,
         visited: &mut HashSet<Handle>,
     ) {
+        // ANSI color codes
+        const GREEN: &str = "\x1b[32m";
+        const YELLOW: &str = "\x1b[33m";
+        const MAGENTA: &str = "\x1b[35m";
+        const RESET: &str = "\x1b[0m";
+
         // Get node info
         let Some(node) = self.get_node(pid) else {
             let _ = writeln!(output, "{prefix}├── [PID {pid:?} not found]");
             return;
         };
 
-        // Format the current node line
-        let connector = if is_last { "└── " } else { "├── " };
-        let state_symbol = match node.state {
-            NodeState::NotStarted => "⋯ not built",
-            NodeState::Running => "⚙ running",
-            NodeState::Terminated => "✓ built",
+        // Format the current node line (root nodes have no connector)
+        let connector = if is_root {
+            ""
+        } else if is_last {
+            "└── "
+        } else {
+            "├── "
+        };
+
+        let state_symbol = if use_colors {
+            match node.state {
+                NodeState::NotStarted => format!("{YELLOW}⋯ not built{RESET}"),
+                NodeState::Running => format!("{MAGENTA}⚙ running{RESET}"),
+                NodeState::Terminated => format!("{GREEN}✓ built{RESET}"),
+            }
+        } else {
+            match node.state {
+                NodeState::NotStarted => "⋯ not built".to_string(),
+                NodeState::Running => "⚙ running".to_string(),
+                NodeState::Terminated => "✓ built".to_string(),
+            }
         };
 
         let explain_suffix = node
@@ -168,7 +228,13 @@ impl Dag {
 
         // Check for cycles
         if visited.contains(&pid) {
-            let extension = if is_last { "    " } else { "│   " };
+            let extension = if is_root {
+                ""
+            } else if is_last {
+                "    "
+            } else {
+                "│   "
+            };
             let _ = writeln!(output, "{prefix}{extension}[circular reference]");
             return;
         }
@@ -181,13 +247,25 @@ impl Dag {
             return;
         }
 
-        // Prepare prefix for children
-        let child_prefix = format!("{}{}", prefix, if is_last { "    " } else { "│   " });
+        // Prepare prefix for children (root nodes have no prefix extension)
+        let child_prefix = if is_root {
+            String::new()
+        } else {
+            format!("{}{}", prefix, if is_last { "    " } else { "│   " })
+        };
 
         // Recursively dump dependencies
         for (idx, &dep_pid) in deps.iter().enumerate() {
             let is_last_child = idx == deps.len() - 1;
-            self.dump_recursive(dep_pid, &child_prefix, is_last_child, output, visited);
+            self.dump_recursive(
+                dep_pid,
+                &child_prefix,
+                is_last_child,
+                false,
+                use_colors,
+                output,
+                visited,
+            );
         }
 
         visited.remove(&pid);

@@ -1,24 +1,12 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::disallowed_names)]
 
+use std::io::IsTerminal;
 use std::sync::Arc;
 
 use ailetos::idgen::Handle;
 use ailetos::{Environment, SqliteKV};
 use cli::stdin_source;
-use tracing::info;
 
-/// Build the data flow graph
-///
-/// This matches the Python version in example.py:
-/// ```python
-/// def build_flow(env: Environment) -> None:
-///     val = env.dagops.add_value_node(...)
-///     stdin = env.dagops.add_node("stdin", stdin_actor, [], ...)
-///     foo = env.dagops.add_node("foo", copy_actor, [Dependency(stdin.name)], ...)
-///     bar = env.dagops.add_node("bar", copy_actor, [Dependency(val.name), Dependency(foo.name)], ...)
-///     baz = env.dagops.add_node("baz", copy_actor, [Dependency(bar.name)], ...)
-///     env.dagops.alias(".end", baz.name)
-/// ```
 fn build_flow(env: &mut Environment<SqliteKV>) -> Handle {
     let val = env.add_value_node(
         "(mee too)".as_bytes().to_vec(),
@@ -29,9 +17,9 @@ fn build_flow(env: &mut Environment<SqliteKV>) -> Handle {
         &[],
         Some("Read from stdin".to_string()),
     );
-    let foo = env.add_node("cat".to_string(), &[stdin], Some("Copy".to_string()));
-    let bar = env.add_node("cat".to_string(), &[val, foo], Some("Copy".to_string()));
-    let baz = env.add_node("cat".to_string(), &[bar], Some("Copy".to_string()));
+    let foo = env.add_node("cat".to_string(), &[stdin], Some("Copy.foo".to_string()));
+    let bar = env.add_node("cat".to_string(), &[val, foo], Some("Copy.bar".to_string()));
+    let baz = env.add_node("cat".to_string(), &[bar], Some("Copy.baz".to_string()));
 
     env.add_alias(".end".to_string(), baz)
 }
@@ -61,8 +49,13 @@ async fn main() {
     // Build the flow
     let end_node = build_flow(&mut env);
 
-    // Print dependency tree
-    info!("Dependency tree:\n{}", env.dag.dump(end_node));
+    // Print dependency tree (with colors if stdout is a terminal)
+    let tree = if std::io::stdout().is_terminal() {
+        env.dag.dump_colored(end_node)
+    } else {
+        env.dag.dump(end_node)
+    };
+    print!("{tree}");
 
     // TODO: Attach host stdout to the output actor
 

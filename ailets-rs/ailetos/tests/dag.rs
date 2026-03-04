@@ -4,6 +4,52 @@ use ailetos::dag::*;
 use ailetos::{Handle, IdGen};
 
 // --------------------------------------------------------------------
+// Colored Dump Tests
+//
+
+#[test]
+fn test_dump_colored_shows_ansi_codes() {
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
+    let built = dag.add_node("built_node".to_string(), NodeKind::Concrete);
+    dag.set_state(built, NodeState::Terminated);
+
+    let output = dag.dump_colored(built);
+    // Should contain green ANSI code for built status
+    assert!(
+        output.contains("\x1b[32m"),
+        "Should contain green ANSI code, got: {:?}",
+        output
+    );
+    assert!(
+        output.contains("\x1b[0m"),
+        "Should contain reset ANSI code"
+    );
+}
+
+#[test]
+fn test_dump_colored_different_states() {
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
+
+    let root = dag.add_node("root".to_string(), NodeKind::Concrete);
+    let running = dag.add_node("running_node".to_string(), NodeKind::Concrete);
+    let not_built = dag.add_node("pending_node".to_string(), NodeKind::Concrete);
+
+    dag.set_state(running, NodeState::Running);
+    // not_built stays NotStarted
+
+    dag.add_dependency(For(root), DependsOn(running));
+    dag.add_dependency(For(root), DependsOn(not_built));
+
+    let output = dag.dump_colored(root);
+    // Yellow for not built
+    assert!(output.contains("\x1b[33m"), "Should contain yellow for not built");
+    // Magenta for running
+    assert!(output.contains("\x1b[35m"), "Should contain magenta for running");
+}
+
+// --------------------------------------------------------------------
 // Node Creation and Basic Operations
 //
 
@@ -423,6 +469,12 @@ fn test_dump_single_node() {
     let output = dag.dump(pid);
     assert!(output.contains("root"));
     assert!(output.contains("⋯ not built"));
+    // Root node should not have tree connector prefix
+    assert!(
+        output.starts_with("root."),
+        "Root should not have └── prefix, got: {}",
+        output
+    );
 }
 
 #[test]
@@ -560,4 +612,50 @@ fn test_dump_with_alias_resolution() {
     assert!(output.contains("node1"));
     assert!(output.contains("node2"));
     assert!(!output.contains("alias_name")); // Alias name should NOT appear
+}
+
+#[test]
+fn test_dump_starting_from_alias_skips_alias() {
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
+    let node1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
+    let alias = dag.add_node(".end".to_string(), NodeKind::Alias);
+    dag.add_dependency(For(alias), DependsOn(node1));
+
+    let output = dag.dump(alias);
+    // When starting from an alias, the alias itself should not be printed
+    assert!(!output.contains(".end"), "Alias should not appear in dump");
+    assert!(output.contains("node1"), "Target node should appear");
+    // Should have exactly one line (just node1)
+    assert_eq!(output.lines().count(), 1, "Should only have the concrete node");
+}
+
+#[test]
+fn test_dump_starting_from_alias_with_multiple_targets() {
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
+    let node1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
+    let node2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
+    let alias = dag.add_node(".end".to_string(), NodeKind::Alias);
+    dag.add_dependency(For(alias), DependsOn(node1));
+    dag.add_dependency(For(alias), DependsOn(node2));
+
+    let output = dag.dump(alias);
+    // When starting from an alias with multiple targets, all targets should appear
+    assert!(!output.contains(".end"), "Alias should not appear in dump");
+    assert!(output.contains("node1"), "First target should appear");
+    assert!(output.contains("node2"), "Second target should appear");
+    // Root nodes should not have tree connectors
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines.len(), 2, "Should have two root nodes");
+    assert!(
+        lines[0].starts_with("node"),
+        "First line should start with node name, got: {}",
+        lines[0]
+    );
+    assert!(
+        lines[1].starts_with("node"),
+        "Second line should start with node name, got: {}",
+        lines[1]
+    );
 }
