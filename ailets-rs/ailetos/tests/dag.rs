@@ -561,3 +561,39 @@ fn test_dump_with_alias_resolution() {
     assert!(output.contains("node2"));
     assert!(!output.contains("alias_name")); // Alias name should NOT appear
 }
+
+#[test]
+fn test_dump_starting_from_alias_skips_alias() {
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
+    let node1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
+    let alias = dag.add_node(".end".to_string(), NodeKind::Alias);
+    dag.add_dependency(For(alias), DependsOn(node1));
+
+    let output = dag.dump(alias);
+    // When starting from an alias, the alias itself should not be printed
+    assert!(!output.contains(".end"), "Alias should not appear in dump");
+    assert!(output.contains("node1"), "Target node should appear");
+    // Should have exactly one line (just node1)
+    assert_eq!(output.lines().count(), 1, "Should only have the concrete node");
+}
+
+#[test]
+fn test_dump_starting_from_alias_with_multiple_targets() {
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
+    let node1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
+    let node2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
+    let alias = dag.add_node(".end".to_string(), NodeKind::Alias);
+    dag.add_dependency(For(alias), DependsOn(node1));
+    dag.add_dependency(For(alias), DependsOn(node2));
+
+    let output = dag.dump(alias);
+    // When starting from an alias with multiple targets, all targets should appear
+    assert!(!output.contains(".end"), "Alias should not appear in dump");
+    assert!(output.contains("node1"), "First target should appear");
+    assert!(output.contains("node2"), "Second target should appear");
+    // Should have two root nodes (├── for first, └── for last)
+    assert!(output.contains("├──"), "Should have first sibling connector");
+    assert!(output.contains("└──"), "Should have last sibling connector");
+}

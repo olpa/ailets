@@ -124,10 +124,26 @@ impl Dag {
     }
 
     /// Prints the dependency tree for a given node
+    ///
+    /// If the starting node is an alias, it is skipped and its resolved
+    /// dependencies are printed as root nodes instead.
     #[must_use]
     pub fn dump(&self, pid: Handle) -> String {
         let mut output = String::new();
         let mut visited = HashSet::new();
+
+        // If starting from an alias, skip it and dump its resolved dependencies
+        if let Some(node) = self.get_node(pid) {
+            if node.kind == NodeKind::Alias {
+                let deps: Vec<Handle> = self.resolve_dependencies(pid).collect();
+                for (idx, &dep_pid) in deps.iter().enumerate() {
+                    let is_last = idx == deps.len() - 1;
+                    self.dump_recursive(dep_pid, "", is_last, &mut output, &mut visited);
+                }
+                return output;
+            }
+        }
+
         self.dump_recursive(pid, "", true, &mut output, &mut visited);
         output
     }
