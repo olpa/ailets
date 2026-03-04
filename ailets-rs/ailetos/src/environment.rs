@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::{debug, error, warn};
 
-use crate::dag::{Dag, DependsOn, For, NodeKind};
+use crate::dag::{Dag, DependsOn, For, NodeKind, NodeState};
 use crate::idgen::{Handle, IdGen};
 use crate::scheduler::Scheduler;
 use crate::{BlockingActorRuntime, IoRequest, KVBuffers, SystemRuntime};
@@ -94,6 +94,9 @@ impl<K: KVBuffers> Environment<K> {
         let handle = self
             .dag
             .add_node_with_explain("value".into(), NodeKind::Concrete, explain);
+
+        // Value nodes are considered "built" at creation since their output is static
+        self.dag.set_state(handle, NodeState::Terminated);
 
         self.value_nodes.insert(handle, ValueNodeData { data });
 
