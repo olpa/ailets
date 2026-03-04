@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 use crate::dag::{Dag, DependsOn, For, NodeKind};
 use crate::idgen::{Handle, IdGen};
@@ -32,6 +32,7 @@ pub struct ActorRegistry {
 }
 
 impl ActorRegistry {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             actors: HashMap::new(),
@@ -44,11 +45,9 @@ impl ActorRegistry {
     }
 
     /// Get an actor function by name
-    pub fn get(&self, name: &str) -> ActorFn {
-        self.actors
-            .get(name)
-            .copied()
-            .unwrap_or_else(|| panic!("Actor '{}' not registered", name))
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<ActorFn> {
+        self.actors.get(name).copied()
     }
 }
 
@@ -110,12 +109,7 @@ impl<K: KVBuffers> Environment<K> {
     ///
     /// # Returns
     /// The handle to the created node
-    pub fn add_node(
-        &mut self,
-        idname: String,
-        deps: &[Handle],
-        explain: Option<String>,
-    ) -> Handle {
+    pub fn add_node(&mut self, idname: String, deps: &[Handle], explain: Option<String>) -> Handle {
         let handle = self
             .dag
             .add_node_with_explain(idname, NodeKind::Concrete, explain);
@@ -135,16 +129,19 @@ impl<K: KVBuffers> Environment<K> {
     }
 
     /// Get a node by handle
+    #[must_use]
     pub fn get_node(&self, handle: Handle) -> Option<&crate::dag::Node> {
         self.dag.get_node(handle)
     }
 
     /// Check if a node is a value node
+    #[must_use]
     pub fn is_value_node(&self, handle: Handle) -> bool {
         self.value_nodes.contains_key(&handle)
     }
 
     /// Get value data for a value node
+    #[must_use]
     pub fn get_value_data(&self, handle: Handle) -> Option<&[u8]> {
         self.value_nodes.get(&handle).map(|v| v.data.as_slice())
     }
@@ -171,21 +168,23 @@ impl<K: KVBuffers> Environment<K> {
             // Write the value data
             let result = awriter
                 .write_all(&value_data.data)
-                .map_err(|e| format!("Failed to write value: {:?}", e))
-                .and_then(|_| {
+                .map_err(|e| format!("Failed to write value: {e:?}"))
+                .and_then(|()| {
                     awriter
                         .close()
-                        .map_err(|e| format!("Failed to close writer: {:?}", e))
+                        .map_err(|e| format!("Failed to close writer: {e:?}"))
                 })
-                .and_then(|_| {
+                .and_then(|()| {
                     areader
                         .close()
-                        .map_err(|e| format!("Failed to close reader: {:?}", e))
+                        .map_err(|e| format!("Failed to close reader: {e:?}"))
                 });
 
             match result {
                 Ok(()) => debug!(node = ?node_handle, name = %idname, "value node completed"),
-                Err(e) => warn!(node = ?node_handle, name = %idname, error = %e, "value node error"),
+                Err(e) => {
+                    warn!(node = ?node_handle, name = %idname, error = %e, "value node error");
+                }
             }
 
             runtime.close_all_handles();
@@ -216,7 +215,7 @@ impl<K: KVBuffers> Environment<K> {
             match result {
                 Ok(()) => debug!(node = ?node_handle, name = %idname, "task completed"),
                 Err(e) => {
-                    warn!(node = ?node_handle, name = %idname, error = %e, "task error")
+                    warn!(node = ?node_handle, name = %idname, error = %e, "task error");
                 }
             }
 
@@ -229,7 +228,7 @@ impl<K: KVBuffers> Environment<K> {
     fn spawn_actor_tasks(
         dag: &Arc<Dag>,
         target: Handle,
-        system_tx: mpsc::UnboundedSender<IoRequest>,
+        system_tx: &mpsc::UnboundedSender<IoRequest>,
         actor_registry: &ActorRegistry,
         value_nodes: &HashMap<Handle, ValueNodeData>,
     ) -> Vec<tokio::task::JoinHandle<()>> {
@@ -237,7 +236,10 @@ impl<K: KVBuffers> Environment<K> {
         let mut tasks = Vec::new();
 
         for node_handle in scheduler.iter() {
-            let node = dag.get_node(node_handle).expect("node exists");
+            let Some(node) = dag.get_node(node_handle) else {
+                warn!(node = ?node_handle, "node not found in DAG, skipping");
+                continue;
+            };
             let idname = node.idname.clone();
             debug!(node = ?node_handle, name = %idname, "spawning actor task");
 
@@ -245,13 +247,23 @@ impl<K: KVBuffers> Environment<K> {
 
             // Check if this is a value node
             let task = if let Some(value_data) = value_nodes.get(&node_handle).cloned() {
-                Self::spawn_value_node_task(node_handle, idname, value_data, runtime)
+                Some(Self::spawn_value_node_task(
+                    node_handle,
+                    idname.clone(),
+                    value_data,
+                    runtime,
+                ))
             } else {
-                let actor_fn = actor_registry.get(&idname);
-                Self::spawn_actor_node_task(node_handle, idname, actor_fn, runtime)
+                actor_registry.get(&idname).map(|actor_fn| {
+                    Self::spawn_actor_node_task(node_handle, idname.clone(), actor_fn, runtime)
+                })
             };
 
-            tasks.push(task);
+            if let Some(task) = task {
+                tasks.push(task);
+            } else if !value_nodes.contains_key(&node_handle) {
+                warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
+            }
         }
 
         tasks
@@ -269,7 +281,10 @@ impl<K: KVBuffers> Environment<K> {
         let system_runtime = SystemRuntime::new(Arc::clone(&dag), Arc::clone(&self.kv), self.idgen);
 
         // Get sender before moving system_runtime
-        let system_tx = system_runtime.get_system_tx();
+        let Some(system_tx) = system_runtime.get_system_tx() else {
+            error!("Failed to get system_tx - system runtime already started");
+            return;
+        };
 
         // Spawn SystemRuntime task
         let system_task = tokio::spawn(async move {
@@ -277,8 +292,13 @@ impl<K: KVBuffers> Environment<K> {
         });
 
         // Spawn actor tasks
-        let actor_tasks =
-            Self::spawn_actor_tasks(&dag, target, system_tx, &self.actor_registry, &self.value_nodes);
+        let actor_tasks = Self::spawn_actor_tasks(
+            &dag,
+            target,
+            &system_tx,
+            &self.actor_registry,
+            &self.value_nodes,
+        );
 
         // Wait for system runtime
         if let Err(e) = system_task.await {

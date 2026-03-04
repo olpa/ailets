@@ -17,8 +17,6 @@
 //! - `Connection` trait bounds: <https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html>
 //! - Multi-threaded usage discussion: <https://github.com/rusqlite/rusqlite/issues/342>
 
-#![allow(clippy::expect_used)]
-
 use super::flush_coordinator::FlushCoordinator;
 use crate::{Buffer, KVBuffers, KVError, OpenMode};
 use parking_lot::Mutex;
@@ -69,7 +67,8 @@ impl SqliteKV {
 
         // Create flush function that captures connection
         let flush_conn = Arc::clone(&conn);
-        let flush_fn: FlushFn = Box::new(move |path: String, data: Vec<u8>| -> Result<(), String> {
+        let flush_fn: FlushFn =
+            Box::new(move |path: String, data: Vec<u8>| -> Result<(), String> {
                 let conn = flush_conn.lock();
                 conn.execute(
                     "INSERT OR REPLACE INTO vfs (path, data) VALUES (?, ?)",
@@ -122,9 +121,7 @@ impl KVBuffers for SqliteKV {
                     .ok_or_else(|| KVError::NotFound(path.to_string()))?;
 
                 let buffer = Buffer::new();
-                buffer
-                    .append(&data)
-                    .expect("Failed to append data to buffer");
+                buffer.append(&data)?;
                 buffers.insert(path.to_string(), buffer.clone());
                 Ok(buffer)
             }
@@ -142,9 +139,7 @@ impl KVBuffers for SqliteKV {
                 // Try loading from database
                 if let Ok(Some(data)) = self.load_from_db(path) {
                     let buffer = Buffer::new();
-                    buffer
-                        .append(&data)
-                        .expect("Failed to append data to buffer");
+                    buffer.append(&data)?;
                     buffers.insert(path.to_string(), buffer.clone());
                     Ok(buffer)
                 } else {

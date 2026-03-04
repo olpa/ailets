@@ -16,8 +16,7 @@
 /// `aread`, `awrite`:
 /// - stops on `IO_INTERRUPT` or `WANT_ERROR`.
 /// - return an error if `WANT_ERROR` is encountered.
-use std::os::raw::c_int;
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::Mutex;
 
 struct VfsFile {
@@ -33,7 +32,7 @@ struct FileHandle {
 pub struct Vfs {
     files: Mutex<Vec<VfsFile>>,
     handles: Mutex<Vec<FileHandle>>,
-    io_errno: AtomicI32,
+    io_errno: AtomicIsize,
 }
 
 pub const WANT_ERROR: char = '\u{0001}';
@@ -51,7 +50,7 @@ impl Vfs {
         Self {
             files: Mutex::new(Vec::new()),
             handles: Mutex::new(Vec::new()),
-            io_errno: AtomicI32::new(0),
+            io_errno: AtomicIsize::new(0),
         }
     }
 
@@ -104,7 +103,7 @@ impl Vfs {
 
     #[allow(clippy::missing_panics_doc)]
     #[allow(clippy::unwrap_used)]
-    pub fn open_read(&self, name: &str) -> c_int {
+    pub fn open_read(&self, name: &str) -> isize {
         self.io_errno.store(0, Ordering::Relaxed);
         let files = self.files.lock().unwrap();
         let mut handles = self.handles.lock().unwrap();
@@ -112,7 +111,8 @@ impl Vfs {
         if let Some(vfs_index) = files.iter().position(|f| f.name == name) {
             let handle = FileHandle { vfs_index, pos: 0 };
             handles.push(handle);
-            return c_int::try_from(handles.len()).unwrap_or(-1) - 1;
+            let handle_index = handles.len() - 1;
+            return isize::try_from(handle_index).unwrap_or(-1);
         }
 
         self.io_errno.store(2, Ordering::Relaxed); // ENOENT - No such file or directory
@@ -121,7 +121,7 @@ impl Vfs {
 
     #[allow(clippy::missing_panics_doc)]
     #[allow(clippy::unwrap_used)]
-    pub fn open_write(&self, name: &str) -> c_int {
+    pub fn open_write(&self, name: &str) -> isize {
         self.io_errno.store(0, Ordering::Relaxed);
         let mut files = self.files.lock().unwrap();
         let mut handles = self.handles.lock().unwrap();
@@ -141,7 +141,7 @@ impl Vfs {
         handles.push(handle);
         let handle_index = handles.len() - 1;
 
-        c_int::try_from(handle_index).unwrap_or_else(|_| {
+        isize::try_from(handle_index).unwrap_or_else(|_| {
             self.io_errno.store(-1, Ordering::Relaxed);
             -1
         })
@@ -149,7 +149,7 @@ impl Vfs {
 
     #[allow(clippy::missing_panics_doc)]
     #[allow(clippy::unwrap_used)]
-    pub fn aread(&self, fd: c_int, buffer: &mut [u8]) -> c_int {
+    pub fn aread(&self, fd: isize, buffer: &mut [u8]) -> isize {
         self.io_errno.store(0, Ordering::Relaxed);
         let files = self.files.lock().unwrap();
         let mut handles = self.handles.lock().unwrap();
@@ -190,7 +190,7 @@ impl Vfs {
 
     #[allow(clippy::missing_panics_doc)]
     #[allow(clippy::unwrap_used)]
-    pub fn awrite(&self, fd: c_int, buffer: &[u8]) -> c_int {
+    pub fn awrite(&self, fd: isize, buffer: &[u8]) -> isize {
         self.io_errno.store(0, Ordering::Relaxed);
         let mut files = self.files.lock().unwrap();
         let handles = self.handles.lock().unwrap();
@@ -229,7 +229,7 @@ impl Vfs {
 
     #[allow(clippy::missing_panics_doc)]
     #[allow(clippy::unwrap_used)]
-    pub fn aclose(&self, fd: c_int) -> c_int {
+    pub fn aclose(&self, fd: isize) -> isize {
         self.io_errno.store(0, Ordering::Relaxed);
         let mut handles = self.handles.lock().unwrap();
 
@@ -246,7 +246,7 @@ impl Vfs {
     }
 
     #[must_use]
-    pub fn get_errno(&self) -> c_int {
+    pub fn get_errno(&self) -> isize {
         self.io_errno.load(Ordering::Relaxed)
     }
 }
@@ -293,27 +293,27 @@ impl Default for VfsActorRuntime {
 }
 
 impl actor_runtime::ActorRuntime for VfsActorRuntime {
-    fn get_errno(&self) -> c_int {
+    fn get_errno(&self) -> isize {
         self.vfs.get_errno()
     }
 
-    fn open_read(&self, name: &str) -> c_int {
+    fn open_read(&self, name: &str) -> isize {
         self.vfs.open_read(name)
     }
 
-    fn open_write(&self, name: &str) -> c_int {
+    fn open_write(&self, name: &str) -> isize {
         self.vfs.open_write(name)
     }
 
-    fn aread(&self, fd: c_int, buffer: &mut [u8]) -> c_int {
+    fn aread(&self, fd: isize, buffer: &mut [u8]) -> isize {
         self.vfs.aread(fd, buffer)
     }
 
-    fn awrite(&self, fd: c_int, buffer: &[u8]) -> c_int {
+    fn awrite(&self, fd: isize, buffer: &[u8]) -> isize {
         self.vfs.awrite(fd, buffer)
     }
 
-    fn aclose(&self, fd: c_int) -> c_int {
+    fn aclose(&self, fd: isize) -> isize {
         self.vfs.aclose(fd)
     }
 }

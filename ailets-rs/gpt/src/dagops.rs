@@ -11,13 +11,13 @@ pub trait DagOpsTrait {
     ///
     /// # Errors
     /// Returns an error if the node creation fails.
-    fn value_node(&mut self, value: &[u8], explain: &str) -> Result<i32, String>;
+    fn value_node(&mut self, value: &[u8], explain: &str) -> Result<isize, String>;
 
     /// Creates an alias for a node handle.
     ///
     /// # Errors
     /// Returns an error if the alias creation fails.
-    fn alias(&mut self, alias: &str, node_handle: i32) -> Result<i32, String>;
+    fn alias(&mut self, alias: &str, node_handle: isize) -> Result<isize, String>;
 
     /// Detaches a node from its alias.
     ///
@@ -32,26 +32,26 @@ pub trait DagOpsTrait {
     fn instantiate_with_deps(
         &mut self,
         workflow_name: &str,
-        deps: impl Iterator<Item = (String, i32)>,
-    ) -> Result<i32, String>;
+        deps: impl Iterator<Item = (String, isize)>,
+    ) -> Result<isize, String>;
 
     /// Opens a write pipe.
     ///
     /// # Errors
     /// Returns an error if the pipe creation fails.
-    fn open_write_pipe(&mut self, explain: Option<&str>) -> Result<i32, String>;
+    fn open_write_pipe(&mut self, explain: Option<&str>) -> Result<isize, String>;
 
     /// Creates an alias for a file descriptor.
     ///
     /// # Errors
     /// Returns an error if the alias creation fails.
-    fn alias_fd(&mut self, alias: &str, fd: i32) -> Result<i32, String>;
+    fn alias_fd(&mut self, alias: &str, fd: isize) -> Result<isize, String>;
 
     /// Opens a writer to a pipe for testing/mocking.
     ///
     /// # Errors
     /// Returns an error if the writer creation fails.
-    fn open_writer_to_pipe(&mut self, fd: i32) -> Result<Self::Writer, String>;
+    fn open_writer_to_pipe(&mut self, fd: isize) -> Result<Self::Writer, String>;
 }
 
 pub struct DagOps<'a> {
@@ -69,11 +69,11 @@ impl<'a> DagOps<'a> {
 impl<'a> DagOpsTrait for DagOps<'a> {
     type Writer = actor_io::AWriter<'a>;
 
-    fn value_node(&mut self, value: &[u8], explain: &str) -> Result<i32, String> {
+    fn value_node(&mut self, value: &[u8], explain: &str) -> Result<isize, String> {
         actor_runtime::value_node(value, explain)
     }
 
-    fn alias(&mut self, alias: &str, node_handle: i32) -> Result<i32, String> {
+    fn alias(&mut self, alias: &str, node_handle: isize) -> Result<isize, String> {
         actor_runtime::alias(alias, node_handle)
     }
 
@@ -84,20 +84,20 @@ impl<'a> DagOpsTrait for DagOps<'a> {
     fn instantiate_with_deps(
         &mut self,
         workflow_name: &str,
-        deps: impl Iterator<Item = (String, i32)>,
-    ) -> Result<i32, String> {
+        deps: impl Iterator<Item = (String, isize)>,
+    ) -> Result<isize, String> {
         actor_runtime::instantiate_with_deps(workflow_name, deps)
     }
 
-    fn open_write_pipe(&mut self, explain: Option<&str>) -> Result<i32, String> {
+    fn open_write_pipe(&mut self, explain: Option<&str>) -> Result<isize, String> {
         actor_runtime::open_write_pipe(explain)
     }
 
-    fn alias_fd(&mut self, alias: &str, fd: i32) -> Result<i32, String> {
+    fn alias_fd(&mut self, alias: &str, fd: isize) -> Result<isize, String> {
         actor_runtime::alias_fd(alias, fd)
     }
 
-    fn open_writer_to_pipe(&mut self, fd: i32) -> Result<Self::Writer, String> {
+    fn open_writer_to_pipe(&mut self, fd: isize) -> Result<Self::Writer, String> {
         actor_io::AWriter::new_from_fd(self.runtime, fd)
             .map_err(|e| actor_io::error_kind_to_str(e).to_string())
     }

@@ -9,6 +9,7 @@ pub struct Scheduler<'a> {
 }
 
 impl<'a> Scheduler<'a> {
+    #[must_use]
     pub fn new(dag: &'a Dag, target: Handle) -> Self {
         Self { dag, target }
     }

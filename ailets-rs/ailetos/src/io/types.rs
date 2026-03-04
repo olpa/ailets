@@ -19,17 +19,29 @@ pub enum OpenMode {
 pub enum KVError {
     /// Path was not found in the store
     NotFound(String),
+    /// Buffer operation failed
+    BufferError(super::buffer::BufferError),
+    /// Attempted to create a duplicate resource
+    AlreadyExists(String),
 }
 
 impl std::fmt::Display for KVError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::NotFound(path) => write!(f, "Path not found: {path}"),
+            Self::BufferError(e) => write!(f, "Buffer error: {e}"),
+            Self::AlreadyExists(msg) => write!(f, "Already exists: {msg}"),
         }
     }
 }
 
 impl std::error::Error for KVError {}
+
+impl From<super::buffer::BufferError> for KVError {
+    fn from(e: super::buffer::BufferError) -> Self {
+        Self::BufferError(e)
+    }
+}
 
 /// Trait for key-value buffer storage backends
 ///
@@ -58,9 +70,6 @@ pub trait KVBuffers: Send + Sync {
     /// Flush a buffer to persistent storage (if applicable).
     ///
     /// For in-memory implementations, this is a no-op.
-    /// For persistent implementations (e.g., SQLite), this writes the buffer to storage.
-    fn flush_buffer(
-        &self,
-        buffer: &Buffer,
-    ) -> impl Future<Output = Result<(), KVError>> + Send;
+    /// For persistent implementations (e.g., `SQLite`), this writes the buffer to storage.
+    fn flush_buffer(&self, buffer: &Buffer) -> impl Future<Output = Result<(), KVError>> + Send;
 }

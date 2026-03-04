@@ -1,6 +1,6 @@
-//! MergeReader - sequential reader over multiple dependency inputs
+//! `MergeReader` - sequential reader over multiple dependency inputs
 //!
-//! MergeReader provides a unified stdin stream for actors by reading from
+//! `MergeReader` provides a unified stdin stream for actors by reading from
 //! dependencies sequentially. When one dependency's reader reaches EOF,
 //! it transparently switches to the next dependency.
 //!
@@ -8,6 +8,8 @@
 //! dependencies, resolving aliases automatically.
 
 use std::sync::Arc;
+
+use tracing::warn;
 
 use crate::dag::OwnedDependencyIterator;
 use crate::idgen::{Handle, IdGen};
@@ -17,13 +19,13 @@ use crate::pipepool::PipePool;
 
 /// A reader that sequentially reads from multiple dependency inputs.
 ///
-/// MergeReader uses an `OwnedDependencyIterator` to lazily traverse dependencies.
+/// `MergeReader` uses an `OwnedDependencyIterator` to lazily traverse dependencies.
 /// When the current reader returns EOF, it automatically advances to the next
 /// dependency and continues reading. Alias nodes are resolved by the iterator.
 ///
 /// # Usage
 ///
-/// MergeReader is always used for stdin, regardless of dependency count:
+/// `MergeReader` is always used for stdin, regardless of dependency count:
 /// - 0 dependencies: immediately returns EOF
 /// - 1 dependency: reads from that single dependency
 /// - N dependencies: reads from each in sequence
@@ -32,14 +34,14 @@ pub struct MergeReader<K: KVBuffers> {
     current_reader: Option<Reader>,
     /// Iterator over dependency handles (resolves aliases)
     dep_iterator: OwnedDependencyIterator,
-    /// Pool of pipes to get ReaderSharedData from dependency handles
+    /// Pool of pipes to get `ReaderSharedData` from dependency handles
     pipe_pool: Arc<PipePool<K>>,
     /// ID generator for creating reader handles
     id_gen: Arc<IdGen>,
 }
 
 impl<K: KVBuffers> MergeReader<K> {
-    /// Create a new MergeReader with a dependency iterator and pipe pool.
+    /// Create a new `MergeReader` with a dependency iterator and pipe pool.
     ///
     /// # Arguments
     ///
@@ -62,23 +64,14 @@ impl<K: KVBuffers> MergeReader<K> {
 
     /// Create a reader for the next dependency from the iterator.
     ///
-    /// # Panics
-    ///
-    /// Panics if the dependency's pipe doesn't exist.
-    /// TODO: async pipe creation, see #227
+    /// Returns `None` if there are no more dependencies or if a dependency's pipe doesn't exist.
     fn create_next_reader(&mut self) -> Option<Reader> {
-        self.dep_iterator.next().map(|dep_handle| {
-            // Panic if pipe doesn't exist - see #227 for async pipe creation
-            assert!(
-                self.pipe_pool.has_pipe(dep_handle),
-                "Dependency pipe for {:?} doesn't exist. TODO: async pipe creation, see #227",
-                dep_handle
-            );
-
+        self.dep_iterator.next().and_then(|dep_handle| {
             let handle = Handle::new(self.id_gen.get_next());
-            let pipe = self.pipe_pool.get_pipe(dep_handle);
-            let shared_data = pipe.writer().share_with_reader();
-            Reader::new(handle, shared_data)
+            let pipe = self.pipe_pool.get_pipe(dep_handle)?;
+            let writer = pipe.writer()?;
+            let shared_data = writer.share_with_reader();
+            Some(Reader::new(handle, shared_data))
         })
     }
 
@@ -92,6 +85,7 @@ impl<K: KVBuffers> MergeReader<K> {
     /// - Positive value: number of bytes read
     /// - 0: EOF (all dependencies exhausted)
     /// - -1: error (check underlying reader's error)
+    ///
     pub async fn read(&mut self, buf: &mut [u8]) -> isize {
         loop {
             // Ensure we have a reader for the current dependency
@@ -108,25 +102,24 @@ impl<K: KVBuffers> MergeReader<K> {
             }
 
             // Read from current reader
-            // SAFETY: We just ensured current_reader is Some above
-            #[allow(clippy::unwrap_used)]
-            let reader = self.current_reader.as_mut().unwrap();
-            let n = reader.read(buf).await;
+            if let Some(reader) = self.current_reader.as_mut() {
+                let n = reader.read(buf).await;
 
-            match n.cmp(&0) {
-                std::cmp::Ordering::Greater => {
-                    // Successfully read data
-                    return n;
+                match n.cmp(&0) {
+                    std::cmp::Ordering::Equal => {
+                        // EOF from current reader, move to next dependency
+                        self.current_reader = None;
+                        // Loop continues to try the next dependency
+                    }
+                    std::cmp::Ordering::Greater | std::cmp::Ordering::Less => {
+                        // Successfully read data (positive) or error (negative)
+                        return n;
+                    }
                 }
-                std::cmp::Ordering::Equal => {
-                    // EOF from current reader, move to next dependency
-                    self.current_reader = None;
-                    // Loop continues to try the next dependency
-                }
-                std::cmp::Ordering::Less => {
-                    // Error from reader
-                    return n;
-                }
+            } else {
+                // Should not happen: we checked is_none() above
+                warn!("MergeReader: current_reader is None unexpectedly");
+                return 0;
             }
         }
     }
@@ -156,11 +149,7 @@ impl<K: KVBuffers> MergeReader<K> {
 
 impl<K: KVBuffers> std::fmt::Debug for MergeReader<K> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "MergeReader(current_reader={:?})",
-            self.current_reader
-        )
+        write!(f, "MergeReader(current_reader={:?})", self.current_reader)
     }
 }
 
