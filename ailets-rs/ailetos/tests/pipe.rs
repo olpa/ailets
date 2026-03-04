@@ -14,7 +14,7 @@ async fn test_write_read() {
     let _reader_handle = *reader.handle();
 
     // Write some data
-    let n = pipe.writer().write(b"Hello");
+    let n = pipe.write(b"Hello");
     assert_eq!(n, 5);
 
     // Read it back
@@ -35,9 +35,9 @@ async fn test_multiple_write_read_cycles() {
     let mut reader = pipe.get_reader(Handle::new(2));
 
     // Cycle 1: write-write-read
-    assert_eq!(pipe.writer().write(b"Hello"), 5);
-    assert_eq!(pipe.writer().write(b" "), 1);
-    assert_eq!(pipe.writer().write(b"World"), 5);
+    assert_eq!(pipe.write(b"Hello"), 5);
+    assert_eq!(pipe.write(b" "), 1);
+    assert_eq!(pipe.write(b"World"), 5);
 
     let mut buf = [0u8; 20];
     let n = reader.read(&mut buf).await;
@@ -45,23 +45,23 @@ async fn test_multiple_write_read_cycles() {
     assert_eq!(&buf[..n as usize], b"Hello World");
 
     // Cycle 2: write-write-read
-    assert_eq!(pipe.writer().write(b"Foo"), 3);
-    assert_eq!(pipe.writer().write(b"Bar"), 3);
+    assert_eq!(pipe.write(b"Foo"), 3);
+    assert_eq!(pipe.write(b"Bar"), 3);
 
     let n = reader.read(&mut buf).await;
     assert_eq!(n, 6);
     assert_eq!(&buf[..n as usize], b"FooBar");
 
     // Cycle 3: write-write-read
-    assert_eq!(pipe.writer().write(b"Test"), 4);
-    assert_eq!(pipe.writer().write(b"123"), 3);
+    assert_eq!(pipe.write(b"Test"), 4);
+    assert_eq!(pipe.write(b"123"), 3);
 
     let n = reader.read(&mut buf).await;
     assert_eq!(n, 7);
     assert_eq!(&buf[..n as usize], b"Test123");
 
     // Cycle 4: single write, partial read
-    assert_eq!(pipe.writer().write(b"LongMessage"), 11);
+    assert_eq!(pipe.write(b"LongMessage"), 11);
 
     let mut small_buf = [0u8; 5];
     let n = reader.read(&mut small_buf).await;
@@ -87,7 +87,7 @@ async fn test_multiple_readers() {
     let _reader2_handle = *reader2.handle();
 
     // Write data
-    let n = pipe.writer().write(b"Broadcast");
+    let n = pipe.write(b"Broadcast");
     assert_eq!(n, 9);
 
     // Both readers should get the same data
@@ -118,7 +118,7 @@ async fn test_close_sends_notification() {
         .expect("Failed to subscribe");
 
     // Close the writer
-    pipe.writer().close();
+    pipe.close_writer();
 
     // Verify notification was sent with -1
     let notification = subscriber
@@ -136,7 +136,7 @@ async fn test_close_unlists_handle() {
     let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     // Close the writer
-    pipe.writer().close();
+    pipe.close_writer();
 
     // Try to subscribe to the handle - should return None because it's unlisted
     let result = queue.subscribe(writer_handle, 10, "test_subscriber");
@@ -156,7 +156,7 @@ async fn test_write_notifies_observers() {
         .expect("Failed to subscribe");
 
     // Write non-empty data - this should notify observers
-    let n = pipe.writer().write(b"Hello");
+    let n = pipe.write(b"Hello");
     assert_eq!(n, 5);
 
     // Verify notification was sent
@@ -180,7 +180,7 @@ async fn test_empty_write_does_not_notify() {
         .expect("Failed to subscribe");
 
     // Empty write should succeed and return 0
-    let n = pipe.writer().write(b"");
+    let n = pipe.write(b"");
     assert_eq!(n, 0);
 
     // Verify NO notification was sent for empty write
@@ -189,7 +189,7 @@ async fn test_empty_write_does_not_notify() {
     assert!(result.is_err()); // Should be empty, no notification sent
 
     // Now write actual data
-    let n = pipe.writer().write(b"Hello");
+    let n = pipe.write(b"Hello");
     assert_eq!(n, 5);
 
     // Verify notification WAS sent for non-empty write
@@ -200,7 +200,7 @@ async fn test_empty_write_does_not_notify() {
     assert_eq!(notification, 5);
 
     // Another empty write after real data
-    let n = pipe.writer().write(b"");
+    let n = pipe.write(b"");
     assert_eq!(n, 0);
 
     // Again, verify NO notification for empty write
@@ -232,7 +232,7 @@ async fn test_empty_write_does_not_wake_waiting_reader() {
     });
 
     // Empty write should NOT wake the reader
-    let n = pipe.writer().write(b"");
+    let n = pipe.write(b"");
     assert_eq!(n, 0);
 
     // Verify NO notification was sent
@@ -247,7 +247,7 @@ async fn test_empty_write_does_not_wake_waiting_reader() {
     );
 
     // Now write actual data - this SHOULD wake the reader
-    let n = pipe.writer().write(b"Hello");
+    let n = pipe.write(b"Hello");
     assert_eq!(n, 5);
 
     // Verify notification was sent
@@ -271,10 +271,10 @@ async fn test_empty_write_on_closed_writer() {
     let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     // Close the writer
-    pipe.writer().close();
+    pipe.close_writer();
 
     // Empty write on closed writer should return -1 (error)
-    let result = pipe.writer().write(b"");
+    let result = pipe.write(b"");
     assert_eq!(result, -1);
 }
 
@@ -286,12 +286,12 @@ async fn test_empty_write_with_errno() {
     let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     // Set error
-    pipe.writer().set_error(42);
+    pipe.set_writer_error(42);
 
     // Empty write should return -1 (error), not 0
-    let result = pipe.writer().write(b"");
+    let result = pipe.write(b"");
     assert_eq!(result, -1);
-    assert_eq!(pipe.writer().get_error(), 42);
+    assert_eq!(pipe.get_writer_error(), 42);
 }
 
 #[tokio::test]
@@ -303,7 +303,7 @@ async fn test_reader_dont_read_when_error() {
     let mut reader = pipe.get_reader(Handle::new(2));
 
     // Write some data
-    assert_eq!(pipe.writer().write(b"hello"), 5);
+    assert_eq!(pipe.write(b"hello"), 5);
 
     // Set reader's own error
     reader.set_error(42);
@@ -330,7 +330,7 @@ async fn test_reader_get_writer_error() {
     let reader = pipe.get_reader(Handle::new(2));
 
     // Writer sets error
-    pipe.writer().set_error(99);
+    pipe.set_writer_error(99);
 
     // Reader should see writer's error
     assert_eq!(reader.get_error(), 99);
@@ -345,7 +345,7 @@ async fn test_reader_read_with_writer_error() {
     let mut reader = pipe.get_reader(Handle::new(2));
 
     // Write some data
-    assert_eq!(pipe.writer().write(b"test"), 4);
+    assert_eq!(pipe.write(b"test"), 4);
 
     // Reader reads the data successfully
     let mut buf = [0u8; 10];
@@ -354,7 +354,7 @@ async fn test_reader_read_with_writer_error() {
     assert_eq!(&buf[..4], b"test");
 
     // Writer sets error
-    pipe.writer().set_error(88);
+    pipe.set_writer_error(88);
 
     // Next read should return -1 (error)
     let result = reader.read(&mut buf).await;
@@ -369,10 +369,10 @@ async fn test_reader_drains_buffer_before_error() {
     let pipe = Pipe::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     // Write some data
-    assert_eq!(pipe.writer().write(b"buffered"), 8);
+    assert_eq!(pipe.write(b"buffered"), 8);
 
     // Writer sets error while data is still unread
-    pipe.writer().set_error(77);
+    pipe.set_writer_error(77);
 
     // Create reader after error is set
     let mut reader = pipe.get_reader(Handle::new(2));
@@ -409,7 +409,7 @@ async fn test_writer_error_notifies_reader() {
     });
 
     // Writer sets error - should notify
-    pipe.writer().set_error(55);
+    pipe.set_writer_error(55);
 
     // Verify notification was sent (negative errno)
     let notification = subscriber
@@ -432,7 +432,7 @@ async fn test_reader_own_error_takes_precedence() {
     let mut reader = pipe.get_reader(Handle::new(2));
 
     // Writer sets error
-    pipe.writer().set_error(5);
+    pipe.set_writer_error(5);
 
     // Reader sets own error
     reader.set_error(10);
@@ -456,13 +456,13 @@ async fn test_reader_error_checked_before_writer() {
     let mut reader = pipe.get_reader(Handle::new(2));
 
     // Write some data
-    assert_eq!(pipe.writer().write(b"data"), 4);
+    assert_eq!(pipe.write(b"data"), 4);
 
     // Reader sets own error first
     reader.set_error(15);
 
     // Writer sets error after
-    pipe.writer().set_error(20);
+    pipe.set_writer_error(20);
 
     // Reader should see its own error
     assert_eq!(reader.get_error(), 15);
@@ -508,7 +508,7 @@ async fn test_writer_set_error_notifies() {
         .expect("Failed to subscribe");
 
     // Writer sets error and notifies
-    pipe.writer().set_error(123);
+    pipe.set_writer_error(123);
 
     // Verify notification was sent (negative errno)
     let notification = subscriber

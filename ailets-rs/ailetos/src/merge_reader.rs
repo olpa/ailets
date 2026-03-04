@@ -64,15 +64,24 @@ impl<K: KVBuffers> MergeReader<K> {
 
     /// Create a reader for the next dependency from the iterator.
     ///
-    /// Returns `None` if there are no more dependencies or if a dependency's pipe doesn't exist.
+    /// Returns `None` if there are no more dependencies.
+    /// Creates a latent pipe if the dependency hasn't written yet.
     fn create_next_reader(&mut self) -> Option<Reader> {
-        self.dep_iterator.next().and_then(|dep_handle| {
+        self.dep_iterator.next().map(|dep_handle| {
             let handle = Handle::new(self.id_gen.get_next());
             // Dependencies always output to stdout
-            let pipe = self.pipe_pool.get_pipe(dep_handle, actor_runtime::StdHandle::Stdout)?;
-            let writer = pipe.writer()?;
-            let shared_data = writer.share_with_reader();
-            Some(Reader::new(handle, shared_data))
+            // Use OrCreateLatent to create the pipe if it doesn't exist yet
+            let pipe = self
+                .pipe_pool
+                .get_pipe(
+                    dep_handle,
+                    actor_runtime::StdHandle::Stdout,
+                    crate::pipepool::PipeAccess::OrCreateLatent,
+                )
+                .expect("OrCreateLatent should always return Some");
+            // Get a reader that works for both latent and realized pipes
+            pipe.get_reader(handle)
+                .expect("get_reader should always succeed")
         })
     }
 

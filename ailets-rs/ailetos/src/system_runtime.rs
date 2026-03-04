@@ -83,7 +83,7 @@ use crate::dag::{Dag, OwnedDependencyIterator};
 use crate::idgen::{Handle, IdGen};
 use crate::merge_reader::MergeReader;
 use crate::notification_queue::NotificationQueueArc;
-use crate::pipepool::{PipeCreatedEvent, PipePool};
+use crate::pipepool::PipePool;
 use crate::KVBuffers;
 
 /// Global unique identifier for a pipe endpoint (reader or writer)
@@ -246,10 +246,6 @@ pub struct SystemRuntime<K: KVBuffers> {
     request_rx: mpsc::UnboundedReceiver<IoRequest>,
     /// ID generator for handles
     id_gen: Arc<IdGen>,
-    /// Registry of pending stream attachments
-    attachment_registry: HashMap<(Handle, actor_runtime::StdHandle), AttachmentConfig>,
-    /// Receives notifications when pipes are created
-    pipe_created_rx: mpsc::UnboundedReceiver<PipeCreatedEvent>,
     /// Spawned attachment tasks (tracked for graceful shutdown)
     attachment_tasks: Vec<tokio::task::JoinHandle<()>>,
 }
@@ -257,33 +253,33 @@ pub struct SystemRuntime<K: KVBuffers> {
 impl<K: KVBuffers + 'static> SystemRuntime<K> {
     pub fn new(dag: Arc<Dag>, kv: Arc<K>, id_gen: Arc<IdGen>) -> Self {
         let (system_tx, request_rx) = mpsc::unbounded_channel();
-        let (pipe_created_tx, pipe_created_rx) = mpsc::unbounded_channel();
         let notification_queue = NotificationQueueArc::new();
 
         Self {
             dag,
-            pipe_pool: Arc::new(PipePool::new(kv, notification_queue, Some(pipe_created_tx))),
+            pipe_pool: Arc::new(PipePool::new(kv, notification_queue)),
             channels: HashMap::new(),
             next_channel_id: 0,
             system_tx: Some(system_tx),
             request_rx,
             id_gen,
-            attachment_registry: HashMap::new(),
-            pipe_created_rx,
             attachment_tasks: Vec::new(),
         }
     }
 
-    /// Register a stream attachment for a specific actor and handle
+    /// Register and immediately spawn a stream attachment
     ///
-    /// The attachment will be spawned when the corresponding pipe is created.
+    /// With latent pipes, attachments can be spawned immediately.
+    /// They will block reading until the pipe is realized by the actor.
     pub fn register_attachment(
         &mut self,
         node_handle: Handle,
         std_handle: actor_runtime::StdHandle,
         config: AttachmentConfig,
     ) {
-        self.attachment_registry.insert((node_handle, std_handle), config);
+        debug!(node = ?node_handle, std = ?std_handle, config = ?config, "spawning attachment immediately");
+        let task = self.spawn_attachment(node_handle, std_handle, config);
+        self.attachment_tasks.push(task);
     }
 
     /// Pre-open standard handles (stdin, stdout) for an actor just before it runs.
@@ -459,36 +455,34 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
             // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
             Box::pin(async move {
-                // Lazy pipe creation: create pipe on first write
-                if !pipe_pool.has_pipe(node_handle, std_handle) {
-                    let pipe_name = format!("pipes/actor-{}-{:?}", node_handle.id(), std_handle);
-                    trace!(node = ?node_handle, std = ?std_handle, "creating pipe lazily on first write");
-
-                    if let Err(e) = pipe_pool
-                        .create_output_pipe(node_handle, std_handle, &pipe_name, &id_gen)
-                        .await
-                    {
-                        warn!(node = ?node_handle, std = ?std_handle, error = %e, "failed to create pipe");
-                        return IoEvent::SyncComplete {
-                            result: -1,
-                            response,
-                        };
-                    }
-                    // Pipe created, notification sent automatically by PipePool
+                // Realize pipe on first write (transitions latent -> realized or creates as realized)
+                let writer_handle = Handle::new(id_gen.get_next());
+                if let Err(e) = pipe_pool
+                    .realize_pipe(node_handle, std_handle, writer_handle)
+                    .await
+                {
+                    warn!(node = ?node_handle, std = ?std_handle, error = %e, "failed to realize pipe");
+                    return IoEvent::SyncComplete {
+                        result: -1,
+                        response,
+                    };
                 }
 
-                // Write to pipe
-                let result = if let Some(pipe) = pipe_pool.get_pipe(node_handle, std_handle) {
-                    if let Some(writer) = pipe.writer() {
-                        let n = writer.write(&data);
+                // Write to pipe using ExistingOnly since we just realized it
+                let result = if let Some(pipe) = pipe_pool.get_pipe(
+                    node_handle,
+                    std_handle,
+                    crate::pipepool::PipeAccess::ExistingOnly,
+                ) {
+                    if let Some(n) = pipe.write(&data) {
                         trace!(bytes = n, "pipe write completed");
                         n
                     } else {
-                        warn!(node = ?node_handle, std = ?std_handle, "writer not accessible");
+                        warn!(node = ?node_handle, std = ?std_handle, "pipe not realized (unexpected)");
                         -1
                     }
                 } else {
-                    warn!(node = ?node_handle, std = ?std_handle, "pipe not found after creation");
+                    warn!(node = ?node_handle, std = ?std_handle, "pipe not found after realization");
                     -1
                 };
 
@@ -530,15 +524,17 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                     })
                 }
                 Channel::Writer { node_handle, std_handle } => {
-                    if let Some(pipe) = self.pipe_pool.get_pipe(node_handle, std_handle) {
-                        if let Some(writer) = pipe.writer() {
-                            writer.close();
-                            trace!(channel = ?handle, "closed writer");
-                        } else {
-                            warn!(channel = ?handle, node = ?node_handle, "writer not accessible (internal error)");
-                        }
+                    // Only close existing pipes - don't create latent pipes on close
+                    if let Some(pipe) = self.pipe_pool.get_pipe(
+                        node_handle,
+                        std_handle,
+                        crate::pipepool::PipeAccess::ExistingOnly,
+                    ) {
+                        pipe.close_writer();
+                        trace!(channel = ?handle, "closed writer");
                     } else {
-                        warn!(channel = ?handle, node = ?node_handle, std = ?std_handle, "pipe not found for close");
+                        // Not a warning - pipe may not exist if actor never wrote
+                        trace!(channel = ?handle, node = ?node_handle, std = ?std_handle, "pipe not found for close (actor never wrote)");
                     }
 
                     let pipe_pool = Arc::clone(&self.pipe_pool);
@@ -592,18 +588,6 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         let _ = response.send(result);
     }
 
-    /// Handle pipe creation notification - spawn attachment if registered
-    fn handle_pipe_created(&mut self, event: PipeCreatedEvent) {
-        let key = (event.node_handle, event.std_handle);
-
-        if let Some(config) = self.attachment_registry.remove(&key) {
-            debug!(node = ?event.node_handle, std = ?event.std_handle, config = ?config, "spawning attachment");
-
-            let task = self.spawn_attachment(event.node_handle, event.std_handle, config);
-            self.attachment_tasks.push(task);
-        }
-    }
-
     /// Spawn an attachment task for reading from a pipe
     fn spawn_attachment(
         &self,
@@ -640,11 +624,10 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
         let mut pending_ops: FuturesUnordered<IoFuture<K>> = FuturesUnordered::new();
         let mut request_rx_open = true;
-        let mut pipe_created_rx_open = true;
 
         loop {
-            // Exit when no more requests/events can come and no operations are pending
-            if !request_rx_open && !pipe_created_rx_open && pending_ops.is_empty() {
+            // Exit when no more requests can come and no operations are pending
+            if !request_rx_open && pending_ops.is_empty() {
                 debug!("no more work, exiting");
                 break;
             }
@@ -679,23 +662,8 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                             }
                         }
                     } else {
-                        debug!("request channel closed");
+                        debug!("request channel closed - all actors finished");
                         request_rx_open = false;
-                        // All actors finished - no more pipes will be created
-                        // Drop the notification sender to allow pipe_created_rx to close
-                        self.pipe_pool.drop_pipe_created_tx();
-                        debug!("dropped pipe_created_tx");
-                    }
-                }
-
-                // Handle pipe creation notifications
-                event = self.pipe_created_rx.recv(), if pipe_created_rx_open => {
-                    if let Some(event) = event {
-                        trace!(node = ?event.node_handle, std = ?event.std_handle, "pipe created");
-                        self.handle_pipe_created(event);
-                    } else {
-                        debug!("pipe_created channel closed");
-                        pipe_created_rx_open = false;
                     }
                 }
 

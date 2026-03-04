@@ -25,8 +25,8 @@ pub use io::{Buffer, BufferError, BufferReadGuard};
 pub use io::{CoordinatorError, FlushCoordinator, FlushFn, SqliteKV};
 pub use io::{KVBuffers, KVError, MemKV, OpenMode};
 
-// Re-export PipePool for convenience
-pub use pipepool::PipePool;
+// Re-export PipePool and PipeAccess for convenience
+pub use pipepool::{PipeAccess, PipePool};
 
 // Re-export system runtime types for convenience
 pub use system_runtime::{

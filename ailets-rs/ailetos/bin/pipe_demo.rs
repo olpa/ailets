@@ -63,14 +63,14 @@ async fn write_all(pipe: Pipe) {
             break;
         }
 
-        let result = pipe.writer().write(trimmed.as_bytes());
+        let result = pipe.write(trimmed.as_bytes());
         if result < 0 {
-            eprintln!("Write error: errno={}", pipe.writer().get_error());
+            eprintln!("Write error: errno={}", pipe.get_writer_error());
             break;
         }
     }
 
-    pipe.writer().close();
+    pipe.close_writer();
     println!("Writer closed");
 }
 
