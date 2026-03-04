@@ -76,7 +76,7 @@ use std::sync::Arc;
 
 use futures::stream::{FuturesUnordered, StreamExt};
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::dag::{Dag, OwnedDependencyIterator};
 use crate::idgen::{Handle, IdGen};
@@ -545,7 +545,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         loop {
             // Exit when no more requests can come and no operations are pending
             if !request_rx_open && pending_ops.is_empty() {
-                info!("no more work, exiting");
+                debug!("no more work, exiting");
                 break;
             }
 

@@ -55,7 +55,7 @@ async fn main() {
     } else {
         env.dag.dump(end_node)
     };
-    println!("Dependency tree:\n{tree}");
+    print!("{tree}");
 
     // TODO: Attach host stdout to the output actor
 
