@@ -57,7 +57,9 @@ async fn main() {
     };
     print!("{tree}");
 
-    // TODO: Attach host stdout to the output actor
+    // Attach output streams to host
+    env.attach_stdout(end_node);  // Last actor's stdout → host stdout
+    env.attach_all_stderr();       // All actors' stderr → host stderr
 
     // Run the system (matches Python: env.processes.run_nodes(node_iter))
     env.run(end_node).await;

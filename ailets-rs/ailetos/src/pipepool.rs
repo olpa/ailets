@@ -1,11 +1,14 @@
 //! `PipePool` - manages output pipes for actors
 //!
-//! Each actor has one output pipe. Readers are created on-demand
+//! Each (actor, StdHandle) pair can have its own output pipe. Readers are created on-demand
 //! when consuming actors need to read from dependencies.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
+use actor_runtime::StdHandle;
 use parking_lot::Mutex;
+use tokio::sync::mpsc;
 use tracing::error;
 
 use crate::idgen::{Handle, IdGen};
@@ -13,45 +16,62 @@ use crate::io::{KVBuffers, OpenMode};
 use crate::notification_queue::NotificationQueueArc;
 use crate::pipe::{Pipe, Reader, Writer};
 
-/// Pool of output pipes, one per actor (identified by Handle)
+/// Event sent when a pipe is created
+#[derive(Debug, Clone)]
+pub struct PipeCreatedEvent {
+    pub node_handle: Handle,
+    pub std_handle: StdHandle,
+}
+
+/// Pool of output pipes, indexed by (actor handle, StdHandle) pair
 ///
 /// Uses interior mutability via `Mutex` to allow shared access through `Arc<PipePool>`.
 pub struct PipePool<K: KVBuffers> {
-    /// Output pipes indexed by producing actor's handle
-    pipes: Mutex<Vec<(Handle, Pipe)>>,
+    /// Output pipes indexed by (actor handle, StdHandle) pair
+    pipes: Mutex<HashMap<(Handle, StdHandle), Pipe>>,
     /// Shared notification queue for all pipes
     notification_queue: NotificationQueueArc,
     /// Key-value store for pipe buffers
     kv: Arc<K>,
+    /// Notifies when pipes are created (for lazy attachment spawning)
+    pipe_created_tx: Option<mpsc::UnboundedSender<PipeCreatedEvent>>,
 }
 
 impl<K: KVBuffers> PipePool<K> {
     /// Create a new empty pipe pool
     #[must_use]
-    pub fn new(kv: Arc<K>, notification_queue: NotificationQueueArc) -> Self {
+    pub fn new(
+        kv: Arc<K>,
+        notification_queue: NotificationQueueArc,
+        pipe_created_tx: Option<mpsc::UnboundedSender<PipeCreatedEvent>>,
+    ) -> Self {
         Self {
-            pipes: Mutex::new(Vec::new()),
+            pipes: Mutex::new(HashMap::new()),
             notification_queue,
             kv,
+            pipe_created_tx,
         }
     }
 
-    /// Create an output pipe for the given actor
+    /// Create an output pipe for the given actor and handle
     ///
     /// # Errors
-    /// Returns an error if creating the buffer fails or if the actor already has a pipe
+    /// Returns an error if creating the buffer fails or if the pipe already exists
     pub async fn create_output_pipe(
         &self,
         actor_handle: Handle,
+        std_handle: StdHandle,
         name: &str,
         id_gen: &IdGen,
     ) -> Result<Handle, crate::io::KVError> {
-        // Check if actor already has a pipe (lock scope)
+        let key = (actor_handle, std_handle);
+
+        // Check if pipe already exists (lock scope)
         {
             let pipes = self.pipes.lock();
-            if pipes.iter().any(|(h, _)| *h == actor_handle) {
+            if pipes.contains_key(&key) {
                 return Err(crate::io::KVError::AlreadyExists(format!(
-                    "Actor {actor_handle:?} already has an output pipe"
+                    "Pipe for actor {actor_handle:?} handle {std_handle:?} already exists"
                 )));
             }
         }
@@ -64,30 +84,44 @@ impl<K: KVBuffers> PipePool<K> {
         let pipe = Pipe::new(writer_handle, self.notification_queue.clone(), name, buffer);
 
         // Insert pipe (lock scope)
-        let mut pipes = self.pipes.lock();
-        pipes.push((actor_handle, pipe));
+        {
+            let mut pipes = self.pipes.lock();
+            pipes.insert(key, pipe);
+        }
+
+        // Send notification (outside lock)
+        if let Some(ref tx) = self.pipe_created_tx {
+            let _ = tx.send(PipeCreatedEvent {
+                node_handle: actor_handle,
+                std_handle,
+            });
+        }
 
         Ok(writer_handle)
     }
 
-    /// Check if a pipe exists for the given actor
+    /// Check if a pipe exists for the given actor and handle
     #[must_use]
-    pub fn has_pipe(&self, actor_handle: Handle) -> bool {
+    pub fn has_pipe(&self, actor_handle: Handle, std_handle: StdHandle) -> bool {
         let pipes = self.pipes.lock();
-        pipes.iter().any(|(h, _)| *h == actor_handle)
+        pipes.contains_key(&(actor_handle, std_handle))
     }
 
-    /// Get the pipe for the given actor
+    /// Get the pipe for the given actor and handle
     ///
-    /// Returns `None` if the actor doesn't have an output pipe.
+    /// Returns `None` if the pipe doesn't exist.
     #[must_use]
-    pub fn get_pipe(&self, actor_handle: Handle) -> Option<PipeRef<'_>> {
+    pub fn get_pipe(&self, actor_handle: Handle, std_handle: StdHandle) -> Option<PipeRef<'_>> {
         let pipes = self.pipes.lock();
-        let index = pipes.iter().position(|(h, _)| *h == actor_handle)?;
-        Some(PipeRef {
-            guard: pipes,
-            index,
-        })
+        let key = (actor_handle, std_handle);
+        if pipes.contains_key(&key) {
+            Some(PipeRef {
+                guard: pipes,
+                key,
+            })
+        } else {
+            None
+        }
     }
 
     /// Open a reader for the given actor's output pipe
@@ -95,10 +129,15 @@ impl<K: KVBuffers> PipePool<K> {
     /// Creates a new Reader instance. Multiple readers can be created
     /// for the same pipe.
     ///
-    /// Returns `None` if the actor doesn't have an output pipe.
+    /// Returns `None` if the pipe doesn't exist.
     #[must_use]
-    pub fn open_reader(&self, actor_handle: Handle, id_gen: &IdGen) -> Option<Reader> {
-        let pipe_ref = self.get_pipe(actor_handle)?;
+    pub fn open_reader(
+        &self,
+        actor_handle: Handle,
+        std_handle: StdHandle,
+        id_gen: &IdGen,
+    ) -> Option<Reader> {
+        let pipe_ref = self.get_pipe(actor_handle, std_handle)?;
         let reader_handle = Handle::new(id_gen.get_next());
         pipe_ref.get_reader(reader_handle)
     }
@@ -128,13 +167,21 @@ impl<K: KVBuffers> PipePool<K> {
     ///
     /// # Errors
     /// Returns an error if flushing fails or if the pipe doesn't exist
-    pub async fn flush_buffer(&self, actor_handle: Handle) -> Result<(), crate::io::KVError> {
+    pub async fn flush_buffer(
+        &self,
+        actor_handle: Handle,
+        std_handle: StdHandle,
+    ) -> Result<(), crate::io::KVError> {
         let buffer = {
-            let pipe_ref = self.get_pipe(actor_handle).ok_or_else(|| {
-                crate::io::KVError::NotFound(format!("Pipe for actor {actor_handle:?}"))
+            let pipe_ref = self.get_pipe(actor_handle, std_handle).ok_or_else(|| {
+                crate::io::KVError::NotFound(format!(
+                    "Pipe for actor {actor_handle:?} handle {std_handle:?}"
+                ))
             })?;
             let writer = pipe_ref.writer().ok_or_else(|| {
-                crate::io::KVError::NotFound(format!("Writer for actor {actor_handle:?}"))
+                crate::io::KVError::NotFound(format!(
+                    "Writer for actor {actor_handle:?} handle {std_handle:?}"
+                ))
             })?;
             writer.buffer()
         }; // pipe_ref dropped here, lock released
@@ -144,23 +191,23 @@ impl<K: KVBuffers> PipePool<K> {
 
 /// A reference to a pipe in the pool, holding the lock
 pub struct PipeRef<'a> {
-    guard: parking_lot::MutexGuard<'a, Vec<(Handle, Pipe)>>,
-    index: usize,
+    guard: parking_lot::MutexGuard<'a, HashMap<(Handle, StdHandle), Pipe>>,
+    key: (Handle, StdHandle),
 }
 
 impl PipeRef<'_> {
     /// Get the writer side of the pipe
     ///
-    /// Returns `None` if the index is invalid (should never happen in practice,
-    /// as the index is validated in `get_pipe()` and the lock is held).
+    /// Returns `None` if the key is invalid (should never happen in practice,
+    /// as the key is validated in `get_pipe()` and the lock is held).
     #[must_use]
     pub fn writer(&self) -> Option<&Writer> {
-        if let Some((_, pipe)) = self.guard.get(self.index) {
+        if let Some(pipe) = self.guard.get(&self.key) {
             Some(pipe.writer())
         } else {
             error!(
-                index = self.index,
-                "CRITICAL: PipeRef index invalid despite lock held"
+                key = ?self.key,
+                "CRITICAL: PipeRef key invalid despite lock held"
             );
             None
         }
@@ -168,16 +215,16 @@ impl PipeRef<'_> {
 
     /// Get a reader for this pipe with an explicit handle
     ///
-    /// Returns `None` if the index is invalid (should never happen in practice,
-    /// as the index is validated in `get_pipe()` and the lock is held).
+    /// Returns `None` if the key is invalid (should never happen in practice,
+    /// as the key is validated in `get_pipe()` and the lock is held).
     #[must_use]
     pub fn get_reader(&self, reader_handle: Handle) -> Option<Reader> {
-        if let Some((_, pipe)) = self.guard.get(self.index) {
+        if let Some(pipe) = self.guard.get(&self.key) {
             Some(pipe.get_reader(reader_handle))
         } else {
             error!(
-                index = self.index,
-                "CRITICAL: PipeRef index invalid despite lock held"
+                key = ?self.key,
+                "CRITICAL: PipeRef key invalid despite lock held"
             );
             None
         }

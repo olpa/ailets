@@ -65,6 +65,8 @@ pub struct Environment<K: KVBuffers> {
     pub actor_registry: ActorRegistry,
     /// Value data for value nodes (keyed by node handle)
     value_nodes: HashMap<Handle, ValueNodeData>,
+    /// Pending stream attachments to be registered when run() is called
+    pending_attachments: Vec<(Handle, actor_runtime::StdHandle, crate::system_runtime::AttachmentConfig)>,
 }
 
 impl<K: KVBuffers> Environment<K> {
@@ -79,6 +81,54 @@ impl<K: KVBuffers> Environment<K> {
             kv,
             actor_registry: ActorRegistry::new(),
             value_nodes: HashMap::new(),
+            pending_attachments: Vec::new(),
+        }
+    }
+
+    /// Attach actor's stdout to host stdout
+    ///
+    /// The attachment will be spawned when the actor first writes to stdout.
+    pub fn attach_stdout(&mut self, node_handle: Handle) {
+        self.pending_attachments.push((
+            node_handle,
+            actor_runtime::StdHandle::Stdout,
+            crate::system_runtime::AttachmentConfig::Stdout,
+        ));
+    }
+
+    /// Attach actor's stderr (Log handle) to host stderr
+    ///
+    /// The attachment will be spawned when the actor first writes to the Log handle.
+    pub fn attach_stderr(&mut self, node_handle: Handle) {
+        self.pending_attachments.push((
+            node_handle,
+            actor_runtime::StdHandle::Log,
+            crate::system_runtime::AttachmentConfig::Stderr,
+        ));
+    }
+
+    /// Attach all actors' stderr to host stderr
+    ///
+    /// Note: Call this AFTER adding all nodes to the DAG, as it only affects
+    /// nodes that have been added at the time this method is called.
+    ///
+    /// Alternatively, call `attach_stderr()` for each individual node as needed.
+    pub fn attach_all_stderr(&mut self) {
+        // Collect node handles by iterating through the possible range
+        // This is a simple implementation; alternatively we could add a method to DAG
+        let mut handles = Vec::new();
+
+        // Get ID generator's current state to know the range of possible handles
+        // We'll just try to get all nodes that might exist
+        for i in 0..1000 {  // Reasonable upper bound
+            let handle = Handle::new(i);
+            if self.dag.get_node(handle).is_some() {
+                handles.push(handle);
+            }
+        }
+
+        for handle in handles {
+            self.attach_stderr(handle);
         }
     }
 
@@ -281,7 +331,12 @@ impl<K: KVBuffers> Environment<K> {
         let dag = Arc::new(self.dag);
 
         // Create system runtime
-        let system_runtime = SystemRuntime::new(Arc::clone(&dag), Arc::clone(&self.kv), self.idgen);
+        let mut system_runtime = SystemRuntime::new(Arc::clone(&dag), Arc::clone(&self.kv), self.idgen);
+
+        // Register pending attachments
+        for (node_handle, std_handle, config) in self.pending_attachments {
+            system_runtime.register_attachment(node_handle, std_handle, config);
+        }
 
         // Get sender before moving system_runtime
         let Some(system_tx) = system_runtime.get_system_tx() else {

@@ -1,3 +1,4 @@
+pub mod attachments;
 pub mod dag;
 pub mod environment;
 pub mod idgen;
@@ -29,9 +30,12 @@ pub use pipepool::PipePool;
 
 // Re-export system runtime types for convenience
 pub use system_runtime::{
-    Channel, ChannelHandle, FdTable, IoEvent, IoFuture, IoRequest, SendableBuffer, StdHandles,
-    SystemRuntime,
+    AttachmentConfig, Channel, ChannelHandle, FdTable, IoEvent, IoFuture, IoRequest,
+    SendableBuffer, StdHandles, SystemRuntime,
 };
+
+// Re-export attachment functions
+pub use attachments::{attach_to_stderr, attach_to_stdout};
 
 // Re-export blocking actor runtime
 pub use stub_actor_runtime::BlockingActorRuntime;

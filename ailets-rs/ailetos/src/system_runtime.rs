@@ -78,11 +78,12 @@ use futures::stream::{FuturesUnordered, StreamExt};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, trace, warn};
 
+use crate::attachments::{attach_to_stderr, attach_to_stdout};
 use crate::dag::{Dag, OwnedDependencyIterator};
 use crate::idgen::{Handle, IdGen};
 use crate::merge_reader::MergeReader;
 use crate::notification_queue::NotificationQueueArc;
-use crate::pipepool::PipePool;
+use crate::pipepool::{PipeCreatedEvent, PipePool};
 use crate::KVBuffers;
 
 /// Global unique identifier for a pipe endpoint (reader or writer)
@@ -94,8 +95,11 @@ pub struct ChannelHandle(pub isize);
 pub enum Channel<K: KVBuffers> {
     /// Reader channel - holds the `MergeReader` (None when in use during async read)
     Reader(Option<MergeReader<K>>),
-    /// Writer channel - holds the actor's node handle for pipe lookup
-    Writer { node_handle: Handle },
+    /// Writer channel - holds the actor's node handle and std handle for pipe lookup
+    Writer {
+        node_handle: Handle,
+        std_handle: actor_runtime::StdHandle,
+    },
 }
 
 /// A wrapper around a raw mutable slice pointer that can be sent between threads.
@@ -216,6 +220,15 @@ pub enum IoEvent<K: KVBuffers> {
 /// Type alias for I/O futures
 pub type IoFuture<K> = Pin<Box<dyn Future<Output = IoEvent<K>> + Send>>;
 
+/// Configuration for stream attachments
+#[derive(Debug, Clone)]
+pub enum AttachmentConfig {
+    /// Attach to host stdout
+    Stdout,
+    /// Attach to host stderr
+    Stderr,
+}
+
 /// `SystemRuntime` manages all async I/O operations
 /// Actors communicate with it via channels
 pub struct SystemRuntime<K: KVBuffers> {
@@ -233,22 +246,44 @@ pub struct SystemRuntime<K: KVBuffers> {
     request_rx: mpsc::UnboundedReceiver<IoRequest>,
     /// ID generator for handles
     id_gen: Arc<IdGen>,
+    /// Registry of pending stream attachments
+    attachment_registry: HashMap<(Handle, actor_runtime::StdHandle), AttachmentConfig>,
+    /// Receives notifications when pipes are created
+    pipe_created_rx: mpsc::UnboundedReceiver<PipeCreatedEvent>,
+    /// Spawned attachment tasks (tracked for graceful shutdown)
+    attachment_tasks: Vec<tokio::task::JoinHandle<()>>,
 }
 
 impl<K: KVBuffers + 'static> SystemRuntime<K> {
     pub fn new(dag: Arc<Dag>, kv: Arc<K>, id_gen: Arc<IdGen>) -> Self {
         let (system_tx, request_rx) = mpsc::unbounded_channel();
+        let (pipe_created_tx, pipe_created_rx) = mpsc::unbounded_channel();
         let notification_queue = NotificationQueueArc::new();
 
         Self {
             dag,
-            pipe_pool: Arc::new(PipePool::new(kv, notification_queue)),
+            pipe_pool: Arc::new(PipePool::new(kv, notification_queue, Some(pipe_created_tx))),
             channels: HashMap::new(),
             next_channel_id: 0,
             system_tx: Some(system_tx),
             request_rx,
             id_gen,
+            attachment_registry: HashMap::new(),
+            pipe_created_rx,
+            attachment_tasks: Vec::new(),
         }
+    }
+
+    /// Register a stream attachment for a specific actor and handle
+    ///
+    /// The attachment will be spawned when the corresponding pipe is created.
+    pub fn register_attachment(
+        &mut self,
+        node_handle: Handle,
+        std_handle: actor_runtime::StdHandle,
+        config: AttachmentConfig,
+    ) {
+        self.attachment_registry.insert((node_handle, std_handle), config);
     }
 
     /// Pre-open standard handles (stdin, stdout) for an actor just before it runs.
@@ -277,29 +312,16 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
             .insert(stdin, Channel::Reader(Some(merge_reader)));
         trace!(actor = ?node_handle, channel = ?stdin, "stdin configured with MergeReader");
 
-        // Pre-open stdout: create output pipe
-        debug!(actor = ?node_handle, "opening stdout");
-
-        if !self.pipe_pool.has_pipe(node_handle) {
-            let pipe_name = format!("pipes/actor-{}", node_handle.id());
-            match self
-                .pipe_pool
-                .create_output_pipe(node_handle, &pipe_name, &self.id_gen)
-                .await
-            {
-                Ok(pipe_handle) => {
-                    debug!(actor = ?node_handle, pipe = ?pipe_handle, "created output pipe");
-                }
-                Err(e) => {
-                    warn!(actor = ?node_handle, error = %e, "failed to create output pipe");
-                }
-            }
-        }
+        // Pre-open stdout: just create channel handle, pipe created lazily on first write
+        debug!(actor = ?node_handle, "setting up stdout (pipe will be created on first write)");
 
         let stdout = self.alloc_channel_handle();
         self.channels
-            .insert(stdout, Channel::Writer { node_handle });
-        trace!(actor = ?node_handle, channel = ?stdout, "stdout configured");
+            .insert(stdout, Channel::Writer {
+                node_handle,
+                std_handle: actor_runtime::StdHandle::Stdout,
+            });
+        trace!(actor = ?node_handle, channel = ?stdout, "stdout configured (lazy)");
 
         StdHandles { stdin, stdout }
     }
@@ -338,11 +360,13 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         debug!(node = ?node_handle, "processing OpenWrite");
 
         // Create output pipe for this actor if it doesn't exist yet
-        if !self.pipe_pool.has_pipe(node_handle) {
+        // TODO: OpenWrite should specify which StdHandle to open, for now default to Stdout
+        let std_handle = actor_runtime::StdHandle::Stdout;
+        if !self.pipe_pool.has_pipe(node_handle, std_handle) {
             let pipe_name = format!("pipes/actor-{}", node_handle.id());
             match self
                 .pipe_pool
-                .create_output_pipe(node_handle, &pipe_name, &self.id_gen)
+                .create_output_pipe(node_handle, std_handle, &pipe_name, &self.id_gen)
                 .await
             {
                 Ok(_) => {
@@ -356,7 +380,10 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
         let channel_handle = self.alloc_channel_handle();
         self.channels
-            .insert(channel_handle, Channel::Writer { node_handle });
+            .insert(channel_handle, Channel::Writer {
+                node_handle,
+                std_handle,
+            });
         trace!(node = ?node_handle, channel = ?channel_handle, "OpenWrite created");
         let _ = response.send(channel_handle);
     }
@@ -411,7 +438,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         }
     }
 
-    /// Handler for Write requests - writes to actor's pipe
+    /// Handler for Write requests - writes to actor's pipe (creates pipe lazily)
     ///
     /// Uses the Sync-to-Async Bridge pattern (see module-level docs:
     /// "ARCHITECTURE: Sync-to-Async Bridge Pattern")
@@ -423,29 +450,60 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
     ) -> IoFuture<K> {
         trace!(channel = ?handle, bytes = data.len(), "processing Write");
 
-        let result = if let Some(Channel::Writer { node_handle }) = self.channels.get(&handle) {
+        if let Some(Channel::Writer { node_handle, std_handle }) = self.channels.get(&handle) {
             let node_handle = *node_handle;
-            trace!(channel = ?handle, "writing to pipe");
-            if let Some(pipe) = self.pipe_pool.get_pipe(node_handle) {
-                if let Some(writer) = pipe.writer() {
-                    let n = writer.write(data);
-                    trace!(channel = ?handle, bytes = n, "pipe write returned");
-                    n
-                } else {
-                    warn!(channel = ?handle, node = ?node_handle, "writer not accessible (internal error)");
-                    -1
+            let std_handle = *std_handle;
+            let pipe_pool = Arc::clone(&self.pipe_pool);
+            let id_gen = Arc::clone(&self.id_gen);
+            let data = data.to_vec();
+
+            // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
+            Box::pin(async move {
+                // Lazy pipe creation: create pipe on first write
+                if !pipe_pool.has_pipe(node_handle, std_handle) {
+                    let pipe_name = format!("pipes/actor-{}-{:?}", node_handle.id(), std_handle);
+                    trace!(node = ?node_handle, std = ?std_handle, "creating pipe lazily on first write");
+
+                    if let Err(e) = pipe_pool
+                        .create_output_pipe(node_handle, std_handle, &pipe_name, &id_gen)
+                        .await
+                    {
+                        warn!(node = ?node_handle, std = ?std_handle, error = %e, "failed to create pipe");
+                        return IoEvent::SyncComplete {
+                            result: -1,
+                            response,
+                        };
+                    }
+                    // Pipe created, notification sent automatically by PipePool
                 }
-            } else {
-                warn!(channel = ?handle, node = ?node_handle, "pipe not found for writer");
-                -1
-            }
+
+                // Write to pipe
+                let result = if let Some(pipe) = pipe_pool.get_pipe(node_handle, std_handle) {
+                    if let Some(writer) = pipe.writer() {
+                        let n = writer.write(&data);
+                        trace!(bytes = n, "pipe write completed");
+                        n
+                    } else {
+                        warn!(node = ?node_handle, std = ?std_handle, "writer not accessible");
+                        -1
+                    }
+                } else {
+                    warn!(node = ?node_handle, std = ?std_handle, "pipe not found after creation");
+                    -1
+                };
+
+                IoEvent::SyncComplete { result, response }
+            })
         } else {
             warn!(channel = ?handle, "channel not found or not a writer");
-            -1
-        };
-        trace!(channel = ?handle, "write completed");
-        // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
-        Box::pin(async move { IoEvent::SyncComplete { result, response } })
+            // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
+            Box::pin(async move {
+                IoEvent::SyncComplete {
+                    result: -1,
+                    response,
+                }
+            })
+        }
     }
 
     /// Handler for Close requests - uses `ChannelHandle`
@@ -471,8 +529,8 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                         }
                     })
                 }
-                Channel::Writer { node_handle } => {
-                    if let Some(pipe) = self.pipe_pool.get_pipe(node_handle) {
+                Channel::Writer { node_handle, std_handle } => {
+                    if let Some(pipe) = self.pipe_pool.get_pipe(node_handle, std_handle) {
                         if let Some(writer) = pipe.writer() {
                             writer.close();
                             trace!(channel = ?handle, "closed writer");
@@ -480,13 +538,13 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                             warn!(channel = ?handle, node = ?node_handle, "writer not accessible (internal error)");
                         }
                     } else {
-                        warn!(channel = ?handle, node = ?node_handle, "pipe not found for close");
+                        warn!(channel = ?handle, node = ?node_handle, std = ?std_handle, "pipe not found for close");
                     }
 
                     let pipe_pool = Arc::clone(&self.pipe_pool);
                     // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
                     Box::pin(async move {
-                        let result_code = match pipe_pool.flush_buffer(node_handle).await {
+                        let result_code = match pipe_pool.flush_buffer(node_handle, std_handle).await {
                             Ok(()) => 0,
                             Err(e) => {
                                 warn!(error = ?e, "failed to flush buffer");
@@ -534,6 +592,47 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         let _ = response.send(result);
     }
 
+    /// Handle pipe creation notification - spawn attachment if registered
+    fn handle_pipe_created(&mut self, event: PipeCreatedEvent) {
+        let key = (event.node_handle, event.std_handle);
+
+        if let Some(config) = self.attachment_registry.remove(&key) {
+            debug!(node = ?event.node_handle, std = ?event.std_handle, config = ?config, "spawning attachment");
+
+            let task = self.spawn_attachment(event.node_handle, event.std_handle, config);
+            self.attachment_tasks.push(task);
+        }
+    }
+
+    /// Spawn an attachment task for reading from a pipe
+    fn spawn_attachment(
+        &self,
+        node_handle: Handle,
+        std_handle: actor_runtime::StdHandle,
+        config: AttachmentConfig,
+    ) -> tokio::task::JoinHandle<()> {
+        let pipe_pool = Arc::clone(&self.pipe_pool);
+        let id_gen = Arc::clone(&self.id_gen);
+
+        tokio::spawn(async move {
+            // Open reader for the pipe
+            let Some(reader) = pipe_pool.open_reader(node_handle, std_handle, &id_gen) else {
+                warn!(node = ?node_handle, std = ?std_handle, "failed to open reader for attachment");
+                return;
+            };
+
+            // Run attachment worker
+            match config {
+                AttachmentConfig::Stdout => {
+                    attach_to_stdout(node_handle, reader).await;
+                }
+                AttachmentConfig::Stderr => {
+                    attach_to_stderr(node_handle, reader).await;
+                }
+            }
+        })
+    }
+
     /// Main event loop - processes I/O requests asynchronously
     pub async fn run(mut self) {
         // Drop our copy of the sender so channel closes when all actors finish
@@ -541,10 +640,11 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
         let mut pending_ops: FuturesUnordered<IoFuture<K>> = FuturesUnordered::new();
         let mut request_rx_open = true;
+        let mut pipe_created_rx_open = true;
 
         loop {
-            // Exit when no more requests can come and no operations are pending
-            if !request_rx_open && pending_ops.is_empty() {
+            // Exit when no more requests/events can come and no operations are pending
+            if !request_rx_open && !pipe_created_rx_open && pending_ops.is_empty() {
                 debug!("no more work, exiting");
                 break;
             }
@@ -584,6 +684,17 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                     }
                 }
 
+                // Handle pipe creation notifications
+                event = self.pipe_created_rx.recv(), if pipe_created_rx_open => {
+                    if let Some(event) = event {
+                        trace!(node = ?event.node_handle, std = ?event.std_handle, "pipe created");
+                        self.handle_pipe_created(event);
+                    } else {
+                        debug!("pipe_created channel closed");
+                        pipe_created_rx_open = false;
+                    }
+                }
+
                 // Handle completed operations
                 Some(event) = pending_ops.next(), if !pending_ops.is_empty() => {
                     match event {
@@ -597,6 +708,13 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                 }
             }
         }
+
+        // Wait for all attachment tasks to complete
+        debug!(count = self.attachment_tasks.len(), "waiting for attachment tasks to complete");
+        for task in self.attachment_tasks {
+            let _ = task.await;
+        }
+        debug!("all attachment tasks completed");
     }
 }
 
