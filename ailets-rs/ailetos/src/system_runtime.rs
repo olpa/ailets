@@ -681,6 +681,10 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                     } else {
                         debug!("request channel closed");
                         request_rx_open = false;
+                        // All actors finished - no more pipes will be created
+                        // Drop the notification sender to allow pipe_created_rx to close
+                        self.pipe_pool.drop_pipe_created_tx();
+                        debug!("dropped pipe_created_tx");
                     }
                 }
 

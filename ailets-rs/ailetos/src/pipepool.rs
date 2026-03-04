@@ -34,7 +34,7 @@ pub struct PipePool<K: KVBuffers> {
     /// Key-value store for pipe buffers
     kv: Arc<K>,
     /// Notifies when pipes are created (for lazy attachment spawning)
-    pipe_created_tx: Option<mpsc::UnboundedSender<PipeCreatedEvent>>,
+    pipe_created_tx: Mutex<Option<mpsc::UnboundedSender<PipeCreatedEvent>>>,
 }
 
 impl<K: KVBuffers> PipePool<K> {
@@ -49,7 +49,7 @@ impl<K: KVBuffers> PipePool<K> {
             pipes: Mutex::new(HashMap::new()),
             notification_queue,
             kv,
-            pipe_created_tx,
+            pipe_created_tx: Mutex::new(pipe_created_tx),
         }
     }
 
@@ -89,12 +89,15 @@ impl<K: KVBuffers> PipePool<K> {
             pipes.insert(key, pipe);
         }
 
-        // Send notification (outside lock)
-        if let Some(ref tx) = self.pipe_created_tx {
-            let _ = tx.send(PipeCreatedEvent {
-                node_handle: actor_handle,
-                std_handle,
-            });
+        // Send notification (outside pipes lock)
+        {
+            let tx_guard = self.pipe_created_tx.lock();
+            if let Some(ref tx) = *tx_guard {
+                let _ = tx.send(PipeCreatedEvent {
+                    node_handle: actor_handle,
+                    std_handle,
+                });
+            }
         }
 
         Ok(writer_handle)
@@ -186,6 +189,15 @@ impl<K: KVBuffers> PipePool<K> {
             writer.buffer()
         }; // pipe_ref dropped here, lock released
         self.kv.flush_buffer(&buffer).await
+    }
+
+    /// Drop the pipe creation notification sender
+    ///
+    /// This should be called when all actors have finished and no more pipes will be created.
+    /// Dropping the sender allows the notification receiver to close, enabling clean shutdown.
+    pub fn drop_pipe_created_tx(&self) {
+        let mut tx_guard = self.pipe_created_tx.lock();
+        *tx_guard = None;
     }
 }
 
