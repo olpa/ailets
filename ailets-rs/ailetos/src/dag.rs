@@ -138,13 +138,13 @@ impl Dag {
                 let deps: Vec<Handle> = self.resolve_dependencies(pid).collect();
                 for (idx, &dep_pid) in deps.iter().enumerate() {
                     let is_last = idx == deps.len() - 1;
-                    self.dump_recursive(dep_pid, "", is_last, &mut output, &mut visited);
+                    self.dump_recursive(dep_pid, "", is_last, true, &mut output, &mut visited);
                 }
                 return output;
             }
         }
 
-        self.dump_recursive(pid, "", true, &mut output, &mut visited);
+        self.dump_recursive(pid, "", true, true, &mut output, &mut visited);
         output
     }
 
@@ -153,6 +153,7 @@ impl Dag {
         pid: Handle,
         prefix: &str,
         is_last: bool,
+        is_root: bool,
         output: &mut String,
         visited: &mut HashSet<Handle>,
     ) {
@@ -162,8 +163,14 @@ impl Dag {
             return;
         };
 
-        // Format the current node line
-        let connector = if is_last { "└── " } else { "├── " };
+        // Format the current node line (root nodes have no connector)
+        let connector = if is_root {
+            ""
+        } else if is_last {
+            "└── "
+        } else {
+            "├── "
+        };
         let state_symbol = match node.state {
             NodeState::NotStarted => "⋯ not built",
             NodeState::Running => "⚙ running",
@@ -184,7 +191,13 @@ impl Dag {
 
         // Check for cycles
         if visited.contains(&pid) {
-            let extension = if is_last { "    " } else { "│   " };
+            let extension = if is_root {
+                ""
+            } else if is_last {
+                "    "
+            } else {
+                "│   "
+            };
             let _ = writeln!(output, "{prefix}{extension}[circular reference]");
             return;
         }
@@ -197,13 +210,17 @@ impl Dag {
             return;
         }
 
-        // Prepare prefix for children
-        let child_prefix = format!("{}{}", prefix, if is_last { "    " } else { "│   " });
+        // Prepare prefix for children (root nodes have no prefix extension)
+        let child_prefix = if is_root {
+            String::new()
+        } else {
+            format!("{}{}", prefix, if is_last { "    " } else { "│   " })
+        };
 
         // Recursively dump dependencies
         for (idx, &dep_pid) in deps.iter().enumerate() {
             let is_last_child = idx == deps.len() - 1;
-            self.dump_recursive(dep_pid, &child_prefix, is_last_child, output, visited);
+            self.dump_recursive(dep_pid, &child_prefix, is_last_child, false, output, visited);
         }
 
         visited.remove(&pid);

@@ -423,6 +423,12 @@ fn test_dump_single_node() {
     let output = dag.dump(pid);
     assert!(output.contains("root"));
     assert!(output.contains("⋯ not built"));
+    // Root node should not have tree connector prefix
+    assert!(
+        output.starts_with("root."),
+        "Root should not have └── prefix, got: {}",
+        output
+    );
 }
 
 #[test]
@@ -593,7 +599,17 @@ fn test_dump_starting_from_alias_with_multiple_targets() {
     assert!(!output.contains(".end"), "Alias should not appear in dump");
     assert!(output.contains("node1"), "First target should appear");
     assert!(output.contains("node2"), "Second target should appear");
-    // Should have two root nodes (├── for first, └── for last)
-    assert!(output.contains("├──"), "Should have first sibling connector");
-    assert!(output.contains("└──"), "Should have last sibling connector");
+    // Root nodes should not have tree connectors
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines.len(), 2, "Should have two root nodes");
+    assert!(
+        lines[0].starts_with("node"),
+        "First line should start with node name, got: {}",
+        lines[0]
+    );
+    assert!(
+        lines[1].starts_with("node"),
+        "Second line should start with node name, got: {}",
+        lines[1]
+    );
 }
