@@ -4,6 +4,52 @@ use ailetos::dag::*;
 use ailetos::{Handle, IdGen};
 
 // --------------------------------------------------------------------
+// Colored Dump Tests
+//
+
+#[test]
+fn test_dump_colored_shows_ansi_codes() {
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
+    let built = dag.add_node("built_node".to_string(), NodeKind::Concrete);
+    dag.set_state(built, NodeState::Terminated);
+
+    let output = dag.dump_colored(built);
+    // Should contain green ANSI code for built status
+    assert!(
+        output.contains("\x1b[32m"),
+        "Should contain green ANSI code, got: {:?}",
+        output
+    );
+    assert!(
+        output.contains("\x1b[0m"),
+        "Should contain reset ANSI code"
+    );
+}
+
+#[test]
+fn test_dump_colored_different_states() {
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
+
+    let root = dag.add_node("root".to_string(), NodeKind::Concrete);
+    let running = dag.add_node("running_node".to_string(), NodeKind::Concrete);
+    let not_built = dag.add_node("pending_node".to_string(), NodeKind::Concrete);
+
+    dag.set_state(running, NodeState::Running);
+    // not_built stays NotStarted
+
+    dag.add_dependency(For(root), DependsOn(running));
+    dag.add_dependency(For(root), DependsOn(not_built));
+
+    let output = dag.dump_colored(root);
+    // Yellow for not built
+    assert!(output.contains("\x1b[33m"), "Should contain yellow for not built");
+    // Magenta for running
+    assert!(output.contains("\x1b[35m"), "Should contain magenta for running");
+}
+
+// --------------------------------------------------------------------
 // Node Creation and Basic Operations
 //
 

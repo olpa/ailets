@@ -1,11 +1,11 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::disallowed_names)]
 
+use std::io::IsTerminal;
 use std::sync::Arc;
 
 use ailetos::idgen::Handle;
 use ailetos::{Environment, SqliteKV};
 use cli::stdin_source;
-use tracing::info;
 
 fn build_flow(env: &mut Environment<SqliteKV>) -> Handle {
     let val = env.add_value_node(
@@ -49,8 +49,13 @@ async fn main() {
     // Build the flow
     let end_node = build_flow(&mut env);
 
-    // Print dependency tree
-    info!("Dependency tree:\n{}", env.dag.dump(end_node));
+    // Print dependency tree (with colors if stdout is a terminal)
+    let tree = if std::io::stdout().is_terminal() {
+        env.dag.dump_colored(end_node)
+    } else {
+        env.dag.dump(end_node)
+    };
+    println!("Dependency tree:\n{tree}");
 
     // TODO: Attach host stdout to the output actor
 
