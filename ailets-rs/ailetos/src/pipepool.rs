@@ -340,27 +340,6 @@ impl<K: KVBuffers> PipePool<K> {
         inner.find_writer(key).cloned()
     }
 
-    /// Create a standalone Writer backed by KV storage (not wrapped in a Pipe).
-    ///
-    /// Used to create merge writers for actors with multiple dependencies.
-    ///
-    /// # Errors
-    /// Returns an error if creating the buffer fails
-    pub async fn create_merge_writer(
-        &self,
-        name: &str,
-        id_gen: &IdGen,
-    ) -> Result<Writer, crate::io::KVError> {
-        let writer_handle = Handle::new(id_gen.get_next());
-        let buffer = self.kv.open(name, OpenMode::Write).await?;
-        Ok(Writer::new(
-            writer_handle,
-            self.notification_queue.clone(),
-            name,
-            buffer,
-        ))
-    }
-
     /// Flush the buffer for the given actor's pipe
     ///
     /// # Errors
