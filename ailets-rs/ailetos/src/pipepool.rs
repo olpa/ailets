@@ -3,14 +3,91 @@
 //! Each (actor, StdHandle) pair can have its own output pipe. Readers are created on-demand
 //! when consuming actors need to read from dependencies.
 //!
-//! ## Design
+//! ## Problem: Dependency Race Conditions
 //!
-//! PipePool stores writers and latent writer placeholders in two vectors:
-//! - `latent_writers`: Placeholders for writers that haven't been created yet
-//! - `writers`: Active writers
+//! Actors can start reading from dependencies before those dependencies have created their
+//! output pipes. This creates a coordination problem:
 //!
-//! Readers are created on-demand and returned to callers (not stored in PipePool).
-//! Latent handling is done at the PipePool level, not in the Pipe/Reader/Writer types.
+//! - **Consumer** (e.g., `cat`) needs to read from dependency's stdout
+//! - **Producer** (e.g., upstream actor) hasn't created its output pipe yet
+//! - Consumer should **wait** for the pipe to be created, not fail
+//!
+//! ## Solution: Latent Pipes
+//!
+//! When a reader requests a pipe that doesn't exist yet:
+//! 1. Create a **latent writer** placeholder with a `tokio::Notify`
+//! 2. Reader awaits on the notify
+//! 3. When writer is eventually created, notify all waiting readers
+//! 4. Readers wake up and get their `Reader` instances
+//!
+//! ## Design: Two Vectors
+//!
+//! PipePool stores writers in two states:
+//!
+//! - **`latent_writers: Vec<LatentWriter>`** - Placeholders for pipes not yet created
+//!   - Contains `(Handle, StdHandle)` key, state (Waiting/Closed), and notify handle
+//!   - Created when reader requests non-existent pipe with `allow_latent=true`
+//!   - Removed when writer is created (transitions to `writers`)
+//!   - Set to `Closed` state if actor exits without writing (prevents infinite wait)
+//!
+//! - **`writers: Vec<(Handle, StdHandle, Writer)>`** - Active pipes with data buffers
+//!   - Created on first write or explicit pipe creation
+//!   - Notifies all waiting readers when created
+//!   - Supports multiple readers via `Writer::share_with_reader()`
+//!
+//! **Readers are not stored** - created on-demand from writers and returned to callers.
+//!
+//! ## Key Operations
+//!
+//! ### Creating Readers (async)
+//!
+//! ```ignore
+//! // For dependencies: wait if pipe doesn't exist yet
+//! let reader = pool.get_or_create_reader(key, allow_latent=true, id_gen).await?;
+//!
+//! // For explicit access: return None if pipe doesn't exist
+//! let reader = pool.get_or_create_reader(key, allow_latent=false, id_gen).await?;
+//! ```
+//!
+//! ### Creating Writers
+//!
+//! ```ignore
+//! // First write from actor - realizes the pipe
+//! pool.realize_pipe(actor_handle, std_handle, writer_handle).await?;
+//!
+//! // Direct write after pipe exists
+//! pool.write((actor_handle, std_handle), data);
+//! ```
+//!
+//! ### Closing Writers
+//!
+//! ```ignore
+//! // Normal close (after writing)
+//! pool.close_writer((actor_handle, std_handle));
+//!
+//! // Abnormal close (latent pipe never realized) - logs warning
+//! pool.close_writer((actor_handle, std_handle));  // Wakes readers with None
+//! ```
+//!
+//! ## Coordination via Notify
+//!
+//! All latent pipe coordination uses `tokio::sync::Notify`:
+//!
+//! 1. **Reader path**: `get_or_create_reader()` creates latent entry, awaits notify
+//! 2. **Writer path**: `create_writer()` removes latent entry, calls `notify_waiters()`
+//! 3. **Close path**: `close_writer()` marks latent as Closed, calls `notify_waiters()`
+//!
+//! This ensures readers never miss notifications and wake up exactly once.
+//!
+//! ## Comparison to Previous Design
+//!
+//! The previous implementation stored `Pipe` wrappers with internal `PipeState` enums.
+//! This design simplifies by:
+//!
+//! - Removing 516 lines of wrapper/state machine code
+//! - Making latent coordination explicit at the PipePool level
+//! - Keeping `Reader` and `Writer` simple (no latent state inside them)
+//! - Using direct vector lookups instead of HashMap + wrapper indirection
 
 use std::sync::Arc;
 
