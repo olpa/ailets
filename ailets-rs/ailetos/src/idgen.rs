@@ -11,13 +11,6 @@ impl Handle {
         Self { id }
     }
 
-    /// Create a placeholder handle with an invalid ID
-    /// Used for temporary handles that will be replaced later
-    #[must_use]
-    pub fn placeholder() -> Self {
-        Self { id: -1 }
-    }
-
     #[must_use]
     pub fn id(&self) -> i64 {
         self.id

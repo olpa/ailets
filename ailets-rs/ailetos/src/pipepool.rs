@@ -78,16 +78,6 @@
 //! 3. **Close path**: `close_writer()` marks latent as Closed, calls `notify_waiters()`
 //!
 //! This ensures readers never miss notifications and wake up exactly once.
-//!
-//! ## Comparison to Previous Design
-//!
-//! The previous implementation stored `Pipe` wrappers with internal `PipeState` enums.
-//! This design simplifies by:
-//!
-//! - Removing 516 lines of wrapper/state machine code
-//! - Making latent coordination explicit at the PipePool level
-//! - Keeping `Reader` and `Writer` simple (no latent state inside them)
-//! - Using direct vector lookups instead of HashMap + wrapper indirection
 
 use std::sync::Arc;
 
