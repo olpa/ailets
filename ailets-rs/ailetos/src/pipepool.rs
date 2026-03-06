@@ -55,8 +55,9 @@
 //! // First write from actor - realizes the pipe
 //! pool.realize_pipe(actor_handle, std_handle, writer_handle).await?;
 //!
-//! // Direct write after pipe exists
-//! pool.write((actor_handle, std_handle), data);
+//! // Get writer and write directly
+//! let writer = pool.get_writer((actor_handle, std_handle))?;
+//! writer.write(data);
 //! ```
 //!
 //! ### Closing Writers
@@ -285,12 +286,16 @@ impl<K: KVBuffers> PipePool<K> {
         }
     }
 
-    /// Write data to a writer
+    /// Get a writer by key
     ///
-    /// Returns the number of bytes written, or None if writer doesn't exist
-    pub fn write(&self, key: (Handle, StdHandle), data: &[u8]) -> Option<isize> {
+    /// Returns a clone of the writer if it exists (realized).
+    /// Returns None if the pipe doesn't exist or is still latent.
+    ///
+    /// The returned writer shares the same underlying buffer (via Arc),
+    /// so writes through the clone affect the same pipe.
+    pub fn get_writer(&self, key: (Handle, StdHandle)) -> Option<Writer> {
         let inner = self.inner.lock();
-        inner.find_writer(key).map(|writer| writer.write(data))
+        inner.find_writer(key).cloned()
     }
 
     /// Check if a pipe exists (writer or latent writer)

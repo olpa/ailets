@@ -283,9 +283,10 @@ async fn test_latent_to_realized_transition() {
     assert!(pool.has_pipe(actor_handle, std_handle));
 
     // Should be able to write to it
-    let result = pool.write((actor_handle, std_handle), b"test data");
-    assert!(result.is_some());
-    assert_eq!(result.unwrap(), 9);
+    let writer = pool.get_writer((actor_handle, std_handle));
+    assert!(writer.is_some());
+    let result = writer.unwrap().write(b"test data");
+    assert_eq!(result, 9);
 }
 
 #[tokio::test]
@@ -334,15 +335,18 @@ async fn test_write_to_realized_writer() {
         .await
         .expect("Failed to create output pipe");
 
+    // Get writer
+    let writer = pool.get_writer((actor_handle, std_handle));
+    assert!(writer.is_some());
+    let writer = writer.unwrap();
+
     // Write data
-    let result = pool.write((actor_handle, std_handle), b"Hello World");
-    assert!(result.is_some());
-    assert_eq!(result.unwrap(), 11);
+    let result = writer.write(b"Hello World");
+    assert_eq!(result, 11);
 
     // Write more data
-    let result = pool.write((actor_handle, std_handle), b"123");
-    assert!(result.is_some());
-    assert_eq!(result.unwrap(), 3);
+    let result = writer.write(b"123");
+    assert_eq!(result, 3);
 }
 
 #[tokio::test]
@@ -351,9 +355,9 @@ async fn test_write_to_nonexistent_pipe() {
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
-    // Try to write without creating pipe
-    let result = pool.write((actor_handle, std_handle), b"data");
-    assert!(result.is_none(), "Write to non-existent pipe should return None");
+    // Try to get writer without creating pipe
+    let writer = pool.get_writer((actor_handle, std_handle));
+    assert!(writer.is_none(), "get_writer on non-existent pipe should return None");
 }
 
 #[tokio::test]
@@ -366,12 +370,14 @@ async fn test_multiple_writes_to_same_pipe() {
         .await
         .expect("Failed to create output pipe");
 
+    // Get writer
+    let writer = pool.get_writer((actor_handle, std_handle)).unwrap();
+
     // Multiple writes
     for i in 0..10 {
         let data = format!("data{}", i);
-        let result = pool.write((actor_handle, std_handle), data.as_bytes());
-        assert!(result.is_some());
-        assert_eq!(result.unwrap(), data.len() as isize);
+        let result = writer.write(data.as_bytes());
+        assert_eq!(result, data.len() as isize);
     }
 }
 
@@ -650,7 +656,8 @@ async fn test_flush_buffer() {
         .expect("Failed to create output pipe");
 
     // Write some data
-    pool.write((actor_handle, std_handle), b"test data");
+    let writer = pool.get_writer((actor_handle, std_handle)).unwrap();
+    writer.write(b"test data");
 
     // Flush should succeed
     let result = pool.flush_buffer(actor_handle, std_handle).await;
@@ -795,13 +802,14 @@ async fn test_mixed_latent_and_realized_pipes() {
     assert!(pool.has_pipe(Handle::new(1), StdHandle::Stdout));
     assert!(pool.has_pipe(Handle::new(2), StdHandle::Stdout));
 
-    // Write to realized pipe should work
-    let result = pool.write((Handle::new(1), StdHandle::Stdout), b"data");
-    assert!(result.is_some());
+    // Get writer for realized pipe should work
+    let writer = pool.get_writer((Handle::new(1), StdHandle::Stdout));
+    assert!(writer.is_some());
+    writer.unwrap().write(b"data");
 
-    // Write to latent pipe should fail
-    let result = pool.write((Handle::new(2), StdHandle::Stdout), b"data");
-    assert!(result.is_none());
+    // Get writer for latent pipe should fail
+    let writer = pool.get_writer((Handle::new(2), StdHandle::Stdout));
+    assert!(writer.is_none());
 }
 
 // ============================================================================
@@ -848,7 +856,8 @@ async fn test_attachment_workflow_simulation() {
         .await
         .expect("Failed to realize pipe");
 
-    pool.write((actor_handle, std_handle), b"Hello from actor!");
+    let writer = pool.get_writer((actor_handle, std_handle)).unwrap();
+    writer.write(b"Hello from actor!");
 
     // Actor closes
     pool.close_writer((actor_handle, std_handle));
@@ -887,7 +896,8 @@ async fn test_dependency_reading_simulation() {
         .await
         .expect("Failed to realize actor1 pipe");
 
-    pool.write((actor1, StdHandle::Stdout), b"data from actor1");
+    let writer = pool.get_writer((actor1, StdHandle::Stdout)).unwrap();
+    writer.write(b"data from actor1");
 
     // Reader should get the reader
     let reader = tokio::time::timeout(Duration::from_secs(1), reader_task)
@@ -944,9 +954,10 @@ async fn test_end_to_end_data_flow() {
         .expect("Failed to realize pipe");
 
     // Write multiple chunks
-    pool.write((actor_handle, std_handle), b"First ");
-    pool.write((actor_handle, std_handle), b"Second ");
-    pool.write((actor_handle, std_handle), b"Third");
+    let writer = pool.get_writer((actor_handle, std_handle)).unwrap();
+    writer.write(b"First ");
+    writer.write(b"Second ");
+    writer.write(b"Third");
 
     // Close writer
     pool.close_writer((actor_handle, std_handle));

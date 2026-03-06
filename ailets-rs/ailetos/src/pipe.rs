@@ -49,6 +49,11 @@ impl SharedBuffer {
 ///   another `write()` on the same thread (e.g., from a callback) would deadlock.
 ///   However, this is not an issue in practice since notifications are sent after
 ///   the lock is released.
+/// Writer for a pipe
+///
+/// Can be cloned - all clones share the same underlying buffer via Arc.
+/// Multiple clones can write concurrently (serialized by internal Mutex).
+#[derive(Clone)]
 pub struct Writer {
     shared: Arc<Mutex<SharedBuffer>>,
     handle: Handle,

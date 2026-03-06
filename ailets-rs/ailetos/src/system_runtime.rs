@@ -469,7 +469,8 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                 }
 
                 // Write to pipe
-                let result = if let Some(n) = pipe_pool.write((node_handle, std_handle), &data) {
+                let result = if let Some(writer) = pipe_pool.get_writer((node_handle, std_handle)) {
+                    let n = writer.write(&data);
                     trace!(bytes = n, "pipe write completed");
                     n
                 } else {
