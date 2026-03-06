@@ -72,7 +72,7 @@
 //! All latent pipe coordination uses `tokio::sync::Notify`:
 //!
 //! 1. **Reader path**: `get_or_create_reader()` creates latent entry, awaits notify
-//! 2. **Writer path**: `create_writer()` removes latent entry, calls `notify_waiters()`
+//! 2. **Writer path**: `touch_writer()` removes latent entry, calls `notify_waiters()`
 //! 3. **Close path**: `close_writer()` marks latent as Closed, calls `notify_waiters()`
 //!
 //! This ensures readers never miss notifications and wake up exactly once.
@@ -272,33 +272,31 @@ impl<K: KVBuffers> PipePool<K> {
             buffer,
         );
 
-        self.create_writer(key, writer);
+        // Add writer to pool and notify waiters (if latent existed)
+        let writer_arc = {
+            let mut inner = self.inner.lock();
 
-        // Return the writer we just created
-        Ok(self.get_writer(key).expect("Writer should exist after create_writer"))
-    }
+            // Check if latent writer exists - remove it and get notify handle
+            let notify_arc = inner.remove_latent_writer(key).map(|lw| lw.notify);
 
-    /// Create a writer for a pipe (internal helper)
-    ///
-    /// If a latent writer exists, removes it and notifies waiters
-    fn create_writer(&self, key: (Handle, StdHandle), writer: Writer) {
-        let mut inner = self.inner.lock();
+            // Add writer wrapped in Arc
+            let writer_arc = Arc::new(writer);
+            inner.writers.push((key.0, key.1, Arc::clone(&writer_arc)));
+            debug!(key = ?key, "created writer");
 
-        // Check if latent writer exists
-        let notify_arc = inner.remove_latent_writer(key).map(|lw| lw.notify);
+            // Drop lock before notifying
+            drop(inner);
 
-        // Add writer wrapped in Arc
-        inner.writers.push((key.0, key.1, Arc::new(writer)));
-        debug!(key = ?key, "created writer");
+            // Notify waiters (outside lock)
+            if let Some(notify) = notify_arc {
+                notify.notify_waiters();
+                debug!(key = ?key, "notified waiters after creating writer");
+            }
 
-        // Drop lock before notifying
-        drop(inner);
+            writer_arc
+        };
 
-        // Notify waiters
-        if let Some(notify) = notify_arc {
-            notify.notify_waiters();
-            debug!(key = ?key, "notified waiters after creating writer");
-        }
+        Ok(writer_arc)
     }
 
     /// Close a writer
