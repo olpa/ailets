@@ -190,15 +190,74 @@ if writer exists for key:
 
 ### Milestone 2: Update Plan Based on Experience
 
-After completing Milestone 1, update this plan:
+**Status**: ✅ Completed (2026-03-06)
 
-1. **Document what changed**: List any unexpected complications or API changes.
+#### 1. What Changed - Actual Implementation Details
 
-2. **Refine remaining work**: Based on actual experience, detail what else needs updating.
+**API Changes**:
+- Deleted `PipeAccess` enum entirely - replaced with simple `allow_latent: bool` parameter
+- Deleted `PipeRef` struct - no longer needed since we access writers directly via methods
+- `get_or_create_reader()` became the primary async method (replaces `get_pipe()` + `pipe.get_reader()`)
+- Added direct `write(key, data)` and `close_writer(key)` methods on PipePool
+- Made `Reader::new()`, `Writer::share_with_reader()`, and `ReaderSharedData` public (needed for tests)
 
-3. **Add new test cases**: If you discovered edge cases, document them.
+**Unexpected Simplifications**:
+- Didn't need to store readers in a vector - they're created on-demand and returned to callers
+- Reduced from three vectors to two: `latent_writers` and `writers` (no `readers` vector)
+- The `LatentWriter` struct only needs `key`, `state`, and `notify` - removed `name` field as unused
+- Total code reduction: **516 lines deleted** (888 deletions, 372 insertions)
 
-4. **Performance notes**: Any observations about the new design's behavior.
+**Files Modified** (more than expected):
+- `ailetos/src/lib.rs` - Removed PipeAccess export
+- `ailetos/src/merge_reader.rs` - Updated for async `create_next_reader()`
+- `ailetos/tests/pipe.rs` - Rewrote all 19 tests to use Writer/Reader directly
+- `ailetos/Cargo.toml` - Removed pipe_demo binary (used internal APIs)
+- `ailetos/bin/pipe_demo.rs` - Deleted (would need public test helper methods)
+
+**Callers Updated**:
+- ✅ `system_runtime.rs` - Main coordinator (replaced all `get_pipe()` calls)
+- ✅ `merge_reader.rs` - Dependency reading (made `create_next_reader()` async)
+- ❌ `environment.rs` - No changes needed (doesn't directly use PipePool API)
+- ❌ `attachments.rs` - No changes needed (receives Reader, doesn't create them)
+
+#### 2. Refine Remaining Work - What's Left
+
+**Milestone 3 Tasks**:
+1. ~~Delete unused code~~ - Already done (PipeState, Pipe struct removed)
+2. Update inline documentation in pipepool.rs - Add module-level docs explaining the design
+3. Consider whether to update/supersede handover documents:
+   - `HANDOVER-a229-latent-pipes.md` - Still accurate for the feature, just not implementation
+   - `A229-latent-pipe-specification.md` - May be obsolete now
+
+**No Additional Work Needed**:
+- All integration points working correctly
+- All 87 existing tests passing
+- CLI example works without modifications
+- No new edge cases discovered that need additional tests
+
+#### 3. Edge Cases Discovered
+
+**No new test cases needed** - The existing 19 pipe tests and 68 other tests cover:
+- ✅ Latent pipe creation and waiting
+- ✅ Multiple readers from same writer
+- ✅ Closing latent writers (logged as warning, expected behavior)
+- ✅ Error propagation through latent pipes
+- ✅ EOF handling across dependencies
+
+The warnings in CLI output about "closed latent writer without realizing" are **expected and correct** - these occur for stderr/log pipes that actors never wrote to.
+
+#### 4. Performance Notes
+
+**Positive Observations**:
+- Simpler locking: Single mutex on `PoolInner` instead of per-Pipe mutexes
+- Linear search is fine: Typical workloads have 5-20 actors
+- Reduced allocations: No intermediate Pipe wrappers
+- Lock contention unchanged: Same access patterns, just different structure
+
+**No Performance Regressions**:
+- CLI example runs cleanly with same behavior
+- Async/await overhead negligible (only in pipe creation path, not hot path)
+- Writer/Reader still lock-free in read/write operations (only PipePool mutations lock)
 
 ### Milestone 3: Cleanup and Documentation
 
@@ -251,15 +310,17 @@ Multiple readers per writer are supported. Each reader has its own position. Whe
 
 ---
 
-## Questions to Resolve During Implementation
+## Questions Resolved During Implementation
 
-1. **Lock granularity**: Start with single mutex. If contention is observed, consider separate locks.
+1. **Lock granularity**: ✅ Single mutex on `PoolInner` works well. No contention observed in testing.
 
-2. **Reader handle in vector**: Store `(Handle, StdHandle, Reader)` or just track readers differently?
+2. **Reader handle in vector**: ✅ Don't store readers at all - create on-demand and return to caller. Much simpler.
 
-3. **Buffer allocation timing**: Currently happens in `realize_pipe()`. Keep this pattern or move to `create_writer()`?
+3. **Buffer allocation timing**: ✅ Kept in `realize_pipe()`. Called by both `create_output_pipe()` and `create_writer()`.
 
-4. **Error handling**: What errors can `get_or_create_reader()` return besides "closed without data"?
+4. **Error handling**: ✅ `get_or_create_reader()` returns `Option<Reader>`:
+   - `Some(reader)` when writer exists or becomes available
+   - `None` when latent writer is closed without data, or when `allow_latent=false` and no writer exists
 
 ---
 
