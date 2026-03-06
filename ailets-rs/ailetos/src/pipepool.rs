@@ -49,14 +49,11 @@
 //! let reader = pool.get_or_create_reader(key, allow_latent=false, id_gen).await?;
 //! ```
 //!
-//! ### Creating Writers
+//! ### Getting Writers
 //!
 //! ```ignore
-//! // First write from actor - realizes the pipe
-//! pool.realize_pipe(actor_handle, std_handle, writer_handle).await?;
-//!
-//! // Get writer and write directly
-//! let writer = pool.get_writer((actor_handle, std_handle))?;
+//! // Get or create writer (idempotent, always works)
+//! let writer = pool.touch_writer(actor_handle, std_handle, id_gen).await?;
 //! writer.write(data);
 //! ```
 //!
@@ -110,7 +107,7 @@ pub struct LatentWriter {
 /// Inner state of the pipe pool
 struct PoolInner {
     latent_writers: Vec<LatentWriter>,
-    writers: Vec<(Handle, StdHandle, Writer)>,
+    writers: Vec<(Handle, StdHandle, Arc<Writer>)>,
 }
 
 impl PoolInner {
@@ -122,7 +119,7 @@ impl PoolInner {
     }
 
     /// Find a writer by key
-    fn find_writer(&self, key: (Handle, StdHandle)) -> Option<&Writer> {
+    fn find_writer(&self, key: (Handle, StdHandle)) -> Option<&Arc<Writer>> {
         self.writers
             .iter()
             .find(|(h, s, _)| (*h, *s) == key)
@@ -233,17 +230,65 @@ impl<K: KVBuffers> PipePool<K> {
         None
     }
 
-    /// Create a writer for a pipe
+    /// Touch a writer - get existing or create new (idempotent)
+    ///
+    /// This is the primary method for getting a writer. It:
+    /// - Returns existing writer if already realized
+    /// - Realizes latent writer if it exists
+    /// - Creates new writer if none exists
+    ///
+    /// Always returns a writer ready to use.
+    ///
+    /// # Errors
+    /// Returns error if buffer allocation fails
+    pub async fn touch_writer(
+        &self,
+        actor_handle: Handle,
+        std_handle: StdHandle,
+        id_gen: &IdGen,
+    ) -> Result<Arc<Writer>, crate::io::KVError> {
+        let key = (actor_handle, std_handle);
+
+        // Fast path: writer already exists
+        {
+            let inner = self.inner.lock();
+            if let Some(writer) = inner.find_writer(key) {
+                return Ok(Arc::clone(writer));
+            }
+        }
+
+        // Slow path: need to realize or create
+        let writer_handle = Handle::new(id_gen.get_next());
+        let name = format!("pipes/actor-{}-{:?}", actor_handle.id(), std_handle);
+
+        // Allocate buffer
+        let buffer = self.kv.open(&name, OpenMode::Write).await?;
+
+        // Create writer
+        let writer = Writer::new(
+            writer_handle,
+            self.notification_queue.clone(),
+            &name,
+            buffer,
+        );
+
+        self.create_writer(key, writer);
+
+        // Return the writer we just created
+        Ok(self.get_writer(key).expect("Writer should exist after create_writer"))
+    }
+
+    /// Create a writer for a pipe (internal helper)
     ///
     /// If a latent writer exists, removes it and notifies waiters
-    pub fn create_writer(&self, key: (Handle, StdHandle), writer: Writer) {
+    fn create_writer(&self, key: (Handle, StdHandle), writer: Writer) {
         let mut inner = self.inner.lock();
 
         // Check if latent writer exists
         let notify_arc = inner.remove_latent_writer(key).map(|lw| lw.notify);
 
-        // Add writer
-        inner.writers.push((key.0, key.1, writer));
+        // Add writer wrapped in Arc
+        inner.writers.push((key.0, key.1, Arc::new(writer)));
         debug!(key = ?key, "created writer");
 
         // Drop lock before notifying
@@ -288,100 +333,13 @@ impl<K: KVBuffers> PipePool<K> {
 
     /// Get a writer by key
     ///
-    /// Returns a clone of the writer if it exists (realized).
+    /// Returns an Arc to the writer if it exists (realized).
     /// Returns None if the pipe doesn't exist or is still latent.
     ///
-    /// The returned writer shares the same underlying buffer (via Arc),
-    /// so writes through the clone affect the same pipe.
-    pub fn get_writer(&self, key: (Handle, StdHandle)) -> Option<Writer> {
+    /// The returned Arc shares ownership of the writer, preventing premature closure.
+    pub fn get_writer(&self, key: (Handle, StdHandle)) -> Option<Arc<Writer>> {
         let inner = self.inner.lock();
         inner.find_writer(key).cloned()
-    }
-
-    /// Check if a pipe exists (writer or latent writer)
-    #[must_use]
-    pub fn has_pipe(&self, actor_handle: Handle, std_handle: StdHandle) -> bool {
-        let inner = self.inner.lock();
-        let key = (actor_handle, std_handle);
-        inner.find_writer(key).is_some() || inner.find_latent_writer(key).is_some()
-    }
-
-    /// Create output pipe (legacy compatibility method)
-    ///
-    /// Creates a writer immediately (no latent state)
-    ///
-    /// # Errors
-    /// Returns an error if creating the buffer fails or if the pipe already exists
-    pub async fn create_output_pipe(
-        &self,
-        actor_handle: Handle,
-        std_handle: StdHandle,
-        _name: &str,
-        id_gen: &IdGen,
-    ) -> Result<Handle, crate::io::KVError> {
-        // Check if pipe already exists
-        if self.has_pipe(actor_handle, std_handle) {
-            return Err(crate::io::KVError::AlreadyExists(format!(
-                "Pipe for actor {actor_handle:?} handle {std_handle:?} already exists"
-            )));
-        }
-
-        let writer_handle = Handle::new(id_gen.get_next());
-        self.realize_pipe(actor_handle, std_handle, writer_handle)
-            .await?;
-        Ok(writer_handle)
-    }
-
-    /// Realize a pipe (create writer with buffer)
-    ///
-    /// If pipe doesn't exist or is latent, creates the writer
-    /// If writer already exists, this is a no-op
-    ///
-    /// # Errors
-    /// Returns error if buffer allocation fails
-    pub async fn realize_pipe(
-        &self,
-        actor_handle: Handle,
-        std_handle: StdHandle,
-        writer_handle: Handle,
-    ) -> Result<(), crate::io::KVError> {
-        let key = (actor_handle, std_handle);
-        let name = format!("pipes/actor-{}-{:?}", actor_handle.id(), std_handle);
-
-        // Check if writer already exists
-        {
-            let inner = self.inner.lock();
-            if inner.find_writer(key).is_some() {
-                return Ok(()); // Already realized
-            }
-        }
-
-        // Allocate buffer
-        let buffer = self.kv.open(&name, OpenMode::Write).await?;
-
-        // Create writer
-        let writer = Writer::new(
-            writer_handle,
-            self.notification_queue.clone(),
-            &name,
-            buffer,
-        );
-
-        self.create_writer(key, writer);
-        Ok(())
-    }
-
-    /// Open a reader for a pipe (creates latent pipe if needed)
-    ///
-    /// This is the primary method for getting readers, including for attachments.
-    pub async fn open_reader(
-        &self,
-        actor_handle: Handle,
-        std_handle: StdHandle,
-        id_gen: &IdGen,
-    ) -> Option<Reader> {
-        let key = (actor_handle, std_handle);
-        self.get_or_create_reader(key, true, id_gen).await
     }
 
     /// Create a standalone Writer backed by KV storage (not wrapped in a Pipe).

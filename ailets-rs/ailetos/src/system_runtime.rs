@@ -355,22 +355,19 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
     ) {
         debug!(node = ?node_handle, "processing OpenWrite");
 
-        // Create output pipe for this actor if it doesn't exist yet
+        // Ensure writer exists for this actor (idempotent)
         // TODO: OpenWrite should specify which StdHandle to open, for now default to Stdout
         let std_handle = actor_runtime::StdHandle::Stdout;
-        if !self.pipe_pool.has_pipe(node_handle, std_handle) {
-            let pipe_name = format!("pipes/actor-{}", node_handle.id());
-            match self
-                .pipe_pool
-                .create_output_pipe(node_handle, std_handle, &pipe_name, &self.id_gen)
-                .await
-            {
-                Ok(_) => {
-                    debug!(node = ?node_handle, "created pipe");
-                }
-                Err(e) => {
-                    warn!(node = ?node_handle, error = %e, "failed to create output pipe");
-                }
+        match self
+            .pipe_pool
+            .touch_writer(node_handle, std_handle, &self.id_gen)
+            .await
+        {
+            Ok(_) => {
+                debug!(node = ?node_handle, "pipe ready");
+            }
+            Err(e) => {
+                warn!(node = ?node_handle, error = %e, "failed to create writer");
             }
         }
 
@@ -455,27 +452,17 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
             // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
             Box::pin(async move {
-                // Realize pipe on first write (transitions latent -> realized or creates as realized)
-                let writer_handle = Handle::new(id_gen.get_next());
-                if let Err(e) = pipe_pool
-                    .realize_pipe(node_handle, std_handle, writer_handle)
-                    .await
-                {
-                    warn!(node = ?node_handle, std = ?std_handle, error = %e, "failed to realize pipe");
-                    return IoEvent::SyncComplete {
-                        result: -1,
-                        response,
-                    };
-                }
-
-                // Write to pipe
-                let result = if let Some(writer) = pipe_pool.get_writer((node_handle, std_handle)) {
-                    let n = writer.write(&data);
-                    trace!(bytes = n, "pipe write completed");
-                    n
-                } else {
-                    warn!(node = ?node_handle, std = ?std_handle, "pipe not found after realization");
-                    -1
+                // Get or create writer (idempotent - handles latent->realized transition)
+                let result = match pipe_pool.touch_writer(node_handle, std_handle, &id_gen).await {
+                    Ok(writer) => {
+                        let n = writer.write(&data);
+                        trace!(bytes = n, "pipe write completed");
+                        n
+                    }
+                    Err(e) => {
+                        warn!(node = ?node_handle, std = ?std_handle, error = %e, "failed to get writer");
+                        -1
+                    }
                 };
 
                 IoEvent::SyncComplete { result, response }
@@ -595,8 +582,11 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         let id_gen = Arc::clone(&self.id_gen);
 
         tokio::spawn(async move {
-            // Open reader for the pipe
-            let Some(reader) = pipe_pool.open_reader(node_handle, std_handle, &id_gen).await else {
+            // Get or create reader (creates latent pipe if needed)
+            let Some(reader) = pipe_pool
+                .get_or_create_reader((node_handle, std_handle), true, &id_gen)
+                .await
+            else {
                 warn!(node = ?node_handle, std = ?std_handle, "failed to open reader for attachment");
                 return;
             };

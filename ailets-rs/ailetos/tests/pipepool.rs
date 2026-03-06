@@ -27,10 +27,11 @@ async fn test_create_writer_then_reader() {
     let std_handle = StdHandle::Stdout;
 
     // Create writer first
-    let writer_handle = pool
-        .create_output_pipe(actor_handle, std_handle, "test", &id_gen)
+    let writer = pool
+        .touch_writer(actor_handle, std_handle, &id_gen)
         .await
-        .expect("Failed to create output pipe");
+        .expect("Failed to create writer");
+    let writer_handle = *writer.handle();
 
     // Create reader - should succeed immediately since writer exists
     let reader = pool
@@ -49,7 +50,7 @@ async fn test_multiple_readers_from_same_writer() {
     let std_handle = StdHandle::Stdout;
 
     // Create writer
-    pool.create_output_pipe(actor_handle, std_handle, "test", &id_gen)
+    pool.touch_writer(actor_handle, std_handle, &id_gen)
         .await
         .expect("Failed to create output pipe");
 
@@ -84,15 +85,15 @@ async fn test_different_std_handles() {
     let actor_handle = Handle::new(1);
 
     // Create writers for different StdHandles
-    pool.create_output_pipe(actor_handle, StdHandle::Stdout, "stdout", &id_gen)
+    pool.touch_writer(actor_handle, StdHandle::Stdout, &id_gen)
         .await
         .expect("Failed to create stdout pipe");
 
-    pool.create_output_pipe(actor_handle, StdHandle::Log, "log", &id_gen)
+    pool.touch_writer(actor_handle, StdHandle::Log, &id_gen)
         .await
         .expect("Failed to create log pipe");
 
-    pool.create_output_pipe(actor_handle, StdHandle::Env, "env", &id_gen)
+    pool.touch_writer(actor_handle, StdHandle::Env, &id_gen)
         .await
         .expect("Failed to create env pipe");
 
@@ -138,7 +139,7 @@ async fn test_create_reader_with_latent_before_writer() {
 
     // Now create the writer - this should notify the waiting reader
     pool_clone
-        .realize_pipe(actor_handle, std_handle, Handle::new(id_gen.get_next()))
+        .touch_writer(actor_handle, std_handle, &id_gen)
         .await
         .expect("Failed to realize pipe");
 
@@ -194,7 +195,7 @@ async fn test_multiple_readers_waiting_on_latent_pipe() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Create writer - should notify all waiting readers
-    pool.realize_pipe(actor_handle, std_handle, Handle::new(id_gen.get_next()))
+    pool.touch_writer(actor_handle, std_handle, &id_gen)
         .await
         .expect("Failed to realize pipe");
 
@@ -253,8 +254,8 @@ async fn test_latent_to_realized_transition() {
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
-    // Start with no pipe
-    assert!(!pool.has_pipe(actor_handle, std_handle));
+    // Start with no pipe - writer should not exist
+    assert!(pool.get_writer((actor_handle, std_handle)).is_none());
 
     // Create reader with latent - this creates latent writer
     let pool = Arc::new(pool);
@@ -271,21 +272,20 @@ async fn test_latent_to_realized_transition() {
     // Give time for latent to be created
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    // Now pipe should exist (as latent)
-    assert!(pool.has_pipe(actor_handle, std_handle));
+    // Latent pipe exists, but no writer yet
+    assert!(pool.get_writer((actor_handle, std_handle)).is_none());
 
     // Realize the pipe
-    pool.realize_pipe(actor_handle, std_handle, Handle::new(id_gen.get_next()))
+    pool.touch_writer(actor_handle, std_handle, &id_gen)
         .await
         .expect("Failed to realize pipe");
 
-    // Pipe still exists (now as realized)
-    assert!(pool.has_pipe(actor_handle, std_handle));
+    // Now writer exists (realized)
+    assert!(pool.get_writer((actor_handle, std_handle)).is_some());
 
     // Should be able to write to it
-    let writer = pool.get_writer((actor_handle, std_handle));
-    assert!(writer.is_some());
-    let result = writer.unwrap().write(b"test data");
+    let writer = pool.get_writer((actor_handle, std_handle)).unwrap();
+    let result = writer.write(b"test data");
     assert_eq!(result, 9);
 }
 
@@ -331,7 +331,7 @@ async fn test_write_to_realized_writer() {
     let std_handle = StdHandle::Stdout;
 
     // Create writer
-    pool.create_output_pipe(actor_handle, std_handle, "test", &id_gen)
+    pool.touch_writer(actor_handle, std_handle, &id_gen)
         .await
         .expect("Failed to create output pipe");
 
@@ -366,7 +366,7 @@ async fn test_multiple_writes_to_same_pipe() {
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
-    pool.create_output_pipe(actor_handle, std_handle, "test", &id_gen)
+    pool.touch_writer(actor_handle, std_handle, &id_gen)
         .await
         .expect("Failed to create output pipe");
 
@@ -391,15 +391,15 @@ async fn test_close_realized_writer() {
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
-    pool.create_output_pipe(actor_handle, std_handle, "test", &id_gen)
+    pool.touch_writer(actor_handle, std_handle, &id_gen)
         .await
         .expect("Failed to create output pipe");
 
     // Close the writer
     pool.close_writer((actor_handle, std_handle));
 
-    // Pipe should still exist (close doesn't remove it)
-    assert!(pool.has_pipe(actor_handle, std_handle));
+    // Writer should still exist (close doesn't remove it)
+    assert!(pool.get_writer((actor_handle, std_handle)).is_some());
 }
 
 #[tokio::test]
@@ -425,8 +425,8 @@ async fn test_close_latent_writer_without_realizing() {
     // Close latent writer (abnormal case - should log warning)
     pool.close_writer((actor_handle, std_handle));
 
-    // Should still have pipe entry (in closed state)
-    assert!(pool.has_pipe(actor_handle, std_handle));
+    // Writer still doesn't exist (latent was closed)
+    assert!(pool.get_writer((actor_handle, std_handle)).is_none());
 }
 
 #[tokio::test]
@@ -438,8 +438,8 @@ async fn test_close_nonexistent_pipe() {
     // Close non-existent pipe - should be no-op
     pool.close_writer((actor_handle, std_handle));
 
-    // Pipe should not exist
-    assert!(!pool.has_pipe(actor_handle, std_handle));
+    // Writer still doesn't exist
+    assert!(pool.get_writer((actor_handle, std_handle)).is_none());
 }
 
 #[tokio::test]
@@ -448,7 +448,7 @@ async fn test_multiple_close_calls() {
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
-    pool.create_output_pipe(actor_handle, std_handle, "test", &id_gen)
+    pool.touch_writer(actor_handle, std_handle, &id_gen)
         .await
         .expect("Failed to create output pipe");
 
@@ -457,62 +457,14 @@ async fn test_multiple_close_calls() {
     pool.close_writer((actor_handle, std_handle));
     pool.close_writer((actor_handle, std_handle));
 
-    // Pipe should still exist
-    assert!(pool.has_pipe(actor_handle, std_handle));
+    // Writer should still exist (close doesn't remove it)
+    assert!(pool.get_writer((actor_handle, std_handle)).is_some());
 }
 
 // ============================================================================
 // 6. Pipe Existence Checks
 // ============================================================================
 
-#[tokio::test]
-async fn test_has_pipe_for_realized_writer() {
-    let (pool, _, id_gen) = create_test_pool();
-    let actor_handle = Handle::new(1);
-    let std_handle = StdHandle::Stdout;
-
-    assert!(!pool.has_pipe(actor_handle, std_handle));
-
-    pool.create_output_pipe(actor_handle, std_handle, "test", &id_gen)
-        .await
-        .expect("Failed to create output pipe");
-
-    assert!(pool.has_pipe(actor_handle, std_handle));
-}
-
-#[tokio::test]
-async fn test_has_pipe_for_latent_writer() {
-    let (pool, _, id_gen) = create_test_pool();
-    let actor_handle = Handle::new(1);
-    let std_handle = StdHandle::Stdout;
-
-    let pool = Arc::new(pool);
-    let id_gen = Arc::new(id_gen);
-    let pool_clone = Arc::clone(&pool);
-    let id_gen_clone = Arc::clone(&id_gen);
-
-    assert!(!pool.has_pipe(actor_handle, std_handle));
-
-    // Create latent pipe
-    let _reader_task = tokio::spawn(async move {
-        pool_clone
-            .get_or_create_reader((actor_handle, std_handle), true, &id_gen_clone)
-            .await
-    });
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-
-    assert!(pool.has_pipe(actor_handle, std_handle));
-}
-
-#[tokio::test]
-async fn test_has_pipe_for_nonexistent() {
-    let (pool, _, _id_gen) = create_test_pool();
-    let actor_handle = Handle::new(1);
-    let std_handle = StdHandle::Stdout;
-
-    assert!(!pool.has_pipe(actor_handle, std_handle));
-}
 
 // ============================================================================
 // 7. Concurrent Operations
@@ -543,7 +495,7 @@ async fn test_multiple_readers_waiting_concurrently() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // Realize the pipe
-    pool.realize_pipe(actor_handle, std_handle, Handle::new(id_gen.get_next()))
+    pool.touch_writer(actor_handle, std_handle, &id_gen)
         .await
         .expect("Failed to realize pipe");
 
@@ -571,7 +523,7 @@ async fn test_concurrent_writers_for_different_handles() {
         let task = tokio::spawn(async move {
             let actor_handle = Handle::new(i);
             pool_clone
-                .create_output_pipe(actor_handle, StdHandle::Stdout, "test", &id_gen_clone)
+                .touch_writer(actor_handle, StdHandle::Stdout, &id_gen_clone)
                 .await
         });
         tasks.push(task);
@@ -583,9 +535,9 @@ async fn test_concurrent_writers_for_different_handles() {
         assert!(result.is_ok());
     }
 
-    // All pipes should exist
+    // All writers should exist
     for i in 1..=5 {
-        assert!(pool.has_pipe(Handle::new(i), StdHandle::Stdout));
+        assert!(pool.get_writer((Handle::new(i), StdHandle::Stdout)).is_some());
     }
 }
 
@@ -599,11 +551,9 @@ async fn test_create_output_pipe_allocates_buffer() {
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
-    let name = "test_pipe";
-
-    pool.create_output_pipe(actor_handle, std_handle, name, &id_gen)
+    pool.touch_writer(actor_handle, std_handle, &id_gen)
         .await
-        .expect("Failed to create output pipe");
+        .expect("Failed to create writer");
 
     // Buffer should be allocated in KV
     let buffer_name = format!("pipes/actor-{}-{:?}", actor_handle.id(), std_handle);
@@ -617,7 +567,7 @@ async fn test_realize_pipe_allocates_buffer() {
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
-    pool.realize_pipe(actor_handle, std_handle, Handle::new(id_gen.get_next()))
+    pool.touch_writer(actor_handle, std_handle, &id_gen)
         .await
         .expect("Failed to realize pipe");
 
@@ -634,13 +584,13 @@ async fn test_realize_already_realized_is_noop() {
     let std_handle = StdHandle::Stdout;
 
     // Realize once
-    pool.realize_pipe(actor_handle, std_handle, Handle::new(id_gen.get_next()))
+    pool.touch_writer(actor_handle, std_handle, &id_gen)
         .await
         .expect("Failed to realize pipe first time");
 
     // Realize again - should be no-op
     let result = pool
-        .realize_pipe(actor_handle, std_handle, Handle::new(id_gen.get_next()))
+        .touch_writer(actor_handle, std_handle, &id_gen)
         .await;
     assert!(result.is_ok(), "Second realize should succeed (no-op)");
 }
@@ -651,7 +601,7 @@ async fn test_flush_buffer() {
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
-    pool.create_output_pipe(actor_handle, std_handle, "test", &id_gen)
+    pool.touch_writer(actor_handle, std_handle, &id_gen)
         .await
         .expect("Failed to create output pipe");
 
@@ -669,22 +619,25 @@ async fn test_flush_buffer() {
 // ============================================================================
 
 #[tokio::test]
-async fn test_create_output_pipe_already_exists() {
+async fn test_touch_writer_idempotent() {
     let (pool, _, id_gen) = create_test_pool();
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
     // Create first time - should succeed
-    let result = pool
-        .create_output_pipe(actor_handle, std_handle, "test", &id_gen)
-        .await;
-    assert!(result.is_ok());
+    let writer1 = pool
+        .touch_writer(actor_handle, std_handle, &id_gen)
+        .await
+        .expect("First create should succeed");
 
-    // Create second time - should fail
-    let result = pool
-        .create_output_pipe(actor_handle, std_handle, "test", &id_gen)
-        .await;
-    assert!(result.is_err(), "Creating duplicate pipe should fail");
+    // Create second time - should succeed and return same writer (idempotent)
+    let writer2 = pool
+        .touch_writer(actor_handle, std_handle, &id_gen)
+        .await
+        .expect("Second create should succeed (idempotent)");
+
+    // Both should be the same writer (same handle)
+    assert_eq!(writer1.handle(), writer2.handle(), "Should return same writer when called twice");
 }
 
 #[tokio::test]
@@ -727,7 +680,7 @@ async fn test_reader_waits_indefinitely_until_resolved() {
     assert!(!reader_task.is_finished());
 
     // Now realize the pipe
-    pool.realize_pipe(actor_handle, std_handle, Handle::new(id_gen.get_next()))
+    pool.touch_writer(actor_handle, std_handle, &id_gen)
         .await
         .expect("Failed to realize pipe");
 
@@ -761,7 +714,7 @@ async fn test_create_latent_then_realize_then_another_reader() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Realize the pipe
-    pool.realize_pipe(actor_handle, std_handle, Handle::new(id_gen.get_next()))
+    pool.touch_writer(actor_handle, std_handle, &id_gen)
         .await
         .expect("Failed to realize pipe");
 
@@ -783,7 +736,7 @@ async fn test_mixed_latent_and_realized_pipes() {
     let id_gen = Arc::new(id_gen);
 
     // Create realized pipe for actor 1
-    pool.create_output_pipe(Handle::new(1), StdHandle::Stdout, "test1", &id_gen)
+    pool.touch_writer(Handle::new(1), StdHandle::Stdout, &id_gen)
         .await
         .expect("Failed to create pipe 1");
 
@@ -798,16 +751,12 @@ async fn test_mixed_latent_and_realized_pipes() {
 
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    // Both should exist
-    assert!(pool.has_pipe(Handle::new(1), StdHandle::Stdout));
-    assert!(pool.has_pipe(Handle::new(2), StdHandle::Stdout));
-
     // Get writer for realized pipe should work
     let writer = pool.get_writer((Handle::new(1), StdHandle::Stdout));
     assert!(writer.is_some());
     writer.unwrap().write(b"data");
 
-    // Get writer for latent pipe should fail
+    // Get writer for latent pipe should fail (not yet realized)
     let writer = pool.get_writer((Handle::new(2), StdHandle::Stdout));
     assert!(writer.is_none());
 }
@@ -852,7 +801,7 @@ async fn test_attachment_workflow_simulation() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Actor starts and writes
-    pool.realize_pipe(actor_handle, std_handle, Handle::new(id_gen.get_next()))
+    pool.touch_writer(actor_handle, std_handle, &id_gen)
         .await
         .expect("Failed to realize pipe");
 
@@ -892,7 +841,7 @@ async fn test_dependency_reading_simulation() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Actor1 starts and writes
-    pool.realize_pipe(actor1, StdHandle::Stdout, Handle::new(id_gen.get_next()))
+    pool.touch_writer(actor1, StdHandle::Stdout, &id_gen)
         .await
         .expect("Failed to realize actor1 pipe");
 
@@ -949,7 +898,7 @@ async fn test_end_to_end_data_flow() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Realize pipe
-    pool.realize_pipe(actor_handle, std_handle, Handle::new(id_gen.get_next()))
+    pool.touch_writer(actor_handle, std_handle, &id_gen)
         .await
         .expect("Failed to realize pipe");
 
