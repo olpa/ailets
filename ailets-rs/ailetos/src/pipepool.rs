@@ -330,13 +330,25 @@ impl PipeRef<'_> {
         }
     }
 
-    /// Close the writer (only works on realized pipes)
+    /// Close the writer (handles both latent and realized pipes)
     pub fn close_writer(&self) {
         if let Some(pipe) = self.guard.get(&self.key) {
             let state = pipe.state();
             let state_guard = state.lock();
-            if let crate::pipe::PipeState::Realized { writer, .. } = &*state_guard {
-                writer.close();
+            match &*state_guard {
+                crate::pipe::PipeState::Realized { writer, .. } => {
+                    // Close realized pipe
+                    writer.close();
+                }
+                crate::pipe::PipeState::Latent { .. } => {
+                    // Drop lock before calling close_latent (it acquires the same lock)
+                    drop(state_guard);
+                    // Close latent pipe (transitions to ClosedWithoutData)
+                    pipe.close_latent();
+                }
+                crate::pipe::PipeState::ClosedWithoutData => {
+                    // Already closed - no-op
+                }
             }
         } else {
             error!(

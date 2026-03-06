@@ -58,7 +58,9 @@ async fn main() {
     print!("{tree}");
 
     // Attach output streams to host
-    env.attach_stdout(end_node);  // Last actor's stdout → host stdout
+    // Resolve alias to get the actual actor node for attachment
+    let actual_node = env.resolve(end_node);
+    env.attach_stdout(actual_node);  // Last actor's stdout → host stdout
     env.attach_all_stderr();       // All actors' stderr → host stderr
 
     // Run the system (matches Python: env.processes.run_nodes(node_iter))

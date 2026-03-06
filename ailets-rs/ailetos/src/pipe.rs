@@ -766,6 +766,35 @@ impl Pipe {
         }
     }
 
+    /// Close a latent pipe without realizing it
+    ///
+    /// Transitions a latent pipe to `ClosedWithoutData` and wakes all waiting readers.
+    /// If the pipe is already realized or closed, this is a no-op.
+    pub fn close_latent(&self) {
+        let mut state = self.state.lock();
+
+        // Clone the notify Arc before modifying state
+        let notify_arc = if let PipeState::Latent { realized_notify, .. } = &*state {
+            let notify = Arc::clone(realized_notify);
+
+            // Transition state to ClosedWithoutData
+            *state = PipeState::ClosedWithoutData;
+
+            Some(notify)
+        } else {
+            // Already realized or closed - no-op
+            None
+        };
+
+        // Drop the lock before notifying
+        drop(state);
+
+        // Wake all waiting readers (including attachments)
+        if let Some(notify) = notify_arc {
+            notify.notify_waiters();
+        }
+    }
+
     /// Get writer error (only works on realized pipes)
     ///
     /// Returns 0 if pipe is not realized.

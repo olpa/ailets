@@ -524,17 +524,36 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                     })
                 }
                 Channel::Writer { node_handle, std_handle } => {
-                    // Only close existing pipes - don't create latent pipes on close
+                    debug!(channel = ?handle, node = ?node_handle, std = ?std_handle, "closing writer channel");
+
+                    // Close the primary pipe
                     if let Some(pipe) = self.pipe_pool.get_pipe(
                         node_handle,
                         std_handle,
                         crate::pipepool::PipeAccess::ExistingOnly,
                     ) {
                         pipe.close_writer();
-                        trace!(channel = ?handle, "closed writer");
+                        debug!(channel = ?handle, node = ?node_handle, std = ?std_handle, "closed writer pipe");
                     } else {
                         // Not a warning - pipe may not exist if actor never wrote
-                        trace!(channel = ?handle, node = ?node_handle, std = ?std_handle, "pipe not found for close (actor never wrote)");
+                        debug!(channel = ?handle, node = ?node_handle, std = ?std_handle, "pipe not found for close (actor never wrote)");
+                    }
+
+                    // Also close any latent pipes for other std handles that won't be written to
+                    // This handles the case where stderr attachments (using StdHandle::Log) are
+                    // waiting for data, but the actor only writes to stdout (StdHandle::Stdout)
+                    for other_std in [actor_runtime::StdHandle::Log, actor_runtime::StdHandle::Env,
+                                      actor_runtime::StdHandle::Metrics, actor_runtime::StdHandle::Trace] {
+                        if other_std != std_handle {
+                            if let Some(pipe) = self.pipe_pool.get_pipe(
+                                node_handle,
+                                other_std,
+                                crate::pipepool::PipeAccess::ExistingOnly,
+                            ) {
+                                pipe.close_writer();
+                                debug!(channel = ?handle, node = ?node_handle, std = ?other_std, "closed other latent pipe");
+                            }
+                        }
                     }
 
                     let pipe_pool = Arc::clone(&self.pipe_pool);

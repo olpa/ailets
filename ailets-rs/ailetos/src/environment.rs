@@ -122,8 +122,12 @@ impl<K: KVBuffers> Environment<K> {
         // We'll just try to get all nodes that might exist
         for i in 0..1000 {  // Reasonable upper bound
             let handle = Handle::new(i);
-            if self.dag.get_node(handle).is_some() {
-                handles.push(handle);
+            if let Some(node) = self.dag.get_node(handle) {
+                // Only attach to concrete actor nodes and value nodes, not alias nodes
+                // Alias nodes don't run as actors and don't produce output
+                if !matches!(node.kind, crate::dag::NodeKind::Alias) {
+                    handles.push(handle);
+                }
             }
         }
 
@@ -178,6 +182,27 @@ impl<K: KVBuffers> Environment<K> {
     pub fn add_alias(&mut self, alias_name: String, target: Handle) -> Handle {
         let handle = self.dag.add_node(alias_name, NodeKind::Alias);
         self.dag.add_dependency(For(handle), DependsOn(target));
+        handle
+    }
+
+    /// Resolve an alias node to its actual target node
+    ///
+    /// If the handle refers to an alias node, returns the target node.
+    /// If the handle refers to a concrete node, returns the same handle.
+    /// Recursively resolves nested aliases.
+    #[must_use]
+    pub fn resolve(&self, handle: Handle) -> Handle {
+        if let Some(node) = self.dag.get_node(handle) {
+            if matches!(node.kind, crate::dag::NodeKind::Alias) {
+                // Alias node - get its dependency (should be exactly one)
+                let mut deps = self.dag.get_direct_dependencies(handle);
+                if let Some(target) = deps.next() {
+                    // Recursively resolve in case the target is also an alias
+                    return self.resolve(target);
+                }
+            }
+        }
+        // Not an alias, or no dependency found - return as-is
         handle
     }
 
