@@ -523,10 +523,18 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                     let pipe_pool = Arc::clone(&self.pipe_pool);
                     // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
                     Box::pin(async move {
-                        let result_code = match pipe_pool.flush_buffer(node_handle, std_handle).await {
-                            Ok(()) => 0,
-                            Err(e) => {
-                                warn!(error = ?e, "failed to flush buffer");
+                        let result_code = match pipe_pool.get_writer((node_handle, std_handle)) {
+                            Some(writer) => {
+                                match pipe_pool.kv().flush_buffer(&writer.buffer()).await {
+                                    Ok(()) => 0,
+                                    Err(e) => {
+                                        warn!(error = ?e, "failed to flush buffer");
+                                        -1
+                                    }
+                                }
+                            }
+                            None => {
+                                warn!(node = ?node_handle, std = ?std_handle, "writer not found for flush");
                                 -1
                             }
                         };

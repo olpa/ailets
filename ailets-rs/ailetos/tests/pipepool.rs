@@ -610,7 +610,7 @@ async fn test_flush_buffer() {
     writer.write(b"test data");
 
     // Flush should succeed
-    let result = pool.flush_buffer(actor_handle, std_handle).await;
+    let result = pool.kv().flush_buffer(&pool.get_writer((actor_handle, std_handle)).unwrap().buffer()).await;
     assert!(result.is_ok(), "Flush should succeed");
 }
 
@@ -646,9 +646,9 @@ async fn test_flush_buffer_on_nonexistent_pipe() {
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
-    // Flush non-existent pipe
-    let result = pool.flush_buffer(actor_handle, std_handle).await;
-    assert!(result.is_err(), "Flushing non-existent pipe should fail");
+    // Try to get writer for non-existent pipe - should return None
+    let writer = pool.get_writer((actor_handle, std_handle));
+    assert!(writer.is_none(), "Getting writer for non-existent pipe should return None");
 }
 
 // ============================================================================

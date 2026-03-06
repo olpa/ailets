@@ -340,27 +340,15 @@ impl<K: KVBuffers> PipePool<K> {
         inner.find_writer(key).cloned()
     }
 
-    /// Flush the buffer for the given actor's pipe
+    /// Get the KV storage backend
     ///
-    /// # Errors
-    /// Returns an error if flushing fails or if the pipe doesn't exist
-    pub async fn flush_buffer(
-        &self,
-        actor_handle: Handle,
-        std_handle: StdHandle,
-    ) -> Result<(), crate::io::KVError> {
-        let buffer = {
-            let inner = self.inner.lock();
-            let key = (actor_handle, std_handle);
-            inner
-                .find_writer(key)
-                .map(|writer| writer.buffer())
-                .ok_or_else(|| {
-                    crate::io::KVError::NotFound(format!(
-                        "Pipe for actor {actor_handle:?} handle {std_handle:?}"
-                    ))
-                })?
-        };
-        self.kv.flush_buffer(&buffer).await
+    /// Useful for operations like flushing buffers:
+    /// ```ignore
+    /// let writer = pool.get_writer(key)?;
+    /// pool.kv().flush_buffer(&writer.buffer()).await?;
+    /// ```
+    pub fn kv(&self) -> &Arc<K> {
+        &self.kv
     }
+
 }
