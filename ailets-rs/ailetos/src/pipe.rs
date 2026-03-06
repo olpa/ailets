@@ -15,35 +15,6 @@ use crate::idgen::Handle;
 use crate::io::Buffer;
 use crate::notification_queue::NotificationQueueArc;
 
-/// State of a pipe - latent, realized, or closed
-pub enum PipeState {
-    /// Pipe exists but writer hasn't connected yet
-    /// Reads will block until pipe is realized or closed
-    Latent {
-        /// Name of the pipe (for buffer allocation later)
-        name: String,
-        /// Notification queue for the pipe
-        notification_queue: NotificationQueueArc,
-        /// Notifier for when pipe becomes realized or closed
-        realized_notify: Arc<tokio::sync::Notify>,
-    },
-
-    /// Pipe is fully realized with writer and buffer
-    Realized {
-        /// The writer side of the pipe
-        writer: Writer,
-        /// The backing buffer
-        buffer: Buffer,
-    },
-
-    /// Pipe was closed without ever being realized
-    /// Actor closed its output without writing
-    ClosedWithoutData,
-}
-
-/// Type alias for shared pipe state
-pub type PipeStateArc = Arc<Mutex<PipeState>>;
-
 /// Shared state between Writer and Readers
 struct SharedBuffer {
     buffer: Buffer,
@@ -223,7 +194,7 @@ impl Writer {
     }
 
     /// Create shared data for a new reader
-    pub(crate) fn share_with_reader(&self) -> ReaderSharedData {
+    pub fn share_with_reader(&self) -> ReaderSharedData {
         ReaderSharedData {
             buffer: Arc::clone(&self.shared),
             writer_handle: self.handle,
@@ -259,10 +230,10 @@ impl Drop for Writer {
 ///
 /// This can be cloned to create multiple independent readers from the same source.
 #[derive(Clone)]
-pub(crate) struct ReaderSharedData {
-    buffer: Arc<Mutex<SharedBuffer>>,
-    writer_handle: Handle,
-    queue: NotificationQueueArc,
+pub struct ReaderSharedData {
+    pub(crate) buffer: Arc<Mutex<SharedBuffer>>,
+    pub(crate) writer_handle: Handle,
+    pub(crate) queue: NotificationQueueArc,
 }
 
 /// Action to take when checking if reader should wait
@@ -298,89 +269,24 @@ enum WaitAction {
 ///   concurrently without interfering with each other.
 pub struct Reader {
     own_handle: Handle,
-    /// Pipe state - may be latent or realized
-    pipe_state: Arc<Mutex<PipeState>>,
-    /// Cached shared data (populated once pipe is realized)
-    buffer: Option<Arc<Mutex<SharedBuffer>>>,
-    writer_handle: Option<Handle>,
-    queue: Option<NotificationQueueArc>,
+    buffer: Arc<Mutex<SharedBuffer>>,
+    writer_handle: Handle,
+    queue: NotificationQueueArc,
     pos: usize,
     own_closed: bool,
     own_errno: i32,
 }
 
 impl Reader {
-    /// Create a reader from pipe state (latent or realized)
-    pub(crate) fn new(handle: Handle, pipe_state: Arc<Mutex<PipeState>>) -> Self {
+    pub fn new(handle: Handle, shared_data: ReaderSharedData) -> Self {
         Self {
             own_handle: handle,
-            pipe_state,
-            buffer: None,
-            writer_handle: None,
-            queue: None,
+            buffer: shared_data.buffer,
+            writer_handle: shared_data.writer_handle,
+            queue: shared_data.queue,
             pos: 0,
             own_closed: false,
             own_errno: 0,
-        }
-    }
-
-    /// Create a reader from shared data (compatibility constructor for realized pipes)
-    #[allow(dead_code)]
-    pub(crate) fn from_shared_data(handle: Handle, shared_data: ReaderSharedData) -> Self {
-        Self {
-            own_handle: handle,
-            pipe_state: Arc::new(Mutex::new(PipeState::ClosedWithoutData)), // Dummy state
-            buffer: Some(shared_data.buffer),
-            writer_handle: Some(shared_data.writer_handle),
-            queue: Some(shared_data.queue),
-            pos: 0,
-            own_closed: false,
-            own_errno: 0,
-        }
-    }
-
-    /// Ensure the reader has access to realized pipe data
-    /// Waits if pipe is latent, returns true if realized, false if closed without data
-    async fn ensure_realized(&mut self) -> bool {
-        // If already cached, we're good
-        if self.buffer.is_some() {
-            return true;
-        }
-
-        loop {
-            // Check state and extract what we need
-            let action = {
-                let state = self.pipe_state.lock();
-                match &*state {
-                    PipeState::Latent { realized_notify, .. } => {
-                        // Clone notify handle before releasing lock
-                        Some(Arc::clone(realized_notify))
-                    }
-                    PipeState::Realized { writer, .. } => {
-                        // Cache the shared data while holding the lock
-                        let shared_data = writer.share_with_reader();
-                        self.buffer = Some(shared_data.buffer);
-                        self.writer_handle = Some(shared_data.writer_handle);
-                        self.queue = Some(shared_data.queue);
-                        None // Signal we're done
-                    }
-                    PipeState::ClosedWithoutData => {
-                        None // Will return false below
-                    }
-                }
-            }; // Lock released here
-
-            match action {
-                Some(notify) => {
-                    // Wait for realization
-                    notify.notified().await;
-                    // Loop back to check state again
-                }
-                None => {
-                    // Either realized (buffer is Some) or closed without data
-                    return self.buffer.is_some();
-                }
-            }
         }
     }
 
@@ -409,20 +315,9 @@ impl Reader {
     #[must_use]
     pub fn get_error(&self) -> i32 {
         if self.own_errno != 0 {
-            return self.own_errno;
-        }
-
-        // Check cached buffer first
-        if let Some(ref buffer) = self.buffer {
-            return buffer.lock().errno;
-        }
-
-        // If not cached, check pipe state directly
-        let state = self.pipe_state.lock();
-        if let PipeState::Realized { writer, .. } = &*state {
-            writer.get_error()
+            self.own_errno
         } else {
-            0
+            self.buffer.lock().errno
         }
     }
 
@@ -447,12 +342,7 @@ impl Reader {
             return WaitAction::Error;
         }
 
-        // If buffer is not yet available (pipe not realized), wait
-        let Some(ref buffer) = self.buffer else {
-            return WaitAction::Wait;
-        };
-
-        let shared = buffer.lock();
+        let shared = self.buffer.lock();
         let writer_pos = shared.buffer.len();
 
         // Priority 2: If data is available, allow reading it
@@ -476,20 +366,13 @@ impl Reader {
     /// See the `crate::notification_queue` documentation for the workflow explanation
     /// (check (in "read") - lock (here) - check again (here))
     async fn wait_for_writer(&self) {
-        // If queue is not available, we can't wait on it
-        // This shouldn't happen if ensure_realized() is called first
-        let Some(ref queue) = self.queue else {
-            return;
-        };
-        let Some(writer_handle) = self.writer_handle else {
-            return;
-        };
-
-        let queue_lock = queue.get_lock();
+        let queue_lock = self.queue.get_lock();
 
         match self.should_wait_for_writer() {
             WaitAction::Wait => {
-                queue.wait_async(writer_handle, "reader", queue_lock).await;
+                self.queue
+                    .wait_async(self.writer_handle, "reader", queue_lock)
+                    .await;
             }
             WaitAction::Closed | WaitAction::DontWait | WaitAction::Error => {
                 drop(queue_lock);
@@ -502,19 +385,11 @@ impl Reader {
     /// Reads available data from the buffer. If no data is available,
     /// waits for the writer to provide more data or close.
     ///
-    /// If the pipe is latent, blocks until realized or closed.
-    ///
     /// Returns:
     /// - Positive value: number of bytes read
-    /// - 0: EOF (writer is closed and all data has been read, or pipe closed without data)
+    /// - 0: EOF (writer is closed and all data has been read)
     /// - -1: error (check `get_error()` for error code)
     pub async fn read(&mut self, buf: &mut [u8]) -> isize {
-        // Ensure pipe is realized (wait if latent)
-        if !self.ensure_realized().await {
-            // Pipe was closed without data
-            return 0;
-        }
-
         while !self.own_closed {
             match self.should_wait_for_writer() {
                 WaitAction::Wait => {
@@ -533,9 +408,7 @@ impl Reader {
             }
 
             // Read data from buffer
-            // Safety: buffer is guaranteed to be Some after ensure_realized() returns true
-            let buffer = self.buffer.as_ref().expect("buffer should be populated");
-            let shared = buffer.lock();
+            let shared = self.buffer.lock();
             let buffer_guard = shared.buffer.lock();
             let available = buffer_guard.len().saturating_sub(self.pos);
             let to_read = available.min(buf.len());
@@ -576,13 +449,8 @@ impl fmt::Debug for Reader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Pipe.Reader(handle={:?}, pos={}, closed={}, errno={}, writer_handle={:?}, realized={})",
-            self.own_handle,
-            self.pos,
-            self.own_closed,
-            self.own_errno,
-            self.writer_handle,
-            self.buffer.is_some()
+            "Pipe.Reader(handle={:?}, pos={}, closed={}, errno={}, writer_handle={:?})",
+            self.own_handle, self.pos, self.own_closed, self.own_errno, self.writer_handle
         )
     }
 }
@@ -591,249 +459,6 @@ impl Drop for Reader {
     fn drop(&mut self) {
         if !self.is_closed() {
             self.close();
-        }
-    }
-}
-
-/// In-memory pipe factory
-pub struct Pipe {
-    /// Writer handle (may be placeholder for latent pipes)
-    writer_handle: Handle,
-    /// Shared state - either latent or realized
-    state: Arc<Mutex<PipeState>>,
-}
-
-impl Pipe {
-    /// Create a new latent pipe (no writer, no buffer)
-    #[must_use]
-    pub fn new_latent(name: String, notification_queue: NotificationQueueArc) -> Self {
-        Self {
-            writer_handle: Handle::placeholder(), // Temporary handle
-            state: Arc::new(Mutex::new(PipeState::Latent {
-                name,
-                notification_queue,
-                realized_notify: Arc::new(tokio::sync::Notify::new()),
-            })),
-        }
-    }
-
-    /// Create a new realized pipe (with writer and buffer)
-    #[must_use]
-    pub fn new_realized(
-        writer_handle: Handle,
-        notification_queue: NotificationQueueArc,
-        name: String,
-        buffer: Buffer,
-    ) -> Self {
-        let writer = Writer::new(writer_handle, notification_queue.clone(), &name, buffer.clone());
-
-        Self {
-            writer_handle,
-            state: Arc::new(Mutex::new(PipeState::Realized { writer, buffer })),
-        }
-    }
-
-    /// Create a new Pipe with the provided buffer (compatibility method)
-    ///
-    /// This maintains compatibility with existing code that creates pipes eagerly.
-    #[must_use]
-    pub fn new(
-        writer_handle: Handle,
-        queue: NotificationQueueArc,
-        hint: &str,
-        buffer: Buffer,
-    ) -> Self {
-        Self::new_realized(writer_handle, queue, hint.to_string(), buffer)
-    }
-
-    /// Transition from latent to realized
-    /// Allocates buffer and creates writer
-    /// Wakes all readers waiting on this pipe (including attachments)
-    pub fn realize(&mut self, writer_handle: Handle, buffer: Buffer) {
-        let mut state = self.state.lock();
-
-        // Clone the notify Arc before modifying state
-        let notify_arc = if let PipeState::Latent {
-            name,
-            notification_queue,
-            realized_notify,
-        } = &*state
-        {
-            let writer = Writer::new(
-                writer_handle,
-                notification_queue.clone(),
-                name,
-                buffer.clone(),
-            );
-
-            let notify = Arc::clone(realized_notify);
-
-            // Transition state
-            *state = PipeState::Realized {
-                writer,
-                buffer: buffer.clone(),
-            };
-
-            // Update writer handle
-            self.writer_handle = writer_handle;
-
-            Some(notify)
-        } else {
-            None
-        };
-
-        // Drop the lock before notifying
-        drop(state);
-
-        // Wake all waiting readers (including attachments)
-        if let Some(notify) = notify_arc {
-            notify.notify_waiters();
-        }
-    }
-
-    /// Check if pipe is realized
-    #[must_use]
-    pub fn is_realized(&self) -> bool {
-        matches!(&*self.state.lock(), PipeState::Realized { .. })
-    }
-
-    /// Get the writer side (only for realized pipes)
-    #[must_use]
-    pub fn writer(&self) -> Option<&Writer> {
-        // SAFETY: We cannot return a reference to the writer because it's behind a Mutex
-        // This method signature is incompatible with the new design
-        // We need to change callers to use a different pattern
-        // For now, return None for latent pipes and panic with a helpful message
-        let state = self.state.lock();
-        match &*state {
-            PipeState::Realized { .. } => {
-                drop(state);
-                // We can't return a reference because the lock would be dropped
-                // This is a design issue that needs to be addressed
-                panic!("writer() cannot return a reference with the new PipeState design. Use writer_for_operation() instead.");
-            }
-            _ => None,
-        }
-    }
-
-    /// Get a reader for this pipe
-    /// Works for both latent and realized pipes
-    /// Reader will block on read if pipe is latent
-    #[must_use]
-    pub fn get_reader(&self, reader_handle: Handle) -> Reader {
-        Reader::new(reader_handle, Arc::clone(&self.state))
-    }
-
-    /// Get access to the buffer (for flushing, etc.)
-    #[must_use]
-    pub fn buffer(&self) -> Option<Buffer> {
-        let state = self.state.lock();
-        match &*state {
-            PipeState::Realized { buffer, .. } => Some(buffer.clone()),
-            _ => None,
-        }
-    }
-
-    /// Get the state for operations that need it
-    #[must_use]
-    pub fn state(&self) -> Arc<Mutex<PipeState>> {
-        Arc::clone(&self.state)
-    }
-
-    /// Write data to the pipe (only works on realized pipes)
-    ///
-    /// Returns the number of bytes written, or -1 on error.
-    /// Panics if pipe is not realized.
-    #[must_use]
-    pub fn write(&self, data: &[u8]) -> isize {
-        let state = self.state.lock();
-        if let PipeState::Realized { writer, .. } = &*state {
-            writer.write(data)
-        } else {
-            panic!("write() called on non-realized pipe");
-        }
-    }
-
-    /// Close the writer (only works on realized pipes)
-    ///
-    /// Panics if pipe is not realized.
-    pub fn close_writer(&self) {
-        let state = self.state.lock();
-        if let PipeState::Realized { writer, .. } = &*state {
-            writer.close();
-        } else {
-            panic!("close_writer() called on non-realized pipe");
-        }
-    }
-
-    /// Close a latent pipe without realizing it
-    ///
-    /// Transitions a latent pipe to `ClosedWithoutData` and wakes all waiting readers.
-    /// If the pipe is already realized or closed, this is a no-op.
-    pub fn close_latent(&self) {
-        let mut state = self.state.lock();
-
-        // Clone the notify Arc before modifying state
-        let notify_arc = if let PipeState::Latent { realized_notify, .. } = &*state {
-            let notify = Arc::clone(realized_notify);
-
-            // Transition state to ClosedWithoutData
-            *state = PipeState::ClosedWithoutData;
-
-            Some(notify)
-        } else {
-            // Already realized or closed - no-op
-            None
-        };
-
-        // Drop the lock before notifying
-        drop(state);
-
-        // Wake all waiting readers (including attachments)
-        if let Some(notify) = notify_arc {
-            notify.notify_waiters();
-        }
-    }
-
-    /// Get writer error (only works on realized pipes)
-    ///
-    /// Returns 0 if pipe is not realized.
-    #[must_use]
-    pub fn get_writer_error(&self) -> i32 {
-        let state = self.state.lock();
-        if let PipeState::Realized { writer, .. } = &*state {
-            writer.get_error()
-        } else {
-            0
-        }
-    }
-
-    /// Set writer error (only works on realized pipes)
-    ///
-    /// Panics if pipe is not realized.
-    pub fn set_writer_error(&self, errno: i32) {
-        let state = self.state.lock();
-        if let PipeState::Realized { writer, .. } = &*state {
-            writer.set_error(errno);
-        } else {
-            panic!("set_writer_error() called on non-realized pipe");
-        }
-    }
-}
-
-impl fmt::Debug for Pipe {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let state = self.state.lock();
-        match &*state {
-            PipeState::Latent { name, .. } => {
-                write!(f, "Pipe(Latent, name={})", name)
-            }
-            PipeState::Realized { writer, .. } => {
-                write!(f, "Pipe(Realized, writer={:?})", writer)
-            }
-            PipeState::ClosedWithoutData => {
-                write!(f, "Pipe(ClosedWithoutData)")
-            }
         }
     }
 }

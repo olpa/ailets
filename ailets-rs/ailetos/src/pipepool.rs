@@ -2,37 +2,86 @@
 //!
 //! Each (actor, StdHandle) pair can have its own output pipe. Readers are created on-demand
 //! when consuming actors need to read from dependencies.
+//!
+//! ## Design
+//!
+//! PipePool stores writers and latent writer placeholders in two vectors:
+//! - `latent_writers`: Placeholders for writers that haven't been created yet
+//! - `writers`: Active writers
+//!
+//! Readers are created on-demand and returned to callers (not stored in PipePool).
+//! Latent handling is done at the PipePool level, not in the Pipe/Reader/Writer types.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use actor_runtime::StdHandle;
 use parking_lot::Mutex;
-use tracing::error;
+use tracing::{debug, warn};
 
 use crate::idgen::{Handle, IdGen};
 use crate::io::{KVBuffers, OpenMode};
 use crate::notification_queue::NotificationQueueArc;
-use crate::pipe::{Pipe, Reader, Writer};
+use crate::pipe::{Reader, Writer};
 
-/// Controls how pipe access behaves when pipe doesn't exist
+/// State of a latent writer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PipeAccess {
-    /// Only access existing pipes
-    /// Returns None if pipe doesn't exist
-    ExistingOnly,
+pub enum LatentState {
+    /// Waiting for writer to be created
+    Waiting,
+    /// Closed without ever being realized
+    Closed,
+}
 
-    /// Create a latent pipe if it doesn't exist
-    /// Always returns Some (creates latent pipe on miss)
-    OrCreateLatent,
+/// A placeholder for a writer that hasn't been created yet
+pub struct LatentWriter {
+    key: (Handle, StdHandle),
+    state: LatentState,
+    notify: Arc<tokio::sync::Notify>,
+}
+
+/// Inner state of the pipe pool
+struct PoolInner {
+    latent_writers: Vec<LatentWriter>,
+    writers: Vec<(Handle, StdHandle, Writer)>,
+}
+
+impl PoolInner {
+    fn new() -> Self {
+        Self {
+            latent_writers: Vec::new(),
+            writers: Vec::new(),
+        }
+    }
+
+    /// Find a writer by key
+    fn find_writer(&self, key: (Handle, StdHandle)) -> Option<&Writer> {
+        self.writers
+            .iter()
+            .find(|(h, s, _)| (*h, *s) == key)
+            .map(|(_, _, w)| w)
+    }
+
+    /// Find a latent writer by key
+    fn find_latent_writer(&self, key: (Handle, StdHandle)) -> Option<&LatentWriter> {
+        self.latent_writers.iter().find(|lw| lw.key == key)
+    }
+
+    /// Remove a latent writer by key and return it
+    fn remove_latent_writer(&mut self, key: (Handle, StdHandle)) -> Option<LatentWriter> {
+        if let Some(pos) = self.latent_writers.iter().position(|lw| lw.key == key) {
+            Some(self.latent_writers.remove(pos))
+        } else {
+            None
+        }
+    }
 }
 
 /// Pool of output pipes, indexed by (actor handle, StdHandle) pair
 ///
 /// Uses interior mutability via `Mutex` to allow shared access through `Arc<PipePool>`.
 pub struct PipePool<K: KVBuffers> {
-    /// Output pipes indexed by (actor handle, StdHandle) pair
-    pipes: Mutex<HashMap<(Handle, StdHandle), Pipe>>,
+    /// Inner state (readers, latent_writers, writers)
+    inner: Mutex<PoolInner>,
     /// Shared notification queue for all pipes
     notification_queue: NotificationQueueArc,
     /// Key-value store for pipe buffers
@@ -44,16 +93,150 @@ impl<K: KVBuffers> PipePool<K> {
     #[must_use]
     pub fn new(kv: Arc<K>, notification_queue: NotificationQueueArc) -> Self {
         Self {
-            pipes: Mutex::new(HashMap::new()),
+            inner: Mutex::new(PoolInner::new()),
             notification_queue,
             kv,
         }
     }
 
-    /// Create output pipe (legacy method - now realizes immediately)
+    /// Get or create a reader for a pipe
     ///
-    /// This maintains compatibility with existing code that creates
-    /// pipes eagerly. New code should use realize_pipe instead.
+    /// If writer exists: creates reader immediately
+    /// If latent writer exists:
+    ///   - If closed: returns None
+    ///   - If waiting: awaits until realized or closed
+    /// If allow_latent: creates latent writer and awaits
+    /// Otherwise: returns None
+    pub async fn get_or_create_reader(
+        &self,
+        key: (Handle, StdHandle),
+        allow_latent: bool,
+        id_gen: &IdGen,
+    ) -> Option<Reader> {
+        loop {
+            // Check what state we're in
+            let notify_arc = {
+                let mut inner = self.inner.lock();
+
+                // Check if writer exists
+                if let Some(writer) = inner.find_writer(key) {
+                    let shared_data = writer.share_with_reader();
+                    let reader_handle = Handle::new(id_gen.get_next());
+                    return Some(Reader::new(reader_handle, shared_data));
+                }
+
+                // Check if latent writer exists
+                if let Some(latent) = inner.find_latent_writer(key) {
+                    match latent.state {
+                        LatentState::Closed => {
+                            return None;
+                        }
+                        LatentState::Waiting => {
+                            let notify = Arc::clone(&latent.notify);
+                            Some(notify)
+                        }
+                    }
+                } else if allow_latent {
+                    // Create latent writer
+                    let notify = Arc::new(tokio::sync::Notify::new());
+                    let latent = LatentWriter {
+                        key,
+                        state: LatentState::Waiting,
+                        notify: Arc::clone(&notify),
+                    };
+                    inner.latent_writers.push(latent);
+                    debug!(key = ?key, "created latent writer");
+                    Some(notify)
+                } else {
+                    return None;
+                }
+            };
+
+            // If we got a notify arc, wait on it
+            if let Some(notify) = notify_arc {
+                notify.notified().await;
+                // Loop back to check state again
+            } else {
+                // No notify arc means we returned already
+                break;
+            }
+        }
+
+        None
+    }
+
+    /// Create a writer for a pipe
+    ///
+    /// If a latent writer exists, removes it and notifies waiters
+    pub fn create_writer(&self, key: (Handle, StdHandle), writer: Writer) {
+        let mut inner = self.inner.lock();
+
+        // Check if latent writer exists
+        let notify_arc = inner.remove_latent_writer(key).map(|lw| lw.notify);
+
+        // Add writer
+        inner.writers.push((key.0, key.1, writer));
+        debug!(key = ?key, "created writer");
+
+        // Drop lock before notifying
+        drop(inner);
+
+        // Notify waiters
+        if let Some(notify) = notify_arc {
+            notify.notify_waiters();
+            debug!(key = ?key, "notified waiters after creating writer");
+        }
+    }
+
+    /// Close a writer
+    ///
+    /// If latent writer exists: marks it as closed and notifies waiters
+    /// If writer exists: closes it
+    pub fn close_writer(&self, key: (Handle, StdHandle)) {
+        let mut inner = self.inner.lock();
+
+        // Check for latent writer
+        if let Some(latent) = inner
+            .latent_writers
+            .iter_mut()
+            .find(|lw| lw.key == key)
+        {
+            if latent.state == LatentState::Waiting {
+                latent.state = LatentState::Closed;
+                let notify = Arc::clone(&latent.notify);
+                drop(inner);
+                notify.notify_waiters();
+                warn!(key = ?key, "closed latent writer without realizing (abnormal)");
+                return;
+            }
+        }
+
+        // Check for realized writer
+        if let Some((_, _, writer)) = inner.writers.iter().find(|(h, s, _)| (*h, *s) == key) {
+            writer.close();
+            debug!(key = ?key, "closed writer");
+        }
+    }
+
+    /// Write data to a writer
+    ///
+    /// Returns the number of bytes written, or None if writer doesn't exist
+    pub fn write(&self, key: (Handle, StdHandle), data: &[u8]) -> Option<isize> {
+        let inner = self.inner.lock();
+        inner.find_writer(key).map(|writer| writer.write(data))
+    }
+
+    /// Check if a pipe exists (writer or latent writer)
+    #[must_use]
+    pub fn has_pipe(&self, actor_handle: Handle, std_handle: StdHandle) -> bool {
+        let inner = self.inner.lock();
+        let key = (actor_handle, std_handle);
+        inner.find_writer(key).is_some() || inner.find_latent_writer(key).is_some()
+    }
+
+    /// Create output pipe (legacy compatibility method)
+    ///
+    /// Creates a writer immediately (no latent state)
     ///
     /// # Errors
     /// Returns an error if creating the buffer fails or if the pipe already exists
@@ -64,16 +247,11 @@ impl<K: KVBuffers> PipePool<K> {
         _name: &str,
         id_gen: &IdGen,
     ) -> Result<Handle, crate::io::KVError> {
-        let key = (actor_handle, std_handle);
-
         // Check if pipe already exists
-        {
-            let pipes = self.pipes.lock();
-            if pipes.contains_key(&key) {
-                return Err(crate::io::KVError::AlreadyExists(format!(
-                    "Pipe for actor {actor_handle:?} handle {std_handle:?} already exists"
-                )));
-            }
+        if self.has_pipe(actor_handle, std_handle) {
+            return Err(crate::io::KVError::AlreadyExists(format!(
+                "Pipe for actor {actor_handle:?} handle {std_handle:?} already exists"
+            )));
         }
 
         let writer_handle = Handle::new(id_gen.get_next());
@@ -82,91 +260,12 @@ impl<K: KVBuffers> PipePool<K> {
         Ok(writer_handle)
     }
 
-    /// Check if a pipe exists for the given actor and handle
-    #[must_use]
-    pub fn has_pipe(&self, actor_handle: Handle, std_handle: StdHandle) -> bool {
-        let pipes = self.pipes.lock();
-        pipes.contains_key(&(actor_handle, std_handle))
-    }
-
-    /// Get a pipe with controlled latent pipe creation
+    /// Realize a pipe (create writer with buffer)
     ///
-    /// # Arguments
-    ///
-    /// * `actor_handle` - The actor that owns the pipe
-    /// * `std_handle` - Which standard handle (Stdout/Stderr/Log)
-    /// * `access` - Whether to create latent pipe if missing
-    ///
-    /// # Returns
-    ///
-    /// * `Some(PipeRef)` - Pipe exists (realized or latent)
-    /// * `None` - Pipe doesn't exist and `access == ExistingOnly`
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// // Get existing pipe only (for closing)
-    /// let pipe = pool.get_pipe(handle, StdHandle::Stdout, PipeAccess::ExistingOnly)?;
-    ///
-    /// // Get or create latent pipe (for reading dependencies or attachments)
-    /// let pipe = pool.get_pipe(handle, StdHandle::Stdout, PipeAccess::OrCreateLatent)?;
-    /// ```
-    #[must_use]
-    pub fn get_pipe(
-        &self,
-        actor_handle: Handle,
-        std_handle: StdHandle,
-        access: PipeAccess,
-    ) -> Option<PipeRef<'_>> {
-        let mut pipes = self.pipes.lock();
-        let key = (actor_handle, std_handle);
-
-        match access {
-            PipeAccess::ExistingOnly => {
-                // Only return if exists
-                if pipes.contains_key(&key) {
-                    Some(PipeRef { guard: pipes, key })
-                } else {
-                    None
-                }
-            }
-            PipeAccess::OrCreateLatent => {
-                // Create latent if missing
-                pipes.entry(key).or_insert_with(|| {
-                    let name = format!("pipes/actor-{}-{:?}", actor_handle.id(), std_handle);
-                    Pipe::new_latent(name, self.notification_queue.clone())
-                });
-                Some(PipeRef { guard: pipes, key })
-            }
-        }
-    }
-
-    /// Open a reader for a pipe (creates latent pipe if needed)
-    ///
-    /// This is the primary method for getting readers, including for attachments.
-    /// If the pipe doesn't exist, a latent pipe is created and the reader will
-    /// block until the pipe is realized.
-    #[must_use]
-    pub fn open_reader(
-        &self,
-        actor_handle: Handle,
-        std_handle: StdHandle,
-        id_gen: &IdGen,
-    ) -> Option<Reader> {
-        // Always use OrCreateLatent for readers
-        let pipe_ref = self.get_pipe(actor_handle, std_handle, PipeAccess::OrCreateLatent)?;
-        let reader_handle = Handle::new(id_gen.get_next());
-        pipe_ref.get_reader(reader_handle)
-    }
-
-    /// Realize a latent pipe (called on first write)
-    ///
-    /// If pipe doesn't exist, creates it as realized directly.
-    /// If pipe is latent, transitions it to realized.
-    /// If pipe is already realized, this is a no-op.
+    /// If pipe doesn't exist or is latent, creates the writer
+    /// If writer already exists, this is a no-op
     ///
     /// # Errors
-    ///
     /// Returns error if buffer allocation fails
     pub async fn realize_pipe(
         &self,
@@ -174,49 +273,43 @@ impl<K: KVBuffers> PipePool<K> {
         std_handle: StdHandle,
         writer_handle: Handle,
     ) -> Result<(), crate::io::KVError> {
-        let name = format!("pipes/actor-{}-{:?}", actor_handle.id(), std_handle);
         let key = (actor_handle, std_handle);
+        let name = format!("pipes/actor-{}-{:?}", actor_handle.id(), std_handle);
 
-        // Check if pipe exists and determine what action to take
-        let needs_realization = {
-            let pipes = self.pipes.lock();
-            if let Some(pipe) = pipes.get(&key) {
-                !pipe.is_realized()
-            } else {
-                false // Will create new pipe below
-            }
-        };
-
-        if needs_realization {
-            // Pipe exists and is latent - realize it
-            let buffer = self.kv.open(&name, OpenMode::Write).await?;
-            let mut pipes = self.pipes.lock();
-            if let Some(pipe) = pipes.get_mut(&key) {
-                pipe.realize(writer_handle, buffer);
-            }
-        } else {
-            // Check if pipe exists now (might have been created elsewhere)
-            let exists = {
-                let pipes = self.pipes.lock();
-                pipes.contains_key(&key)
-            };
-
-            if !exists {
-                // Pipe doesn't exist - create as realized directly
-                let buffer = self.kv.open(&name, OpenMode::Write).await?;
-                let pipe = Pipe::new_realized(
-                    writer_handle,
-                    self.notification_queue.clone(),
-                    name,
-                    buffer,
-                );
-
-                let mut pipes = self.pipes.lock();
-                pipes.insert(key, pipe);
+        // Check if writer already exists
+        {
+            let inner = self.inner.lock();
+            if inner.find_writer(key).is_some() {
+                return Ok(()); // Already realized
             }
         }
 
+        // Allocate buffer
+        let buffer = self.kv.open(&name, OpenMode::Write).await?;
+
+        // Create writer
+        let writer = Writer::new(
+            writer_handle,
+            self.notification_queue.clone(),
+            &name,
+            buffer,
+        );
+
+        self.create_writer(key, writer);
         Ok(())
+    }
+
+    /// Open a reader for a pipe (creates latent pipe if needed)
+    ///
+    /// This is the primary method for getting readers, including for attachments.
+    pub async fn open_reader(
+        &self,
+        actor_handle: Handle,
+        std_handle: StdHandle,
+        id_gen: &IdGen,
+    ) -> Option<Reader> {
+        let key = (actor_handle, std_handle);
+        self.get_or_create_reader(key, true, id_gen).await
     }
 
     /// Create a standalone Writer backed by KV storage (not wrapped in a Pipe).
@@ -250,128 +343,17 @@ impl<K: KVBuffers> PipePool<K> {
         std_handle: StdHandle,
     ) -> Result<(), crate::io::KVError> {
         let buffer = {
-            let pipe_ref =
-                self.get_pipe(actor_handle, std_handle, PipeAccess::ExistingOnly)
-                    .ok_or_else(|| {
-                        crate::io::KVError::NotFound(format!(
-                            "Pipe for actor {actor_handle:?} handle {std_handle:?}"
-                        ))
-                    })?;
-            pipe_ref.buffer().ok_or_else(|| {
-                crate::io::KVError::NotFound(format!(
-                    "Buffer for actor {actor_handle:?} handle {std_handle:?} (pipe not realized)"
-                ))
-            })?
-        }; // pipe_ref dropped here, lock released
+            let inner = self.inner.lock();
+            let key = (actor_handle, std_handle);
+            inner
+                .find_writer(key)
+                .map(|writer| writer.buffer())
+                .ok_or_else(|| {
+                    crate::io::KVError::NotFound(format!(
+                        "Pipe for actor {actor_handle:?} handle {std_handle:?}"
+                    ))
+                })?
+        };
         self.kv.flush_buffer(&buffer).await
-    }
-}
-
-/// A reference to a pipe in the pool, holding the lock
-pub struct PipeRef<'a> {
-    guard: parking_lot::MutexGuard<'a, HashMap<(Handle, StdHandle), Pipe>>,
-    key: (Handle, StdHandle),
-}
-
-impl PipeRef<'_> {
-    /// Get the state of the pipe for performing operations
-    ///
-    /// Returns `None` if the key is invalid (should never happen in practice,
-    /// as the key is validated in `get_pipe()` and the lock is held).
-    #[must_use]
-    pub fn state(&self) -> Option<crate::pipe::PipeStateArc> {
-        if let Some(pipe) = self.guard.get(&self.key) {
-            Some(pipe.state())
-        } else {
-            error!(
-                key = ?self.key,
-                "CRITICAL: PipeRef key invalid despite lock held"
-            );
-            None
-        }
-    }
-
-    /// Get the buffer (only for realized pipes)
-    ///
-    /// Returns `None` if the key is invalid or if the pipe is not realized.
-    #[must_use]
-    pub fn buffer(&self) -> Option<crate::io::Buffer> {
-        if let Some(pipe) = self.guard.get(&self.key) {
-            pipe.buffer()
-        } else {
-            error!(
-                key = ?self.key,
-                "CRITICAL: PipeRef key invalid despite lock held"
-            );
-            None
-        }
-    }
-
-    /// Write data to the pipe (only works on realized pipes)
-    ///
-    /// Returns the number of bytes written, or -1 on error.
-    /// Returns None if the pipe is not realized or doesn't exist.
-    #[must_use]
-    pub fn write(&self, data: &[u8]) -> Option<isize> {
-        if let Some(pipe) = self.guard.get(&self.key) {
-            let state = pipe.state();
-            let state_guard = state.lock();
-            if let crate::pipe::PipeState::Realized { writer, .. } = &*state_guard {
-                Some(writer.write(data))
-            } else {
-                None
-            }
-        } else {
-            error!(
-                key = ?self.key,
-                "CRITICAL: PipeRef key invalid despite lock held"
-            );
-            None
-        }
-    }
-
-    /// Close the writer (handles both latent and realized pipes)
-    pub fn close_writer(&self) {
-        if let Some(pipe) = self.guard.get(&self.key) {
-            let state = pipe.state();
-            let state_guard = state.lock();
-            match &*state_guard {
-                crate::pipe::PipeState::Realized { writer, .. } => {
-                    // Close realized pipe
-                    writer.close();
-                }
-                crate::pipe::PipeState::Latent { .. } => {
-                    // Drop lock before calling close_latent (it acquires the same lock)
-                    drop(state_guard);
-                    // Close latent pipe (transitions to ClosedWithoutData)
-                    pipe.close_latent();
-                }
-                crate::pipe::PipeState::ClosedWithoutData => {
-                    // Already closed - no-op
-                }
-            }
-        } else {
-            error!(
-                key = ?self.key,
-                "CRITICAL: PipeRef key invalid despite lock held"
-            );
-        }
-    }
-
-    /// Get a reader for this pipe with an explicit handle
-    ///
-    /// Returns `None` if the key is invalid (should never happen in practice,
-    /// as the key is validated in `get_pipe()` and the lock is held).
-    #[must_use]
-    pub fn get_reader(&self, reader_handle: Handle) -> Option<Reader> {
-        if let Some(pipe) = self.guard.get(&self.key) {
-            Some(pipe.get_reader(reader_handle))
-        } else {
-            error!(
-                key = ?self.key,
-                "CRITICAL: PipeRef key invalid despite lock held"
-            );
-            None
-        }
     }
 }

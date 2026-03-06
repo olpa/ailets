@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tracing::warn;
 
 use crate::dag::OwnedDependencyIterator;
-use crate::idgen::{Handle, IdGen};
+use crate::idgen::IdGen;
 use crate::io::KVBuffers;
 use crate::pipe::Reader;
 use crate::pipepool::PipePool;
@@ -66,23 +66,20 @@ impl<K: KVBuffers> MergeReader<K> {
     ///
     /// Returns `None` if there are no more dependencies.
     /// Creates a latent pipe if the dependency hasn't written yet.
-    fn create_next_reader(&mut self) -> Option<Reader> {
-        self.dep_iterator.next().map(|dep_handle| {
-            let handle = Handle::new(self.id_gen.get_next());
+    async fn create_next_reader(&mut self) -> Option<Reader> {
+        if let Some(dep_handle) = self.dep_iterator.next() {
             // Dependencies always output to stdout
-            // Use OrCreateLatent to create the pipe if it doesn't exist yet
-            let pipe = self
-                .pipe_pool
-                .get_pipe(
-                    dep_handle,
-                    actor_runtime::StdHandle::Stdout,
-                    crate::pipepool::PipeAccess::OrCreateLatent,
+            // Use get_or_create_reader with allow_latent=true
+            self.pipe_pool
+                .get_or_create_reader(
+                    (dep_handle, actor_runtime::StdHandle::Stdout),
+                    true,
+                    &self.id_gen,
                 )
-                .expect("OrCreateLatent should always return Some");
-            // Get a reader that works for both latent and realized pipes
-            pipe.get_reader(handle)
-                .expect("get_reader should always succeed")
-        })
+                .await
+        } else {
+            None
+        }
     }
 
     /// Read data from the merged dependency stream.
@@ -100,7 +97,7 @@ impl<K: KVBuffers> MergeReader<K> {
         loop {
             // Ensure we have a reader for the current dependency
             if self.current_reader.is_none() {
-                match self.create_next_reader() {
+                match self.create_next_reader().await {
                     Some(reader) => {
                         self.current_reader = Some(reader);
                     }

@@ -468,19 +468,10 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                     };
                 }
 
-                // Write to pipe using ExistingOnly since we just realized it
-                let result = if let Some(pipe) = pipe_pool.get_pipe(
-                    node_handle,
-                    std_handle,
-                    crate::pipepool::PipeAccess::ExistingOnly,
-                ) {
-                    if let Some(n) = pipe.write(&data) {
-                        trace!(bytes = n, "pipe write completed");
-                        n
-                    } else {
-                        warn!(node = ?node_handle, std = ?std_handle, "pipe not realized (unexpected)");
-                        -1
-                    }
+                // Write to pipe
+                let result = if let Some(n) = pipe_pool.write((node_handle, std_handle), &data) {
+                    trace!(bytes = n, "pipe write completed");
+                    n
                 } else {
                     warn!(node = ?node_handle, std = ?std_handle, "pipe not found after realization");
                     -1
@@ -527,17 +518,8 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                     debug!(channel = ?handle, node = ?node_handle, std = ?std_handle, "closing writer channel");
 
                     // Close the primary pipe
-                    if let Some(pipe) = self.pipe_pool.get_pipe(
-                        node_handle,
-                        std_handle,
-                        crate::pipepool::PipeAccess::ExistingOnly,
-                    ) {
-                        pipe.close_writer();
-                        debug!(channel = ?handle, node = ?node_handle, std = ?std_handle, "closed writer pipe");
-                    } else {
-                        // Not a warning - pipe may not exist if actor never wrote
-                        debug!(channel = ?handle, node = ?node_handle, std = ?std_handle, "pipe not found for close (actor never wrote)");
-                    }
+                    self.pipe_pool.close_writer((node_handle, std_handle));
+                    debug!(channel = ?handle, node = ?node_handle, std = ?std_handle, "closed writer pipe");
 
                     // Also close any latent pipes for other std handles that won't be written to
                     // This handles the case where stderr attachments (using StdHandle::Log) are
@@ -545,14 +527,8 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                     for other_std in [actor_runtime::StdHandle::Log, actor_runtime::StdHandle::Env,
                                       actor_runtime::StdHandle::Metrics, actor_runtime::StdHandle::Trace] {
                         if other_std != std_handle {
-                            if let Some(pipe) = self.pipe_pool.get_pipe(
-                                node_handle,
-                                other_std,
-                                crate::pipepool::PipeAccess::ExistingOnly,
-                            ) {
-                                pipe.close_writer();
-                                debug!(channel = ?handle, node = ?node_handle, std = ?other_std, "closed other latent pipe");
-                            }
+                            self.pipe_pool.close_writer((node_handle, other_std));
+                            debug!(channel = ?handle, node = ?node_handle, std = ?other_std, "closed other latent pipe");
                         }
                     }
 
@@ -619,7 +595,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
         tokio::spawn(async move {
             // Open reader for the pipe
-            let Some(reader) = pipe_pool.open_reader(node_handle, std_handle, &id_gen) else {
+            let Some(reader) = pipe_pool.open_reader(node_handle, std_handle, &id_gen).await else {
                 warn!(node = ?node_handle, std = ?std_handle, "failed to open reader for attachment");
                 return;
             };
