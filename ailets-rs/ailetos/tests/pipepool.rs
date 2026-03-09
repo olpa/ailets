@@ -597,7 +597,7 @@ async fn test_realize_already_realized_is_noop() {
 
 #[tokio::test]
 async fn test_flush_buffer() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, kv, id_gen) = create_test_pool();
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
@@ -610,7 +610,7 @@ async fn test_flush_buffer() {
     writer.write(b"test data");
 
     // Flush should succeed
-    let result = pool.kv().flush_buffer(&pool.get_writer((actor_handle, std_handle)).unwrap().buffer()).await;
+    let result = kv.flush_buffer(&pool.get_writer((actor_handle, std_handle)).unwrap().buffer()).await;
     assert!(result.is_ok(), "Flush should succeed");
 }
 

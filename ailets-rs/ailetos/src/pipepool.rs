@@ -340,15 +340,4 @@ impl<K: KVBuffers> PipePool<K> {
         inner.find_writer(key).cloned()
     }
 
-    /// Get the KV storage backend
-    ///
-    /// Useful for operations like flushing buffers:
-    /// ```ignore
-    /// let writer = pool.get_writer(key)?;
-    /// pool.kv().flush_buffer(&writer.buffer()).await?;
-    /// ```
-    pub fn kv(&self) -> &Arc<K> {
-        &self.kv
-    }
-
 }

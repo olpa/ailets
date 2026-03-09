@@ -236,6 +236,8 @@ pub struct SystemRuntime<K: KVBuffers> {
     dag: Arc<Dag>,
     /// Pool of output pipes (one per actor)
     pipe_pool: Arc<PipePool<K>>,
+    /// Key-value store for pipe buffers
+    kv: Arc<K>,
     /// Global channel table: `ChannelHandle` → Channel (reader or writer endpoint)
     channels: HashMap<ChannelHandle, Channel<K>>,
     /// Next channel handle ID
@@ -257,7 +259,8 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
         Self {
             dag,
-            pipe_pool: Arc::new(PipePool::new(kv, notification_queue)),
+            pipe_pool: Arc::new(PipePool::new(Arc::clone(&kv), notification_queue)),
+            kv,
             channels: HashMap::new(),
             next_channel_id: 0,
             system_tx: Some(system_tx),
@@ -521,11 +524,12 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                     }
 
                     let pipe_pool = Arc::clone(&self.pipe_pool);
+                    let kv = Arc::clone(&self.kv);
                     // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
                     Box::pin(async move {
                         let result_code = match pipe_pool.get_writer((node_handle, std_handle)) {
                             Some(writer) => {
-                                match pipe_pool.kv().flush_buffer(&writer.buffer()).await {
+                                match kv.flush_buffer(&writer.buffer()).await {
                                     Ok(()) => 0,
                                     Err(e) => {
                                         warn!(error = ?e, "failed to flush buffer");
