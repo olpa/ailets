@@ -75,11 +75,12 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use futures::stream::{FuturesUnordered, StreamExt};
+use parking_lot::RwLock;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, trace, warn};
 
 use crate::attachments::{attach_to_stderr, attach_to_stdout};
-use crate::dag::{Dag, OwnedDependencyIterator};
+use crate::dag::{Dag, NodeState, OwnedDependencyIterator};
 use crate::idgen::{Handle, IdGen};
 use crate::merge_reader::MergeReader;
 use crate::notification_queue::NotificationQueueArc;
@@ -199,6 +200,8 @@ pub enum IoRequest {
         handle: ChannelHandle,
         response: oneshot::Sender<isize>,
     },
+    /// Actor shutdown - close all writers (realized and latent) for this actor
+    ActorShutdown { node_handle: Handle },
 }
 
 /// Result of a completed I/O operation
@@ -232,8 +235,8 @@ pub enum AttachmentConfig {
 /// `SystemRuntime` manages all async I/O operations
 /// Actors communicate with it via channels
 pub struct SystemRuntime<K: KVBuffers> {
-    /// The DAG describing actor dependencies
-    dag: Arc<Dag>,
+    /// The DAG describing actor dependencies (wrapped in RwLock for state updates)
+    dag: Arc<RwLock<Dag>>,
     /// Pool of output pipes (one per actor)
     pipe_pool: Arc<PipePool<K>>,
     /// Key-value store for pipe buffers
@@ -253,7 +256,7 @@ pub struct SystemRuntime<K: KVBuffers> {
 }
 
 impl<K: KVBuffers + 'static> SystemRuntime<K> {
-    pub fn new(dag: Arc<Dag>, kv: Arc<K>, id_gen: Arc<IdGen>) -> Self {
+    pub fn new(dag: Arc<RwLock<Dag>>, kv: Arc<K>, id_gen: Arc<IdGen>) -> Self {
         let (system_tx, request_rx) = mpsc::unbounded_channel();
         let notification_queue = NotificationQueueArc::new();
 
@@ -508,19 +511,10 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                 Channel::Writer { node_handle, std_handle } => {
                     debug!(channel = ?handle, node = ?node_handle, std = ?std_handle, "closing writer channel");
 
-                    // Close the primary pipe
-                    self.pipe_pool.close_writer((node_handle, std_handle));
-                    debug!(channel = ?handle, node = ?node_handle, std = ?std_handle, "closed writer pipe");
-
-                    // Also close any latent pipes for other std handles that won't be written to
-                    // This handles the case where stderr attachments (using StdHandle::Log) are
-                    // waiting for data, but the actor only writes to stdout (StdHandle::Stdout)
-                    for other_std in [actor_runtime::StdHandle::Log, actor_runtime::StdHandle::Env,
-                                      actor_runtime::StdHandle::Metrics, actor_runtime::StdHandle::Trace] {
-                        if other_std != std_handle {
-                            self.pipe_pool.close_writer((node_handle, other_std));
-                            debug!(channel = ?handle, node = ?node_handle, std = ?other_std, "closed other latent pipe");
-                        }
+                    // Close the writer
+                    if let Some(writer) = self.pipe_pool.get_writer((node_handle, std_handle)) {
+                        writer.close();
+                        debug!(channel = ?handle, node = ?node_handle, std = ?std_handle, "closed writer pipe");
                     }
 
                     let pipe_pool = Arc::clone(&self.pipe_pool);
@@ -657,6 +651,16 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                             IoRequest::Close { handle, response } => {
                                 let fut = self.handle_close(handle, response);
                                 pending_ops.push(fut);
+                            }
+                            IoRequest::ActorShutdown { node_handle } => {
+                                debug!(node = ?node_handle, "actor shutdown - setting state to Terminating");
+                                self.dag.write().set_state(node_handle, NodeState::Terminating);
+
+                                debug!(node = ?node_handle, "actor shutdown - closing all writers");
+                                self.pipe_pool.close_actor_writers(node_handle);
+
+                                debug!(node = ?node_handle, "actor shutdown - setting state to Terminated");
+                                self.dag.write().set_state(node_handle, NodeState::Terminated);
                             }
                         }
                     } else {

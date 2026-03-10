@@ -60,11 +60,12 @@
 //! ### Closing Writers
 //!
 //! ```ignore
-//! // Normal close (after writing)
-//! pool.close_writer((actor_handle, std_handle));
+//! // Normal close (after writing) - call close() on the writer directly
+//! let writer = pool.get_writer((actor_handle, std_handle)).unwrap();
+//! writer.close();
 //!
-//! // Abnormal close (latent pipe never realized) - logs warning
-//! pool.close_writer((actor_handle, std_handle));  // Wakes readers with None
+//! // On actor shutdown - close all writers (realized and latent) for the actor
+//! pool.close_actor_writers(actor_handle);
 //! ```
 //!
 //! ## Coordination via Notify
@@ -73,7 +74,7 @@
 //!
 //! 1. **Reader path**: `get_or_create_reader()` creates latent entry, awaits notify
 //! 2. **Writer path**: `touch_writer()` removes latent entry, calls `notify_waiters()`
-//! 3. **Close path**: `close_writer()` marks latent as Closed, calls `notify_waiters()`
+//! 3. **Shutdown path**: `close_actor_writers()` closes all writers for an actor
 //!
 //! This ensures readers never miss notifications and wake up exactly once.
 
@@ -81,7 +82,7 @@ use std::sync::Arc;
 
 use actor_runtime::StdHandle;
 use parking_lot::Mutex;
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::idgen::{Handle, IdGen};
 use crate::io::{KVBuffers, OpenMode};
@@ -299,33 +300,36 @@ impl<K: KVBuffers> PipePool<K> {
         Ok(writer_arc)
     }
 
-    /// Close a writer
+    /// Close all writers (realized and latent) for an actor
     ///
-    /// If latent writer exists: marks it as closed and notifies waiters
-    /// If writer exists: closes it
-    pub fn close_writer(&self, key: (Handle, StdHandle)) {
+    /// Called on actor shutdown to clean up all pipes for the actor.
+    /// - For realized writers: calls `close()` on each
+    /// - For latent writers: marks as closed and notifies waiting readers
+    pub fn close_actor_writers(&self, actor_handle: Handle) {
         let mut inner = self.inner.lock();
 
-        // Check for latent writer
-        if let Some(latent) = inner
-            .latent_writers
-            .iter_mut()
-            .find(|lw| lw.key == key)
-        {
-            if latent.state == LatentState::Waiting {
+        // Close all latent writers for this actor
+        let mut notifies = Vec::new();
+        for latent in inner.latent_writers.iter_mut() {
+            if latent.key.0 == actor_handle && latent.state == LatentState::Waiting {
                 latent.state = LatentState::Closed;
-                let notify = Arc::clone(&latent.notify);
-                drop(inner);
-                notify.notify_waiters();
-                warn!(key = ?key, "closed latent writer without realizing (abnormal)");
-                return;
+                notifies.push(Arc::clone(&latent.notify));
+                debug!(key = ?latent.key, "closed latent writer on actor shutdown");
             }
         }
 
-        // Check for realized writer
-        if let Some((_, _, writer)) = inner.writers.iter().find(|(h, s, _)| (*h, *s) == key) {
-            writer.close();
-            debug!(key = ?key, "closed writer");
+        // Close all realized writers for this actor
+        for (h, s, writer) in inner.writers.iter() {
+            if *h == actor_handle {
+                writer.close();
+                debug!(key = ?(*h, *s), "closed realized writer on actor shutdown");
+            }
+        }
+
+        // Notify waiters outside the lock
+        drop(inner);
+        for notify in notifies {
+            notify.notify_waiters();
         }
     }
 

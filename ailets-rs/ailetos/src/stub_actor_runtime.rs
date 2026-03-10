@@ -136,6 +136,11 @@ impl BlockingActorRuntime {
             let _ = self.aclose(fd);
         }
 
+        // Signal actor shutdown to close any remaining latent pipes
+        let _ = self.system_tx.send(IoRequest::ActorShutdown {
+            node_handle: self.node_handle,
+        });
+
         trace!(actor = ?self.node_handle, "all handles closed");
     }
 }

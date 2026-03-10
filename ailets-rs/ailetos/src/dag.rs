@@ -2,6 +2,8 @@ use std::collections::{HashSet, VecDeque};
 use std::fmt::Write;
 use std::sync::Arc;
 
+use parking_lot::RwLock;
+
 use crate::idgen::{Handle, IdGen};
 
 /// Wrapper for the dependent node in `add_dependency(For(A), DependsOn(B))`.
@@ -18,6 +20,7 @@ pub struct DependsOn(pub Handle);
 pub enum NodeState {
     NotStarted,
     Running,
+    Terminating,
     Terminated,
 }
 
@@ -204,12 +207,14 @@ impl Dag {
             match node.state {
                 NodeState::NotStarted => format!("{YELLOW}⋯ not built{RESET}"),
                 NodeState::Running => format!("{MAGENTA}⚙ running{RESET}"),
+                NodeState::Terminating => format!("{MAGENTA}⏳ terminating{RESET}"),
                 NodeState::Terminated => format!("{GREEN}✓ built{RESET}"),
             }
         } else {
             match node.state {
                 NodeState::NotStarted => "⋯ not built".to_string(),
                 NodeState::Running => "⚙ running".to_string(),
+                NodeState::Terminating => "⏳ terminating".to_string(),
                 NodeState::Terminated => "✓ built".to_string(),
             }
         };
@@ -298,12 +303,12 @@ impl Iterator for DependencyIterator<'_> {
     }
 }
 
-/// Owned variant of `DependencyIterator` that holds `Arc<Dag>`.
+/// Owned variant of `DependencyIterator` that holds `Arc<RwLock<Dag>>`.
 ///
 /// This allows the iterator to be stored in structs that need to own their data,
 /// such as `MergeReader` which is moved during async operations.
 pub struct OwnedDependencyIterator {
-    dag: Arc<Dag>,
+    dag: Arc<RwLock<Dag>>,
     to_visit: VecDeque<Handle>,
     visited: HashSet<Handle>,
 }
@@ -313,8 +318,8 @@ impl OwnedDependencyIterator {
     ///
     /// Resolves aliases and yields only concrete dependency nodes.
     #[must_use]
-    pub fn new(dag: Arc<Dag>, pid: Handle) -> Self {
-        let to_visit: VecDeque<Handle> = dag.get_direct_dependencies(pid).collect();
+    pub fn new(dag: Arc<RwLock<Dag>>, pid: Handle) -> Self {
+        let to_visit: VecDeque<Handle> = dag.read().get_direct_dependencies(pid).collect();
         Self {
             dag,
             to_visit,
@@ -329,11 +334,12 @@ impl Iterator for OwnedDependencyIterator {
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(pid) = self.to_visit.pop_front() {
             if self.visited.insert(pid) {
-                if let Some(node) = self.dag.get_node(pid) {
+                let dag = self.dag.read();
+                if let Some(node) = dag.get_node(pid) {
                     match &node.kind {
                         NodeKind::Concrete => return Some(pid),
                         NodeKind::Alias => {
-                            self.to_visit.extend(self.dag.get_direct_dependencies(pid));
+                            self.to_visit.extend(dag.get_direct_dependencies(pid));
                         }
                     }
                 }

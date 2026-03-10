@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use parking_lot::RwLock;
 use tokio::sync::mpsc;
 use tracing::{debug, error, warn};
 
@@ -304,17 +305,18 @@ impl<K: KVBuffers> Environment<K> {
 
     /// Spawn actor tasks for all nodes in the system
     fn spawn_actor_tasks(
-        dag: &Arc<Dag>,
+        dag: &Arc<RwLock<Dag>>,
         target: Handle,
         system_tx: &mpsc::UnboundedSender<IoRequest>,
         actor_registry: &ActorRegistry,
         value_nodes: &HashMap<Handle, ValueNodeData>,
     ) -> Vec<tokio::task::JoinHandle<()>> {
-        let scheduler = Scheduler::new(dag, target);
+        let dag_guard = dag.read();
+        let scheduler = Scheduler::new(&dag_guard, target);
         let mut tasks = Vec::new();
 
         for node_handle in scheduler.iter() {
-            let Some(node) = dag.get_node(node_handle) else {
+            let Some(node) = dag_guard.get_node(node_handle) else {
                 warn!(node = ?node_handle, "node not found in DAG, skipping");
                 continue;
             };
@@ -352,8 +354,8 @@ impl<K: KVBuffers> Environment<K> {
     where
         K: 'static,
     {
-        // Wrap DAG in Arc for sharing
-        let dag = Arc::new(self.dag);
+        // Wrap DAG in Arc<RwLock> for sharing with mutable state access
+        let dag = Arc::new(RwLock::new(self.dag));
 
         // Create system runtime
         let mut system_runtime = SystemRuntime::new(Arc::clone(&dag), Arc::clone(&self.kv), self.idgen);

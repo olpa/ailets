@@ -233,7 +233,7 @@ async fn test_reader_on_latent_pipe_closed_without_realizing() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Close the latent writer without realizing it
-    pool.close_writer((actor_handle, std_handle));
+    pool.close_actor_writers(actor_handle);
 
     // Reader should unblock and get None
     let result = tokio::time::timeout(Duration::from_secs(1), reader_task)
@@ -310,7 +310,7 @@ async fn test_latent_to_closed_transition() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Close without realizing
-    pool.close_writer((actor_handle, std_handle));
+    pool.close_actor_writers(actor_handle);
 
     // New reader request should get None (closed state)
     let reader = pool
@@ -395,8 +395,9 @@ async fn test_close_realized_writer() {
         .await
         .expect("Failed to create output pipe");
 
-    // Close the writer
-    pool.close_writer((actor_handle, std_handle));
+    // Close the writer directly
+    let writer = pool.get_writer((actor_handle, std_handle)).unwrap();
+    writer.close();
 
     // Writer should still exist (close doesn't remove it)
     assert!(pool.get_writer((actor_handle, std_handle)).is_some());
@@ -423,7 +424,7 @@ async fn test_close_latent_writer_without_realizing() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Close latent writer (abnormal case - should log warning)
-    pool.close_writer((actor_handle, std_handle));
+    pool.close_actor_writers(actor_handle);
 
     // Writer still doesn't exist (latent was closed)
     assert!(pool.get_writer((actor_handle, std_handle)).is_none());
@@ -436,7 +437,7 @@ async fn test_close_nonexistent_pipe() {
     let std_handle = StdHandle::Stdout;
 
     // Close non-existent pipe - should be no-op
-    pool.close_writer((actor_handle, std_handle));
+    pool.close_actor_writers(actor_handle);
 
     // Writer still doesn't exist
     assert!(pool.get_writer((actor_handle, std_handle)).is_none());
@@ -453,9 +454,10 @@ async fn test_multiple_close_calls() {
         .expect("Failed to create output pipe");
 
     // Close multiple times - should be idempotent
-    pool.close_writer((actor_handle, std_handle));
-    pool.close_writer((actor_handle, std_handle));
-    pool.close_writer((actor_handle, std_handle));
+    let writer = pool.get_writer((actor_handle, std_handle)).unwrap();
+    writer.close();
+    writer.close();
+    writer.close();
 
     // Writer should still exist (close doesn't remove it)
     assert!(pool.get_writer((actor_handle, std_handle)).is_some());
@@ -809,7 +811,7 @@ async fn test_attachment_workflow_simulation() {
     writer.write(b"Hello from actor!");
 
     // Actor closes
-    pool.close_writer((actor_handle, std_handle));
+    writer.close();
 
     // Attachment should complete
     let bytes_read = tokio::time::timeout(Duration::from_secs(1), attachment_task)
@@ -909,7 +911,7 @@ async fn test_end_to_end_data_flow() {
     writer.write(b"Third");
 
     // Close writer
-    pool.close_writer((actor_handle, std_handle));
+    writer.close();
 
     // Reader should get all data
     let data = tokio::time::timeout(Duration::from_secs(1), reader_task)
