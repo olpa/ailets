@@ -266,7 +266,8 @@ impl<K: KVBuffers> Environment<K> {
                 }
             }
 
-            runtime.close_all_handles();
+            // Clear actor's local fd table and notify SystemRuntime
+            runtime.shutdown();
             debug!(node = ?node_handle, name = %idname, "value node done");
         })
     }
@@ -298,7 +299,8 @@ impl<K: KVBuffers> Environment<K> {
                 }
             }
 
-            runtime.close_all_handles();
+            // Clear actor's local fd table and notify SystemRuntime
+            runtime.shutdown();
             debug!(node = ?node_handle, name = %idname, "task done");
         })
     }

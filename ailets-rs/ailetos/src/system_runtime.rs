@@ -733,6 +733,11 @@ impl FdTable {
     pub fn keys(&self) -> impl Iterator<Item = &isize> {
         self.table.keys()
     }
+
+    /// Clear all fd mappings (used during actor shutdown)
+    pub fn clear(&mut self) {
+        self.table.clear();
+    }
 }
 
 impl Default for FdTable {

@@ -108,40 +108,54 @@ impl BlockingActorRuntime {
         trace!(actor = ?self.node_handle, "std handles ready (stdin=0, stdout=1)");
     }
 
-    /// Close all open handles when actor finishes.
-    /// Closes in reverse order (highest fd first) to handle any dependencies.
+    /// Shutdown this actor runtime and clean up local state.
     ///
-    /// If the fd table lock is poisoned, logs an error and returns without closing handles.
-    pub fn close_all_handles(&self) {
-        trace!(actor = ?self.node_handle, "close_all_handles");
+    /// # Pipe Cleanup Responsibility
+    ///
+    /// At the moment, pipes (writers and readers) are indirectly created by `SystemRuntime`
+    /// through the channel table and `PipePool`. Therefore, it is `SystemRuntime`'s
+    /// responsibility to close pipes and clean up their resources, not the actor's.
+    ///
+    /// This function only clears the actor's local fd table mapping (actor fd → system
+    /// ChannelHandle). It does NOT close individual file descriptors or send close requests
+    /// to `SystemRuntime`. The actual pipe cleanup happens in `SystemRuntime` when it
+    /// receives the `ActorShutdown` notification and calls `pipe_pool.close_actor_writers()`.
+    ///
+    /// # Design Rationale
+    ///
+    /// - **Ownership**: `SystemRuntime` owns the pipes via `PipePool`, so it should clean them up
+    /// - **Centralized cleanup**: All pipe closure happens in one place (`PipePool::close_actor_writers`)
+    /// - **Prevents double-close**: Actor doesn't close pipes that `SystemRuntime` will close
+    /// - **Simpler shutdown**: Actor only needs to drop its local fd mapping
+    ///
+    /// After clearing the fd table, this function sends an `ActorShutdown` notification to
+    /// `SystemRuntime` to trigger pipe cleanup.
+    ///
+    /// If the fd table lock is poisoned, logs an error and returns without clearing the table.
+    pub fn shutdown(&self) {
+        trace!(actor = ?self.node_handle, "actor shutdown - clearing fd table");
 
-        // Get all open fds
-        let fds: Vec<isize> = {
-            match self.fd_table.lock() {
-                Ok(table) => table.keys().copied().collect(),
-                Err(e) => {
-                    error!(actor = ?self.node_handle, error = ?e, "close_all_handles: fd_table lock poisoned");
-                    return;
-                }
+        // Clear the fd table without closing individual fds
+        // The pipes themselves will be closed by SystemRuntime via PipePool
+        match self.fd_table.lock() {
+            Ok(mut table) => {
+                table.clear();
+                trace!(actor = ?self.node_handle, "fd table cleared");
             }
-        };
-
-        // Close in reverse order
-        let mut fds = fds;
-        fds.sort_unstable();
-        fds.reverse();
-
-        for fd in fds {
-            trace!(actor = ?self.node_handle, fd = fd, "closing fd");
-            let _ = self.aclose(fd);
+            Err(e) => {
+                error!(actor = ?self.node_handle, error = ?e, "shutdown: fd_table lock poisoned");
+                return;
+            }
         }
 
-        // Signal actor shutdown to close any remaining latent pipes
-        let _ = self.system_tx.send(IoRequest::ActorShutdown {
+        // Notify SystemRuntime to close pipes and cleanup resources
+        if let Err(e) = self.system_tx.send(IoRequest::ActorShutdown {
             node_handle: self.node_handle,
-        });
+        }) {
+            error!(actor = ?self.node_handle, error = ?e, "shutdown: failed to send ActorShutdown notification");
+        }
 
-        trace!(actor = ?self.node_handle, "all handles closed");
+        trace!(actor = ?self.node_handle, "actor shutdown complete");
     }
 }
 

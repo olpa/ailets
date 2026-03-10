@@ -684,9 +684,10 @@ impl SystemRuntime {
 
 When an upstream actor fails or completes without writing, the proper behavior is:
 
-1. **Actor closes its handles** during shutdown (via `close_all_handles()`)
-2. **Writer close propagates EOF** to all readers on that pipe
-3. **Readers (including attachments) receive EOF** and exit cleanly
+1. **Actor clears its fd table** during shutdown (via `shutdown()`)
+2. **SystemRuntime closes all pipes** for the actor (via `pipe_pool.close_actor_writers()`)
+3. **Writer close propagates EOF** to all readers on that pipe
+4. **Readers (including attachments) receive EOF** and exit cleanly
 
 **No timeouts needed** - the system handles failure through proper shutdown signaling.
 
