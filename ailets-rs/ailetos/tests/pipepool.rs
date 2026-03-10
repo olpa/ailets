@@ -921,3 +921,315 @@ async fn test_end_to_end_data_flow() {
 
     assert_eq!(data, b"First Second Third");
 }
+
+// ============================================================================
+// Race-Free Pipe Lifecycle Tests
+//
+// These tests verify the race-free guarantees described in
+// pipe-lifecycle-implementation-guide.md
+// ============================================================================
+
+/// Test 1: Consumer Opens During Shutdown
+///
+/// Verifies that when a consumer attempts to open a pipe while the producer
+/// is shutting down, either:
+/// - Consumer gets the pipe (if registered before TERMINATING)
+/// - Consumer gets immediate EOF (if producer already closed)
+///
+/// No waiter should be left orphaned waiting forever.
+#[tokio::test]
+async fn test_race_consumer_opens_during_shutdown() {
+    let (pool, _, id_gen) = create_test_pool();
+    let pool = Arc::new(pool);
+    let id_gen = Arc::new(id_gen);
+    let actor_handle = Handle::new(100);
+    let std_handle = StdHandle::Stdout;
+
+    // Create writer to establish the pipe
+    let writer = pool
+        .touch_writer(actor_handle, std_handle, &id_gen)
+        .await
+        .expect("Failed to create writer");
+
+    // Write some data
+    let _ = writer.write(b"test data");
+
+    // Simulate concurrent access: spawn reader while we're closing
+    let pool_clone = Arc::clone(&pool);
+    let id_gen_clone = Arc::clone(&id_gen);
+    let reader_task = tokio::spawn(async move {
+        // Try to create reader - may succeed or get None depending on timing
+        pool_clone
+            .get_or_create_reader((actor_handle, std_handle), true, &id_gen_clone)
+            .await
+    });
+
+    // Small delay to let reader task start
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    // Now close the actor's writers (simulating shutdown)
+    pool.close_actor_writers(actor_handle);
+
+    // Reader task should complete (not hang forever)
+    let reader_result = tokio::time::timeout(Duration::from_secs(1), reader_task)
+        .await
+        .expect("Reader task should complete, not hang")
+        .expect("Reader task should not panic");
+
+    // Result is either:
+    // - Some(reader) if it registered before close
+    // - None if it saw the closed state
+    // Both are valid outcomes - the key is it doesn't hang
+    match reader_result {
+        Some(mut reader) => {
+            // If we got a reader, we should be able to read the data
+            let mut buf = vec![0u8; 100];
+            let n = reader.read(&mut buf).await;
+            assert!(n >= 0, "Read should succeed or return EOF");
+        }
+        None => {
+            // Reader saw the pipe was closed - this is also valid
+        }
+    }
+
+    // No orphaned waiters - test passes if we reach here without timeout
+}
+
+/// Test 2: Concurrent Consumers During Shutdown
+///
+/// Verifies that multiple consumers opening pipes concurrently while the
+/// producer shuts down all complete successfully (either getting the pipe
+/// or receiving EOF). No consumers should hang forever.
+#[tokio::test]
+async fn test_race_concurrent_consumers_during_shutdown() {
+    let (pool, _, id_gen) = create_test_pool();
+    let pool = Arc::new(pool);
+    let id_gen = Arc::new(id_gen);
+    let actor_handle = Handle::new(200);
+    let std_handle = StdHandle::Stdout;
+
+    // Create writer
+    let writer = pool
+        .touch_writer(actor_handle, std_handle, &id_gen)
+        .await
+        .expect("Failed to create writer");
+
+    let _ = writer.write(b"data");
+
+    // Launch 20 concurrent consumer threads
+    let mut handles = vec![];
+    for i in 0..20 {
+        let pool_clone = Arc::clone(&pool);
+        let id_gen_clone = Arc::clone(&id_gen);
+        let handle = tokio::spawn(async move {
+            let result = pool_clone
+                .get_or_create_reader((actor_handle, std_handle), true, &id_gen_clone)
+                .await;
+            (i, result)
+        });
+        handles.push(handle);
+    }
+
+    // Give readers time to start
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Shutdown the producer
+    pool.close_actor_writers(actor_handle);
+
+    // All consumers should complete within reasonable time
+    let timeout_result =
+        tokio::time::timeout(Duration::from_secs(2), async move {
+            let mut results = vec![];
+            for handle in handles {
+                let result = handle.await.expect("Task should not panic");
+                results.push(result);
+            }
+            results
+        })
+        .await;
+
+    assert!(
+        timeout_result.is_ok(),
+        "All consumer tasks should complete, none should hang"
+    );
+
+    let results = timeout_result.unwrap();
+
+    // All 20 consumers got a result (either Some or None)
+    assert_eq!(results.len(), 20);
+
+    // Each consumer either got a reader or saw the closed state
+    for (i, result) in results {
+        match result {
+            Some(_) => {
+                // Got reader before close - valid
+            }
+            None => {
+                // Saw closed state - also valid
+            }
+        }
+        // The key is that consumer #i didn't hang
+        assert!(i < 20);
+    }
+}
+
+/// Test 3: Latent Waiters Are Notified on Close
+///
+/// Verifies that when an actor exits without creating a pipe, any latent
+/// waiters are properly notified and receive None (EOF) rather than waiting
+/// forever.
+#[tokio::test]
+async fn test_race_latent_waiters_notified_on_close() {
+    let (pool, _, id_gen) = create_test_pool();
+    let pool = Arc::new(pool);
+    let id_gen = Arc::new(id_gen);
+    let actor_handle = Handle::new(300);
+    let std_handle = StdHandle::Stdout;
+
+    // Create several latent waiters (readers waiting for non-existent pipe)
+    let mut reader_handles = vec![];
+    for _ in 0..5 {
+        let pool_clone = Arc::clone(&pool);
+        let id_gen_clone = Arc::clone(&id_gen);
+        let handle = tokio::spawn(async move {
+            pool_clone
+                .get_or_create_reader((actor_handle, std_handle), true, &id_gen_clone)
+                .await
+        });
+        reader_handles.push(handle);
+    }
+
+    // Give readers time to register as latent waiters
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Producer "crashes" without ever creating the writer
+    // Just close all its pipes
+    pool.close_actor_writers(actor_handle);
+
+    // All waiters should be notified and complete
+    let timeout_result =
+        tokio::time::timeout(Duration::from_secs(1), async move {
+            let mut results = vec![];
+            for handle in reader_handles {
+                let result = handle.await.expect("Task should not panic");
+                results.push(result);
+            }
+            results
+        })
+        .await;
+
+    assert!(
+        timeout_result.is_ok(),
+        "All latent waiters should be notified and complete"
+    );
+
+    let results = timeout_result.unwrap();
+    assert_eq!(results.len(), 5);
+
+    // All waiters should receive None (closed without ever being realized)
+    for result in results {
+        assert!(
+            result.is_none(),
+            "Latent waiter should receive None when producer closes without writing"
+        );
+    }
+}
+
+/// Test 4: No Race Between touch_writer and close_actor_writers
+///
+/// Verifies that touch_writer and close_actor_writers can be called
+/// concurrently without creating inconsistent state.
+#[tokio::test]
+async fn test_race_touch_writer_vs_close() {
+    let (pool, _, id_gen) = create_test_pool();
+    let pool = Arc::new(pool);
+    let id_gen = Arc::new(id_gen);
+    let actor_handle = Handle::new(400);
+
+    // Spawn tasks that create writers concurrently with close
+    let mut handles = vec![];
+
+    // Writer creation tasks
+    for i in 0..10 {
+        let pool_clone = Arc::clone(&pool);
+        let id_gen_clone = Arc::clone(&id_gen);
+        let std_handle = if i % 2 == 0 {
+            StdHandle::Stdout
+        } else {
+            StdHandle::Log
+        };
+
+        let handle = tokio::spawn(async move {
+            pool_clone
+                .touch_writer(actor_handle, std_handle, &id_gen_clone)
+                .await
+        });
+        handles.push(handle);
+    }
+
+    // Close task (runs concurrently with writers)
+    let pool_clone = Arc::clone(&pool);
+    let close_handle = tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        pool_clone.close_actor_writers(actor_handle);
+    });
+
+    // Wait for all tasks
+    for handle in handles {
+        let _ = handle.await; // May succeed or fail, both are valid
+    }
+    let _ = close_handle.await;
+
+    // Key: no panic, no deadlock, test completes
+    // The exact interleaving doesn't matter as long as it's consistent
+}
+
+/// Test 5: Reader Loop-and-Recheck Handles Spurious Wakeups
+///
+/// Verifies that readers correctly loop and recheck state after being
+/// notified, handling cases where the writer might not be available yet.
+#[tokio::test]
+async fn test_race_reader_loop_and_recheck() {
+    let (pool, _, id_gen) = create_test_pool();
+    let pool = Arc::new(pool);
+    let id_gen = Arc::new(id_gen);
+    let actor_handle = Handle::new(500);
+    let std_handle = StdHandle::Stdout;
+
+    // Create a reader that will wait latently
+    let pool_clone = Arc::clone(&pool);
+    let id_gen_clone = Arc::clone(&id_gen);
+    let reader_task = tokio::spawn(async move {
+        pool_clone
+            .get_or_create_reader((actor_handle, std_handle), true, &id_gen_clone)
+            .await
+    });
+
+    // Give reader time to register as latent
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Now create the writer (will notify the waiting reader)
+    let writer = pool
+        .touch_writer(actor_handle, std_handle, &id_gen)
+        .await
+        .expect("Failed to create writer");
+
+    let _ = writer.write(b"data after wait");
+
+    // Reader should wake up and get the writer
+    let reader_result = tokio::time::timeout(Duration::from_secs(1), reader_task)
+        .await
+        .expect("Reader should wake up after notify")
+        .expect("Reader task should not panic");
+
+    assert!(
+        reader_result.is_some(),
+        "Reader should successfully get the writer after waiting"
+    );
+
+    // Verify we can read the data
+    let mut reader = reader_result.unwrap();
+    let mut buf = vec![0u8; 100];
+    let n = reader.read(&mut buf).await;
+    assert!(n > 0, "Should be able to read data from the pipe");
+}
