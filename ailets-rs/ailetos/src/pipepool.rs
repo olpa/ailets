@@ -106,7 +106,7 @@
 //!
 //! ```ignore
 //! // Normal close (after writing) - call close() on the writer directly
-//! let writer = pool.get_writer((actor_handle, std_handle)).unwrap();
+//! let writer = pool.get_already_realized_writer((actor_handle, std_handle)).unwrap();
 //! writer.close();
 //!
 //! // On actor shutdown - close all writers (realized and latent) for the actor
@@ -378,13 +378,13 @@ impl<K: KVBuffers> PipePool<K> {
         }
     }
 
-    /// Get a writer by key
+    /// Get a writer by key (only if already realized)
     ///
-    /// Returns an Arc to the writer if it exists (realized).
+    /// Returns an Arc to the writer if it exists and has been realized.
     /// Returns None if the pipe doesn't exist or is still latent.
     ///
     /// The returned Arc shares ownership of the writer, preventing premature closure.
-    pub fn get_writer(&self, key: (Handle, StdHandle)) -> Option<Arc<Writer>> {
+    pub fn get_already_realized_writer(&self, key: (Handle, StdHandle)) -> Option<Arc<Writer>> {
         let inner = self.inner.lock();
         inner.find_writer(key).cloned()
     }

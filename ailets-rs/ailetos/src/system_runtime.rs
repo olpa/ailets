@@ -512,7 +512,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                     debug!(channel = ?handle, node = ?node_handle, std = ?std_handle, "closing writer channel");
 
                     // Close the writer
-                    if let Some(writer) = self.pipe_pool.get_writer((node_handle, std_handle)) {
+                    if let Some(writer) = self.pipe_pool.get_already_realized_writer((node_handle, std_handle)) {
                         writer.close();
                         debug!(channel = ?handle, node = ?node_handle, std = ?std_handle, "closed writer pipe");
                     }
@@ -521,7 +521,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                     let kv = Arc::clone(&self.kv);
                     // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
                     Box::pin(async move {
-                        let result_code = match pipe_pool.get_writer((node_handle, std_handle)) {
+                        let result_code = match pipe_pool.get_already_realized_writer((node_handle, std_handle)) {
                             Some(writer) => {
                                 match kv.flush_buffer(&writer.buffer()).await {
                                     Ok(()) => 0,
