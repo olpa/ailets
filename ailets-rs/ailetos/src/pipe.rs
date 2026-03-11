@@ -16,7 +16,7 @@ use crate::io::Buffer;
 use crate::notification_queue::NotificationQueueArc;
 
 /// Shared state between Writer and Readers
-struct SharedBuffer {
+pub(crate) struct SharedBuffer {
     buffer: Buffer,
     errno: i32,
     closed: bool,
@@ -194,7 +194,8 @@ impl Writer {
     }
 
     /// Create shared data for a new reader
-    pub(crate) fn share_with_reader(&self) -> ReaderSharedData {
+    #[must_use]
+    pub fn share_with_reader(&self) -> ReaderSharedData {
         ReaderSharedData {
             buffer: Arc::clone(&self.shared),
             writer_handle: self.handle,
@@ -230,10 +231,10 @@ impl Drop for Writer {
 ///
 /// This can be cloned to create multiple independent readers from the same source.
 #[derive(Clone)]
-pub(crate) struct ReaderSharedData {
-    buffer: Arc<Mutex<SharedBuffer>>,
-    writer_handle: Handle,
-    queue: NotificationQueueArc,
+pub struct ReaderSharedData {
+    pub(crate) buffer: Arc<Mutex<SharedBuffer>>,
+    pub(crate) writer_handle: Handle,
+    pub(crate) queue: NotificationQueueArc,
 }
 
 /// Action to take when checking if reader should wait
@@ -278,7 +279,8 @@ pub struct Reader {
 }
 
 impl Reader {
-    pub(crate) fn new(handle: Handle, shared_data: ReaderSharedData) -> Self {
+    #[must_use]
+    pub fn new(handle: Handle, shared_data: ReaderSharedData) -> Self {
         Self {
             own_handle: handle,
             buffer: shared_data.buffer,
@@ -460,48 +462,5 @@ impl Drop for Reader {
         if !self.is_closed() {
             self.close();
         }
-    }
-}
-
-/// In-memory pipe factory
-pub struct Pipe {
-    writer: Writer,
-}
-
-impl Pipe {
-    /// Create a new Pipe with the provided buffer
-    #[must_use]
-    pub fn new(
-        writer_handle: Handle,
-        queue: NotificationQueueArc,
-        hint: &str,
-        buffer: Buffer,
-    ) -> Self {
-        let writer = Writer::new(writer_handle, queue, hint, buffer);
-
-        Self { writer }
-    }
-
-    /// Get the writer side
-    #[must_use]
-    pub fn writer(&self) -> &Writer {
-        &self.writer
-    }
-
-    /// Get a mutable reference to the writer
-    pub fn writer_mut(&mut self) -> &mut Writer {
-        &mut self.writer
-    }
-
-    /// Get a reader for this pipe with an explicit handle
-    #[must_use]
-    pub fn get_reader(&self, reader_handle: Handle) -> Reader {
-        Reader::new(reader_handle, self.writer.share_with_reader())
-    }
-}
-
-impl fmt::Debug for Pipe {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Pipe(writer={:?})", self.writer)
     }
 }

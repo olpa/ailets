@@ -13,7 +13,7 @@ pub use ffi_runtime::FfiActorRuntime;
 pub use runtime_trait::ActorRuntime;
 
 /// Standard handles for I/O streams.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum StdHandle {
     Stdin = 0,
     Stdout = 1,

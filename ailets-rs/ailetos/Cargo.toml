@@ -23,7 +23,3 @@ rusqlite = { version = "0.32", features = ["bundled"], optional = true }
 [features]
 default = []
 sqlitekv = ["rusqlite"]
-
-[[bin]]
-name = "pipe_demo"
-path = "bin/pipe_demo.rs"

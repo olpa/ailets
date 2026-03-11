@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tracing::warn;
 
 use crate::dag::OwnedDependencyIterator;
-use crate::idgen::{Handle, IdGen};
+use crate::idgen::IdGen;
 use crate::io::KVBuffers;
 use crate::pipe::Reader;
 use crate::pipepool::PipePool;
@@ -64,15 +64,22 @@ impl<K: KVBuffers> MergeReader<K> {
 
     /// Create a reader for the next dependency from the iterator.
     ///
-    /// Returns `None` if there are no more dependencies or if a dependency's pipe doesn't exist.
-    fn create_next_reader(&mut self) -> Option<Reader> {
-        self.dep_iterator.next().and_then(|dep_handle| {
-            let handle = Handle::new(self.id_gen.get_next());
-            let pipe = self.pipe_pool.get_pipe(dep_handle)?;
-            let writer = pipe.writer()?;
-            let shared_data = writer.share_with_reader();
-            Some(Reader::new(handle, shared_data))
-        })
+    /// Returns `None` if there are no more dependencies.
+    /// Creates a latent pipe if the dependency hasn't written yet.
+    async fn create_next_reader(&mut self) -> Option<Reader> {
+        if let Some(dep_handle) = self.dep_iterator.next() {
+            // Dependencies always output to stdout
+            // Use get_or_await_reader with allow_latent=true
+            self.pipe_pool
+                .get_or_await_reader(
+                    (dep_handle, actor_runtime::StdHandle::Stdout),
+                    true,
+                    &self.id_gen,
+                )
+                .await
+        } else {
+            None
+        }
     }
 
     /// Read data from the merged dependency stream.
@@ -90,7 +97,7 @@ impl<K: KVBuffers> MergeReader<K> {
         loop {
             // Ensure we have a reader for the current dependency
             if self.current_reader.is_none() {
-                match self.create_next_reader() {
+                match self.create_next_reader().await {
                     Some(reader) => {
                         self.current_reader = Some(reader);
                     }

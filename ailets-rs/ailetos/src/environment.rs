@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use parking_lot::RwLock;
 use tokio::sync::mpsc;
 use tracing::{debug, error, warn};
 
@@ -65,6 +66,12 @@ pub struct Environment<K: KVBuffers> {
     pub actor_registry: ActorRegistry,
     /// Value data for value nodes (keyed by node handle)
     value_nodes: HashMap<Handle, ValueNodeData>,
+    /// Pending stream attachments to be registered when `run()` is called
+    pending_attachments: Vec<(
+        Handle,
+        actor_runtime::StdHandle,
+        crate::system_runtime::AttachmentConfig,
+    )>,
 }
 
 impl<K: KVBuffers> Environment<K> {
@@ -79,6 +86,59 @@ impl<K: KVBuffers> Environment<K> {
             kv,
             actor_registry: ActorRegistry::new(),
             value_nodes: HashMap::new(),
+            pending_attachments: Vec::new(),
+        }
+    }
+
+    /// Attach actor's stdout to host stdout
+    ///
+    /// The attachment will be spawned when the actor first writes to stdout.
+    pub fn attach_stdout(&mut self, node_handle: Handle) {
+        self.pending_attachments.push((
+            node_handle,
+            actor_runtime::StdHandle::Stdout,
+            crate::system_runtime::AttachmentConfig::Stdout,
+        ));
+    }
+
+    /// Attach actor's stderr (Log handle) to host stderr
+    ///
+    /// The attachment will be spawned when the actor first writes to the Log handle.
+    pub fn attach_stderr(&mut self, node_handle: Handle) {
+        self.pending_attachments.push((
+            node_handle,
+            actor_runtime::StdHandle::Log,
+            crate::system_runtime::AttachmentConfig::Stderr,
+        ));
+    }
+
+    /// Attach all actors' stderr to host stderr
+    ///
+    /// Note: Call this AFTER adding all nodes to the DAG, as it only affects
+    /// nodes that have been added at the time this method is called.
+    ///
+    /// Alternatively, call `attach_stderr()` for each individual node as needed.
+    pub fn attach_all_stderr(&mut self) {
+        // Collect node handles by iterating through the possible range
+        // This is a simple implementation; alternatively we could add a method to DAG
+        let mut handles = Vec::new();
+
+        // Get ID generator's current state to know the range of possible handles
+        // We'll just try to get all nodes that might exist
+        for i in 0..1000 {
+            // Reasonable upper bound
+            let handle = Handle::new(i);
+            if let Some(node) = self.dag.get_node(handle) {
+                // Only attach to concrete actor nodes and value nodes, not alias nodes
+                // Alias nodes don't run as actors and don't produce output
+                if !matches!(node.kind, crate::dag::NodeKind::Alias) {
+                    handles.push(handle);
+                }
+            }
+        }
+
+        for handle in handles {
+            self.attach_stderr(handle);
         }
     }
 
@@ -128,6 +188,27 @@ impl<K: KVBuffers> Environment<K> {
     pub fn add_alias(&mut self, alias_name: String, target: Handle) -> Handle {
         let handle = self.dag.add_node(alias_name, NodeKind::Alias);
         self.dag.add_dependency(For(handle), DependsOn(target));
+        handle
+    }
+
+    /// Resolve an alias node to its actual target node
+    ///
+    /// If the handle refers to an alias node, returns the target node.
+    /// If the handle refers to a concrete node, returns the same handle.
+    /// Recursively resolves nested aliases.
+    #[must_use]
+    pub fn resolve(&self, handle: Handle) -> Handle {
+        if let Some(node) = self.dag.get_node(handle) {
+            if matches!(node.kind, crate::dag::NodeKind::Alias) {
+                // Alias node - get its dependency (should be exactly one)
+                let mut deps = self.dag.get_direct_dependencies(handle);
+                if let Some(target) = deps.next() {
+                    // Recursively resolve in case the target is also an alias
+                    return self.resolve(target);
+                }
+            }
+        }
+        // Not an alias, or no dependency found - return as-is
         handle
     }
 
@@ -190,7 +271,8 @@ impl<K: KVBuffers> Environment<K> {
                 }
             }
 
-            runtime.close_all_handles();
+            // Clear actor's local fd table and notify SystemRuntime
+            runtime.shutdown();
             debug!(node = ?node_handle, name = %idname, "value node done");
         })
     }
@@ -222,24 +304,26 @@ impl<K: KVBuffers> Environment<K> {
                 }
             }
 
-            runtime.close_all_handles();
+            // Clear actor's local fd table and notify SystemRuntime
+            runtime.shutdown();
             debug!(node = ?node_handle, name = %idname, "task done");
         })
     }
 
     /// Spawn actor tasks for all nodes in the system
     fn spawn_actor_tasks(
-        dag: &Arc<Dag>,
+        dag: &Arc<RwLock<Dag>>,
         target: Handle,
         system_tx: &mpsc::UnboundedSender<IoRequest>,
         actor_registry: &ActorRegistry,
         value_nodes: &HashMap<Handle, ValueNodeData>,
     ) -> Vec<tokio::task::JoinHandle<()>> {
-        let scheduler = Scheduler::new(dag, target);
+        let dag_guard = dag.read();
+        let scheduler = Scheduler::new(&dag_guard, target);
         let mut tasks = Vec::new();
 
         for node_handle in scheduler.iter() {
-            let Some(node) = dag.get_node(node_handle) else {
+            let Some(node) = dag_guard.get_node(node_handle) else {
                 warn!(node = ?node_handle, "node not found in DAG, skipping");
                 continue;
             };
@@ -277,11 +361,17 @@ impl<K: KVBuffers> Environment<K> {
     where
         K: 'static,
     {
-        // Wrap DAG in Arc for sharing
-        let dag = Arc::new(self.dag);
+        // Wrap DAG in Arc<RwLock> for sharing with mutable state access
+        let dag = Arc::new(RwLock::new(self.dag));
 
         // Create system runtime
-        let system_runtime = SystemRuntime::new(Arc::clone(&dag), Arc::clone(&self.kv), self.idgen);
+        let mut system_runtime =
+            SystemRuntime::new(Arc::clone(&dag), Arc::clone(&self.kv), self.idgen);
+
+        // Register pending attachments
+        for (node_handle, std_handle, config) in self.pending_attachments {
+            system_runtime.register_attachment(node_handle, std_handle, config);
+        }
 
         // Get sender before moving system_runtime
         let Some(system_tx) = system_runtime.get_system_tx() else {
