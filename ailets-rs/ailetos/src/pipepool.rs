@@ -351,28 +351,37 @@ impl<K: KVBuffers> PipePool<K> {
     /// - For realized writers: calls `close()` on each
     /// - For latent writers: marks as closed and notifies waiting readers
     pub fn close_actor_writers(&self, actor_handle: Handle) {
-        let mut inner = self.inner.lock();
+        let (writers_to_close, notifies) = {
+            let mut inner = self.inner.lock();
 
-        // Close all latent writers for this actor
-        let mut notifies = Vec::new();
-        for latent in inner.latent_writers.iter_mut() {
-            if latent.key.0 == actor_handle && latent.state == LatentState::Waiting {
-                latent.state = LatentState::Closed;
-                notifies.push(Arc::clone(&latent.notify));
-                debug!(key = ?latent.key, "closed latent writer on actor shutdown");
+            // Collect latent notifies
+            let mut notifies = Vec::new();
+            for latent in inner.latent_writers.iter_mut() {
+                if latent.key.0 == actor_handle && latent.state == LatentState::Waiting {
+                    latent.state = LatentState::Closed;
+                    notifies.push(Arc::clone(&latent.notify));
+                    debug!(key = ?latent.key, "closed latent writer on actor shutdown");
+                }
             }
+
+            // Collect realized writers to close (clone Arc)
+            let writers_to_close: Vec<_> = inner
+                .writers
+                .iter()
+                .filter(|(h, _, _)| *h == actor_handle)
+                .map(|(h, s, w)| (*h, *s, Arc::clone(w)))
+                .collect();
+
+            (writers_to_close, notifies)
+        }; // Lock released here
+
+        // Close writers outside lock
+        for (h, s, writer) in writers_to_close {
+            writer.close();
+            debug!(key = ?(h, s), "closed realized writer on actor shutdown");
         }
 
-        // Close all realized writers for this actor
-        for (h, s, writer) in inner.writers.iter() {
-            if *h == actor_handle {
-                writer.close();
-                debug!(key = ?(*h, *s), "closed realized writer on actor shutdown");
-            }
-        }
-
-        // Notify waiters outside the lock
-        drop(inner);
+        // Notify latent waiters outside lock
         for notify in notifies {
             notify.notify_waiters();
         }
