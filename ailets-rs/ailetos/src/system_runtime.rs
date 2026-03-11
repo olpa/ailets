@@ -235,7 +235,7 @@ pub enum AttachmentConfig {
 /// `SystemRuntime` manages all async I/O operations
 /// Actors communicate with it via channels
 pub struct SystemRuntime<K: KVBuffers> {
-    /// The DAG describing actor dependencies (wrapped in RwLock for state updates)
+    /// The DAG describing actor dependencies (wrapped in `RwLock` for state updates)
     dag: Arc<RwLock<Dag>>,
     /// Pool of output pipes (one per actor)
     pipe_pool: Arc<PipePool<K>>,
@@ -296,7 +296,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
     /// - N dependencies: `MergeReader` reads from each sequentially
     ///
     /// Dependencies are obtained from the DAG using `OwnedDependencyIterator`.
-    async fn preopen_std_handles(&mut self, node_handle: Handle) -> StdHandles {
+    fn preopen_std_handles(&mut self, node_handle: Handle) -> StdHandles {
         debug!(actor = ?node_handle, "setting up std handles");
 
         // Create OwnedDependencyIterator from DAG
@@ -318,11 +318,13 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         debug!(actor = ?node_handle, "setting up stdout (pipe will be created on first write)");
 
         let stdout = self.alloc_channel_handle();
-        self.channels
-            .insert(stdout, Channel::Writer {
+        self.channels.insert(
+            stdout,
+            Channel::Writer {
                 node_handle,
                 std_handle: actor_runtime::StdHandle::Stdout,
-            });
+            },
+        );
         trace!(actor = ?node_handle, channel = ?stdout, "stdout configured (lazy)");
 
         StdHandles { stdin, stdout }
@@ -378,11 +380,13 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         }
 
         let channel_handle = self.alloc_channel_handle();
-        self.channels
-            .insert(channel_handle, Channel::Writer {
+        self.channels.insert(
+            channel_handle,
+            Channel::Writer {
                 node_handle,
                 std_handle,
-            });
+            },
+        );
         trace!(node = ?node_handle, channel = ?channel_handle, "OpenWrite created");
         let _ = response.send(channel_handle);
     }
@@ -449,7 +453,11 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
     ) -> IoFuture<K> {
         trace!(channel = ?handle, bytes = data.len(), "processing Write");
 
-        if let Some(Channel::Writer { node_handle, std_handle }) = self.channels.get(&handle) {
+        if let Some(Channel::Writer {
+            node_handle,
+            std_handle,
+        }) = self.channels.get(&handle)
+        {
             let node_handle = *node_handle;
             let std_handle = *std_handle;
             let pipe_pool = Arc::clone(&self.pipe_pool);
@@ -459,7 +467,10 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
             // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
             Box::pin(async move {
                 // Get or create writer (idempotent - handles latent->realized transition)
-                let result = match pipe_pool.touch_writer(node_handle, std_handle, &id_gen).await {
+                let result = match pipe_pool
+                    .touch_writer(node_handle, std_handle, &id_gen)
+                    .await
+                {
                     Ok(writer) => {
                         let n = writer.write(&data);
                         trace!(bytes = n, "pipe write completed");
@@ -508,11 +519,17 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                         }
                     })
                 }
-                Channel::Writer { node_handle, std_handle } => {
+                Channel::Writer {
+                    node_handle,
+                    std_handle,
+                } => {
                     debug!(channel = ?handle, node = ?node_handle, std = ?std_handle, "closing writer channel");
 
                     // Close the writer
-                    if let Some(writer) = self.pipe_pool.get_already_realized_writer((node_handle, std_handle)) {
+                    if let Some(writer) = self
+                        .pipe_pool
+                        .get_already_realized_writer((node_handle, std_handle))
+                    {
                         writer.close();
                         debug!(channel = ?handle, node = ?node_handle, std = ?std_handle, "closed writer pipe");
                     }
@@ -521,20 +538,19 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                     let kv = Arc::clone(&self.kv);
                     // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
                     Box::pin(async move {
-                        let result_code = match pipe_pool.get_already_realized_writer((node_handle, std_handle)) {
-                            Some(writer) => {
-                                match kv.flush_buffer(&writer.buffer()).await {
-                                    Ok(()) => 0,
-                                    Err(e) => {
-                                        warn!(error = ?e, "failed to flush buffer");
-                                        -1
-                                    }
+                        let result_code = if let Some(writer) =
+                            pipe_pool.get_already_realized_writer((node_handle, std_handle))
+                        {
+                            match kv.flush_buffer(&writer.buffer()).await {
+                                Ok(()) => 0,
+                                Err(e) => {
+                                    warn!(error = ?e, "failed to flush buffer");
+                                    -1
                                 }
                             }
-                            None => {
-                                warn!(node = ?node_handle, std = ?std_handle, "writer not found for flush");
-                                -1
-                            }
+                        } else {
+                            warn!(node = ?node_handle, std = ?std_handle, "writer not found for flush");
+                            -1
                         };
 
                         IoEvent::SyncComplete {
@@ -631,7 +647,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                         trace!("received request");
                         match request {
                             IoRequest::SetupStdHandles { node_handle, response } => {
-                                let handles = self.preopen_std_handles(node_handle).await;
+                                let handles = self.preopen_std_handles(node_handle);
                                 let _ = response.send(handles);
                             }
                             IoRequest::OpenRead { node_handle, response } => {
@@ -684,7 +700,10 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         }
 
         // Wait for all attachment tasks to complete
-        debug!(count = self.attachment_tasks.len(), "waiting for attachment tasks to complete");
+        debug!(
+            count = self.attachment_tasks.len(),
+            "waiting for attachment tasks to complete"
+        );
         for task in self.attachment_tasks {
             let _ = task.await;
         }

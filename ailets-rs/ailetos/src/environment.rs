@@ -66,8 +66,12 @@ pub struct Environment<K: KVBuffers> {
     pub actor_registry: ActorRegistry,
     /// Value data for value nodes (keyed by node handle)
     value_nodes: HashMap<Handle, ValueNodeData>,
-    /// Pending stream attachments to be registered when run() is called
-    pending_attachments: Vec<(Handle, actor_runtime::StdHandle, crate::system_runtime::AttachmentConfig)>,
+    /// Pending stream attachments to be registered when `run()` is called
+    pending_attachments: Vec<(
+        Handle,
+        actor_runtime::StdHandle,
+        crate::system_runtime::AttachmentConfig,
+    )>,
 }
 
 impl<K: KVBuffers> Environment<K> {
@@ -121,7 +125,8 @@ impl<K: KVBuffers> Environment<K> {
 
         // Get ID generator's current state to know the range of possible handles
         // We'll just try to get all nodes that might exist
-        for i in 0..1000 {  // Reasonable upper bound
+        for i in 0..1000 {
+            // Reasonable upper bound
             let handle = Handle::new(i);
             if let Some(node) = self.dag.get_node(handle) {
                 // Only attach to concrete actor nodes and value nodes, not alias nodes
@@ -360,7 +365,8 @@ impl<K: KVBuffers> Environment<K> {
         let dag = Arc::new(RwLock::new(self.dag));
 
         // Create system runtime
-        let mut system_runtime = SystemRuntime::new(Arc::clone(&dag), Arc::clone(&self.kv), self.idgen);
+        let mut system_runtime =
+            SystemRuntime::new(Arc::clone(&dag), Arc::clone(&self.kv), self.idgen);
 
         // Register pending attachments
         for (node_handle, std_handle, config) in self.pending_attachments {

@@ -117,7 +117,7 @@ impl BlockingActorRuntime {
     /// responsibility to close pipes and clean up their resources, not the actor's.
     ///
     /// This function only clears the actor's local fd table mapping (actor fd → system
-    /// ChannelHandle). It does NOT close individual file descriptors or send close requests
+    /// `ChannelHandle`). It does NOT close individual file descriptors or send close requests
     /// to `SystemRuntime`. The actual pipe cleanup happens in `SystemRuntime` when it
     /// receives the `ActorShutdown` notification and calls `pipe_pool.close_actor_writers()`.
     ///

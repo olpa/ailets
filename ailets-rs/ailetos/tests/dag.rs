@@ -21,10 +21,7 @@ fn test_dump_colored_shows_ansi_codes() {
         "Should contain green ANSI code, got: {:?}",
         output
     );
-    assert!(
-        output.contains("\x1b[0m"),
-        "Should contain reset ANSI code"
-    );
+    assert!(output.contains("\x1b[0m"), "Should contain reset ANSI code");
 }
 
 #[test]
@@ -44,9 +41,15 @@ fn test_dump_colored_different_states() {
 
     let output = dag.dump_colored(root);
     // Yellow for not built
-    assert!(output.contains("\x1b[33m"), "Should contain yellow for not built");
+    assert!(
+        output.contains("\x1b[33m"),
+        "Should contain yellow for not built"
+    );
     // Magenta for running
-    assert!(output.contains("\x1b[35m"), "Should contain magenta for running");
+    assert!(
+        output.contains("\x1b[35m"),
+        "Should contain magenta for running"
+    );
 }
 
 // --------------------------------------------------------------------
@@ -627,7 +630,11 @@ fn test_dump_starting_from_alias_skips_alias() {
     assert!(!output.contains(".end"), "Alias should not appear in dump");
     assert!(output.contains("node1"), "Target node should appear");
     // Should have exactly one line (just node1)
-    assert_eq!(output.lines().count(), 1, "Should only have the concrete node");
+    assert_eq!(
+        output.lines().count(),
+        1,
+        "Should only have the concrete node"
+    );
 }
 
 #[test]

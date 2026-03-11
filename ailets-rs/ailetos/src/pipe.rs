@@ -16,7 +16,7 @@ use crate::io::Buffer;
 use crate::notification_queue::NotificationQueueArc;
 
 /// Shared state between Writer and Readers
-struct SharedBuffer {
+pub(crate) struct SharedBuffer {
     buffer: Buffer,
     errno: i32,
     closed: bool,
@@ -194,6 +194,7 @@ impl Writer {
     }
 
     /// Create shared data for a new reader
+    #[must_use]
     pub fn share_with_reader(&self) -> ReaderSharedData {
         ReaderSharedData {
             buffer: Arc::clone(&self.shared),
@@ -278,6 +279,7 @@ pub struct Reader {
 }
 
 impl Reader {
+    #[must_use]
     pub fn new(handle: Handle, shared_data: ReaderSharedData) -> Self {
         Self {
             own_handle: handle,

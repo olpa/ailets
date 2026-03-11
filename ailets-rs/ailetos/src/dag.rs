@@ -172,6 +172,7 @@ impl Dag {
         output
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn dump_recursive(
         &self,
         pid: Handle,

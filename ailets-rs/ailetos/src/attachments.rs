@@ -24,25 +24,33 @@ pub async fn attach_to_stdout(node_handle: Handle, mut reader: Reader) {
     loop {
         let n = reader.read(&mut buf).await;
 
-        if n > 0 {
-            // Got data, write to stdout
-            let bytes_written = n as usize;
-            if let Err(e) = stdout.write_all(&buf[..bytes_written]) {
-                warn!(node = ?node_handle, error = %e, "failed to write to stdout");
+        match n.cmp(&0) {
+            std::cmp::Ordering::Greater => {
+                // Got data, write to stdout
+                let bytes_written = n.cast_unsigned();
+                let Some(slice) = buf.get(..bytes_written) else {
+                    warn!(node = ?node_handle, "buffer slice out of bounds");
+                    break;
+                };
+                if let Err(e) = stdout.write_all(slice) {
+                    warn!(node = ?node_handle, error = %e, "failed to write to stdout");
+                    break;
+                }
+                if let Err(e) = stdout.flush() {
+                    warn!(node = ?node_handle, error = %e, "failed to flush stdout");
+                    break;
+                }
+            }
+            std::cmp::Ordering::Equal => {
+                // EOF
+                debug!(node = ?node_handle, "stdout attachment EOF");
                 break;
             }
-            if let Err(e) = stdout.flush() {
-                warn!(node = ?node_handle, error = %e, "failed to flush stdout");
+            std::cmp::Ordering::Less => {
+                // Error
+                warn!(node = ?node_handle, "read error in stdout attachment");
                 break;
             }
-        } else if n == 0 {
-            // EOF
-            debug!(node = ?node_handle, "stdout attachment EOF");
-            break;
-        } else {
-            // Error
-            warn!(node = ?node_handle, "read error in stdout attachment");
-            break;
         }
     }
 
@@ -63,25 +71,33 @@ pub async fn attach_to_stderr(node_handle: Handle, mut reader: Reader) {
     loop {
         let n = reader.read(&mut buf).await;
 
-        if n > 0 {
-            // Got data, write to stderr
-            let bytes_written = n as usize;
-            if let Err(e) = stderr.write_all(&buf[..bytes_written]) {
-                warn!(node = ?node_handle, error = %e, "failed to write to stderr");
+        match n.cmp(&0) {
+            std::cmp::Ordering::Greater => {
+                // Got data, write to stderr
+                let bytes_written = n.cast_unsigned();
+                let Some(slice) = buf.get(..bytes_written) else {
+                    warn!(node = ?node_handle, "buffer slice out of bounds");
+                    break;
+                };
+                if let Err(e) = stderr.write_all(slice) {
+                    warn!(node = ?node_handle, error = %e, "failed to write to stderr");
+                    break;
+                }
+                if let Err(e) = stderr.flush() {
+                    warn!(node = ?node_handle, error = %e, "failed to flush stderr");
+                    break;
+                }
+            }
+            std::cmp::Ordering::Equal => {
+                // EOF
+                debug!(node = ?node_handle, "stderr attachment EOF");
                 break;
             }
-            if let Err(e) = stderr.flush() {
-                warn!(node = ?node_handle, error = %e, "failed to flush stderr");
+            std::cmp::Ordering::Less => {
+                // Error
+                warn!(node = ?node_handle, "read error in stderr attachment");
                 break;
             }
-        } else if n == 0 {
-            // EOF
-            debug!(node = ?node_handle, "stderr attachment EOF");
-            break;
-        } else {
-            // Error
-            warn!(node = ?node_handle, "read error in stderr attachment");
-            break;
         }
     }
 

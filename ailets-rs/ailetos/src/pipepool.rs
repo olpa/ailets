@@ -1,6 +1,6 @@
 //! `PipePool` - manages output pipes for actors
 //!
-//! Each (actor, StdHandle) pair can have its own output pipe. Readers are created on-demand
+//! Each (actor, `StdHandle`) pair can have its own output pipe. Readers are created on-demand
 //! when consuming actors need to read from dependencies.
 //!
 //! ## Race-Free Pipe Lifecycle Design
@@ -32,21 +32,21 @@
 //!
 //! This state prevents orphaned waiters when actors crash or exit early.
 //!
-//! **Why: Loop-and-Recheck in get_or_await_reader()**
+//! **Why: Loop-and-Recheck in `get_or_await_reader()`**
 //!
 //! After being notified, readers loop back to recheck state under lock. This handles:
-//! - Spurious wakeups from tokio::Notify
+//! - Spurious wakeups from `tokio::Notify`
 //! - Race where writer is created just as we're setting up to wait
 //! - Multiple readers waking up from same notification
 //!
 //! **Integration with Actor Lifecycle**
 //!
-//! The race-free guarantee depends on SystemRuntime calling operations in this order:
+//! The race-free guarantee depends on `SystemRuntime` calling operations in this order:
 //! 1. Set actor state to TERMINATING (blocks new pipe requests)
 //! 2. Call `close_actor_writers()` (wakes all waiting readers)
 //! 3. Set actor state to TERMINATED (signals cleanup complete)
 //!
-//! See `system_runtime.rs` ActorShutdown handler for the implementation.
+//! See `system_runtime.rs` `ActorShutdown` handler for the implementation.
 //!
 //! ## Problem: Dependency Race Conditions
 //!
@@ -67,7 +67,7 @@
 //!
 //! ## Design: Two Vectors
 //!
-//! PipePool stores writers in two states:
+//! `PipePool` stores writers in two states:
 //!
 //! - **`latent_writers: Vec<LatentWriter>`** - Placeholders for pipes not yet created
 //!   - Contains `(Handle, StdHandle)` key, state (Waiting/Closed), and notify handle
@@ -187,11 +187,11 @@ impl PoolInner {
     }
 }
 
-/// Pool of output pipes, indexed by (actor handle, StdHandle) pair
+/// Pool of output pipes, indexed by (actor handle, `StdHandle`) pair
 ///
 /// Uses interior mutability via `Mutex` to allow shared access through `Arc<PipePool>`.
 pub struct PipePool<K: KVBuffers> {
-    /// Inner state (readers, latent_writers, writers)
+    /// Inner state (readers, `latent_writers`, writers)
     inner: Mutex<PoolInner>,
     /// Shared notification queue for all pipes
     notification_queue: NotificationQueueArc,
@@ -216,8 +216,9 @@ impl<K: KVBuffers> PipePool<K> {
     /// If latent writer exists:
     ///   - If closed: returns None
     ///   - If waiting: awaits until realized or closed
-    /// If allow_latent: creates latent writer and awaits
-    /// Otherwise: returns None
+    ///
+    /// If `allow_latent`: creates latent writer and awaits.
+    /// Otherwise: returns None.
     pub async fn get_or_await_reader(
         &self,
         key: (Handle, StdHandle),
@@ -356,7 +357,7 @@ impl<K: KVBuffers> PipePool<K> {
 
             // Collect latent notifies
             let mut notifies = Vec::new();
-            for latent in inner.latent_writers.iter_mut() {
+            for latent in &mut inner.latent_writers {
                 if latent.key.0 == actor_handle && latent.state == LatentState::Waiting {
                     latent.state = LatentState::Closed;
                     notifies.push(Arc::clone(&latent.notify));
@@ -397,5 +398,4 @@ impl<K: KVBuffers> PipePool<K> {
         let inner = self.inner.lock();
         inner.find_writer(key).cloned()
     }
-
 }
