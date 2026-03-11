@@ -32,7 +32,7 @@
 //!
 //! This state prevents orphaned waiters when actors crash or exit early.
 //!
-//! **Why: Loop-and-Recheck in get_or_create_reader()**
+//! **Why: Loop-and-Recheck in get_or_await_reader()**
 //!
 //! After being notified, readers loop back to recheck state under lock. This handles:
 //! - Spurious wakeups from tokio::Notify
@@ -88,10 +88,10 @@
 //!
 //! ```ignore
 //! // For dependencies: wait if pipe doesn't exist yet
-//! let reader = pool.get_or_create_reader(key, allow_latent=true, id_gen).await?;
+//! let reader = pool.get_or_await_reader(key, allow_latent=true, id_gen).await?;
 //!
 //! // For explicit access: return None if pipe doesn't exist
-//! let reader = pool.get_or_create_reader(key, allow_latent=false, id_gen).await?;
+//! let reader = pool.get_or_await_reader(key, allow_latent=false, id_gen).await?;
 //! ```
 //!
 //! ### Getting Writers
@@ -117,7 +117,7 @@
 //!
 //! All latent pipe coordination uses `tokio::sync::Notify`:
 //!
-//! 1. **Reader path**: `get_or_create_reader()` creates latent entry, awaits notify
+//! 1. **Reader path**: `get_or_await_reader()` creates latent entry, awaits notify
 //! 2. **Writer path**: `touch_writer()` removes latent entry, calls `notify_waiters()`
 //! 3. **Shutdown path**: `close_actor_writers()` closes all writers for an actor
 //!
@@ -218,7 +218,7 @@ impl<K: KVBuffers> PipePool<K> {
     ///   - If waiting: awaits until realized or closed
     /// If allow_latent: creates latent writer and awaits
     /// Otherwise: returns None
-    pub async fn get_or_create_reader(
+    pub async fn get_or_await_reader(
         &self,
         key: (Handle, StdHandle),
         allow_latent: bool,

@@ -590,7 +590,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         tokio::spawn(async move {
             // Get or create reader (creates latent pipe if needed)
             let Some(reader) = pipe_pool
-                .get_or_create_reader((node_handle, std_handle), true, &id_gen)
+                .get_or_await_reader((node_handle, std_handle), true, &id_gen)
                 .await
             else {
                 warn!(node = ?node_handle, std = ?std_handle, "failed to open reader for attachment");

@@ -35,7 +35,7 @@ async fn test_create_writer_then_reader() {
 
     // Create reader - should succeed immediately since writer exists
     let reader = pool
-        .get_or_create_reader((actor_handle, std_handle), false, &id_gen)
+        .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
         .await;
 
     assert!(reader.is_some(), "Reader should be created successfully");
@@ -56,13 +56,13 @@ async fn test_multiple_readers_from_same_writer() {
 
     // Create multiple readers
     let reader1 = pool
-        .get_or_create_reader((actor_handle, std_handle), false, &id_gen)
+        .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
         .await;
     let reader2 = pool
-        .get_or_create_reader((actor_handle, std_handle), false, &id_gen)
+        .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
         .await;
     let reader3 = pool
-        .get_or_create_reader((actor_handle, std_handle), false, &id_gen)
+        .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
         .await;
 
     assert!(reader1.is_some());
@@ -99,13 +99,13 @@ async fn test_different_std_handles() {
 
     // Create readers for each
     let stdout_reader = pool
-        .get_or_create_reader((actor_handle, StdHandle::Stdout), false, &id_gen)
+        .get_or_await_reader((actor_handle, StdHandle::Stdout), false, &id_gen)
         .await;
     let log_reader = pool
-        .get_or_create_reader((actor_handle, StdHandle::Log), false, &id_gen)
+        .get_or_await_reader((actor_handle, StdHandle::Log), false, &id_gen)
         .await;
     let env_reader = pool
-        .get_or_create_reader((actor_handle, StdHandle::Env), false, &id_gen)
+        .get_or_await_reader((actor_handle, StdHandle::Env), false, &id_gen)
         .await;
 
     assert!(stdout_reader.is_some());
@@ -130,7 +130,7 @@ async fn test_create_reader_with_latent_before_writer() {
 
     let reader_task = tokio::spawn(async move {
         pool_for_reader
-            .get_or_create_reader((actor_handle, std_handle), true, &id_gen_clone)
+            .get_or_await_reader((actor_handle, std_handle), true, &id_gen_clone)
             .await
     });
 
@@ -160,7 +160,7 @@ async fn test_create_reader_without_latent_returns_none() {
 
     // Try to create reader with allow_latent=false when no writer exists
     let reader = pool
-        .get_or_create_reader((actor_handle, std_handle), false, &id_gen)
+        .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
         .await;
 
     assert!(
@@ -185,7 +185,7 @@ async fn test_multiple_readers_waiting_on_latent_pipe() {
         let id_gen_clone = Arc::clone(&id_gen);
         let task = tokio::spawn(async move {
             pool_clone
-                .get_or_create_reader((actor_handle, std_handle), true, &id_gen_clone)
+                .get_or_await_reader((actor_handle, std_handle), true, &id_gen_clone)
                 .await
         });
         reader_tasks.push(task);
@@ -225,7 +225,7 @@ async fn test_reader_on_latent_pipe_closed_without_realizing() {
 
     let reader_task = tokio::spawn(async move {
         pool_for_reader
-            .get_or_create_reader((actor_handle, std_handle), true, &id_gen_clone)
+            .get_or_await_reader((actor_handle, std_handle), true, &id_gen_clone)
             .await
     });
 
@@ -265,7 +265,7 @@ async fn test_latent_to_realized_transition() {
 
     let _reader_task = tokio::spawn(async move {
         pool_clone
-            .get_or_create_reader((actor_handle, std_handle), true, &id_gen_clone)
+            .get_or_await_reader((actor_handle, std_handle), true, &id_gen_clone)
             .await
     });
 
@@ -303,7 +303,7 @@ async fn test_latent_to_closed_transition() {
     // Create latent pipe by requesting reader
     let _reader_task = tokio::spawn(async move {
         pool_clone
-            .get_or_create_reader((actor_handle, std_handle), true, &id_gen_clone)
+            .get_or_await_reader((actor_handle, std_handle), true, &id_gen_clone)
             .await
     });
 
@@ -314,7 +314,7 @@ async fn test_latent_to_closed_transition() {
 
     // New reader request should get None (closed state)
     let reader = pool
-        .get_or_create_reader((actor_handle, std_handle), true, &id_gen)
+        .get_or_await_reader((actor_handle, std_handle), true, &id_gen)
         .await;
 
     assert!(reader.is_none(), "Reader should get None from closed latent pipe");
@@ -417,7 +417,7 @@ async fn test_close_latent_writer_without_realizing() {
     // Create latent pipe
     let _reader_task = tokio::spawn(async move {
         pool_clone
-            .get_or_create_reader((actor_handle, std_handle), true, &id_gen_clone)
+            .get_or_await_reader((actor_handle, std_handle), true, &id_gen_clone)
             .await
     });
 
@@ -488,7 +488,7 @@ async fn test_multiple_readers_waiting_concurrently() {
         let id_gen_clone = Arc::clone(&id_gen);
         let task = tokio::spawn(async move {
             pool_clone
-                .get_or_create_reader((actor_handle, std_handle), true, &id_gen_clone)
+                .get_or_await_reader((actor_handle, std_handle), true, &id_gen_clone)
                 .await
         });
         tasks.push(task);
@@ -671,7 +671,7 @@ async fn test_reader_waits_indefinitely_until_resolved() {
     // Start reader task
     let reader_task = tokio::spawn(async move {
         pool_clone
-            .get_or_create_reader((actor_handle, std_handle), true, &id_gen_clone)
+            .get_or_await_reader((actor_handle, std_handle), true, &id_gen_clone)
             .await
     });
 
@@ -709,7 +709,7 @@ async fn test_create_latent_then_realize_then_another_reader() {
     let id_gen_clone = Arc::clone(&id_gen);
     let reader1_task = tokio::spawn(async move {
         pool_clone
-            .get_or_create_reader((actor_handle, std_handle), true, &id_gen_clone)
+            .get_or_await_reader((actor_handle, std_handle), true, &id_gen_clone)
             .await
     });
 
@@ -725,7 +725,7 @@ async fn test_create_latent_then_realize_then_another_reader() {
 
     // Create another reader - should succeed immediately
     let reader2 = pool
-        .get_or_create_reader((actor_handle, std_handle), false, &id_gen)
+        .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
         .await;
 
     assert!(reader2.is_some(), "Second reader should be created immediately");
@@ -747,7 +747,7 @@ async fn test_mixed_latent_and_realized_pipes() {
     let id_gen_clone = Arc::clone(&id_gen);
     let _reader_task = tokio::spawn(async move {
         pool_clone
-            .get_or_create_reader((Handle::new(2), StdHandle::Stdout), true, &id_gen_clone)
+            .get_or_await_reader((Handle::new(2), StdHandle::Stdout), true, &id_gen_clone)
             .await
     });
 
@@ -781,7 +781,7 @@ async fn test_attachment_workflow_simulation() {
     let id_gen_clone = Arc::clone(&id_gen);
     let attachment_task = tokio::spawn(async move {
         let mut reader = pool_clone
-            .get_or_create_reader((actor_handle, std_handle), true, &id_gen_clone)
+            .get_or_await_reader((actor_handle, std_handle), true, &id_gen_clone)
             .await
             .expect("Attachment should get reader");
 
@@ -836,7 +836,7 @@ async fn test_dependency_reading_simulation() {
     let id_gen_clone = Arc::clone(&id_gen);
     let reader_task = tokio::spawn(async move {
         pool_clone
-            .get_or_create_reader((actor1, StdHandle::Stdout), true, &id_gen_clone)
+            .get_or_await_reader((actor1, StdHandle::Stdout), true, &id_gen_clone)
             .await
     });
 
@@ -879,7 +879,7 @@ async fn test_end_to_end_data_flow() {
 
     let reader_task = tokio::spawn(async move {
         let mut reader = pool_for_reader
-            .get_or_create_reader((actor_handle, std_handle), true, &id_gen_clone)
+            .get_or_await_reader((actor_handle, std_handle), true, &id_gen_clone)
             .await
             .expect("Should get reader");
 
@@ -960,7 +960,7 @@ async fn test_race_consumer_opens_during_shutdown() {
     let reader_task = tokio::spawn(async move {
         // Try to create reader - may succeed or get None depending on timing
         pool_clone
-            .get_or_create_reader((actor_handle, std_handle), true, &id_gen_clone)
+            .get_or_await_reader((actor_handle, std_handle), true, &id_gen_clone)
             .await
     });
 
@@ -1023,7 +1023,7 @@ async fn test_race_concurrent_consumers_during_shutdown() {
         let id_gen_clone = Arc::clone(&id_gen);
         let handle = tokio::spawn(async move {
             let result = pool_clone
-                .get_or_create_reader((actor_handle, std_handle), true, &id_gen_clone)
+                .get_or_await_reader((actor_handle, std_handle), true, &id_gen_clone)
                 .await;
             (i, result)
         });
@@ -1093,7 +1093,7 @@ async fn test_race_latent_waiters_notified_on_close() {
         let id_gen_clone = Arc::clone(&id_gen);
         let handle = tokio::spawn(async move {
             pool_clone
-                .get_or_create_reader((actor_handle, std_handle), true, &id_gen_clone)
+                .get_or_await_reader((actor_handle, std_handle), true, &id_gen_clone)
                 .await
         });
         reader_handles.push(handle);
@@ -1201,7 +1201,7 @@ async fn test_race_reader_loop_and_recheck() {
     let id_gen_clone = Arc::clone(&id_gen);
     let reader_task = tokio::spawn(async move {
         pool_clone
-            .get_or_create_reader((actor_handle, std_handle), true, &id_gen_clone)
+            .get_or_await_reader((actor_handle, std_handle), true, &id_gen_clone)
             .await
     });
 

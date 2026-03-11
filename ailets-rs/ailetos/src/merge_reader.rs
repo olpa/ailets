@@ -69,9 +69,9 @@ impl<K: KVBuffers> MergeReader<K> {
     async fn create_next_reader(&mut self) -> Option<Reader> {
         if let Some(dep_handle) = self.dep_iterator.next() {
             // Dependencies always output to stdout
-            // Use get_or_create_reader with allow_latent=true
+            // Use get_or_await_reader with allow_latent=true
             self.pipe_pool
-                .get_or_create_reader(
+                .get_or_await_reader(
                     (dep_handle, actor_runtime::StdHandle::Stdout),
                     true,
                     &self.id_gen,
