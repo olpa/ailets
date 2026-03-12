@@ -57,11 +57,12 @@ async fn main() {
     };
     print!("{tree}");
 
-    // Enable attachment of stdout to host
+    // Attach the last actor's stdout to host stdout
     // Note: With the new dynamic attachment system:
-    // - All actors' stdout will be attached to host stdout when they write
-    // - stderr (Log handle), metrics, and tracing are always attached to host stderr
-    env.attach_stdout_to_host();
+    // - Only specified actors' stdout will be attached to host stdout when they write
+    // - stderr (Log handle), metrics, and tracing are always attached to host stderr for all actors
+    let actual_node = env.resolve(end_node);
+    env.attach_stdout(actual_node);
 
     // Run the system (matches Python: env.processes.run_nodes(node_iter))
     env.run(end_node).await;

@@ -17,17 +17,26 @@ use crate::pipe::Reader;
 use crate::pipepool::{PipePool, WriterRealizedCallback};
 
 /// Configuration for attachment behavior
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct AttachmentConfig {
-    /// Attach actor stdout to host stdout
-    pub attach_stdout_to_host: bool,
+    /// Actors whose stdout should be attached to host stdout
+    stdout_actors: std::collections::HashSet<Handle>,
 }
 
-impl Default for AttachmentConfig {
-    fn default() -> Self {
-        Self {
-            attach_stdout_to_host: false,
-        }
+impl AttachmentConfig {
+    /// Create a new empty attachment configuration
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add an actor whose stdout should be attached to host stdout
+    pub fn attach_stdout(&mut self, actor_handle: Handle) {
+        self.stdout_actors.insert(actor_handle);
+    }
+
+    /// Check if an actor's stdout should be attached
+    pub fn should_attach_stdout(&self, actor_handle: Handle) -> bool {
+        self.stdout_actors.contains(&actor_handle)
     }
 }
 
@@ -37,8 +46,8 @@ impl Default for AttachmentConfig {
 /// which decides whether to attach the stream based on configuration.
 ///
 /// Attachment rules:
-/// - Stdout: attach to host stdout if `attach_stdout_to_host` is true
-/// - Log, Metrics, Trace: always attach to host stderr
+/// - Stdout: attach to host stdout only for actors in the configuration
+/// - Log, Metrics, Trace: always attach to host stderr for all actors
 /// - Stdin, Env: never attach
 pub struct AttachmentManager<K: KVBuffers> {
     config: AttachmentConfig,
@@ -70,7 +79,7 @@ impl<K: KVBuffers + 'static> AttachmentManager<K> {
     async fn on_writer_realized_impl(&self, node_handle: Handle, std_handle: StdHandle) {
         // Determine if attachment is needed
         let should_attach = match std_handle {
-            StdHandle::Stdout => self.config.attach_stdout_to_host,
+            StdHandle::Stdout => self.config.should_attach_stdout(node_handle),
             StdHandle::Log | StdHandle::Metrics | StdHandle::Trace => true,
             StdHandle::Stdin | StdHandle::Env | StdHandle::_Count => false,
         };

@@ -86,15 +86,18 @@ impl<K: KVBuffers> Environment<K> {
         }
     }
 
-    /// Enable attachment of actor stdout to host stdout
+    /// Attach a specific actor's stdout to host stdout
     ///
-    /// When enabled, all actors' stdout will be automatically attached to host stdout
-    /// when they write for the first time.
+    /// The actor's stdout will be automatically attached to host stdout
+    /// when it writes for the first time.
     ///
     /// Note: Actor stderr (Log handle), metrics, and tracing are always attached to
-    /// host stderr regardless of this setting.
-    pub fn attach_stdout_to_host(&mut self) {
-        self.attachment_config.attach_stdout_to_host = true;
+    /// host stderr for all actors.
+    ///
+    /// # Arguments
+    /// * `actor_handle` - The handle of the actor whose stdout should be attached
+    pub fn attach_stdout(&mut self, actor_handle: Handle) {
+        self.attachment_config.attach_stdout(actor_handle);
     }
 
     /// Add a value node - a node that outputs a constant value
