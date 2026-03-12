@@ -244,7 +244,7 @@ impl<K: KVBuffers> Environment<K> {
         tokio::task::spawn_blocking(move || {
             debug!(node = ?node_handle, name = %idname, "value node task starting");
 
-            runtime.request_std_handles_setup();
+            runtime.register_std_fds();
 
             let mut areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
             let mut awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
@@ -290,7 +290,7 @@ impl<K: KVBuffers> Environment<K> {
         tokio::task::spawn_blocking(move || {
             debug!(node = ?node_handle, name = %idname, "task starting");
 
-            runtime.request_std_handles_setup();
+            runtime.register_std_fds();
 
             let areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
             let awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
