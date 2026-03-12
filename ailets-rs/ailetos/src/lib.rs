@@ -30,12 +30,11 @@ pub use pipepool::PipePool;
 
 // Re-export system runtime types for convenience
 pub use system_runtime::{
-    AttachmentConfig, Channel, ChannelHandle, IoEvent, IoFuture, IoRequest, SendableBuffer,
-    SystemRuntime,
+    Channel, ChannelHandle, IoEvent, IoFuture, IoRequest, SendableBuffer, SystemRuntime,
 };
 
-// Re-export attachment functions
-pub use attachments::{attach_to_stderr, attach_to_stdout};
+// Re-export attachment types
+pub use attachments::AttachmentConfig;
 
 // Re-export blocking actor runtime
 pub use stub_actor_runtime::{BlockingActorRuntime, FdEntry, FdTable};

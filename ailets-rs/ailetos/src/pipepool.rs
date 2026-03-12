@@ -134,6 +134,15 @@ use crate::io::{KVBuffers, OpenMode};
 use crate::notification_queue::NotificationQueueArc;
 use crate::pipe::{Reader, Writer};
 
+/// Callback trait for writer realization events
+///
+/// Implemented by components that need to react when a writer is created.
+#[async_trait::async_trait]
+pub trait WriterRealizedCallback: Send + Sync {
+    /// Called when a writer is realized (created) in PipePool
+    async fn on_writer_realized(&self, node_handle: Handle, std_handle: StdHandle);
+}
+
 /// State of a latent writer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LatentState {
@@ -197,6 +206,8 @@ pub struct PipePool<K: KVBuffers> {
     notification_queue: NotificationQueueArc,
     /// Key-value store for pipe buffers
     kv: Arc<K>,
+    /// Callback invoked when a writer is realized (uses interior mutability)
+    on_writer_realized: parking_lot::RwLock<Option<Arc<dyn WriterRealizedCallback>>>,
 }
 
 impl<K: KVBuffers> PipePool<K> {
@@ -207,7 +218,15 @@ impl<K: KVBuffers> PipePool<K> {
             inner: Mutex::new(PoolInner::new()),
             notification_queue,
             kv,
+            on_writer_realized: parking_lot::RwLock::new(None),
         }
+    }
+
+    /// Set the callback for writer realization events
+    ///
+    /// This can be called after construction to set up the callback.
+    pub fn set_writer_realized_callback(&self, callback: Arc<dyn WriterRealizedCallback>) {
+        *self.on_writer_realized.write() = Some(callback);
     }
 
     /// Get or create a reader for a pipe
@@ -320,11 +339,12 @@ impl<K: KVBuffers> PipePool<K> {
         );
 
         // Add writer to pool and notify waiters (if latent existed)
-        let writer_arc = {
+        let (writer_arc, was_newly_created) = {
             let mut inner = self.inner.lock();
 
             // Check if latent writer exists - remove it and get notify handle
             let notify_arc = inner.remove_latent_writer(key).map(|lw| lw.notify);
+            let was_newly_created = true; // We're in the slow path, so this is a new writer
 
             // Add writer wrapped in Arc
             let writer_arc = Arc::new(writer);
@@ -340,8 +360,16 @@ impl<K: KVBuffers> PipePool<K> {
                 debug!(key = ?key, "notified waiters after creating writer");
             }
 
-            writer_arc
+            (writer_arc, was_newly_created)
         };
+
+        // Invoke callback if writer was newly created
+        if was_newly_created {
+            let callback = self.on_writer_realized.read().clone();
+            if let Some(callback) = callback {
+                callback.on_writer_realized(actor_handle, std_handle).await;
+            }
+        }
 
         Ok(writer_arc)
     }

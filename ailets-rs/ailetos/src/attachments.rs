@@ -1,21 +1,149 @@
 //! Stream attachments - forward actor output to host stdout/stderr
 //!
 //! Attachments run as background tasks that read from actor pipes
-//! and write to host stdout/stderr. They are spawned lazily when
-//! pipes are created, not during actor initialization.
+//! and write to host stdout/stderr. They are spawned dynamically when
+//! pipes are realized by PipePool.
 
 use std::io::Write as StdWrite;
+use std::sync::Arc;
 
+use actor_runtime::StdHandle;
+use parking_lot::Mutex;
 use tracing::{debug, warn};
 
-use crate::idgen::Handle;
+use crate::idgen::{Handle, IdGen};
+use crate::io::KVBuffers;
 use crate::pipe::Reader;
+use crate::pipepool::{PipePool, WriterRealizedCallback};
+
+/// Configuration for attachment behavior
+#[derive(Debug, Clone)]
+pub struct AttachmentConfig {
+    /// Attach actor stdout to host stdout
+    pub attach_stdout_to_host: bool,
+}
+
+impl Default for AttachmentConfig {
+    fn default() -> Self {
+        Self {
+            attach_stdout_to_host: false,
+        }
+    }
+}
+
+/// Manages dynamic attachment of actor streams to host stdout/stderr
+///
+/// When PipePool realizes a writer, it notifies the AttachmentManager,
+/// which decides whether to attach the stream based on configuration.
+///
+/// Attachment rules:
+/// - Stdout: attach to host stdout if `attach_stdout_to_host` is true
+/// - Log, Metrics, Trace: always attach to host stderr
+/// - Stdin, Env: never attach
+pub struct AttachmentManager<K: KVBuffers> {
+    config: AttachmentConfig,
+    pipe_pool: Arc<PipePool<K>>,
+    id_gen: Arc<IdGen>,
+    /// Active attachment task handles
+    tasks: Mutex<Vec<tokio::task::JoinHandle<()>>>,
+}
+
+impl<K: KVBuffers + 'static> AttachmentManager<K> {
+    /// Create a new attachment manager with the given configuration
+    pub fn new(
+        config: AttachmentConfig,
+        pipe_pool: Arc<PipePool<K>>,
+        id_gen: Arc<IdGen>,
+    ) -> Self {
+        Self {
+            config,
+            pipe_pool,
+            id_gen,
+            tasks: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Handle a writer realization event from PipePool
+    ///
+    /// This is called synchronously when a writer is created.
+    /// Determines if attachment is needed and spawns the task.
+    async fn on_writer_realized_impl(&self, node_handle: Handle, std_handle: StdHandle) {
+        // Determine if attachment is needed
+        let should_attach = match std_handle {
+            StdHandle::Stdout => self.config.attach_stdout_to_host,
+            StdHandle::Log | StdHandle::Metrics | StdHandle::Trace => true,
+            StdHandle::Stdin | StdHandle::Env | StdHandle::_Count => false,
+        };
+
+        if !should_attach {
+            return;
+        }
+
+        // Determine attachment target
+        let target = match std_handle {
+            StdHandle::Stdout => AttachmentTarget::Stdout,
+            StdHandle::Log | StdHandle::Metrics | StdHandle::Trace => AttachmentTarget::Stderr,
+            _ => return, // Should not reach here
+        };
+
+        debug!(node = ?node_handle, std = ?std_handle, target = ?target, "spawning attachment for realized writer");
+
+        // Clone Arc references for the task
+        let pipe_pool = Arc::clone(&self.pipe_pool);
+        let id_gen = Arc::clone(&self.id_gen);
+
+        // Spawn attachment task
+        let task = tokio::spawn(async move {
+            // Get reader for the realized writer
+            let Some(reader) = pipe_pool
+                .get_or_await_reader((node_handle, std_handle), false, &id_gen)
+                .await
+            else {
+                warn!(node = ?node_handle, std = ?std_handle, "failed to get reader for attachment");
+                return;
+            };
+
+            // Run attachment worker
+            match target {
+                AttachmentTarget::Stdout => attach_to_stdout(node_handle, reader).await,
+                AttachmentTarget::Stderr => attach_to_stderr(node_handle, reader).await,
+            }
+        });
+
+        // Store task handle
+        self.tasks.lock().push(task);
+    }
+
+    /// Wait for all attachment tasks to complete
+    ///
+    /// This should be called during environment shutdown.
+    pub async fn wait_all(&self) {
+        let tasks = std::mem::take(&mut *self.tasks.lock());
+        for task in tasks {
+            let _ = task.await;
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<K: KVBuffers + 'static> WriterRealizedCallback for AttachmentManager<K> {
+    async fn on_writer_realized(&self, node_handle: Handle, std_handle: StdHandle) {
+        self.on_writer_realized_impl(node_handle, std_handle).await;
+    }
+}
+
+/// Target for attachment
+#[derive(Debug, Clone, Copy)]
+enum AttachmentTarget {
+    Stdout,
+    Stderr,
+}
 
 /// Attach a pipe reader to host stdout
 ///
 /// Continuously reads from the pipe and forwards data to host stdout.
 /// Exits when EOF is reached or an error occurs.
-pub async fn attach_to_stdout(node_handle: Handle, mut reader: Reader) {
+async fn attach_to_stdout(node_handle: Handle, mut reader: Reader) {
     debug!(node = ?node_handle, "stdout attachment started");
 
     let mut buf = vec![0u8; 4096];
@@ -62,7 +190,7 @@ pub async fn attach_to_stdout(node_handle: Handle, mut reader: Reader) {
 ///
 /// Continuously reads from the pipe and forwards data to host stderr.
 /// Exits when EOF is reached or an error occurs.
-pub async fn attach_to_stderr(node_handle: Handle, mut reader: Reader) {
+async fn attach_to_stderr(node_handle: Handle, mut reader: Reader) {
     debug!(node = ?node_handle, "stderr attachment started");
 
     let mut buf = vec![0u8; 4096];

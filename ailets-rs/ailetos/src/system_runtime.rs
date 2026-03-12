@@ -79,7 +79,7 @@ use parking_lot::RwLock;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, trace, warn};
 
-use crate::attachments::{attach_to_stderr, attach_to_stdout};
+use crate::attachments::{AttachmentConfig, AttachmentManager};
 use crate::dag::{Dag, NodeState, OwnedDependencyIterator};
 use crate::idgen::{Handle, IdGen};
 use crate::merge_reader::MergeReader;
@@ -225,15 +225,6 @@ pub enum IoEvent<K: KVBuffers> {
 /// Type alias for I/O futures
 pub type IoFuture<K> = Pin<Box<dyn Future<Output = IoEvent<K>> + Send>>;
 
-/// Configuration for stream attachments
-#[derive(Debug, Clone)]
-pub enum AttachmentConfig {
-    /// Attach to host stdout
-    Stdout,
-    /// Attach to host stderr
-    Stderr,
-}
-
 /// `SystemRuntime` manages all async I/O operations
 /// Actors communicate with it via channels
 pub struct SystemRuntime<K: KVBuffers> {
@@ -253,42 +244,49 @@ pub struct SystemRuntime<K: KVBuffers> {
     request_rx: mpsc::UnboundedReceiver<IoRequest>,
     /// ID generator for handles
     id_gen: Arc<IdGen>,
-    /// Spawned attachment tasks (tracked for graceful shutdown)
-    attachment_tasks: Vec<tokio::task::JoinHandle<()>>,
+    /// Manages dynamic attachment of actor streams to host stdout/stderr
+    attachment_manager: Arc<AttachmentManager<K>>,
 }
 
 impl<K: KVBuffers + 'static> SystemRuntime<K> {
-    pub fn new(dag: Arc<RwLock<Dag>>, kv: Arc<K>, id_gen: Arc<IdGen>) -> Self {
+    pub fn new(
+        dag: Arc<RwLock<Dag>>,
+        kv: Arc<K>,
+        id_gen: Arc<IdGen>,
+        attachment_config: AttachmentConfig,
+    ) -> Self {
         let (system_tx, request_rx) = mpsc::unbounded_channel();
         let notification_queue = NotificationQueueArc::new();
 
+        // Create pipe pool
+        let pipe_pool = Arc::new(PipePool::new(Arc::clone(&kv), notification_queue));
+
+        // Create attachment manager
+        let attachment_manager = Arc::new(AttachmentManager::new(
+            attachment_config,
+            Arc::clone(&pipe_pool),
+            Arc::clone(&id_gen),
+        ));
+
+        // Set up callback (uses interior mutability, so works through Arc)
+        // Cast to trait object for the callback
+        let callback: Arc<dyn crate::pipepool::WriterRealizedCallback> =
+            Arc::clone(&attachment_manager) as Arc<dyn crate::pipepool::WriterRealizedCallback>;
+        pipe_pool.set_writer_realized_callback(callback);
+
         Self {
             dag,
-            pipe_pool: Arc::new(PipePool::new(Arc::clone(&kv), notification_queue)),
+            pipe_pool,
             kv,
             channels: HashMap::new(),
             next_channel_id: 0,
             system_tx: Some(system_tx),
             request_rx,
             id_gen,
-            attachment_tasks: Vec::new(),
+            attachment_manager,
         }
     }
 
-    /// Register and immediately spawn a stream attachment
-    ///
-    /// With latent pipes, attachments can be spawned immediately.
-    /// They will block reading until the pipe is realized by the actor.
-    pub fn register_attachment(
-        &mut self,
-        node_handle: Handle,
-        std_handle: actor_runtime::StdHandle,
-        config: AttachmentConfig,
-    ) {
-        debug!(node = ?node_handle, std = ?std_handle, config = ?config, "spawning attachment immediately");
-        let task = self.spawn_attachment(node_handle, std_handle, config);
-        self.attachment_tasks.push(task);
-    }
 
     /// Materialize stdin reader for an actor on first read
     ///
@@ -614,38 +612,6 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         let _ = response.send(result);
     }
 
-    /// Spawn an attachment task for reading from a pipe
-    fn spawn_attachment(
-        &self,
-        node_handle: Handle,
-        std_handle: actor_runtime::StdHandle,
-        config: AttachmentConfig,
-    ) -> tokio::task::JoinHandle<()> {
-        let pipe_pool = Arc::clone(&self.pipe_pool);
-        let id_gen = Arc::clone(&self.id_gen);
-
-        tokio::spawn(async move {
-            // Get or create reader (creates latent pipe if needed)
-            let Some(reader) = pipe_pool
-                .get_or_await_reader((node_handle, std_handle), true, &id_gen)
-                .await
-            else {
-                warn!(node = ?node_handle, std = ?std_handle, "failed to open reader for attachment");
-                return;
-            };
-
-            // Run attachment worker
-            match config {
-                AttachmentConfig::Stdout => {
-                    attach_to_stdout(node_handle, reader).await;
-                }
-                AttachmentConfig::Stderr => {
-                    attach_to_stderr(node_handle, reader).await;
-                }
-            }
-        })
-    }
-
     /// Main event loop - processes I/O requests asynchronously
     pub async fn run(mut self) {
         // Drop our copy of the sender so channel closes when all actors finish
@@ -725,13 +691,8 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         }
 
         // Wait for all attachment tasks to complete
-        debug!(
-            count = self.attachment_tasks.len(),
-            "waiting for attachment tasks to complete"
-        );
-        for task in self.attachment_tasks {
-            let _ = task.await;
-        }
+        debug!("waiting for attachment tasks to complete");
+        self.attachment_manager.wait_all().await;
         debug!("all attachment tasks completed");
     }
 }
