@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 use tokio::sync::mpsc;
-use tracing::{debug, error, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::dag::{Dag, DependsOn, For, NodeKind, NodeState};
 use crate::idgen::{Handle, IdGen};
@@ -35,6 +35,7 @@ pub struct ActorRegistry {
 impl ActorRegistry {
     #[must_use]
     pub fn new() -> Self {
+        trace!("ActorRegistry::new: creating, will store actors HashMap");
         Self {
             actors: HashMap::new(),
         }
@@ -73,6 +74,7 @@ pub struct Environment<K: KVBuffers> {
 impl<K: KVBuffers> Environment<K> {
     /// Create a new environment
     pub fn new(kv: Arc<K>) -> Self {
+        trace!("Environment::new: creating, will store dag, idgen, kv, actor_registry, value_nodes, attachment_config");
         let idgen = Arc::new(IdGen::new());
         let dag = Dag::new(Arc::clone(&idgen));
 

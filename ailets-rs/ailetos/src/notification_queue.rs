@@ -46,6 +46,7 @@
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tracing::trace;
 
 use crate::idgen::{Handle, IntCanBeHandle};
 
@@ -125,6 +126,7 @@ impl NotificationQueueArc {
     #[must_use]
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
+        trace!("NotificationQueueArc::new: creating, will store inner (whitelist, waiting_clients, broadcast_channels)");
         Self {
             inner: Arc::new(Mutex::new(InnerState::new())),
         }

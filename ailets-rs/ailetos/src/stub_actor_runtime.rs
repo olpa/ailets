@@ -47,6 +47,7 @@ pub struct FdTable {
 impl FdTable {
     #[must_use]
     pub fn new() -> Self {
+        trace!("FdTable::new: creating");
         let size = actor_runtime::StdHandle::_Count as usize;
         let mut table = Vec::with_capacity(size);
         table.resize(size, None);
@@ -131,6 +132,7 @@ impl BlockingActorRuntime {
     /// Create a new `ActorRuntime` for the given node handle
     #[must_use]
     pub fn new(node_handle: Handle, system_tx: mpsc::UnboundedSender<IoRequest>) -> Self {
+        trace!(actor = ?node_handle, "BlockingActorRuntime::new: creating, will store node_handle, system_tx, fd_table");
         Self {
             node_handle,
             system_tx,
@@ -189,7 +191,7 @@ impl BlockingActorRuntime {
     ///
     /// If the fd table lock is poisoned, logs an error and returns without clearing the table.
     pub fn shutdown(&self) {
-        trace!(actor = ?self.node_handle, "actor shutdown - clearing fd table");
+        trace!(actor = ?self.node_handle, "BlockingActorRuntime::shutdown: destroying, clearing fd table");
 
         // Clear the fd table without closing individual fds
         // The pipes themselves will be closed by SystemRuntime via PipePool

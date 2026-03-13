@@ -255,6 +255,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         id_gen: Arc<IdGen>,
         attachment_config: AttachmentConfig,
     ) -> Self {
+        trace!("SystemRuntime::new: creating, will store dag, kv, id_gen, pipe_pool, attachment_manager");
         let (system_tx, request_rx) = mpsc::unbounded_channel();
         let notification_queue = NotificationQueueArc::new();
 
@@ -280,6 +281,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         });
         pipe_pool.set_writer_realized_callback(callback);
 
+        trace!("SystemRuntime::new: created");
         Self {
             dag,
             pipe_pool,
@@ -620,6 +622,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
     /// Main event loop - processes I/O requests asynchronously
     pub async fn run(mut self) {
+        trace!("SystemRuntime::run: entering request_rx loop");
         // Drop our copy of the sender so channel closes when all actors finish
         drop(self.system_tx.take());
 
@@ -637,7 +640,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                 // Handle new requests from actors
                 request = self.request_rx.recv(), if request_rx_open => {
                     if let Some(request) = request {
-                        trace!("received request");
+                        trace!("SystemRuntime::run: received request from request_rx");
                         match request {
                             IoRequest::OpenRead { node_handle, response } => {
                                 self.handle_open_read(node_handle, response);
@@ -696,11 +699,14 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
             }
         }
 
+        trace!("SystemRuntime::run: exited request_rx loop");
+
         // Wait for all attachment tasks to complete
         self.attachment_manager.wait_all().await;
 
         // Clear the callback to break circular reference (callback captures Arc<PipePool>)
         self.pipe_pool.clear_writer_realized_callback();
+        trace!("SystemRuntime: destroying");
     }
 }
 

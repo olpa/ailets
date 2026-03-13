@@ -1,4 +1,5 @@
 use std::sync::atomic::{AtomicI64, Ordering};
+use tracing::trace;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Handle {
@@ -37,6 +38,7 @@ pub struct IdGen {
 impl IdGen {
     #[must_use]
     pub fn new() -> Self {
+        trace!("IdGen::new: creating, will store next_id AtomicI64");
         Self {
             next_id: AtomicI64::new(1),
         }

@@ -212,6 +212,7 @@ impl<K: KVBuffers> PipePool<K> {
     /// Create a new empty pipe pool
     #[must_use]
     pub fn new(kv: Arc<K>, notification_queue: NotificationQueueArc) -> Self {
+        trace!("PipePool::new: creating, will store kv, notification_queue");
         Self {
             inner: Mutex::new(PoolInner::new()),
             notification_queue,
@@ -247,7 +248,7 @@ impl<K: KVBuffers> PipePool<K> {
         allow_latent: bool,
         id_gen: &IdGen,
     ) -> Option<Reader> {
-        trace!(key = ?key, allow_latent, "get_or_await_reader called");
+        trace!(key = ?key, allow_latent, "PipePool::get_or_await_reader: entering loop");
         loop {
             // Check what state we're in
             let notify_arc = {
@@ -302,7 +303,9 @@ impl<K: KVBuffers> PipePool<K> {
 
             // If we got a notify arc, wait on it
             if let Some(notify) = notify_arc {
+                trace!(key = ?key, "PipePool::get_or_await_reader: awaiting notify");
                 notify.notified().await;
+                trace!(key = ?key, "PipePool::get_or_await_reader: notified, looping back");
                 // Loop back to check state again
             } else {
                 // No notify arc means we returned already
@@ -310,6 +313,7 @@ impl<K: KVBuffers> PipePool<K> {
             }
         }
 
+        trace!(key = ?key, "PipePool::get_or_await_reader: exited loop, returning None");
         None
     }
 

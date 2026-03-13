@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use actor_runtime::StdHandle;
 use parking_lot::Mutex;
-use tracing::{debug, warn};
+use tracing::{debug, trace, warn};
 
 use crate::idgen::{Handle, IdGen};
 use crate::io::KVBuffers;
@@ -58,6 +58,7 @@ pub struct AttachmentManager {
 impl AttachmentManager {
     /// Create a new attachment manager with the given configuration
     pub fn new(config: AttachmentConfig) -> Self {
+        trace!("AttachmentManager::new: creating, will store config, tasks");
         Self {
             config,
             tasks: Mutex::new(Vec::new()),
@@ -141,12 +142,15 @@ enum AttachmentTarget {
 /// Exits when EOF is reached or an error occurs.
 async fn attach_to_stdout(node_handle: Handle, mut reader: Reader) {
     debug!(node = ?node_handle, "stdout attachment started");
+    trace!(node = ?node_handle, "attach_to_stdout: entering read loop");
 
     let mut buf = vec![0u8; 4096];
     let mut stdout = std::io::stdout();
 
     loop {
+        trace!(node = ?node_handle, "attach_to_stdout: waiting for read");
         let n = reader.read(&mut buf).await;
+        trace!(node = ?node_handle, bytes = n, "attach_to_stdout: read returned");
 
         match n.cmp(&0) {
             std::cmp::Ordering::Greater => {
@@ -178,6 +182,7 @@ async fn attach_to_stdout(node_handle: Handle, mut reader: Reader) {
         }
     }
 
+    trace!(node = ?node_handle, "attach_to_stdout: exited read loop");
     reader.close();
     debug!(node = ?node_handle, "stdout attachment finished");
 }
@@ -188,12 +193,15 @@ async fn attach_to_stdout(node_handle: Handle, mut reader: Reader) {
 /// Exits when EOF is reached or an error occurs.
 async fn attach_to_stderr(node_handle: Handle, mut reader: Reader) {
     debug!(node = ?node_handle, "stderr attachment started");
+    trace!(node = ?node_handle, "attach_to_stderr: entering read loop");
 
     let mut buf = vec![0u8; 4096];
     let mut stderr = std::io::stderr();
 
     loop {
+        trace!(node = ?node_handle, "attach_to_stderr: waiting for read");
         let n = reader.read(&mut buf).await;
+        trace!(node = ?node_handle, bytes = n, "attach_to_stderr: read returned");
 
         match n.cmp(&0) {
             std::cmp::Ordering::Greater => {
@@ -225,6 +233,7 @@ async fn attach_to_stderr(node_handle: Handle, mut reader: Reader) {
         }
     }
 
+    trace!(node = ?node_handle, "attach_to_stderr: exited read loop");
     reader.close();
     debug!(node = ?node_handle, "stderr attachment finished");
 }

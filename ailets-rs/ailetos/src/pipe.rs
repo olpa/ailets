@@ -9,7 +9,7 @@ use parking_lot::Mutex;
 use std::cmp::Ordering;
 use std::fmt;
 use std::sync::Arc;
-use tracing::error;
+use tracing::{error, trace};
 
 use crate::idgen::Handle;
 use crate::io::Buffer;
@@ -64,6 +64,7 @@ impl Writer {
         debug_hint: &str,
         buffer: Buffer,
     ) -> Self {
+        trace!(handle = ?handle, hint = %debug_hint, "Writer::new: creating, will store shared buffer, handle, queue");
         queue.whitelist(handle, &format!("memPipe.writer {debug_hint}"));
 
         Self {
@@ -221,6 +222,7 @@ impl fmt::Debug for Writer {
 
 impl Drop for Writer {
     fn drop(&mut self) {
+        trace!(handle = ?self.handle, "Writer: destroying (drop)");
         if !self.is_closed() {
             self.close();
         }
@@ -281,6 +283,7 @@ pub struct Reader {
 impl Reader {
     #[must_use]
     pub fn new(handle: Handle, shared_data: ReaderSharedData) -> Self {
+        trace!(handle = ?handle, writer_handle = ?shared_data.writer_handle, "Reader::new: creating, will store buffer, queue, pos");
         Self {
             own_handle: handle,
             buffer: shared_data.buffer,
@@ -459,6 +462,7 @@ impl fmt::Debug for Reader {
 
 impl Drop for Reader {
     fn drop(&mut self) {
+        trace!(handle = ?self.own_handle, "Reader: destroying (drop)");
         if !self.is_closed() {
             self.close();
         }

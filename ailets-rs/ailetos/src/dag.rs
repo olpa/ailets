@@ -3,6 +3,7 @@ use std::fmt::Write;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
+use tracing::trace;
 
 use crate::idgen::{Handle, IdGen};
 
@@ -49,6 +50,7 @@ pub struct Dag {
 
 impl Dag {
     pub fn new(idgen: Arc<IdGen>) -> Self {
+        trace!("Dag::new: creating, will store nodes, deps, idgen");
         Self {
             nodes: Vec::new(),
             deps: Vec::new(),

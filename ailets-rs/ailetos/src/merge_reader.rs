@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use tracing::warn;
+use tracing::{trace, warn};
 
 use crate::dag::OwnedDependencyIterator;
 use crate::idgen::IdGen;
@@ -54,6 +54,7 @@ impl<K: KVBuffers> MergeReader<K> {
         pipe_pool: Arc<PipePool<K>>,
         id_gen: Arc<IdGen>,
     ) -> Self {
+        trace!("MergeReader::new: creating, will store dep_iterator, pipe_pool, id_gen");
         Self {
             current_reader: None,
             dep_iterator,
@@ -162,6 +163,7 @@ impl<K: KVBuffers> std::fmt::Debug for MergeReader<K> {
 
 impl<K: KVBuffers> Drop for MergeReader<K> {
     fn drop(&mut self) {
+        trace!("MergeReader: destroying (drop)");
         if self.current_reader.is_some() {
             self.close();
         }
