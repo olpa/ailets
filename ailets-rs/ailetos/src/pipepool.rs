@@ -123,25 +123,23 @@
 //!
 //! This ensures readers never miss notifications and wake up exactly once.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use actor_runtime::StdHandle;
 use parking_lot::Mutex;
-use tracing::debug;
+use tracing::{debug, trace};
 
 use crate::idgen::{Handle, IdGen};
 use crate::io::{KVBuffers, OpenMode};
 use crate::notification_queue::NotificationQueueArc;
 use crate::pipe::{Reader, Writer};
 
-/// Callback trait for writer realization events
-///
-/// Implemented by components that need to react when a writer is created.
-#[async_trait::async_trait]
-pub trait WriterRealizedCallback: Send + Sync {
-    /// Called when a writer is realized (created) in PipePool
-    async fn on_writer_realized(&self, node_handle: Handle, std_handle: StdHandle);
-}
+/// Callback type for writer realization events
+pub type WriterRealizedCallback = Arc<
+    dyn Fn(Handle, StdHandle) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync,
+>;
 
 /// State of a latent writer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -207,7 +205,7 @@ pub struct PipePool<K: KVBuffers> {
     /// Key-value store for pipe buffers
     kv: Arc<K>,
     /// Callback invoked when a writer is realized (uses interior mutability)
-    on_writer_realized: parking_lot::RwLock<Option<Arc<dyn WriterRealizedCallback>>>,
+    on_writer_realized: parking_lot::RwLock<Option<WriterRealizedCallback>>,
 }
 
 impl<K: KVBuffers> PipePool<K> {
@@ -225,8 +223,13 @@ impl<K: KVBuffers> PipePool<K> {
     /// Set the callback for writer realization events
     ///
     /// This can be called after construction to set up the callback.
-    pub fn set_writer_realized_callback(&self, callback: Arc<dyn WriterRealizedCallback>) {
+    pub fn set_writer_realized_callback(&self, callback: WriterRealizedCallback) {
         *self.on_writer_realized.write() = Some(callback);
+    }
+
+    /// Clear the callback to break circular references before shutdown
+    pub fn clear_writer_realized_callback(&self) {
+        *self.on_writer_realized.write() = None;
     }
 
     /// Get or create a reader for a pipe
@@ -244,6 +247,7 @@ impl<K: KVBuffers> PipePool<K> {
         allow_latent: bool,
         id_gen: &IdGen,
     ) -> Option<Reader> {
+        trace!(key = ?key, allow_latent, "get_or_await_reader called");
         loop {
             // Check what state we're in
             let notify_arc = {
@@ -251,6 +255,7 @@ impl<K: KVBuffers> PipePool<K> {
 
                 // Check if writer exists
                 if let Some(writer) = inner.find_writer(key) {
+                    trace!(key = ?key, "found existing writer");
                     let shared_data = writer.share_with_reader();
                     let reader_handle = Handle::new(id_gen.get_next());
                     return Some(Reader::new(reader_handle, shared_data));
@@ -258,16 +263,27 @@ impl<K: KVBuffers> PipePool<K> {
 
                 // Check if latent writer exists
                 if let Some(latent) = inner.find_latent_writer(key) {
+                    trace!(key = ?key, state = ?latent.state, allow_latent, "found latent writer");
                     match latent.state {
                         LatentState::Closed => {
+                            trace!(key = ?key, "latent writer is closed, returning None");
                             return None;
                         }
                         LatentState::Waiting => {
-                            let notify = Arc::clone(&latent.notify);
-                            Some(notify)
+                            // Only wait on latent writer if allow_latent is true
+                            if allow_latent {
+                                trace!(key = ?key, "will wait on latent writer");
+                                let notify = Arc::clone(&latent.notify);
+                                Some(notify)
+                            } else {
+                                trace!(key = ?key, "latent writer exists but allow_latent=false, returning None");
+                                return None;
+                            }
                         }
                     }
                 } else if allow_latent {
+                    trace!(key = ?key, "no writer or latent, creating new latent");
+
                     // Create latent writer
                     let notify = Arc::new(tokio::sync::Notify::new());
                     let latent = LatentWriter {
@@ -279,6 +295,7 @@ impl<K: KVBuffers> PipePool<K> {
                     debug!(key = ?key, "created latent writer");
                     Some(notify)
                 } else {
+                    trace!(key = ?key, "no writer found and allow_latent=false, returning None");
                     return None;
                 }
             };
@@ -367,7 +384,7 @@ impl<K: KVBuffers> PipePool<K> {
         if was_newly_created {
             let callback = self.on_writer_realized.read().clone();
             if let Some(callback) = callback {
-                callback.on_writer_realized(actor_handle, std_handle).await;
+                callback(actor_handle, std_handle).await;
             }
         }
 

@@ -245,7 +245,7 @@ pub struct SystemRuntime<K: KVBuffers> {
     /// ID generator for handles
     id_gen: Arc<IdGen>,
     /// Manages dynamic attachment of actor streams to host stdout/stderr
-    attachment_manager: Arc<AttachmentManager<K>>,
+    attachment_manager: Arc<AttachmentManager>,
 }
 
 impl<K: KVBuffers + 'static> SystemRuntime<K> {
@@ -262,16 +262,22 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         let pipe_pool = Arc::new(PipePool::new(Arc::clone(&kv), notification_queue));
 
         // Create attachment manager
-        let attachment_manager = Arc::new(AttachmentManager::new(
-            attachment_config,
-            Arc::clone(&pipe_pool),
-            Arc::clone(&id_gen),
-        ));
+        let attachment_manager = Arc::new(AttachmentManager::new(attachment_config));
 
-        // Set up callback (uses interior mutability, so works through Arc)
-        // Cast to trait object for the callback
-        let callback: Arc<dyn crate::pipepool::WriterRealizedCallback> =
-            Arc::clone(&attachment_manager) as Arc<dyn crate::pipepool::WriterRealizedCallback>;
+        // Set up callback - captures pipe_pool, id_gen, and attachment_manager
+        let callback_pipe_pool = Arc::clone(&pipe_pool);
+        let callback_id_gen = Arc::clone(&id_gen);
+        let callback_attachment = Arc::clone(&attachment_manager);
+        let callback: crate::pipepool::WriterRealizedCallback = Arc::new(move |node_handle, std_handle| {
+            let pipe_pool = Arc::clone(&callback_pipe_pool);
+            let id_gen = Arc::clone(&callback_id_gen);
+            let attachment = Arc::clone(&callback_attachment);
+            Box::pin(async move {
+                attachment
+                    .on_writer_realized(node_handle, std_handle, pipe_pool, id_gen)
+                    .await;
+            })
+        });
         pipe_pool.set_writer_realized_callback(callback);
 
         Self {
@@ -691,9 +697,10 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         }
 
         // Wait for all attachment tasks to complete
-        debug!("waiting for attachment tasks to complete");
         self.attachment_manager.wait_all().await;
-        debug!("all attachment tasks completed");
+
+        // Clear the callback to break circular reference (callback captures Arc<PipePool>)
+        self.pipe_pool.clear_writer_realized_callback();
     }
 }
 

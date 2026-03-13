@@ -14,7 +14,7 @@ use tracing::{debug, warn};
 use crate::idgen::{Handle, IdGen};
 use crate::io::KVBuffers;
 use crate::pipe::Reader;
-use crate::pipepool::{PipePool, WriterRealizedCallback};
+use crate::pipepool::PipePool;
 
 /// Configuration for attachment behavior
 #[derive(Debug, Clone, Default)]
@@ -49,25 +49,17 @@ impl AttachmentConfig {
 /// - Stdout: attach to host stdout only for actors in the configuration
 /// - Log, Metrics, Trace: always attach to host stderr for all actors
 /// - Stdin, Env: never attach
-pub struct AttachmentManager<K: KVBuffers> {
+pub struct AttachmentManager {
     config: AttachmentConfig,
-    pipe_pool: Arc<PipePool<K>>,
-    id_gen: Arc<IdGen>,
     /// Active attachment task handles
     tasks: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 
-impl<K: KVBuffers + 'static> AttachmentManager<K> {
+impl AttachmentManager {
     /// Create a new attachment manager with the given configuration
-    pub fn new(
-        config: AttachmentConfig,
-        pipe_pool: Arc<PipePool<K>>,
-        id_gen: Arc<IdGen>,
-    ) -> Self {
+    pub fn new(config: AttachmentConfig) -> Self {
         Self {
             config,
-            pipe_pool,
-            id_gen,
             tasks: Mutex::new(Vec::new()),
         }
     }
@@ -76,7 +68,13 @@ impl<K: KVBuffers + 'static> AttachmentManager<K> {
     ///
     /// This is called synchronously when a writer is created.
     /// Determines if attachment is needed and spawns the task.
-    async fn on_writer_realized_impl(&self, node_handle: Handle, std_handle: StdHandle) {
+    pub async fn on_writer_realized<K: KVBuffers + 'static>(
+        &self,
+        node_handle: Handle,
+        std_handle: StdHandle,
+        pipe_pool: Arc<PipePool<K>>,
+        id_gen: Arc<IdGen>,
+    ) {
         // Determine if attachment is needed
         let should_attach = match std_handle {
             StdHandle::Stdout => self.config.should_attach_stdout(node_handle),
@@ -96,10 +94,6 @@ impl<K: KVBuffers + 'static> AttachmentManager<K> {
         };
 
         debug!(node = ?node_handle, std = ?std_handle, target = ?target, "spawning attachment for realized writer");
-
-        // Clone Arc references for the task
-        let pipe_pool = Arc::clone(&self.pipe_pool);
-        let id_gen = Arc::clone(&self.id_gen);
 
         // Spawn attachment task
         let task = tokio::spawn(async move {
@@ -131,13 +125,6 @@ impl<K: KVBuffers + 'static> AttachmentManager<K> {
         for task in tasks {
             let _ = task.await;
         }
-    }
-}
-
-#[async_trait::async_trait]
-impl<K: KVBuffers + 'static> WriterRealizedCallback for AttachmentManager<K> {
-    async fn on_writer_realized(&self, node_handle: Handle, std_handle: StdHandle) {
-        self.on_writer_realized_impl(node_handle, std_handle).await;
     }
 }
 
