@@ -255,7 +255,6 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         id_gen: Arc<IdGen>,
         attachment_config: AttachmentConfig,
     ) -> Self {
-        trace!("SystemRuntime::new: creating, will store dag, kv, id_gen, pipe_pool, attachment_manager");
         let (system_tx, request_rx) = mpsc::unbounded_channel();
         let notification_queue = NotificationQueueArc::new();
 
@@ -281,7 +280,6 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         });
         pipe_pool.set_writer_realized_callback(callback);
 
-        trace!("SystemRuntime::new: created");
         Self {
             dag,
             pipe_pool,
@@ -316,7 +314,6 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         let stdin = self.alloc_channel_handle();
         self.channels
             .insert(stdin, Channel::Reader(Some(merge_reader)));
-        trace!(actor = ?node_handle, channel = ?stdin, "stdin materialized with MergeReader");
 
         stdin
     }
@@ -378,7 +375,6 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                 std_handle,
             },
         );
-        trace!(node = ?node_handle, channel = ?channel_handle, "OpenWrite created");
         let _ = response.send(channel_handle);
     }
 
@@ -392,17 +388,13 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         buffer: SendableBuffer,
         response: oneshot::Sender<isize>,
     ) -> IoFuture<K> {
-        trace!(channel = ?handle, "processing Read");
-
         if let Some(Channel::Reader(reader_slot)) = self.channels.get_mut(&handle) {
             if let Some(mut reader) = reader_slot.take() {
-                trace!(channel = ?handle, "spawning async read");
                 // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
                 Box::pin(async move {
                     // SAFETY: Buffer remains valid because aread() blocks until response
                     let buf = unsafe { &mut *buffer.into_raw() };
                     let bytes_read = reader.read(buf).await;
-                    trace!(channel = ?handle, bytes = bytes_read, "read completed");
                     IoEvent::ReadComplete {
                         handle,
                         reader,
@@ -446,8 +438,6 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         data: &[u8],
         response: oneshot::Sender<isize>,
     ) -> IoFuture<K> {
-        trace!(node = ?node_handle, std = ?std_handle, bytes = data.len(), "processing Write");
-
         let pipe_pool = Arc::clone(&self.pipe_pool);
         let id_gen = Arc::clone(&self.id_gen);
         let data = data.to_vec();
@@ -459,11 +449,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                 .touch_writer(node_handle, std_handle, &id_gen)
                 .await
             {
-                Ok(writer) => {
-                    let n = writer.write(&data);
-                    trace!(bytes = n, "pipe write completed");
-                    n
-                }
+                Ok(writer) => writer.write(&data),
                 Err(e) => {
                     warn!(node = ?node_handle, std = ?std_handle, error = %e, "failed to get writer");
                     -1
@@ -483,12 +469,9 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         handle: ChannelHandle,
         response: oneshot::Sender<isize>,
     ) -> IoFuture<K> {
-        trace!(channel = ?handle, "processing Close");
-
         if let Some(channel) = self.channels.remove(&handle) {
             match channel {
                 Channel::Reader(_) => {
-                    trace!(channel = ?handle, "closed reader");
                     // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
                     Box::pin(async move {
                         IoEvent::SyncComplete {
@@ -560,8 +543,6 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         std_handle: actor_runtime::StdHandle,
         response: oneshot::Sender<isize>,
     ) -> IoFuture<K> {
-        trace!(node = ?node_handle, std = ?std_handle, "processing CloseWriter");
-
         // Close the writer if it exists
         if let Some(writer) = self
             .pipe_pool
@@ -588,7 +569,6 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                 }
             } else {
                 // Writer was never created - that's OK, just succeed
-                trace!(node = ?node_handle, std = ?std_handle, "writer never materialized, nothing to close");
                 0
             };
 
@@ -607,7 +587,6 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         bytes_read: isize,
         response: oneshot::Sender<isize>,
     ) {
-        trace!(channel = ?handle, bytes = bytes_read, "read completed");
         // Put reader back into the channel
         if let Some(Channel::Reader(slot)) = self.channels.get_mut(&handle) {
             *slot = Some(reader);
@@ -640,7 +619,6 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                 // Handle new requests from actors
                 request = self.request_rx.recv(), if request_rx_open => {
                     if let Some(request) = request {
-                        trace!("SystemRuntime::run: received request from request_rx");
                         match request {
                             IoRequest::OpenRead { node_handle, response } => {
                                 self.handle_open_read(node_handle, response);
@@ -702,7 +680,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         trace!("SystemRuntime::run: exited request_rx loop");
 
         // Wait for all attachment tasks to complete
-        self.attachment_manager.wait_all().await;
+        self.attachment_manager.waiting_shutdown().await;
 
         // Clear the callback to break circular reference (callback captures Arc<PipePool>)
         self.pipe_pool.clear_writer_realized_callback();

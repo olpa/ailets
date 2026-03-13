@@ -212,7 +212,6 @@ impl<K: KVBuffers> PipePool<K> {
     /// Create a new empty pipe pool
     #[must_use]
     pub fn new(kv: Arc<K>, notification_queue: NotificationQueueArc) -> Self {
-        trace!("PipePool::new: creating, will store kv, notification_queue");
         Self {
             inner: Mutex::new(PoolInner::new()),
             notification_queue,
@@ -248,7 +247,6 @@ impl<K: KVBuffers> PipePool<K> {
         allow_latent: bool,
         id_gen: &IdGen,
     ) -> Option<Reader> {
-        trace!(key = ?key, allow_latent, "PipePool::get_or_await_reader: entering loop");
         loop {
             // Check what state we're in
             let notify_arc = {
@@ -256,7 +254,6 @@ impl<K: KVBuffers> PipePool<K> {
 
                 // Check if writer exists
                 if let Some(writer) = inner.find_writer(key) {
-                    trace!(key = ?key, "found existing writer");
                     let shared_data = writer.share_with_reader();
                     let reader_handle = Handle::new(id_gen.get_next());
                     return Some(Reader::new(reader_handle, shared_data));
@@ -264,27 +261,21 @@ impl<K: KVBuffers> PipePool<K> {
 
                 // Check if latent writer exists
                 if let Some(latent) = inner.find_latent_writer(key) {
-                    trace!(key = ?key, state = ?latent.state, allow_latent, "found latent writer");
                     match latent.state {
                         LatentState::Closed => {
-                            trace!(key = ?key, "latent writer is closed, returning None");
                             return None;
                         }
                         LatentState::Waiting => {
                             // Only wait on latent writer if allow_latent is true
                             if allow_latent {
-                                trace!(key = ?key, "will wait on latent writer");
                                 let notify = Arc::clone(&latent.notify);
                                 Some(notify)
                             } else {
-                                trace!(key = ?key, "latent writer exists but allow_latent=false, returning None");
                                 return None;
                             }
                         }
                     }
                 } else if allow_latent {
-                    trace!(key = ?key, "no writer or latent, creating new latent");
-
                     // Create latent writer
                     let notify = Arc::new(tokio::sync::Notify::new());
                     let latent = LatentWriter {
@@ -296,16 +287,13 @@ impl<K: KVBuffers> PipePool<K> {
                     debug!(key = ?key, "created latent writer");
                     Some(notify)
                 } else {
-                    trace!(key = ?key, "no writer found and allow_latent=false, returning None");
                     return None;
                 }
             };
 
             // If we got a notify arc, wait on it
             if let Some(notify) = notify_arc {
-                trace!(key = ?key, "PipePool::get_or_await_reader: awaiting notify");
                 notify.notified().await;
-                trace!(key = ?key, "PipePool::get_or_await_reader: notified, looping back");
                 // Loop back to check state again
             } else {
                 // No notify arc means we returned already
@@ -313,7 +301,6 @@ impl<K: KVBuffers> PipePool<K> {
             }
         }
 
-        trace!(key = ?key, "PipePool::get_or_await_reader: exited loop, returning None");
         None
     }
 

@@ -64,7 +64,6 @@ impl Writer {
         debug_hint: &str,
         buffer: Buffer,
     ) -> Self {
-        trace!(handle = ?handle, hint = %debug_hint, "Writer::new: creating, will store shared buffer, handle, queue");
         queue.whitelist(handle, &format!("memPipe.writer {debug_hint}"));
 
         Self {
@@ -207,16 +206,24 @@ impl Writer {
 
 impl fmt::Debug for Writer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let shared = self.shared.lock();
-        write!(
-            f,
-            "Pipe.Writer(handle={:?}, closed={}, tell={}, errno={}, hint={})",
-            self.handle,
-            shared.closed,
-            shared.buffer.len(),
-            shared.errno,
-            self.debug_hint
-        )
+        // Use try_lock to avoid deadlock if called while holding the lock
+        if let Some(shared) = self.shared.try_lock() {
+            write!(
+                f,
+                "Pipe.Writer(handle={:?}, closed={}, tell={}, errno={}, hint={})",
+                self.handle,
+                shared.closed,
+                shared.buffer.len(),
+                shared.errno,
+                self.debug_hint
+            )
+        } else {
+            write!(
+                f,
+                "Pipe.Writer(handle={:?}, <locked>, hint={})",
+                self.handle, self.debug_hint
+            )
+        }
     }
 }
 
@@ -283,7 +290,6 @@ pub struct Reader {
 impl Reader {
     #[must_use]
     pub fn new(handle: Handle, shared_data: ReaderSharedData) -> Self {
-        trace!(handle = ?handle, writer_handle = ?shared_data.writer_handle, "Reader::new: creating, will store buffer, queue, pos");
         Self {
             own_handle: handle,
             buffer: shared_data.buffer,

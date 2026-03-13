@@ -3,8 +3,6 @@
 use std::io::IsTerminal;
 use std::sync::Arc;
 
-use tracing::debug;
-
 use ailetos::idgen::Handle;
 use ailetos::{Environment, SqliteKV};
 use cli::stdin_source;
@@ -70,12 +68,9 @@ async fn main() {
     env.run(end_node).await;
 
     // Shutdown the KV store
-    // Note: Temporarily skip the Arc::try_unwrap check due to circular references
-    // between AttachmentManager and PipePool holding extra KV references
-    if let Ok(kv_inner) = Arc::try_unwrap(kv) {
-        kv_inner.shutdown().await.expect("Failed to shutdown KV");
-    } else {
-        // KV still has references, but this is expected with the current architecture
-        debug!("KV has extra references, skipping explicit shutdown");
-    }
+    Arc::try_unwrap(kv)
+        .unwrap_or_else(|_| panic!("KV still has other references"))
+        .shutdown()
+        .await
+        .expect("Failed to shutdown KV");
 }

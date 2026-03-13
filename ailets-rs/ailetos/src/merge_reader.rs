@@ -54,7 +54,6 @@ impl<K: KVBuffers> MergeReader<K> {
         pipe_pool: Arc<PipePool<K>>,
         id_gen: Arc<IdGen>,
     ) -> Self {
-        trace!("MergeReader::new: creating, will store dep_iterator, pipe_pool, id_gen");
         Self {
             current_reader: None,
             dep_iterator,

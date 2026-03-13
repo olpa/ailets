@@ -13,7 +13,6 @@ pub struct Scheduler<'a> {
 impl<'a> Scheduler<'a> {
     #[must_use]
     pub fn new(dag: &'a Dag, target: Handle) -> Self {
-        trace!(target = ?target, "Scheduler::new: creating, will store dag, target");
         Self { dag, target }
     }
 

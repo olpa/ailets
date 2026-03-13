@@ -126,7 +126,6 @@ where
     /// let coordinator = FlushCoordinator::new(100, flush_fn);
     /// ```
     pub fn new(capacity: usize, flush_fn: F) -> Self {
-        trace!(capacity, "FlushCoordinator::new: creating, will store request_tx, writer_task, flush_fn");
         let (request_tx, request_rx) = mpsc::channel(capacity);
         let flush_fn = Arc::new(flush_fn);
 
@@ -157,7 +156,6 @@ where
 
         // Process requests until channel closes
         while let Some(request) = request_rx.recv().await {
-            trace!("FlushCoordinator::writer_loop: received request from request_rx");
             requests_processed += 1;
 
             debug!(

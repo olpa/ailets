@@ -47,7 +47,6 @@ pub struct FdTable {
 impl FdTable {
     #[must_use]
     pub fn new() -> Self {
-        trace!("FdTable::new: creating");
         let size = actor_runtime::StdHandle::_Count as usize;
         let mut table = Vec::with_capacity(size);
         table.resize(size, None);
@@ -132,7 +131,6 @@ impl BlockingActorRuntime {
     /// Create a new `ActorRuntime` for the given node handle
     #[must_use]
     pub fn new(node_handle: Handle, system_tx: mpsc::UnboundedSender<IoRequest>) -> Self {
-        trace!(actor = ?node_handle, "BlockingActorRuntime::new: creating, will store node_handle, system_tx, fd_table");
         Self {
             node_handle,
             system_tx,
@@ -162,8 +160,6 @@ impl BlockingActorRuntime {
         table.set(StdHandle::Log as isize, FdEntry::AllowedWriter);
         table.set(StdHandle::Metrics as isize, FdEntry::AllowedWriter);
         table.set(StdHandle::Trace as isize, FdEntry::AllowedWriter);
-
-        trace!(actor = ?self.node_handle, "std fds registered");
     }
 
     /// Shutdown this actor runtime and clean up local state.
@@ -191,14 +187,11 @@ impl BlockingActorRuntime {
     ///
     /// If the fd table lock is poisoned, logs an error and returns without clearing the table.
     pub fn shutdown(&self) {
-        trace!(actor = ?self.node_handle, "BlockingActorRuntime::shutdown: destroying, clearing fd table");
-
         // Clear the fd table without closing individual fds
         // The pipes themselves will be closed by SystemRuntime via PipePool
         match self.fd_table.lock() {
             Ok(mut table) => {
                 table.clear();
-                trace!(actor = ?self.node_handle, "fd table cleared");
             }
             Err(e) => {
                 error!(actor = ?self.node_handle, error = ?e, "shutdown: fd_table lock poisoned");
@@ -212,20 +205,16 @@ impl BlockingActorRuntime {
         }) {
             error!(actor = ?self.node_handle, error = ?e, "shutdown: failed to send ActorShutdown notification");
         }
-
-        trace!(actor = ?self.node_handle, "actor shutdown complete");
     }
 }
 
 #[allow(clippy::unwrap_used)] // Blocking implementation - panics on channel failures
 impl ActorRuntime for BlockingActorRuntime {
     fn get_errno(&self) -> isize {
-        trace!(actor = ?self.node_handle, "get_errno");
         0 // No error
     }
 
     fn open_read(&self, _name: &str) -> isize {
-        trace!(actor = ?self.node_handle, "open_read");
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
 
@@ -237,7 +226,6 @@ impl ActorRuntime for BlockingActorRuntime {
             return -1;
         }
 
-        trace!(actor = ?self.node_handle, "open_read: blocking_recv");
         let channel_handle = match rx.blocking_recv() {
             Ok(handle) => handle,
             Err(e) => {
@@ -254,13 +242,10 @@ impl ActorRuntime for BlockingActorRuntime {
                 return -1;
             }
         };
-        trace!(actor = ?self.node_handle, fd = fd, channel = ?channel_handle, "open_read done");
         fd
     }
 
     fn open_write(&self, _name: &str) -> isize {
-        trace!(actor = ?self.node_handle, "open_write");
-
         // For now, open_write creates an ActiveWriter that writes to Stdout
         // The actual pipe will be created lazily on first write via PipePool
         // TODO: Support named streams by parsing the name parameter
@@ -275,12 +260,10 @@ impl ActorRuntime for BlockingActorRuntime {
                 return -1;
             }
         };
-        trace!(actor = ?self.node_handle, fd = fd, "open_write done (lazy writer)");
         fd
     }
 
     fn aread(&self, fd: isize, buffer: &mut [u8]) -> isize {
-        trace!(actor = ?self.node_handle, fd = fd, buflen = buffer.len(), "aread");
 
         // Get the channel handle, materializing stdin if needed
         let channel_handle = {
@@ -298,7 +281,6 @@ impl ActorRuntime for BlockingActorRuntime {
                     // Need to materialize stdin - release lock first
                     drop(table);
 
-                    trace!(actor = ?self.node_handle, "aread: materializing stdin");
                     let (tx, rx) = oneshot::channel();
 
                     if let Err(e) = self.system_tx.send(IoRequest::MaterializeStdin {
@@ -329,7 +311,6 @@ impl ActorRuntime for BlockingActorRuntime {
                         *entry = FdEntry::ActiveReader(handle);
                     }
 
-                    trace!(actor = ?self.node_handle, channel = ?handle, "aread: stdin materialized");
                     handle
                 }
                 Some(FdEntry::AllowedWriter) | Some(FdEntry::ActiveWriter { .. }) => {
@@ -364,21 +345,16 @@ impl ActorRuntime for BlockingActorRuntime {
         }
 
         // Block waiting for SystemRuntime to complete the async read
-        trace!(actor = ?self.node_handle, "aread: blocking_recv");
-        let bytes_read = match rx.blocking_recv() {
+        match rx.blocking_recv() {
             Ok(n) => n,
             Err(e) => {
                 error!(actor = ?self.node_handle, fd = fd, error = ?e, "aread: failed to receive response");
                 -1
             }
-        };
-        trace!(actor = ?self.node_handle, bytes = bytes_read, "aread done");
-
-        bytes_read
+        }
     }
 
     fn awrite(&self, fd: isize, buffer: &[u8]) -> isize {
-        trace!(actor = ?self.node_handle, fd = fd, buflen = buffer.len(), "awrite");
 
         // Get the write info (node_handle + std_handle)
         let (node_handle, std_handle) = {
@@ -402,7 +378,6 @@ impl ActorRuntime for BlockingActorRuntime {
                             std_handle: sh,
                         };
                     }
-                    trace!(actor = ?self.node_handle, "awrite: upgraded to ActiveWriter");
                     (nh, sh)
                 }
                 Some(FdEntry::AllowedReader) | Some(FdEntry::ActiveReader(_)) => {
@@ -429,21 +404,16 @@ impl ActorRuntime for BlockingActorRuntime {
             return -1;
         }
 
-        trace!(actor = ?self.node_handle, "awrite: blocking_recv");
-        let result = match rx.blocking_recv() {
+        match rx.blocking_recv() {
             Ok(n) => n,
             Err(e) => {
                 error!(actor = ?self.node_handle, fd = fd, error = ?e, "awrite: failed to receive response");
                 -1
             }
-        };
-        trace!(actor = ?self.node_handle, result = result, "awrite done");
-        result
+        }
     }
 
     fn aclose(&self, fd: isize) -> isize {
-        trace!(actor = ?self.node_handle, fd = fd, "aclose");
-
         // Remove the fd entry and get its state
         let entry = match self.fd_table.lock() {
             Ok(mut table) => {
@@ -464,7 +434,6 @@ impl ActorRuntime for BlockingActorRuntime {
         match entry {
             FdEntry::AllowedReader | FdEntry::AllowedWriter => {
                 // Never materialized - nothing to close
-                trace!(actor = ?self.node_handle, fd = fd, "aclose: handle never materialized");
                 0
             }
             FdEntry::ActiveReader(channel_handle) => {
@@ -479,12 +448,8 @@ impl ActorRuntime for BlockingActorRuntime {
                     return -1;
                 }
 
-                trace!(actor = ?self.node_handle, "aclose: blocking_recv for reader");
                 match rx.blocking_recv() {
-                    Ok(n) => {
-                        trace!(actor = ?self.node_handle, result = n, "aclose reader done");
-                        n
-                    }
+                    Ok(n) => n,
                     Err(e) => {
                         error!(actor = ?self.node_handle, fd = fd, error = ?e, "aclose: failed to receive Close response");
                         -1
@@ -504,12 +469,8 @@ impl ActorRuntime for BlockingActorRuntime {
                     return -1;
                 }
 
-                trace!(actor = ?self.node_handle, "aclose: blocking_recv for writer");
                 match rx.blocking_recv() {
-                    Ok(n) => {
-                        trace!(actor = ?self.node_handle, result = n, "aclose writer done");
-                        n
-                    }
+                    Ok(n) => n,
                     Err(e) => {
                         error!(actor = ?self.node_handle, fd = fd, error = ?e, "aclose: failed to receive CloseWriter response");
                         -1
