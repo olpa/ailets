@@ -177,7 +177,7 @@ pub enum IoRequest {
         response: oneshot::Sender<isize>,
     },
     /// Write to an actor's output pipe (async operation)
-    /// Uses node_handle + std_handle to write directly to PipePool
+    /// Uses `node_handle` + `std_handle` to write directly to `PipePool`
     Write {
         node_handle: Handle,
         std_handle: actor_runtime::StdHandle,
@@ -191,14 +191,14 @@ pub enum IoRequest {
     },
     /// Actor shutdown - close all writers (realized and latent) for this actor
     ActorShutdown { node_handle: Handle },
-    /// Materialize stdin reader for an actor (creates MergeReader, returns ChannelHandle)
+    /// Materialize stdin reader for an actor (creates `MergeReader`, returns `ChannelHandle`)
     /// Called on first read from stdin
     MaterializeStdin {
         node_handle: Handle,
         response: oneshot::Sender<ChannelHandle>,
     },
     /// Close a writer for an actor
-    /// Uses node_handle + std_handle to find and close the writer in PipePool
+    /// Uses `node_handle` + `std_handle` to find and close the writer in `PipePool`
     CloseWriter {
         node_handle: Handle,
         std_handle: actor_runtime::StdHandle,
@@ -268,16 +268,15 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         let callback_pipe_pool = Arc::clone(&pipe_pool);
         let callback_id_gen = Arc::clone(&id_gen);
         let callback_attachment = Arc::clone(&attachment_manager);
-        let callback: crate::pipepool::WriterRealizedCallback = Arc::new(move |node_handle, std_handle| {
-            let pipe_pool = Arc::clone(&callback_pipe_pool);
-            let id_gen = Arc::clone(&callback_id_gen);
-            let attachment = Arc::clone(&callback_attachment);
-            Box::pin(async move {
-                attachment
-                    .on_writer_realized(node_handle, std_handle, pipe_pool, id_gen)
-                    .await;
-            })
-        });
+        let callback: crate::pipepool::WriterRealizedCallback =
+            Arc::new(move |node_handle, std_handle| {
+                let pipe_pool = Arc::clone(&callback_pipe_pool);
+                let id_gen = Arc::clone(&callback_id_gen);
+                let attachment = Arc::clone(&callback_attachment);
+                Box::pin(async move {
+                    attachment.on_writer_realized(node_handle, std_handle, pipe_pool, id_gen);
+                })
+            });
         pipe_pool.set_writer_realized_callback(callback);
 
         Self {
@@ -292,7 +291,6 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
             attachment_manager,
         }
     }
-
 
     /// Materialize stdin reader for an actor on first read
     ///
@@ -429,8 +427,8 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
     /// Uses the Sync-to-Async Bridge pattern (see module-level docs:
     /// "ARCHITECTURE: Sync-to-Async Bridge Pattern")
     ///
-    /// Writes directly to PipePool using node_handle + std_handle from the request.
-    /// No Channel table lookup needed - PipePool handles lazy pipe creation.
+    /// Writes directly to `PipePool` using `node_handle` + `std_handle` from the request.
+    /// No Channel table lookup needed - `PipePool` handles lazy pipe creation.
     fn handle_write(
         &self,
         node_handle: Handle,
@@ -533,7 +531,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         }
     }
 
-    /// Handler for CloseWriter requests - closes writer directly via PipePool
+    /// Handler for `CloseWriter` requests - closes writer directly via `PipePool`
     ///
     /// Uses the Sync-to-Async Bridge pattern (see module-level docs:
     /// "ARCHITECTURE: Sync-to-Async Bridge Pattern")
@@ -687,4 +685,3 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         trace!("SystemRuntime: destroying");
     }
 }
-

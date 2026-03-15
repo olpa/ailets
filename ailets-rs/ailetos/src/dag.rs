@@ -3,7 +3,6 @@ use std::fmt::Write;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use tracing::trace;
 
 use crate::idgen::{Handle, IdGen};
 

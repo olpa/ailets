@@ -129,7 +129,7 @@ use std::sync::Arc;
 
 use actor_runtime::StdHandle;
 use parking_lot::Mutex;
-use tracing::{debug, trace};
+use tracing::debug;
 
 use crate::idgen::{Handle, IdGen};
 use crate::io::{KVBuffers, OpenMode};
@@ -137,9 +137,8 @@ use crate::notification_queue::NotificationQueueArc;
 use crate::pipe::{Reader, Writer};
 
 /// Callback type for writer realization events
-pub type WriterRealizedCallback = Arc<
-    dyn Fn(Handle, StdHandle) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync,
->;
+pub type WriterRealizedCallback =
+    Arc<dyn Fn(Handle, StdHandle) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
 
 /// State of a latent writer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

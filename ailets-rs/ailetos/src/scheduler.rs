@@ -1,7 +1,5 @@
 use std::collections::HashSet;
 
-use tracing::trace;
-
 use crate::dag::{Dag, NodeKind};
 use crate::idgen::Handle;
 

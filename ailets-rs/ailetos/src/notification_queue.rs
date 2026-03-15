@@ -46,7 +46,6 @@
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tracing::trace;
 
 use crate::idgen::{Handle, IntCanBeHandle};
 

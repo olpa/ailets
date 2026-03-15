@@ -2,7 +2,7 @@
 //!
 //! Attachments run as background tasks that read from actor pipes
 //! and write to host stdout/stderr. They are spawned dynamically when
-//! pipes are realized by PipePool.
+//! pipes are realized by `PipePool`.
 
 use std::io::Write as StdWrite;
 use std::sync::Arc;
@@ -25,6 +25,7 @@ pub struct AttachmentConfig {
 
 impl AttachmentConfig {
     /// Create a new empty attachment configuration
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -35,6 +36,7 @@ impl AttachmentConfig {
     }
 
     /// Check if an actor's stdout should be attached
+    #[must_use]
     pub fn should_attach_stdout(&self, actor_handle: Handle) -> bool {
         self.stdout_actors.contains(&actor_handle)
     }
@@ -42,7 +44,7 @@ impl AttachmentConfig {
 
 /// Manages dynamic attachment of actor streams to host stdout/stderr
 ///
-/// When PipePool realizes a writer, it notifies the AttachmentManager,
+/// When `PipePool` realizes a writer, it notifies the `AttachmentManager`,
 /// which decides whether to attach the stream based on configuration.
 ///
 /// Attachment rules:
@@ -57,6 +59,7 @@ pub struct AttachmentManager {
 
 impl AttachmentManager {
     /// Create a new attachment manager with the given configuration
+    #[must_use]
     pub fn new(config: AttachmentConfig) -> Self {
         Self {
             config,
@@ -64,11 +67,11 @@ impl AttachmentManager {
         }
     }
 
-    /// Handle a writer realization event from PipePool
+    /// Handle a writer realization event from `PipePool`
     ///
     /// This is called synchronously when a writer is created.
     /// Determines if attachment is needed and spawns the task.
-    pub async fn on_writer_realized<K: KVBuffers + 'static>(
+    pub fn on_writer_realized<K: KVBuffers + 'static>(
         &self,
         node_handle: Handle,
         std_handle: StdHandle,
@@ -122,7 +125,10 @@ impl AttachmentManager {
     /// This should be called during environment shutdown.
     pub async fn waiting_shutdown(&self) {
         let tasks = std::mem::take(&mut *self.tasks.lock());
-        trace!("AttachmentManager::waiting_shutdown: entering loop, tasks count = {}", tasks.len());
+        trace!(
+            "AttachmentManager::waiting_shutdown: entering loop, tasks count = {}",
+            tasks.len()
+        );
         for task in tasks {
             let _ = task.await;
         }

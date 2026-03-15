@@ -6,7 +6,7 @@
 
 use actor_runtime::ActorRuntime;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{error, trace, warn};
+use tracing::{error, warn};
 
 use crate::idgen::Handle;
 use crate::system_runtime::{ChannelHandle, IoRequest, SendableBuffer};
@@ -15,7 +15,7 @@ use crate::system_runtime::{ChannelHandle, IoRequest, SendableBuffer};
 ///
 /// Fds start as "allowed but not materialized" and transition to "active" on first use.
 ///
-/// ## Why ActiveReader and ActiveWriter store different data
+/// ## Why `ActiveReader` and `ActiveWriter` store different data
 ///
 /// Writers go directly to `PipePool` using `(node_handle, std_handle)` as the key.
 ///
@@ -55,41 +55,91 @@ impl FdTable {
 
     /// Set an entry at a specific fd (used for standard handles).
     pub fn set(&mut self, fd: isize, entry: FdEntry) {
+        // Defensive: reject negative fds
+        if fd < 0 {
+            return;
+        }
+        #[allow(clippy::cast_sign_loss)] // Safe: fd >= 0 checked above
         let idx = fd as usize;
-        if idx < self.table.len() {
-            self.table[idx] = Some(entry);
+        if let Some(slot) = self.table.get_mut(idx) {
+            *slot = Some(entry);
         }
     }
 
     /// Allocate a new fd and associate it with an `FdEntry`.
     /// Finds the first empty slot or appends. Returns the fd (index).
+    /// Returns -1 on overflow.
     pub fn insert(&mut self, entry: FdEntry) -> isize {
         // Find first None slot
-        if let Some(fd) = self.table.iter().position(|e| e.is_none()) {
-            self.table[fd] = Some(entry);
-            return fd as isize;
+        if let Some(fd) = self.table.iter().position(std::option::Option::is_none) {
+            // Defensive: check for isize overflow
+            if fd > isize::MAX as usize {
+                return -1;
+            }
+            if let Some(slot) = self.table.get_mut(fd) {
+                *slot = Some(entry);
+            }
+            // Safe: overflow checked above
+            #[allow(clippy::cast_possible_wrap)]
+            {
+                return fd as isize;
+            }
         }
         // No empty slot, append
         let fd = self.table.len();
+        // Defensive: check for isize overflow
+        if fd > isize::MAX as usize {
+            return -1;
+        }
         self.table.push(Some(entry));
-        fd as isize
+        // Safe: overflow checked above
+        #[allow(clippy::cast_possible_wrap)]
+        {
+            fd as isize
+        }
     }
 
     /// Look up the `FdEntry` for a given fd
     #[must_use]
     pub fn get(&self, fd: isize) -> Option<&FdEntry> {
-        self.table.get(fd as usize).and_then(|e| e.as_ref())
+        // Defensive: reject negative fds
+        if fd < 0 {
+            return None;
+        }
+        // Safe: fd >= 0 checked above
+        #[allow(clippy::cast_sign_loss)]
+        {
+            self.table.get(fd as usize).and_then(|e| e.as_ref())
+        }
     }
 
     /// Get mutable reference to an `FdEntry`
     #[must_use]
     pub fn get_mut(&mut self, fd: isize) -> Option<&mut FdEntry> {
-        self.table.get_mut(fd as usize).and_then(|e| e.as_mut())
+        // Defensive: reject negative fds
+        if fd < 0 {
+            return None;
+        }
+        // Safe: fd >= 0 checked above
+        #[allow(clippy::cast_sign_loss)]
+        {
+            self.table.get_mut(fd as usize).and_then(|e| e.as_mut())
+        }
     }
 
     /// Remove an fd mapping and return the entry
     pub fn remove(&mut self, fd: isize) -> Option<FdEntry> {
-        self.table.get_mut(fd as usize).and_then(|e| e.take())
+        // Defensive: reject negative fds
+        if fd < 0 {
+            return None;
+        }
+        // Safe: fd >= 0 checked above
+        #[allow(clippy::cast_sign_loss)]
+        {
+            self.table
+                .get_mut(fd as usize)
+                .and_then(std::option::Option::take)
+        }
     }
 
     /// Clear all fd mappings (used during actor shutdown)
@@ -264,7 +314,6 @@ impl ActorRuntime for BlockingActorRuntime {
     }
 
     fn aread(&self, fd: isize, buffer: &mut [u8]) -> isize {
-
         // Get the channel handle, materializing stdin if needed
         let channel_handle = {
             let table = match self.fd_table.lock() {
@@ -313,7 +362,7 @@ impl ActorRuntime for BlockingActorRuntime {
 
                     handle
                 }
-                Some(FdEntry::AllowedWriter) | Some(FdEntry::ActiveWriter { .. }) => {
+                Some(FdEntry::AllowedWriter | FdEntry::ActiveWriter { .. }) => {
                     warn!(actor = ?self.node_handle, fd = fd, "aread: cannot read from stdout");
                     return -1;
                 }
@@ -355,7 +404,6 @@ impl ActorRuntime for BlockingActorRuntime {
     }
 
     fn awrite(&self, fd: isize, buffer: &[u8]) -> isize {
-
         // Get the write info (node_handle + std_handle)
         let (node_handle, std_handle) = {
             let mut table = match self.fd_table.lock() {
@@ -367,7 +415,10 @@ impl ActorRuntime for BlockingActorRuntime {
             };
 
             match table.get(fd) {
-                Some(FdEntry::ActiveWriter { node_handle, std_handle }) => (*node_handle, *std_handle),
+                Some(FdEntry::ActiveWriter {
+                    node_handle,
+                    std_handle,
+                }) => (*node_handle, *std_handle),
                 Some(FdEntry::AllowedWriter) => {
                     // Upgrade to ActiveWriter with default Stdout handle
                     let nh = self.node_handle;
@@ -380,7 +431,7 @@ impl ActorRuntime for BlockingActorRuntime {
                     }
                     (nh, sh)
                 }
-                Some(FdEntry::AllowedReader) | Some(FdEntry::ActiveReader(_)) => {
+                Some(FdEntry::AllowedReader | FdEntry::ActiveReader(_)) => {
                     warn!(actor = ?self.node_handle, fd = fd, "awrite: cannot write to stdin");
                     return -1;
                 }
@@ -456,7 +507,10 @@ impl ActorRuntime for BlockingActorRuntime {
                     }
                 }
             }
-            FdEntry::ActiveWriter { node_handle, std_handle } => {
+            FdEntry::ActiveWriter {
+                node_handle,
+                std_handle,
+            } => {
                 // Close writer via SystemRuntime
                 let (tx, rx) = oneshot::channel();
 

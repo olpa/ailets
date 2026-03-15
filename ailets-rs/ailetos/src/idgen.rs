@@ -1,5 +1,4 @@
 use std::sync::atomic::{AtomicI64, Ordering};
-use tracing::trace;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Handle {
