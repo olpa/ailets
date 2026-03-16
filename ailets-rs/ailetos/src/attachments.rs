@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use actor_runtime::StdHandle;
 use parking_lot::Mutex;
-use tracing::{debug, trace, warn};
+use tracing::{debug, error, trace, warn};
 
 use crate::idgen::{Handle, IdGen};
 use crate::io::KVBuffers;
@@ -17,22 +17,32 @@ use crate::pipe::Reader;
 use crate::pipepool::PipePool;
 
 /// Configuration for attachment behavior
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct AttachmentConfig {
     /// Actors whose stdout should be attached to host stdout
-    stdout_actors: std::collections::HashSet<Handle>,
+    stdout_actors: Vec<Handle>,
+}
+
+impl Default for AttachmentConfig {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AttachmentConfig {
     /// Create a new empty attachment configuration
     #[must_use]
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            stdout_actors: Vec::with_capacity(1),
+        }
     }
 
     /// Add an actor whose stdout should be attached to host stdout
     pub fn attach_stdout(&mut self, actor_handle: Handle) {
-        self.stdout_actors.insert(actor_handle);
+        if !self.stdout_actors.contains(&actor_handle) {
+            self.stdout_actors.push(actor_handle);
+        }
     }
 
     /// Check if an actor's stdout should be attached
@@ -93,7 +103,10 @@ impl AttachmentManager {
         let target = match std_handle {
             StdHandle::Stdout => AttachmentTarget::Stdout,
             StdHandle::Log | StdHandle::Metrics | StdHandle::Trace => AttachmentTarget::Stderr,
-            _ => return, // Should not reach here
+            _ => {
+                error!(node = ?node_handle, std = ?std_handle, "internal error: unexpected std_handle in attachment target");
+                return;
+            }
         };
 
         debug!(node = ?node_handle, std = ?std_handle, target = ?target, "spawning attachment for realized writer");
@@ -111,8 +124,12 @@ impl AttachmentManager {
 
             // Run attachment worker
             match target {
-                AttachmentTarget::Stdout => attach_to_stdout(node_handle, reader).await,
-                AttachmentTarget::Stderr => attach_to_stderr(node_handle, reader).await,
+                AttachmentTarget::Stdout => {
+                    attach_to_stream(node_handle, reader, std::io::stdout(), target).await;
+                }
+                AttachmentTarget::Stderr => {
+                    attach_to_stream(node_handle, reader, std::io::stderr(), target).await;
+                }
             }
         });
 
@@ -130,7 +147,9 @@ impl AttachmentManager {
             tasks.len()
         );
         for task in tasks {
-            let _ = task.await;
+            if let Err(e) = task.await {
+                warn!(error = %e, "attachment task failed during shutdown");
+            }
         }
         trace!("AttachmentManager::waiting_shutdown: exited loop");
     }
@@ -143,96 +162,50 @@ enum AttachmentTarget {
     Stderr,
 }
 
-/// Attach a pipe reader to host stdout
+/// Attach a pipe reader to a host output stream
 ///
-/// Continuously reads from the pipe and forwards data to host stdout.
+/// Continuously reads from the pipe and forwards data to the target stream.
 /// Exits when EOF is reached or an error occurs.
-async fn attach_to_stdout(node_handle: Handle, mut reader: Reader) {
-    debug!(node = ?node_handle, "stdout attachment started");
+async fn attach_to_stream<W: StdWrite>(
+    node_handle: Handle,
+    mut reader: Reader,
+    mut writer: W,
+    target: AttachmentTarget,
+) {
+    debug!(node = ?node_handle, ?target, "attachment started");
 
     let mut buf = vec![0u8; 4096];
-    let mut stdout = std::io::stdout();
 
     loop {
         let n = reader.read(&mut buf).await;
 
         match n.cmp(&0) {
             std::cmp::Ordering::Greater => {
-                // Got data, write to stdout
                 let bytes_written = n.cast_unsigned();
                 let Some(slice) = buf.get(..bytes_written) else {
-                    warn!(node = ?node_handle, "buffer slice out of bounds");
+                    warn!(node = ?node_handle, ?target, "buffer slice out of bounds");
                     break;
                 };
-                if let Err(e) = stdout.write_all(slice) {
-                    warn!(node = ?node_handle, error = %e, "failed to write to stdout");
+                if let Err(e) = writer.write_all(slice) {
+                    warn!(node = ?node_handle, ?target, error = %e, "failed to write");
                     break;
                 }
-                if let Err(e) = stdout.flush() {
-                    warn!(node = ?node_handle, error = %e, "failed to flush stdout");
+                if let Err(e) = writer.flush() {
+                    warn!(node = ?node_handle, ?target, error = %e, "failed to flush");
                     break;
                 }
             }
             std::cmp::Ordering::Equal => {
-                // EOF
-                debug!(node = ?node_handle, "stdout attachment EOF");
+                debug!(node = ?node_handle, ?target, "attachment EOF");
                 break;
             }
             std::cmp::Ordering::Less => {
-                // Error
-                warn!(node = ?node_handle, "read error in stdout attachment");
+                warn!(node = ?node_handle, ?target, "read error in attachment");
                 break;
             }
         }
     }
 
     reader.close();
-    debug!(node = ?node_handle, "stdout attachment finished");
-}
-
-/// Attach a pipe reader to host stderr
-///
-/// Continuously reads from the pipe and forwards data to host stderr.
-/// Exits when EOF is reached or an error occurs.
-async fn attach_to_stderr(node_handle: Handle, mut reader: Reader) {
-    debug!(node = ?node_handle, "stderr attachment started");
-
-    let mut buf = vec![0u8; 4096];
-    let mut stderr = std::io::stderr();
-
-    loop {
-        let n = reader.read(&mut buf).await;
-
-        match n.cmp(&0) {
-            std::cmp::Ordering::Greater => {
-                // Got data, write to stderr
-                let bytes_written = n.cast_unsigned();
-                let Some(slice) = buf.get(..bytes_written) else {
-                    warn!(node = ?node_handle, "buffer slice out of bounds");
-                    break;
-                };
-                if let Err(e) = stderr.write_all(slice) {
-                    warn!(node = ?node_handle, error = %e, "failed to write to stderr");
-                    break;
-                }
-                if let Err(e) = stderr.flush() {
-                    warn!(node = ?node_handle, error = %e, "failed to flush stderr");
-                    break;
-                }
-            }
-            std::cmp::Ordering::Equal => {
-                // EOF
-                debug!(node = ?node_handle, "stderr attachment EOF");
-                break;
-            }
-            std::cmp::Ordering::Less => {
-                // Error
-                warn!(node = ?node_handle, "read error in stderr attachment");
-                break;
-            }
-        }
-    }
-
-    reader.close();
-    debug!(node = ?node_handle, "stderr attachment finished");
+    debug!(node = ?node_handle, ?target, "attachment finished");
 }
