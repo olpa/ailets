@@ -246,6 +246,10 @@ pub struct SystemRuntime<K: KVBuffers> {
     id_gen: Arc<IdGen>,
     /// Manages dynamic attachment of actor streams to host stdout/stderr
     attachment_manager: Arc<AttachmentManager>,
+    /// Event sender for PipePool events (None after `run()` starts, dropped during shutdown)
+    event_tx: Option<crate::pipepool::PipePoolEventSender>,
+    /// Handle to the event loop task
+    event_loop_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl<K: KVBuffers + 'static> SystemRuntime<K> {
@@ -258,26 +262,26 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         let (system_tx, request_rx) = mpsc::unbounded_channel();
         let notification_queue = NotificationQueueArc::new();
 
-        // Create pipe pool
-        let pipe_pool = Arc::new(PipePool::new(Arc::clone(&kv), notification_queue));
+        // Create event channel for PipePool events
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
+
+        // Create pipe pool with event sender
+        let pipe_pool = Arc::new(PipePool::new(
+            Arc::clone(&kv),
+            notification_queue,
+            Some(event_tx.clone()),
+        ));
 
         // Create attachment manager
         let attachment_manager = Arc::new(AttachmentManager::new(attachment_config));
 
-        // Set up callback - captures pipe_pool, id_gen, and attachment_manager
-        let callback_pipe_pool = Arc::clone(&pipe_pool);
-        let callback_id_gen = Arc::clone(&id_gen);
-        let callback_attachment = Arc::clone(&attachment_manager);
-        let callback: crate::pipepool::WriterRealizedCallback =
-            Arc::new(move |node_handle, std_handle| {
-                let pipe_pool = Arc::clone(&callback_pipe_pool);
-                let id_gen = Arc::clone(&callback_id_gen);
-                let attachment = Arc::clone(&callback_attachment);
-                Box::pin(async move {
-                    attachment.on_writer_realized(node_handle, std_handle, pipe_pool, id_gen);
-                })
-            });
-        pipe_pool.set_writer_realized_callback(callback);
+        // Spawn event loop to process PipePool events
+        let event_loop_handle = tokio::spawn(Self::event_loop(
+            event_rx,
+            Arc::clone(&pipe_pool),
+            Arc::clone(&attachment_manager),
+            Arc::clone(&id_gen),
+        ));
 
         Self {
             dag,
@@ -289,6 +293,8 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
             request_rx,
             id_gen,
             attachment_manager,
+            event_tx: Some(event_tx),
+            event_loop_handle: Some(event_loop_handle),
         }
     }
 
@@ -597,6 +603,63 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         let _ = response.send(result);
     }
 
+    /// Event loop for processing PipePool events
+    ///
+    /// Runs until the event sender is dropped and all pending events are processed.
+    /// Spawns attachment tasks when writers are realized.
+    ///
+    /// # Error Handling
+    /// If event processing panics, the panic is caught and logged to prevent the entire
+    /// event loop from dying. This ensures that one bad event doesn't prevent subsequent
+    /// events from being processed.
+    async fn event_loop(
+        mut event_rx: mpsc::UnboundedReceiver<crate::pipepool::PipePoolEvent>,
+        pipe_pool: Arc<PipePool<K>>,
+        attachment_manager: Arc<AttachmentManager>,
+        id_gen: Arc<IdGen>,
+    ) {
+        use crate::pipepool::PipePoolEvent;
+
+        trace!("PipePool event loop starting");
+
+        // Process events until sender is dropped AND queue is drained
+        while let Some(event) = event_rx.recv().await {
+            match event {
+                PipePoolEvent::WriterRealized {
+                    actor_handle,
+                    std_handle,
+                } => {
+                    trace!(
+                        actor = ?actor_handle,
+                        std = ?std_handle,
+                        "processing WriterRealized event"
+                    );
+
+                    // Catch panics to prevent event loop from dying
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        attachment_manager.on_writer_realized(
+                            actor_handle,
+                            std_handle,
+                            pipe_pool.clone(),
+                            id_gen.clone(),
+                        );
+                    }));
+
+                    if let Err(e) = result {
+                        warn!(
+                            actor = ?actor_handle,
+                            std = ?std_handle,
+                            error = ?e,
+                            "panic in WriterRealized event handler"
+                        );
+                    }
+                }
+            }
+        }
+
+        trace!("PipePool event loop finished - all events processed");
+    }
+
     /// Main event loop - processes I/O requests asynchronously
     pub async fn run(mut self) {
         trace!("SystemRuntime::run: entering request_rx loop");
@@ -677,11 +740,48 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
         trace!("SystemRuntime::run: exited request_rx loop");
 
-        // Wait for all attachment tasks to complete
-        self.attachment_manager.waiting_shutdown().await;
+        // ========================================================================
+        // Graceful Shutdown Sequence
+        // ========================================================================
+        //
+        // The shutdown sequence ensures all writer realization events are processed
+        // and all attachment tasks complete before the runtime terminates.
+        //
+        // Phase 1: Stop new events
+        //   - Drop SystemRuntime's event sender (prevents new events from runtime)
+        //   - Clear PipePool's event sender (prevents new events from pipe pool)
+        //   - CRITICAL: Both senders must be dropped for the event loop to exit!
+        //
+        // Phase 2: Drain event queue
+        //   - Event loop processes all pending WriterRealized events
+        //   - Each event spawns an attachment task
+        //   - Event loop exits when channel closes AND queue is empty
+        //
+        // Phase 3: Wait for attachments
+        //   - All attachment tasks read their pipes to EOF
+        //   - Data is forwarded to host stdout/stderr
+        //   - Tasks exit naturally when pipes close
+        //
+        // This ordering guarantees no events or data are lost during shutdown.
+        // ========================================================================
 
-        // Clear the callback to break circular reference (callback captures Arc<PipePool>)
-        self.pipe_pool.clear_writer_realized_callback();
+        // Shutdown Phase 1: Stop new events by dropping all event senders
+        drop(self.event_tx.take());
+        self.pipe_pool.clear_event_sender();
+        trace!("SystemRuntime: event senders dropped");
+
+        // Shutdown Phase 2: Wait for event loop to drain all pending events
+        if let Some(handle) = self.event_loop_handle.take() {
+            if let Err(e) = handle.await {
+                warn!(error = %e, "event loop task failed");
+            }
+            trace!("SystemRuntime: event loop drained");
+        }
+
+        // Shutdown Phase 3: Wait for all attachment tasks to complete
+        self.attachment_manager.waiting_shutdown().await;
+        trace!("SystemRuntime: all attachments completed");
+
         trace!("SystemRuntime: destroying");
     }
 }

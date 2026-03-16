@@ -123,8 +123,6 @@
 //!
 //! This ensures readers never miss notifications and wake up exactly once.
 
-use std::future::Future;
-use std::pin::Pin;
 use std::sync::Arc;
 
 use actor_runtime::StdHandle;
@@ -136,9 +134,18 @@ use crate::io::{KVBuffers, OpenMode};
 use crate::notification_queue::NotificationQueueArc;
 use crate::pipe::{Reader, Writer};
 
-/// Callback type for writer realization events
-pub type WriterRealizedCallback =
-    Arc<dyn Fn(Handle, StdHandle) -> Pin<Box<dyn Future<Output = ()> + Send>> + Send + Sync>;
+/// Events emitted by PipePool for writer lifecycle
+#[derive(Debug, Clone, Copy)]
+pub enum PipePoolEvent {
+    /// A writer was realized (created) for an actor's output stream
+    WriterRealized {
+        actor_handle: Handle,
+        std_handle: StdHandle,
+    },
+}
+
+/// Type alias for the event sender to reduce repetition
+pub type PipePoolEventSender = tokio::sync::mpsc::UnboundedSender<PipePoolEvent>;
 
 /// State of a latent writer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,32 +210,37 @@ pub struct PipePool<K: KVBuffers> {
     notification_queue: NotificationQueueArc,
     /// Key-value store for pipe buffers
     kv: Arc<K>,
-    /// Callback invoked when a writer is realized (uses interior mutability)
-    on_writer_realized: parking_lot::RwLock<Option<WriterRealizedCallback>>,
+    /// Event sender for writer lifecycle events (None in tests, uses interior mutability)
+    event_tx: parking_lot::RwLock<Option<PipePoolEventSender>>,
 }
 
 impl<K: KVBuffers> PipePool<K> {
     /// Create a new empty pipe pool
+    ///
+    /// # Parameters
+    /// - `kv`: Key-value store for pipe buffers
+    /// - `notification_queue`: Shared notification queue for pipe data events
+    /// - `event_tx`: Optional event sender for writer lifecycle events (None in tests)
     #[must_use]
-    pub fn new(kv: Arc<K>, notification_queue: NotificationQueueArc) -> Self {
+    pub fn new(
+        kv: Arc<K>,
+        notification_queue: NotificationQueueArc,
+        event_tx: Option<PipePoolEventSender>,
+    ) -> Self {
         Self {
             inner: Mutex::new(PoolInner::new()),
             notification_queue,
             kv,
-            on_writer_realized: parking_lot::RwLock::new(None),
+            event_tx: parking_lot::RwLock::new(event_tx),
         }
     }
 
-    /// Set the callback for writer realization events
+    /// Clear the event sender before shutdown
     ///
-    /// This can be called after construction to set up the callback.
-    pub fn set_writer_realized_callback(&self, callback: WriterRealizedCallback) {
-        *self.on_writer_realized.write() = Some(callback);
-    }
-
-    /// Clear the callback to break circular references before shutdown
-    pub fn clear_writer_realized_callback(&self) {
-        *self.on_writer_realized.write() = None;
+    /// This must be called during shutdown to allow the event loop to exit.
+    /// The event loop waits for all senders to be dropped before exiting.
+    pub fn clear_event_sender(&self) {
+        *self.event_tx.write() = None;
     }
 
     /// Get or create a reader for a pipe
@@ -370,11 +382,24 @@ impl<K: KVBuffers> PipePool<K> {
             (writer_arc, was_newly_created)
         };
 
-        // Invoke callback if writer was newly created
+        // Emit event if writer was newly created
         if was_newly_created {
-            let callback = self.on_writer_realized.read().clone();
-            if let Some(callback) = callback {
-                callback(actor_handle, std_handle).await;
+            let event_tx = self.event_tx.read().clone();
+            if let Some(tx) = event_tx {
+                // Send failure means event loop already shut down, which is fine
+                if tx
+                    .send(PipePoolEvent::WriterRealized {
+                        actor_handle,
+                        std_handle,
+                    })
+                    .is_err()
+                {
+                    debug!(
+                        actor = ?actor_handle,
+                        std = ?std_handle,
+                        "failed to send WriterRealized event (shutdown in progress)"
+                    );
+                }
             }
         }
 

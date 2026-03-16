@@ -12,7 +12,8 @@ fn create_test_pool() -> (PipePool<MemKV>, Arc<MemKV>, Arc<IdGen>) {
     let kv = Arc::new(MemKV::new());
     let queue = NotificationQueueArc::new();
     let id_gen = Arc::new(IdGen::new());
-    let pool = PipePool::new(kv.clone(), queue);
+    // Pass None for event_tx in tests (no attachment behavior needed)
+    let pool = PipePool::new(kv.clone(), queue, None);
     (pool, kv, id_gen)
 }
 
