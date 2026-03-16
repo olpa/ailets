@@ -134,19 +134,6 @@ use crate::io::{KVBuffers, OpenMode};
 use crate::notification_queue::NotificationQueueArc;
 use crate::pipe::{Reader, Writer};
 
-/// Events emitted by PipePool for writer lifecycle
-#[derive(Debug, Clone, Copy)]
-pub enum PipePoolEvent {
-    /// A writer was realized (created) for an actor's output stream
-    WriterRealized {
-        actor_handle: Handle,
-        std_handle: StdHandle,
-    },
-}
-
-/// Type alias for the event sender to reduce repetition
-pub type PipePoolEventSender = tokio::sync::mpsc::UnboundedSender<PipePoolEvent>;
-
 /// State of a latent writer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LatentState {
@@ -210,8 +197,6 @@ pub struct PipePool<K: KVBuffers> {
     notification_queue: NotificationQueueArc,
     /// Key-value store for pipe buffers
     kv: Arc<K>,
-    /// Event sender for writer lifecycle events (None in tests, uses interior mutability)
-    event_tx: parking_lot::RwLock<Option<PipePoolEventSender>>,
 }
 
 impl<K: KVBuffers> PipePool<K> {
@@ -220,27 +205,13 @@ impl<K: KVBuffers> PipePool<K> {
     /// # Parameters
     /// - `kv`: Key-value store for pipe buffers
     /// - `notification_queue`: Shared notification queue for pipe data events
-    /// - `event_tx`: Optional event sender for writer lifecycle events (None in tests)
     #[must_use]
-    pub fn new(
-        kv: Arc<K>,
-        notification_queue: NotificationQueueArc,
-        event_tx: Option<PipePoolEventSender>,
-    ) -> Self {
+    pub fn new(kv: Arc<K>, notification_queue: NotificationQueueArc) -> Self {
         Self {
             inner: Mutex::new(PoolInner::new()),
             notification_queue,
             kv,
-            event_tx: parking_lot::RwLock::new(event_tx),
         }
-    }
-
-    /// Clear the event sender before shutdown
-    ///
-    /// This must be called during shutdown to allow the event loop to exit.
-    /// The event loop waits for all senders to be dropped before exiting.
-    pub fn clear_event_sender(&self) {
-        *self.event_tx.write() = None;
     }
 
     /// Get or create a reader for a pipe
@@ -322,7 +293,8 @@ impl<K: KVBuffers> PipePool<K> {
     /// - Realizes latent writer if it exists
     /// - Creates new writer if none exists
     ///
-    /// Always returns a writer ready to use.
+    /// Returns `(writer, was_newly_created)` where `was_newly_created` is true
+    /// if this call created the writer (useful for triggering attachments).
     ///
     /// # Errors
     /// Returns error if buffer allocation fails
@@ -331,14 +303,14 @@ impl<K: KVBuffers> PipePool<K> {
         actor_handle: Handle,
         std_handle: StdHandle,
         id_gen: &IdGen,
-    ) -> Result<Arc<Writer>, crate::io::KVError> {
+    ) -> Result<(Arc<Writer>, bool), crate::io::KVError> {
         let key = (actor_handle, std_handle);
 
         // Fast path: writer already exists
         {
             let inner = self.inner.lock();
             if let Some(writer) = inner.find_writer(key) {
-                return Ok(Arc::clone(writer));
+                return Ok((Arc::clone(writer), false));
             }
         }
 
@@ -358,12 +330,11 @@ impl<K: KVBuffers> PipePool<K> {
         );
 
         // Add writer to pool and notify waiters (if latent existed)
-        let (writer_arc, was_newly_created) = {
+        let writer_arc = {
             let mut inner = self.inner.lock();
 
             // Check if latent writer exists - remove it and get notify handle
             let notify_arc = inner.remove_latent_writer(key).map(|lw| lw.notify);
-            let was_newly_created = true; // We're in the slow path, so this is a new writer
 
             // Add writer wrapped in Arc
             let writer_arc = Arc::new(writer);
@@ -379,31 +350,10 @@ impl<K: KVBuffers> PipePool<K> {
                 debug!(key = ?key, "notified waiters after creating writer");
             }
 
-            (writer_arc, was_newly_created)
+            writer_arc
         };
 
-        // Emit event if writer was newly created
-        if was_newly_created {
-            let event_tx = self.event_tx.read().clone();
-            if let Some(tx) = event_tx {
-                // Send failure means event loop already shut down, which is fine
-                if tx
-                    .send(PipePoolEvent::WriterRealized {
-                        actor_handle,
-                        std_handle,
-                    })
-                    .is_err()
-                {
-                    debug!(
-                        actor = ?actor_handle,
-                        std = ?std_handle,
-                        "failed to send WriterRealized event (shutdown in progress)"
-                    );
-                }
-            }
-        }
-
-        Ok(writer_arc)
+        Ok((writer_arc, true))
     }
 
     /// Close all writers (realized and latent) for an actor
