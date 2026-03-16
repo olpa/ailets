@@ -1,6 +1,7 @@
 pub mod attachments;
 pub mod dag;
 pub mod environment;
+pub mod fd_table;
 pub mod idgen;
 pub mod io;
 pub mod merge_reader;
@@ -36,8 +37,11 @@ pub use system_runtime::{
 // Re-export attachment types
 pub use attachments::AttachmentConfig;
 
+// Re-export fd table types
+pub use fd_table::{FdEntry, FdTable};
+
 // Re-export blocking actor runtime
-pub use stub_actor_runtime::{BlockingActorRuntime, FdEntry, FdTable};
+pub use stub_actor_runtime::BlockingActorRuntime;
 
 // Re-export environment types
 pub use environment::{ActorFn, ActorRegistry, Environment, ValueNodeData};
