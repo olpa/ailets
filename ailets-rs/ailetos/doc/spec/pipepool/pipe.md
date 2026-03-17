@@ -1,89 +1,126 @@
-# Pipe: Writer and Reader
+# Stream Data Transfer
 
-## overview
+## problem
 
-In-memory pipe with async coordination via notification queue. Implements a broadcast-style pipe where one Writer appends to a shared buffer and multiple Readers can read at their own positions.
+Actor output streams need to transfer data from producer (actor) to consumers (other actors, monitoring, logging, attachments) with these characteristics:
 
-## writer
+1. **One-to-many delivery**: One producer writes data that multiple consumers can read independently
+2. **Real-time propagation**: Consumers should receive data shortly after producer writes it
+3. **Independent consumption**: Each consumer reads at its own pace without affecting others
 
-### writer.structure
+## use-cases
 
-```rust
-pub struct Writer {
-    shared: Arc<Mutex<SharedBuffer>>,
-    handle: Handle,
-    queue: NotificationQueueArc,
-    debug_hint: String,
-}
-```
+### producer-writes
 
-### writer.thread-safety
+**Actor**: Running actor
+**Goal**: Write output data to stream
+**Scenario**: Actor executes `println!("Starting initialization")` or similar output operation
+**Requirements**:
+- Write must complete even if no consumers are reading
+- Write must not block waiting for slow consumers
+- Multiple threads in actor may write concurrently
+- Data must become available to all active consumers
 
-Writer is thread-safe via `parking_lot::Mutex`. Multiple threads can call write operations concurrently. The write lock is released before sending notifications.
+### consumer-reads-incrementally
 
-### writer.write
+**Actor**: Running actor
+**Goal**: Read actor output as it becomes available
+**Scenario**: Collector calls read() repeatedly, processing each chunk as actor produces it
+**Requirements**:
+- Read must return available data immediately if present
+- Read must wait if no data available but producer still active
+- Read must not skip or lose data
+- Multiple read() calls must return sequential data without gaps
 
-POSIX-style write returning:
-- Positive: bytes written
-- 0: empty write (no notification sent)
-- -1: error (closed, errno set, or buffer failed)
+### multiple-consumers-same-stream
 
-Empty writes do NOT notify observers to avoid unnecessary wakeups.
+**Actor**: Running actors and attachments
+**Goal**: Several components read same actor's output independently
+**Scenario**: Dashboard displays real-time output, archiver saves to disk
+**Requirements**:
+- Dashboard can read at display refresh rate (e.g., 60 FPS)
+- Archiver can read at disk write rate (different pace)
+- Neither consumer blocks the other
+- Both receive identical data sequence
+- Each maintains independent read position
 
-### writer.close
+### producer-closes
 
-Closes the writer and notifies all readers via `queue.unlist(handle)`.
+**Actor**: Any stream consumer
+**Goal**: Detect when producer finishes writing
+**Scenario**: Actor terminates normally or abnormally
+**Requirements**:
+- Consumer's read must eventually return EOF
+- EOF must occur after all written data has been read
+- Consumer must not miss final data before EOF
 
-### writer.share-with-reader
+### slow-consumer
 
-Creates `ReaderSharedData` for spawning new readers:
+**Actor**: Slow consumer (e.g., writing to network storage)
+**Goal**: Read all data without causing backpressure on producer
+**Context**: Producer writes quickly, consumer processes slowly
+**Requirement**: System must handle speed mismatch without:
+- Blocking producer
+- Losing data
+- Consuming unbounded memory
 
-```rust
-pub struct ReaderSharedData {
-    buffer: Arc<Mutex<SharedBuffer>>,
-    writer_handle: Handle,
-    queue: NotificationQueueArc,
-}
-```
+### late-joiner
 
-## reader
+**Actor**: Monitoring component starting after actor is running
+**Goal**: Read output from point of subscription onward
+**Scenario**: Actor has been running for 30 seconds. Monitor subscribes at T=30s.
+**Requirement**: Monitor should receive data written from T=30s onward, not historical data from T=0..T=30s.
 
-### reader.structure
+## requirements
 
-```rust
-pub struct Reader {
-    own_handle: Handle,
-    buffer: Arc<Mutex<SharedBuffer>>,
-    writer_handle: Handle,
-    queue: NotificationQueueArc,
-    pos: usize,
-    own_closed: bool,
-    own_errno: i32,
-}
-```
+### write-semantics
 
-### reader.thread-safety
+Write operation must:
+- Accept byte buffer and length
+- Return number of bytes written, or error indicator
+- Complete in bounded time (not block indefinitely)
+- Be atomic: data from one write must not interleave with data from concurrent writes
+- Support concurrent writes from multiple threads
 
-Reader safely accesses Writer's shared buffer via `Arc<Mutex>`. Multiple Readers can read from the same Writer simultaneously, each maintaining its own position.
+### read-semantics
 
-The `read()` method takes `&mut self` - cannot call concurrently on the same Reader instance.
+Read operation must:
+- Accept buffer to receive data
+- Return number of bytes read, EOF indicator, or error
+- Wait if no data available but producer still active
+- Return EOF if producer has closed and all data consumed
+- Support concurrent reads by independent reader instances
 
-### reader.read
+### posix-like-behavior
 
-POSIX-style async read:
-1. Check `should_wait_for_writer()` priority:
-   - Error (own errno) → return -1
-   - DontWait (data available) → proceed to read
-   - Error (writer errno, caught up) → return -1
-   - Closed (writer closed, caught up) → return 0 (EOF)
-   - Wait → await notification, loop back
-2. Read available data from buffer
-3. Update position
-4. Return bytes read
+To minimize surprises for developers familiar with UNIX pipes:
+- Write returns positive number (bytes written), 0 (special case), or -1 (error)
+- Read returns positive number (bytes read), 0 (EOF), or -1 (error)
+- Empty writes (zero-length) should be allowed but may be treated specially
 
-### reader.multiple-readers
+### independent-reader-positions
 
-Multiple independent Readers can read from the same Writer:
-- Each Reader has its own position
-- Each Reader maintains its own closed/errno state
-- Readers do not interfere with each other
+Each reader maintains its own:
+- Current read position
+- EOF status
+- Error state
+
+One reader advancing its position must not affect other readers' positions.
+
+### memory-bounded
+
+System should not accumulate unbounded data in memory.
+
+Note: This spec does not prescribe mechanism (e.g., circular buffer, eviction policy), but any implementation must address this.
+
+### wait-notification
+
+When reader waits for data:
+- Reader must not busy-wait (spin loop)
+- Reader must be notified when data becomes available
+- Reader must be notified when writer closes
+- Notification mechanism must not create deadlocks
+
+### broadcast-consistency
+
+All readers must observe the same sequence of bytes in the same order. If producer writes "ABC" then "DEF", every reader must see "ABCDEF", never "ADBECF" or "DEF" only.

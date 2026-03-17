@@ -1,92 +1,115 @@
-# PipePool
+# Actor Output Stream Multiplexing
 
-## overview
+## problem
 
-`PipePool` manages output pipes for actors. Each `(actor_handle, StdHandle)` pair can have its own output pipe. The pool handles latent pipe coordination and provides thread-safe access to writers and readers.
+Multiple actors run concurrently and produce output on multiple standard streams (stdout, stderr, logs, metrics, traces). The system must:
 
-## data-structures
+1. **Isolate streams**: Each actor's stdout must be separate from every other actor's stdout. Similarly for other stream types.
+2. **Support multiple consumers**: Any component should be able to read an actor's output, even if other components are already reading it.
+3. **Handle timing uncertainties**: Consumers may start reading before or after the producer starts writing.
+4. **Prevent resource leaks**: When an actor terminates, all its output streams must be properly closed.
 
-### data-structures.pool-inner
+## use-cases
 
-```rust
-struct PoolInner {
-    latent_writers: Vec<LatentWriter>,
-    writers: Vec<(Handle, StdHandle, Arc<Writer>)>,
-}
-```
+### read-actor-output
 
-Note: readers are NOT stored - they are created on-demand and returned to callers.
+**Actor**: System component (e.g., attachment manager, log collector, monitoring dashboard)
+**Goal**: Read output from a specific actor's stream
+**Constraints**:
+- Must not interfere with other consumers reading the same stream
+- Must receive all data written after starting to read
+- Must detect when the actor stops producing output (EOF)
 
-### data-structures.pipepool
+### actor-produces-output
 
-```rust
-pub struct PipePool<K: KVBuffers> {
-    inner: Mutex<PoolInner>,
-    notification_queue: NotificationQueueArc,
-    kv: Arc<K>,
-}
-```
+**Actor**: Running actor
+**Goal**: Write data to one of its output streams
+**Constraints**:
+- Writing must succeed whether or not anyone is reading
+- Multiple threads within the actor may write concurrently
+- Writes must be atomic and not interleaved
 
-## locking-strategy
+### late-consumer
 
-### locking-strategy.single-mutex
+**Actor**: Monitoring component
+**Goal**: Start reading an actor's output after the actor has already been running
+**Scenario**: Actor A starts at T=0 and begins producing logs. Monitor B starts at T=10 and wants to read all logs produced from T=10 onward (not historical logs from T=0..T=10).
+**Requirement**: Consumer must be able to attach to a running stream.
 
-All pipe state operations happen under `Mutex<PoolInner>`. This ensures atomic check-and-register operations:
-- Consumer checks if writer exists AND registers latent waiter atomically
-- Producer checks if latent exists AND notifies waiters atomically
-- Shutdown extracts all waiters AND marks them closed atomically
+### early-consumer
 
-### locking-strategy.notify-outside-lock
+**Actor**: Log collector
+**Goal**: Start reading an actor's output before the actor starts producing
+**Scenario**: Collector wants to capture all output from actor initialization, so it opens the read stream before the actor calls its first write.
+**Requirement**: Read operation must wait until data is available, not fail immediately.
 
-After extracting notify handles under lock, `notify_waiters()` is called AFTER releasing the lock. This prevents deadlock when notified readers immediately try to re-acquire the lock.
+### actor-never-writes
 
-## api
+**Actor**: Log collector
+**Goal**: Handle case where actor terminates without ever writing to a stream
+**Scenario**: Collector opens read on actor's stdout expecting output. Actor runs and terminates successfully but never wrote to stdout.
+**Requirement**: Read operation must eventually return EOF (not block forever) when actor terminates.
 
-### api.get-or-await-reader
+### actor-crashes
 
-```rust
-pub async fn get_or_await_reader(
-    &self,
-    key: (Handle, StdHandle),
-    allow_latent: bool,
-    id_gen: &IdGen,
-) -> Option<Reader>
-```
+**Actor**: Monitoring dashboard
+**Goal**: Detect when monitored actor terminates abnormally
+**Requirement**: When actor crashes or is killed, all its output streams must signal EOF to readers, not leave readers blocked forever.
 
-See [latent-pipes.md#reader-creation](latent-pipes.md#reader-creation) for behavior.
+## requirements
 
-### api.touch-writer
+### stream-identity
 
-```rust
-pub async fn touch_writer(
-    &self,
-    actor_handle: Handle,
-    std_handle: StdHandle,
-    id_gen: &IdGen,
-) -> Result<(Arc<Writer>, bool), KVError>
-```
+Each combination of (actor identifier, stream type) represents a unique logical output stream.
 
-Idempotent writer access. Returns `(writer, was_newly_created)`.
+Stream types include at minimum: stdout, stderr, log, metrics, trace.
 
-See [latent-pipes.md#writer-creation](latent-pipes.md#writer-creation) for behavior.
+### isolation
 
-### api.close-actor-writers
+Output from different actors must never be mixed, even if they write to similarly-named streams.
 
-```rust
-pub fn close_actor_writers(&self, actor_handle: Handle)
-```
+### broadcast-semantics
 
-Closes all writers (realized and latent) for an actor. Called on actor shutdown.
+A single actor output stream must support multiple concurrent readers, each receiving an independent copy of the data.
 
-See [latent-pipes.md#shutdown-coordination](latent-pipes.md#shutdown-coordination) for behavior.
+### reader-independence
 
-### api.get-already-realized-writer
+Each reader maintains its own:
+- Read position in the stream
+- EOF status
+- Error state
 
-```rust
-pub fn get_already_realized_writer(
-    &self,
-    key: (Handle, StdHandle)
-) -> Option<Arc<Writer>>
-```
+One reader closing its view of the stream must not affect other readers.
 
-Returns writer only if already realized. Does not create latent entries.
+### lazy-resource-allocation
+
+Creating a reader or writer for a stream must not pre-allocate resources for streams that are never used.
+
+If an actor never writes to stdout, no memory should be allocated for its stdout stream.
+
+### race-free-startup
+
+When consumer requests stream before producer starts:
+- Consumer's request must not fail
+- Consumer must receive all data that producer subsequently writes
+- Consumer must not miss initial output due to timing
+
+### guaranteed-eof
+
+When an actor terminates:
+- All readers of that actor's streams must eventually receive EOF
+- No reader may block forever waiting for data
+- This must hold even if actor never wrote to some streams
+
+### thread-safety
+
+Multiple threads may concurrently:
+- Write to the same stream (from same actor)
+- Read from the same logical stream (different reader instances)
+- Create readers for different streams
+
+All operations must be safe without data races or corruption.
+
+### minimal-blocking
+
+Reader blocking must be proportional to actual write operations, not to number of other readers or internal coordination overhead.
