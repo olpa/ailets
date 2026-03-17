@@ -82,37 +82,6 @@
 //!
 //! **Readers are not stored** - created on-demand from writers and returned to callers.
 //!
-//! ## Key Operations
-//!
-//! ### Creating Readers (async)
-//!
-//! ```ignore
-//! // For dependencies: wait if pipe doesn't exist yet
-//! let reader = pool.get_or_await_reader(key, allow_latent=true, id_gen).await?;
-//!
-//! // For explicit access: return None if pipe doesn't exist
-//! let reader = pool.get_or_await_reader(key, allow_latent=false, id_gen).await?;
-//! ```
-//!
-//! ### Getting Writers
-//!
-//! ```ignore
-//! // Get or create writer (idempotent, always works)
-//! let writer = pool.touch_writer(actor_handle, std_handle, id_gen).await?;
-//! writer.write(data);
-//! ```
-//!
-//! ### Closing Writers
-//!
-//! ```ignore
-//! // Normal close (after writing) - call close() on the writer directly
-//! let writer = pool.get_already_realized_writer((actor_handle, std_handle)).unwrap();
-//! writer.close();
-//!
-//! // On actor shutdown - close all writers (realized and latent) for the actor
-//! pool.close_actor_writers(actor_handle);
-//! ```
-//!
 //! ## Coordination via Notify
 //!
 //! All latent pipe coordination uses `tokio::sync::Notify`:
