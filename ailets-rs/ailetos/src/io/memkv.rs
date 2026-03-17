@@ -62,12 +62,11 @@ impl KVBuffers for MemKV {
         };
 
         let buffers = self.buffers.lock();
-        let mut paths: Vec<String> = buffers
+        let paths: Vec<String> = buffers
             .keys()
             .filter(|path| path.starts_with(&prefix))
             .cloned()
             .collect();
-        paths.sort();
         Ok(paths)
     }
 
