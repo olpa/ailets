@@ -8,9 +8,7 @@ Actor output streams need to transfer data from producer (actor) to consumers (o
 2. **Real-time propagation**: Consumers should receive data shortly after producer writes it
 3. **Independent consumption**: Each consumer reads at its own pace without affecting others
 
-## use-cases
-
-### producer-writes
+## producer-writes
 
 **Actor**: Running actor
 **Goal**: Write output data to stream
@@ -21,7 +19,7 @@ Actor output streams need to transfer data from producer (actor) to consumers (o
 - Multiple threads in actor may write concurrently
 - Data must become available to all active consumers
 
-### consumer-reads-incrementally
+## consumer-reads-incrementally
 
 **Actor**: Running actor
 **Goal**: Read actor output as it becomes available
@@ -32,19 +30,25 @@ Actor output streams need to transfer data from producer (actor) to consumers (o
 - Read must not skip or lose data
 - Multiple read() calls must return sequential data without gaps
 
-### multiple-consumers-same-stream
+## multiple-independent-consumers
 
-**Actor**: Running actors and attachments
+**Actor**: Multiple components reading from same stream
 **Goal**: Several components read same actor's output independently
-**Scenario**: Dashboard displays real-time output, archiver saves to disk
-**Requirements**:
-- Dashboard can read at display refresh rate (e.g., 60 FPS)
-- Archiver can read at disk write rate (different pace)
-- Neither consumer blocks the other
-- Both receive identical data sequence
-- Each maintains independent read position
+**Scenarios**:
+1. Value node provides data to multiple downstream actors
+2. Actor's stdout goes both to next actor in pipeline AND to host stdout (attachment)
+3. Actor's logs go to log aggregator AND to host stderr
 
-### producer-closes
+**Requirements**:
+- Each consumer receives identical data sequence
+- Each consumer maintains independent read position
+- Consumers read at different speeds without blocking each other
+- System handles speed mismatches without:
+  - Blocking the producer
+  - Blocking fast consumers waiting for slow ones
+  - Losing data
+
+## producer-closes
 
 **Actor**: Any stream consumer
 **Goal**: Detect when producer finishes writing
@@ -54,73 +58,9 @@ Actor output streams need to transfer data from producer (actor) to consumers (o
 - EOF must occur after all written data has been read
 - Consumer must not miss final data before EOF
 
-### slow-consumer
+## late-joiner
 
-**Actor**: Slow consumer (e.g., writing to network storage)
-**Goal**: Read all data without causing backpressure on producer
-**Context**: Producer writes quickly, consumer processes slowly
-**Requirement**: System must handle speed mismatch without:
-- Blocking producer
-- Losing data
-- Consuming unbounded memory
-
-### late-joiner
-
-**Actor**: Monitoring component starting after actor is running
-**Goal**: Read output from point of subscription onward
-**Scenario**: Actor has been running for 30 seconds. Monitor subscribes at T=30s.
-**Requirement**: Monitor should receive data written from T=30s onward, not historical data from T=0..T=30s.
-
-## requirements
-
-### write-semantics
-
-Write operation must:
-- Accept byte buffer and length
-- Return number of bytes written, or error indicator
-- Complete in bounded time (not block indefinitely)
-- Be atomic: data from one write must not interleave with data from concurrent writes
-- Support concurrent writes from multiple threads
-
-### read-semantics
-
-Read operation must:
-- Accept buffer to receive data
-- Return number of bytes read, EOF indicator, or error
-- Wait if no data available but producer still active
-- Return EOF if producer has closed and all data consumed
-- Support concurrent reads by independent reader instances
-
-### posix-like-behavior
-
-To minimize surprises for developers familiar with UNIX pipes:
-- Write returns positive number (bytes written), 0 (special case), or -1 (error)
-- Read returns positive number (bytes read), 0 (EOF), or -1 (error)
-- Empty writes (zero-length) should be allowed but may be treated specially
-
-### independent-reader-positions
-
-Each reader maintains its own:
-- Current read position
-- EOF status
-- Error state
-
-One reader advancing its position must not affect other readers' positions.
-
-### memory-bounded
-
-System should not accumulate unbounded data in memory.
-
-Note: This spec does not prescribe mechanism (e.g., circular buffer, eviction policy), but any implementation must address this.
-
-### wait-notification
-
-When reader waits for data:
-- Reader must not busy-wait (spin loop)
-- Reader must be notified when data becomes available
-- Reader must be notified when writer closes
-- Notification mechanism must not create deadlocks
-
-### broadcast-consistency
-
-All readers must observe the same sequence of bytes in the same order. If producer writes "ABC" then "DEF", every reader must see "ABCDEF", never "ADBECF" or "DEF" only.
+**Actor**: Component subscribing to already-running actor's stream
+**Goal**: Read output from the current buffer state
+**Scenario**: Actor starts at T=0 and begins writing. Consumer subscribes at T=30s.
+**Requirement**: Consumer receives all data currently in the buffer, then continues reading new data as it arrives.
