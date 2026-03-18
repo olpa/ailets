@@ -1,29 +1,37 @@
 # Pipe Pool: On-Demand Stream Management
 
-## problem
+## lazy-creation
 
-Actors have multiple output streams (stdout, stderr, logs, metrics, traces). Creating all possible pipe objects upfront wastes memory - most actors won't write to all streams.
+Pipes are created on-demand when first accessed, not pre-allocated for all actor streams.
 
-However, we can't simply create pipes lazily when first written to, because:
-1. Consumers may want to subscribe before the actor writes anything
-2. A reader may be instantiated and try to read before the writer is created
+## early-subscription
 
-The system needs a registry that:
-1. Creates pipes on-demand (only when actually needed)
-2. Handles timing coordination when reader exists before writer (see [latent-pipes.md](latent-pipes.md))
+Subscribe before producer exists. Subscription blocks until producer writes or terminates.
 
-## timing-coordination
+## late-subscription
 
-The pipe pool solves timing issues using **latent pipes** - see [latent-pipes.md](latent-pipes.md) for full specification.
+Subscribe to running producer. Subscriber receives data written after subscription point.
 
-Brief summary:
-- **Early consumer**: Consumer can subscribe before producer exists → uses latent pipe mechanism
-- **Late consumer**: Consumer subscribes to already-writing producer → gets existing pipe
-- **Producer never writes**: Actor terminates without writing → latent pipe resolves to EOF
+## termination-notification
+
+All subscribers receive EOF when actor terminates, whether stream was written to or not.
+
+## no-indefinite-blocking
+
+Every read eventually returns data, EOF, or error. No reader blocks forever.
+
+## multiple-early-subscribers
+
+Multiple consumers can subscribe before producer exists. All receive identical data sequence when producer starts.
+
+## atomic-state-transitions
+
+No race between subscribe and producer start. Consumer never misses initial data or blocks forever due to timing.
+
+## termination-finality
+
+Once actor terminates, no new writers can be created. All waiters unblock with EOF. State transition is irreversible.
 
 ## cleanup-on-actor-termination
 
-When actor terminates, pool must:
-- Close all realized pipes for that actor
-- Resolve all latent pipes for that actor to EOF (see [latent-pipes.md](latent-pipes.md))
-- Ensure no resources leak
+When actor terminates, pool closes all pipes and releases all resources. No leaks.
