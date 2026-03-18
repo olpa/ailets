@@ -9,7 +9,7 @@ use parking_lot::Mutex;
 use std::cmp::Ordering;
 use std::fmt;
 use std::sync::Arc;
-use tracing::error;
+use tracing::{error, trace};
 
 use crate::idgen::Handle;
 use crate::io::Buffer;
@@ -206,21 +206,30 @@ impl Writer {
 
 impl fmt::Debug for Writer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let shared = self.shared.lock();
-        write!(
-            f,
-            "Pipe.Writer(handle={:?}, closed={}, tell={}, errno={}, hint={})",
-            self.handle,
-            shared.closed,
-            shared.buffer.len(),
-            shared.errno,
-            self.debug_hint
-        )
+        // Use try_lock to avoid deadlock if called while holding the lock
+        if let Some(shared) = self.shared.try_lock() {
+            write!(
+                f,
+                "Pipe.Writer(handle={:?}, closed={}, tell={}, errno={}, hint={})",
+                self.handle,
+                shared.closed,
+                shared.buffer.len(),
+                shared.errno,
+                self.debug_hint
+            )
+        } else {
+            write!(
+                f,
+                "Pipe.Writer(handle={:?}, <locked>, hint={})",
+                self.handle, self.debug_hint
+            )
+        }
     }
 }
 
 impl Drop for Writer {
     fn drop(&mut self) {
+        trace!(handle = ?self.handle, "Writer: destroying (drop)");
         if !self.is_closed() {
             self.close();
         }
@@ -459,6 +468,7 @@ impl fmt::Debug for Reader {
 
 impl Drop for Reader {
     fn drop(&mut self) {
+        trace!(handle = ?self.own_handle, "Reader: destroying (drop)");
         if !self.is_closed() {
             self.close();
         }

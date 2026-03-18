@@ -30,7 +30,7 @@
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 use tokio::time::{timeout, Duration};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, trace, warn};
 
 /// Request to flush data to persistent storage
 struct FlushRequest {
@@ -150,6 +150,7 @@ where
     /// the channel is closed (when all senders are dropped).
     async fn writer_loop(mut request_rx: mpsc::Receiver<FlushRequest>, flush_fn: Arc<F>) {
         debug!("Writer task started");
+        trace!("FlushCoordinator::writer_loop: entering request_rx loop");
 
         let mut requests_processed = 0;
 
@@ -197,6 +198,7 @@ where
             let _ = request.response.send(flush_result);
         }
 
+        trace!("FlushCoordinator::writer_loop: exited request_rx loop");
         debug!(requests_processed, "Writer task exiting - channel closed");
     }
 
@@ -324,6 +326,7 @@ where
     F: FlushFn + 'static,
 {
     fn drop(&mut self) {
+        trace!("FlushCoordinator: destroying (drop)");
         // Check if shutdown was called (both fields should be None after shutdown)
         if self.request_tx.is_some() || self.writer_task.is_some() {
             error!(

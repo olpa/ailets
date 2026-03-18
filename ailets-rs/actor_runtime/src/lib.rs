@@ -21,6 +21,8 @@ pub enum StdHandle {
     Env = 3,
     Metrics = 4,
     Trace = 5,
+    /// Sentinel value for counting. Must always be last.
+    _Count,
 }
 
 /// Convert an error to a heap-allocated C-string.

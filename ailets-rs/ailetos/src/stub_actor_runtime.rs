@@ -6,10 +6,11 @@
 
 use actor_runtime::ActorRuntime;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{error, trace, warn};
+use tracing::{error, warn};
 
+use crate::fd_table::{FdEntry, FdTable};
 use crate::idgen::Handle;
-use crate::system_runtime::{FdTable, IoRequest, SendableBuffer};
+use crate::system_runtime::{IoRequest, SendableBuffer};
 
 /// Blocking `ActorRuntime` implementation
 /// Acts as a pure proxy to `SystemRuntime` for all I/O operations
@@ -45,67 +46,28 @@ impl BlockingActorRuntime {
         }
     }
 
-    /// Request `SystemRuntime` to set up standard handles before actor starts.
-    /// This pre-opens stdin (fd 0) and stdout (fd 1) with the correct channel handles.
-    /// Dependencies are obtained from the DAG inside `SystemRuntime`.
-    ///
-    /// # Panics
-    /// Panics only if stdin/stdout are not assigned to fd 0/1 respectively.
-    /// This indicates a programming error in the fd allocation logic.
-    pub fn request_std_handles_setup(&self) {
-        trace!(actor = ?self.node_handle, "requesting std handles setup");
+    /// Register all standard file descriptors for this actor.
+    /// Actual readers/writers are created lazily on first read/write.
+    pub fn register_std_fds(&self) {
+        use actor_runtime::StdHandle;
 
-        // Send request to SystemRuntime and block for response
-        let (tx, rx) = oneshot::channel();
-
-        if let Err(e) = self.system_tx.send(IoRequest::SetupStdHandles {
-            node_handle: self.node_handle,
-            response: tx,
-        }) {
-            error!(actor = ?self.node_handle, error = ?e, "request_std_handles_setup: failed to send request");
-            return;
-        }
-
-        let std_handles = match rx.blocking_recv() {
-            Ok(handles) => handles,
+        let mut table = match self.fd_table.lock() {
+            Ok(t) => t,
             Err(e) => {
-                error!(actor = ?self.node_handle, error = ?e, "request_std_handles_setup: failed to receive response");
+                error!(actor = ?self.node_handle, error = ?e, "register_std_fds: fd_table lock poisoned");
                 return;
             }
         };
 
-        // Map the pre-opened channel handles to fd 0 (stdin) and fd 1 (stdout)
-        {
-            let mut table = match self.fd_table.lock() {
-                Ok(t) => t,
-                Err(e) => {
-                    error!(actor = ?self.node_handle, error = ?e, "request_std_handles_setup: fd_table lock poisoned");
-                    return;
-                }
-            };
+        // Readers
+        table.set(StdHandle::Stdin as isize, FdEntry::AllowedReader);
+        table.set(StdHandle::Env as isize, FdEntry::AllowedReader);
 
-            // Insert stdin as fd 0
-            let stdin_fd = table.insert(std_handles.stdin);
-            if stdin_fd != 0 {
-                error!(
-                    actor = ?self.node_handle,
-                    actual_fd = stdin_fd,
-                    "CRITICAL: stdin assigned unexpected fd (expected 0)"
-                );
-            }
-
-            // Insert stdout as fd 1
-            let stdout_fd = table.insert(std_handles.stdout);
-            if stdout_fd != 1 {
-                error!(
-                    actor = ?self.node_handle,
-                    actual_fd = stdout_fd,
-                    "CRITICAL: stdout assigned unexpected fd (expected 1)"
-                );
-            }
-        }
-
-        trace!(actor = ?self.node_handle, "std handles ready (stdin=0, stdout=1)");
+        // Writers
+        table.set(StdHandle::Stdout as isize, FdEntry::AllowedWriter);
+        table.set(StdHandle::Log as isize, FdEntry::AllowedWriter);
+        table.set(StdHandle::Metrics as isize, FdEntry::AllowedWriter);
+        table.set(StdHandle::Trace as isize, FdEntry::AllowedWriter);
     }
 
     /// Shutdown this actor runtime and clean up local state.
@@ -133,14 +95,11 @@ impl BlockingActorRuntime {
     ///
     /// If the fd table lock is poisoned, logs an error and returns without clearing the table.
     pub fn shutdown(&self) {
-        trace!(actor = ?self.node_handle, "actor shutdown - clearing fd table");
-
         // Clear the fd table without closing individual fds
         // The pipes themselves will be closed by SystemRuntime via PipePool
         match self.fd_table.lock() {
             Ok(mut table) => {
                 table.clear();
-                trace!(actor = ?self.node_handle, "fd table cleared");
             }
             Err(e) => {
                 error!(actor = ?self.node_handle, error = ?e, "shutdown: fd_table lock poisoned");
@@ -154,20 +113,16 @@ impl BlockingActorRuntime {
         }) {
             error!(actor = ?self.node_handle, error = ?e, "shutdown: failed to send ActorShutdown notification");
         }
-
-        trace!(actor = ?self.node_handle, "actor shutdown complete");
     }
 }
 
 #[allow(clippy::unwrap_used)] // Blocking implementation - panics on channel failures
 impl ActorRuntime for BlockingActorRuntime {
     fn get_errno(&self) -> isize {
-        trace!(actor = ?self.node_handle, "get_errno");
         0 // No error
     }
 
     fn open_read(&self, _name: &str) -> isize {
-        trace!(actor = ?self.node_handle, "open_read");
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
 
@@ -179,7 +134,6 @@ impl ActorRuntime for BlockingActorRuntime {
             return -1;
         }
 
-        trace!(actor = ?self.node_handle, "open_read: blocking_recv");
         let channel_handle = match rx.blocking_recv() {
             Ok(handle) => handle,
             Err(e) => {
@@ -188,68 +142,92 @@ impl ActorRuntime for BlockingActorRuntime {
             }
         };
 
-        // Allocate local fd and map to global channel handle
+        // Allocate local fd and map to channel handle (wrapped as ActiveReader)
         let fd = match self.fd_table.lock() {
-            Ok(mut table) => table.insert(channel_handle),
+            Ok(mut table) => table.insert(FdEntry::ActiveReader(channel_handle)),
             Err(e) => {
                 error!(actor = ?self.node_handle, error = ?e, "open_read: fd_table lock poisoned");
                 return -1;
             }
         };
-        trace!(actor = ?self.node_handle, fd = fd, channel = ?channel_handle, "open_read done");
         fd
     }
 
     fn open_write(&self, _name: &str) -> isize {
-        trace!(actor = ?self.node_handle, "open_write");
-        // Send request to SystemRuntime and block for response
-        let (tx, rx) = oneshot::channel();
+        // For now, open_write creates an ActiveWriter that writes to Stdout
+        // The actual pipe will be created lazily on first write via PipePool
+        // TODO: Support named streams by parsing the name parameter
 
-        if let Err(e) = self.system_tx.send(IoRequest::OpenWrite {
-            node_handle: self.node_handle,
-            response: tx,
-        }) {
-            error!(actor = ?self.node_handle, error = ?e, "open_write: failed to send request");
-            return -1;
-        }
-
-        trace!(actor = ?self.node_handle, "open_write: blocking_recv");
-        let channel_handle = match rx.blocking_recv() {
-            Ok(handle) => handle,
-            Err(e) => {
-                error!(actor = ?self.node_handle, error = ?e, "open_write: failed to receive response");
-                return -1;
-            }
-        };
-
-        // Allocate local fd and map to global channel handle
         let fd = match self.fd_table.lock() {
-            Ok(mut table) => table.insert(channel_handle),
+            Ok(mut table) => table.insert(FdEntry::ActiveWriter {
+                node_handle: self.node_handle,
+                std_handle: actor_runtime::StdHandle::Stdout,
+            }),
             Err(e) => {
                 error!(actor = ?self.node_handle, error = ?e, "open_write: fd_table lock poisoned");
                 return -1;
             }
         };
-        trace!(actor = ?self.node_handle, fd = fd, channel = ?channel_handle, "open_write done");
         fd
     }
 
     fn aread(&self, fd: isize, buffer: &mut [u8]) -> isize {
-        trace!(actor = ?self.node_handle, fd = fd, buflen = buffer.len(), "aread");
+        // Get the channel handle, materializing stdin if needed
+        let channel_handle = {
+            let table = match self.fd_table.lock() {
+                Ok(t) => t,
+                Err(e) => {
+                    error!(actor = ?self.node_handle, fd = fd, error = ?e, "aread: fd_table lock poisoned");
+                    return -1;
+                }
+            };
 
-        // Look up the channel handle for this fd
-        let channel_handle = match self.fd_table.lock() {
-            Ok(table) => {
-                if let Some(handle) = table.get(fd) {
+            match table.get(fd) {
+                Some(FdEntry::ActiveReader(handle)) => *handle,
+                Some(FdEntry::AllowedReader) => {
+                    // Need to materialize stdin - release lock first
+                    drop(table);
+
+                    let (tx, rx) = oneshot::channel();
+
+                    if let Err(e) = self.system_tx.send(IoRequest::MaterializeStdin {
+                        node_handle: self.node_handle,
+                        response: tx,
+                    }) {
+                        error!(actor = ?self.node_handle, error = ?e, "aread: failed to send MaterializeStdin");
+                        return -1;
+                    }
+
+                    let handle = match rx.blocking_recv() {
+                        Ok(h) => h,
+                        Err(e) => {
+                            error!(actor = ?self.node_handle, error = ?e, "aread: failed to receive MaterializeStdin response");
+                            return -1;
+                        }
+                    };
+
+                    // Update the fd entry to ActiveReader
+                    let mut table = match self.fd_table.lock() {
+                        Ok(t) => t,
+                        Err(e) => {
+                            error!(actor = ?self.node_handle, fd = fd, error = ?e, "aread: fd_table lock poisoned after materialize");
+                            return -1;
+                        }
+                    };
+                    if let Some(entry) = table.get_mut(fd) {
+                        *entry = FdEntry::ActiveReader(handle);
+                    }
+
                     handle
-                } else {
+                }
+                Some(FdEntry::AllowedWriter | FdEntry::ActiveWriter { .. }) => {
+                    warn!(actor = ?self.node_handle, fd = fd, "aread: cannot read from stdout");
+                    return -1;
+                }
+                None => {
                     warn!(actor = ?self.node_handle, fd = fd, "aread: fd not found");
                     return -1;
                 }
-            }
-            Err(e) => {
-                error!(actor = ?self.node_handle, fd = fd, error = ?e, "aread: fd_table lock poisoned");
-                return -1;
             }
         };
 
@@ -274,35 +252,51 @@ impl ActorRuntime for BlockingActorRuntime {
         }
 
         // Block waiting for SystemRuntime to complete the async read
-        trace!(actor = ?self.node_handle, "aread: blocking_recv");
-        let bytes_read = match rx.blocking_recv() {
+        match rx.blocking_recv() {
             Ok(n) => n,
             Err(e) => {
                 error!(actor = ?self.node_handle, fd = fd, error = ?e, "aread: failed to receive response");
                 -1
             }
-        };
-        trace!(actor = ?self.node_handle, bytes = bytes_read, "aread done");
-
-        bytes_read
+        }
     }
 
     fn awrite(&self, fd: isize, buffer: &[u8]) -> isize {
-        trace!(actor = ?self.node_handle, fd = fd, buflen = buffer.len(), "awrite");
+        // Get the write info (node_handle + std_handle)
+        let (node_handle, std_handle) = {
+            let mut table = match self.fd_table.lock() {
+                Ok(t) => t,
+                Err(e) => {
+                    error!(actor = ?self.node_handle, fd = fd, error = ?e, "awrite: fd_table lock poisoned");
+                    return -1;
+                }
+            };
 
-        // Look up the channel handle for this fd
-        let channel_handle = match self.fd_table.lock() {
-            Ok(table) => {
-                if let Some(handle) = table.get(fd) {
-                    handle
-                } else {
+            match table.get(fd) {
+                Some(FdEntry::ActiveWriter {
+                    node_handle,
+                    std_handle,
+                }) => (*node_handle, *std_handle),
+                Some(FdEntry::AllowedWriter) => {
+                    // Upgrade to ActiveWriter with default Stdout handle
+                    let nh = self.node_handle;
+                    let sh = actor_runtime::StdHandle::Stdout;
+                    if let Some(entry) = table.get_mut(fd) {
+                        *entry = FdEntry::ActiveWriter {
+                            node_handle: nh,
+                            std_handle: sh,
+                        };
+                    }
+                    (nh, sh)
+                }
+                Some(FdEntry::AllowedReader | FdEntry::ActiveReader(_)) => {
+                    warn!(actor = ?self.node_handle, fd = fd, "awrite: cannot write to stdin");
+                    return -1;
+                }
+                None => {
                     warn!(actor = ?self.node_handle, fd = fd, "awrite: fd not found");
                     return -1;
                 }
-            }
-            Err(e) => {
-                error!(actor = ?self.node_handle, fd = fd, error = ?e, "awrite: fd_table lock poisoned");
-                return -1;
             }
         };
 
@@ -310,7 +304,8 @@ impl ActorRuntime for BlockingActorRuntime {
         let (tx, rx) = oneshot::channel();
 
         if let Err(e) = self.system_tx.send(IoRequest::Write {
-            handle: channel_handle,
+            node_handle,
+            std_handle,
             data: buffer.to_vec(),
             response: tx,
         }) {
@@ -318,26 +313,21 @@ impl ActorRuntime for BlockingActorRuntime {
             return -1;
         }
 
-        trace!(actor = ?self.node_handle, "awrite: blocking_recv");
-        let result = match rx.blocking_recv() {
+        match rx.blocking_recv() {
             Ok(n) => n,
             Err(e) => {
                 error!(actor = ?self.node_handle, fd = fd, error = ?e, "awrite: failed to receive response");
                 -1
             }
-        };
-        trace!(actor = ?self.node_handle, result = result, "awrite done");
-        result
+        }
     }
 
     fn aclose(&self, fd: isize) -> isize {
-        trace!(actor = ?self.node_handle, fd = fd, "aclose");
-
-        // Look up and remove the channel handle for this fd
-        let channel_handle = match self.fd_table.lock() {
+        // Remove the fd entry and get its state
+        let entry = match self.fd_table.lock() {
             Ok(mut table) => {
-                if let Some(handle) = table.remove(fd) {
-                    handle
+                if let Some(entry) = table.remove(fd) {
+                    entry
                 } else {
                     warn!(actor = ?self.node_handle, fd = fd, "aclose: fd not found");
                     return -1;
@@ -349,26 +339,56 @@ impl ActorRuntime for BlockingActorRuntime {
             }
         };
 
-        // Send request to SystemRuntime and block for response
-        let (tx, rx) = oneshot::channel();
-
-        if let Err(e) = self.system_tx.send(IoRequest::Close {
-            handle: channel_handle,
-            response: tx,
-        }) {
-            error!(actor = ?self.node_handle, fd = fd, error = ?e, "aclose: failed to send request");
-            return -1;
-        }
-
-        trace!(actor = ?self.node_handle, "aclose: blocking_recv");
-        let result = match rx.blocking_recv() {
-            Ok(n) => n,
-            Err(e) => {
-                error!(actor = ?self.node_handle, fd = fd, error = ?e, "aclose: failed to receive response");
-                -1
+        // Handle based on entry type
+        match entry {
+            FdEntry::AllowedReader | FdEntry::AllowedWriter => {
+                // Never materialized - nothing to close
+                0
             }
-        };
-        trace!(actor = ?self.node_handle, result = result, "aclose done");
-        result
+            FdEntry::ActiveReader(channel_handle) => {
+                // Close reader via SystemRuntime
+                let (tx, rx) = oneshot::channel();
+
+                if let Err(e) = self.system_tx.send(IoRequest::Close {
+                    handle: channel_handle,
+                    response: tx,
+                }) {
+                    error!(actor = ?self.node_handle, fd = fd, error = ?e, "aclose: failed to send Close request");
+                    return -1;
+                }
+
+                match rx.blocking_recv() {
+                    Ok(n) => n,
+                    Err(e) => {
+                        error!(actor = ?self.node_handle, fd = fd, error = ?e, "aclose: failed to receive Close response");
+                        -1
+                    }
+                }
+            }
+            FdEntry::ActiveWriter {
+                node_handle,
+                std_handle,
+            } => {
+                // Close writer via SystemRuntime
+                let (tx, rx) = oneshot::channel();
+
+                if let Err(e) = self.system_tx.send(IoRequest::CloseWriter {
+                    node_handle,
+                    std_handle,
+                    response: tx,
+                }) {
+                    error!(actor = ?self.node_handle, fd = fd, error = ?e, "aclose: failed to send CloseWriter request");
+                    return -1;
+                }
+
+                match rx.blocking_recv() {
+                    Ok(n) => n,
+                    Err(e) => {
+                        error!(actor = ?self.node_handle, fd = fd, error = ?e, "aclose: failed to receive CloseWriter response");
+                        -1
+                    }
+                }
+            }
+        }
     }
 }

@@ -68,7 +68,8 @@ async fn test_listdir() {
     kv.open("dir1/file2", OpenMode::Write).await.unwrap();
     kv.open("dir2/file1", OpenMode::Write).await.unwrap();
 
-    let paths = kv.listdir("dir1/").await.unwrap();
+    let mut paths = kv.listdir("dir1/").await.unwrap();
+    paths.sort();
     assert_eq!(paths, vec!["dir1/file1", "dir1/file2"]);
 }
 
@@ -82,7 +83,8 @@ async fn test_listdir_adds_slash() {
     kv.open("dir11/file1", OpenMode::Write).await.unwrap();
 
     // listdir without trailing slash should still work correctly
-    let paths = kv.listdir("dir1").await.unwrap();
+    let mut paths = kv.listdir("dir1").await.unwrap();
+    paths.sort();
     assert_eq!(paths, vec!["dir1/file1", "dir1/file2"]);
 
     // dir11 should not be included

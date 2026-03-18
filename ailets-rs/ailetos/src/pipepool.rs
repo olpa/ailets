@@ -82,37 +82,6 @@
 //!
 //! **Readers are not stored** - created on-demand from writers and returned to callers.
 //!
-//! ## Key Operations
-//!
-//! ### Creating Readers (async)
-//!
-//! ```ignore
-//! // For dependencies: wait if pipe doesn't exist yet
-//! let reader = pool.get_or_await_reader(key, allow_latent=true, id_gen).await?;
-//!
-//! // For explicit access: return None if pipe doesn't exist
-//! let reader = pool.get_or_await_reader(key, allow_latent=false, id_gen).await?;
-//! ```
-//!
-//! ### Getting Writers
-//!
-//! ```ignore
-//! // Get or create writer (idempotent, always works)
-//! let writer = pool.touch_writer(actor_handle, std_handle, id_gen).await?;
-//! writer.write(data);
-//! ```
-//!
-//! ### Closing Writers
-//!
-//! ```ignore
-//! // Normal close (after writing) - call close() on the writer directly
-//! let writer = pool.get_already_realized_writer((actor_handle, std_handle)).unwrap();
-//! writer.close();
-//!
-//! // On actor shutdown - close all writers (realized and latent) for the actor
-//! pool.close_actor_writers(actor_handle);
-//! ```
-//!
 //! ## Coordination via Notify
 //!
 //! All latent pipe coordination uses `tokio::sync::Notify`:
@@ -201,6 +170,10 @@ pub struct PipePool<K: KVBuffers> {
 
 impl<K: KVBuffers> PipePool<K> {
     /// Create a new empty pipe pool
+    ///
+    /// # Parameters
+    /// - `kv`: Key-value store for pipe buffers
+    /// - `notification_queue`: Shared notification queue for pipe data events
     #[must_use]
     pub fn new(kv: Arc<K>, notification_queue: NotificationQueueArc) -> Self {
         Self {
@@ -244,8 +217,13 @@ impl<K: KVBuffers> PipePool<K> {
                             return None;
                         }
                         LatentState::Waiting => {
-                            let notify = Arc::clone(&latent.notify);
-                            Some(notify)
+                            // Only wait on latent writer if allow_latent is true
+                            if allow_latent {
+                                let notify = Arc::clone(&latent.notify);
+                                Some(notify)
+                            } else {
+                                return None;
+                            }
                         }
                     }
                 } else if allow_latent {
@@ -284,7 +262,8 @@ impl<K: KVBuffers> PipePool<K> {
     /// - Realizes latent writer if it exists
     /// - Creates new writer if none exists
     ///
-    /// Always returns a writer ready to use.
+    /// Returns `(writer, was_newly_created)` where `was_newly_created` is true
+    /// if this call created the writer (useful for triggering attachments).
     ///
     /// # Errors
     /// Returns error if buffer allocation fails
@@ -293,14 +272,14 @@ impl<K: KVBuffers> PipePool<K> {
         actor_handle: Handle,
         std_handle: StdHandle,
         id_gen: &IdGen,
-    ) -> Result<Arc<Writer>, crate::io::KVError> {
+    ) -> Result<(Arc<Writer>, bool), crate::io::KVError> {
         let key = (actor_handle, std_handle);
 
         // Fast path: writer already exists
         {
             let inner = self.inner.lock();
             if let Some(writer) = inner.find_writer(key) {
-                return Ok(Arc::clone(writer));
+                return Ok((Arc::clone(writer), false));
             }
         }
 
@@ -343,7 +322,7 @@ impl<K: KVBuffers> PipePool<K> {
             writer_arc
         };
 
-        Ok(writer_arc)
+        Ok((writer_arc, true))
     }
 
     /// Close all writers (realized and latent) for an actor

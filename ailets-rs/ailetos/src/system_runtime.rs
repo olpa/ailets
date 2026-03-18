@@ -79,7 +79,7 @@ use parking_lot::RwLock;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, trace, warn};
 
-use crate::attachments::{attach_to_stderr, attach_to_stdout};
+use crate::attachments::{AttachmentConfig, AttachmentManager};
 use crate::dag::{Dag, NodeState, OwnedDependencyIterator};
 use crate::idgen::{Handle, IdGen};
 use crate::merge_reader::MergeReader;
@@ -156,21 +156,8 @@ impl SendableBuffer {
 // SAFETY: See SendableBuffer documentation above
 unsafe impl Send for SendableBuffer {}
 
-/// Standard handles pre-opened for an actor
-#[derive(Debug, Clone, Copy)]
-pub struct StdHandles {
-    pub stdin: ChannelHandle,
-    pub stdout: ChannelHandle,
-}
-
 /// I/O requests sent from `ActorRuntime` to `SystemRuntime`
 pub enum IoRequest {
-    /// Setup standard handles for an actor (returns stdin and stdout `ChannelHandles`).
-    /// Dependencies are obtained from the DAG inside `SystemRuntime`.
-    SetupStdHandles {
-        node_handle: Handle,
-        response: oneshot::Sender<StdHandles>,
-    },
     /// Open a stream for reading (returns global `ChannelHandle`)
     OpenRead {
         node_handle: Handle,
@@ -189,9 +176,11 @@ pub enum IoRequest {
         buffer: SendableBuffer,
         response: oneshot::Sender<isize>,
     },
-    /// Write to a channel (async operation)
+    /// Write to an actor's output pipe (async operation)
+    /// Uses `node_handle` + `std_handle` to write directly to `PipePool`
     Write {
-        handle: ChannelHandle,
+        node_handle: Handle,
+        std_handle: actor_runtime::StdHandle,
         data: Vec<u8>,
         response: oneshot::Sender<isize>,
     },
@@ -202,6 +191,19 @@ pub enum IoRequest {
     },
     /// Actor shutdown - close all writers (realized and latent) for this actor
     ActorShutdown { node_handle: Handle },
+    /// Materialize stdin reader for an actor (creates `MergeReader`, returns `ChannelHandle`)
+    /// Called on first read from stdin
+    MaterializeStdin {
+        node_handle: Handle,
+        response: oneshot::Sender<ChannelHandle>,
+    },
+    /// Close a writer for an actor
+    /// Uses `node_handle` + `std_handle` to find and close the writer in `PipePool`
+    CloseWriter {
+        node_handle: Handle,
+        std_handle: actor_runtime::StdHandle,
+        response: oneshot::Sender<isize>,
+    },
 }
 
 /// Result of a completed I/O operation
@@ -223,15 +225,6 @@ pub enum IoEvent<K: KVBuffers> {
 /// Type alias for I/O futures
 pub type IoFuture<K> = Pin<Box<dyn Future<Output = IoEvent<K>> + Send>>;
 
-/// Configuration for stream attachments
-#[derive(Debug, Clone)]
-pub enum AttachmentConfig {
-    /// Attach to host stdout
-    Stdout,
-    /// Attach to host stderr
-    Stderr,
-}
-
 /// `SystemRuntime` manages all async I/O operations
 /// Actors communicate with it via channels
 pub struct SystemRuntime<K: KVBuffers> {
@@ -251,53 +244,45 @@ pub struct SystemRuntime<K: KVBuffers> {
     request_rx: mpsc::UnboundedReceiver<IoRequest>,
     /// ID generator for handles
     id_gen: Arc<IdGen>,
-    /// Spawned attachment tasks (tracked for graceful shutdown)
-    attachment_tasks: Vec<tokio::task::JoinHandle<()>>,
+    /// Manages dynamic attachment of actor streams to host stdout/stderr
+    attachment_manager: Arc<AttachmentManager>,
 }
 
 impl<K: KVBuffers + 'static> SystemRuntime<K> {
-    pub fn new(dag: Arc<RwLock<Dag>>, kv: Arc<K>, id_gen: Arc<IdGen>) -> Self {
+    pub fn new(
+        dag: Arc<RwLock<Dag>>,
+        kv: Arc<K>,
+        id_gen: Arc<IdGen>,
+        attachment_config: AttachmentConfig,
+    ) -> Self {
         let (system_tx, request_rx) = mpsc::unbounded_channel();
         let notification_queue = NotificationQueueArc::new();
 
+        // Create pipe pool
+        let pipe_pool = Arc::new(PipePool::new(Arc::clone(&kv), notification_queue));
+
+        // Create attachment manager
+        let attachment_manager = Arc::new(AttachmentManager::new(attachment_config));
+
         Self {
             dag,
-            pipe_pool: Arc::new(PipePool::new(Arc::clone(&kv), notification_queue)),
+            pipe_pool,
             kv,
             channels: HashMap::new(),
             next_channel_id: 0,
             system_tx: Some(system_tx),
             request_rx,
             id_gen,
-            attachment_tasks: Vec::new(),
+            attachment_manager,
         }
     }
 
-    /// Register and immediately spawn a stream attachment
+    /// Materialize stdin reader for an actor on first read
     ///
-    /// With latent pipes, attachments can be spawned immediately.
-    /// They will block reading until the pipe is realized by the actor.
-    pub fn register_attachment(
-        &mut self,
-        node_handle: Handle,
-        std_handle: actor_runtime::StdHandle,
-        config: AttachmentConfig,
-    ) {
-        debug!(node = ?node_handle, std = ?std_handle, config = ?config, "spawning attachment immediately");
-        let task = self.spawn_attachment(node_handle, std_handle, config);
-        self.attachment_tasks.push(task);
-    }
-
-    /// Pre-open standard handles (stdin, stdout) for an actor just before it runs.
-    ///
-    /// Always uses `MergeReader` for stdin, regardless of dependency count:
-    /// - 0 dependencies: `MergeReader` with empty deps (returns EOF immediately)
-    /// - 1 dependency: `MergeReader` with single dep
-    /// - N dependencies: `MergeReader` reads from each sequentially
-    ///
-    /// Dependencies are obtained from the DAG using `OwnedDependencyIterator`.
-    fn preopen_std_handles(&mut self, node_handle: Handle) -> StdHandles {
-        debug!(actor = ?node_handle, "setting up std handles");
+    /// Creates a `MergeReader` with dependencies from the DAG and returns a `ChannelHandle`.
+    /// Called lazily when the actor first reads from stdin.
+    fn materialize_stdin(&mut self, node_handle: Handle) -> ChannelHandle {
+        debug!(actor = ?node_handle, "materializing stdin reader");
 
         // Create OwnedDependencyIterator from DAG
         let dep_iterator = OwnedDependencyIterator::new(Arc::clone(&self.dag), node_handle);
@@ -312,22 +297,8 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         let stdin = self.alloc_channel_handle();
         self.channels
             .insert(stdin, Channel::Reader(Some(merge_reader)));
-        trace!(actor = ?node_handle, channel = ?stdin, "stdin configured with MergeReader");
 
-        // Pre-open stdout: just create channel handle, pipe created lazily on first write
-        debug!(actor = ?node_handle, "setting up stdout (pipe will be created on first write)");
-
-        let stdout = self.alloc_channel_handle();
-        self.channels.insert(
-            stdout,
-            Channel::Writer {
-                node_handle,
-                std_handle: actor_runtime::StdHandle::Stdout,
-            },
-        );
-        trace!(actor = ?node_handle, channel = ?stdout, "stdout configured (lazy)");
-
-        StdHandles { stdin, stdout }
+        stdin
     }
 
     /// Allocate a new global channel handle
@@ -387,7 +358,6 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                 std_handle,
             },
         );
-        trace!(node = ?node_handle, channel = ?channel_handle, "OpenWrite created");
         let _ = response.send(channel_handle);
     }
 
@@ -401,17 +371,13 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         buffer: SendableBuffer,
         response: oneshot::Sender<isize>,
     ) -> IoFuture<K> {
-        trace!(channel = ?handle, "processing Read");
-
         if let Some(Channel::Reader(reader_slot)) = self.channels.get_mut(&handle) {
             if let Some(mut reader) = reader_slot.take() {
-                trace!(channel = ?handle, "spawning async read");
                 // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
                 Box::pin(async move {
                     // SAFETY: Buffer remains valid because aread() blocks until response
                     let buf = unsafe { &mut *buffer.into_raw() };
                     let bytes_read = reader.read(buf).await;
-                    trace!(channel = ?handle, bytes = bytes_read, "read completed");
                     IoEvent::ReadComplete {
                         handle,
                         reader,
@@ -445,55 +411,50 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
     ///
     /// Uses the Sync-to-Async Bridge pattern (see module-level docs:
     /// "ARCHITECTURE: Sync-to-Async Bridge Pattern")
+    ///
+    /// Writes directly to `PipePool` using `node_handle` + `std_handle` from the request.
+    /// No Channel table lookup needed - `PipePool` handles lazy pipe creation.
+    ///
+    /// When a writer is newly created, triggers attachment via `AttachmentManager`.
     fn handle_write(
         &self,
-        handle: ChannelHandle,
+        node_handle: Handle,
+        std_handle: actor_runtime::StdHandle,
         data: &[u8],
         response: oneshot::Sender<isize>,
     ) -> IoFuture<K> {
-        trace!(channel = ?handle, bytes = data.len(), "processing Write");
+        let pipe_pool = Arc::clone(&self.pipe_pool);
+        let id_gen = Arc::clone(&self.id_gen);
+        let attachment_manager = Arc::clone(&self.attachment_manager);
+        let data = data.to_vec();
 
-        if let Some(Channel::Writer {
-            node_handle,
-            std_handle,
-        }) = self.channels.get(&handle)
-        {
-            let node_handle = *node_handle;
-            let std_handle = *std_handle;
-            let pipe_pool = Arc::clone(&self.pipe_pool);
-            let id_gen = Arc::clone(&self.id_gen);
-            let data = data.to_vec();
-
-            // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
-            Box::pin(async move {
-                // Get or create writer (idempotent - handles latent->realized transition)
-                let result = match pipe_pool
-                    .touch_writer(node_handle, std_handle, &id_gen)
-                    .await
-                {
-                    Ok(writer) => {
-                        let n = writer.write(&data);
-                        trace!(bytes = n, "pipe write completed");
-                        n
+        // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
+        Box::pin(async move {
+            // Get or create writer (idempotent - handles latent->realized transition)
+            let result = match pipe_pool
+                .touch_writer(node_handle, std_handle, &id_gen)
+                .await
+            {
+                Ok((writer, is_new)) => {
+                    // Trigger attachment if this is a newly created writer
+                    if is_new {
+                        attachment_manager.on_writer_realized(
+                            node_handle,
+                            std_handle,
+                            Arc::clone(&pipe_pool),
+                            Arc::clone(&id_gen),
+                        );
                     }
-                    Err(e) => {
-                        warn!(node = ?node_handle, std = ?std_handle, error = %e, "failed to get writer");
-                        -1
-                    }
-                };
-
-                IoEvent::SyncComplete { result, response }
-            })
-        } else {
-            warn!(channel = ?handle, "channel not found or not a writer");
-            // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
-            Box::pin(async move {
-                IoEvent::SyncComplete {
-                    result: -1,
-                    response,
+                    writer.write(&data)
                 }
-            })
-        }
+                Err(e) => {
+                    warn!(node = ?node_handle, std = ?std_handle, error = %e, "failed to get writer");
+                    -1
+                }
+            };
+
+            IoEvent::SyncComplete { result, response }
+        })
     }
 
     /// Handler for Close requests - uses `ChannelHandle`
@@ -505,12 +466,9 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         handle: ChannelHandle,
         response: oneshot::Sender<isize>,
     ) -> IoFuture<K> {
-        trace!(channel = ?handle, "processing Close");
-
         if let Some(channel) = self.channels.remove(&handle) {
             match channel {
                 Channel::Reader(_) => {
-                    trace!(channel = ?handle, "closed reader");
                     // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
                     Box::pin(async move {
                         IoEvent::SyncComplete {
@@ -572,6 +530,52 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         }
     }
 
+    /// Handler for `CloseWriter` requests - closes writer directly via `PipePool`
+    ///
+    /// Uses the Sync-to-Async Bridge pattern (see module-level docs:
+    /// "ARCHITECTURE: Sync-to-Async Bridge Pattern")
+    fn handle_close_writer(
+        &self,
+        node_handle: Handle,
+        std_handle: actor_runtime::StdHandle,
+        response: oneshot::Sender<isize>,
+    ) -> IoFuture<K> {
+        // Close the writer if it exists
+        if let Some(writer) = self
+            .pipe_pool
+            .get_already_realized_writer((node_handle, std_handle))
+        {
+            writer.close();
+            debug!(node = ?node_handle, std = ?std_handle, "closed writer pipe");
+        }
+
+        let pipe_pool = Arc::clone(&self.pipe_pool);
+        let kv = Arc::clone(&self.kv);
+
+        // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
+        Box::pin(async move {
+            let result_code = if let Some(writer) =
+                pipe_pool.get_already_realized_writer((node_handle, std_handle))
+            {
+                match kv.flush_buffer(&writer.buffer()).await {
+                    Ok(()) => 0,
+                    Err(e) => {
+                        warn!(error = ?e, "failed to flush buffer");
+                        -1
+                    }
+                }
+            } else {
+                // Writer was never created - that's OK, just succeed
+                0
+            };
+
+            IoEvent::SyncComplete {
+                result: result_code,
+                response,
+            }
+        })
+    }
+
     /// Handler for `ReadComplete` events
     fn handle_read_complete(
         &mut self,
@@ -580,7 +584,6 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         bytes_read: isize,
         response: oneshot::Sender<isize>,
     ) {
-        trace!(channel = ?handle, bytes = bytes_read, "read completed");
         // Put reader back into the channel
         if let Some(Channel::Reader(slot)) = self.channels.get_mut(&handle) {
             *slot = Some(reader);
@@ -593,40 +596,9 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         let _ = response.send(result);
     }
 
-    /// Spawn an attachment task for reading from a pipe
-    fn spawn_attachment(
-        &self,
-        node_handle: Handle,
-        std_handle: actor_runtime::StdHandle,
-        config: AttachmentConfig,
-    ) -> tokio::task::JoinHandle<()> {
-        let pipe_pool = Arc::clone(&self.pipe_pool);
-        let id_gen = Arc::clone(&self.id_gen);
-
-        tokio::spawn(async move {
-            // Get or create reader (creates latent pipe if needed)
-            let Some(reader) = pipe_pool
-                .get_or_await_reader((node_handle, std_handle), true, &id_gen)
-                .await
-            else {
-                warn!(node = ?node_handle, std = ?std_handle, "failed to open reader for attachment");
-                return;
-            };
-
-            // Run attachment worker
-            match config {
-                AttachmentConfig::Stdout => {
-                    attach_to_stdout(node_handle, reader).await;
-                }
-                AttachmentConfig::Stderr => {
-                    attach_to_stderr(node_handle, reader).await;
-                }
-            }
-        })
-    }
-
     /// Main event loop - processes I/O requests asynchronously
     pub async fn run(mut self) {
+        trace!("SystemRuntime::run: entering request_rx loop");
         // Drop our copy of the sender so channel closes when all actors finish
         drop(self.system_tx.take());
 
@@ -644,12 +616,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                 // Handle new requests from actors
                 request = self.request_rx.recv(), if request_rx_open => {
                     if let Some(request) = request {
-                        trace!("received request");
                         match request {
-                            IoRequest::SetupStdHandles { node_handle, response } => {
-                                let handles = self.preopen_std_handles(node_handle);
-                                let _ = response.send(handles);
-                            }
                             IoRequest::OpenRead { node_handle, response } => {
                                 self.handle_open_read(node_handle, response);
                             }
@@ -660,8 +627,8 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                                 let fut = self.handle_read(handle, buffer, response);
                                 pending_ops.push(fut);
                             }
-                            IoRequest::Write { handle, data, response } => {
-                                let fut = self.handle_write(handle, &data, response);
+                            IoRequest::Write { node_handle, std_handle, data, response } => {
+                                let fut = self.handle_write(node_handle, std_handle, &data, response);
                                 pending_ops.push(fut);
                             }
                             IoRequest::Close { handle, response } => {
@@ -677,6 +644,14 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
                                 debug!(node = ?node_handle, "actor shutdown - setting state to Terminated");
                                 self.dag.write().set_state(node_handle, NodeState::Terminated);
+                            }
+                            IoRequest::MaterializeStdin { node_handle, response } => {
+                                let channel_handle = self.materialize_stdin(node_handle);
+                                let _ = response.send(channel_handle);
+                            }
+                            IoRequest::CloseWriter { node_handle, std_handle, response } => {
+                                let fut = self.handle_close_writer(node_handle, std_handle, response);
+                                pending_ops.push(fut);
                             }
                         }
                     } else {
@@ -699,68 +674,13 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
             }
         }
 
+        trace!("SystemRuntime::run: exited request_rx loop");
+
         // Wait for all attachment tasks to complete
-        debug!(
-            count = self.attachment_tasks.len(),
-            "waiting for attachment tasks to complete"
-        );
-        for task in self.attachment_tasks {
-            let _ = task.await;
-        }
-        debug!("all attachment tasks completed");
-    }
-}
+        // Attachment tasks read their pipes to EOF, then exit naturally when pipes close
+        self.attachment_manager.waiting_shutdown().await;
+        trace!("SystemRuntime: all attachments completed");
 
-/// Per-actor file descriptor table
-/// Maps POSIX-style fd numbers to global `ChannelHandles`
-pub struct FdTable {
-    /// fd → `ChannelHandle` mapping
-    table: HashMap<isize, ChannelHandle>,
-    /// Next fd to allocate
-    next_fd: isize,
-}
-
-impl FdTable {
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            table: HashMap::new(),
-            next_fd: 0,
-        }
-    }
-
-    /// Allocate a new fd and associate it with a `ChannelHandle`
-    pub fn insert(&mut self, handle: ChannelHandle) -> isize {
-        let fd = self.next_fd;
-        self.next_fd += 1;
-        self.table.insert(fd, handle);
-        fd
-    }
-
-    /// Look up the `ChannelHandle` for a given fd
-    #[must_use]
-    pub fn get(&self, fd: isize) -> Option<ChannelHandle> {
-        self.table.get(&fd).copied()
-    }
-
-    /// Remove an fd mapping
-    pub fn remove(&mut self, fd: isize) -> Option<ChannelHandle> {
-        self.table.remove(&fd)
-    }
-
-    /// Get all open file descriptors
-    pub fn keys(&self) -> impl Iterator<Item = &isize> {
-        self.table.keys()
-    }
-
-    /// Clear all fd mappings (used during actor shutdown)
-    pub fn clear(&mut self) {
-        self.table.clear();
-    }
-}
-
-impl Default for FdTable {
-    fn default() -> Self {
-        Self::new()
+        trace!("SystemRuntime: destroying");
     }
 }

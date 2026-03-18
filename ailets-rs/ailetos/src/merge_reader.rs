@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use tracing::warn;
+use tracing::{trace, warn};
 
 use crate::dag::OwnedDependencyIterator;
 use crate::idgen::IdGen;
@@ -162,6 +162,7 @@ impl<K: KVBuffers> std::fmt::Debug for MergeReader<K> {
 
 impl<K: KVBuffers> Drop for MergeReader<K> {
     fn drop(&mut self) {
+        trace!("MergeReader: destroying (drop)");
         if self.current_reader.is_some() {
             self.close();
         }

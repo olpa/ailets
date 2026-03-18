@@ -57,11 +57,12 @@ async fn main() {
     };
     print!("{tree}");
 
-    // Attach output streams to host
-    // Resolve alias to get the actual actor node for attachment
+    // Attach the last actor's stdout to host stdout
+    // Note: With the new dynamic attachment system:
+    // - Only specified actors' stdout will be attached to host stdout when they write
+    // - stderr (Log handle), metrics, and tracing are always attached to host stderr for all actors
     let actual_node = env.resolve(end_node);
-    env.attach_stdout(actual_node);  // Last actor's stdout → host stdout
-    env.attach_all_stderr();       // All actors' stderr → host stderr
+    env.attach_stdout(actual_node);
 
     // Run the system (matches Python: env.processes.run_nodes(node_iter))
     env.run(end_node).await;

@@ -27,7 +27,7 @@ async fn test_create_writer_then_reader() {
     let std_handle = StdHandle::Stdout;
 
     // Create writer first
-    let writer = pool
+    let (writer, _) = pool
         .touch_writer(actor_handle, std_handle, &id_gen)
         .await
         .expect("Failed to create writer");
@@ -669,16 +669,20 @@ async fn test_touch_writer_idempotent() {
     let std_handle = StdHandle::Stdout;
 
     // Create first time - should succeed
-    let writer1 = pool
+    let (writer1, is_new1) = pool
         .touch_writer(actor_handle, std_handle, &id_gen)
         .await
         .expect("First create should succeed");
 
     // Create second time - should succeed and return same writer (idempotent)
-    let writer2 = pool
+    let (writer2, is_new2) = pool
         .touch_writer(actor_handle, std_handle, &id_gen)
         .await
         .expect("Second create should succeed (idempotent)");
+
+    // First call creates, second call returns existing
+    assert!(is_new1, "First call should create new writer");
+    assert!(!is_new2, "Second call should return existing writer");
 
     // Both should be the same writer (same handle)
     assert_eq!(
@@ -1004,7 +1008,7 @@ async fn test_race_consumer_opens_during_shutdown() {
     let std_handle = StdHandle::Stdout;
 
     // Create writer to establish the pipe
-    let writer = pool
+    let (writer, _) = pool
         .touch_writer(actor_handle, std_handle, &id_gen)
         .await
         .expect("Failed to create writer");
@@ -1067,7 +1071,7 @@ async fn test_race_concurrent_consumers_during_shutdown() {
     let std_handle = StdHandle::Stdout;
 
     // Create writer
-    let writer = pool
+    let (writer, _) = pool
         .touch_writer(actor_handle, std_handle, &id_gen)
         .await
         .expect("Failed to create writer");
@@ -1265,7 +1269,7 @@ async fn test_race_reader_loop_and_recheck() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Now create the writer (will notify the waiting reader)
-    let writer = pool
+    let (writer, _) = pool
         .touch_writer(actor_handle, std_handle, &id_gen)
         .await
         .expect("Failed to create writer");
