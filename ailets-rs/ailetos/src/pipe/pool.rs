@@ -98,11 +98,11 @@ use actor_runtime::StdHandle;
 use parking_lot::Mutex;
 use tracing::debug;
 
-use crate::idgen::{Handle, IdGen};
-use crate::storage::{KVBuffers, OpenMode};
-use crate::notification_queue::NotificationQueueArc;
 use super::reader::Reader;
 use super::writer::Writer;
+use crate::idgen::{Handle, IdGen};
+use crate::notification_queue::NotificationQueueArc;
+use crate::storage::{KVBuffers, OpenMode};
 
 /// State of a latent writer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

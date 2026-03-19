@@ -3,10 +3,10 @@ pub mod dag;
 pub mod environment;
 pub mod fd_table;
 pub mod idgen;
-pub mod storage;
 pub mod notification_queue;
 pub mod pipe;
 pub mod scheduler;
+pub mod storage;
 pub mod stub_actor_runtime;
 pub mod system_runtime;
 

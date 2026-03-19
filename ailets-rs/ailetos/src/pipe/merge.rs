@@ -11,11 +11,11 @@ use std::sync::Arc;
 
 use tracing::{trace, warn};
 
+use super::pool::PipePool;
+use super::reader::Reader;
 use crate::dag::OwnedDependencyIterator;
 use crate::idgen::IdGen;
 use crate::storage::KVBuffers;
-use super::reader::Reader;
-use super::pool::PipePool;
 
 /// A reader that sequentially reads from multiple dependency inputs.
 ///

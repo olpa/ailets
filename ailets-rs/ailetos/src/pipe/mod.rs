@@ -4,8 +4,8 @@
 //! - `reader`: Reader side of the pipe
 //! - `writer`: Writer side of the pipe
 //! - `rw_shared`: Shared state between Reader and Writer
-//! - `pool`: Manages output pipes for actors (PipePool)
-//! - `merge`: Sequential reader over multiple dependency inputs (MergeReader)
+//! - `pool`: Manages output pipes for actors (`PipePool`)
+//! - `merge`: Sequential reader over multiple dependency inputs (`MergeReader`)
 
 mod merge;
 mod pool;

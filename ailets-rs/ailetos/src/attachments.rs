@@ -12,8 +12,8 @@ use parking_lot::Mutex;
 use tracing::{debug, error, trace, warn};
 
 use crate::idgen::{Handle, IdGen};
-use crate::storage::KVBuffers;
 use crate::pipe::{PipePool, Reader};
+use crate::storage::KVBuffers;
 
 /// Configuration for attachment behavior
 #[derive(Debug, Clone)]
