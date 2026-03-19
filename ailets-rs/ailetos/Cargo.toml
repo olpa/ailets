@@ -23,3 +23,12 @@ rusqlite = { version = "0.32", features = ["bundled"], optional = true }
 [features]
 default = []
 sqlitekv = ["rusqlite"]
+
+[[example]]
+name = "stdin_dag_flow"
+required-features = ["sqlitekv"]
+
+[dev-dependencies]
+cat = { path = "../cat" }
+tokio = { version = "1", features = ["rt", "macros"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
