@@ -1,4 +1,5 @@
 use actor_io::{error_kind_to_str, AReader};
+use actor_runtime::StdHandle;
 use actor_runtime_mocked::VfsActorRuntime;
 use embedded_io::Read;
 
@@ -79,4 +80,41 @@ fn read_error() {
     let mut buf = [0u8; 10];
 
     reader.read(&mut buf).expect_err("Should fail to read");
+}
+
+#[test]
+fn new_reader_closes_on_drop() {
+    let runtime = VfsActorRuntime::new();
+    runtime.add_file("test-close".to_string(), b"data".to_vec());
+
+    // Create a reader using new() - this should close on drop
+    {
+        let _reader = AReader::new(&runtime, "test-close").expect("Should create reader");
+        assert_eq!(runtime.close_call_count(), 0, "No close calls yet");
+    }
+
+    // After drop, the fd should have been closed
+    assert_eq!(
+        runtime.close_call_count(),
+        1,
+        "Reader created with new() should close on drop"
+    );
+}
+
+#[test]
+fn new_from_std_does_not_close_on_drop() {
+    let runtime = VfsActorRuntime::new();
+
+    // Create a reader using new_from_std() - this should NOT close on drop
+    {
+        let _reader = AReader::new_from_std(&runtime, StdHandle::Stdin);
+        assert_eq!(runtime.close_call_count(), 0, "No close calls yet");
+    }
+
+    // After drop, no close should have been called
+    assert_eq!(
+        runtime.close_call_count(),
+        0,
+        "Reader created with new_from_std() should NOT close on drop"
+    );
 }

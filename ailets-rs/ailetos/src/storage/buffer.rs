@@ -57,7 +57,7 @@ impl AsRef<[u8]> for BufferReadGuard<'_> {
 /// # Example
 ///
 /// ```
-/// use ailetos::io::Buffer;
+/// use ailetos::storage::Buffer;
 ///
 /// let buffer = Buffer::new();
 /// buffer.append(b"hello").unwrap();
@@ -110,7 +110,7 @@ impl Buffer {
     /// # Example
     ///
     /// ```
-    /// use ailetos::io::Buffer;
+    /// use ailetos::storage::Buffer;
     ///
     /// let buffer = Buffer::new();
     /// buffer.append(b"hello world").unwrap();

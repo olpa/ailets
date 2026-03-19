@@ -3,12 +3,10 @@ pub mod dag;
 pub mod environment;
 pub mod fd_table;
 pub mod idgen;
-pub mod io;
-pub mod merge_reader;
 pub mod notification_queue;
 pub mod pipe;
-pub mod pipepool;
 pub mod scheduler;
+pub mod storage;
 pub mod stub_actor_runtime;
 pub mod system_runtime;
 
@@ -19,15 +17,15 @@ pub use dag::{Dag, DependsOn, For, Node, NodeKind, NodeState, OwnedDependencyIte
 pub use idgen::{Handle, HandleType, IdGen, IntCanBeHandle};
 
 // Re-export Buffer type for convenience
-pub use io::{Buffer, BufferError, BufferReadGuard};
+pub use storage::{Buffer, BufferError, BufferReadGuard};
 
 // Re-export KV types for convenience
 #[cfg(feature = "sqlitekv")]
-pub use io::{CoordinatorError, FlushCoordinator, FlushFn, SqliteKV};
-pub use io::{KVBuffers, KVError, MemKV, OpenMode};
+pub use storage::{CoordinatorError, FlushCoordinator, FlushFn, SqliteKV};
+pub use storage::{KVBuffers, KVError, MemKV, OpenMode};
 
 // Re-export PipePool for convenience
-pub use pipepool::PipePool;
+pub use pipe::PipePool;
 
 // Re-export system runtime types for convenience
 pub use system_runtime::{

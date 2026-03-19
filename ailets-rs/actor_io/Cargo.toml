@@ -11,6 +11,7 @@ crate-type = ["cdylib", "lib"]
 [dependencies]
 actor_runtime.workspace = true
 embedded-io.workspace = true
+tracing = "0.1"
 
 [dev-dependencies]
 actor_runtime_mocked.workspace = true

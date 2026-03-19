@@ -1,9 +1,9 @@
 use actor_runtime::StdHandle;
 use ailetos::idgen::{Handle, IdGen};
-use ailetos::io::memkv::MemKV;
-use ailetos::io::KVBuffers;
 use ailetos::notification_queue::NotificationQueueArc;
-use ailetos::pipepool::PipePool;
+use ailetos::pipe::PipePool;
+use ailetos::storage::memkv::MemKV;
+use ailetos::storage::KVBuffers;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -594,7 +594,9 @@ async fn test_create_output_pipe_allocates_buffer() {
 
     // Buffer should be allocated in KV
     let buffer_name = format!("pipes/actor-{}-{:?}", actor_handle.id(), std_handle);
-    let buffer = kv.open(&buffer_name, ailetos::io::OpenMode::Read).await;
+    let buffer = kv
+        .open(&buffer_name, ailetos::storage::OpenMode::Read)
+        .await;
     assert!(buffer.is_ok(), "Buffer should exist in KV storage");
 }
 
@@ -610,7 +612,9 @@ async fn test_realize_pipe_allocates_buffer() {
 
     // Buffer should exist
     let buffer_name = format!("pipes/actor-{}-{:?}", actor_handle.id(), std_handle);
-    let buffer = kv.open(&buffer_name, ailetos::io::OpenMode::Read).await;
+    let buffer = kv
+        .open(&buffer_name, ailetos::storage::OpenMode::Read)
+        .await;
     assert!(buffer.is_ok(), "Buffer should exist in KV storage");
 }
 

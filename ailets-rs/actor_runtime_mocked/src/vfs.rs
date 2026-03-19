@@ -33,6 +33,8 @@ pub struct Vfs {
     files: Mutex<Vec<VfsFile>>,
     handles: Mutex<Vec<FileHandle>>,
     io_errno: AtomicIsize,
+    /// Track which fds have been closed (for testing)
+    close_calls: Mutex<Vec<isize>>,
 }
 
 pub const WANT_ERROR: char = '\u{0001}';
@@ -51,6 +53,7 @@ impl Vfs {
             files: Mutex::new(Vec::new()),
             handles: Mutex::new(Vec::new()),
             io_errno: AtomicIsize::new(0),
+            close_calls: Mutex::new(Vec::new()),
         }
     }
 
@@ -62,6 +65,8 @@ impl Vfs {
         files.clear();
         let mut handles = self.handles.lock().unwrap();
         handles.clear();
+        let mut close_calls = self.close_calls.lock().unwrap();
+        close_calls.clear();
     }
 
     #[allow(clippy::missing_panics_doc)]
@@ -231,18 +236,43 @@ impl Vfs {
     #[allow(clippy::unwrap_used)]
     pub fn aclose(&self, fd: isize) -> isize {
         self.io_errno.store(0, Ordering::Relaxed);
+
+        // Track the close call regardless of whether it succeeds
+        {
+            let mut close_calls = self.close_calls.lock().unwrap();
+            close_calls.push(fd);
+        }
+
         let mut handles = self.handles.lock().unwrap();
 
-        let Ok(fd) = usize::try_from(fd) else {
+        let Ok(fd_usize) = usize::try_from(fd) else {
             self.io_errno.store(9, Ordering::Relaxed); // EBADF - Bad file descriptor
             return -1;
         };
-        let Some(handle) = handles.get_mut(fd) else {
+        let Some(handle) = handles.get_mut(fd_usize) else {
             self.io_errno.store(9, Ordering::Relaxed); // EBADF - Bad file descriptor
             return -1;
         };
         handle.vfs_index = usize::MAX;
         0
+    }
+
+    /// Check if a specific fd was closed (for testing)
+    #[allow(clippy::missing_panics_doc)]
+    #[allow(clippy::unwrap_used)]
+    #[must_use]
+    pub fn was_closed(&self, fd: isize) -> bool {
+        let close_calls = self.close_calls.lock().unwrap();
+        close_calls.contains(&fd)
+    }
+
+    /// Get the number of times aclose was called (for testing)
+    #[allow(clippy::missing_panics_doc)]
+    #[allow(clippy::unwrap_used)]
+    #[must_use]
+    pub fn close_call_count(&self) -> usize {
+        let close_calls = self.close_calls.lock().unwrap();
+        close_calls.len()
     }
 
     #[must_use]
@@ -283,6 +313,18 @@ impl VfsActorRuntime {
     /// Returns an error if the file is not found
     pub fn append_to_file(&self, name: &str, data: &[u8]) -> Result<(), String> {
         self.vfs.append_to_file(name, data)
+    }
+
+    /// Check if a specific fd was closed (for testing)
+    #[must_use]
+    pub fn was_closed(&self, fd: isize) -> bool {
+        self.vfs.was_closed(fd)
+    }
+
+    /// Get the number of times aclose was called (for testing)
+    #[must_use]
+    pub fn close_call_count(&self) -> usize {
+        self.vfs.close_call_count()
     }
 }
 

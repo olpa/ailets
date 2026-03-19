@@ -30,6 +30,9 @@ use crate::error_mapping::errno_to_error_kind;
 pub struct AReader<'a> {
     fd: Option<isize>,
     runtime: &'a dyn ActorRuntime,
+    /// Whether this reader owns the fd and should close it on drop.
+    /// Standard handles are owned by `SystemRuntime`, not the actor.
+    owns_fd: bool,
 }
 
 impl<'a> AReader<'a> {
@@ -49,16 +52,21 @@ impl<'a> AReader<'a> {
             Ok(AReader {
                 fd: Some(fd),
                 runtime,
+                owns_fd: true,
             })
         }
     }
 
     /// Create a new `AReader` for the given standard handle.
+    ///
+    /// Note: Standard handles are owned by `SystemRuntime`, not the actor.
+    /// This reader will NOT close the fd on drop.
     #[must_use]
     pub fn new_from_std(runtime: &'a dyn ActorRuntime, handle: StdHandle) -> Self {
         Self {
             fd: Some(handle as isize),
             runtime,
+            owns_fd: false,
         }
     }
 
@@ -83,7 +91,12 @@ impl<'a> AReader<'a> {
 
 impl Drop for AReader<'_> {
     fn drop(&mut self) {
-        let _ = self.close();
+        // Only close if we own the fd. Standard handles are owned by `SystemRuntime`.
+        if self.owns_fd {
+            if let Err(e) = self.close() {
+                tracing::warn!(fd = ?self.fd, error = ?e, "AReader: failed to close on drop");
+            }
+        }
     }
 }
 

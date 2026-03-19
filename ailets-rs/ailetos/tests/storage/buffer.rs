@@ -1,6 +1,6 @@
 //! Integration tests for Buffer module
 
-use ailetos::io::Buffer;
+use ailetos::storage::Buffer;
 
 #[test]
 fn test_new_buffer_is_empty() {
