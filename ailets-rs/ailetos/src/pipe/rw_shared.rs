@@ -4,7 +4,7 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 
 use crate::idgen::Handle;
-use crate::io::Buffer;
+use crate::storage::Buffer;
 use crate::notification_queue::NotificationQueueArc;
 
 /// Shared state between Writer and Readers

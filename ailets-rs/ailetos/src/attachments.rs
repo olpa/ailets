@@ -12,7 +12,7 @@ use parking_lot::Mutex;
 use tracing::{debug, error, trace, warn};
 
 use crate::idgen::{Handle, IdGen};
-use crate::io::KVBuffers;
+use crate::storage::KVBuffers;
 use crate::pipe::{PipePool, Reader};
 
 /// Configuration for attachment behavior

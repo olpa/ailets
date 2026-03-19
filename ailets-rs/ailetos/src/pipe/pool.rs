@@ -99,7 +99,7 @@ use parking_lot::Mutex;
 use tracing::debug;
 
 use crate::idgen::{Handle, IdGen};
-use crate::io::{KVBuffers, OpenMode};
+use crate::storage::{KVBuffers, OpenMode};
 use crate::notification_queue::NotificationQueueArc;
 use super::reader::Reader;
 use super::writer::Writer;
@@ -273,7 +273,7 @@ impl<K: KVBuffers> PipePool<K> {
         actor_handle: Handle,
         std_handle: StdHandle,
         id_gen: &IdGen,
-    ) -> Result<(Arc<Writer>, bool), crate::io::KVError> {
+    ) -> Result<(Arc<Writer>, bool), crate::storage::KVError> {
         let key = (actor_handle, std_handle);
 
         // Fast path: writer already exists

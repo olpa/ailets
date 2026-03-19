@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tracing::{error, trace};
 
 use crate::idgen::Handle;
-use crate::io::Buffer;
+use crate::storage::Buffer;
 use crate::notification_queue::NotificationQueueArc;
 
 use super::rw_shared::{ReaderSharedData, SharedBuffer};

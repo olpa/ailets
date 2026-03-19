@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use ailetos::dag::NodeState;
-use ailetos::io::MemKV;
+use ailetos::storage::MemKV;
 use ailetos::Environment;
 
 #[test]

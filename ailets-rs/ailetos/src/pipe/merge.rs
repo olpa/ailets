@@ -13,7 +13,7 @@ use tracing::{trace, warn};
 
 use crate::dag::OwnedDependencyIterator;
 use crate::idgen::IdGen;
-use crate::io::KVBuffers;
+use crate::storage::KVBuffers;
 use super::reader::Reader;
 use super::pool::PipePool;
 
