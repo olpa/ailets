@@ -93,7 +93,9 @@ impl Drop for AReader<'_> {
     fn drop(&mut self) {
         // Only close if we own the fd. Standard handles are owned by `SystemRuntime`.
         if self.owns_fd {
-            let _ = self.close();
+            if let Err(e) = self.close() {
+                tracing::warn!(fd = ?self.fd, error = ?e, "AReader: failed to close on drop");
+            }
         }
     }
 }
