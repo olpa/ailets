@@ -491,12 +491,61 @@ fn truncate(s: &str, max_len: usize) -> String {
     }
 }
 
+fn print_usage() {
+    println!("Usage: dagsh [OPTIONS]");
+    println!();
+    println!("Options:");
+    println!("  -l, --load <file>   Load script file on startup, then continue interactively");
+    println!("  -h, --help          Show this help");
+}
+
 fn main() {
+    let args: Vec<String> = std::env::args().collect();
+
+    // Parse command line arguments
+    let mut load_script: Option<String> = None;
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-h" | "--help" => {
+                print_usage();
+                return;
+            }
+            "-l" | "--load" => {
+                if i + 1 >= args.len() {
+                    eprintln!("Error: --load requires a file argument");
+                    std::process::exit(1);
+                }
+                load_script = Some(args[i + 1].clone());
+                i += 2;
+            }
+            arg if arg.starts_with('-') => {
+                eprintln!("Unknown option: {}", arg);
+                print_usage();
+                std::process::exit(1);
+            }
+            _ => {
+                eprintln!("Unexpected argument: {}", args[i]);
+                print_usage();
+                std::process::exit(1);
+            }
+        }
+    }
+
     let mut shell = DagShell::new();
     let mut rl = DefaultEditor::new().expect("Failed to create editor");
 
     println!("DAG Shell v0.1");
     println!("Type 'help' for available commands.\n");
+
+    // Load script from command line argument if provided
+    if let Some(script_path) = load_script {
+        println!("Loading {}...\n", script_path);
+        if let Err(e) = shell.cmd_source(&[&script_path]) {
+            println!("Error: {}", e);
+        }
+        println!();
+    }
 
     loop {
         match rl.readline("dagsh> ") {

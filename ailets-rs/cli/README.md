@@ -14,6 +14,12 @@ cargo build -p dagsh
 cargo run -p dagsh
 ```
 
+With a startup script (continues in interactive mode after loading):
+
+```bash
+cargo run -p dagsh -- --load examples/sample.dagsh
+```
+
 ## Commands
 
 ### Node Management

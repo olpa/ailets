@@ -1,0 +1,23 @@
+# Sample DAG: replicates stdin_dag_flow.rs using value nodes
+#
+# This creates a pipeline:
+#   value.1 (static text) ──┐
+#                           ├── cat.4 (Copy.bar) ── cat.5 (Copy.baz)
+#   value.2 (stdin stub) ── cat.3 (Copy.foo) ──┘
+
+node value "(mee too)" --explain="Static text"
+node value "Hello from dagsh!" --explain="Read from stdin"
+
+node add cat --explain="Copy.foo"
+dep 3 2
+
+node add cat --explain="Copy.bar"
+dep 4 1
+dep 4 3
+
+node add cat --explain="Copy.baz"
+dep 5 4
+
+node alias .end 5
+
+show
