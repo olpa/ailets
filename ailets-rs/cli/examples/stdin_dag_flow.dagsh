@@ -30,4 +30,4 @@ show 6
 node list
 
 # Run the DAG
-run 6
+# run 6

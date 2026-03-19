@@ -60,7 +60,7 @@ impl Default for ActorRegistry {
 
 /// Environment for building and running actor systems
 pub struct Environment<K: KVBuffers> {
-    pub dag: Dag,
+    pub dag: Arc<RwLock<Dag>>,
     pub idgen: Arc<IdGen>,
     pub kv: Arc<K>,
     pub actor_registry: ActorRegistry,
@@ -74,7 +74,7 @@ impl<K: KVBuffers> Environment<K> {
     /// Create a new environment
     pub fn new(kv: Arc<K>) -> Self {
         let idgen = Arc::new(IdGen::new());
-        let dag = Dag::new(Arc::clone(&idgen));
+        let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&idgen))));
 
         Self {
             dag,
@@ -109,12 +109,11 @@ impl<K: KVBuffers> Environment<K> {
     /// # Returns
     /// The handle to the created node
     pub fn add_value_node(&mut self, data: Vec<u8>, explain: Option<String>) -> Handle {
-        let handle = self
-            .dag
-            .add_node_with_explain("value".into(), NodeKind::Concrete, explain);
+        let mut dag = self.dag.write();
+        let handle = dag.add_node_with_explain("value".into(), NodeKind::Concrete, explain);
 
         // Value nodes are considered "built" at creation since their output is static
-        self.dag.set_state(handle, NodeState::Terminated);
+        dag.set_state(handle, NodeState::Terminated);
 
         self.value_nodes.insert(handle, ValueNodeData { data });
 
@@ -131,12 +130,11 @@ impl<K: KVBuffers> Environment<K> {
     /// # Returns
     /// The handle to the created node
     pub fn add_node(&mut self, idname: String, deps: &[Handle], explain: Option<String>) -> Handle {
-        let handle = self
-            .dag
-            .add_node_with_explain(idname, NodeKind::Concrete, explain);
+        let mut dag = self.dag.write();
+        let handle = dag.add_node_with_explain(idname, NodeKind::Concrete, explain);
 
         for &dep in deps {
-            self.dag.add_dependency(For(handle), DependsOn(dep));
+            dag.add_dependency(For(handle), DependsOn(dep));
         }
 
         handle
@@ -144,8 +142,9 @@ impl<K: KVBuffers> Environment<K> {
 
     /// Add an alias node
     pub fn add_alias(&mut self, alias_name: String, target: Handle) -> Handle {
-        let handle = self.dag.add_node(alias_name, NodeKind::Alias);
-        self.dag.add_dependency(For(handle), DependsOn(target));
+        let mut dag = self.dag.write();
+        let handle = dag.add_node(alias_name, NodeKind::Alias);
+        dag.add_dependency(For(handle), DependsOn(target));
         handle
     }
 
@@ -156,24 +155,18 @@ impl<K: KVBuffers> Environment<K> {
     /// Recursively resolves nested aliases.
     #[must_use]
     pub fn resolve(&self, handle: Handle) -> Handle {
-        if let Some(node) = self.dag.get_node(handle) {
-            if matches!(node.kind, crate::dag::NodeKind::Alias) {
-                // Alias node - get its dependency (should be exactly one)
-                let mut deps = self.dag.get_direct_dependencies(handle);
-                if let Some(target) = deps.next() {
-                    // Recursively resolve in case the target is also an alias
-                    return self.resolve(target);
-                }
-            }
+        let dag = self.dag.read();
+        let Some(node) = dag.get_node(handle) else {
+            return handle;
+        };
+        if !matches!(node.kind, crate::dag::NodeKind::Alias) {
+            return handle;
         }
-        // Not an alias, or no dependency found - return as-is
-        handle
-    }
-
-    /// Get a node by handle
-    #[must_use]
-    pub fn get_node(&self, handle: Handle) -> Option<&crate::dag::Node> {
-        self.dag.get_node(handle)
+        // Alias node - get its dependency (should be exactly one)
+        let target = dag.get_direct_dependencies(handle).next();
+        drop(dag);
+        // Recursively resolve in case the target is also an alias
+        target.map_or(handle, |t| self.resolve(t))
     }
 
     /// Check if a node is a value node
@@ -306,19 +299,16 @@ impl<K: KVBuffers> Environment<K> {
     }
 
     /// Run the system: spawn system runtime and actor tasks, wait for completion
-    pub async fn run(self, target: Handle)
+    pub async fn run(&mut self, target: Handle)
     where
         K: 'static,
     {
-        // Wrap DAG in Arc<RwLock> for sharing with mutable state access
-        let dag = Arc::new(RwLock::new(self.dag));
-
         // Create system runtime with attachment configuration
         let system_runtime = SystemRuntime::new(
-            Arc::clone(&dag),
+            Arc::clone(&self.dag),
             Arc::clone(&self.kv),
-            self.idgen,
-            self.attachment_config,
+            Arc::clone(&self.idgen),
+            self.attachment_config.clone(),
         );
 
         // Get sender before moving system_runtime
@@ -334,7 +324,7 @@ impl<K: KVBuffers> Environment<K> {
 
         // Spawn actor tasks
         let actor_tasks = Self::spawn_actor_tasks(
-            &dag,
+            &self.dag,
             target,
             &system_tx,
             &self.actor_registry,

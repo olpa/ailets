@@ -9,32 +9,11 @@ use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
 
-/// Node definition for rebuilding DAG after execution
-#[derive(Clone)]
-enum NodeDef {
-    Value {
-        data: Vec<u8>,
-        explain: Option<String>,
-    },
-    Actor {
-        actor: String,
-        explain: Option<String>,
-    },
-    Alias {
-        name: String,
-        target: Handle,
-    },
-}
-
 struct DagShell {
     env: Environment<MemKV>,
     kv: Arc<MemKV>,
     /// Track all created node handles for listing
     handles: Vec<Handle>,
-    /// Store node definitions for rebuilding after run
-    defs: Vec<(Handle, NodeDef)>,
-    /// Store dependencies for rebuilding
-    deps: Vec<(Handle, Handle)>,
 }
 
 impl DagShell {
@@ -46,33 +25,6 @@ impl DagShell {
             env,
             kv,
             handles: Vec::new(),
-            defs: Vec::new(),
-            deps: Vec::new(),
-        }
-    }
-
-    /// Rebuild environment from stored definitions
-    fn rebuild_env(&mut self) {
-        self.env = Environment::new(Arc::clone(&self.kv));
-        self.env.actor_registry.register("cat", cat::execute);
-
-        // Rebuild nodes in order
-        for (handle, def) in &self.defs {
-            let new_handle = match def {
-                NodeDef::Value { data, explain } => {
-                    self.env.add_value_node(data.clone(), explain.clone())
-                }
-                NodeDef::Actor { actor, explain } => {
-                    self.env.add_node(actor.clone(), &[], explain.clone())
-                }
-                NodeDef::Alias { name, target } => self.env.add_alias(name.clone(), *target),
-            };
-            debug_assert_eq!(new_handle, *handle, "Handle mismatch during rebuild");
-        }
-
-        // Rebuild dependencies
-        for (node, dep) in &self.deps {
-            self.env.dag.add_dependency(For(*node), DependsOn(*dep));
         }
     }
 
@@ -153,13 +105,6 @@ Session:
                 let explain = self.parse_explain(&args[2..]);
                 let handle = self.env.add_node(actor.clone(), &[], explain.clone());
                 self.handles.push(handle);
-                self.defs.push((
-                    handle,
-                    NodeDef::Actor {
-                        actor: actor.clone(),
-                        explain: explain.clone(),
-                    },
-                ));
                 println!(
                     "Added node {}: {} {}",
                     handle.id(),
@@ -175,13 +120,6 @@ Session:
                 let explain = self.parse_explain(&args[1..]);
                 let handle = self.env.add_value_node(data.as_bytes().to_vec(), explain.clone());
                 self.handles.push(handle);
-                self.defs.push((
-                    handle,
-                    NodeDef::Value {
-                        data: data.as_bytes().to_vec(),
-                        explain: explain.clone(),
-                    },
-                ));
                 println!(
                     "Added value node {}: \"{}\" {}",
                     handle.id(),
@@ -199,13 +137,6 @@ Session:
                     .ok_or_else(|| format!("Invalid handle: {}", args[2]))?;
                 let handle = self.env.add_alias(name.clone(), target);
                 self.handles.push(handle);
-                self.defs.push((
-                    handle,
-                    NodeDef::Alias {
-                        name: name.clone(),
-                        target,
-                    },
-                ));
                 println!(
                     "Added alias {}: {} -> {}",
                     handle.id(),
@@ -217,8 +148,9 @@ Session:
                 if self.handles.is_empty() {
                     println!("No nodes");
                 } else {
+                    let dag = self.env.dag.read();
                     for &handle in &self.handles {
-                        if let Some(node) = self.env.dag.get_node(handle) {
+                        if let Some(node) = dag.get_node(handle) {
                             let state_str = format_state(node.state);
                             let explain = node
                                 .explain
@@ -251,8 +183,7 @@ Session:
         let dep = self
             .parse_handle(args[1])
             .ok_or_else(|| format!("Invalid handle: {}", args[1]))?;
-        self.env.dag.add_dependency(For(node), DependsOn(dep));
-        self.deps.push((node, dep));
+        self.env.dag.write().add_dependency(For(node), DependsOn(dep));
         println!("Added dependency: {} depends on {}", node.id(), dep.id());
         Ok(())
     }
@@ -264,13 +195,14 @@ Session:
         let handle = self
             .parse_handle(args[0])
             .ok_or_else(|| format!("Invalid handle: {}", args[0]))?;
-        let deps: Vec<_> = self.env.dag.get_direct_dependencies(handle).collect();
+        let dag = self.env.dag.read();
+        let deps: Vec<_> = dag.get_direct_dependencies(handle).collect();
         if deps.is_empty() {
             println!("Node {} has no dependencies", handle.id());
         } else {
             println!("Node {} depends on:", handle.id());
             for dep in deps {
-                let node = self.env.dag.get_node(dep);
+                let node = dag.get_node(dep);
                 let name = node.map(|n| n.idname.as_str()).unwrap_or("?");
                 println!("  {} ({})", dep.id(), name);
             }
@@ -279,6 +211,7 @@ Session:
     }
 
     fn cmd_show(&self, args: &[&str]) -> Result<(), String> {
+        let dag = self.env.dag.read();
         if args.is_empty() {
             // Show whole DAG: find terminal nodes (nodes that nothing depends on)
             if self.handles.is_empty() {
@@ -288,11 +221,11 @@ Session:
             let terminals: Vec<Handle> = self
                 .handles
                 .iter()
-                .filter(|&&h| self.env.dag.get_direct_dependents(h).next().is_none())
+                .filter(|&&h| dag.get_direct_dependents(h).next().is_none())
                 .copied()
                 .collect();
             for handle in terminals {
-                let tree = self.env.dag.dump_colored(handle);
+                let tree = dag.dump_colored(handle);
                 print!("{}", tree);
             }
             return Ok(());
@@ -300,7 +233,7 @@ Session:
         let handle = self
             .parse_handle(args[0])
             .ok_or_else(|| format!("Invalid handle: {}", args[0]))?;
-        let tree = self.env.dag.dump_colored(handle);
+        let tree = dag.dump_colored(handle);
         print!("{}", tree);
         Ok(())
     }
@@ -324,16 +257,10 @@ Session:
         self.env.attach_stdout(resolved);
 
         // Run synchronously using tokio runtime
-        let kv = Arc::clone(&self.kv);
-        let env = std::mem::replace(&mut self.env, Environment::new(Arc::clone(&kv)));
-
         let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
         rt.block_on(async {
-            env.run(handle).await;
+            self.env.run(handle).await;
         });
-
-        // Rebuild environment from stored definitions
-        self.rebuild_env();
 
         println!("\nDAG execution completed.");
         Ok(())
@@ -390,8 +317,6 @@ Session:
 
     fn cmd_reset(&mut self) -> Result<(), String> {
         self.handles.clear();
-        self.defs.clear();
-        self.deps.clear();
         self.env = Environment::new(Arc::clone(&self.kv));
         self.env.actor_registry.register("cat", cat::execute);
         println!("DAG cleared.");
@@ -399,6 +324,7 @@ Session:
     }
 
     fn cmd_status(&self, args: &[&str]) -> Result<(), String> {
+        let dag = self.env.dag.read();
         if args.is_empty() {
             // Overall status
             let mut total = 0;
@@ -407,7 +333,7 @@ Session:
             let mut not_started = 0;
 
             for &handle in &self.handles {
-                if let Some(node) = self.env.dag.get_node(handle) {
+                if let Some(node) = dag.get_node(handle) {
                     total += 1;
                     match node.state {
                         NodeState::Running => running += 1,
@@ -425,7 +351,7 @@ Session:
             let handle = self
                 .parse_handle(args[0])
                 .ok_or_else(|| format!("Invalid handle: {}", args[0]))?;
-            if let Some(node) = self.env.dag.get_node(handle) {
+            if let Some(node) = dag.get_node(handle) {
                 println!(
                     "Node {}: {} [{}]",
                     handle.id(),
