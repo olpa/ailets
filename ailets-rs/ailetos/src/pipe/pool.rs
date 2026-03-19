@@ -101,7 +101,8 @@ use tracing::debug;
 use crate::idgen::{Handle, IdGen};
 use crate::io::{KVBuffers, OpenMode};
 use crate::notification_queue::NotificationQueueArc;
-use crate::pipe::{Reader, Writer};
+use super::reader::Reader;
+use super::writer::Writer;
 
 /// State of a latent writer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -82,9 +82,8 @@ use tracing::{debug, error, trace, warn};
 use crate::attachments::{AttachmentConfig, AttachmentManager};
 use crate::dag::{Dag, NodeState, OwnedDependencyIterator};
 use crate::idgen::{Handle, IdGen};
-use crate::merge_reader::MergeReader;
 use crate::notification_queue::NotificationQueueArc;
-use crate::pipepool::PipePool;
+use crate::pipe::{MergeReader, PipePool};
 use crate::KVBuffers;
 
 /// Global unique identifier for a pipe endpoint (reader or writer)

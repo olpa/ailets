@@ -4,10 +4,8 @@ pub mod environment;
 pub mod fd_table;
 pub mod idgen;
 pub mod io;
-pub mod merge_reader;
 pub mod notification_queue;
 pub mod pipe;
-pub mod pipepool;
 pub mod scheduler;
 pub mod stub_actor_runtime;
 pub mod system_runtime;
@@ -27,7 +25,7 @@ pub use io::{CoordinatorError, FlushCoordinator, FlushFn, SqliteKV};
 pub use io::{KVBuffers, KVError, MemKV, OpenMode};
 
 // Re-export PipePool for convenience
-pub use pipepool::PipePool;
+pub use pipe::PipePool;
 
 // Re-export system runtime types for convenience
 pub use system_runtime::{

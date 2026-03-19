@@ -3,7 +3,7 @@ use ailetos::idgen::{Handle, IdGen};
 use ailetos::io::memkv::MemKV;
 use ailetos::io::KVBuffers;
 use ailetos::notification_queue::NotificationQueueArc;
-use ailetos::pipepool::PipePool;
+use ailetos::pipe::PipePool;
 use std::sync::Arc;
 use std::time::Duration;
 

@@ -14,8 +14,8 @@ use tracing::{trace, warn};
 use crate::dag::OwnedDependencyIterator;
 use crate::idgen::IdGen;
 use crate::io::KVBuffers;
-use crate::pipe::Reader;
-use crate::pipepool::PipePool;
+use super::reader::Reader;
+use super::pool::PipePool;
 
 /// A reader that sequentially reads from multiple dependency inputs.
 ///
