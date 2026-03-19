@@ -8,11 +8,32 @@ use ailetos::{DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState, 
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
 
+/// Node definition for rebuilding DAG after execution
+#[derive(Clone)]
+enum NodeDef {
+    Value {
+        data: Vec<u8>,
+        explain: Option<String>,
+    },
+    Actor {
+        actor: String,
+        explain: Option<String>,
+    },
+    Alias {
+        name: String,
+        target: Handle,
+    },
+}
+
 struct DagShell {
     env: Environment<MemKV>,
     kv: Arc<MemKV>,
     /// Track all created node handles for listing
     handles: Vec<Handle>,
+    /// Store node definitions for rebuilding after run
+    defs: Vec<(Handle, NodeDef)>,
+    /// Store dependencies for rebuilding
+    deps: Vec<(Handle, Handle)>,
 }
 
 impl DagShell {
@@ -24,6 +45,33 @@ impl DagShell {
             env,
             kv,
             handles: Vec::new(),
+            defs: Vec::new(),
+            deps: Vec::new(),
+        }
+    }
+
+    /// Rebuild environment from stored definitions
+    fn rebuild_env(&mut self) {
+        self.env = Environment::new(Arc::clone(&self.kv));
+        self.env.actor_registry.register("cat", cat::execute);
+
+        // Rebuild nodes in order
+        for (handle, def) in &self.defs {
+            let new_handle = match def {
+                NodeDef::Value { data, explain } => {
+                    self.env.add_value_node(data.clone(), explain.clone())
+                }
+                NodeDef::Actor { actor, explain } => {
+                    self.env.add_node(actor.clone(), &[], explain.clone())
+                }
+                NodeDef::Alias { name, target } => self.env.add_alias(name.clone(), *target),
+            };
+            debug_assert_eq!(new_handle, *handle, "Handle mismatch during rebuild");
+        }
+
+        // Rebuild dependencies
+        for (node, dep) in &self.deps {
+            self.env.dag.add_dependency(For(*node), DependsOn(*dep));
         }
     }
 
@@ -48,6 +96,7 @@ impl DagShell {
             "cat" => self.cmd_cat(&parts[1..])?,
             "status" => self.cmd_status(&parts[1..])?,
             "source" => self.cmd_source(&parts[1..])?,
+            "reset" => self.cmd_reset()?,
             _ => println!("Unknown command: {}. Type 'help' for usage.", parts[0]),
         }
 
@@ -83,6 +132,7 @@ Status:
 
 Session:
   source <file>                       Run script file
+  reset                               Clear all nodes and start fresh
   help                                Show this help
   quit                                Exit"#
         );
@@ -102,6 +152,13 @@ Session:
                 let explain = self.parse_explain(&args[2..]);
                 let handle = self.env.add_node(actor.clone(), &[], explain.clone());
                 self.handles.push(handle);
+                self.defs.push((
+                    handle,
+                    NodeDef::Actor {
+                        actor: actor.clone(),
+                        explain: explain.clone(),
+                    },
+                ));
                 println!(
                     "Added node {}: {} {}",
                     handle.id(),
@@ -117,6 +174,13 @@ Session:
                 let explain = self.parse_explain(&args[1..]);
                 let handle = self.env.add_value_node(data.as_bytes().to_vec(), explain.clone());
                 self.handles.push(handle);
+                self.defs.push((
+                    handle,
+                    NodeDef::Value {
+                        data: data.as_bytes().to_vec(),
+                        explain: explain.clone(),
+                    },
+                ));
                 println!(
                     "Added value node {}: \"{}\" {}",
                     handle.id(),
@@ -134,6 +198,13 @@ Session:
                     .ok_or_else(|| format!("Invalid handle: {}", args[2]))?;
                 let handle = self.env.add_alias(name.clone(), target);
                 self.handles.push(handle);
+                self.defs.push((
+                    handle,
+                    NodeDef::Alias {
+                        name: name.clone(),
+                        target,
+                    },
+                ));
                 println!(
                     "Added alias {}: {} -> {}",
                     handle.id(),
@@ -180,6 +251,7 @@ Session:
             .parse_handle(args[1])
             .ok_or_else(|| format!("Invalid handle: {}", args[1]))?;
         self.env.dag.add_dependency(For(node), DependsOn(dep));
+        self.deps.push((node, dep));
         println!("Added dependency: {} depends on {}", node.id(), dep.id());
         Ok(())
     }
@@ -259,11 +331,8 @@ Session:
             env.run(handle).await;
         });
 
-        // Recreate the environment (DAG state is lost after run)
-        self.env = Environment::new(Arc::clone(&self.kv));
-        self.env.actor_registry.register("cat", cat::execute);
-        // Clear handles since DAG is reset
-        self.handles.clear();
+        // Rebuild environment from stored definitions
+        self.rebuild_env();
 
         println!("\nDAG execution completed.");
         Ok(())
@@ -315,6 +384,16 @@ Session:
                 Err(e) => println!("Error: {}", e),
             }
         }
+        Ok(())
+    }
+
+    fn cmd_reset(&mut self) -> Result<(), String> {
+        self.handles.clear();
+        self.defs.clear();
+        self.deps.clear();
+        self.env = Environment::new(Arc::clone(&self.kv));
+        self.env.actor_registry.register("cat", cat::execute);
+        println!("DAG cleared.");
         Ok(())
     }
 

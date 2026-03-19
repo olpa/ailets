@@ -61,6 +61,7 @@ status <node>                         Node status
 
 ```
 source <file>                         Run script file
+reset                                 Clear all nodes and start fresh
 help                                  Show help
 quit                                  Exit
 ```
