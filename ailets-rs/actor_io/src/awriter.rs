@@ -29,6 +29,9 @@ use crate::error_mapping::errno_to_error_kind;
 pub struct AWriter<'a> {
     fd: Option<isize>,
     runtime: &'a dyn ActorRuntime,
+    /// Whether this writer owns the fd and should close it on drop.
+    /// Standard handles are owned by `SystemRuntime`, not the actor.
+    owns_fd: bool,
 }
 
 impl<'a> AWriter<'a> {
@@ -48,16 +51,21 @@ impl<'a> AWriter<'a> {
             Ok(AWriter {
                 fd: Some(fd),
                 runtime,
+                owns_fd: true,
             })
         }
     }
 
     /// Create a new `AWriter` instance for the given standard handle.
+    ///
+    /// Note: Standard handles are owned by `SystemRuntime`, not the actor.
+    /// This writer will NOT close the fd on drop.
     #[must_use]
     pub fn new_from_std(runtime: &'a dyn ActorRuntime, handle: StdHandle) -> Self {
         Self {
             fd: Some(handle as isize),
             runtime,
+            owns_fd: false,
         }
     }
 
@@ -75,6 +83,7 @@ impl<'a> AWriter<'a> {
             Ok(AWriter {
                 fd: Some(fd),
                 runtime,
+                owns_fd: true,
             })
         }
     }
@@ -100,7 +109,10 @@ impl<'a> AWriter<'a> {
 
 impl Drop for AWriter<'_> {
     fn drop(&mut self) {
-        let _ = self.close();
+        // Only close if we own the fd. Standard handles are owned by `SystemRuntime`.
+        if self.owns_fd {
+            let _ = self.close();
+        }
     }
 }
 
