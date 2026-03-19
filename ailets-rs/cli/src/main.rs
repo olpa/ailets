@@ -5,8 +5,9 @@
 use std::sync::Arc;
 
 use ailetos::{DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState, OpenMode};
+use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
-use rustyline::DefaultEditor;
+use rustyline::Editor;
 
 /// Node definition for rebuilding DAG after execution
 #[derive(Clone)]
@@ -533,7 +534,9 @@ fn main() {
     }
 
     let mut shell = DagShell::new();
-    let mut rl = DefaultEditor::new().expect("Failed to create editor");
+    let mut rl = Editor::<(), rustyline::history::DefaultHistory>::new()
+        .expect("Failed to create editor");
+    rl.set_max_history_size(1000).unwrap();
 
     println!("DAG Shell v0.1");
     println!("Type 'help' for available commands.\n");
