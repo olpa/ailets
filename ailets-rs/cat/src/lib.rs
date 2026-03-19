@@ -33,14 +33,8 @@ pub fn execute<'a>(mut reader: AReader<'a>, mut writer: AWriter<'a>) -> Result<(
         }
     }
 
-    if let Err(e) = writer.close() {
-        let error_msg = error_kind_to_str(e);
-        return Err(format!("Failed to close writer: {error_msg}"));
-    }
-    if let Err(e) = reader.close() {
-        let error_msg = error_kind_to_str(e);
-        return Err(format!("Failed to close reader: {error_msg}"));
-    }
+    // Note: Actors never close stdout/stdin - they didn't open them.
+    // SystemRuntime will close these pipes during ActorShutdown.
 
     Ok(())
 }

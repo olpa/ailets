@@ -195,7 +195,7 @@ impl<K: KVBuffers> Environment<K> {
         value_data: ValueNodeData,
         runtime: BlockingActorRuntime,
     ) -> tokio::task::JoinHandle<()> {
-        use actor_io::{AReader, AWriter};
+        use actor_io::AWriter;
         use actor_runtime::StdHandle;
         use embedded_io::Write;
 
@@ -204,23 +204,14 @@ impl<K: KVBuffers> Environment<K> {
 
             runtime.register_std_fds();
 
-            let mut areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
             let mut awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
 
             // Write the value data
+            // Note: Actors never close stdout/stdin - they didn't open them.
+            // SystemRuntime will close these pipes during ActorShutdown.
             let result = awriter
                 .write_all(&value_data.data)
-                .map_err(|e| format!("Failed to write value: {e:?}"))
-                .and_then(|()| {
-                    awriter
-                        .close()
-                        .map_err(|e| format!("Failed to close writer: {e:?}"))
-                })
-                .and_then(|()| {
-                    areader
-                        .close()
-                        .map_err(|e| format!("Failed to close reader: {e:?}"))
-                });
+                .map_err(|e| format!("Failed to write value: {e:?}"));
 
             match result {
                 Ok(()) => debug!(node = ?node_handle, name = %idname, "value node completed"),

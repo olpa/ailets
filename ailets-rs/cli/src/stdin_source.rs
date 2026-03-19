@@ -9,7 +9,7 @@ use embedded_io::Write;
 /// Returns an error if:
 /// - Writing to the output fails
 /// - Closing the reader or writer fails
-pub fn execute<'a>(mut reader: AReader<'a>, mut writer: AWriter<'a>) -> Result<(), String> {
+pub fn execute<'a>(_reader: AReader<'a>, mut writer: AWriter<'a>) -> Result<(), String> {
     // For now, write simulated stdin data
     let data = b"simulated stdin\n";
     if let Err(e) = writer.write_all(data) {
@@ -17,15 +17,8 @@ pub fn execute<'a>(mut reader: AReader<'a>, mut writer: AWriter<'a>) -> Result<(
         return Err(format!("Failed to write: {error_msg}"));
     }
 
-    // Close both reader and writer
-    if let Err(e) = writer.close() {
-        let error_msg = error_kind_to_str(e);
-        return Err(format!("Failed to close writer: {error_msg}"));
-    }
-    if let Err(e) = reader.close() {
-        let error_msg = error_kind_to_str(e);
-        return Err(format!("Failed to close reader: {error_msg}"));
-    }
+    // Note: Actors never close stdout/stdin - they didn't open them.
+    // SystemRuntime will close these pipes during ActorShutdown.
 
     Ok(())
 }
