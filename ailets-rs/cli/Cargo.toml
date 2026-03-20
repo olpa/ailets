@@ -1,10 +1,17 @@
 [package]
-name = "cli"
+name = "dagsh"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "cli"
+name = "dagsh"
 path = "src/main.rs"
+
+[dependencies]
+ailetos = { path = "../ailetos" }
+actor_io.workspace = true
+cat = { path = "../cat" }
+tokio = { version = "1.41", features = ["sync", "time", "rt", "rt-multi-thread", "macros", "io-util", "io-std"] }
+rustyline = "15"

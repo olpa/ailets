@@ -90,9 +90,9 @@ async fn main() {
 
     // Print dependency tree (with colors if stdout is a terminal)
     let tree = if std::io::stdout().is_terminal() {
-        env.dag.dump_colored(end_node)
+        env.dag.read().dump_colored(end_node)
     } else {
-        env.dag.dump(end_node)
+        env.dag.read().dump(end_node)
     };
     print!("{tree}");
 
@@ -101,6 +101,9 @@ async fn main() {
 
     // Run the system
     env.run(end_node).await;
+
+    // Drop environment to release KV reference
+    drop(env);
 
     // Shutdown the KV store
     Arc::try_unwrap(kv)
