@@ -700,15 +700,22 @@ fn test_dump_shared_dependency_with_children_shows_reference() {
 
     // Count occurrences of "leaf" - should appear only once
     let leaf_count = output.matches("leaf").count();
-    assert_eq!(leaf_count, 1, "Leaf should appear only once, not be duplicated. Output:\n{}", output);
+    assert_eq!(
+        leaf_count, 1,
+        "Leaf should appear only once, not be duplicated. Output:\n{}",
+        output
+    );
 
     // The second occurrence of shared should have a reference marker
     let shared_count = output.matches("shared").count();
     assert_eq!(shared_count, 2, "Shared should appear twice");
 
     // Should contain some kind of reference marker on second occurrence
-    assert!(output.contains("[see above]") || output.contains("[already shown]"),
-            "Should contain reference marker. Output:\n{}", output);
+    assert!(
+        output.contains("[see above]") || output.contains("[already shown]"),
+        "Should contain reference marker. Output:\n{}",
+        output
+    );
 }
 
 #[test]
@@ -733,9 +740,19 @@ fn test_dump_shared_dependency_without_children_shows_node() {
 
     // Leaf node should appear twice (once under each branch)
     let leaf_count = output.matches("shared_leaf").count();
-    assert_eq!(leaf_count, 2, "Leaf without dependencies should appear twice. Output:\n{}", output);
+    assert_eq!(
+        leaf_count, 2,
+        "Leaf without dependencies should appear twice. Output:\n{}",
+        output
+    );
 
     // Should NOT contain reference markers for leaves
-    assert!(!output.contains("[see above]"), "Should not have reference marker for leaves");
-    assert!(!output.contains("[already shown]"), "Should not have reference marker for leaves");
+    assert!(
+        !output.contains("[see above]"),
+        "Should not have reference marker for leaves"
+    );
+    assert!(
+        !output.contains("[already shown]"),
+        "Should not have reference marker for leaves"
+    );
 }

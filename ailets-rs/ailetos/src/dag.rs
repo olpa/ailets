@@ -170,7 +170,16 @@ impl Dag {
             }
         }
 
-        self.dump_recursive(pid, "", true, true, use_colors, &mut output, &mut visited, &mut printed);
+        self.dump_recursive(
+            pid,
+            "",
+            true,
+            true,
+            use_colors,
+            &mut output,
+            &mut visited,
+            &mut printed,
+        );
         output
     }
 
@@ -283,7 +292,8 @@ impl Dag {
             if let Some(dep_node) = self.get_node(dep_pid) {
                 if dep_node.kind == NodeKind::Alias {
                     // For aliases, expand to their targets
-                    let alias_targets: Vec<Handle> = self.get_direct_dependencies(dep_pid).collect();
+                    let alias_targets: Vec<Handle> =
+                        self.get_direct_dependencies(dep_pid).collect();
                     for (alias_idx, &target_pid) in alias_targets.iter().enumerate() {
                         let is_last_target = alias_idx == alias_targets.len() - 1 && is_last_child;
                         self.dump_recursive(

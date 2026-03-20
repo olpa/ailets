@@ -77,9 +77,9 @@ use std::sync::Arc;
 use futures::stream::{FuturesUnordered, StreamExt};
 use parking_lot::RwLock;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, trace, warn};
 #[cfg(debug_assertions)]
 use tracing::error;
+use tracing::{debug, trace, warn};
 
 use crate::attachments::{AttachmentConfig, AttachmentManager};
 use crate::dag::{Dag, NodeState, OwnedDependencyIterator};
