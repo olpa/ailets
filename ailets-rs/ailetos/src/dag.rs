@@ -195,6 +195,10 @@ impl Dag {
             return;
         };
 
+        // Check for cycles BEFORE printing the node
+        // This way we can still show the node but mark it as circular
+        let is_circular = visited.contains(&pid);
+
         // Format the current node line (root nodes have no connector)
         let connector = if is_root {
             ""
@@ -225,29 +229,28 @@ impl Dag {
             .as_ref()
             .map(|e| format!(" # {e}"))
             .unwrap_or_default();
+
+        let circular_suffix = if is_circular {
+            " [circular reference]"
+        } else {
+            ""
+        };
+
         let _ = writeln!(
             output,
-            "{prefix}{connector}{}.{} [{state_symbol}]{explain_suffix}",
+            "{prefix}{connector}{}.{} [{state_symbol}]{explain_suffix}{circular_suffix}",
             node.idname,
             node.pid.id()
         );
 
-        // Check for cycles
-        if visited.contains(&pid) {
-            let extension = if is_root {
-                ""
-            } else if is_last {
-                "    "
-            } else {
-                "│   "
-            };
-            let _ = writeln!(output, "{prefix}{extension}[circular reference]");
+        // If circular, stop recursing here
+        if is_circular {
             return;
         }
         visited.insert(pid);
 
-        // Get resolved dependencies (aliases are resolved to concrete nodes)
-        let deps: Vec<Handle> = self.resolve_dependencies(pid).collect();
+        // Get direct dependencies (not resolved) to handle cycles better
+        let deps: Vec<Handle> = self.get_direct_dependencies(pid).collect();
         if deps.is_empty() {
             visited.remove(&pid);
             return;
