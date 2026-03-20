@@ -2,6 +2,7 @@
 //!
 //! Minimal implementation for manually building and running DAGs.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use ailetos::{DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState, OpenMode};
@@ -14,6 +15,8 @@ struct DagShell {
     kv: Arc<MemKV>,
     /// Track all created node handles for listing
     handles: Vec<Handle>,
+    /// Variables mapping names to handles
+    vars: HashMap<String, Handle>,
 }
 
 impl DagShell {
@@ -25,10 +28,16 @@ impl DagShell {
             env,
             kv,
             handles: Vec::new(),
+            vars: HashMap::new(),
         }
     }
 
     fn parse_handle(&self, s: &str) -> Option<Handle> {
+        // Check for $var syntax
+        if let Some(var_name) = s.strip_prefix('$') {
+            return self.vars.get(var_name).copied();
+        }
+        // Otherwise try as numeric handle
         s.parse::<i64>().ok().map(Handle::new)
     }
 
@@ -41,7 +50,10 @@ impl DagShell {
         match parts[0] {
             "quit" | "exit" | "q" => return Ok(false),
             "help" | "?" => self.cmd_help(),
-            "node" => self.cmd_node(&parts[1..])?,
+            "set" => self.cmd_set(&parts[1..])?,
+            "node" => {
+                self.cmd_node(&parts[1..])?;
+            }
             "dep" => self.cmd_dep(&parts[1..])?,
             "deps" => self.cmd_deps(&parts[1..])?,
             "show" => self.cmd_show(&parts[1..])?,
@@ -50,8 +62,10 @@ impl DagShell {
             "status" => self.cmd_status(&parts[1..])?,
             "source" => self.cmd_source(&parts[1..])?,
             "reset" => self.cmd_reset()?,
-            _ => println!("Unknown command: {}. Type 'help' for usage.", parts[0]),
-        }
+            _ => {
+                println!("Unknown command: {}. Type 'help' for usage.", parts[0]);
+            }
+        };
 
         Ok(true)
     }
@@ -87,11 +101,38 @@ Session:
   source <file>                       Run script file
   reset                               Clear all nodes and start fresh
   help                                Show this help
-  quit                                Exit"#
+  quit                                Exit
+
+Variables:
+  set var = node ...                  Assign node to variable
+  dep $foo $bar                       Use $var to reference variables"#
         );
     }
 
+    fn cmd_set(&mut self, args: &[&str]) -> Result<(), String> {
+        // set var = node ...
+        if args.len() < 3 {
+            return Err("Usage: set <var> = node ...".to_string());
+        }
+        let var_name = args[0];
+        if args[1] != "=" {
+            return Err("Usage: set <var> = node ...".to_string());
+        }
+        // args[2..] should be a node command
+        if args.len() < 3 || args[2] != "node" {
+            return Err("Usage: set <var> = node ...".to_string());
+        }
+        let handle = self.cmd_node_inner(&args[3..])?;
+        self.vars.insert(var_name.to_string(), handle);
+        Ok(())
+    }
+
     fn cmd_node(&mut self, args: &[&str]) -> Result<(), String> {
+        self.cmd_node_inner(args)?;
+        Ok(())
+    }
+
+    fn cmd_node_inner(&mut self, args: &[&str]) -> Result<Handle, String> {
         if args.is_empty() {
             return Err("Usage: node <add|value|alias|list> ...".to_string());
         }
@@ -111,6 +152,7 @@ Session:
                     actor,
                     explain.map(|e| format!("({})", e)).unwrap_or_default()
                 );
+                Ok(handle)
             }
             "value" => {
                 if args.len() < 2 {
@@ -126,6 +168,7 @@ Session:
                     truncate(&data, 30),
                     explain.map(|e| format!("({})", e)).unwrap_or_default()
                 );
+                Ok(handle)
             }
             "alias" => {
                 if args.len() < 3 {
@@ -143,6 +186,7 @@ Session:
                     name,
                     target.id()
                 );
+                Ok(handle)
             }
             "list" => {
                 if self.handles.is_empty() {
@@ -167,10 +211,10 @@ Session:
                         }
                     }
                 }
+                Err("node list does not return a handle".to_string())
             }
-            _ => return Err(format!("Unknown node subcommand: {}", args[0])),
+            _ => Err(format!("Unknown node subcommand: {}", args[0])),
         }
-        Ok(())
     }
 
     fn cmd_dep(&mut self, args: &[&str]) -> Result<(), String> {
@@ -317,6 +361,7 @@ Session:
 
     fn cmd_reset(&mut self) -> Result<(), String> {
         self.handles.clear();
+        self.vars.clear();
         self.env = Environment::new(Arc::clone(&self.kv));
         self.env.actor_registry.register("cat", cat::execute);
         println!("DAG cleared.");
