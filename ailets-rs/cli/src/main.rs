@@ -60,7 +60,7 @@ impl DagShell {
             "run" => self.cmd_run(&parts[1..])?,
             "cat" => self.cmd_cat(&parts[1..])?,
             "status" => self.cmd_status(&parts[1..])?,
-            "source" => self.cmd_source(&parts[1..])?,
+            "source" | "load" => self.cmd_source(&parts[1..])?,
             "reset" => self.cmd_reset()?,
             _ => {
                 println!("Unknown command: {}. Type 'help' for usage.", parts[0]);
@@ -98,7 +98,7 @@ Status:
   status <node>                       Node status
 
 Session:
-  source <file>                       Run script file
+  load <file>                         Run script file (alias: source)
   reset                               Clear all nodes and start fresh
   help                                Show this help
   quit                                Exit
