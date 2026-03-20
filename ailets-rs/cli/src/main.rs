@@ -43,36 +43,37 @@ impl DagShell {
 
     fn execute(&mut self, line: &str) -> Result<bool, String> {
         let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.is_empty() {
-            return Ok(true);
-        }
-
-        match parts[0] {
-            "quit" | "exit" | "q" => return Ok(false),
-            "help" | "?" => self.cmd_help(),
-            "set" => self.cmd_set(&parts[1..])?,
-            "node" => {
-                self.cmd_node(&parts[1..])?;
-            }
-            "dep" => self.cmd_dep(&parts[1..])?,
-            "deps" => self.cmd_deps(&parts[1..])?,
-            "show" => self.cmd_show(&parts[1..])?,
-            "run" => self.cmd_run(&parts[1..])?,
-            "cat" => self.cmd_cat(&parts[1..])?,
-            "status" => self.cmd_status(&parts[1..])?,
-            "source" | "load" => self.cmd_source(&parts[1..])?,
-            "reset" => self.cmd_reset()?,
-            _ => {
-                println!("Unknown command: {}. Type 'help' for usage.", parts[0]);
-            }
+        let (cmd, rest) = match parts.split_first() {
+            None => return Ok(true),
+            Some((cmd, rest)) => (*cmd, rest),
         };
+
+        match cmd {
+            "quit" | "exit" | "q" => return Ok(false),
+            "help" | "?" => Self::cmd_help(),
+            "set" => self.cmd_set(rest)?,
+            "node" => {
+                self.cmd_node(rest)?;
+            }
+            "dep" => self.cmd_dep(rest)?,
+            "deps" => self.cmd_deps(rest)?,
+            "show" => self.cmd_show(rest)?,
+            "run" => self.cmd_run(rest)?,
+            "cat" => self.cmd_cat(rest)?,
+            "status" => self.cmd_status(rest)?,
+            "source" | "load" => self.cmd_source(rest)?,
+            "reset" => self.cmd_reset(),
+            _ => {
+                println!("Unknown command: {cmd}. Type 'help' for usage.");
+            }
+        }
 
         Ok(true)
     }
 
-    fn cmd_help(&self) {
+    fn cmd_help() {
         println!(
-            r#"DAG Shell Commands:
+            r"DAG Shell Commands:
 
 Node Management:
   node add <actor> [--explain=text]   Add actor node (actors: cat)
@@ -105,38 +106,32 @@ Session:
 
 Variables:
   set var = node ...                  Assign node to variable
-  dep $foo $bar                       Use $var to reference variables"#
+  dep $foo $bar                       Use $var to reference variables"
         );
     }
 
     fn cmd_set(&mut self, args: &[&str]) -> Result<(), String> {
         // set var = node ...
-        if args.len() < 3 {
-            return Err("Usage: set <var> = node ...".to_string());
+        match args {
+            [var_name, "=", "node", rest @ ..] => {
+                let handle = self.cmd_node_inner(rest)?;
+                self.vars.insert((*var_name).to_string(), handle);
+                Ok(())
+            }
+            _ => Err("Usage: set <var> = node ...".to_string()),
         }
-        let var_name = args[0];
-        if args[1] != "=" {
-            return Err("Usage: set <var> = node ...".to_string());
-        }
-        // args[2..] should be a node command
-        if args.len() < 3 || args[2] != "node" {
-            return Err("Usage: set <var> = node ...".to_string());
-        }
-        let handle = self.cmd_node_inner(&args[3..])?;
-        self.vars.insert(var_name.to_string(), handle);
-        Ok(())
     }
 
     fn cmd_node(&mut self, args: &[&str]) -> Result<(), String> {
         if args.first() == Some(&"list") {
-            self.cmd_node_list()
+            self.cmd_node_list();
         } else {
             self.cmd_node_inner(args)?;
-            Ok(())
         }
+        Ok(())
     }
 
-    fn cmd_node_list(&self) -> Result<(), String> {
+    fn cmd_node_list(&self) {
         if self.handles.is_empty() {
             println!("No nodes");
         } else {
@@ -147,113 +142,97 @@ Variables:
                     let explain = node
                         .explain
                         .as_ref()
-                        .map(|e| format!(" # {}", e))
-                        .unwrap_or_default();
-                    println!(
-                        "  {} {} [{}]{}",
-                        node.pid.id(),
-                        node.idname,
-                        state_str,
-                        explain
-                    );
+                        .map_or_else(String::new, |e| format!(" # {e}"));
+                    let pid = node.pid.id();
+                    println!("  {pid} {} [{state_str}]{explain}", node.idname);
                 }
             }
         }
-        Ok(())
     }
 
     fn cmd_node_inner(&mut self, args: &[&str]) -> Result<Handle, String> {
-        if args.is_empty() {
-            return Err("Usage: node <add|value|alias|list> ...".to_string());
-        }
-
-        match args[0] {
-            "add" => {
-                if args.len() < 2 {
-                    return Err("Usage: node add <actor> [--explain=text]".to_string());
-                }
-                let actor = args[1].to_string();
-                let explain = self.parse_explain(&args[2..]);
+        match args {
+            ["add", actor, rest @ ..] => {
+                let actor = (*actor).to_string();
+                let explain = parse_explain(rest);
                 let handle = self.env.add_node(actor.clone(), &[], explain.clone());
                 self.handles.push(handle);
-                println!(
-                    "Added node {}: {} {}",
-                    handle.id(),
-                    actor,
-                    explain.map(|e| format!("({})", e)).unwrap_or_default()
-                );
+                let id = handle.id();
+                let expl = explain.map_or_else(String::new, |e| format!("({e})"));
+                println!("Added node {id}: {actor} {expl}");
                 Ok(handle)
             }
-            "value" => {
-                if args.len() < 2 {
-                    return Err("Usage: node value <data> [--explain=text]".to_string());
-                }
-                let data = self.parse_quoted_string(&args[1..]);
-                let explain = self.parse_explain(&args[1..]);
-                let handle = self.env.add_value_node(data.as_bytes().to_vec(), explain.clone());
+            ["add"] => Err("Usage: node add <actor> [--explain=text]".to_string()),
+            ["value", rest @ ..] if !rest.is_empty() => {
+                let data = parse_quoted_string(rest);
+                let explain = parse_explain(rest);
+                let handle = self
+                    .env
+                    .add_value_node(data.as_bytes().to_vec(), explain.clone());
                 self.handles.push(handle);
-                println!(
-                    "Added value node {}: \"{}\" {}",
-                    handle.id(),
-                    truncate(&data, 30),
-                    explain.map(|e| format!("({})", e)).unwrap_or_default()
-                );
+                let id = handle.id();
+                let truncated = truncate(&data, 30);
+                let expl = explain.map_or_else(String::new, |e| format!("({e})"));
+                println!("Added value node {id}: \"{truncated}\" {expl}");
                 Ok(handle)
             }
-            "alias" => {
-                if args.len() < 3 {
-                    return Err("Usage: node alias <name> <target>".to_string());
-                }
-                let name = args[1].to_string();
+            ["value"] => Err("Usage: node value <data> [--explain=text]".to_string()),
+            ["alias", name, target_str, ..] => {
+                let name = (*name).to_string();
                 let target = self
-                    .parse_handle(args[2])
-                    .ok_or_else(|| format!("Invalid handle: {}", args[2]))?;
+                    .parse_handle(target_str)
+                    .ok_or_else(|| format!("Invalid handle: {target_str}"))?;
                 let handle = self.env.add_alias(name.clone(), target);
                 self.handles.push(handle);
-                println!(
-                    "Added alias {}: {} -> {}",
-                    handle.id(),
-                    name,
-                    target.id()
-                );
+                let id = handle.id();
+                let tid = target.id();
+                println!("Added alias {id}: {name} -> {tid}");
                 Ok(handle)
             }
-            _ => Err(format!("Unknown node subcommand: {}", args[0])),
+            ["alias", ..] => Err("Usage: node alias <name> <target>".to_string()),
+            [cmd, ..] => Err(format!("Unknown node subcommand: {cmd}")),
+            [] => Err("Usage: node <add|value|alias|list> ...".to_string()),
         }
     }
 
     fn cmd_dep(&mut self, args: &[&str]) -> Result<(), String> {
-        if args.len() < 2 {
-            return Err("Usage: dep <node> <dependency>".to_string());
-        }
+        let (node_str, dep_str) = match args {
+            [n, d, ..] => (*n, *d),
+            _ => return Err("Usage: dep <node> <dependency>".to_string()),
+        };
         let node = self
-            .parse_handle(args[0])
-            .ok_or_else(|| format!("Invalid handle: {}", args[0]))?;
+            .parse_handle(node_str)
+            .ok_or_else(|| format!("Invalid handle: {node_str}"))?;
         let dep = self
-            .parse_handle(args[1])
-            .ok_or_else(|| format!("Invalid handle: {}", args[1]))?;
-        self.env.dag.write().add_dependency(For(node), DependsOn(dep));
-        println!("Added dependency: {} depends on {}", node.id(), dep.id());
+            .parse_handle(dep_str)
+            .ok_or_else(|| format!("Invalid handle: {dep_str}"))?;
+        self.env
+            .dag
+            .write()
+            .add_dependency(For(node), DependsOn(dep));
+        let nid = node.id();
+        let did = dep.id();
+        println!("Added dependency: {nid} depends on {did}");
         Ok(())
     }
 
     fn cmd_deps(&self, args: &[&str]) -> Result<(), String> {
-        if args.is_empty() {
-            return Err("Usage: deps <node>".to_string());
-        }
+        let handle_str = args.first().ok_or("Usage: deps <node>")?;
         let handle = self
-            .parse_handle(args[0])
-            .ok_or_else(|| format!("Invalid handle: {}", args[0]))?;
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
         let dag = self.env.dag.read();
         let deps: Vec<_> = dag.get_direct_dependencies(handle).collect();
+        let hid = handle.id();
         if deps.is_empty() {
-            println!("Node {} has no dependencies", handle.id());
+            println!("Node {hid} has no dependencies");
         } else {
-            println!("Node {} depends on:", handle.id());
+            println!("Node {hid} depends on:");
             for dep in deps {
                 let node = dag.get_node(dep);
-                let name = node.map(|n| n.idname.as_str()).unwrap_or("?");
-                println!("  {} ({})", dep.id(), name);
+                let name = node.map_or("?", |n| n.idname.as_str());
+                let did = dep.id();
+                println!("  {did} ({name})");
             }
         }
         Ok(())
@@ -275,31 +254,33 @@ Variables:
                 .collect();
             for handle in terminals {
                 let tree = dag.dump_colored(handle);
-                print!("{}", tree);
+                print!("{tree}");
             }
             return Ok(());
         }
+        let handle_str = args.first().ok_or("Usage: show <node>")?;
         let handle = self
-            .parse_handle(args[0])
-            .ok_or_else(|| format!("Invalid handle: {}", args[0]))?;
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
         let tree = dag.dump_colored(handle);
-        print!("{}", tree);
+        print!("{tree}");
         Ok(())
     }
 
     fn cmd_run(&mut self, args: &[&str]) -> Result<(), String> {
-        let handle = if args.is_empty() {
+        let handle = if let Some(handle_str) = args.first() {
+            self.parse_handle(handle_str)
+                .ok_or_else(|| format!("Invalid handle: {handle_str}"))?
+        } else {
             // Find last node
             *self
                 .handles
                 .last()
                 .ok_or_else(|| "No nodes to run".to_string())?
-        } else {
-            self.parse_handle(args[0])
-                .ok_or_else(|| format!("Invalid handle: {}", args[0]))?
         };
 
-        println!("Running DAG from node {}...", handle.id());
+        let hid = handle.id();
+        println!("Running DAG from node {hid}...");
 
         // Attach stdout to the target node
         let resolved = self.env.resolve(handle);
@@ -316,24 +297,23 @@ Variables:
     }
 
     fn cmd_cat(&self, args: &[&str]) -> Result<(), String> {
-        if args.is_empty() {
-            return Err("Usage: cat <node>".to_string());
-        }
+        let handle_str = args.first().ok_or("Usage: cat <node>")?;
         let handle = self
-            .parse_handle(args[0])
-            .ok_or_else(|| format!("Invalid handle: {}", args[0]))?;
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
+        let hid = handle.id();
         let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
         rt.block_on(async {
-            let path = format!("{}/stdout", handle.id());
+            let path = format!("{hid}/stdout");
             match self.kv.open(&path, OpenMode::Read).await {
                 Ok(buffer) => {
                     let guard = buffer.lock();
                     let text = String::from_utf8_lossy(&guard);
-                    println!("{}", text);
+                    println!("{text}");
                 }
                 Err(e) => {
-                    println!("No output available for node {}: {:?}", handle.id(), e);
+                    println!("No output available for node {hid}: {e:?}");
                 }
             }
         });
@@ -341,12 +321,9 @@ Variables:
     }
 
     fn cmd_source(&mut self, args: &[&str]) -> Result<(), String> {
-        if args.is_empty() {
-            return Err("Usage: source <file>".to_string());
-        }
-        let path = args[0];
+        let path = args.first().ok_or("Usage: source <file>")?;
         let content =
-            std::fs::read_to_string(path).map_err(|e| format!("Failed to read {}: {}", path, e))?;
+            std::fs::read_to_string(path).map_err(|e| format!("Failed to read {path}: {e}"))?;
 
         for line in content.lines() {
             let line = line.trim();
@@ -354,23 +331,22 @@ Variables:
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
-            println!("dagsh> {}", line);
+            println!("dagsh> {line}");
             match self.execute(line) {
                 Ok(true) => {}
                 Ok(false) => return Ok(()), // quit command
-                Err(e) => println!("Error: {}", e),
+                Err(e) => println!("Error: {e}"),
             }
         }
         Ok(())
     }
 
-    fn cmd_reset(&mut self) -> Result<(), String> {
+    fn cmd_reset(&mut self) {
         self.handles.clear();
         self.vars.clear();
         self.env = Environment::new(Arc::clone(&self.kv));
         self.env.actor_registry.register("cat", cat::execute);
         println!("DAG cleared.");
-        Ok(())
     }
 
     fn cmd_status(&self, args: &[&str]) -> Result<(), String> {
@@ -393,62 +369,55 @@ Variables:
                     }
                 }
             }
-            println!(
-                "Nodes: {} total, {} not started, {} running, {} terminated",
-                total, not_started, running, terminated
-            );
-        } else {
+            println!("Nodes: {total} total, {not_started} not started, {running} running, {terminated} terminated");
+        } else if let Some(handle_str) = args.first() {
             let handle = self
-                .parse_handle(args[0])
-                .ok_or_else(|| format!("Invalid handle: {}", args[0]))?;
+                .parse_handle(handle_str)
+                .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+            let hid = handle.id();
             if let Some(node) = dag.get_node(handle) {
-                println!(
-                    "Node {}: {} [{}]",
-                    handle.id(),
-                    node.idname,
-                    format_state(node.state)
-                );
+                let state = format_state(node.state);
+                println!("Node {hid}: {} [{state}]", node.idname);
             } else {
-                println!("Node {} not found", handle.id());
+                println!("Node {hid} not found");
             }
         }
         Ok(())
     }
+}
 
-    fn parse_explain(&self, args: &[&str]) -> Option<String> {
-        // Look for --explain= and collect the value (may span multiple args if quoted)
-        let joined = args.join(" ");
-        if let Some(pos) = joined.find("--explain=") {
-            let rest = &joined[pos + "--explain=".len()..];
-            if rest.starts_with('"') {
-                // Find closing quote
-                if let Some(end) = rest[1..].find('"') {
-                    return Some(rest[1..end + 1].to_string());
-                }
-                // No closing quote, take everything
-                return Some(rest[1..].to_string());
-            }
-            // No quotes, take until whitespace
-            let value = rest.split_whitespace().next().unwrap_or("");
-            return Some(value.to_string());
+fn parse_explain(args: &[&str]) -> Option<String> {
+    // Look for --explain= and collect the value (may span multiple args if quoted)
+    let joined = args.join(" ");
+    let rest = joined.strip_prefix("--explain=").or_else(|| {
+        joined
+            .find("--explain=")
+            .map(|pos| &joined[pos + "--explain=".len()..])
+    })?;
+    if let Some(quoted) = rest.strip_prefix('"') {
+        // Find closing quote
+        if let Some(end) = quoted.find('"') {
+            return quoted.get(..end).map(str::to_string);
         }
-        None
+        // No closing quote, take everything
+        return Some(quoted.to_string());
     }
+    // No quotes, take until whitespace
+    rest.split_whitespace().next().map(str::to_string)
+}
 
-    fn parse_quoted_string(&self, args: &[&str]) -> String {
-        // Parse first argument which may be quoted and span multiple tokens
-        let joined = args.join(" ");
+fn parse_quoted_string(args: &[&str]) -> String {
+    // Parse first argument which may be quoted and span multiple tokens
+    let joined = args.join(" ");
 
-        // Find where --explain starts (if present)
-        let value_part = if let Some(pos) = joined.find("--explain=") {
-            joined[..pos].trim()
-        } else {
-            joined.trim()
-        };
+    // Find where --explain starts (if present)
+    let value_part = joined.find("--explain=").map_or_else(
+        || joined.trim(),
+        |pos| joined.get(..pos).unwrap_or("").trim(),
+    );
 
-        // Remove surrounding quotes
-        value_part.trim_matches('"').to_string()
-    }
+    // Remove surrounding quotes
+    value_part.trim_matches('"').to_string()
 }
 
 fn format_state(state: NodeState) -> &'static str {
@@ -464,7 +433,9 @@ fn truncate(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         s.to_string()
     } else {
-        format!("{}...", &s[..max_len - 3])
+        // Take chars to avoid splitting multi-byte characters
+        let truncated: String = s.chars().take(max_len.saturating_sub(3)).collect();
+        format!("{truncated}...")
     }
 }
 
@@ -483,26 +454,27 @@ fn main() {
     let mut load_script: Option<String> = None;
     let mut i = 1;
     while i < args.len() {
-        match args[i].as_str() {
+        let Some(arg) = args.get(i) else { break };
+        match arg.as_str() {
             "-h" | "--help" => {
                 print_usage();
                 return;
             }
             "-l" | "--load" => {
-                if i + 1 >= args.len() {
+                let Some(path) = args.get(i + 1) else {
                     eprintln!("Error: --load requires a file argument");
                     std::process::exit(1);
-                }
-                load_script = Some(args[i + 1].clone());
+                };
+                load_script = Some(path.clone());
                 i += 2;
             }
-            arg if arg.starts_with('-') => {
-                eprintln!("Unknown option: {}", arg);
+            a if a.starts_with('-') => {
+                eprintln!("Unknown option: {a}");
                 print_usage();
                 std::process::exit(1);
             }
-            _ => {
-                eprintln!("Unexpected argument: {}", args[i]);
+            a => {
+                eprintln!("Unexpected argument: {a}");
                 print_usage();
                 std::process::exit(1);
             }
@@ -510,18 +482,20 @@ fn main() {
     }
 
     let mut shell = DagShell::new();
-    let mut rl = Editor::<(), rustyline::history::DefaultHistory>::new()
-        .expect("Failed to create editor");
-    rl.set_max_history_size(1000).unwrap();
+    let Ok(mut rl) = Editor::<(), rustyline::history::DefaultHistory>::new() else {
+        eprintln!("Failed to create editor");
+        std::process::exit(1);
+    };
+    let _ = rl.set_max_history_size(1000);
 
     println!("DAG Shell v0.1");
     println!("Type 'help' for available commands.\n");
 
     // Load script from command line argument if provided
     if let Some(script_path) = load_script {
-        println!("Loading {}...\n", script_path);
+        println!("Loading {script_path}...\n");
         if let Err(e) = shell.cmd_source(&[&script_path]) {
-            println!("Error: {}", e);
+            println!("Error: {e}");
         }
         println!();
     }
@@ -540,7 +514,7 @@ fn main() {
                         println!("Goodbye!");
                         break;
                     }
-                    Err(e) => println!("Error: {}", e),
+                    Err(e) => println!("Error: {e}"),
                 }
             }
             Err(ReadlineError::Interrupted) => {
@@ -551,7 +525,7 @@ fn main() {
                 break;
             }
             Err(err) => {
-                println!("Error: {:?}", err);
+                println!("Error: {err:?}");
                 break;
             }
         }
