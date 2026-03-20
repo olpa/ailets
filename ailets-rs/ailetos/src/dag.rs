@@ -147,6 +147,7 @@ impl Dag {
     fn dump_impl(&self, pid: Handle, use_colors: bool) -> String {
         let mut output = String::new();
         let mut visited = HashSet::new();
+        let mut printed = HashSet::new();
 
         // If starting from an alias, skip it and dump its resolved dependencies
         if let Some(node) = self.get_node(pid) {
@@ -162,13 +163,23 @@ impl Dag {
                         use_colors,
                         &mut output,
                         &mut visited,
+                        &mut printed,
                     );
                 }
                 return output;
             }
         }
 
-        self.dump_recursive(pid, "", true, true, use_colors, &mut output, &mut visited);
+        self.dump_recursive(
+            pid,
+            "",
+            true,
+            true,
+            use_colors,
+            &mut output,
+            &mut visited,
+            &mut printed,
+        );
         output
     }
 
@@ -182,6 +193,7 @@ impl Dag {
         use_colors: bool,
         output: &mut String,
         visited: &mut HashSet<Handle>,
+        printed: &mut HashSet<Handle>,
     ) {
         // ANSI color codes
         const GREEN: &str = "\x1b[32m";
@@ -194,6 +206,14 @@ impl Dag {
             let _ = writeln!(output, "{prefix}├── [PID {pid:?} not found]");
             return;
         };
+
+        // Check for cycles BEFORE printing the node
+        // This way we can still show the node but mark it as circular
+        let is_circular = visited.contains(&pid);
+
+        // Check if node was already printed with its dependencies
+        let has_deps = self.get_direct_dependencies(pid).next().is_some();
+        let already_printed = printed.contains(&pid) && has_deps;
 
         // Format the current node line (root nodes have no connector)
         let connector = if is_root {
@@ -225,33 +245,37 @@ impl Dag {
             .as_ref()
             .map(|e| format!(" # {e}"))
             .unwrap_or_default();
+
+        let circular_suffix = if is_circular {
+            " [circular reference]"
+        } else if already_printed {
+            " [see above]"
+        } else {
+            ""
+        };
+
         let _ = writeln!(
             output,
-            "{prefix}{connector}{}.{} [{state_symbol}]{explain_suffix}",
+            "{prefix}{connector}{}.{} [{state_symbol}]{explain_suffix}{circular_suffix}",
             node.idname,
             node.pid.id()
         );
 
-        // Check for cycles
-        if visited.contains(&pid) {
-            let extension = if is_root {
-                ""
-            } else if is_last {
-                "    "
-            } else {
-                "│   "
-            };
-            let _ = writeln!(output, "{prefix}{extension}[circular reference]");
+        // If circular or already printed with deps, stop recursing here
+        if is_circular || already_printed {
             return;
         }
         visited.insert(pid);
 
-        // Get resolved dependencies (aliases are resolved to concrete nodes)
-        let deps: Vec<Handle> = self.resolve_dependencies(pid).collect();
+        // Get direct dependencies (not resolved) to handle cycles better
+        let deps: Vec<Handle> = self.get_direct_dependencies(pid).collect();
         if deps.is_empty() {
             visited.remove(&pid);
             return;
         }
+
+        // Mark this node as printed before recursing into children
+        printed.insert(pid);
 
         // Prepare prefix for children (root nodes have no prefix extension)
         let child_prefix = if is_root {
@@ -263,6 +287,30 @@ impl Dag {
         // Recursively dump dependencies
         for (idx, &dep_pid) in deps.iter().enumerate() {
             let is_last_child = idx == deps.len() - 1;
+
+            // Check if this dependency is an alias - if so, resolve and recurse into targets
+            if let Some(dep_node) = self.get_node(dep_pid) {
+                if dep_node.kind == NodeKind::Alias {
+                    // For aliases, expand to their targets
+                    let alias_targets: Vec<Handle> =
+                        self.get_direct_dependencies(dep_pid).collect();
+                    for (alias_idx, &target_pid) in alias_targets.iter().enumerate() {
+                        let is_last_target = alias_idx == alias_targets.len() - 1 && is_last_child;
+                        self.dump_recursive(
+                            target_pid,
+                            &child_prefix,
+                            is_last_target,
+                            false,
+                            use_colors,
+                            output,
+                            visited,
+                            printed,
+                        );
+                    }
+                    continue;
+                }
+            }
+
             self.dump_recursive(
                 dep_pid,
                 &child_prefix,
@@ -271,6 +319,7 @@ impl Dag {
                 use_colors,
                 output,
                 visited,
+                printed,
             );
         }
 

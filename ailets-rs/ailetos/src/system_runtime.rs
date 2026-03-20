@@ -77,7 +77,9 @@ use std::sync::Arc;
 use futures::stream::{FuturesUnordered, StreamExt};
 use parking_lot::RwLock;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, error, trace, warn};
+#[cfg(debug_assertions)]
+use tracing::error;
+use tracing::{debug, trace, warn};
 
 use crate::attachments::{AttachmentConfig, AttachmentManager};
 use crate::dag::{Dag, NodeState, OwnedDependencyIterator};
@@ -139,14 +141,17 @@ impl SendableBuffer {
     /// the pointer. This violates the safety contract and indicates a serious programming error.
     #[must_use]
     pub fn into_raw(self) -> *mut [u8] {
-        let already_consumed = self
-            .consumed
-            .swap(true, std::sync::atomic::Ordering::SeqCst);
-        if already_consumed {
-            error!(
-                "CRITICAL: SendableBuffer used twice - safety contract violated! \
-                 This may lead to use-after-free or double-free bugs."
-            );
+        #[cfg(debug_assertions)]
+        {
+            let already_consumed = self
+                .consumed
+                .swap(true, std::sync::atomic::Ordering::SeqCst);
+            if already_consumed {
+                error!(
+                    "CRITICAL: SendableBuffer used twice - safety contract violated! \
+                     This may lead to use-after-free or double-free bugs."
+                );
+            }
         }
         self.ptr
     }

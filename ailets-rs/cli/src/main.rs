@@ -252,9 +252,18 @@ Variables:
                 .filter(|&&h| dag.get_direct_dependents(h).next().is_none())
                 .copied()
                 .collect();
-            for handle in terminals {
-                let tree = dag.dump_colored(handle);
-                print!("{tree}");
+
+            // If no terminals (e.g., due to circular dependencies), show all nodes
+            if terminals.is_empty() {
+                for handle in &self.handles {
+                    let tree = dag.dump_colored(*handle);
+                    print!("{tree}");
+                }
+            } else {
+                for handle in terminals {
+                    let tree = dag.dump_colored(handle);
+                    print!("{tree}");
+                }
             }
             return Ok(());
         }
