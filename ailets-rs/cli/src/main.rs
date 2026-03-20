@@ -128,7 +128,37 @@ Variables:
     }
 
     fn cmd_node(&mut self, args: &[&str]) -> Result<(), String> {
-        self.cmd_node_inner(args)?;
+        if args.first() == Some(&"list") {
+            self.cmd_node_list()
+        } else {
+            self.cmd_node_inner(args)?;
+            Ok(())
+        }
+    }
+
+    fn cmd_node_list(&self) -> Result<(), String> {
+        if self.handles.is_empty() {
+            println!("No nodes");
+        } else {
+            let dag = self.env.dag.read();
+            for &handle in &self.handles {
+                if let Some(node) = dag.get_node(handle) {
+                    let state_str = format_state(node.state);
+                    let explain = node
+                        .explain
+                        .as_ref()
+                        .map(|e| format!(" # {}", e))
+                        .unwrap_or_default();
+                    println!(
+                        "  {} {} [{}]{}",
+                        node.pid.id(),
+                        node.idname,
+                        state_str,
+                        explain
+                    );
+                }
+            }
+        }
         Ok(())
     }
 
@@ -187,31 +217,6 @@ Variables:
                     target.id()
                 );
                 Ok(handle)
-            }
-            "list" => {
-                if self.handles.is_empty() {
-                    println!("No nodes");
-                } else {
-                    let dag = self.env.dag.read();
-                    for &handle in &self.handles {
-                        if let Some(node) = dag.get_node(handle) {
-                            let state_str = format_state(node.state);
-                            let explain = node
-                                .explain
-                                .as_ref()
-                                .map(|e| format!(" # {}", e))
-                                .unwrap_or_default();
-                            println!(
-                                "  {} {} [{}]{}",
-                                node.pid.id(),
-                                node.idname,
-                                state_str,
-                                explain
-                            );
-                        }
-                    }
-                }
-                Err("node list does not return a handle".to_string())
             }
             _ => Err(format!("Unknown node subcommand: {}", args[0])),
         }
