@@ -102,6 +102,9 @@ async fn main() {
     // Run the system
     env.run(end_node).await;
 
+    // Drop environment to release KV reference
+    drop(env);
+
     // Shutdown the KV store
     Arc::try_unwrap(kv)
         .unwrap_or_else(|_| panic!("KV still has other references"))
