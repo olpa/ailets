@@ -666,3 +666,76 @@ fn test_dump_starting_from_alias_with_multiple_targets() {
         lines[1]
     );
 }
+
+// --------------------------------------------------------------------
+// Shared Dependency Tests
+//
+
+#[test]
+fn test_dump_shared_dependency_with_children_shows_reference() {
+    // When a node with dependencies appears multiple times in the tree,
+    // the second occurrence should show a reference instead of expanding again
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
+
+    let leaf = dag.add_node("leaf".to_string(), NodeKind::Concrete);
+    let shared = dag.add_node("shared".to_string(), NodeKind::Concrete);
+    dag.add_dependency(For(shared), DependsOn(leaf));
+
+    let branch1 = dag.add_node("branch1".to_string(), NodeKind::Concrete);
+    let branch2 = dag.add_node("branch2".to_string(), NodeKind::Concrete);
+    dag.add_dependency(For(branch1), DependsOn(shared));
+    dag.add_dependency(For(branch2), DependsOn(shared));
+
+    let root = dag.add_node("root".to_string(), NodeKind::Concrete);
+    dag.add_dependency(For(root), DependsOn(branch1));
+    dag.add_dependency(For(root), DependsOn(branch2));
+
+    let output = dag.dump(root);
+
+    // The first occurrence of "shared" should show its dependency on "leaf"
+    // The second occurrence should show "[see above]" or similar
+    assert!(output.contains("shared"), "Should contain shared node");
+    assert!(output.contains("leaf"), "Should contain leaf node");
+
+    // Count occurrences of "leaf" - should appear only once
+    let leaf_count = output.matches("leaf").count();
+    assert_eq!(leaf_count, 1, "Leaf should appear only once, not be duplicated. Output:\n{}", output);
+
+    // The second occurrence of shared should have a reference marker
+    let shared_count = output.matches("shared").count();
+    assert_eq!(shared_count, 2, "Shared should appear twice");
+
+    // Should contain some kind of reference marker on second occurrence
+    assert!(output.contains("[see above]") || output.contains("[already shown]"),
+            "Should contain reference marker. Output:\n{}", output);
+}
+
+#[test]
+fn test_dump_shared_dependency_without_children_shows_node() {
+    // When a leaf node (no dependencies) appears multiple times,
+    // it's simpler to just show it each time
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
+
+    let shared_leaf = dag.add_node("shared_leaf".to_string(), NodeKind::Concrete);
+
+    let branch1 = dag.add_node("branch1".to_string(), NodeKind::Concrete);
+    let branch2 = dag.add_node("branch2".to_string(), NodeKind::Concrete);
+    dag.add_dependency(For(branch1), DependsOn(shared_leaf));
+    dag.add_dependency(For(branch2), DependsOn(shared_leaf));
+
+    let root = dag.add_node("root".to_string(), NodeKind::Concrete);
+    dag.add_dependency(For(root), DependsOn(branch1));
+    dag.add_dependency(For(root), DependsOn(branch2));
+
+    let output = dag.dump(root);
+
+    // Leaf node should appear twice (once under each branch)
+    let leaf_count = output.matches("shared_leaf").count();
+    assert_eq!(leaf_count, 2, "Leaf without dependencies should appear twice. Output:\n{}", output);
+
+    // Should NOT contain reference markers for leaves
+    assert!(!output.contains("[see above]"), "Should not have reference marker for leaves");
+    assert!(!output.contains("[already shown]"), "Should not have reference marker for leaves");
+}

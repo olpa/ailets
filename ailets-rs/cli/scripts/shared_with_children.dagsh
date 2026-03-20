@@ -1,0 +1,17 @@
+# Shared dependencies with children
+# Demonstrates [see above] marker for nodes with dependencies
+
+set leaf = node value "leaf"
+set shared = node add cat
+dep $shared $leaf
+
+set branch1 = node add cat
+set branch2 = node add cat
+dep $branch1 $shared
+dep $branch2 $shared
+
+set top = node add cat
+dep $top $branch1
+dep $top $branch2
+
+show

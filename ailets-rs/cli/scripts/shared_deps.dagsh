@@ -1,0 +1,55 @@
+# Shared dependencies example
+# Demonstrates how the same nodes appear multiple times in the tree
+
+# Create base nodes
+set v1 = node value "shared value"
+set c1 = node add cat
+set v2 = node value "another value"
+
+# Create aliases
+set alias_v = node alias "val_alias" $v1
+set alias_c = node alias "cat_alias" $c1
+
+# 1. Value node as duplicate dep: multiple nodes depend on same value
+set n1 = node add cat
+set n2 = node add cat
+dep $n1 $v1
+dep $n2 $v1
+
+# 2. Cat node as duplicate dep: multiple nodes depend on same cat
+set n3 = node add cat
+set n4 = node add cat
+dep $n3 $c1
+dep $n4 $c1
+
+# 3. Alias as duplicate: multiple nodes depend on same alias
+set n5 = node add cat
+set n6 = node add cat
+dep $n5 $alias_v
+dep $n6 $alias_v
+
+# 4. Value as dup through alias: some depend directly, some through alias
+set n7 = node add cat
+set n8 = node add cat
+dep $n7 $v2
+dep $n8 $alias_v
+dep $n8 $v1
+
+# 5. Cat as dup through alias: some depend directly, some through alias
+set n9 = node add cat
+dep $n9 $c1
+dep $n9 $alias_c
+
+# Create top node that depends on all the above
+set top = node add cat
+dep $top $n1
+dep $top $n2
+dep $top $n3
+dep $top $n4
+dep $top $n5
+dep $top $n6
+dep $top $n7
+dep $top $n8
+dep $top $n9
+
+show
