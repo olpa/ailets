@@ -1,47 +1,62 @@
 # Shared dependencies example
 # Demonstrates how the same nodes appear multiple times in the tree
 
-# Create base nodes
-set v1 = node value "shared value"
-set c1 = node add cat
-set v2 = node value "another value"
+# Example 1: Shared node with children - shows [see above] marker
+set leaf = node value "leaf" --explain="leaf data"
+set shared = node add cat --explain="shared with children"
+dep $shared $leaf
 
-# Create aliases
+set branch1 = node add cat --explain="branch1 -> shared"
+set branch2 = node add cat --explain="branch2 -> shared [see above]"
+dep $branch1 $shared
+dep $branch2 $shared
+
+# Example 2: Multiple patterns of shared dependencies
+set v1 = node value "shared value" --explain="shared leaf value"
+
+# Create c1 with its dependency FIRST, before any aliases or uses
+set c1_leaf = node value "c1 data" --explain="c1's leaf"
+set c1 = node add cat --explain="cat with deps"
+dep $c1 $c1_leaf
+
+set v2 = node value "another value" --explain="duplicate dep value"
+
 set alias_v = node alias "val_alias" $v1
 set alias_c = node alias "cat_alias" $c1
 
 # 1. Value node as duplicate dep: multiple nodes depend on same value
-set n1 = node add cat
-set n2 = node add cat
+set n1 = node add cat --explain="uses v1 directly"
+set n2 = node add cat --explain="uses v1 directly too"
 dep $n1 $v1
 dep $n2 $v1
 
-# 2. Cat node as duplicate dep: multiple nodes depend on same cat
-set n3 = node add cat
-set n4 = node add cat
+# 2. Cat node with deps: appears directly and through alias
+set n3 = node add cat --explain="uses c1 directly"
+set n4 = node add cat --explain="uses c1 via alias [see above]"
 dep $n3 $c1
-dep $n4 $c1
+dep $n4 $alias_c
 
 # 3. Alias as duplicate: multiple nodes depend on same alias
-set n5 = node add cat
-set n6 = node add cat
+set n5 = node add cat --explain="uses v1 via alias"
+set n6 = node add cat --explain="uses v1 via alias too"
 dep $n5 $alias_v
 dep $n6 $alias_v
 
-# 4. Value as dup through alias: some depend directly, some through alias
-set n7 = node add cat
-set n8 = node add cat
-dep $n7 $v2
+# 4. Value as dup through alias: one directly, one through alias
+set n7 = node add cat --explain="uses v1 directly"
+set n8 = node add cat --explain="uses v1 via alias"
+dep $n7 $v1
 dep $n8 $alias_v
-dep $n8 $v1
 
-# 5. Cat as dup through alias: some depend directly, some through alias
-set n9 = node add cat
-dep $n9 $c1
-dep $n9 $alias_c
+# 5. Multiple dependencies on same node from one parent
+set n9 = node add cat --explain="double dep on v2"
+dep $n9 $v2
+dep $n9 $v2
 
-# Create top node that depends on all the above
-set top = node add cat
+# Single top node that depends on everything
+set top = node add cat --explain="top node"
+dep $top $branch1
+dep $top $branch2
 dep $top $n1
 dep $top $n2
 dep $top $n3
