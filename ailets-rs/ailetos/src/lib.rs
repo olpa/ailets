@@ -45,4 +45,4 @@ pub use stub_actor_runtime::BlockingActorRuntime;
 pub use environment::{ActorFn, ActorRegistry, Environment, ValueNodeData};
 
 // Re-export scheduler
-pub use scheduler::Scheduler;
+pub use scheduler::{RunOptions, Scheduler};
