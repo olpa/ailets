@@ -3,9 +3,9 @@ use std::collections::HashSet;
 use crate::dag::{Dag, NodeKind};
 use crate::idgen::Handle;
 
-/// Options to control DAG iteration behavior
+/// Conditions for stopping DAG iteration
 #[derive(Debug, Clone, Default)]
-pub struct RunOptions {
+pub struct StopConditions {
     /// Execute only the first ready node, then stop
     pub one_step: bool,
     /// Stop before executing this node
@@ -17,7 +17,7 @@ pub struct RunOptions {
 pub struct Scheduler<'a> {
     dag: &'a Dag,
     target: Handle,
-    options: RunOptions,
+    stop_conditions: StopConditions,
 }
 
 impl<'a> Scheduler<'a> {
@@ -26,23 +26,23 @@ impl<'a> Scheduler<'a> {
         Self {
             dag,
             target,
-            options: RunOptions::default(),
+            stop_conditions: StopConditions::default(),
         }
     }
 
     #[must_use]
-    pub fn with_options(dag: &'a Dag, target: Handle, options: RunOptions) -> Self {
+    pub fn with_stop_conditions(dag: &'a Dag, target: Handle, stop_conditions: StopConditions) -> Self {
         Self {
             dag,
             target,
-            options,
+            stop_conditions,
         }
     }
 
     /// Returns iterator over nodes needed to build target (topological order).
     /// Dependencies are yielded before dependents.
     pub fn iter(&self) -> impl Iterator<Item = Handle> + '_ {
-        SchedulerIter::new(self.dag, self.target, self.options.clone())
+        SchedulerIter::new(self.dag, self.target, self.stop_conditions.clone())
     }
 }
 
@@ -54,11 +54,11 @@ struct SchedulerIter<'a> {
     done: bool,
     result_index: usize,
     stopped: bool,
-    options: RunOptions,
+    stop_conditions: StopConditions,
 }
 
 impl<'a> SchedulerIter<'a> {
-    fn new(dag: &'a Dag, target: Handle, options: RunOptions) -> Self {
+    fn new(dag: &'a Dag, target: Handle, stop_conditions: StopConditions) -> Self {
         Self {
             dag,
             stack: vec![target],
@@ -67,7 +67,7 @@ impl<'a> SchedulerIter<'a> {
             done: false,
             result_index: 0,
             stopped: false,
-            options,
+            stop_conditions,
         }
     }
 
@@ -121,7 +121,7 @@ impl Iterator for SchedulerIter<'_> {
         let node = self.result[self.result_index];
 
         // Check stop_before - don't yield this node
-        if self.options.stop_before == Some(node) {
+        if self.stop_conditions.stop_before == Some(node) {
             self.stopped = true;
             return None;
         }
@@ -129,12 +129,12 @@ impl Iterator for SchedulerIter<'_> {
         self.result_index += 1;
 
         // Check one_step - stop after first node
-        if self.options.one_step {
+        if self.stop_conditions.one_step {
             self.stopped = true;
         }
 
         // Check stop_after - yield but stop after
-        if self.options.stop_after == Some(node) {
+        if self.stop_conditions.stop_after == Some(node) {
             self.stopped = true;
         }
 

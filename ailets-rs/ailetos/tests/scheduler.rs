@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use ailetos::dag::{Dag, DependsOn, For, NodeKind};
-use ailetos::scheduler::{RunOptions, Scheduler};
+use ailetos::scheduler::{Scheduler, StopConditions};
 use ailetos::IdGen;
 
 fn create_linear_dag() -> (Dag, Vec<ailetos::Handle>) {
@@ -26,13 +26,13 @@ fn test_one_step_executes_only_first_node() {
     let (dag, nodes) = create_linear_dag();
     let [node1, _, _, node4] = [nodes[0], nodes[1], nodes[2], nodes[3]];
 
-    let options = RunOptions {
+    let stop_conditions = StopConditions {
         one_step: true,
         stop_before: None,
         stop_after: None,
     };
 
-    let scheduler = Scheduler::with_options(&dag, node4, options);
+    let scheduler = Scheduler::with_stop_conditions(&dag, node4, stop_conditions);
     let executed: Vec<_> = scheduler.iter().collect();
 
     assert_eq!(executed.len(), 1, "one_step should execute only one node");
@@ -44,13 +44,13 @@ fn test_stop_before_excludes_target_node() {
     let (dag, nodes) = create_linear_dag();
     let [node1, node2, node3, node4] = [nodes[0], nodes[1], nodes[2], nodes[3]];
 
-    let options = RunOptions {
+    let stop_conditions = StopConditions {
         one_step: false,
         stop_before: Some(node3),
         stop_after: None,
     };
 
-    let scheduler = Scheduler::with_options(&dag, node4, options);
+    let scheduler = Scheduler::with_stop_conditions(&dag, node4, stop_conditions);
     let executed: Vec<_> = scheduler.iter().collect();
 
     assert_eq!(
@@ -65,13 +65,13 @@ fn test_stop_after_includes_target_node() {
     let (dag, nodes) = create_linear_dag();
     let [node1, node2, _node3, node4] = [nodes[0], nodes[1], nodes[2], nodes[3]];
 
-    let options = RunOptions {
+    let stop_conditions = StopConditions {
         one_step: false,
         stop_before: None,
         stop_after: Some(node2),
     };
 
-    let scheduler = Scheduler::with_options(&dag, node4, options);
+    let scheduler = Scheduler::with_stop_conditions(&dag, node4, stop_conditions);
     let executed: Vec<_> = scheduler.iter().collect();
 
     assert_eq!(

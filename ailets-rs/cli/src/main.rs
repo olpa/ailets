@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ailetos::{
-    DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState, OpenMode, RunOptions,
+    DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState, OpenMode, StopConditions,
 };
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
@@ -332,7 +332,7 @@ Variables:
         let resolved = self.env.resolve(handle);
         self.env.attach_stdout(resolved);
 
-        let options = RunOptions {
+        let stop_conditions = StopConditions {
             one_step,
             stop_before,
             stop_after,
@@ -341,7 +341,7 @@ Variables:
         // Run synchronously using tokio runtime
         let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
         rt.block_on(async {
-            self.env.run(handle, options).await;
+            self.env.run(handle, stop_conditions).await;
         });
 
         println!("\nDAG execution completed.");
