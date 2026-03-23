@@ -1,0 +1,23 @@
+# Partial run: demonstrate stop conditions
+#
+# Creates a linear pipeline: v1 -- c1 -- c2 -- c3
+#
+# Try these commands after loading:
+#   run --one-step           # Run only v1
+#   run --stop-before $c2    # Run v1, c1
+#   run --stop-after $c1     # Run v1, c1
+#   run                      # Run remaining nodes
+
+set v1 = node value "hello" --explain="Input"
+
+set c1 = node add cat --explain="Step 1"
+dep $c1 $v1
+
+set c2 = node add cat --explain="Step 2"
+dep $c2 $c1
+
+set c3 = node add cat --explain="Step 3"
+dep $c3 $c2
+
+show
+status
