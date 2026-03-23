@@ -5,7 +5,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use ailetos::{DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState, OpenMode};
+use ailetos::{
+    DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState, OpenMode, RunOptions,
+};
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
@@ -89,7 +91,10 @@ Visualization:
   show [node]                         Tree view (default: whole DAG)
 
 Execution:
-  run [node]                          Run the DAG (default: last node)
+  run [node] [options]                Run the DAG (default: last node)
+    --one-step                        Execute only the first ready node
+    --stop-before <node>              Stop before executing this node
+    --stop-after <node>               Stop after executing this node
 
 I/O:
   cat <node>                          Show output of a node
@@ -277,11 +282,43 @@ Variables:
     }
 
     fn cmd_run(&mut self, args: &[&str]) -> Result<(), String> {
-        let handle = if let Some(handle_str) = args.first() {
-            self.parse_handle(handle_str)
-                .ok_or_else(|| format!("Invalid handle: {handle_str}"))?
+        let mut one_step = false;
+        let mut stop_before: Option<Handle> = None;
+        let mut stop_after: Option<Handle> = None;
+        let mut target_arg: Option<&str> = None;
+
+        // Parse arguments
+        let mut i = 0;
+        while i < args.len() {
+            match args[i] {
+                "--one-step" => one_step = true,
+                "--stop-before" => {
+                    i += 1;
+                    let h = args.get(i).ok_or("--stop-before requires a node")?;
+                    stop_before = Some(
+                        self.parse_handle(h)
+                            .ok_or_else(|| format!("Invalid handle: {h}"))?,
+                    );
+                }
+                "--stop-after" => {
+                    i += 1;
+                    let h = args.get(i).ok_or("--stop-after requires a node")?;
+                    stop_after = Some(
+                        self.parse_handle(h)
+                            .ok_or_else(|| format!("Invalid handle: {h}"))?,
+                    );
+                }
+                arg if !arg.starts_with("--") => {
+                    target_arg = Some(arg);
+                }
+                other => return Err(format!("Unknown option: {other}")),
+            }
+            i += 1;
+        }
+
+        let handle = if let Some(h) = target_arg {
+            self.parse_handle(h).ok_or_else(|| format!("Invalid handle: {h}"))?
         } else {
-            // Find last node
             *self
                 .handles
                 .last()
@@ -295,10 +332,16 @@ Variables:
         let resolved = self.env.resolve(handle);
         self.env.attach_stdout(resolved);
 
+        let options = RunOptions {
+            one_step,
+            stop_before,
+            stop_after,
+        };
+
         // Run synchronously using tokio runtime
         let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
         rt.block_on(async {
-            self.env.run(handle).await;
+            self.env.run(handle, options).await;
         });
 
         println!("\nDAG execution completed.");

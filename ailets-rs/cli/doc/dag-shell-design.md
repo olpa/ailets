@@ -61,7 +61,10 @@ $var                                 Reference variable in commands
 show [node]                          Tree view (default: whole DAG)
 
 # Execution
-run [node]                           Run the DAG (default: last node)
+run [node] [options]                 Run the DAG (default: last node)
+  --one-step                         Execute only the first ready node
+  --stop-before <node>               Stop before executing this node
+  --stop-after <node>                Stop after executing this node
 
 # I/O
 cat <node>                           Show output of a node
@@ -111,6 +114,22 @@ set cat1 = node add cat
 dep $cat1 $val
 
 run
+```
+
+### Execution Control Examples
+
+```
+# Run one node at a time (step through)
+dagsh> run --one-step
+
+# Run up to but not including node 5
+dagsh> run --stop-before 5
+
+# Run through node 3, then stop
+dagsh> run --stop-after $my_node
+
+# Combine: run to node 5, but only one step at a time
+dagsh> run --one-step --stop-before 5
 ```
 
 ## Future Plans

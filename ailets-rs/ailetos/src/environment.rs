@@ -15,7 +15,7 @@ use tracing::{debug, error, warn};
 
 use crate::dag::{Dag, DependsOn, For, NodeKind, NodeState};
 use crate::idgen::{Handle, IdGen};
-use crate::scheduler::Scheduler;
+use crate::scheduler::{RunOptions, Scheduler};
 use crate::{BlockingActorRuntime, IoRequest, KVBuffers, SystemRuntime};
 
 /// Value node data - bytes to write to the node's output pipe
@@ -256,12 +256,13 @@ impl<K: KVBuffers> Environment<K> {
     fn spawn_actor_tasks(
         dag: &Arc<RwLock<Dag>>,
         target: Handle,
+        options: &RunOptions,
         system_tx: &mpsc::UnboundedSender<IoRequest>,
         actor_registry: &ActorRegistry,
         value_nodes: &HashMap<Handle, ValueNodeData>,
     ) -> Vec<tokio::task::JoinHandle<()>> {
         let dag_guard = dag.read();
-        let scheduler = Scheduler::new(&dag_guard, target);
+        let scheduler = Scheduler::with_options(&dag_guard, target, options.clone());
         let mut tasks = Vec::new();
 
         for node_handle in scheduler.iter() {
@@ -299,7 +300,7 @@ impl<K: KVBuffers> Environment<K> {
     }
 
     /// Run the system: spawn system runtime and actor tasks, wait for completion
-    pub async fn run(&mut self, target: Handle)
+    pub async fn run(&mut self, target: Handle, options: RunOptions)
     where
         K: 'static,
     {
@@ -326,6 +327,7 @@ impl<K: KVBuffers> Environment<K> {
         let actor_tasks = Self::spawn_actor_tasks(
             &self.dag,
             target,
+            &options,
             &system_tx,
             &self.actor_registry,
             &self.value_nodes,
