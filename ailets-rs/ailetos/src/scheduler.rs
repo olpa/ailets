@@ -46,6 +46,10 @@ impl<'a> Scheduler<'a> {
     }
 }
 
+/// Iterator that yields nodes in topological order.
+///
+/// On first `next()`, computes full order into `result`. Then yields nodes
+/// one by one via `result_index`. The `stopped` flag allows early termination.
 struct SchedulerIter<'a> {
     dag: &'a Dag,
     stack: Vec<Handle>,
