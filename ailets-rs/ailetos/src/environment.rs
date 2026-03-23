@@ -262,7 +262,8 @@ impl<K: KVBuffers> Environment<K> {
         value_nodes: &HashMap<Handle, ValueNodeData>,
     ) -> Vec<tokio::task::JoinHandle<()>> {
         let dag_guard = dag.read();
-        let scheduler = Scheduler::with_stop_conditions(&dag_guard, target, stop_conditions.clone());
+        let scheduler =
+            Scheduler::with_stop_conditions(&dag_guard, target, stop_conditions.clone());
         let mut tasks = Vec::new();
 
         for node_handle in scheduler.iter() {

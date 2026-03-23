@@ -31,7 +31,11 @@ impl<'a> Scheduler<'a> {
     }
 
     #[must_use]
-    pub fn with_stop_conditions(dag: &'a Dag, target: Handle, stop_conditions: StopConditions) -> Self {
+    pub fn with_stop_conditions(
+        dag: &'a Dag,
+        target: Handle,
+        stop_conditions: StopConditions,
+    ) -> Self {
         Self {
             dag,
             target,
@@ -118,11 +122,11 @@ impl Iterator for SchedulerIter<'_> {
             self.build_order();
         }
 
-        if self.stopped || self.result_index >= self.result.len() {
+        if self.stopped {
             return None;
         }
 
-        let node = self.result[self.result_index];
+        let node = *self.result.get(self.result_index)?;
 
         // Check stop_before - don't yield this node
         if self.stop_conditions.stop_before == Some(node) {
