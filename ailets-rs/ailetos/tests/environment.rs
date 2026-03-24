@@ -11,7 +11,8 @@ fn test_value_node_is_built_at_creation() {
 
     let handle = env.add_value_node(b"test data".to_vec(), Some("Test value".to_string()));
 
-    let node = env.dag.get_node(handle).expect("Node should exist");
+    let dag = env.dag.read();
+    let node = dag.get_node(handle).expect("Node should exist");
     assert_eq!(
         node.state,
         NodeState::Terminated,
