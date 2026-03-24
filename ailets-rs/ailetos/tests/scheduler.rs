@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use ailetos::dag::{Dag, DependsOn, For, NodeKind};
+use ailetos::dag::{Dag, DependsOn, For, NodeKind, NodeState};
 use ailetos::scheduler::{Scheduler, StopConditions};
 use ailetos::IdGen;
 
@@ -78,5 +78,29 @@ fn test_stop_after_includes_target_node() {
         executed,
         vec![node1, node2],
         "stop_after should execute through node2 and then stop"
+    );
+}
+
+#[test]
+fn test_one_step_skips_already_terminated_nodes() {
+    let (mut dag, nodes) = create_linear_dag();
+    let [node1, node2, _node3, node4] = [nodes[0], nodes[1], nodes[2], nodes[3]];
+
+    // Mark node1 as already terminated (e.g., it's a value node that was created as terminated)
+    dag.set_state(node1, NodeState::Terminated);
+
+    let stop_conditions = StopConditions {
+        one_step: true,
+        stop_before: None,
+        stop_after: None,
+    };
+
+    let scheduler = Scheduler::with_stop_conditions(&dag, node4, stop_conditions);
+    let executed: Vec<_> = scheduler.iter().collect();
+
+    assert_eq!(executed.len(), 1, "one_step should execute only one node");
+    assert_eq!(
+        executed[0], node2,
+        "Should skip already-terminated node1 and execute node2"
     );
 }
