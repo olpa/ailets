@@ -108,14 +108,34 @@ impl<K: KVBuffers> Environment<K> {
     ///
     /// # Returns
     /// The handle to the created node
-    pub fn add_value_node(&mut self, data: Vec<u8>, explain: Option<String>) -> Handle {
-        let mut dag = self.dag.write();
-        let handle = dag.add_node_with_explain("value".into(), NodeKind::Concrete, explain);
+    pub async fn add_value_node(&mut self, data: Vec<u8>, explain: Option<String>) -> Handle {
+        use crate::storage::OpenMode;
+        use actor_runtime::StdHandle;
 
-        // Value nodes are considered "built" at creation since their output is static
-        dag.set_state(handle, NodeState::Terminated);
+        let handle = {
+            let mut dag = self.dag.write();
+            let handle = dag.add_node_with_explain("value".into(), NodeKind::Concrete, explain);
 
-        self.value_nodes.insert(handle, ValueNodeData { data });
+            // Value nodes are considered "built" at creation since their output is static
+            dag.set_state(handle, NodeState::Terminated);
+            handle
+        };
+
+        self.value_nodes.insert(handle, ValueNodeData { data: data.clone() });
+
+        // Write data to KV storage immediately (spec://executor.md#immediate-values)
+        let path = format!("pipes/actor-{}-{:?}", handle.id(), StdHandle::Stdout);
+        if let Ok(buffer) = self.kv.open(&path, OpenMode::Write).await {
+            if let Err(e) = buffer.append(&data) {
+                warn!(node = ?handle, error = %e, "Failed to write value node data to KV");
+            }
+            // Flush to ensure data is persisted
+            if let Err(e) = self.kv.flush_buffer(&buffer).await {
+                warn!(node = ?handle, error = %e, "Failed to flush value node data");
+            }
+        } else {
+            warn!(node = ?handle, "Failed to open KV buffer for value node");
+        }
 
         handle
     }
