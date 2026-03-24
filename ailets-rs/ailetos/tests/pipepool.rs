@@ -1,9 +1,11 @@
 use actor_runtime::StdHandle;
+use ailetos::dag::Dag;
 use ailetos::idgen::{Handle, IdGen};
 use ailetos::notification_queue::NotificationQueueArc;
 use ailetos::pipe::PipePool;
 use ailetos::storage::memkv::MemKV;
 use ailetos::storage::KVBuffers;
+use parking_lot::RwLock;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -12,7 +14,8 @@ fn create_test_pool() -> (PipePool<MemKV>, Arc<MemKV>, Arc<IdGen>) {
     let kv = Arc::new(MemKV::new());
     let queue = NotificationQueueArc::new();
     let id_gen = Arc::new(IdGen::new());
-    let pool = PipePool::new(kv.clone(), queue);
+    let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&id_gen))));
+    let pool = PipePool::new(kv.clone(), queue, dag);
     (pool, kv, id_gen)
 }
 
@@ -1296,4 +1299,80 @@ async fn test_race_reader_loop_and_recheck() {
     let mut buf = vec![0u8; 100];
     let n = reader.read(&mut buf).await;
     assert!(n > 0, "Should be able to read data from the pipe");
+}
+
+// ============================================================================
+// Value Node Resolution via KV
+// ============================================================================
+
+#[tokio::test]
+async fn test_terminated_node_resolved_from_kv() {
+    use ailetos::dag::{NodeKind, NodeState};
+    use ailetos::storage::OpenMode;
+
+    let kv = Arc::new(MemKV::new());
+    let queue = NotificationQueueArc::new();
+    let id_gen = Arc::new(IdGen::new());
+    let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&id_gen))));
+
+    // Create a node in the DAG and mark it as Terminated
+    let actor_handle = {
+        let mut dag_guard = dag.write();
+        let handle = dag_guard.add_node("value".into(), NodeKind::Concrete);
+        dag_guard.set_state(handle, NodeState::Terminated);
+        handle
+    };
+
+    // Write data to KV for this node (simulating a value node)
+    let test_data = b"test value data from KV";
+    let path = format!("pipes/actor-{}-{:?}", actor_handle.id(), StdHandle::Stdout);
+    let buffer = kv.open(&path, OpenMode::Write).await.unwrap();
+    buffer.append(test_data).unwrap();
+
+    // Create the PipePool with the DAG
+    let pool = PipePool::new(kv.clone(), queue, Arc::clone(&dag));
+
+    // Request a reader - should resolve from KV without creating latent pipe
+    let reader = pool
+        .get_or_await_reader((actor_handle, StdHandle::Stdout), true, &id_gen)
+        .await;
+
+    assert!(reader.is_some(), "Should get reader from KV for terminated node");
+
+    // Verify we can read the data
+    let mut reader = reader.unwrap();
+    let mut buf = vec![0u8; 100];
+    let n = reader.read(&mut buf).await;
+    assert!(n > 0, "Should be able to read data");
+    assert_eq!(&buf[..n as usize], test_data, "Data should match what was written to KV");
+}
+
+#[tokio::test]
+async fn test_terminated_node_without_kv_data_returns_none() {
+    use ailetos::dag::{NodeKind, NodeState};
+
+    let kv = Arc::new(MemKV::new());
+    let queue = NotificationQueueArc::new();
+    let id_gen = Arc::new(IdGen::new());
+    let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&id_gen))));
+
+    // Create a node in the DAG and mark it as Terminated
+    let actor_handle = {
+        let mut dag_guard = dag.write();
+        let handle = dag_guard.add_node("empty".into(), NodeKind::Concrete);
+        dag_guard.set_state(handle, NodeState::Terminated);
+        handle
+    };
+
+    // DON'T write data to KV - node terminated without producing output
+
+    // Create the PipePool with the DAG
+    let pool = PipePool::new(kv.clone(), queue, Arc::clone(&dag));
+
+    // Request a reader - should return None since producer terminated without output
+    let reader = pool
+        .get_or_await_reader((actor_handle, StdHandle::Stdout), true, &id_gen)
+        .await;
+
+    assert!(reader.is_none(), "Should return None for terminated node with no KV data");
 }
