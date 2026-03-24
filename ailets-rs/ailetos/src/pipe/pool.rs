@@ -99,10 +99,13 @@ use parking_lot::Mutex;
 use tracing::debug;
 
 use super::reader::Reader;
+use super::rw_shared::{ReaderSharedData, SharedBuffer};
 use super::writer::Writer;
+use crate::dag::{Dag, NodeState};
 use crate::idgen::{Handle, IdGen};
 use crate::notification_queue::NotificationQueueArc;
 use crate::storage::{KVBuffers, OpenMode};
+use parking_lot::RwLock;
 
 /// State of a latent writer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -167,6 +170,14 @@ pub struct PipePool<K: KVBuffers> {
     notification_queue: NotificationQueueArc,
     /// Key-value store for pipe buffers
     kv: Arc<K>,
+    /// DAG for checking producer node state (spec://pipe/pool.md#fulfillable-open)
+    dag: Arc<RwLock<Dag>>,
+}
+
+/// Helper enum for state checking in get_or_await_reader
+enum StateCheck {
+    Wait(Arc<tokio::sync::Notify>),
+    CheckNode,
 }
 
 impl<K: KVBuffers> PipePool<K> {
@@ -175,12 +186,14 @@ impl<K: KVBuffers> PipePool<K> {
     /// # Parameters
     /// - `kv`: Key-value store for pipe buffers
     /// - `notification_queue`: Shared notification queue for pipe data events
+    /// - `dag`: DAG for checking producer node state
     #[must_use]
-    pub fn new(kv: Arc<K>, notification_queue: NotificationQueueArc) -> Self {
+    pub fn new(kv: Arc<K>, notification_queue: NotificationQueueArc, dag: Arc<RwLock<Dag>>) -> Self {
         Self {
             inner: Mutex::new(PoolInner::new()),
             notification_queue,
             kv,
+            dag,
         }
     }
 
@@ -201,8 +214,11 @@ impl<K: KVBuffers> PipePool<K> {
     ) -> Option<Reader> {
         loop {
             // Check what state we're in
-            let notify_arc = {
-                let mut inner = self.inner.lock();
+            let (actor_handle, _std_handle) = key;
+
+            // First quick check under lock
+            let state_check = {
+                let inner = self.inner.lock();
 
                 // Check if writer exists
                 if let Some(writer) = inner.find_writer(key) {
@@ -220,40 +236,112 @@ impl<K: KVBuffers> PipePool<K> {
                         LatentState::Waiting => {
                             // Only wait on latent writer if allow_latent is true
                             if allow_latent {
-                                let notify = Arc::clone(&latent.notify);
-                                Some(notify)
+                                StateCheck::Wait(Arc::clone(&latent.notify))
                             } else {
                                 return None;
                             }
                         }
                     }
-                } else if allow_latent {
-                    // Create latent writer
-                    let notify = Arc::new(tokio::sync::Notify::new());
-                    let latent = LatentWriter {
-                        key,
-                        state: LatentState::Waiting,
-                        notify: Arc::clone(&notify),
-                    };
-                    inner.latent_writers.push(latent);
-                    debug!(key = ?key, "created latent writer");
-                    Some(notify)
                 } else {
-                    return None;
+                    // Nothing exists yet - need to check node state if allow_latent
+                    if allow_latent {
+                        StateCheck::CheckNode
+                    } else {
+                        return None;
+                    }
                 }
             };
 
-            // If we got a notify arc, wait on it
-            if let Some(notify) = notify_arc {
-                notify.notified().await;
-                // Loop back to check state again
-            } else {
-                // No notify arc means we returned already
-                break;
+            match state_check {
+                StateCheck::Wait(notify) => {
+                    notify.notified().await;
+                    // Loop back to check state again
+                    continue;
+                }
+                StateCheck::CheckNode => {
+                    // Check producer node state (spec://pipe/pool.md#fulfillable-open)
+                    let node_state = {
+                        let dag = self.dag.read();
+                        dag.get_node(actor_handle).map(|n| n.state)
+                    };
+
+                    match node_state {
+                        Some(NodeState::NotStarted) | Some(NodeState::Running) | Some(NodeState::Terminating) => {
+                            // Producer will eventually produce output - create latent pipe
+                            let notify = Arc::new(tokio::sync::Notify::new());
+                            let latent = LatentWriter {
+                                key,
+                                state: LatentState::Waiting,
+                                notify: Arc::clone(&notify),
+                            };
+
+                            {
+                                let mut inner = self.inner.lock();
+                                inner.latent_writers.push(latent);
+                            }
+                            debug!(key = ?key, "created latent writer");
+
+                            // Wait for the pipe to be realized
+                            notify.notified().await;
+                            continue;
+                        }
+                        Some(NodeState::Terminated) => {
+                            // Producer terminated - check KV for existing output
+                            let path = format!("pipes/actor-{}-{:?}", actor_handle.id(), key.1);
+                            match self.kv.open(&path, OpenMode::Read).await {
+                                Ok(kv_buffer) => {
+                                    // Found data in KV - create reader from completed buffer
+                                    let reader_handle = Handle::new(id_gen.get_next());
+                                    let writer_handle = actor_handle; // Use actor handle as writer handle
+
+                                    // Create a closed SharedBuffer with the KV data
+                                    let shared_buffer = SharedBuffer {
+                                        buffer: kv_buffer,
+                                        errno: 0,
+                                        closed: true, // Mark as closed since data is complete
+                                    };
+
+                                    // Create ReaderSharedData
+                                    let shared_data = ReaderSharedData {
+                                        buffer: Arc::new(Mutex::new(shared_buffer)),
+                                        writer_handle,
+                                        queue: self.notification_queue.clone(),
+                                    };
+
+                                    debug!(key = ?key, "resolved terminated node from KV");
+                                    return Some(Reader::new(reader_handle, shared_data));
+                                }
+                                Err(_) => {
+                                    // Producer terminated without producing output
+                                    debug!(key = ?key, "terminated node has no output in KV");
+                                    return None;
+                                }
+                            }
+                        }
+                        None => {
+                            // Node doesn't exist in DAG - create latent pipe anyway
+                            // (may be in test environment or node not yet added to DAG)
+                            let notify = Arc::new(tokio::sync::Notify::new());
+                            let latent = LatentWriter {
+                                key,
+                                state: LatentState::Waiting,
+                                notify: Arc::clone(&notify),
+                            };
+
+                            {
+                                let mut inner = self.inner.lock();
+                                inner.latent_writers.push(latent);
+                            }
+                            debug!(key = ?key, "created latent writer (node not in DAG)");
+
+                            // Wait for the pipe to be realized
+                            notify.notified().await;
+                            continue;
+                        }
+                    }
+                }
             }
         }
-
-        None
     }
 
     /// Touch a writer - get existing or create new (idempotent)

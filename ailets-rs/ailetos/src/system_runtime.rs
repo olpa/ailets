@@ -263,7 +263,11 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         let notification_queue = NotificationQueueArc::new();
 
         // Create pipe pool
-        let pipe_pool = Arc::new(PipePool::new(Arc::clone(&kv), notification_queue));
+        let pipe_pool = Arc::new(PipePool::new(
+            Arc::clone(&kv),
+            notification_queue,
+            Arc::clone(&dag),
+        ));
 
         // Create attachment manager
         let attachment_manager = Arc::new(AttachmentManager::new(attachment_config));
