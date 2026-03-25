@@ -171,9 +171,11 @@ Variables:
             ["value", rest @ ..] if !rest.is_empty() => {
                 let data = parse_quoted_string(rest);
                 let explain = parse_explain(rest);
-                let handle = self
-                    .env
-                    .add_value_node(data.as_bytes().to_vec(), explain.clone());
+                let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+                let handle = rt.block_on(
+                    self.env
+                        .add_value_node(data.as_bytes().to_vec(), explain.clone()),
+                );
                 self.handles.push(handle);
                 let id = handle.id();
                 let truncated = truncate(&data, 30);

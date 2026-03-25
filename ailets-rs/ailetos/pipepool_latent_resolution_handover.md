@@ -30,7 +30,7 @@ Write value node data to KV storage immediately in `add_value_node()`:
 
 ```rust
 // In environment.rs, add_value_node()
-pub fn add_value_node(&mut self, data: Vec<u8>, explain: Option<String>) -> Handle {
+pub async fn add_value_node(&mut self, data: Vec<u8>, explain: Option<String>) -> Handle {
     let mut dag = self.dag.write();
     let handle = dag.add_node_with_explain("value".into(), NodeKind::Concrete, explain);
 
@@ -38,7 +38,7 @@ pub fn add_value_node(&mut self, data: Vec<u8>, explain: Option<String>) -> Hand
 
     // Write data to KV storage immediately
     // (implementation depends on KV API)
-    self.kv.write_stdout(handle, &data);
+    self.kv.write_stdout(handle, &data).await;
 
     handle
 }
