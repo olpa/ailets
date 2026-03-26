@@ -98,7 +98,7 @@ use actor_runtime::StdHandle;
 use parking_lot::Mutex;
 use tracing::debug;
 
-use super::allocator::Allocator;
+use super::allocator::{create_reader_from_completed, create_writer};
 use super::reader::Reader;
 use super::writer::Writer;
 use crate::dag::{Dag, NodeState};
@@ -166,8 +166,10 @@ impl PoolInner {
 pub struct PipePool<K: KVBuffers> {
     /// Inner state (readers, `latent_writers`, writers)
     inner: Mutex<PoolInner>,
-    /// Allocator for creating pipes with backing storage
-    allocator: Allocator<K>,
+    /// Key-value store for pipe buffers
+    kv: Arc<K>,
+    /// Notification queue for pipe data events
+    notification_queue: NotificationQueueArc,
     /// DAG for checking producer node state (spec://pipe/pool.md#fulfillable-open)
     dag: Arc<RwLock<Dag>>,
 }
@@ -187,10 +189,10 @@ impl<K: KVBuffers> PipePool<K> {
     /// - `dag`: DAG for checking producer node state
     #[must_use]
     pub fn new(kv: Arc<K>, notification_queue: NotificationQueueArc, dag: Arc<RwLock<Dag>>) -> Self {
-        let allocator = Allocator::new(kv, notification_queue);
         Self {
             inner: Mutex::new(PoolInner::new()),
-            allocator,
+            kv,
+            notification_queue,
             dag,
         }
     }
@@ -289,10 +291,14 @@ impl<K: KVBuffers> PipePool<K> {
                             let reader_handle = Handle::new(id_gen.get_next());
                             let writer_handle = actor_handle; // Use actor handle as writer handle
 
-                            match self
-                                .allocator
-                                .create_reader_from_completed(reader_handle, writer_handle, &path)
-                                .await
+                            match create_reader_from_completed(
+                                self.kv.as_ref(),
+                                self.notification_queue.clone(),
+                                reader_handle,
+                                writer_handle,
+                                &path,
+                            )
+                            .await
                             {
                                 Ok(reader) => {
                                     debug!(key = ?key, "resolved terminated node from KV");
@@ -363,8 +369,14 @@ impl<K: KVBuffers> PipePool<K> {
         let writer_handle = Handle::new(id_gen.get_next());
         let path = format!("pipes/actor-{}-{:?}", actor_handle.id(), std_handle);
 
-        // Create writer using allocator (encapsulates buffer allocation)
-        let writer = self.allocator.create_writer(writer_handle, &path).await?;
+        // Create writer with buffer from KV storage
+        let writer = create_writer(
+            self.kv.as_ref(),
+            self.notification_queue.clone(),
+            writer_handle,
+            &path,
+        )
+        .await?;
 
         // Add writer to pool and notify waiters (if latent existed)
         let writer_arc = {
