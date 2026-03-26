@@ -18,12 +18,6 @@ use crate::idgen::{Handle, IdGen};
 use crate::scheduler::{Scheduler, StopConditions};
 use crate::{BlockingActorRuntime, IoRequest, KVBuffers, SystemRuntime};
 
-/// Value node data - bytes to write to the node's output pipe
-#[derive(Debug, Clone)]
-pub struct ValueNodeData {
-    pub data: Vec<u8>,
-}
-
 /// Type for actor functions
 pub type ActorFn = fn(actor_io::AReader, actor_io::AWriter) -> Result<(), String>;
 
@@ -64,8 +58,6 @@ pub struct Environment<K: KVBuffers> {
     pub idgen: Arc<IdGen>,
     pub kv: Arc<K>,
     pub actor_registry: ActorRegistry,
-    /// Value data for value nodes (keyed by node handle)
-    value_nodes: HashMap<Handle, ValueNodeData>,
     /// Attachment configuration
     attachment_config: crate::attachments::AttachmentConfig,
 }
@@ -81,7 +73,6 @@ impl<K: KVBuffers> Environment<K> {
             idgen,
             kv,
             actor_registry: ActorRegistry::new(),
-            value_nodes: HashMap::new(),
             attachment_config: crate::attachments::AttachmentConfig::default(),
         }
     }
@@ -120,8 +111,6 @@ impl<K: KVBuffers> Environment<K> {
             dag.set_state(handle, NodeState::Terminated);
             handle
         };
-
-        self.value_nodes.insert(handle, ValueNodeData { data: data.clone() });
 
         // Write data to KV storage immediately (spec://executor.md#immediate-values)
         let path = format!("pipes/actor-{}-{:?}", handle.id(), StdHandle::Stdout);
@@ -181,58 +170,8 @@ impl<K: KVBuffers> Environment<K> {
         target.map_or(handle, |t| self.resolve(t))
     }
 
-    /// Check if a node is a value node
-    #[must_use]
-    pub fn is_value_node(&self, handle: Handle) -> bool {
-        self.value_nodes.contains_key(&handle)
-    }
-
-    /// Get value data for a value node
-    #[must_use]
-    pub fn get_value_data(&self, handle: Handle) -> Option<&[u8]> {
-        self.value_nodes.get(&handle).map(|v| v.data.as_slice())
-    }
-
-    /// Spawn a task for a value node
-    fn spawn_value_node_task(
-        node_handle: Handle,
-        idname: String,
-        value_data: ValueNodeData,
-        runtime: BlockingActorRuntime,
-    ) -> tokio::task::JoinHandle<()> {
-        use actor_io::AWriter;
-        use actor_runtime::StdHandle;
-        use embedded_io::Write;
-
-        tokio::task::spawn_blocking(move || {
-            debug!(node = ?node_handle, name = %idname, "value node task starting");
-
-            runtime.register_std_fds();
-
-            let mut awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
-
-            // Write the value data
-            // Note: Actors never close stdout/stdin - they didn't open them.
-            // SystemRuntime will close these pipes during ActorShutdown.
-            let result = awriter
-                .write_all(&value_data.data)
-                .map_err(|e| format!("Failed to write value: {e:?}"));
-
-            match result {
-                Ok(()) => debug!(node = ?node_handle, name = %idname, "value node completed"),
-                Err(e) => {
-                    warn!(node = ?node_handle, name = %idname, error = %e, "value node error");
-                }
-            }
-
-            // Clear actor's local fd table and notify SystemRuntime
-            runtime.shutdown();
-            debug!(node = ?node_handle, name = %idname, "value node done");
-        })
-    }
-
-    /// Spawn a task for a regular actor node
-    fn spawn_actor_node_task(
+    /// Spawn a task for an actor node
+    fn spawn_actor_task(
         node_handle: Handle,
         idname: String,
         actor_fn: ActorFn,
@@ -271,7 +210,6 @@ impl<K: KVBuffers> Environment<K> {
         stop_conditions: &StopConditions,
         system_tx: &mpsc::UnboundedSender<IoRequest>,
         actor_registry: &ActorRegistry,
-        value_nodes: &HashMap<Handle, ValueNodeData>,
     ) -> Vec<tokio::task::JoinHandle<()>> {
         let dag_guard = dag.read();
         let scheduler =
@@ -288,23 +226,10 @@ impl<K: KVBuffers> Environment<K> {
 
             let runtime = BlockingActorRuntime::new(node_handle, system_tx.clone());
 
-            // Check if this is a value node
-            let task = if let Some(value_data) = value_nodes.get(&node_handle).cloned() {
-                Some(Self::spawn_value_node_task(
-                    node_handle,
-                    idname.clone(),
-                    value_data,
-                    runtime,
-                ))
-            } else {
-                actor_registry.get(&idname).map(|actor_fn| {
-                    Self::spawn_actor_node_task(node_handle, idname.clone(), actor_fn, runtime)
-                })
-            };
-
-            if let Some(task) = task {
+            if let Some(actor_fn) = actor_registry.get(&idname) {
+                let task = Self::spawn_actor_task(node_handle, idname, actor_fn, runtime);
                 tasks.push(task);
-            } else if !value_nodes.contains_key(&node_handle) {
+            } else {
                 warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
             }
         }
@@ -343,7 +268,6 @@ impl<K: KVBuffers> Environment<K> {
             &stop_conditions,
             &system_tx,
             &self.actor_registry,
-            &self.value_nodes,
         );
 
         // Drop our sender so the channel can close when all actors finish

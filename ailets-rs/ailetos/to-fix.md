@@ -17,14 +17,14 @@ environment.rs:127
         let path = format!("pipes/actor-{}-{:?}", handle.id(), StdHandle::Stdout);
 To a function: from node id to its path on the vfs
 
-# [ ]
+# [x]
 
 environment.rs:128
         if let Ok(buffer) = self.kv.open(&path, OpenMode::Write).await {
                       if let Err(e) = buffer.append(&data) {
 I think "kv" should have something like "copy_in", to move away the streaming in the ewnvironemtn. A better name is needed.
 
-# [ ]
+# [x]
 
 environment.rs:67
     /// Value data for value nodes (keyed by node handle)
@@ -57,7 +57,7 @@ pool.rs
                             // Producer will eventually produce output - create latent pipe
 We have a problem here: If scheduler will never actually start the dep node, it will still hang. The app shutdown shold handle the issue.
 
-# [ ]
+# [x]
 
 poolrs:289
                             // Producer terminated - check KV for existing output
