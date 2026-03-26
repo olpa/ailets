@@ -15,6 +15,7 @@ mod reader;
 mod rw_shared;
 mod writer;
 
+pub use allocator::{create_reader_from_completed, create_writer, write_completed_buffer};
 pub use merge::MergeReader;
 pub use pool::{LatentState, LatentWriter, PipePool};
 pub use reader::Reader;
