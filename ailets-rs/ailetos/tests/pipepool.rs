@@ -1439,6 +1439,115 @@ async fn test_race_duplicate_latents_prevented() {
     assert!(n2 > 0, "Reader 2 should read data");
 }
 
+#[tokio::test]
+async fn test_race_missed_notification_handled_by_loop() {
+    // Tests Race #1: Notification fires before reader calls notified().await
+    // The loop-and-recheck pattern should handle this by finding the realized writer
+    use ailetos::dag::{NodeKind, NodeState};
+
+    let kv = Arc::new(MemKV::new());
+    let queue = NotificationQueueArc::new();
+    let id_gen = Arc::new(IdGen::new());
+    let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&id_gen))));
+
+    // Create a node in Running state
+    let actor_handle = {
+        let mut dag_guard = dag.write();
+        let handle = dag_guard.add_node("actor".into(), NodeKind::Concrete);
+        dag_guard.set_state(handle, NodeState::Running);
+        handle
+    };
+
+    let pool = Arc::new(PipePool::new(kv.clone(), queue, Arc::clone(&dag)));
+    let id_gen = Arc::new(id_gen);
+
+    // Start reader that will create latent
+    let pool_clone = Arc::clone(&pool);
+    let id_gen_clone = Arc::clone(&id_gen);
+    let reader_task = tokio::spawn(async move {
+        pool_clone
+            .get_or_await_reader((actor_handle, StdHandle::Stdout), true, &id_gen_clone)
+            .await
+    });
+
+    // Give reader time to create latent
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Create writer and notify - this might happen before reader awaits
+    let (writer, _) = pool
+        .touch_writer(actor_handle, StdHandle::Stdout, &id_gen)
+        .await
+        .expect("Failed to create writer");
+
+    let _ = writer.write(b"test data");
+
+    // Even if notification was missed, reader should loop back and find writer
+    let reader_result = tokio::time::timeout(Duration::from_secs(1), reader_task)
+        .await
+        .expect("Reader should complete via loop-and-recheck")
+        .expect("Reader task should not panic");
+
+    assert!(
+        reader_result.is_some(),
+        "Reader should find writer via loop-and-recheck even if notification was missed"
+    );
+
+    // Verify reader works
+    let mut reader = reader_result.unwrap();
+    let mut buf = vec![0u8; 100];
+    let n = reader.read(&mut buf).await;
+    assert!(n > 0, "Should read data from writer");
+}
+
+#[tokio::test]
+async fn test_race_notification_before_await_with_close() {
+    // Tests Race #1 with shutdown: Latent closed before reader awaits
+    // Reader should loop back and get None from closed latent
+    use ailetos::dag::{NodeKind, NodeState};
+
+    let kv = Arc::new(MemKV::new());
+    let queue = NotificationQueueArc::new();
+    let id_gen = Arc::new(IdGen::new());
+    let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&id_gen))));
+
+    // Create a node in Running state
+    let actor_handle = {
+        let mut dag_guard = dag.write();
+        let handle = dag_guard.add_node("actor".into(), NodeKind::Concrete);
+        dag_guard.set_state(handle, NodeState::Running);
+        handle
+    };
+
+    let pool = Arc::new(PipePool::new(kv.clone(), queue, Arc::clone(&dag)));
+    let id_gen = Arc::new(id_gen);
+
+    // Start reader that will create latent
+    let pool_clone = Arc::clone(&pool);
+    let id_gen_clone = Arc::clone(&id_gen);
+    let reader_task = tokio::spawn(async move {
+        pool_clone
+            .get_or_await_reader((actor_handle, StdHandle::Stdout), true, &id_gen_clone)
+            .await
+    });
+
+    // Give reader time to create latent
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Close the actor's writers (simulates shutdown)
+    pool.close_actor_writers(actor_handle);
+
+    // Reader should loop back and find closed latent, return None
+    let reader_result = tokio::time::timeout(Duration::from_secs(1), reader_task)
+        .await
+        .expect("Reader should complete via loop-and-recheck")
+        .expect("Reader task should not panic");
+
+    assert!(
+        reader_result.is_none(),
+        "Reader should get None from closed latent via loop-and-recheck"
+    );
+}
+
 // ============================================================================
 // Value Node Resolution via KV
 // ============================================================================
