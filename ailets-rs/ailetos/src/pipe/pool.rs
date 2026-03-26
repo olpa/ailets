@@ -243,12 +243,9 @@ impl<K: KVBuffers> PipePool<K> {
                         }
                     }
                 } else {
-                    // Nothing exists yet - need to check node state if allow_latent
-                    if allow_latent {
-                        StateCheck::CheckNode
-                    } else {
-                        return None;
-                    }
+                    // Nothing exists yet - check node state
+                    // Even if allow_latent=false, we need to check for terminated nodes with KV data
+                    StateCheck::CheckNode
                 }
             };
 
@@ -267,7 +264,13 @@ impl<K: KVBuffers> PipePool<K> {
 
                     match node_state {
                         Some(NodeState::NotStarted) | Some(NodeState::Running) | Some(NodeState::Terminating) => {
-                            // Producer will eventually produce output - create latent pipe
+                            // Producer will eventually produce output
+                            if !allow_latent {
+                                // Don't wait for running nodes if allow_latent is false
+                                return None;
+                            }
+
+                            // Create latent pipe and wait
                             let notify = Arc::new(tokio::sync::Notify::new());
                             let latent = LatentWriter {
                                 key,
@@ -312,8 +315,14 @@ impl<K: KVBuffers> PipePool<K> {
                             }
                         }
                         None => {
-                            // Node doesn't exist in DAG - create latent pipe anyway
-                            // (may be in test environment or node not yet added to DAG)
+                            // Node doesn't exist in DAG
+                            if !allow_latent {
+                                // Don't wait if node doesn't exist and allow_latent is false
+                                return None;
+                            }
+
+                            // Create latent pipe anyway (may be in test environment or node not yet added to DAG)
+                            // REVIEW: Should this be an error instead? (see to-fix.md)
                             let notify = Arc::new(tokio::sync::Notify::new());
                             let latent = LatentWriter {
                                 key,
