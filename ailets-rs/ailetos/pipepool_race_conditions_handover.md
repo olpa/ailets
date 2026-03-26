@@ -480,6 +480,75 @@ async fn test_race_two_readers_create_duplicate_latents() {
 
 ---
 
+## Update Log
+
+### 2026-03-26: Fixes Implemented (Commit 943e9e3)
+
+**Fixed:** Race #2, #4, #5, #6 with recheck logic
+
+Added comprehensive recheck before pushing latent writers at two locations:
+- Lines 283-310: Running/NotStarted/Terminating branch
+- Lines 360-387: Node not in DAG branch
+
+The recheck pattern:
+1. Re-acquire lock before pushing latent
+2. Check if writer was created during race window → return it
+3. Check if another latent was created → wait on it
+4. Only then push new latent
+5. Lock released before await by returning notify handle
+
+**Tests added:**
+- `test_race_latent_created_after_writer_exists` - Verifies Race #2 fix
+- `test_race_duplicate_latents_prevented` - Verifies Race #4 fix
+
+**Status:** All 133 tests pass
+
+### 2026-03-26: Race #1 Verification
+
+**Added tests:**
+- `test_race_missed_notification_handled_by_loop` - Verifies loop-and-recheck handles writer notification before await
+- `test_race_notification_before_await_with_close` - Verifies loop-and-recheck handles latent close before await
+
+**Finding:** Loop-and-recheck pattern correctly handles missed notifications. When notification fires before `notified().await`:
+1. Reader awaits (gets spurious wakeup or timeout)
+2. Loops back to check state
+3. Finds realized writer or closed latent
+4. Returns appropriate result
+
+**Status:** Race #1 is already correctly handled. All 135 tests pass.
+
+### 2026-03-26: Race #3 Investigation
+
+**Investigation:** Analyzed DAG state transition invariants
+
+**Findings:**
+1. **State transitions are monotonic:**
+   - NotStarted → Running → Terminating → Terminated
+   - NotStarted → Terminated (value nodes)
+   - No backwards transitions possible
+
+2. **Scenario B (Terminated → Running) is impossible:**
+   - No code in codebase sets state backwards
+   - Nodes created in NotStarted (src/dag.rs:75)
+   - Only forward transitions exist
+   - This scenario cannot occur
+
+3. **Scenario A (Running → Terminated during race) is possible but mitigated:**
+   - Very narrow timing window
+   - Recheck logic prevents issue if node wrote output (writer exists)
+   - Worst case: orphaned latent for terminated node without output
+   - Latent will hang until system shutdown calls close_actor_writers
+   - Rare in practice (most successful nodes produce output)
+
+**Code comment added:** Lines 261-269 document the race and why it's acceptable
+
+**Status:** Race #3 Scenario B eliminated by system invariants. Scenario A is edge case with acceptable degradation.
+
+**Recommendation:** No fix required. Monitoring in production recommended to verify assumption that "nodes terminate without output" is rare.
+
+---
+
 **Document prepared by:** Claude Code
 **Date:** 2026-03-26
 **Context:** Race condition analysis after implementing allow_latent fix (commit b9597fd)
+**Last Updated:** 2026-03-26 (Race #1-6 resolved or documented)

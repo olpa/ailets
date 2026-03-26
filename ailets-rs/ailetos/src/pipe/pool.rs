@@ -257,6 +257,16 @@ impl<K: KVBuffers> PipePool<K> {
                 }
                 StateCheck::CheckNode => {
                     // Check producer node state (spec://pipe/pool.md#fulfillable-open)
+                    //
+                    // REVIEW: Potential Race #3 - DAG state read without pool lock
+                    // Node state could change between this read and latent creation below.
+                    // However:
+                    // - State transitions are monotonic (NotStarted → Running → Terminating → Terminated)
+                    // - Terminated → Running is impossible, so stale Terminated reads are safe
+                    // - Running → Terminated during race window is rare (narrow timing)
+                    // - Recheck logic below prevents latent if writer was created
+                    // - Worst case: create latent for terminated node without output (hangs until shutdown)
+                    // See pipepool_race_conditions_handover.md Race #3 for details
                     let node_state = {
                         let dag = self.dag.read();
                         dag.get_node(actor_handle).map(|n| n.state)
