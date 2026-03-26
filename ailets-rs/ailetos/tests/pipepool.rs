@@ -1301,6 +1301,144 @@ async fn test_race_reader_loop_and_recheck() {
     assert!(n > 0, "Should be able to read data from the pipe");
 }
 
+#[tokio::test]
+async fn test_race_latent_created_after_writer_exists() {
+    // Tests Race #2: Reader creates latent after writer was already created during race window
+    // The recheck logic should detect the writer and return it instead of creating a latent
+    use ailetos::dag::{NodeKind, NodeState};
+
+    let kv = Arc::new(MemKV::new());
+    let queue = NotificationQueueArc::new();
+    let id_gen = Arc::new(IdGen::new());
+    let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&id_gen))));
+
+    // Create a node in Running state
+    let actor_handle = {
+        let mut dag_guard = dag.write();
+        let handle = dag_guard.add_node("actor".into(), NodeKind::Concrete);
+        dag_guard.set_state(handle, NodeState::Running);
+        handle
+    };
+
+    let pool = Arc::new(PipePool::new(kv.clone(), queue, Arc::clone(&dag)));
+    let pool_clone = Arc::clone(&pool);
+    let id_gen = Arc::new(id_gen);
+    let id_gen_clone = Arc::clone(&id_gen);
+
+    // Thread A: Start reader, pause after DAG check (simulated by delay)
+    let reader_task = tokio::spawn(async move {
+        pool_clone
+            .get_or_await_reader((actor_handle, StdHandle::Stdout), true, &id_gen_clone)
+            .await
+    });
+
+    // Give reader task time to check DAG and decide to create latent
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    // Thread B: Create writer (simulates race where writer is created during reader's decision)
+    let (writer, _) = pool
+        .touch_writer(actor_handle, StdHandle::Stdout, &id_gen)
+        .await
+        .expect("Failed to create writer");
+
+    let _ = writer.write(b"test data");
+
+    // Reader should detect the writer during recheck and return successfully
+    let reader_result = tokio::time::timeout(Duration::from_secs(1), reader_task)
+        .await
+        .expect("Reader should complete quickly")
+        .expect("Reader task should not panic");
+
+    assert!(
+        reader_result.is_some(),
+        "Reader should get writer from recheck, not create latent"
+    );
+
+    // Verify we can read data
+    let mut reader = reader_result.unwrap();
+    let mut buf = vec![0u8; 100];
+    let n = reader.read(&mut buf).await;
+    assert!(n > 0, "Should read data from writer");
+}
+
+#[tokio::test]
+async fn test_race_duplicate_latents_prevented() {
+    // Tests Race #4: Two readers concurrently try to create latent for same key
+    // The recheck logic should prevent duplicate latents
+    use ailetos::dag::{NodeKind, NodeState};
+
+    let kv = Arc::new(MemKV::new());
+    let queue = NotificationQueueArc::new();
+    let id_gen = Arc::new(IdGen::new());
+    let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&id_gen))));
+
+    // Create a node in Running state
+    let actor_handle = {
+        let mut dag_guard = dag.write();
+        let handle = dag_guard.add_node("actor".into(), NodeKind::Concrete);
+        dag_guard.set_state(handle, NodeState::Running);
+        handle
+    };
+
+    let pool = Arc::new(PipePool::new(kv.clone(), queue, Arc::clone(&dag)));
+    let id_gen = Arc::new(id_gen);
+
+    // Launch two readers concurrently for the same key
+    let pool_clone1 = Arc::clone(&pool);
+    let id_gen_clone1 = Arc::clone(&id_gen);
+    let reader_task1 = tokio::spawn(async move {
+        pool_clone1
+            .get_or_await_reader((actor_handle, StdHandle::Stdout), true, &id_gen_clone1)
+            .await
+    });
+
+    let pool_clone2 = Arc::clone(&pool);
+    let id_gen_clone2 = Arc::clone(&id_gen);
+    let reader_task2 = tokio::spawn(async move {
+        pool_clone2
+            .get_or_await_reader((actor_handle, StdHandle::Stdout), true, &id_gen_clone2)
+            .await
+    });
+
+    // Give both readers time to potentially create latents
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // Now create writer to notify waiters
+    let (writer, _) = pool
+        .touch_writer(actor_handle, StdHandle::Stdout, &id_gen)
+        .await
+        .expect("Failed to create writer");
+
+    let _ = writer.write(b"test data");
+
+    // Both readers should wake up and get the writer
+    let reader1_result = tokio::time::timeout(Duration::from_secs(1), reader_task1)
+        .await
+        .expect("Reader 1 should wake up")
+        .expect("Reader 1 task should not panic");
+
+    let reader2_result = tokio::time::timeout(Duration::from_secs(1), reader_task2)
+        .await
+        .expect("Reader 2 should wake up")
+        .expect("Reader 2 task should not panic");
+
+    assert!(reader1_result.is_some(), "Reader 1 should get writer");
+    assert!(reader2_result.is_some(), "Reader 2 should get writer");
+
+    // Verify both readers work
+    let mut reader1 = reader1_result.unwrap();
+    let mut reader2 = reader2_result.unwrap();
+
+    let mut buf1 = vec![0u8; 100];
+    let mut buf2 = vec![0u8; 100];
+
+    let n1 = reader1.read(&mut buf1).await;
+    let n2 = reader2.read(&mut buf2).await;
+
+    assert!(n1 > 0, "Reader 1 should read data");
+    assert!(n2 > 0, "Reader 2 should read data");
+}
+
 // ============================================================================
 // Value Node Resolution via KV
 // ============================================================================

@@ -278,14 +278,39 @@ impl<K: KVBuffers> PipePool<K> {
                                 notify: Arc::clone(&notify),
                             };
 
-                            {
+                            // Recheck pool state before pushing latent to prevent races
+                            // (Race #2/#4/#5: writer or latent might have been created during race window)
+                            let notify_to_wait = {
                                 let mut inner = self.inner.lock();
-                                inner.latent_writers.push(latent);
-                            }
-                            debug!(key = ?key, "created latent writer");
 
-                            // Wait for the pipe to be realized
-                            notify.notified().await;
+                                // Recheck: writer might have been created during race window
+                                if let Some(writer) = inner.find_writer(key) {
+                                    let shared_data = writer.share_with_reader();
+                                    let reader_handle = Handle::new(id_gen.get_next());
+                                    return Some(Reader::new(reader_handle, shared_data));
+                                }
+
+                                // Recheck: another reader might have created latent
+                                if let Some(existing_latent) = inner.find_latent_writer(key) {
+                                    match existing_latent.state {
+                                        LatentState::Waiting => {
+                                            // Wait on existing latent instead of creating duplicate
+                                            Arc::clone(&existing_latent.notify)
+                                        }
+                                        LatentState::Closed => {
+                                            return None;
+                                        }
+                                    }
+                                } else {
+                                    // Safe to push latent now
+                                    inner.latent_writers.push(latent);
+                                    debug!(key = ?key, "created latent writer");
+                                    Arc::clone(&notify)
+                                }
+                            }; // Lock released here
+
+                            // Wait for the pipe to be realized (outside lock)
+                            notify_to_wait.notified().await;
                             continue;
                         }
                         Some(NodeState::Terminated) => {
@@ -330,14 +355,39 @@ impl<K: KVBuffers> PipePool<K> {
                                 notify: Arc::clone(&notify),
                             };
 
-                            {
+                            // Recheck pool state before pushing latent to prevent races
+                            // (Race #2/#4/#5: writer or latent might have been created during race window)
+                            let notify_to_wait = {
                                 let mut inner = self.inner.lock();
-                                inner.latent_writers.push(latent);
-                            }
-                            debug!(key = ?key, "created latent writer (node not in DAG)");
 
-                            // Wait for the pipe to be realized
-                            notify.notified().await;
+                                // Recheck: writer might have been created during race window
+                                if let Some(writer) = inner.find_writer(key) {
+                                    let shared_data = writer.share_with_reader();
+                                    let reader_handle = Handle::new(id_gen.get_next());
+                                    return Some(Reader::new(reader_handle, shared_data));
+                                }
+
+                                // Recheck: another reader might have created latent
+                                if let Some(existing_latent) = inner.find_latent_writer(key) {
+                                    match existing_latent.state {
+                                        LatentState::Waiting => {
+                                            // Wait on existing latent instead of creating duplicate
+                                            Arc::clone(&existing_latent.notify)
+                                        }
+                                        LatentState::Closed => {
+                                            return None;
+                                        }
+                                    }
+                                } else {
+                                    // Safe to push latent now
+                                    inner.latent_writers.push(latent);
+                                    debug!(key = ?key, "created latent writer (node not in DAG)");
+                                    Arc::clone(&notify)
+                                }
+                            }; // Lock released here
+
+                            // Wait for the pipe to be realized (outside lock)
+                            notify_to_wait.notified().await;
                             continue;
                         }
                     }
