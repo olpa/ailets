@@ -3,94 +3,17 @@
 //! Each (actor, `StdHandle`) pair can have its own output pipe. Readers are created on-demand
 //! when consuming actors need to read from dependencies.
 //!
-//! ## Race-Free Pipe Lifecycle Design
-//!
-//! This implementation prevents race conditions between producer shutdown and consumer pipe
-//! opening. See `pipe-lifecycle-implementation-guide.md` for the complete specification.
-//!
-//! ### Critical Design Decisions
-//!
-//! **Why: Single Mutex for All Operations**
-//!
-//! All pipe state operations (check existence, create latent, realize writer, close) happen
-//! under the same `Mutex<PoolInner>`. This ensures atomic check-and-register:
-//! - Consumer checks if writer exists AND registers latent waiter atomically
-//! - Producer checks if latent exists AND notifies waiters atomically
-//! - Shutdown extracts all waiters AND marks them closed atomically
-//!
-//! **Why: Notify Outside Lock**
-//!
-//! After extracting notify handles under lock, we call `notify_waiters()` AFTER releasing
-//! the lock. This prevents deadlock when notified readers immediately try to re-acquire
-//! the lock to get their reader instances.
-//!
-//! **Why: Latent State Machine (Waiting → Closed)**
-//!
-//! Latent writers track whether the producer is still capable of creating the pipe:
-//! - `Waiting`: Producer is running, pipe may still be created
-//! - `Closed`: Producer terminated without creating pipe, readers get EOF
-//!
-//! This state prevents orphaned waiters when actors crash or exit early.
-//!
-//! **Why: Loop-and-Recheck in `get_or_await_reader()`**
-//!
-//! After being notified, readers loop back to recheck state under lock. This handles:
-//! - Spurious wakeups from `tokio::Notify`
-//! - Race where writer is created just as we're setting up to wait
-//! - Multiple readers waking up from same notification
-//!
-//! **Integration with Actor Lifecycle**
-//!
-//! The race-free guarantee depends on `SystemRuntime` calling operations in this order:
-//! 1. Set actor state to TERMINATING (blocks new pipe requests)
-//! 2. Call `close_actor_writers()` (wakes all waiting readers)
-//! 3. Set actor state to TERMINATED (signals cleanup complete)
-//!
-//! See `system_runtime.rs` `ActorShutdown` handler for the implementation.
-//!
-//! ## Problem: Dependency Race Conditions
+//! ## Latent Pipes
 //!
 //! Actors can start reading from dependencies before those dependencies have created their
-//! output pipes. This creates a coordination problem:
+//! output pipes. When a reader requests a non-existent pipe, a **latent writer** placeholder
+//! is created. The reader waits on a `tokio::Notify` until the producer creates the pipe or
+//! terminates.
 //!
-//! - **Consumer** (e.g., `cat`) needs to read from dependency's stdout
-//! - **Producer** (e.g., upstream actor) hasn't created its output pipe yet
-//! - Consumer should **wait** for the pipe to be created, not fail
+//! ## KV Storage for Terminated Actors
 //!
-//! ## Solution: Latent Pipes
-//!
-//! When a reader requests a pipe that doesn't exist yet:
-//! 1. Create a **latent writer** placeholder with a `tokio::Notify`
-//! 2. Reader awaits on the notify
-//! 3. When writer is eventually created, notify all waiting readers
-//! 4. Readers wake up and get their `Reader` instances
-//!
-//! ## Design: Two Vectors
-//!
-//! `PipePool` stores writers in two states:
-//!
-//! - **`latent_writers: Vec<LatentWriter>`** - Placeholders for pipes not yet created
-//!   - Contains `(Handle, StdHandle)` key, state (Waiting/Closed), and notify handle
-//!   - Created when reader requests non-existent pipe with `allow_latent=true`
-//!   - Removed when writer is created (transitions to `writers`)
-//!   - Set to `Closed` state if actor exits without writing (prevents infinite wait)
-//!
-//! - **`writers: Vec<(Handle, StdHandle, Writer)>`** - Active pipes with data buffers
-//!   - Created on first write or explicit pipe creation
-//!   - Notifies all waiting readers when created
-//!   - Supports multiple readers via `Writer::share_with_reader()`
-//!
-//! **Readers are not stored** - created on-demand from writers and returned to callers.
-//!
-//! ## Coordination via Notify
-//!
-//! All latent pipe coordination uses `tokio::sync::Notify`:
-//!
-//! 1. **Reader path**: `get_or_await_reader()` creates latent entry, awaits notify
-//! 2. **Writer path**: `touch_writer()` removes latent entry, calls `notify_waiters()`
-//! 3. **Shutdown path**: `close_actor_writers()` closes all writers for an actor
-//!
-//! This ensures readers never miss notifications and wake up exactly once.
+//! When actors terminate, their output is stored in KV storage at `pipes/actor-{id}-{handle}`.
+//! Readers requesting pipes from terminated actors check KV storage instead of waiting.
 
 use std::sync::Arc;
 
