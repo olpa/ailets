@@ -64,9 +64,10 @@ impl<K: KVBuffers> MergeReader<K> {
 
     /// Create a reader for the next dependency from the iterator.
     ///
-    /// Returns `None` if there are no more dependencies.
+    /// Returns `Ok(None)` if there are no more dependencies.
+    /// Returns `Err` if there was an error getting the reader.
     /// Creates a latent pipe if the dependency hasn't written yet.
-    async fn create_next_reader(&mut self) -> Option<Reader> {
+    async fn create_next_reader(&mut self) -> Result<Option<Reader>, crate::pipe::pool::PipeError> {
         if let Some(dep_handle) = self.dep_iterator.next() {
             // Dependencies always output to stdout
             // Use get_or_await_reader with allow_latent=true
@@ -77,8 +78,9 @@ impl<K: KVBuffers> MergeReader<K> {
                     &self.id_gen,
                 )
                 .await
+                .map(Some)
         } else {
-            None
+            Ok(None)
         }
     }
 
@@ -98,12 +100,17 @@ impl<K: KVBuffers> MergeReader<K> {
             // Ensure we have a reader for the current dependency
             if self.current_reader.is_none() {
                 match self.create_next_reader().await {
-                    Some(reader) => {
+                    Ok(Some(reader)) => {
                         self.current_reader = Some(reader);
                     }
-                    None => {
+                    Ok(None) => {
                         // No more dependencies available
                         return 0;
+                    }
+                    Err(e) => {
+                        // Error getting reader from dependency
+                        warn!(error = ?e, "MergeReader: failed to get reader for dependency");
+                        return -1;
                     }
                 }
             }
