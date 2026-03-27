@@ -112,51 +112,57 @@ use parking_lot::RwLock;
 pub enum LatentState {
     /// Waiting for writer to be created
     Waiting,
-    /// Closed without ever being realized
+    /// Producer terminated without creating the pipe - readers waiting for this pipe get None (EOF).
+    /// Prevents readers from waiting forever when the producer crashes or exits early.
     Closed,
 }
 
-/// A placeholder for a writer that hasn't been created yet
-pub struct LatentWriter {
-    key: (Handle, StdHandle),
-    state: LatentState,
-    notify: Arc<tokio::sync::Notify>,
+/// State of a writer in the pool
+enum WriterState {
+    /// Realized writer with data buffer
+    Realized(Arc<Writer>),
+    /// Latent writer - placeholder waiting for producer to create pipe
+    Latent {
+        state: LatentState,
+        notify: Arc<tokio::sync::Notify>,
+    },
+    /// KVCheck marker - producer terminated, readers should check KV storage
+    KVCheck,
 }
 
 /// Inner state of the pipe pool
 struct PoolInner {
-    latent_writers: Vec<LatentWriter>,
-    writers: Vec<(Handle, StdHandle, Arc<Writer>)>,
+    writers: Vec<(Handle, StdHandle, WriterState)>,
 }
 
 impl PoolInner {
     fn new() -> Self {
         Self {
-            latent_writers: Vec::new(),
             writers: Vec::new(),
         }
     }
 
-    /// Find a writer by key
-    fn find_writer(&self, key: (Handle, StdHandle)) -> Option<&Arc<Writer>> {
+    /// Find a writer state by key
+    fn find(&self, key: (Handle, StdHandle)) -> Option<&WriterState> {
         self.writers
             .iter()
             .find(|(h, s, _)| (*h, *s) == key)
-            .map(|(_, _, w)| w)
+            .map(|(_, _, state)| state)
     }
 
-    /// Find a latent writer by key
-    fn find_latent_writer(&self, key: (Handle, StdHandle)) -> Option<&LatentWriter> {
-        self.latent_writers.iter().find(|lw| lw.key == key)
-    }
-
-    /// Remove a latent writer by key and return it
-    fn remove_latent_writer(&mut self, key: (Handle, StdHandle)) -> Option<LatentWriter> {
-        if let Some(pos) = self.latent_writers.iter().position(|lw| lw.key == key) {
-            Some(self.latent_writers.remove(pos))
+    /// Remove a writer entry by key and return its state
+    fn remove(&mut self, key: (Handle, StdHandle)) -> Option<WriterState> {
+        if let Some(pos) = self.writers.iter().position(|(h, s, _)| (*h, *s) == key) {
+            let (_, _, state) = self.writers.remove(pos);
+            Some(state)
         } else {
             None
         }
+    }
+
+    /// Insert a new writer state
+    fn insert(&mut self, key: (Handle, StdHandle), state: WriterState) {
+        self.writers.push((key.0, key.1, state));
     }
 }
 
@@ -164,7 +170,7 @@ impl PoolInner {
 ///
 /// Uses interior mutability via `Mutex` to allow shared access through `Arc<PipePool>`.
 pub struct PipePool<K: KVBuffers> {
-    /// Inner state (readers, `latent_writers`, writers)
+    /// Inner state (writers in various states)
     inner: Mutex<PoolInner>,
     /// Key-value store for pipe buffers
     kv: Arc<K>,
@@ -172,12 +178,6 @@ pub struct PipePool<K: KVBuffers> {
     notification_queue: NotificationQueueArc,
     /// DAG for checking producer node state (spec://pipe/pool.md#fulfillable-open)
     dag: Arc<RwLock<Dag>>,
-}
-
-/// Helper enum for state checking in get_or_await_reader
-enum StateCheck {
-    Wait(Arc<tokio::sync::Notify>),
-    CheckNode,
 }
 
 impl<K: KVBuffers> PipePool<K> {
@@ -212,193 +212,120 @@ impl<K: KVBuffers> PipePool<K> {
         allow_latent: bool,
         id_gen: &IdGen,
     ) -> Option<Reader> {
+        let (actor_handle, _std_handle) = key;
+
         loop {
-            // Check what state we're in
-            let (actor_handle, _std_handle) = key;
+            // Check state under lock and decide action
+            //
+            // REVIEW: Race condition window between getting notify Arc and calling notified()
+            // If touch_writer() runs after we get the Arc but before we call notified().await,
+            // we might miss the notification. The loop fixes this by rechecking state after wakeup,
+            // but there's still a window where we could wait unnecessarily.
+            // This is acceptable because:
+            // 1. tokio::Notify requires subscription via notified() BEFORE notify_waiters()
+            // 2. The loop guarantees we eventually see the state change
+            // 3. Missing one notification just means we wait for the next recheck
+            let action = {
+                let mut inner = self.inner.lock();
 
-            // First quick check under lock
-            let state_check = {
-                let inner = self.inner.lock();
-
-                // Check if writer exists
-                if let Some(writer) = inner.find_writer(key) {
-                    let shared_data = writer.share_with_reader();
-                    let reader_handle = Handle::new(id_gen.get_next());
-                    return Some(Reader::new(reader_handle, shared_data));
-                }
-
-                // Check if latent writer exists
-                if let Some(latent) = inner.find_latent_writer(key) {
-                    match latent.state {
-                        LatentState::Closed => {
+                match inner.find(key) {
+                    Some(WriterState::Realized(writer)) => {
+                        // Writer exists - create reader immediately
+                        let shared_data = writer.share_with_reader();
+                        let reader_handle = Handle::new(id_gen.get_next());
+                        return Some(Reader::new(reader_handle, shared_data));
+                    }
+                    Some(WriterState::Latent { state: LatentState::Closed, .. }) => {
+                        // Producer terminated without creating pipe
+                        return None;
+                    }
+                    Some(WriterState::Latent { state: LatentState::Waiting, notify }) => {
+                        // Wait for producer to create pipe (if allow_latent)
+                        if allow_latent {
+                            Some(Arc::clone(notify))
+                        } else {
                             return None;
                         }
-                        LatentState::Waiting => {
-                            // Only wait on latent writer if allow_latent is true
-                            if allow_latent {
-                                StateCheck::Wait(Arc::clone(&latent.notify))
-                            } else {
-                                return None;
+                    }
+                    Some(WriterState::KVCheck) => {
+                        // Terminated node - check KV outside lock
+                        None
+                    }
+                    None => {
+                        // No entry exists - check DAG state and create appropriate entry
+                        let node_state = {
+                            let dag = self.dag.read();
+                            dag.get_node(actor_handle).map(|n| n.state)
+                        };
+
+                        match node_state {
+                            Some(NodeState::NotStarted) | Some(NodeState::Running) | Some(NodeState::Terminating) => {
+                                // Producer is active - create latent writer (if allow_latent)
+                                if !allow_latent {
+                                    return None;
+                                }
+                                let notify = Arc::new(tokio::sync::Notify::new());
+                                inner.insert(key, WriterState::Latent {
+                                    state: LatentState::Waiting,
+                                    notify: Arc::clone(&notify),
+                                });
+                                debug!(key = ?key, "created latent writer");
+                                Some(notify)
+                            }
+                            Some(NodeState::Terminated) => {
+                                // Producer terminated - mark for KV check
+                                inner.insert(key, WriterState::KVCheck);
+                                debug!(key = ?key, "created KVCheck marker for terminated node");
+                                None
+                            }
+                            None => {
+                                // Node not in DAG - create latent anyway (test environment?)
+                                if !allow_latent {
+                                    return None;
+                                }
+                                let notify = Arc::new(tokio::sync::Notify::new());
+                                inner.insert(key, WriterState::Latent {
+                                    state: LatentState::Waiting,
+                                    notify: Arc::clone(&notify),
+                                });
+                                debug!(key = ?key, "created latent writer (node not in DAG)");
+                                Some(notify)
                             }
                         }
                     }
-                } else {
-                    // Nothing exists yet - check node state
-                    // Even if allow_latent=false, we need to check for terminated nodes with KV data
-                    StateCheck::CheckNode
                 }
-            };
+            }; // Lock released here
 
-            match state_check {
-                StateCheck::Wait(notify) => {
+            // Execute action outside lock
+            match action {
+                Some(notify) => {
+                    // Wait for notification, then loop back to recheck
                     notify.notified().await;
-                    // Loop back to check state again
                     continue;
                 }
-                StateCheck::CheckNode => {
-                    // Check producer node state (spec://pipe/pool.md#fulfillable-open)
-                    //
-                    // REVIEW: Potential Race #3 - DAG state read without pool lock
-                    // Node state could change between this read and latent creation below.
-                    // However:
-                    // - State transitions are monotonic (NotStarted → Running → Terminating → Terminated)
-                    // - Terminated → Running is impossible, so stale Terminated reads are safe
-                    // - Running → Terminated during race window is rare (narrow timing)
-                    // - Recheck logic below prevents latent if writer was created
-                    // - Worst case: create latent for terminated node without output (hangs until shutdown)
-                    // See pipepool_race_conditions_handover.md Race #3 for details
-                    let node_state = {
-                        let dag = self.dag.read();
-                        dag.get_node(actor_handle).map(|n| n.state)
-                    };
+                None => {
+                    // KVCheck state or just created - check KV storage
+                    let path = format!("pipes/actor-{}-{:?}", actor_handle.id(), key.1);
+                    let reader_handle = Handle::new(id_gen.get_next());
+                    let writer_handle = actor_handle;
 
-                    match node_state {
-                        Some(NodeState::NotStarted) | Some(NodeState::Running) | Some(NodeState::Terminating) => {
-                            // Producer will eventually produce output
-                            if !allow_latent {
-                                // Don't wait for running nodes if allow_latent is false
-                                return None;
-                            }
-
-                            // Create latent pipe and wait
-                            let notify = Arc::new(tokio::sync::Notify::new());
-                            let latent = LatentWriter {
-                                key,
-                                state: LatentState::Waiting,
-                                notify: Arc::clone(&notify),
-                            };
-
-                            // Recheck pool state before pushing latent to prevent races
-                            // (Race #2/#4/#5: writer or latent might have been created during race window)
-                            let notify_to_wait = {
-                                let mut inner = self.inner.lock();
-
-                                // Recheck: writer might have been created during race window
-                                if let Some(writer) = inner.find_writer(key) {
-                                    let shared_data = writer.share_with_reader();
-                                    let reader_handle = Handle::new(id_gen.get_next());
-                                    return Some(Reader::new(reader_handle, shared_data));
-                                }
-
-                                // Recheck: another reader might have created latent
-                                if let Some(existing_latent) = inner.find_latent_writer(key) {
-                                    match existing_latent.state {
-                                        LatentState::Waiting => {
-                                            // Wait on existing latent instead of creating duplicate
-                                            Arc::clone(&existing_latent.notify)
-                                        }
-                                        LatentState::Closed => {
-                                            return None;
-                                        }
-                                    }
-                                } else {
-                                    // Safe to push latent now
-                                    inner.latent_writers.push(latent);
-                                    debug!(key = ?key, "created latent writer");
-                                    Arc::clone(&notify)
-                                }
-                            }; // Lock released here
-
-                            // Wait for the pipe to be realized (outside lock)
-                            notify_to_wait.notified().await;
-                            continue;
+                    match create_reader_from_completed(
+                        self.kv.as_ref(),
+                        self.notification_queue.clone(),
+                        reader_handle,
+                        writer_handle,
+                        &path,
+                    )
+                    .await
+                    {
+                        Ok(reader) => {
+                            debug!(key = ?key, "resolved terminated node from KV");
+                            return Some(reader);
                         }
-                        Some(NodeState::Terminated) => {
-                            // Producer terminated - check KV for existing output
-                            let path = format!("pipes/actor-{}-{:?}", actor_handle.id(), key.1);
-                            let reader_handle = Handle::new(id_gen.get_next());
-                            let writer_handle = actor_handle; // Use actor handle as writer handle
-
-                            match create_reader_from_completed(
-                                self.kv.as_ref(),
-                                self.notification_queue.clone(),
-                                reader_handle,
-                                writer_handle,
-                                &path,
-                            )
-                            .await
-                            {
-                                Ok(reader) => {
-                                    debug!(key = ?key, "resolved terminated node from KV");
-                                    return Some(reader);
-                                }
-                                Err(_) => {
-                                    // Producer terminated without producing output
-                                    debug!(key = ?key, "terminated node has no output in KV");
-                                    return None;
-                                }
-                            }
-                        }
-                        None => {
-                            // Node doesn't exist in DAG
-                            if !allow_latent {
-                                // Don't wait if node doesn't exist and allow_latent is false
-                                return None;
-                            }
-
-                            // Create latent pipe anyway (may be in test environment or node not yet added to DAG)
-                            // REVIEW: Should this be an error instead? (see to-fix.md)
-                            let notify = Arc::new(tokio::sync::Notify::new());
-                            let latent = LatentWriter {
-                                key,
-                                state: LatentState::Waiting,
-                                notify: Arc::clone(&notify),
-                            };
-
-                            // Recheck pool state before pushing latent to prevent races
-                            // (Race #2/#4/#5: writer or latent might have been created during race window)
-                            let notify_to_wait = {
-                                let mut inner = self.inner.lock();
-
-                                // Recheck: writer might have been created during race window
-                                if let Some(writer) = inner.find_writer(key) {
-                                    let shared_data = writer.share_with_reader();
-                                    let reader_handle = Handle::new(id_gen.get_next());
-                                    return Some(Reader::new(reader_handle, shared_data));
-                                }
-
-                                // Recheck: another reader might have created latent
-                                if let Some(existing_latent) = inner.find_latent_writer(key) {
-                                    match existing_latent.state {
-                                        LatentState::Waiting => {
-                                            // Wait on existing latent instead of creating duplicate
-                                            Arc::clone(&existing_latent.notify)
-                                        }
-                                        LatentState::Closed => {
-                                            return None;
-                                        }
-                                    }
-                                } else {
-                                    // Safe to push latent now
-                                    inner.latent_writers.push(latent);
-                                    debug!(key = ?key, "created latent writer (node not in DAG)");
-                                    Arc::clone(&notify)
-                                }
-                            }; // Lock released here
-
-                            // Wait for the pipe to be realized (outside lock)
-                            notify_to_wait.notified().await;
-                            continue;
+                        Err(_) => {
+                            // No output in KV - return None
+                            debug!(key = ?key, "terminated node has no output in KV");
+                            return None;
                         }
                     }
                 }
@@ -426,15 +353,15 @@ impl<K: KVBuffers> PipePool<K> {
     ) -> Result<(Arc<Writer>, bool), crate::storage::KVError> {
         let key = (actor_handle, std_handle);
 
-        // Fast path: writer already exists
+        // Fast path: writer already realized
         {
             let inner = self.inner.lock();
-            if let Some(writer) = inner.find_writer(key) {
+            if let Some(WriterState::Realized(writer)) = inner.find(key) {
                 return Ok((Arc::clone(writer), false));
             }
         }
 
-        // Slow path: need to realize or create
+        // Slow path: create writer
         let writer_handle = Handle::new(id_gen.get_next());
         let path = format!("pipes/actor-{}-{:?}", actor_handle.id(), std_handle);
 
@@ -447,29 +374,31 @@ impl<K: KVBuffers> PipePool<K> {
         )
         .await?;
 
-        // Add writer to pool and notify waiters (if latent existed)
-        let writer_arc = {
+        // Replace state with Realized and notify waiters if needed
+        let writer_arc = Arc::new(writer);
+        let notify_arc = {
             let mut inner = self.inner.lock();
 
-            // Check if latent writer exists - remove it and get notify handle
-            let notify_arc = inner.remove_latent_writer(key).map(|lw| lw.notify);
+            // Remove old state and extract notify handle if it was Latent
+            let notify_arc = inner.remove(key).and_then(|old_state| {
+                match old_state {
+                    WriterState::Latent { notify, .. } => Some(notify),
+                    _ => None,
+                }
+            });
 
-            // Add writer wrapped in Arc
-            let writer_arc = Arc::new(writer);
-            inner.writers.push((key.0, key.1, Arc::clone(&writer_arc)));
+            // Insert Realized state
+            inner.insert(key, WriterState::Realized(Arc::clone(&writer_arc)));
             debug!(key = ?key, "created writer");
 
-            // Drop lock before notifying
-            drop(inner);
+            notify_arc
+        }; // Lock released here
 
-            // Notify waiters (outside lock)
-            if let Some(notify) = notify_arc {
-                notify.notify_waiters();
-                debug!(key = ?key, "notified waiters after creating writer");
-            }
-
-            writer_arc
-        };
+        // Notify waiters outside lock
+        if let Some(notify) = notify_arc {
+            notify.notify_waiters();
+            debug!(key = ?key, "notified waiters after creating writer");
+        }
 
         Ok((writer_arc, true))
     }
@@ -479,27 +408,30 @@ impl<K: KVBuffers> PipePool<K> {
     /// Called on actor shutdown to clean up all pipes for the actor.
     /// - For realized writers: calls `close()` on each
     /// - For latent writers: marks as closed and notifies waiting readers
+    /// - For KVCheck markers: removes them (no cleanup needed)
     pub fn close_actor_writers(&self, actor_handle: Handle) {
         let (writers_to_close, notifies) = {
             let mut inner = self.inner.lock();
 
-            // Collect latent notifies
+            let mut writers_to_close = Vec::new();
             let mut notifies = Vec::new();
-            for latent in &mut inner.latent_writers {
-                if latent.key.0 == actor_handle && latent.state == LatentState::Waiting {
-                    latent.state = LatentState::Closed;
-                    notifies.push(Arc::clone(&latent.notify));
-                    debug!(key = ?latent.key, "closed latent writer on actor shutdown");
+
+            // Update states for this actor
+            for (h, s, state) in &mut inner.writers {
+                if *h == actor_handle {
+                    match state {
+                        WriterState::Realized(writer) => {
+                            writers_to_close.push((*h, *s, Arc::clone(writer)));
+                        }
+                        WriterState::Latent { state: latent_state, notify } if *latent_state == LatentState::Waiting => {
+                            *latent_state = LatentState::Closed;
+                            notifies.push(Arc::clone(notify));
+                            debug!(key = ?(*h, *s), "closed latent writer on actor shutdown");
+                        }
+                        _ => {}
+                    }
                 }
             }
-
-            // Collect realized writers to close (clone Arc)
-            let writers_to_close: Vec<_> = inner
-                .writers
-                .iter()
-                .filter(|(h, _, _)| *h == actor_handle)
-                .map(|(h, s, w)| (*h, *s, Arc::clone(w)))
-                .collect();
 
             (writers_to_close, notifies)
         }; // Lock released here
@@ -519,11 +451,14 @@ impl<K: KVBuffers> PipePool<K> {
     /// Get a writer by key (only if already realized)
     ///
     /// Returns an Arc to the writer if it exists and has been realized.
-    /// Returns None if the pipe doesn't exist or is still latent.
+    /// Returns None if the pipe doesn't exist or is still latent/KVCheck.
     ///
     /// The returned Arc shares ownership of the writer, preventing premature closure.
     pub fn get_already_realized_writer(&self, key: (Handle, StdHandle)) -> Option<Arc<Writer>> {
         let inner = self.inner.lock();
-        inner.find_writer(key).cloned()
+        match inner.find(key) {
+            Some(WriterState::Realized(writer)) => Some(Arc::clone(writer)),
+            _ => None,
+        }
     }
 }
