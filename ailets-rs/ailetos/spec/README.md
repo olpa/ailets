@@ -5,11 +5,13 @@ This directory contains TLA+ formal verification for the pipe pool race conditio
 ## Quick Start
 
 ```bash
-# Install TLA+ tools
-wget https://github.com/tlaplus/tlaplus/releases/download/v1.8.0/tla2tools.jar
+# TLA+ tools are already installed (tla2tools.jar)
 
-# Run model checker
-java -XX:+UseParallelGC -cp tla2tools.jar tlc2.TLC PipePool.tla
+# Easy way: Use the helper script
+./run_tlc.sh
+
+# Manual way: Run TLC directly
+java -XX:+UseParallelGC -cp tla2tools.jar tlc2.TLC -workers auto -config PipePool.cfg PipePool.tla
 
 # Or use TLA+ Toolbox (GUI)
 # Download from: https://github.com/tlaplus/tlaplus/releases
@@ -29,6 +31,8 @@ See `../tla_experiment_handover.md` for full details.
 
 - `PipePool.tla` - Main specification
 - `PipePool.cfg` - Model configuration
+- `tla2tools.jar` - TLA+ model checker (v1.8.0)
+- `run_tlc.sh` - Helper script to run TLC
 - `README.md` - This file
 
 ## Resources
