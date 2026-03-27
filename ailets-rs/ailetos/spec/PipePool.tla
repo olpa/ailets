@@ -121,7 +121,7 @@ ReaderCreateLatent(r) ==
        /\ reader_notify' = [reader_notify EXCEPT ![r] = handle]
        /\ reader_state' = [reader_state EXCEPT ![r] = "waiting"]
        /\ pc' = [pc EXCEPT ![r] = "await_notify"]
-  /\ UNCHANGED <<pool_writers, reader_result, notified>>
+  /\ UNCHANGED <<pool_writers, reader_key, reader_result, notified>>
 
 (*
   Reader waits on notification.
