@@ -90,13 +90,12 @@ impl<K: KVBuffers> PipePool<K> {
     ///
     /// # Parameters
     /// - `kv`: Key-value store for pipe buffers
-    /// - `notification_queue`: Shared notification queue for pipe data events
     #[must_use]
-    pub fn new(kv: Arc<K>, notification_queue: NotificationQueueArc) -> Self {
+    pub fn new(kv: Arc<K>) -> Self {
         Self {
             writers: Mutex::new(Vec::new()),
             kv,
-            notification_queue,
+            notification_queue: NotificationQueueArc::new(),
         }
     }
 

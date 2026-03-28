@@ -1,7 +1,6 @@
 use actor_runtime::StdHandle;
 use ailetos::dag::Dag;
 use ailetos::idgen::{Handle, IdGen};
-use ailetos::notification_queue::NotificationQueueArc;
 use ailetos::pipe::PipePool;
 use ailetos::storage::memkv::MemKV;
 use ailetos::storage::KVBuffers;
@@ -17,10 +16,9 @@ fn create_test_pool() -> (
     Arc<RwLock<Dag>>,
 ) {
     let kv = Arc::new(MemKV::new());
-    let queue = NotificationQueueArc::new();
     let id_gen = Arc::new(IdGen::new());
     let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&id_gen))));
-    let pool = PipePool::new(kv.clone(), queue);
+    let pool = PipePool::new(kv.clone());
     (pool, kv, id_gen, dag)
 }
 
@@ -1331,7 +1329,6 @@ async fn test_race_latent_created_after_writer_exists() {
     use ailetos::dag::{NodeKind, NodeState};
 
     let kv = Arc::new(MemKV::new());
-    let queue = NotificationQueueArc::new();
     let id_gen = Arc::new(IdGen::new());
     let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&id_gen))));
 
@@ -1343,7 +1340,7 @@ async fn test_race_latent_created_after_writer_exists() {
         handle
     };
 
-    let pool = Arc::new(PipePool::new(kv.clone(), queue));
+    let pool = Arc::new(PipePool::new(kv.clone()));
     let pool_clone = Arc::clone(&pool);
     let id_gen = Arc::new(id_gen);
     let id_gen_clone = Arc::clone(&id_gen);
@@ -1387,7 +1384,6 @@ async fn test_race_duplicate_latents_prevented() {
     use ailetos::dag::{NodeKind, NodeState};
 
     let kv = Arc::new(MemKV::new());
-    let queue = NotificationQueueArc::new();
     let id_gen = Arc::new(IdGen::new());
     let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&id_gen))));
 
@@ -1399,7 +1395,7 @@ async fn test_race_duplicate_latents_prevented() {
         handle
     };
 
-    let pool = Arc::new(PipePool::new(kv.clone(), queue));
+    let pool = Arc::new(PipePool::new(kv.clone()));
     let id_gen = Arc::new(id_gen);
 
     // Launch two readers concurrently for the same key
@@ -1464,7 +1460,6 @@ async fn test_race_missed_notification_handled_by_loop() {
     use ailetos::dag::{NodeKind, NodeState};
 
     let kv = Arc::new(MemKV::new());
-    let queue = NotificationQueueArc::new();
     let id_gen = Arc::new(IdGen::new());
     let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&id_gen))));
 
@@ -1476,7 +1471,7 @@ async fn test_race_missed_notification_handled_by_loop() {
         handle
     };
 
-    let pool = Arc::new(PipePool::new(kv.clone(), queue));
+    let pool = Arc::new(PipePool::new(kv.clone()));
     let id_gen = Arc::new(id_gen);
 
     // Start reader that will create latent
@@ -1520,7 +1515,6 @@ async fn test_race_notification_before_await_with_close() {
     use ailetos::dag::{NodeKind, NodeState};
 
     let kv = Arc::new(MemKV::new());
-    let queue = NotificationQueueArc::new();
     let id_gen = Arc::new(IdGen::new());
     let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&id_gen))));
 
@@ -1532,7 +1526,7 @@ async fn test_race_notification_before_await_with_close() {
         handle
     };
 
-    let pool = Arc::new(PipePool::new(kv.clone(), queue));
+    let pool = Arc::new(PipePool::new(kv.clone()));
     let id_gen = Arc::new(id_gen);
 
     // Start reader that will create latent
