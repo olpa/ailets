@@ -14,6 +14,7 @@
 //!
 //! Terminated actors store output in KV storage.
 //! Value nodes are special: marked Terminated but never executed, with output only in KV.
+//! Callers (like MergeReader) are responsible for checking KV when appropriate.
 
 use std::sync::Arc;
 
@@ -21,14 +22,12 @@ use actor_runtime::StdHandle;
 use parking_lot::Mutex;
 use tracing::debug;
 
-use super::allocator::{create_reader_from_completed, create_writer};
+use super::allocator::create_writer;
 use super::reader::Reader;
 use super::writer::Writer;
-use crate::dag::{Dag, NodeState};
 use crate::idgen::{Handle, IdGen};
 use crate::notification_queue::NotificationQueueArc;
 use crate::storage::KVBuffers;
-use parking_lot::RwLock;
 
 /// Error type for pipe reader operations
 #[derive(Debug)]
@@ -37,12 +36,6 @@ pub enum PipeError {
     PipeClosed,
     /// Would block waiting for pipe but allow_latent=false
     WouldBlock,
-    /// Pipe not found (e.g., terminated actor with no KV data)
-    NotFound,
-    /// Actor in invalid state for pipe creation (Running/Terminating without pipe)
-    InvalidState(NodeState),
-    /// Actor not found in DAG
-    ActorNotFound,
     /// KV storage error
     Storage(crate::storage::KVError),
 }
@@ -52,9 +45,6 @@ impl std::fmt::Display for PipeError {
         match self {
             Self::PipeClosed => write!(f, "pipe closed by producer"),
             Self::WouldBlock => write!(f, "would block waiting for pipe"),
-            Self::NotFound => write!(f, "pipe not found"),
-            Self::InvalidState(state) => write!(f, "actor in invalid state: {:?}", state),
-            Self::ActorNotFound => write!(f, "actor not found in DAG"),
             Self::Storage(e) => write!(f, "storage error: {}", e),
         }
     }
@@ -81,22 +71,18 @@ enum WriterState {
         state: LatentState,
         notify: Arc<tokio::sync::Notify>,
     },
-    /// KVCheck marker - producer terminated, readers should check KV storage
-    KVCheck,
 }
 
 /// Pool of output pipes, indexed by (actor handle, `StdHandle`) pair
 ///
 /// Uses interior mutability via `Mutex` to allow shared access through `Arc<PipePool>`.
 pub struct PipePool<K: KVBuffers> {
-    /// Writers in various states (Realized, Latent, or KVCheck)
+    /// Writers in various states (Realized or Latent)
     writers: Mutex<Vec<(Handle, StdHandle, WriterState)>>,
     /// Key-value store for pipe buffers
     kv: Arc<K>,
     /// Notification queue for pipe data events
     notification_queue: NotificationQueueArc,
-    /// DAG for checking producer node state (spec://pipe/pool.md#fulfillable-open)
-    dag: Arc<RwLock<Dag>>,
 }
 
 impl<K: KVBuffers> PipePool<K> {
@@ -105,50 +91,36 @@ impl<K: KVBuffers> PipePool<K> {
     /// # Parameters
     /// - `kv`: Key-value store for pipe buffers
     /// - `notification_queue`: Shared notification queue for pipe data events
-    /// - `dag`: DAG for checking producer node state
     #[must_use]
-    pub fn new(kv: Arc<K>, notification_queue: NotificationQueueArc, dag: Arc<RwLock<Dag>>) -> Self {
+    pub fn new(kv: Arc<K>, notification_queue: NotificationQueueArc) -> Self {
         Self {
             writers: Mutex::new(Vec::new()),
             kv,
             notification_queue,
-            dag,
         }
     }
 
     /// Get or create a reader for a pipe
     ///
-    /// 1. If pipe exists in pool (Realized/Latent/KVCheck): handle accordingly
-    /// 2. If no pipe entry: check actor state in DAG
-    ///    - No actor → `Err(ActorNotFound)`
-    ///    - NotStarted → create latent (if allow_latent), wait
-    ///    - Terminated → check KV storage
-    ///    - Running/Terminating → `Err(InvalidState)` (pipe should already exist)
+    /// This method handles pipes in various states:
+    /// - **Realized**: Returns reader immediately
+    /// - **Latent (Waiting)**: Waits for pipe creation if allow_latent=true
+    /// - **Latent (Closed)**: Returns PipeClosed error
+    /// - **No entry**: Creates latent pipe if allow_latent=true, otherwise returns WouldBlock
     ///
     /// # Errors
     ///
     /// - `PipeClosed`: Producer closed latent pipe without creating it
     /// - `WouldBlock`: Pipe doesn't exist yet but allow_latent=false
-    /// - `NotFound`: Terminated actor has no output in KV
-    /// - `InvalidState`: Actor is Running/Terminating but pipe doesn't exist
-    /// - `ActorNotFound`: Actor not in DAG
-    /// - `Storage`: KV storage error
     pub async fn get_or_await_reader(
         &self,
         key: (Handle, StdHandle),
         allow_latent: bool,
         id_gen: &IdGen,
     ) -> Result<Reader, PipeError> {
-        let (actor_handle, _std_handle) = key;
-
         loop {
             // Check state under lock and decide action
-            enum Action {
-                Wait(Arc<tokio::sync::Notify>),
-                CheckKV,
-            }
-
-            let action = {
+            let wait_notify = {
                 let mut writers = self.writers.lock();
 
                 // Find existing writer state
@@ -171,88 +143,32 @@ impl<K: KVBuffers> PipePool<K> {
                     Some(WriterState::Latent { state: LatentState::Waiting, notify }) => {
                         // Case 3: Latent writer waiting for producer
                         if allow_latent {
-                            Action::Wait(Arc::clone(notify))
+                            Some(Arc::clone(notify))
                         } else {
                             return Err(PipeError::WouldBlock);
                         }
                     }
-                    Some(WriterState::KVCheck) => {
-                        // Case 4: Terminated node - check KV outside lock
-                        Action::CheckKV
-                    }
                     None => {
-                        // Case 5: No entry exists - check DAG state
-                        let node_state = {
-                            let dag = self.dag.read();
-                            dag.get_node(actor_handle).map(|n| n.state)
-                        };
-
-                        match node_state {
-                            None => {
-                                // Actor not in DAG
-                                return Err(PipeError::ActorNotFound);
-                            }
-                            Some(NodeState::NotStarted) => {
-                                // Producer not started yet - create latent writer
-                                if !allow_latent {
-                                    return Err(PipeError::WouldBlock);
-                                }
-                                let notify = Arc::new(tokio::sync::Notify::new());
-                                writers.push((key.0, key.1, WriterState::Latent {
-                                    state: LatentState::Waiting,
-                                    notify: Arc::clone(&notify),
-                                }));
-                                debug!(key = ?key, "created latent writer for NotStarted actor");
-                                Action::Wait(notify)
-                            }
-                            Some(NodeState::Terminated) => {
-                                // Producer terminated - mark for KV check
-                                writers.push((key.0, key.1, WriterState::KVCheck));
-                                debug!(key = ?key, "created KVCheck marker for terminated node");
-                                Action::CheckKV
-                            }
-                            Some(state @ (NodeState::Running | NodeState::Terminating)) => {
-                                // Error: Running/Terminating actor should have already touched pipe
-                                return Err(PipeError::InvalidState(state));
-                            }
+                        // Case 4: No entry exists
+                        if !allow_latent {
+                            return Err(PipeError::WouldBlock);
                         }
+                        // Create latent writer
+                        let notify = Arc::new(tokio::sync::Notify::new());
+                        writers.push((key.0, key.1, WriterState::Latent {
+                            state: LatentState::Waiting,
+                            notify: Arc::clone(&notify),
+                        }));
+                        debug!(key = ?key, "created latent writer");
+                        Some(notify)
                     }
                 }
             }; // Lock released here
 
-            // Execute action outside lock
-            match action {
-                Action::Wait(notify) => {
-                    // Wait for notification, then loop back to recheck
-                    notify.notified().await;
-                    continue;
-                }
-                Action::CheckKV => {
-                    // Check KV storage for terminated node
-                    let path = format!("pipes/actor-{}-{:?}", actor_handle.id(), key.1);
-                    let reader_handle = Handle::new(id_gen.get_next());
-                    let writer_handle = actor_handle;
-
-                    match create_reader_from_completed(
-                        self.kv.as_ref(),
-                        self.notification_queue.clone(),
-                        reader_handle,
-                        writer_handle,
-                        &path,
-                    )
-                    .await
-                    {
-                        Ok(reader) => {
-                            debug!(key = ?key, "resolved terminated node from KV");
-                            return Ok(reader);
-                        }
-                        Err(e) => {
-                            // No output in KV - pipe not found
-                            debug!(key = ?key, "terminated node has no output in KV");
-                            return Err(PipeError::Storage(e));
-                        }
-                    }
-                }
+            // Wait for notification if needed, then loop back to recheck
+            if let Some(notify) = wait_notify {
+                notify.notified().await;
+                continue;
             }
         }
     }
@@ -339,8 +255,7 @@ impl<K: KVBuffers> PipePool<K> {
     ///
     /// Called on actor shutdown to clean up all pipes for the actor.
     /// - For realized writers: calls `close()` on each
-    /// - For latent writers: marks as closed and notifies waiting readers
-    /// - For KVCheck markers: removes them (no cleanup needed)
+    /// - For latent writers (waiting): marks as closed and notifies waiting readers
     pub fn close_actor_writers(&self, actor_handle: Handle) {
         let (writers_to_close, notifies) = {
             let mut writers = self.writers.lock();
@@ -383,7 +298,7 @@ impl<K: KVBuffers> PipePool<K> {
     /// Get a writer by key (only if already realized)
     ///
     /// Returns an Arc to the writer if it exists and has been realized.
-    /// Returns None if the pipe doesn't exist or is still latent/KVCheck.
+    /// Returns None if the pipe doesn't exist or is still latent.
     ///
     /// The returned Arc shares ownership of the writer, preventing premature closure.
     pub fn get_already_realized_writer(&self, key: (Handle, StdHandle)) -> Option<Arc<Writer>> {

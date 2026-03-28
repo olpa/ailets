@@ -266,7 +266,6 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         let pipe_pool = Arc::new(PipePool::new(
             Arc::clone(&kv),
             notification_queue,
-            Arc::clone(&dag),
         ));
 
         // Create attachment manager
@@ -299,6 +298,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         let merge_reader = MergeReader::new(
             dep_iterator,
             Arc::clone(&self.pipe_pool),
+            Arc::clone(&self.kv),
             Arc::clone(&self.id_gen),
         );
 

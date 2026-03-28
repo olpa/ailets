@@ -8,6 +8,11 @@
 - [x] ailets-rs/ailetos/src/system_runtime.rs
 - [x] ailets-rs/ailetos/tests/environment.rs
 - [x] ailets-rs/ailetos/tests/pipepool.rs
+- [ ] ailets-rs/ailetos/src/dag.rs
+- [ ] ailets-rs/ailetos/src/pipe/merge.rs
+- [ ] ailets-rs/ailetos/src/pipe/pool.rs
+- [ ] ailets-rs/ailetos/src/system_runtime.rs
+- [ ] ailets-rs/ailetos/tests/pipepool.rs
 
 git diff a214-dag-iterator .... | gvim -
 

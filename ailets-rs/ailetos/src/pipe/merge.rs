@@ -13,7 +13,7 @@ use tracing::{trace, warn};
 
 use super::pool::PipePool;
 use super::reader::Reader;
-use crate::dag::OwnedDependencyIterator;
+use crate::dag::{NodeState, OwnedDependencyIterator};
 use crate::idgen::IdGen;
 use crate::storage::KVBuffers;
 
@@ -22,6 +22,13 @@ use crate::storage::KVBuffers;
 /// `MergeReader` uses an `OwnedDependencyIterator` to lazily traverse dependencies.
 /// When the current reader returns EOF, it automatically advances to the next
 /// dependency and continues reading. Alias nodes are resolved by the iterator.
+///
+/// ## Data Source Resolution (Pipe-first, KV-fallback)
+///
+/// For each dependency, MergeReader resolves the data source:
+/// 1. Try to get reader from PipePool (live pipe data)
+/// 2. If pipe doesn't exist AND producer is Terminated, check KV storage as fallback
+/// 3. This handles both running actors (pipes) and completed actors (KV)
 ///
 /// # Usage
 ///
@@ -36,52 +43,104 @@ pub struct MergeReader<K: KVBuffers> {
     dep_iterator: OwnedDependencyIterator,
     /// Pool of pipes to get `ReaderSharedData` from dependency handles
     pipe_pool: Arc<PipePool<K>>,
+    /// Key-value storage for completed actor output
+    kv: Arc<K>,
     /// ID generator for creating reader handles
     id_gen: Arc<IdGen>,
 }
 
 impl<K: KVBuffers> MergeReader<K> {
-    /// Create a new `MergeReader` with a dependency iterator and pipe pool.
+    /// Create a new `MergeReader` with a dependency iterator, pipe pool, and KV storage.
     ///
     /// # Arguments
     ///
     /// * `dep_iterator` - Iterator over dependency handles (from DAG)
     /// * `pipe_pool` - Pool of pipes for converting handles to readers
+    /// * `kv` - Key-value storage for completed actor output
     /// * `id_gen` - ID generator for creating reader handles
     #[must_use]
     pub fn new(
         dep_iterator: OwnedDependencyIterator,
         pipe_pool: Arc<PipePool<K>>,
+        kv: Arc<K>,
         id_gen: Arc<IdGen>,
     ) -> Self {
         Self {
             current_reader: None,
             dep_iterator,
             pipe_pool,
+            kv,
             id_gen,
         }
     }
 
     /// Create a reader for the next dependency from the iterator.
     ///
+    /// Implements pipe-first, KV-fallback strategy:
+    /// 1. Check DAG state to determine if latent pipe is appropriate
+    /// 2. Try to get reader from PipePool (live pipe data)
+    /// 3. If WouldBlock AND producer is Terminated, try KV storage as fallback
+    ///
     /// Returns `Ok(None)` if there are no more dependencies.
     /// Returns `Err` if there was an error getting the reader.
-    /// Creates a latent pipe if the dependency hasn't written yet.
     async fn create_next_reader(&mut self) -> Result<Option<Reader>, crate::pipe::pool::PipeError> {
-        if let Some(dep_handle) = self.dep_iterator.next() {
-            // Dependencies always output to stdout
-            // Use get_or_await_reader with allow_latent=true
-            self.pipe_pool
-                .get_or_await_reader(
-                    (dep_handle, actor_runtime::StdHandle::Stdout),
-                    true,
-                    &self.id_gen,
-                )
-                .await
-                .map(Some)
-        } else {
-            Ok(None)
+        let Some(dep_handle) = self.dep_iterator.next() else {
+            return Ok(None);
+        };
+
+        // Check producer state to determine strategy
+        let node_state = self.dep_iterator.get_dag()
+            .read()
+            .get_node(dep_handle)
+            .map(|n| n.state);
+
+        // Don't create latent pipes for already-terminated actors
+        // (close_actor_writers has already run, so latent would wait forever)
+        let allow_latent = !matches!(node_state, Some(NodeState::Terminated));
+
+        // Try pipe pool first (dependencies always output to stdout)
+        match self.pipe_pool
+            .get_or_await_reader(
+                (dep_handle, actor_runtime::StdHandle::Stdout),
+                allow_latent,
+                &self.id_gen,
+            )
+            .await
+        {
+            Ok(reader) => Ok(Some(reader)),
+            Err(crate::pipe::pool::PipeError::WouldBlock) if node_state == Some(NodeState::Terminated) => {
+                // Pipe doesn't exist and producer is terminated - try KV as fallback
+                trace!(dep = ?dep_handle, "pipe doesn't exist for terminated actor, checking KV");
+                self.get_reader_from_kv(dep_handle).await.map(Some)
+            }
+            Err(e) => Err(e),
         }
+    }
+
+    /// Get a reader from KV storage for a completed actor's output
+    async fn get_reader_from_kv(
+        &self,
+        actor_handle: crate::idgen::Handle,
+    ) -> Result<Reader, crate::pipe::pool::PipeError> {
+        use super::allocator::create_reader_from_completed;
+        use crate::notification_queue::NotificationQueueArc;
+
+        let path = format!("pipes/actor-{}-{:?}", actor_handle.id(), actor_runtime::StdHandle::Stdout);
+        let reader_handle = crate::idgen::Handle::new(self.id_gen.get_next());
+
+        // Create a dummy notification queue - unused since buffer is marked closed
+        // (Reader.should_wait_for_writer() returns WaitAction::Closed, never waits on queue)
+        let dummy_queue = NotificationQueueArc::new();
+
+        create_reader_from_completed(
+            self.kv.as_ref(),
+            dummy_queue,
+            reader_handle,
+            actor_handle,
+            &path,
+        )
+        .await
+        .map_err(crate::pipe::pool::PipeError::Storage)
     }
 
     /// Read data from the merged dependency stream.

@@ -376,6 +376,15 @@ impl OwnedDependencyIterator {
             visited: HashSet::new(),
         }
     }
+
+    /// Get a reference to the DAG
+    ///
+    /// Allows consumers (like MergeReader) to check node states when making decisions
+    /// about data source resolution (pipes vs KV storage).
+    #[must_use]
+    pub fn get_dag(&self) -> &Arc<RwLock<Dag>> {
+        &self.dag
+    }
 }
 
 impl Iterator for OwnedDependencyIterator {
