@@ -12,8 +12,8 @@
 //!
 //! ## KV Storage for Terminated Actors
 //!
-//! When actors terminate, their output is stored in KV storage at `pipes/actor-{id}-{handle}`.
-//! Readers requesting pipes from terminated actors check KV storage instead of waiting.
+//! Terminated actors store output in KV storage.
+//! Value nodes are special: marked Terminated but never executed, with output only in KV.
 
 use std::sync::Arc;
 
@@ -117,8 +117,6 @@ impl<K: KVBuffers> PipePool<K> {
     }
 
     /// Get or create a reader for a pipe
-    ///
-    /// # Simplified Logic
     ///
     /// 1. If pipe exists in pool (Realized/Latent/KVCheck): handle accordingly
     /// 2. If no pipe entry: check actor state in DAG
