@@ -105,7 +105,13 @@ impl<K: KVBuffers> MergeReader<K> {
             Err(crate::pipe::pool::PipeError::WouldBlock) if dep_state == NodeState::Terminated => {
                 // Pipe doesn't exist and producer is terminated - try KV as fallback
                 trace!(dep = ?dep_handle, "pipe doesn't exist for terminated actor, checking KV");
-                self.get_reader_from_kv(dep_handle).await.map(Some)
+                match self.get_reader_from_kv(dep_handle).await {
+                    Ok(reader) => Ok(Some(reader)),
+                    Err(kv_error) => {
+                        warn!(error = ?kv_error, dep = ?dep_handle, "failed to get reader from KV storage");
+                        Err(crate::pipe::pool::PipeError::WouldBlock)
+                    }
+                }
             }
             Err(e) => Err(e),
         }
@@ -115,7 +121,7 @@ impl<K: KVBuffers> MergeReader<K> {
     async fn get_reader_from_kv(
         &self,
         actor_handle: crate::idgen::Handle,
-    ) -> Result<Reader, crate::pipe::pool::PipeError> {
+    ) -> Result<Reader, crate::storage::KVError> {
         use super::allocator::create_reader_from_completed;
 
         let path = format!("pipes/actor-{}-{:?}", actor_handle.id(), actor_runtime::StdHandle::Stdout);
@@ -127,7 +133,6 @@ impl<K: KVBuffers> MergeReader<K> {
             &path,
         )
         .await
-        .map_err(crate::pipe::pool::PipeError::Storage)
     }
 
     /// Read data from the merged dependency stream.

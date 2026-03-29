@@ -36,8 +36,6 @@ pub enum PipeError {
     PipeClosed,
     /// Would block waiting for pipe but allow_latent=false
     WouldBlock,
-    /// KV storage error
-    Storage(crate::storage::KVError),
 }
 
 impl std::fmt::Display for PipeError {
@@ -45,7 +43,6 @@ impl std::fmt::Display for PipeError {
         match self {
             Self::PipeClosed => write!(f, "pipe closed by producer"),
             Self::WouldBlock => write!(f, "would block waiting for pipe"),
-            Self::Storage(e) => write!(f, "storage error: {}", e),
         }
     }
 }
