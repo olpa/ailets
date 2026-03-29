@@ -62,7 +62,7 @@ pub async fn write_completed_buffer<K: KVBuffers>(
 /// Create a reader from completed KV storage (for terminated producers)
 ///
 /// Opens a completed buffer from KV storage and constructs a reader
-/// with a closed SharedBuffer. Used when the producer has terminated
+/// with a closed `SharedBuffer`. Used when the producer has terminated
 /// and left data in KV storage.
 ///
 /// The notification queue and writer handle are created as dummy values

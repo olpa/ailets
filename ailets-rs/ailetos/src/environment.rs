@@ -98,8 +98,15 @@ impl<K: KVBuffers> Environment<K> {
     /// * `explain` - Optional explanation of what this value represents
     ///
     /// # Returns
-    /// The handle to the created node, or an error if writing to KV storage fails
-    pub async fn add_value_node(&mut self, data: Vec<u8>, explain: Option<String>) -> Result<Handle, KVError> {
+    /// The handle to the created node
+    ///
+    /// # Errors
+    /// Returns `KVError` if writing the data to KV storage fails
+    pub async fn add_value_node(
+        &mut self,
+        data: Vec<u8>,
+        explain: Option<String>,
+    ) -> Result<Handle, KVError> {
         use crate::pipe::{pipe_path, write_completed_buffer};
         use actor_runtime::StdHandle;
 

@@ -9,12 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 // Test helper to create a test pool
-fn create_test_pool() -> (
-    PipePool<MemKV>,
-    Arc<MemKV>,
-    Arc<IdGen>,
-    Arc<RwLock<Dag>>,
-) {
+fn create_test_pool() -> (PipePool<MemKV>, Arc<MemKV>, Arc<IdGen>, Arc<RwLock<Dag>>) {
     let kv = Arc::new(MemKV::new());
     let id_gen = Arc::new(IdGen::new());
     let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&id_gen))));
@@ -57,10 +52,7 @@ async fn test_create_writer_then_reader() {
         .await
         .expect("Reader should be created successfully");
 
-    assert_eq!(
-        *reader.handle(),
-        Handle::new(id_gen.get_next() - 1)
-    );
+    assert_eq!(*reader.handle(), Handle::new(id_gen.get_next() - 1));
     assert_eq!(writer_handle.id(), 1);
 }
 

@@ -14,7 +14,7 @@
 //!
 //! Terminated actors store output in KV storage.
 //! Value nodes are special: marked Terminated but never executed, with output only in KV.
-//! Callers (like MergeReader) are responsible for checking KV when appropriate.
+//! Callers (like `MergeReader`) are responsible for checking KV when appropriate.
 
 use std::sync::Arc;
 
@@ -35,7 +35,7 @@ use crate::storage::KVBuffers;
 pub enum PipeError {
     /// Pipe was closed by producer (latent pipe marked Closed)
     PipeClosed,
-    /// Would block waiting for pipe but allow_latent=false
+    /// Would block waiting for pipe but `allow_latent=false`
     WouldBlock,
 }
 
@@ -101,14 +101,14 @@ impl<K: KVBuffers> PipePool<K> {
     ///
     /// This method handles pipes in various states:
     /// - **Realized**: Returns reader immediately
-    /// - **Latent (Waiting)**: Waits for pipe creation if allow_latent=true
-    /// - **Latent (Closed)**: Returns PipeClosed error
-    /// - **No entry**: Creates latent pipe if allow_latent=true, otherwise returns WouldBlock
+    /// - **Latent (Waiting)**: Waits for pipe creation if `allow_latent=true`
+    /// - **Latent (Closed)**: Returns `PipeClosed` error
+    /// - **No entry**: Creates latent pipe if `allow_latent=true`, otherwise returns `WouldBlock`
     ///
     /// # Errors
     ///
     /// - `PipeClosed`: Producer closed latent pipe without creating it
-    /// - `WouldBlock`: Pipe doesn't exist yet but allow_latent=false
+    /// - `WouldBlock`: Pipe doesn't exist yet but `allow_latent=false`
     pub async fn get_or_await_reader(
         &self,
         key: (Handle, StdHandle),
@@ -133,11 +133,17 @@ impl<K: KVBuffers> PipePool<K> {
                         let reader_handle = Handle::new(id_gen.get_next());
                         return Ok(Reader::new(reader_handle, shared_data));
                     }
-                    Some(WriterState::Latent { state: LatentState::Closed, .. }) => {
+                    Some(WriterState::Latent {
+                        state: LatentState::Closed,
+                        ..
+                    }) => {
                         // Case 2: Producer terminated without creating pipe
                         return Err(PipeError::PipeClosed);
                     }
-                    Some(WriterState::Latent { state: LatentState::Waiting, notify }) => {
+                    Some(WriterState::Latent {
+                        state: LatentState::Waiting,
+                        notify,
+                    }) => {
                         // Case 3: Latent writer waiting for producer
                         if allow_latent {
                             Some(Arc::clone(notify))
@@ -152,10 +158,14 @@ impl<K: KVBuffers> PipePool<K> {
                         }
                         // Create latent writer
                         let notify = Arc::new(tokio::sync::Notify::new());
-                        writers.push((key.0, key.1, WriterState::Latent {
-                            state: LatentState::Waiting,
-                            notify: Arc::clone(&notify),
-                        }));
+                        writers.push((
+                            key.0,
+                            key.1,
+                            WriterState::Latent {
+                                state: LatentState::Waiting,
+                                notify: Arc::clone(&notify),
+                            },
+                        ));
                         debug!(key = ?key, "created latent writer");
                         Some(notify)
                     }
@@ -165,7 +175,6 @@ impl<K: KVBuffers> PipePool<K> {
             // Wait for notification if needed, then loop back to recheck
             if let Some(notify) = wait_notify {
                 notify.notified().await;
-                continue;
             }
         }
     }
@@ -222,11 +231,12 @@ impl<K: KVBuffers> PipePool<K> {
             let mut writers = self.writers.lock();
 
             // Remove old state and extract notify handle if it was Latent
-            let notify_arc = if let Some(pos) = writers.iter().position(|(h, s, _)| (*h, *s) == key) {
+            let notify_arc = if let Some(pos) = writers.iter().position(|(h, s, _)| (*h, *s) == key)
+            {
                 let (_, _, old_state) = writers.remove(pos);
                 match old_state {
                     WriterState::Latent { notify, .. } => Some(notify),
-                    _ => None,
+                    WriterState::Realized(_) => None,
                 }
             } else {
                 None
@@ -267,12 +277,15 @@ impl<K: KVBuffers> PipePool<K> {
                         WriterState::Realized(writer) => {
                             writers_to_close.push((*h, *s, Arc::clone(writer)));
                         }
-                        WriterState::Latent { state: latent_state, notify } if *latent_state == LatentState::Waiting => {
+                        WriterState::Latent {
+                            state: latent_state,
+                            notify,
+                        } if *latent_state == LatentState::Waiting => {
                             *latent_state = LatentState::Closed;
                             notifies.push(Arc::clone(notify));
                             debug!(key = ?(*h, *s), "closed latent writer on actor shutdown");
                         }
-                        _ => {}
+                        WriterState::Latent { .. } => {}
                     }
                 }
             }

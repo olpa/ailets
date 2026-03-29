@@ -44,10 +44,12 @@ fn stdin_actor<'a>(_reader: AReader<'a>, mut writer: AWriter<'a>) -> Result<(), 
 }
 
 async fn build_flow(env: &mut Environment<SqliteKV>) -> Result<Handle, ailetos::KVError> {
-    let val = env.add_value_node(
-        "(mee too)".as_bytes().to_vec(),
-        Some("Static text".to_string()),
-    ).await?;
+    let val = env
+        .add_value_node(
+            "(mee too)".as_bytes().to_vec(),
+            Some("Static text".to_string()),
+        )
+        .await?;
     let stdin = env.add_node(
         "stdin".to_string(),
         &[],

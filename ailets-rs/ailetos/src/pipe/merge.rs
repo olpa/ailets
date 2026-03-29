@@ -25,8 +25,8 @@ use crate::storage::KVBuffers;
 ///
 /// ## Data Source Resolution (Pipe-first, KV-fallback)
 ///
-/// For each dependency, MergeReader resolves the data source:
-/// 1. Try to get reader from PipePool (live pipe data)
+/// For each dependency, `MergeReader` resolves the data source:
+/// 1. Try to get reader from `PipePool` (live pipe data)
 /// 2. If pipe doesn't exist AND producer is Terminated, check KV storage as fallback
 /// 3. This handles both running actors (pipes) and completed actors (KV)
 ///
@@ -78,8 +78,8 @@ impl<K: KVBuffers> MergeReader<K> {
     ///
     /// Implements pipe-first, KV-fallback strategy:
     /// 1. Check DAG state to determine if latent pipe is appropriate
-    /// 2. Try to get reader from PipePool (live pipe data)
-    /// 3. If WouldBlock AND producer is Terminated, try KV storage as fallback
+    /// 2. Try to get reader from `PipePool` (live pipe data)
+    /// 3. If `WouldBlock` AND producer is Terminated, try KV storage as fallback
     ///
     /// Returns `Ok(None)` if there are no more dependencies.
     /// Returns `Err` if there was an error getting the reader.
@@ -93,7 +93,8 @@ impl<K: KVBuffers> MergeReader<K> {
         let allow_latent = dep_state != NodeState::Terminated;
 
         // Try pipe pool first (dependencies always output to stdout)
-        match self.pipe_pool
+        match self
+            .pipe_pool
             .get_or_await_reader(
                 (dep_handle, actor_runtime::StdHandle::Stdout),
                 allow_latent,
@@ -128,12 +129,7 @@ impl<K: KVBuffers> MergeReader<K> {
         let path = pipe_path(actor_handle, actor_runtime::StdHandle::Stdout);
         let reader_handle = crate::idgen::Handle::new(self.id_gen.get_next());
 
-        create_reader_from_completed(
-            self.kv.as_ref(),
-            reader_handle,
-            &path,
-        )
-        .await
+        create_reader_from_completed(self.kv.as_ref(), reader_handle, &path).await
     }
 
     /// Read data from the merged dependency stream.
