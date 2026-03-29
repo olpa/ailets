@@ -84,7 +84,6 @@ use tracing::{debug, trace, warn};
 use crate::attachments::{AttachmentConfig, AttachmentManager};
 use crate::dag::{Dag, NodeState, OwnedDependencyIterator};
 use crate::idgen::{Handle, IdGen};
-use crate::notification_queue::NotificationQueueArc;
 use crate::pipe::{MergeReader, PipePool};
 use crate::KVBuffers;
 
@@ -260,10 +259,9 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         attachment_config: AttachmentConfig,
     ) -> Self {
         let (system_tx, request_rx) = mpsc::unbounded_channel();
-        let notification_queue = NotificationQueueArc::new();
 
         // Create pipe pool
-        let pipe_pool = Arc::new(PipePool::new(Arc::clone(&kv), notification_queue));
+        let pipe_pool = Arc::new(PipePool::new(Arc::clone(&kv)));
 
         // Create attachment manager
         let attachment_manager = Arc::new(AttachmentManager::new(attachment_config));
@@ -295,6 +293,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         let merge_reader = MergeReader::new(
             dep_iterator,
             Arc::clone(&self.pipe_pool),
+            Arc::clone(&self.kv),
             Arc::clone(&self.id_gen),
         );
 

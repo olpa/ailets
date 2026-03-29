@@ -1,19 +1,32 @@
 use actor_runtime::StdHandle;
+use ailetos::dag::Dag;
 use ailetos::idgen::{Handle, IdGen};
-use ailetos::notification_queue::NotificationQueueArc;
-use ailetos::pipe::PipePool;
+use ailetos::pipe::{pipe_path, PipePool};
 use ailetos::storage::memkv::MemKV;
 use ailetos::storage::KVBuffers;
+use parking_lot::RwLock;
 use std::sync::Arc;
 use std::time::Duration;
 
 // Test helper to create a test pool
-fn create_test_pool() -> (PipePool<MemKV>, Arc<MemKV>, Arc<IdGen>) {
+fn create_test_pool() -> (PipePool<MemKV>, Arc<MemKV>, Arc<IdGen>, Arc<RwLock<Dag>>) {
     let kv = Arc::new(MemKV::new());
-    let queue = NotificationQueueArc::new();
     let id_gen = Arc::new(IdGen::new());
-    let pool = PipePool::new(kv.clone(), queue);
-    (pool, kv, id_gen)
+    let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&id_gen))));
+    let pool = PipePool::new(kv.clone());
+    (pool, kv, id_gen, dag)
+}
+
+// Test helper to register an actor in DAG with NotStarted state
+// Returns the actual handle created by the DAG (may differ from requested handle)
+fn register_actor(dag: &Arc<RwLock<Dag>>, _actor_handle: Handle) -> Handle {
+    use ailetos::dag::{NodeKind, NodeState};
+    let mut dag_guard = dag.write();
+    // Add node - IdGen will assign the handle
+    let name = "test-actor".to_string();
+    let handle = dag_guard.add_node(name, NodeKind::Concrete);
+    dag_guard.set_state(handle, NodeState::NotStarted);
+    handle
 }
 
 // ============================================================================
@@ -22,7 +35,7 @@ fn create_test_pool() -> (PipePool<MemKV>, Arc<MemKV>, Arc<IdGen>) {
 
 #[tokio::test]
 async fn test_create_writer_then_reader() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, _, id_gen, _dag) = create_test_pool();
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
@@ -36,19 +49,16 @@ async fn test_create_writer_then_reader() {
     // Create reader - should succeed immediately since writer exists
     let reader = pool
         .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
-        .await;
+        .await
+        .expect("Reader should be created successfully");
 
-    assert!(reader.is_some(), "Reader should be created successfully");
-    assert_eq!(
-        *reader.unwrap().handle(),
-        Handle::new(id_gen.get_next() - 1)
-    );
+    assert_eq!(*reader.handle(), Handle::new(id_gen.get_next() - 1));
     assert_eq!(writer_handle.id(), 1);
 }
 
 #[tokio::test]
 async fn test_multiple_readers_from_same_writer() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, _, id_gen, _dag) = create_test_pool();
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
@@ -60,22 +70,21 @@ async fn test_multiple_readers_from_same_writer() {
     // Create multiple readers
     let reader1 = pool
         .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
-        .await;
+        .await
+        .expect("Reader 1 should be created");
     let reader2 = pool
         .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
-        .await;
+        .await
+        .expect("Reader 2 should be created");
     let reader3 = pool
         .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
-        .await;
-
-    assert!(reader1.is_some());
-    assert!(reader2.is_some());
-    assert!(reader3.is_some());
+        .await
+        .expect("Reader 3 should be created");
 
     // Each reader should have a unique handle
-    let h1 = *reader1.unwrap().handle();
-    let h2 = *reader2.unwrap().handle();
-    let h3 = *reader3.unwrap().handle();
+    let h1 = *reader1.handle();
+    let h2 = *reader2.handle();
+    let h3 = *reader3.handle();
 
     assert_ne!(h1, h2);
     assert_ne!(h2, h3);
@@ -84,7 +93,7 @@ async fn test_multiple_readers_from_same_writer() {
 
 #[tokio::test]
 async fn test_different_std_handles() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, _, id_gen, _dag) = create_test_pool();
     let actor_handle = Handle::new(1);
 
     // Create writers for different StdHandles
@@ -101,19 +110,18 @@ async fn test_different_std_handles() {
         .expect("Failed to create env pipe");
 
     // Create readers for each
-    let stdout_reader = pool
+    let _stdout_reader = pool
         .get_or_await_reader((actor_handle, StdHandle::Stdout), false, &id_gen)
-        .await;
-    let log_reader = pool
+        .await
+        .expect("Stdout reader should be created");
+    let _log_reader = pool
         .get_or_await_reader((actor_handle, StdHandle::Log), false, &id_gen)
-        .await;
-    let env_reader = pool
+        .await
+        .expect("Log reader should be created");
+    let _env_reader = pool
         .get_or_await_reader((actor_handle, StdHandle::Env), false, &id_gen)
-        .await;
-
-    assert!(stdout_reader.is_some());
-    assert!(log_reader.is_some());
-    assert!(env_reader.is_some());
+        .await
+        .expect("Env reader should be created");
 }
 
 // ============================================================================
@@ -122,9 +130,11 @@ async fn test_different_std_handles() {
 
 #[tokio::test]
 async fn test_create_reader_with_latent_before_writer() {
-    let (pool, _, id_gen) = create_test_pool();
-    let actor_handle = Handle::new(1);
+    let (pool, _, id_gen, dag) = create_test_pool();
     let std_handle = StdHandle::Stdout;
+
+    // Register actor in DAG
+    let actor_handle = register_actor(&dag, Handle::new(1));
 
     // Spawn reader task that will block on latent pipe
     let pool_clone = Arc::new(pool);
@@ -152,31 +162,33 @@ async fn test_create_reader_with_latent_before_writer() {
         .expect("Reader task timed out")
         .expect("Reader task panicked");
 
-    assert!(result.is_some(), "Reader should be created after writer");
+    result.expect("Reader should be created after writer");
 }
 
 #[tokio::test]
 async fn test_create_reader_without_latent_returns_none() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, _, id_gen, _dag) = create_test_pool();
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
     // Try to create reader with allow_latent=false when no writer exists
-    let reader = pool
+    let result = pool
         .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
         .await;
 
     assert!(
-        reader.is_none(),
-        "Reader should be None when no writer exists and allow_latent=false"
+        result.is_err(),
+        "Reader should fail when no writer exists and allow_latent=false"
     );
 }
 
 #[tokio::test]
 async fn test_multiple_readers_waiting_on_latent_pipe() {
-    let (pool, _, id_gen) = create_test_pool();
-    let actor_handle = Handle::new(1);
+    let (pool, _, id_gen, dag) = create_test_pool();
     let std_handle = StdHandle::Stdout;
+
+    // Register actor in DAG
+    let actor_handle = register_actor(&dag, Handle::new(1));
 
     let pool = Arc::new(pool);
     let id_gen = Arc::new(id_gen);
@@ -209,13 +221,13 @@ async fn test_multiple_readers_waiting_on_latent_pipe() {
             .expect("Reader task timed out")
             .expect("Reader task panicked");
 
-        assert!(result.is_some(), "All readers should be created");
+        result.expect("All readers should be created");
     }
 }
 
 #[tokio::test]
 async fn test_reader_on_latent_pipe_closed_without_realizing() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, _, id_gen, _dag) = create_test_pool();
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
@@ -238,15 +250,15 @@ async fn test_reader_on_latent_pipe_closed_without_realizing() {
     // Close the latent writer without realizing it
     pool.close_actor_writers(actor_handle);
 
-    // Reader should unblock and get None
+    // Reader should unblock and get an error
     let result = tokio::time::timeout(Duration::from_secs(1), reader_task)
         .await
         .expect("Reader task timed out")
         .expect("Reader task panicked");
 
     assert!(
-        result.is_none(),
-        "Reader should get None when latent pipe is closed"
+        result.is_err(),
+        "Reader should get error when latent pipe is closed"
     );
 }
 
@@ -256,7 +268,7 @@ async fn test_reader_on_latent_pipe_closed_without_realizing() {
 
 #[tokio::test]
 async fn test_latent_to_realized_transition() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, _, id_gen, _dag) = create_test_pool();
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
@@ -305,7 +317,7 @@ async fn test_latent_to_realized_transition() {
 
 #[tokio::test]
 async fn test_latent_to_closed_transition() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, _, id_gen, _dag) = create_test_pool();
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
@@ -326,14 +338,14 @@ async fn test_latent_to_closed_transition() {
     // Close without realizing
     pool.close_actor_writers(actor_handle);
 
-    // New reader request should get None (closed state)
-    let reader = pool
+    // New reader request should get error (closed state)
+    let result = pool
         .get_or_await_reader((actor_handle, std_handle), true, &id_gen)
         .await;
 
     assert!(
-        reader.is_none(),
-        "Reader should get None from closed latent pipe"
+        result.is_err(),
+        "Reader should get error from closed latent pipe"
     );
 }
 
@@ -343,7 +355,7 @@ async fn test_latent_to_closed_transition() {
 
 #[tokio::test]
 async fn test_write_to_realized_writer() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, _, id_gen, _dag) = create_test_pool();
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
@@ -368,7 +380,7 @@ async fn test_write_to_realized_writer() {
 
 #[tokio::test]
 async fn test_write_to_nonexistent_pipe() {
-    let (pool, _, _id_gen) = create_test_pool();
+    let (pool, _, _id_gen, _dag) = create_test_pool();
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
@@ -382,7 +394,7 @@ async fn test_write_to_nonexistent_pipe() {
 
 #[tokio::test]
 async fn test_multiple_writes_to_same_pipe() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, _, id_gen, _dag) = create_test_pool();
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
@@ -409,7 +421,7 @@ async fn test_multiple_writes_to_same_pipe() {
 
 #[tokio::test]
 async fn test_close_realized_writer() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, _, id_gen, _dag) = create_test_pool();
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
@@ -431,7 +443,7 @@ async fn test_close_realized_writer() {
 
 #[tokio::test]
 async fn test_close_latent_writer_without_realizing() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, _, id_gen, _dag) = create_test_pool();
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
@@ -460,7 +472,7 @@ async fn test_close_latent_writer_without_realizing() {
 
 #[tokio::test]
 async fn test_close_nonexistent_pipe() {
-    let (pool, _, _id_gen) = create_test_pool();
+    let (pool, _, _id_gen, _dag) = create_test_pool();
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
@@ -475,7 +487,7 @@ async fn test_close_nonexistent_pipe() {
 
 #[tokio::test]
 async fn test_multiple_close_calls() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, _, id_gen, _dag) = create_test_pool();
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
@@ -507,9 +519,11 @@ async fn test_multiple_close_calls() {
 
 #[tokio::test]
 async fn test_multiple_readers_waiting_concurrently() {
-    let (pool, _, id_gen) = create_test_pool();
-    let actor_handle = Handle::new(1);
+    let (pool, _, id_gen, dag) = create_test_pool();
     let std_handle = StdHandle::Stdout;
+
+    // Register actor in DAG
+    let actor_handle = register_actor(&dag, Handle::new(1));
 
     let pool = Arc::new(pool);
     let id_gen = Arc::new(id_gen);
@@ -540,13 +554,13 @@ async fn test_multiple_readers_waiting_concurrently() {
             .await
             .expect("Task timed out")
             .expect("Task panicked");
-        assert!(result.is_some());
+        result.expect("Reader should be created");
     }
 }
 
 #[tokio::test]
 async fn test_concurrent_writers_for_different_handles() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, _, id_gen, _dag) = create_test_pool();
     let pool = Arc::new(pool);
     let id_gen = Arc::new(id_gen);
 
@@ -584,7 +598,7 @@ async fn test_concurrent_writers_for_different_handles() {
 
 #[tokio::test]
 async fn test_create_output_pipe_allocates_buffer() {
-    let (pool, kv, id_gen) = create_test_pool();
+    let (pool, kv, id_gen, _dag) = create_test_pool();
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
@@ -593,7 +607,7 @@ async fn test_create_output_pipe_allocates_buffer() {
         .expect("Failed to create writer");
 
     // Buffer should be allocated in KV
-    let buffer_name = format!("pipes/actor-{}-{:?}", actor_handle.id(), std_handle);
+    let buffer_name = pipe_path(actor_handle, std_handle);
     let buffer = kv
         .open(&buffer_name, ailetos::storage::OpenMode::Read)
         .await;
@@ -602,7 +616,7 @@ async fn test_create_output_pipe_allocates_buffer() {
 
 #[tokio::test]
 async fn test_realize_pipe_allocates_buffer() {
-    let (pool, kv, id_gen) = create_test_pool();
+    let (pool, kv, id_gen, _dag) = create_test_pool();
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
@@ -611,7 +625,7 @@ async fn test_realize_pipe_allocates_buffer() {
         .expect("Failed to realize pipe");
 
     // Buffer should exist
-    let buffer_name = format!("pipes/actor-{}-{:?}", actor_handle.id(), std_handle);
+    let buffer_name = pipe_path(actor_handle, std_handle);
     let buffer = kv
         .open(&buffer_name, ailetos::storage::OpenMode::Read)
         .await;
@@ -620,7 +634,7 @@ async fn test_realize_pipe_allocates_buffer() {
 
 #[tokio::test]
 async fn test_realize_already_realized_is_noop() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, _, id_gen, _dag) = create_test_pool();
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
@@ -636,7 +650,7 @@ async fn test_realize_already_realized_is_noop() {
 
 #[tokio::test]
 async fn test_flush_buffer() {
-    let (pool, kv, id_gen) = create_test_pool();
+    let (pool, kv, id_gen, _dag) = create_test_pool();
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
@@ -668,7 +682,7 @@ async fn test_flush_buffer() {
 
 #[tokio::test]
 async fn test_touch_writer_idempotent() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, _, id_gen, _dag) = create_test_pool();
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
@@ -698,7 +712,7 @@ async fn test_touch_writer_idempotent() {
 
 #[tokio::test]
 async fn test_flush_buffer_on_nonexistent_pipe() {
-    let (pool, _, _id_gen) = create_test_pool();
+    let (pool, _, _id_gen, _dag) = create_test_pool();
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
@@ -716,9 +730,11 @@ async fn test_flush_buffer_on_nonexistent_pipe() {
 
 #[tokio::test]
 async fn test_reader_waits_indefinitely_until_resolved() {
-    let (pool, _, id_gen) = create_test_pool();
-    let actor_handle = Handle::new(1);
+    let (pool, _, id_gen, dag) = create_test_pool();
     let std_handle = StdHandle::Stdout;
+
+    // Register actor in DAG
+    let actor_handle = register_actor(&dag, Handle::new(1));
 
     let pool = Arc::new(pool);
     let id_gen = Arc::new(id_gen);
@@ -749,12 +765,12 @@ async fn test_reader_waits_indefinitely_until_resolved() {
         .expect("Task should complete")
         .expect("Task panicked");
 
-    assert!(result.is_some());
+    result.expect("Reader should be created");
 }
 
 #[tokio::test]
 async fn test_create_latent_then_realize_then_another_reader() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, _, id_gen, _dag) = create_test_pool();
     let actor_handle = Handle::new(1);
     let std_handle = StdHandle::Stdout;
 
@@ -778,22 +794,18 @@ async fn test_create_latent_then_realize_then_another_reader() {
         .expect("Failed to realize pipe");
 
     // Wait for first reader
-    reader1_task.await.expect("First reader panicked");
+    let _ = reader1_task.await.expect("First reader panicked");
 
     // Create another reader - should succeed immediately
-    let reader2 = pool
+    let _reader2 = pool
         .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
-        .await;
-
-    assert!(
-        reader2.is_some(),
-        "Second reader should be created immediately"
-    );
+        .await
+        .expect("Second reader should be created immediately");
 }
 
 #[tokio::test]
 async fn test_mixed_latent_and_realized_pipes() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, _, id_gen, _dag) = create_test_pool();
     let pool = Arc::new(pool);
     let id_gen = Arc::new(id_gen);
 
@@ -829,9 +841,11 @@ async fn test_mixed_latent_and_realized_pipes() {
 
 #[tokio::test]
 async fn test_attachment_workflow_simulation() {
-    let (pool, _, id_gen) = create_test_pool();
-    let actor_handle = Handle::new(1);
+    let (pool, _, id_gen, dag) = create_test_pool();
     let std_handle = StdHandle::Stdout;
+
+    // Register actor in DAG
+    let actor_handle = register_actor(&dag, Handle::new(1));
 
     let pool = Arc::new(pool);
     let id_gen = Arc::new(id_gen);
@@ -886,12 +900,14 @@ async fn test_attachment_workflow_simulation() {
 
 #[tokio::test]
 async fn test_dependency_reading_simulation() {
-    let (pool, _, id_gen) = create_test_pool();
-    let pool = Arc::new(pool);
-    let id_gen = Arc::new(id_gen);
+    let (pool, _, id_gen, dag) = create_test_pool();
 
     // Simulate a pipeline: actor1 -> actor2
-    let actor1 = Handle::new(1);
+    // Register actor1 in DAG
+    let actor1 = register_actor(&dag, Handle::new(1));
+
+    let pool = Arc::new(pool);
+    let id_gen = Arc::new(id_gen);
 
     // Actor2 starts reading from actor1's stdout (dependency)
     let pool_clone = Arc::clone(&pool);
@@ -915,25 +931,26 @@ async fn test_dependency_reading_simulation() {
     let _ = writer.write(b"data from actor1");
 
     // Reader should get the reader
-    let reader = tokio::time::timeout(Duration::from_secs(1), reader_task)
+    let mut reader = tokio::time::timeout(Duration::from_secs(1), reader_task)
         .await
         .expect("Reader should unblock")
-        .expect("Reader task panicked");
-
-    assert!(reader.is_some(), "Dependency reader should be created");
+        .expect("Reader task panicked")
+        .expect("Dependency reader should be created");
 
     // Read the data
     let mut buf = vec![0u8; 100];
-    let n = reader.unwrap().read(&mut buf).await;
+    let n = reader.read(&mut buf).await;
     assert_eq!(n, 16);
     assert_eq!(&buf[..16], b"data from actor1");
 }
 
 #[tokio::test]
 async fn test_end_to_end_data_flow() {
-    let (pool, _, id_gen) = create_test_pool();
-    let actor_handle = Handle::new(1);
+    let (pool, _, id_gen, dag) = create_test_pool();
     let std_handle = StdHandle::Stdout;
+
+    // Register actor in DAG
+    let actor_handle = register_actor(&dag, Handle::new(1));
 
     // Create reader first (latent)
     let pool = Arc::new(pool);
@@ -1005,7 +1022,7 @@ async fn test_end_to_end_data_flow() {
 /// No waiter should be left orphaned waiting forever.
 #[tokio::test]
 async fn test_race_consumer_opens_during_shutdown() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, _, id_gen, _dag) = create_test_pool();
     let pool = Arc::new(pool);
     let id_gen = Arc::new(id_gen);
     let actor_handle = Handle::new(100);
@@ -1043,17 +1060,17 @@ async fn test_race_consumer_opens_during_shutdown() {
         .expect("Reader task should not panic");
 
     // Result is either:
-    // - Some(reader) if it registered before close
-    // - None if it saw the closed state
+    // - Ok(reader) if it registered before close
+    // - Err if it saw the closed state
     // Both are valid outcomes - the key is it doesn't hang
     match reader_result {
-        Some(mut reader) => {
+        Ok(mut reader) => {
             // If we got a reader, we should be able to read the data
             let mut buf = vec![0u8; 100];
             let n = reader.read(&mut buf).await;
             assert!(n >= 0, "Read should succeed or return EOF");
         }
-        None => {
+        Err(_) => {
             // Reader saw the pipe was closed - this is also valid
         }
     }
@@ -1068,7 +1085,7 @@ async fn test_race_consumer_opens_during_shutdown() {
 /// or receiving EOF). No consumers should hang forever.
 #[tokio::test]
 async fn test_race_concurrent_consumers_during_shutdown() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, _, id_gen, _dag) = create_test_pool();
     let pool = Arc::new(pool);
     let id_gen = Arc::new(id_gen);
     let actor_handle = Handle::new(200);
@@ -1126,10 +1143,10 @@ async fn test_race_concurrent_consumers_during_shutdown() {
     // Each consumer either got a reader or saw the closed state
     for (i, result) in results {
         match result {
-            Some(_) => {
+            Ok(_) => {
                 // Got reader before close - valid
             }
-            None => {
+            Err(_) => {
                 // Saw closed state - also valid
             }
         }
@@ -1145,7 +1162,7 @@ async fn test_race_concurrent_consumers_during_shutdown() {
 /// forever.
 #[tokio::test]
 async fn test_race_latent_waiters_notified_on_close() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, _, id_gen, _dag) = create_test_pool();
     let pool = Arc::new(pool);
     let id_gen = Arc::new(id_gen);
     let actor_handle = Handle::new(300);
@@ -1190,11 +1207,11 @@ async fn test_race_latent_waiters_notified_on_close() {
     let results = timeout_result.unwrap();
     assert_eq!(results.len(), 5);
 
-    // All waiters should receive None (closed without ever being realized)
+    // All waiters should receive error (closed without ever being realized)
     for result in results {
         assert!(
-            result.is_none(),
-            "Latent waiter should receive None when producer closes without writing"
+            result.is_err(),
+            "Latent waiter should receive error when producer closes without writing"
         );
     }
 }
@@ -1205,7 +1222,7 @@ async fn test_race_latent_waiters_notified_on_close() {
 /// concurrently without creating inconsistent state.
 #[tokio::test]
 async fn test_race_touch_writer_vs_close() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, _, id_gen, _dag) = create_test_pool();
     let pool = Arc::new(pool);
     let id_gen = Arc::new(id_gen);
     let actor_handle = Handle::new(400);
@@ -1254,11 +1271,14 @@ async fn test_race_touch_writer_vs_close() {
 /// notified, handling cases where the writer might not be available yet.
 #[tokio::test]
 async fn test_race_reader_loop_and_recheck() {
-    let (pool, _, id_gen) = create_test_pool();
+    let (pool, _, id_gen, dag) = create_test_pool();
+    let std_handle = StdHandle::Stdout;
+
+    // Register actor in DAG
+    let actor_handle = register_actor(&dag, Handle::new(500));
+
     let pool = Arc::new(pool);
     let id_gen = Arc::new(id_gen);
-    let actor_handle = Handle::new(500);
-    let std_handle = StdHandle::Stdout;
 
     // Create a reader that will wait latently
     let pool_clone = Arc::clone(&pool);
@@ -1284,15 +1304,11 @@ async fn test_race_reader_loop_and_recheck() {
     let reader_result = tokio::time::timeout(Duration::from_secs(1), reader_task)
         .await
         .expect("Reader should wake up after notify")
-        .expect("Reader task should not panic");
-
-    assert!(
-        reader_result.is_some(),
-        "Reader should successfully get the writer after waiting"
-    );
+        .expect("Reader task should not panic")
+        .expect("Reader should successfully get the writer after waiting");
 
     // Verify we can read the data
-    let mut reader = reader_result.unwrap();
+    let mut reader = reader_result;
     let mut buf = vec![0u8; 100];
     let n = reader.read(&mut buf).await;
     assert!(n > 0, "Should be able to read data from the pipe");

@@ -3,94 +3,18 @@
 //! Each (actor, `StdHandle`) pair can have its own output pipe. Readers are created on-demand
 //! when consuming actors need to read from dependencies.
 //!
-//! ## Race-Free Pipe Lifecycle Design
-//!
-//! This implementation prevents race conditions between producer shutdown and consumer pipe
-//! opening. See `pipe-lifecycle-implementation-guide.md` for the complete specification.
-//!
-//! ### Critical Design Decisions
-//!
-//! **Why: Single Mutex for All Operations**
-//!
-//! All pipe state operations (check existence, create latent, realize writer, close) happen
-//! under the same `Mutex<PoolInner>`. This ensures atomic check-and-register:
-//! - Consumer checks if writer exists AND registers latent waiter atomically
-//! - Producer checks if latent exists AND notifies waiters atomically
-//! - Shutdown extracts all waiters AND marks them closed atomically
-//!
-//! **Why: Notify Outside Lock**
-//!
-//! After extracting notify handles under lock, we call `notify_waiters()` AFTER releasing
-//! the lock. This prevents deadlock when notified readers immediately try to re-acquire
-//! the lock to get their reader instances.
-//!
-//! **Why: Latent State Machine (Waiting → Closed)**
-//!
-//! Latent writers track whether the producer is still capable of creating the pipe:
-//! - `Waiting`: Producer is running, pipe may still be created
-//! - `Closed`: Producer terminated without creating pipe, readers get EOF
-//!
-//! This state prevents orphaned waiters when actors crash or exit early.
-//!
-//! **Why: Loop-and-Recheck in `get_or_await_reader()`**
-//!
-//! After being notified, readers loop back to recheck state under lock. This handles:
-//! - Spurious wakeups from `tokio::Notify`
-//! - Race where writer is created just as we're setting up to wait
-//! - Multiple readers waking up from same notification
-//!
-//! **Integration with Actor Lifecycle**
-//!
-//! The race-free guarantee depends on `SystemRuntime` calling operations in this order:
-//! 1. Set actor state to TERMINATING (blocks new pipe requests)
-//! 2. Call `close_actor_writers()` (wakes all waiting readers)
-//! 3. Set actor state to TERMINATED (signals cleanup complete)
-//!
-//! See `system_runtime.rs` `ActorShutdown` handler for the implementation.
-//!
-//! ## Problem: Dependency Race Conditions
+//! ## Latent Pipes
 //!
 //! Actors can start reading from dependencies before those dependencies have created their
-//! output pipes. This creates a coordination problem:
+//! output pipes. When a reader requests a non-existent pipe, a **latent writer** placeholder
+//! is created. The reader waits on a `tokio::Notify` until the producer creates the pipe or
+//! terminates.
 //!
-//! - **Consumer** (e.g., `cat`) needs to read from dependency's stdout
-//! - **Producer** (e.g., upstream actor) hasn't created its output pipe yet
-//! - Consumer should **wait** for the pipe to be created, not fail
+//! ## KV Storage for Terminated Actors
 //!
-//! ## Solution: Latent Pipes
-//!
-//! When a reader requests a pipe that doesn't exist yet:
-//! 1. Create a **latent writer** placeholder with a `tokio::Notify`
-//! 2. Reader awaits on the notify
-//! 3. When writer is eventually created, notify all waiting readers
-//! 4. Readers wake up and get their `Reader` instances
-//!
-//! ## Design: Two Vectors
-//!
-//! `PipePool` stores writers in two states:
-//!
-//! - **`latent_writers: Vec<LatentWriter>`** - Placeholders for pipes not yet created
-//!   - Contains `(Handle, StdHandle)` key, state (Waiting/Closed), and notify handle
-//!   - Created when reader requests non-existent pipe with `allow_latent=true`
-//!   - Removed when writer is created (transitions to `writers`)
-//!   - Set to `Closed` state if actor exits without writing (prevents infinite wait)
-//!
-//! - **`writers: Vec<(Handle, StdHandle, Writer)>`** - Active pipes with data buffers
-//!   - Created on first write or explicit pipe creation
-//!   - Notifies all waiting readers when created
-//!   - Supports multiple readers via `Writer::share_with_reader()`
-//!
-//! **Readers are not stored** - created on-demand from writers and returned to callers.
-//!
-//! ## Coordination via Notify
-//!
-//! All latent pipe coordination uses `tokio::sync::Notify`:
-//!
-//! 1. **Reader path**: `get_or_await_reader()` creates latent entry, awaits notify
-//! 2. **Writer path**: `touch_writer()` removes latent entry, calls `notify_waiters()`
-//! 3. **Shutdown path**: `close_actor_writers()` closes all writers for an actor
-//!
-//! This ensures readers never miss notifications and wake up exactly once.
+//! Terminated actors store output in KV storage.
+//! Value nodes are special: marked Terminated but never executed, with output only in KV.
+//! Callers (like `MergeReader`) are responsible for checking KV when appropriate.
 
 use std::sync::Arc;
 
@@ -98,75 +22,65 @@ use actor_runtime::StdHandle;
 use parking_lot::Mutex;
 use tracing::debug;
 
+use super::allocator::create_writer;
+use super::pipe_path;
 use super::reader::Reader;
 use super::writer::Writer;
 use crate::idgen::{Handle, IdGen};
 use crate::notification_queue::NotificationQueueArc;
-use crate::storage::{KVBuffers, OpenMode};
+use crate::storage::KVBuffers;
+
+/// Error type for pipe reader operations
+#[derive(Debug)]
+pub enum PipeError {
+    /// Pipe was closed by producer (latent pipe marked Closed)
+    PipeClosed,
+    /// Would block waiting for pipe but `allow_latent=false`
+    WouldBlock,
+}
+
+impl std::fmt::Display for PipeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PipeClosed => write!(f, "pipe closed by producer"),
+            Self::WouldBlock => write!(f, "would block waiting for pipe"),
+        }
+    }
+}
+
+impl std::error::Error for PipeError {}
 
 /// State of a latent writer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LatentState {
     /// Waiting for writer to be created
     Waiting,
-    /// Closed without ever being realized
+    /// Producer terminated without creating the pipe - readers waiting for this pipe get None (EOF).
+    /// Prevents readers from waiting forever when the producer crashes or exits early.
     Closed,
 }
 
-/// A placeholder for a writer that hasn't been created yet
-pub struct LatentWriter {
-    key: (Handle, StdHandle),
-    state: LatentState,
-    notify: Arc<tokio::sync::Notify>,
-}
-
-/// Inner state of the pipe pool
-struct PoolInner {
-    latent_writers: Vec<LatentWriter>,
-    writers: Vec<(Handle, StdHandle, Arc<Writer>)>,
-}
-
-impl PoolInner {
-    fn new() -> Self {
-        Self {
-            latent_writers: Vec::new(),
-            writers: Vec::new(),
-        }
-    }
-
-    /// Find a writer by key
-    fn find_writer(&self, key: (Handle, StdHandle)) -> Option<&Arc<Writer>> {
-        self.writers
-            .iter()
-            .find(|(h, s, _)| (*h, *s) == key)
-            .map(|(_, _, w)| w)
-    }
-
-    /// Find a latent writer by key
-    fn find_latent_writer(&self, key: (Handle, StdHandle)) -> Option<&LatentWriter> {
-        self.latent_writers.iter().find(|lw| lw.key == key)
-    }
-
-    /// Remove a latent writer by key and return it
-    fn remove_latent_writer(&mut self, key: (Handle, StdHandle)) -> Option<LatentWriter> {
-        if let Some(pos) = self.latent_writers.iter().position(|lw| lw.key == key) {
-            Some(self.latent_writers.remove(pos))
-        } else {
-            None
-        }
-    }
+/// State of a writer in the pool
+enum WriterState {
+    /// Realized writer with data buffer
+    Realized(Arc<Writer>),
+    /// Latent writer - placeholder waiting for producer to create pipe
+    Latent {
+        state: LatentState,
+        notify: Arc<tokio::sync::Notify>,
+    },
 }
 
 /// Pool of output pipes, indexed by (actor handle, `StdHandle`) pair
 ///
 /// Uses interior mutability via `Mutex` to allow shared access through `Arc<PipePool>`.
 pub struct PipePool<K: KVBuffers> {
-    /// Inner state (readers, `latent_writers`, writers)
-    inner: Mutex<PoolInner>,
-    /// Shared notification queue for all pipes
-    notification_queue: NotificationQueueArc,
+    /// Writers in various states (Realized or Latent)
+    writers: Mutex<Vec<(Handle, StdHandle, WriterState)>>,
     /// Key-value store for pipe buffers
     kv: Arc<K>,
+    /// Notification queue for pipe data events
+    notification_queue: NotificationQueueArc,
 }
 
 impl<K: KVBuffers> PipePool<K> {
@@ -174,86 +88,95 @@ impl<K: KVBuffers> PipePool<K> {
     ///
     /// # Parameters
     /// - `kv`: Key-value store for pipe buffers
-    /// - `notification_queue`: Shared notification queue for pipe data events
     #[must_use]
-    pub fn new(kv: Arc<K>, notification_queue: NotificationQueueArc) -> Self {
+    pub fn new(kv: Arc<K>) -> Self {
         Self {
-            inner: Mutex::new(PoolInner::new()),
-            notification_queue,
+            writers: Mutex::new(Vec::new()),
             kv,
+            notification_queue: NotificationQueueArc::new(),
         }
     }
 
     /// Get or create a reader for a pipe
     ///
-    /// If writer exists: creates reader immediately
-    /// If latent writer exists:
-    ///   - If closed: returns None
-    ///   - If waiting: awaits until realized or closed
+    /// This method handles pipes in various states:
+    /// - **Realized**: Returns reader immediately
+    /// - **Latent (Waiting)**: Waits for pipe creation if `allow_latent=true`
+    /// - **Latent (Closed)**: Returns `PipeClosed` error
+    /// - **No entry**: Creates latent pipe if `allow_latent=true`, otherwise returns `WouldBlock`
     ///
-    /// If `allow_latent`: creates latent writer and awaits.
-    /// Otherwise: returns None.
+    /// # Errors
+    ///
+    /// - `PipeClosed`: Producer closed latent pipe without creating it
+    /// - `WouldBlock`: Pipe doesn't exist yet but `allow_latent=false`
     pub async fn get_or_await_reader(
         &self,
         key: (Handle, StdHandle),
         allow_latent: bool,
         id_gen: &IdGen,
-    ) -> Option<Reader> {
+    ) -> Result<Reader, PipeError> {
         loop {
-            // Check what state we're in
-            let notify_arc = {
-                let mut inner = self.inner.lock();
+            // Check state under lock and decide action
+            let wait_notify = {
+                let mut writers = self.writers.lock();
 
-                // Check if writer exists
-                if let Some(writer) = inner.find_writer(key) {
-                    let shared_data = writer.share_with_reader();
-                    let reader_handle = Handle::new(id_gen.get_next());
-                    return Some(Reader::new(reader_handle, shared_data));
-                }
+                // Find existing writer state
+                let existing_state = writers
+                    .iter()
+                    .find(|(h, s, _)| (*h, *s) == key)
+                    .map(|(_, _, state)| state);
 
-                // Check if latent writer exists
-                if let Some(latent) = inner.find_latent_writer(key) {
-                    match latent.state {
-                        LatentState::Closed => {
-                            return None;
-                        }
-                        LatentState::Waiting => {
-                            // Only wait on latent writer if allow_latent is true
-                            if allow_latent {
-                                let notify = Arc::clone(&latent.notify);
-                                Some(notify)
-                            } else {
-                                return None;
-                            }
+                match existing_state {
+                    Some(WriterState::Realized(writer)) => {
+                        // Case 1: Writer exists - create reader immediately
+                        let shared_data = writer.share_with_reader();
+                        let reader_handle = Handle::new(id_gen.get_next());
+                        return Ok(Reader::new(reader_handle, shared_data));
+                    }
+                    Some(WriterState::Latent {
+                        state: LatentState::Closed,
+                        ..
+                    }) => {
+                        // Case 2: Producer terminated without creating pipe
+                        return Err(PipeError::PipeClosed);
+                    }
+                    Some(WriterState::Latent {
+                        state: LatentState::Waiting,
+                        notify,
+                    }) => {
+                        // Case 3: Latent writer waiting for producer
+                        if allow_latent {
+                            Some(Arc::clone(notify))
+                        } else {
+                            return Err(PipeError::WouldBlock);
                         }
                     }
-                } else if allow_latent {
-                    // Create latent writer
-                    let notify = Arc::new(tokio::sync::Notify::new());
-                    let latent = LatentWriter {
-                        key,
-                        state: LatentState::Waiting,
-                        notify: Arc::clone(&notify),
-                    };
-                    inner.latent_writers.push(latent);
-                    debug!(key = ?key, "created latent writer");
-                    Some(notify)
-                } else {
-                    return None;
+                    None => {
+                        // Case 4: No entry exists
+                        if !allow_latent {
+                            return Err(PipeError::WouldBlock);
+                        }
+                        // Create latent writer
+                        let notify = Arc::new(tokio::sync::Notify::new());
+                        writers.push((
+                            key.0,
+                            key.1,
+                            WriterState::Latent {
+                                state: LatentState::Waiting,
+                                notify: Arc::clone(&notify),
+                            },
+                        ));
+                        debug!(key = ?key, "created latent writer");
+                        Some(notify)
+                    }
                 }
-            };
+            }; // Lock released here
 
-            // If we got a notify arc, wait on it
-            if let Some(notify) = notify_arc {
+            // Wait for notification if needed, then loop back to recheck
+            if let Some(notify) = wait_notify {
                 notify.notified().await;
-                // Loop back to check state again
-            } else {
-                // No notify arc means we returned already
-                break;
             }
         }
-
-        None
     }
 
     /// Touch a writer - get existing or create new (idempotent)
@@ -276,52 +199,61 @@ impl<K: KVBuffers> PipePool<K> {
     ) -> Result<(Arc<Writer>, bool), crate::storage::KVError> {
         let key = (actor_handle, std_handle);
 
-        // Fast path: writer already exists
+        // Fast path: writer already realized
         {
-            let inner = self.inner.lock();
-            if let Some(writer) = inner.find_writer(key) {
+            let writers = self.writers.lock();
+            let existing_state = writers
+                .iter()
+                .find(|(h, s, _)| (*h, *s) == key)
+                .map(|(_, _, state)| state);
+
+            if let Some(WriterState::Realized(writer)) = existing_state {
                 return Ok((Arc::clone(writer), false));
             }
         }
 
-        // Slow path: need to realize or create
+        // Slow path: create writer
         let writer_handle = Handle::new(id_gen.get_next());
-        let name = format!("pipes/actor-{}-{:?}", actor_handle.id(), std_handle);
+        let path = pipe_path(actor_handle, std_handle);
 
-        // Allocate buffer
-        let buffer = self.kv.open(&name, OpenMode::Write).await?;
-
-        // Create writer
-        let writer = Writer::new(
-            writer_handle,
+        // Create writer with buffer from KV storage
+        let writer = create_writer(
+            self.kv.as_ref(),
             self.notification_queue.clone(),
-            &name,
-            buffer,
-        );
+            writer_handle,
+            &path,
+        )
+        .await?;
 
-        // Add writer to pool and notify waiters (if latent existed)
-        let writer_arc = {
-            let mut inner = self.inner.lock();
+        // Replace state with Realized and notify waiters if needed
+        let writer_arc = Arc::new(writer);
+        let notify_arc = {
+            let mut writers = self.writers.lock();
 
-            // Check if latent writer exists - remove it and get notify handle
-            let notify_arc = inner.remove_latent_writer(key).map(|lw| lw.notify);
+            // Remove old state and extract notify handle if it was Latent
+            let notify_arc = if let Some(pos) = writers.iter().position(|(h, s, _)| (*h, *s) == key)
+            {
+                let (_, _, old_state) = writers.remove(pos);
+                match old_state {
+                    WriterState::Latent { notify, .. } => Some(notify),
+                    WriterState::Realized(_) => None,
+                }
+            } else {
+                None
+            };
 
-            // Add writer wrapped in Arc
-            let writer_arc = Arc::new(writer);
-            inner.writers.push((key.0, key.1, Arc::clone(&writer_arc)));
+            // Insert Realized state
+            writers.push((key.0, key.1, WriterState::Realized(Arc::clone(&writer_arc))));
             debug!(key = ?key, "created writer");
 
-            // Drop lock before notifying
-            drop(inner);
+            notify_arc
+        }; // Lock released here
 
-            // Notify waiters (outside lock)
-            if let Some(notify) = notify_arc {
-                notify.notify_waiters();
-                debug!(key = ?key, "notified waiters after creating writer");
-            }
-
-            writer_arc
-        };
+        // Notify waiters outside lock
+        if let Some(notify) = notify_arc {
+            notify.notify_waiters();
+            debug!(key = ?key, "notified waiters after creating writer");
+        }
 
         Ok((writer_arc, true))
     }
@@ -330,28 +262,33 @@ impl<K: KVBuffers> PipePool<K> {
     ///
     /// Called on actor shutdown to clean up all pipes for the actor.
     /// - For realized writers: calls `close()` on each
-    /// - For latent writers: marks as closed and notifies waiting readers
+    /// - For latent writers (waiting): marks as closed and notifies waiting readers
     pub fn close_actor_writers(&self, actor_handle: Handle) {
         let (writers_to_close, notifies) = {
-            let mut inner = self.inner.lock();
+            let mut writers = self.writers.lock();
 
-            // Collect latent notifies
+            let mut writers_to_close = Vec::new();
             let mut notifies = Vec::new();
-            for latent in &mut inner.latent_writers {
-                if latent.key.0 == actor_handle && latent.state == LatentState::Waiting {
-                    latent.state = LatentState::Closed;
-                    notifies.push(Arc::clone(&latent.notify));
-                    debug!(key = ?latent.key, "closed latent writer on actor shutdown");
+
+            // Update states for this actor
+            for (h, s, state) in &mut *writers {
+                if *h == actor_handle {
+                    match state {
+                        WriterState::Realized(writer) => {
+                            writers_to_close.push((*h, *s, Arc::clone(writer)));
+                        }
+                        WriterState::Latent {
+                            state: latent_state,
+                            notify,
+                        } if *latent_state == LatentState::Waiting => {
+                            *latent_state = LatentState::Closed;
+                            notifies.push(Arc::clone(notify));
+                            debug!(key = ?(*h, *s), "closed latent writer on actor shutdown");
+                        }
+                        WriterState::Latent { .. } => {}
+                    }
                 }
             }
-
-            // Collect realized writers to close (clone Arc)
-            let writers_to_close: Vec<_> = inner
-                .writers
-                .iter()
-                .filter(|(h, _, _)| *h == actor_handle)
-                .map(|(h, s, w)| (*h, *s, Arc::clone(w)))
-                .collect();
 
             (writers_to_close, notifies)
         }; // Lock released here
@@ -375,7 +312,15 @@ impl<K: KVBuffers> PipePool<K> {
     ///
     /// The returned Arc shares ownership of the writer, preventing premature closure.
     pub fn get_already_realized_writer(&self, key: (Handle, StdHandle)) -> Option<Arc<Writer>> {
-        let inner = self.inner.lock();
-        inner.find_writer(key).cloned()
+        let writers = self.writers.lock();
+        let existing_state = writers
+            .iter()
+            .find(|(h, s, _)| (*h, *s) == key)
+            .map(|(_, _, state)| state);
+
+        match existing_state {
+            Some(WriterState::Realized(writer)) => Some(Arc::clone(writer)),
+            _ => None,
+        }
     }
 }

@@ -366,7 +366,7 @@ pub struct OwnedDependencyIterator {
 impl OwnedDependencyIterator {
     /// Create a new owned dependency iterator for the given node.
     ///
-    /// Resolves aliases and yields only concrete dependency nodes.
+    /// Resolves aliases and yields only concrete dependency nodes with their states.
     #[must_use]
     pub fn new(dag: Arc<RwLock<Dag>>, pid: Handle) -> Self {
         let to_visit: VecDeque<Handle> = dag.read().get_direct_dependencies(pid).collect();
@@ -379,7 +379,7 @@ impl OwnedDependencyIterator {
 }
 
 impl Iterator for OwnedDependencyIterator {
-    type Item = Handle;
+    type Item = (Handle, NodeState);
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(pid) = self.to_visit.pop_front() {
@@ -387,7 +387,7 @@ impl Iterator for OwnedDependencyIterator {
                 let dag = self.dag.read();
                 if let Some(node) = dag.get_node(pid) {
                     match &node.kind {
-                        NodeKind::Concrete => return Some(pid),
+                        NodeKind::Concrete => return Some((pid, node.state)),
                         NodeKind::Alias => {
                             self.to_visit.extend(dag.get_direct_dependencies(pid));
                         }

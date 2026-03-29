@@ -1,42 +1,81 @@
 use std::collections::HashSet;
 
-use crate::dag::{Dag, NodeKind};
+use crate::dag::{Dag, NodeKind, NodeState};
 use crate::idgen::Handle;
+
+/// Conditions for stopping DAG iteration
+#[derive(Debug, Clone, Default)]
+pub struct StopConditions {
+    /// Execute only the first ready node, then stop
+    pub one_step: bool,
+    /// Stop before executing this node
+    pub stop_before: Option<Handle>,
+    /// Stop after executing this node
+    pub stop_after: Option<Handle>,
+}
 
 pub struct Scheduler<'a> {
     dag: &'a Dag,
     target: Handle,
+    stop_conditions: StopConditions,
 }
 
 impl<'a> Scheduler<'a> {
     #[must_use]
     pub fn new(dag: &'a Dag, target: Handle) -> Self {
-        Self { dag, target }
+        Self {
+            dag,
+            target,
+            stop_conditions: StopConditions::default(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_stop_conditions(
+        dag: &'a Dag,
+        target: Handle,
+        stop_conditions: StopConditions,
+    ) -> Self {
+        Self {
+            dag,
+            target,
+            stop_conditions,
+        }
     }
 
     /// Returns iterator over nodes needed to build target (topological order).
     /// Dependencies are yielded before dependents.
     pub fn iter(&self) -> impl Iterator<Item = Handle> + '_ {
-        SchedulerIter::new(self.dag, self.target)
+        SchedulerIter::new(self.dag, self.target, self.stop_conditions.clone())
     }
 }
 
+/// Iterator that yields nodes in topological order.
+///
+/// On first `next()`, computes full order into `result`. Then yields nodes
+/// one by one via `result_index`. The `stopped` flag allows early termination.
 struct SchedulerIter<'a> {
     dag: &'a Dag,
     stack: Vec<Handle>,
     visited: HashSet<Handle>,
     result: Vec<Handle>,
     done: bool,
+    result_index: usize,
+    stopped: bool,
+    stop_conditions: StopConditions,
 }
 
 impl<'a> SchedulerIter<'a> {
-    fn new(dag: &'a Dag, target: Handle) -> Self {
+    fn new(dag: &'a Dag, target: Handle, stop_conditions: StopConditions) -> Self {
         Self {
             dag,
             stack: vec![target],
             visited: HashSet::new(),
             result: Vec::new(),
             done: false,
+            result_index: 0,
+            stopped: false,
+            stop_conditions,
         }
     }
 
@@ -82,11 +121,43 @@ impl Iterator for SchedulerIter<'_> {
         if !self.done {
             self.build_order();
         }
-        // Pop from front (drain in order)
-        if self.result.is_empty() {
-            None
-        } else {
-            Some(self.result.remove(0))
+
+        if self.stopped {
+            return None;
+        }
+
+        // Loop to find the next node that isn't already terminated
+        loop {
+            let node = *self.result.get(self.result_index)?;
+
+            // Check if this node is already terminated
+            if let Some(node_info) = self.dag.get_node(node) {
+                if node_info.state == NodeState::Terminated {
+                    // Skip this node and continue to the next one
+                    self.result_index += 1;
+                    continue;
+                }
+            }
+
+            // Check stop_before - don't yield this node
+            if self.stop_conditions.stop_before == Some(node) {
+                self.stopped = true;
+                return None;
+            }
+
+            self.result_index += 1;
+
+            // Check one_step - stop after first node
+            if self.stop_conditions.one_step {
+                self.stopped = true;
+            }
+
+            // Check stop_after - yield but stop after
+            if self.stop_conditions.stop_after == Some(node) {
+                self.stopped = true;
+            }
+
+            return Some(node);
         }
     }
 }

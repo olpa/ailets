@@ -4,6 +4,10 @@
 
 Pipes are created on-demand when first accessed, not pre-allocated for all actor streams.
 
+## fulfillable-open
+
+Opening a pipe succeeds only when producer will eventually produce output.
+
 ## idempotent-access
 
 Multiple requests for same stream return same pipe instance.

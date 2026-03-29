@@ -113,12 +113,15 @@ impl AttachmentManager {
         // Spawn attachment task
         let task = tokio::spawn(async move {
             // Get reader for the realized writer
-            let Some(reader) = pipe_pool
+            let reader = match pipe_pool
                 .get_or_await_reader((node_handle, std_handle), false, &id_gen)
                 .await
-            else {
-                warn!(node = ?node_handle, std = ?std_handle, "failed to get reader for attachment");
-                return;
+            {
+                Ok(reader) => reader,
+                Err(e) => {
+                    warn!(node = ?node_handle, std = ?std_handle, error = ?e, "failed to get reader for attachment");
+                    return;
+                }
             };
 
             // Run attachment worker

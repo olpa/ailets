@@ -42,7 +42,7 @@ pub use fd_table::{FdEntry, FdTable};
 pub use stub_actor_runtime::BlockingActorRuntime;
 
 // Re-export environment types
-pub use environment::{ActorFn, ActorRegistry, Environment, ValueNodeData};
+pub use environment::{ActorFn, ActorRegistry, Environment};
 
 // Re-export scheduler
-pub use scheduler::Scheduler;
+pub use scheduler::{Scheduler, StopConditions};
