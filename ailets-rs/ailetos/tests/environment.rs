@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use ailetos::dag::NodeState;
+use ailetos::pipe::pipe_path;
 use ailetos::storage::{KVBuffers, MemKV, OpenMode};
 use ailetos::Environment;
 
@@ -29,7 +30,7 @@ async fn test_value_node_writes_data_to_kv() {
     let handle = env.add_value_node(test_data.to_vec(), Some("Test immediate value".to_string())).await;
 
     // Verify data was written to KV storage
-    let path = format!("pipes/actor-{}-{:?}", handle.id(), actor_runtime::StdHandle::Stdout);
+    let path = pipe_path(handle, actor_runtime::StdHandle::Stdout);
     let buffer = kv.open(&path, OpenMode::Read).await.expect("KV buffer should exist");
 
     let data = buffer.lock();

@@ -100,7 +100,7 @@ impl<K: KVBuffers> Environment<K> {
     /// # Returns
     /// The handle to the created node
     pub async fn add_value_node(&mut self, data: Vec<u8>, explain: Option<String>) -> Handle {
-        use crate::pipe::write_completed_buffer;
+        use crate::pipe::{pipe_path, write_completed_buffer};
         use actor_runtime::StdHandle;
 
         let handle = {
@@ -113,7 +113,7 @@ impl<K: KVBuffers> Environment<K> {
         };
 
         // Write data to KV storage immediately (spec://executor.md#immediate-values)
-        let path = format!("pipes/actor-{}-{:?}", handle.id(), StdHandle::Stdout);
+        let path = pipe_path(handle, StdHandle::Stdout);
         if let Err(e) = write_completed_buffer(self.kv.as_ref(), &path, &data).await {
             warn!(node = ?handle, error = %e, "Failed to write value node data to KV");
         }

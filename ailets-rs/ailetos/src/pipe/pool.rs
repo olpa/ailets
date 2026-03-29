@@ -23,6 +23,7 @@ use parking_lot::Mutex;
 use tracing::debug;
 
 use super::allocator::create_writer;
+use super::pipe_path;
 use super::reader::Reader;
 use super::writer::Writer;
 use crate::idgen::{Handle, IdGen};
@@ -204,7 +205,7 @@ impl<K: KVBuffers> PipePool<K> {
 
         // Slow path: create writer
         let writer_handle = Handle::new(id_gen.get_next());
-        let path = format!("pipes/actor-{}-{:?}", actor_handle.id(), std_handle);
+        let path = pipe_path(actor_handle, std_handle);
 
         // Create writer with buffer from KV storage
         let writer = create_writer(

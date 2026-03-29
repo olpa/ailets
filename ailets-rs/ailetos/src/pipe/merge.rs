@@ -123,8 +123,9 @@ impl<K: KVBuffers> MergeReader<K> {
         actor_handle: crate::idgen::Handle,
     ) -> Result<Reader, crate::storage::KVError> {
         use super::allocator::create_reader_from_completed;
+        use super::pipe_path;
 
-        let path = format!("pipes/actor-{}-{:?}", actor_handle.id(), actor_runtime::StdHandle::Stdout);
+        let path = pipe_path(actor_handle, actor_runtime::StdHandle::Stdout);
         let reader_handle = crate::idgen::Handle::new(self.id_gen.get_next());
 
         create_reader_from_completed(

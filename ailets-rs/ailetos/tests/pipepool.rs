@@ -1,7 +1,7 @@
 use actor_runtime::StdHandle;
 use ailetos::dag::Dag;
 use ailetos::idgen::{Handle, IdGen};
-use ailetos::pipe::PipePool;
+use ailetos::pipe::{pipe_path, PipePool};
 use ailetos::storage::memkv::MemKV;
 use ailetos::storage::KVBuffers;
 use parking_lot::RwLock;
@@ -615,7 +615,7 @@ async fn test_create_output_pipe_allocates_buffer() {
         .expect("Failed to create writer");
 
     // Buffer should be allocated in KV
-    let buffer_name = format!("pipes/actor-{}-{:?}", actor_handle.id(), std_handle);
+    let buffer_name = pipe_path(actor_handle, std_handle);
     let buffer = kv
         .open(&buffer_name, ailetos::storage::OpenMode::Read)
         .await;
@@ -633,7 +633,7 @@ async fn test_realize_pipe_allocates_buffer() {
         .expect("Failed to realize pipe");
 
     // Buffer should exist
-    let buffer_name = format!("pipes/actor-{}-{:?}", actor_handle.id(), std_handle);
+    let buffer_name = pipe_path(actor_handle, std_handle);
     let buffer = kv
         .open(&buffer_name, ailetos::storage::OpenMode::Read)
         .await;
