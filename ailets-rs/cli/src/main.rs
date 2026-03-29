@@ -5,7 +5,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use ailetos::{DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState, OpenMode};
+use ailetos::{
+    DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState, OpenMode, StopConditions,
+};
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
@@ -89,7 +91,10 @@ Visualization:
   show [node]                         Tree view (default: whole DAG)
 
 Execution:
-  run [node]                          Run the DAG (default: last node)
+  run [node] [options]                Run the DAG (default: last node)
+    --one-step                        Execute only the first ready node
+    --stop-before <node>              Stop before executing this node
+    --stop-after <node>               Stop after executing this node
 
 I/O:
   cat <node>                          Show output of a node
@@ -166,9 +171,13 @@ Variables:
             ["value", rest @ ..] if !rest.is_empty() => {
                 let data = parse_quoted_string(rest);
                 let explain = parse_explain(rest);
-                let handle = self
-                    .env
-                    .add_value_node(data.as_bytes().to_vec(), explain.clone());
+                let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+                let handle = rt
+                    .block_on(
+                        self.env
+                            .add_value_node(data.as_bytes().to_vec(), explain.clone()),
+                    )
+                    .map_err(|e| format!("Failed to add value node: {e}"))?;
                 self.handles.push(handle);
                 let id = handle.id();
                 let truncated = truncate(&data, 30);
@@ -277,11 +286,45 @@ Variables:
     }
 
     fn cmd_run(&mut self, args: &[&str]) -> Result<(), String> {
-        let handle = if let Some(handle_str) = args.first() {
-            self.parse_handle(handle_str)
-                .ok_or_else(|| format!("Invalid handle: {handle_str}"))?
+        let mut one_step = false;
+        let mut stop_before: Option<Handle> = None;
+        let mut stop_after: Option<Handle> = None;
+        let mut target_arg: Option<&str> = None;
+
+        // Parse arguments
+        let mut i = 0;
+        while i < args.len() {
+            let arg = args.get(i).ok_or("Internal error: index out of bounds")?;
+            match arg {
+                &"--one-step" => one_step = true,
+                &"--stop-before" => {
+                    i += 1;
+                    let h = args.get(i).ok_or("--stop-before requires a node")?;
+                    stop_before = Some(
+                        self.parse_handle(h)
+                            .ok_or_else(|| format!("Invalid handle: {h}"))?,
+                    );
+                }
+                &"--stop-after" => {
+                    i += 1;
+                    let h = args.get(i).ok_or("--stop-after requires a node")?;
+                    stop_after = Some(
+                        self.parse_handle(h)
+                            .ok_or_else(|| format!("Invalid handle: {h}"))?,
+                    );
+                }
+                arg if !arg.starts_with("--") => {
+                    target_arg = Some(arg);
+                }
+                other => return Err(format!("Unknown option: {other}")),
+            }
+            i += 1;
+        }
+
+        let handle = if let Some(h) = target_arg {
+            self.parse_handle(h)
+                .ok_or_else(|| format!("Invalid handle: {h}"))?
         } else {
-            // Find last node
             *self
                 .handles
                 .last()
@@ -295,10 +338,16 @@ Variables:
         let resolved = self.env.resolve(handle);
         self.env.attach_stdout(resolved);
 
+        let stop_conditions = StopConditions {
+            one_step,
+            stop_before,
+            stop_after,
+        };
+
         // Run synchronously using tokio runtime
         let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
         rt.block_on(async {
-            self.env.run(handle).await;
+            self.env.run(handle, stop_conditions).await;
         });
 
         println!("\nDAG execution completed.");
