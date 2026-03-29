@@ -43,11 +43,11 @@ fn stdin_actor<'a>(_reader: AReader<'a>, mut writer: AWriter<'a>) -> Result<(), 
     Ok(())
 }
 
-async fn build_flow(env: &mut Environment<SqliteKV>) -> Handle {
+async fn build_flow(env: &mut Environment<SqliteKV>) -> Result<Handle, ailetos::KVError> {
     let val = env.add_value_node(
         "(mee too)".as_bytes().to_vec(),
         Some("Static text".to_string()),
-    ).await;
+    ).await?;
     let stdin = env.add_node(
         "stdin".to_string(),
         &[],
@@ -60,7 +60,7 @@ async fn build_flow(env: &mut Environment<SqliteKV>) -> Handle {
     #[allow(clippy::disallowed_names)]
     let baz = env.add_node("cat".to_string(), &[bar], Some("Copy.baz".to_string()));
 
-    env.add_alias(".end".to_string(), baz)
+    Ok(env.add_alias(".end".to_string(), baz))
 }
 
 #[tokio::main]
@@ -86,7 +86,7 @@ async fn main() {
     env.actor_registry.register("cat", cat::execute);
 
     // Build the flow
-    let end_node = build_flow(&mut env).await;
+    let end_node = build_flow(&mut env).await.expect("Failed to build flow");
 
     // Print dependency tree (with colors if stdout is a terminal)
     let tree = if std::io::stdout().is_terminal() {

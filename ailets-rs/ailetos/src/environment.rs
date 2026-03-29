@@ -16,7 +16,7 @@ use tracing::{debug, error, warn};
 use crate::dag::{Dag, DependsOn, For, NodeKind, NodeState};
 use crate::idgen::{Handle, IdGen};
 use crate::scheduler::{Scheduler, StopConditions};
-use crate::{BlockingActorRuntime, IoRequest, KVBuffers, SystemRuntime};
+use crate::{BlockingActorRuntime, IoRequest, KVBuffers, KVError, SystemRuntime};
 
 /// Type for actor functions
 pub type ActorFn = fn(actor_io::AReader, actor_io::AWriter) -> Result<(), String>;
@@ -98,8 +98,8 @@ impl<K: KVBuffers> Environment<K> {
     /// * `explain` - Optional explanation of what this value represents
     ///
     /// # Returns
-    /// The handle to the created node
-    pub async fn add_value_node(&mut self, data: Vec<u8>, explain: Option<String>) -> Handle {
+    /// The handle to the created node, or an error if writing to KV storage fails
+    pub async fn add_value_node(&mut self, data: Vec<u8>, explain: Option<String>) -> Result<Handle, KVError> {
         use crate::pipe::{pipe_path, write_completed_buffer};
         use actor_runtime::StdHandle;
 
@@ -114,11 +114,9 @@ impl<K: KVBuffers> Environment<K> {
 
         // Write data to KV storage immediately (spec://executor.md#immediate-values)
         let path = pipe_path(handle, StdHandle::Stdout);
-        if let Err(e) = write_completed_buffer(self.kv.as_ref(), &path, &data).await {
-            warn!(node = ?handle, error = %e, "Failed to write value node data to KV");
-        }
+        write_completed_buffer(self.kv.as_ref(), &path, &data).await?;
 
-        handle
+        Ok(handle)
     }
 
     /// Add a regular node with dependencies
