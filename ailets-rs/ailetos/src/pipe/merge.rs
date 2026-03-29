@@ -84,19 +84,13 @@ impl<K: KVBuffers> MergeReader<K> {
     /// Returns `Ok(None)` if there are no more dependencies.
     /// Returns `Err` if there was an error getting the reader.
     async fn create_next_reader(&mut self) -> Result<Option<Reader>, crate::pipe::pool::PipeError> {
-        let Some(dep_handle) = self.dep_iterator.next() else {
+        let Some((dep_handle, dep_state)) = self.dep_iterator.next() else {
             return Ok(None);
         };
 
-        // Check producer state to determine strategy
-        let node_state = self.dep_iterator.get_dag()
-            .read()
-            .get_node(dep_handle)
-            .map(|n| n.state);
-
         // Don't create latent pipes for already-terminated actors
         // (close_actor_writers has already run, so latent would wait forever)
-        let allow_latent = !matches!(node_state, Some(NodeState::Terminated));
+        let allow_latent = dep_state != NodeState::Terminated;
 
         // Try pipe pool first (dependencies always output to stdout)
         match self.pipe_pool
@@ -108,7 +102,7 @@ impl<K: KVBuffers> MergeReader<K> {
             .await
         {
             Ok(reader) => Ok(Some(reader)),
-            Err(crate::pipe::pool::PipeError::WouldBlock) if node_state == Some(NodeState::Terminated) => {
+            Err(crate::pipe::pool::PipeError::WouldBlock) if dep_state == NodeState::Terminated => {
                 // Pipe doesn't exist and producer is terminated - try KV as fallback
                 trace!(dep = ?dep_handle, "pipe doesn't exist for terminated actor, checking KV");
                 self.get_reader_from_kv(dep_handle).await.map(Some)
