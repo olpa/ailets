@@ -57,20 +57,19 @@ pub async fn write_completed_buffer<K: KVBuffers>(
 /// with a closed SharedBuffer. Used when the producer has terminated
 /// and left data in KV storage.
 ///
+/// The notification queue and writer handle are created as dummy values
+/// internally since they're never used for completed (closed) buffers.
+///
 /// # Parameters
 /// - `kv`: Key-value store for buffer access
-/// - `notification_queue`: Queue for pipe data notifications
 /// - `reader_handle`: Handle for the reader
-/// - `writer_handle`: Handle of the writer that produced the data
 /// - `path`: Path in KV storage (naming determined by caller)
 ///
 /// # Errors
 /// Returns error if buffer doesn't exist or cannot be opened
 pub async fn create_reader_from_completed<K: KVBuffers>(
     kv: &K,
-    notification_queue: NotificationQueueArc,
     reader_handle: Handle,
-    writer_handle: Handle,
     path: &str,
 ) -> Result<Reader, KVError> {
     let kv_buffer = kv.open(path, OpenMode::Read).await?;
@@ -81,6 +80,13 @@ pub async fn create_reader_from_completed<K: KVBuffers>(
         errno: 0,
         closed: true, // Mark as closed since data is complete
     };
+
+    // Create dummy notification queue - unused since buffer is marked closed
+    // (Reader.should_wait_for_writer() returns WaitAction::Closed, never waits on queue)
+    let notification_queue = NotificationQueueArc::new();
+
+    // Create dummy writer handle - unused since buffer is closed
+    let writer_handle = Handle::new(-1);
 
     // Create ReaderSharedData
     let shared_data = ReaderSharedData {

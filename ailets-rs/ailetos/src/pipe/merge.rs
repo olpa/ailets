@@ -117,20 +117,13 @@ impl<K: KVBuffers> MergeReader<K> {
         actor_handle: crate::idgen::Handle,
     ) -> Result<Reader, crate::pipe::pool::PipeError> {
         use super::allocator::create_reader_from_completed;
-        use crate::notification_queue::NotificationQueueArc;
 
         let path = format!("pipes/actor-{}-{:?}", actor_handle.id(), actor_runtime::StdHandle::Stdout);
         let reader_handle = crate::idgen::Handle::new(self.id_gen.get_next());
 
-        // Create a dummy notification queue - unused since buffer is marked closed
-        // (Reader.should_wait_for_writer() returns WaitAction::Closed, never waits on queue)
-        let dummy_queue = NotificationQueueArc::new();
-
         create_reader_from_completed(
             self.kv.as_ref(),
-            dummy_queue,
             reader_handle,
-            actor_handle,
             &path,
         )
         .await
