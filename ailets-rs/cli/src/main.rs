@@ -329,10 +329,8 @@ Variables:
             // When --stop-before X is specified, use X as target to run all its dependencies
             sb
         } else {
-            *self
-                .handles
-                .last()
-                .ok_or_else(|| "No nodes to run".to_string())?
+            // Find terminal nodes (nodes that nothing depends on)
+            self.find_default_target()?
         };
 
         // Attach stdout based on stop conditions
@@ -392,6 +390,30 @@ Variables:
             self.env.attach_stdout(resolved);
         }
         Ok(())
+    }
+
+    fn find_default_target(&self) -> Result<Handle, String> {
+        if self.handles.is_empty() {
+            return Err("No nodes to run".to_string());
+        }
+        let dag = self.env.dag.read();
+        let terminals: Vec<Handle> = self
+            .handles
+            .iter()
+            .filter(|&&h| dag.get_direct_dependents(h).next().is_none())
+            .copied()
+            .collect();
+        match terminals.len() {
+            0 => Err("No terminal nodes found (circular dependencies?)".to_string()),
+            1 => Ok(terminals[0]),
+            _ => {
+                let ids: Vec<_> = terminals.iter().map(|h| h.id().to_string()).collect();
+                Err(format!(
+                    "Multiple terminal nodes: {}. Specify target explicitly.",
+                    ids.join(", ")
+                ))
+            }
+        }
     }
 
     fn cmd_cat(&self, args: &[&str]) -> Result<(), String> {
