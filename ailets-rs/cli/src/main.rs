@@ -5,7 +5,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use ailetos::{DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState, OpenMode};
+use ailetos::{
+    DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState, OpenMode, Scheduler,
+    StopConditions,
+};
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
@@ -89,7 +92,10 @@ Visualization:
   show [node]                         Tree view (default: whole DAG)
 
 Execution:
-  run [node]                          Run the DAG (default: last node)
+  run [node] [options]                Run the DAG (default: last node)
+    --one-step                        Execute only the first ready node
+    --stop-before <node>              Stop before executing this node
+    --stop-after <node>               Stop after executing this node
 
 I/O:
   cat <node>                          Show output of a node
@@ -166,9 +172,13 @@ Variables:
             ["value", rest @ ..] if !rest.is_empty() => {
                 let data = parse_quoted_string(rest);
                 let explain = parse_explain(rest);
-                let handle = self
-                    .env
-                    .add_value_node(data.as_bytes().to_vec(), explain.clone());
+                let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+                let handle = rt
+                    .block_on(
+                        self.env
+                            .add_value_node(data.as_bytes().to_vec(), explain.clone()),
+                    )
+                    .map_err(|e| format!("Failed to add value node: {e}"))?;
                 self.handles.push(handle);
                 let id = handle.id();
                 let truncated = truncate(&data, 30);
@@ -277,32 +287,132 @@ Variables:
     }
 
     fn cmd_run(&mut self, args: &[&str]) -> Result<(), String> {
-        let handle = if let Some(handle_str) = args.first() {
-            self.parse_handle(handle_str)
-                .ok_or_else(|| format!("Invalid handle: {handle_str}"))?
+        let mut one_step = false;
+        let mut stop_before: Option<Handle> = None;
+        let mut stop_after: Option<Handle> = None;
+        let mut target_arg: Option<&str> = None;
+
+        // Parse arguments
+        let mut i = 0;
+        while i < args.len() {
+            let arg = args.get(i).ok_or("Internal error: index out of bounds")?;
+            match arg {
+                &"--one-step" => one_step = true,
+                &"--stop-before" => {
+                    i += 1;
+                    let h = args.get(i).ok_or("--stop-before requires a node")?;
+                    stop_before = Some(
+                        self.parse_handle(h)
+                            .ok_or_else(|| format!("Invalid handle: {h}"))?,
+                    );
+                }
+                &"--stop-after" => {
+                    i += 1;
+                    let h = args.get(i).ok_or("--stop-after requires a node")?;
+                    stop_after = Some(
+                        self.parse_handle(h)
+                            .ok_or_else(|| format!("Invalid handle: {h}"))?,
+                    );
+                }
+                arg if !arg.starts_with("--") => {
+                    target_arg = Some(arg);
+                }
+                other => return Err(format!("Unknown option: {other}")),
+            }
+            i += 1;
+        }
+
+        let handle = if let Some(h) = target_arg {
+            self.parse_handle(h)
+                .ok_or_else(|| format!("Invalid handle: {h}"))?
+        } else if let Some(sb) = stop_before {
+            // When --stop-before X is specified, use X as target to run all its dependencies
+            sb
         } else {
-            // Find last node
-            *self
-                .handles
-                .last()
-                .ok_or_else(|| "No nodes to run".to_string())?
+            // Find terminal nodes (nodes that nothing depends on)
+            self.find_default_target()?
         };
 
-        let hid = handle.id();
-        println!("Running DAG from node {hid}...");
+        // Attach stdout based on stop conditions
+        self.attach_stdout_for_run(handle, one_step, stop_before, stop_after);
 
-        // Attach stdout to the target node
-        let resolved = self.env.resolve(handle);
-        self.env.attach_stdout(resolved);
+        let stop_conditions = StopConditions {
+            one_step,
+            stop_before,
+            stop_after,
+        };
 
         // Run synchronously using tokio runtime
         let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
         rt.block_on(async {
-            self.env.run(handle).await;
+            self.env.run(handle, stop_conditions).await;
         });
 
-        println!("\nDAG execution completed.");
+        println!();
         Ok(())
+    }
+
+    fn attach_stdout_for_run(
+        &mut self,
+        target: Handle,
+        one_step: bool,
+        stop_before: Option<Handle>,
+        stop_after: Option<Handle>,
+    ) {
+        if let Some(stop_after_handle) = stop_after {
+            // --stop-after X: attach stdout to X
+            let resolved = self.env.resolve(stop_after_handle);
+            self.env.attach_stdout(resolved);
+        } else if let Some(stop_before_handle) = stop_before {
+            // --stop-before X: attach stdout to all direct dependencies of X
+            let deps: Vec<Handle> = {
+                let dag = self.env.dag.read();
+                dag.get_direct_dependencies(stop_before_handle).collect()
+            };
+            for dep in deps {
+                let resolved = self.env.resolve(dep);
+                self.env.attach_stdout(resolved);
+            }
+        } else if one_step {
+            // --one-step: find first ready node and attach stdout to it
+            let ready_node = {
+                let dag = self.env.dag.read();
+                let first = Scheduler::new(&dag, target).iter().next();
+                first
+            };
+            if let Some(ready_node) = ready_node {
+                let resolved = self.env.resolve(ready_node);
+                self.env.attach_stdout(resolved);
+            }
+        } else {
+            // Normal run: attach to target
+            let resolved = self.env.resolve(target);
+            self.env.attach_stdout(resolved);
+        }
+    }
+
+    fn find_default_target(&self) -> Result<Handle, String> {
+        if self.handles.is_empty() {
+            return Err("No nodes to run".to_string());
+        }
+        let dag = self.env.dag.read();
+        let terminals: Vec<Handle> = self
+            .handles
+            .iter()
+            .filter(|&&h| dag.get_direct_dependents(h).next().is_none())
+            .copied()
+            .collect();
+        match terminals.as_slice() {
+            [] => Err("No terminal nodes found (circular dependencies?)".to_string()),
+            [single] => Ok(*single),
+            _ => {
+                let ids: Vec<_> = terminals.iter().map(|h| h.id().to_string()).collect();
+                Err(format!(
+                    "Multiple terminal nodes: {}. Specify target explicitly.",
+                    ids.join(", ")
+                ))
+            }
+        }
     }
 
     fn cmd_cat(&self, args: &[&str]) -> Result<(), String> {

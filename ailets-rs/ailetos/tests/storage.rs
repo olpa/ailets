@@ -1,4 +1,2 @@
-#[path = "storage/buffer.rs"]
-mod buffer;
-#[path = "storage/memkv.rs"]
-mod memkv;
+#[path = "storage/mod.rs"]
+mod storage_tests;
