@@ -325,6 +325,9 @@ Variables:
         let handle = if let Some(h) = target_arg {
             self.parse_handle(h)
                 .ok_or_else(|| format!("Invalid handle: {h}"))?
+        } else if let Some(sb) = stop_before {
+            // When --stop-before X is specified, use X as target to run all its dependencies
+            sb
         } else {
             *self
                 .handles
