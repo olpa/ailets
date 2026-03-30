@@ -6,7 +6,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ailetos::{
-    DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState, OpenMode, StopConditions,
+    DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState, OpenMode, Scheduler,
+    StopConditions,
 };
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
@@ -373,7 +374,12 @@ Variables:
             }
         } else if one_step {
             // --one-step: find first ready node and attach stdout to it
-            if let Some(ready_node) = self.find_first_ready_node(target) {
+            let ready_node = {
+                let dag = self.env.dag.read();
+                let first = Scheduler::new(&dag, target).iter().next();
+                first
+            };
+            if let Some(ready_node) = ready_node {
                 let resolved = self.env.resolve(ready_node);
                 self.env.attach_stdout(resolved);
             }
@@ -383,43 +389,6 @@ Variables:
             self.env.attach_stdout(resolved);
         }
         Ok(())
-    }
-
-    fn find_first_ready_node(&self, target: Handle) -> Option<Handle> {
-        use std::collections::HashSet;
-
-        let dag = self.env.dag.read();
-        let mut stack = vec![target];
-        let mut visited = HashSet::new();
-
-        while let Some(current) = stack.pop() {
-            if !visited.insert(current) {
-                continue;
-            }
-
-            let node = dag.get_node(current)?;
-
-            // Check if this node is ready (not started and all deps terminated)
-            if node.state == NodeState::NotStarted {
-                let all_deps_terminated =
-                    dag.get_direct_dependencies(current).all(|dep| {
-                        dag.get_node(dep)
-                            .map(|n| n.state == NodeState::Terminated)
-                            .unwrap_or(false)
-                    });
-
-                if all_deps_terminated {
-                    return Some(current);
-                }
-            }
-
-            // Add dependencies to explore
-            for dep in dag.get_direct_dependencies(current) {
-                stack.push(dep);
-            }
-        }
-
-        None
     }
 
     fn cmd_cat(&self, args: &[&str]) -> Result<(), String> {
