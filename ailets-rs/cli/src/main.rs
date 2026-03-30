@@ -334,7 +334,7 @@ Variables:
         };
 
         // Attach stdout based on stop conditions
-        self.attach_stdout_for_run(handle, one_step, stop_before, stop_after)?;
+        self.attach_stdout_for_run(handle, one_step, stop_before, stop_after);
 
         let stop_conditions = StopConditions {
             one_step,
@@ -348,7 +348,7 @@ Variables:
             self.env.run(handle, stop_conditions).await;
         });
 
-        println!("");
+        println!();
         Ok(())
     }
 
@@ -358,7 +358,7 @@ Variables:
         one_step: bool,
         stop_before: Option<Handle>,
         stop_after: Option<Handle>,
-    ) -> Result<(), String> {
+    ) {
         if let Some(stop_after_handle) = stop_after {
             // --stop-after X: attach stdout to X
             let resolved = self.env.resolve(stop_after_handle);
@@ -389,7 +389,6 @@ Variables:
             let resolved = self.env.resolve(target);
             self.env.attach_stdout(resolved);
         }
-        Ok(())
     }
 
     fn find_default_target(&self) -> Result<Handle, String> {
@@ -403,9 +402,9 @@ Variables:
             .filter(|&&h| dag.get_direct_dependents(h).next().is_none())
             .copied()
             .collect();
-        match terminals.len() {
-            0 => Err("No terminal nodes found (circular dependencies?)".to_string()),
-            1 => Ok(terminals[0]),
+        match terminals.as_slice() {
+            [] => Err("No terminal nodes found (circular dependencies?)".to_string()),
+            [single] => Ok(*single),
             _ => {
                 let ids: Vec<_> = terminals.iter().map(|h| h.id().to_string()).collect();
                 Err(format!(
