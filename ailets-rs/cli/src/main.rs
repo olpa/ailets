@@ -331,12 +331,8 @@ Variables:
                 .ok_or_else(|| "No nodes to run".to_string())?
         };
 
-        let hid = handle.id();
-        println!("Running DAG from node {hid}...");
-
-        // Attach stdout to the target node
-        let resolved = self.env.resolve(handle);
-        self.env.attach_stdout(resolved);
+        // Attach stdout based on stop conditions
+        self.attach_stdout_for_run(handle, one_step, stop_before, stop_after)?;
 
         let stop_conditions = StopConditions {
             one_step,
@@ -350,8 +346,80 @@ Variables:
             self.env.run(handle, stop_conditions).await;
         });
 
-        println!("\nDAG execution completed.");
+        println!("");
         Ok(())
+    }
+
+    fn attach_stdout_for_run(
+        &mut self,
+        target: Handle,
+        one_step: bool,
+        stop_before: Option<Handle>,
+        stop_after: Option<Handle>,
+    ) -> Result<(), String> {
+        if let Some(stop_after_handle) = stop_after {
+            // --stop-after X: attach stdout to X
+            let resolved = self.env.resolve(stop_after_handle);
+            self.env.attach_stdout(resolved);
+        } else if let Some(stop_before_handle) = stop_before {
+            // --stop-before X: attach stdout to all direct dependencies of X
+            let deps: Vec<Handle> = {
+                let dag = self.env.dag.read();
+                dag.get_direct_dependencies(stop_before_handle).collect()
+            };
+            for dep in deps {
+                let resolved = self.env.resolve(dep);
+                self.env.attach_stdout(resolved);
+            }
+        } else if one_step {
+            // --one-step: find first ready node and attach stdout to it
+            if let Some(ready_node) = self.find_first_ready_node(target) {
+                let resolved = self.env.resolve(ready_node);
+                self.env.attach_stdout(resolved);
+            }
+        } else {
+            // Normal run: attach to target
+            let resolved = self.env.resolve(target);
+            self.env.attach_stdout(resolved);
+        }
+        Ok(())
+    }
+
+    fn find_first_ready_node(&self, target: Handle) -> Option<Handle> {
+        use std::collections::HashSet;
+
+        let dag = self.env.dag.read();
+        let mut stack = vec![target];
+        let mut visited = HashSet::new();
+
+        while let Some(current) = stack.pop() {
+            if !visited.insert(current) {
+                continue;
+            }
+
+            let node = dag.get_node(current)?;
+
+            // Check if this node is ready (not started and all deps terminated)
+            if node.state == NodeState::NotStarted {
+                let all_deps_terminated =
+                    dag.get_direct_dependencies(current).all(|dep| {
+                        dag.get_node(dep)
+                            .map(|n| n.state == NodeState::Terminated)
+                            .unwrap_or(false)
+                    });
+
+                if all_deps_terminated {
+                    return Some(current);
+                }
+            }
+
+            // Add dependencies to explore
+            for dep in dag.get_direct_dependencies(current) {
+                stack.push(dep);
+            }
+        }
+
+        None
     }
 
     fn cmd_cat(&self, args: &[&str]) -> Result<(), String> {
