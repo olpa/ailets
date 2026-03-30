@@ -219,8 +219,21 @@ dependencies = [
  "actor_io",
  "ailetos",
  "cat",
+ "deb",
  "rustyline",
  "tokio",
+]
+
+[[package]]
+name = "deb"
+version = "0.1.0"
+dependencies = [
+ "actor_io",
+ "actor_runtime",
+ "ailetos",
+ "embedded-io",
+ "serde_json",
+ "tracing",
 ]
 
 [[package]]

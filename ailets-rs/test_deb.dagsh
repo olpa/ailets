@@ -1,0 +1,18 @@
+# Test script for the deb (debug) actor
+# This script demonstrates the pause/resume functionality
+
+# Create a value node with 200 bytes of data
+node value "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco." --explain="test data"
+
+# Create a deb actor node (will pause after 100 bytes by default)
+node add deb --explain="debug actor - pauses after 100 bytes"
+
+# Add dependency: deb depends on the value node
+dep 2 1
+
+# Show the DAG
+show
+
+# Run the DAG (this should pause after the deb actor processes 100 bytes)
+# Note: The run will complete, but the deb actor will be waiting for resume
+run 2

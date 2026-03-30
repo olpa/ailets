@@ -27,6 +27,7 @@ impl DagShell {
         let kv = Arc::new(MemKV::new());
         let mut env = Environment::new(Arc::clone(&kv));
         env.actor_registry.register("cat", cat::execute);
+        env.actor_registry.register("deb", deb::execute);
         Self {
             env,
             kv,
@@ -81,7 +82,7 @@ impl DagShell {
             r"DAG Shell Commands:
 
 Node Management:
-  node add <actor> [--explain=text]   Add actor node (actors: cat)
+  node add <actor> [--explain=text]   Add actor node (actors: cat, deb)
   node value <data> [--explain=text]  Add value node (constant data)
   node alias <name> <target>          Add alias node
   node list                           List all nodes with status
@@ -108,8 +109,7 @@ Status:
 
 Debug:
   suspend <node>                      Suspend a running actor
-  resume <node>                       Resume a suspended actor
-
+  resume <node>                       Resume a suspended actor (deb or general)
 
 Session:
   load <file>                         Run script file (alias: source)
@@ -474,6 +474,7 @@ Variables:
         self.vars.clear();
         self.env = Environment::new(Arc::clone(&self.kv));
         self.env.actor_registry.register("cat", cat::execute);
+        self.env.actor_registry.register("deb", deb::execute);
         println!("DAG cleared.");
     }
 
@@ -528,6 +529,7 @@ Variables:
         Ok(())
     }
 
+
     fn cmd_resume(&self, args: &[&str]) -> Result<(), String> {
         let handle_str = args.first().ok_or("Usage: resume <node>")?;
         let handle = self
@@ -535,6 +537,8 @@ Variables:
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
         self.env.suspension.resume(handle);
+        let _ = ailetos::deb_control::resume_deb_actor(handle);
+        self.env.dag.write().set_state(handle, NodeState::Running);
         println!("Resumed node {}", handle.id());
         Ok(())
     }

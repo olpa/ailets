@@ -1,5 +1,6 @@
 pub mod attachments;
 pub mod dag;
+pub mod deb_control;
 pub mod environment;
 pub mod fd_table;
 pub mod idgen;

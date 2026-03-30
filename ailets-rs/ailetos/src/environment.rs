@@ -191,6 +191,11 @@ impl<K: KVBuffers> Environment<K> {
         tokio::task::spawn_blocking(move || {
             debug!(node = ?actor_runtime.node_handle(), name = %idname, "task starting");
 
+            // Register deb control if this is a deb actor
+            if idname == "deb" {
+                crate::deb_control::register_deb_actor(actor_runtime.node_handle());
+                debug!(node = ?actor_runtime.node_handle(), "registered deb control");
+            }
             actor_runtime.register_std_fds();
 
             let areader = AReader::new_from_std(&actor_runtime, StdHandle::Stdin);
