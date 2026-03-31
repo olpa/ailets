@@ -17,7 +17,7 @@ The system runs as many actors concurrently as possible. Parallelism is limited 
 ## Implementation Progress
 
 ### Phase 1: Debug Actor for Testing
-- [x] Create `dbg` actor (dbgug cat variant)
+- [x] Create `dbg` actor (debug cat variant)
   - Name: `dbg`
   - Args: byte limit (default 100, configurable via thread-local)
   - Behavior: pass through N bytes, then pause
@@ -29,41 +29,49 @@ The system runs as many actors concurrently as possible. Parallelism is limited 
 #### Implementation Plan for Phase 1
 
 **1. Global Control Registry**
-- Create `dbg_control` module in `ailetos` crate
-- Use `lazy_static` or `once_cell` for global registry
-- Registry: `HashMap<Handle, Arc<Mutex<DbgControlState>>>`
-- State: `enum DbgControlState { Running, Paused(Condvar) }`
-- API: `register_dbg_actor(handle)`, `resume_dbg_actor(handle)`
+- Create `control` module in `dbg` crate (not in ailetos - keeps ailetos clean)
+- Use thread-local storage + static global registry
+- Registry: `HashMap<Handle, Arc<DbgControl>>`
+- State: `enum DbgControlState { Running, Paused }`
+- Control: `struct DbgControl { state: Mutex<DbgControlState>, condvar: Condvar }`
+- API: `register_dbg_actor(handle)`, `resume_dbg_actor(handle)`, `init_dbg_actor(handle)`
 
 **2. Actor Structure** (`dbg` crate)
 - New workspace member: `dbg/`
-- Cargo.toml: similar to `cat`, add `parking_lot`, `serde_json`, `tracing`
+- Cargo.toml: native-only rlib, dependencies: ailetos, serde_json, tracing
 - `lib.rs`:
-  - Read byte limit from `Env` handle (JSON: `{"byte_limit": 100}`)
+  - Get byte limit from thread-local (set by init hook, default 100)
   - Pass through N bytes from stdin to stdout
-  - Register self in global control registry
-  - Enter paused state (wait on condvar)
+  - Enter paused state (wait on condvar in control registry)
   - On resume: continue copying until EOF
   - Log start/finish with actor handle via tracing
+- `control.rs`:
+  - Global registry + thread-local storage for control handles
+  - `init_dbg_actor(handle)` - called by actor init hook
 
-**3. Integration**
+**3. Integration with ailetos**
+- Add actor initialization hooks to `ailetos::ActorRegistry`
+- New type: `ActorInitFn = fn(Handle)`
+- New struct: `ActorMetadata { execute: ActorFn, init: Option<ActorInitFn> }`
+- New method: `register_with_init(name, actor_fn, init_fn)`
+- Update `spawn_actor_task` to call init hook before actor execution
+
+**4. Integration with CLI**
 - Update workspace `Cargo.toml` to include `dbg` member
-- Update `build.sh` to compile `dbg` to WASM
-- Register actor in `cli/src/main.rs`: `env.actor_registry.register("dbg", dbg::execute)`
+- Update `cli/Cargo.toml` to depend on `dbg` crate
+- Register actor in `cli/src/main.rs`: `env.actor_registry.register_with_init("dbg", dbg::execute, dbg::control::init_dbg_actor)`
+- Add `resume <node>` command that calls `dbg::control::resume_dbg_actor(handle)`
 
-**4. dagsh Integration** (for Phase 4)
-- Add command: `resume <node_id>` or `resume <node_name>`
-- Command calls `ailetos::dbg_control::resume_dbg_actor(handle)`
-
-**Files to create/modify:**
+**Files created/modified:**
 - `dbg/Cargo.toml` - ✅ created (native-only rlib)
-- `dbg/src/lib.rs` - ✅ created
-- `ailetos/src/dbg_control.rs` - ✅ created
-- `ailetos/src/lib.rs` - ✅ export dbg_control module
-- `Cargo.toml` - ✅ add dbg to workspace members
-- `build.sh` - ⏭️ skipped (dbg is native-only, not WASM)
-- `cli/src/main.rs` - ✅ register dbg actor
-- `ailetos/src/environment.rs` - ✅ register dbg control before spawning
+- `dbg/src/lib.rs` - ✅ created (actor implementation)
+- `dbg/src/control.rs` - ✅ created (control registry, moved from ailetos)
+- `ailetos/src/environment.rs` - ✅ modified (add actor init hooks)
+- `ailetos/src/lib.rs` - ✅ modified (export ActorInitFn, ActorMetadata)
+- `Cargo.toml` - ✅ modified (add dbg to workspace members)
+- `cli/Cargo.toml` - ✅ modified (add dbg dependency)
+- `cli/src/main.rs` - ✅ modified (register dbg actor with init hook, add resume command)
+- `test_dbg.dagsh` - ✅ created (test script)
 
 **Phase 1 Complete!**
 
