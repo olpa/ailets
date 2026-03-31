@@ -65,7 +65,7 @@ The system runs as many actors concurrently as possible. Parallelism is limited 
 - `ailetos/src/environment.rs` - ✅ modified (reverted metadata system, simple ActorRegistry)
 - `ailetos/src/lib.rs` - ✅ modified (simplified exports)
 - `Cargo.toml` - ✅ modified (removed dbg from workspace members)
-- `test_dbg.dagsh` - ✅ created (test script)
+- `cli/scripts/test_dbg.dagsh` - ✅ created (test script)
 
 **Phase 1 Complete!**
 
@@ -75,7 +75,7 @@ Implementation notes:
 - Configuration is passed via thread-local storage (byte_limit) set by the init hook
 - Control commands are sent from dagsh via `resume <node>` command
 - The actor uses tracing for logging with the node handle
-- Test script: `test_dbg.dagsh`
+- Test script: `cli/scripts/test_dbg.dagsh`
 
 **Architecture:**
 - `ActorRegistry` remains simple: maps actor name to actor function only
