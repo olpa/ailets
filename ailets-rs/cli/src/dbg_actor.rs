@@ -1,7 +1,9 @@
-pub mod control;
+//! Debug actor that passes through N bytes, then pauses for resume
 
 use actor_io::{error_kind_to_str, AReader, AWriter};
 use embedded_io::{Read, Write};
+
+use crate::dbg_control;
 
 const DEFAULT_BYTE_LIMIT: usize = 100;
 
@@ -14,13 +16,13 @@ const DEFAULT_BYTE_LIMIT: usize = 100;
 /// Returns error if I/O operations fail or if configuration is invalid
 pub fn execute<'a>(mut reader: AReader<'a>, mut writer: AWriter<'a>) -> Result<(), String> {
     // Get the control handle from thread-local storage
-    let control = control::get_current_dbg_control()
+    let control = dbg_control::get_current_dbg_control()
         .ok_or_else(|| "dbg actor not properly initialized (no control handle)".to_string())?;
 
     tracing::info!("dbg actor starting");
 
     // Get byte limit from thread-local (set by environment before spawning)
-    let byte_limit = control::get_current_dbg_byte_limit()
+    let byte_limit = dbg_control::get_current_dbg_byte_limit()
         .unwrap_or(DEFAULT_BYTE_LIMIT);
     tracing::debug!(byte_limit = byte_limit, "dbg actor configuration");
 

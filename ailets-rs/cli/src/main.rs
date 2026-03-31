@@ -2,6 +2,9 @@
 //!
 //! Minimal implementation for manually building and running DAGs.
 
+mod dbg_actor;
+mod dbg_control;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -27,7 +30,7 @@ impl DagShell {
         let kv = Arc::new(MemKV::new());
         let mut env = Environment::new(Arc::clone(&kv));
         env.actor_registry.register("cat", cat::execute);
-        env.actor_registry.register("dbg", dbg::execute);
+        env.actor_registry.register("dbg", dbg_actor::execute);
         Self {
             env,
             kv,
@@ -351,7 +354,7 @@ Variables:
             for &node_handle in &self.handles {
                 if let Some(node) = dag.get_node(node_handle) {
                     if node.idname == "dbg" {
-                        dbg::control::init_dbg_actor(node_handle);
+                        dbg_control::init_dbg_actor(node_handle);
                     }
                 }
             }
@@ -486,7 +489,7 @@ Variables:
         self.vars.clear();
         self.env = Environment::new(Arc::clone(&self.kv));
         self.env.actor_registry.register("cat", cat::execute);
-        self.env.actor_registry.register("dbg", dbg::execute);
+        self.env.actor_registry.register("dbg", dbg_actor::execute);
         println!("DAG cleared.");
     }
 
@@ -549,7 +552,7 @@ Variables:
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
         self.env.suspension.resume(handle);
-        let _ = dbg::control::resume_dbg_actor(handle);
+        let _ = dbg_control::resume_dbg_actor(handle);
         self.env.dag.write().set_state(handle, NodeState::Running);
         println!("Resumed node {}", handle.id());
         Ok(())

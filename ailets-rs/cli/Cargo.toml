@@ -13,6 +13,7 @@ path = "src/main.rs"
 ailetos = { path = "../ailetos" }
 actor_io.workspace = true
 cat = { path = "../cat" }
-dbg = { path = "../dbg" }
+embedded-io.workspace = true
 tokio = { version = "1.41", features = ["sync", "time", "rt", "rt-multi-thread", "macros", "io-util", "io-std"] }
+tracing = "0.1"
 rustyline = "15"

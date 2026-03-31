@@ -219,20 +219,9 @@ dependencies = [
  "actor_io",
  "ailetos",
  "cat",
- "dbg",
+ "embedded-io",
  "rustyline",
  "tokio",
-]
-
-[[package]]
-name = "dbg"
-version = "0.1.0"
-dependencies = [
- "actor_io",
- "actor_runtime",
- "ailetos",
- "embedded-io",
- "serde_json",
  "tracing",
 ]
 
