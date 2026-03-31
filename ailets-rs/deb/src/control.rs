@@ -7,7 +7,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Condvar, Mutex};
 
-use crate::idgen::Handle;
+use ailetos::Handle;
 
 thread_local! {
     static CURRENT_DEB_CONTROL: RefCell<Option<Arc<DebControl>>> = const { RefCell::new(None) };
@@ -68,6 +68,13 @@ fn ensure_registry_initialized() {
 /// This also sets the control in thread-local storage so the actor can access it.
 pub fn register_deb_actor(handle: Handle) -> Arc<DebControl> {
     register_deb_actor_with_config(handle, None)
+}
+
+/// Init hook for registering deb actors (discards return value)
+///
+/// This is the function signature expected by ActorInitFn.
+pub fn init_deb_actor(handle: Handle) {
+    let _ = register_deb_actor(handle);
 }
 
 /// Register a new debug actor with optional byte limit configuration

@@ -27,7 +27,8 @@ impl DagShell {
         let kv = Arc::new(MemKV::new());
         let mut env = Environment::new(Arc::clone(&kv));
         env.actor_registry.register("cat", cat::execute);
-        env.actor_registry.register("deb", deb::execute);
+        env.actor_registry
+            .register_with_init("deb", deb::execute, deb::control::init_deb_actor);
         Self {
             env,
             kv,
@@ -474,7 +475,8 @@ Variables:
         self.vars.clear();
         self.env = Environment::new(Arc::clone(&self.kv));
         self.env.actor_registry.register("cat", cat::execute);
-        self.env.actor_registry.register("deb", deb::execute);
+        self.env.actor_registry
+            .register_with_init("deb", deb::execute, deb::control::init_deb_actor);
         println!("DAG cleared.");
     }
 
@@ -537,7 +539,7 @@ Variables:
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
         self.env.suspension.resume(handle);
-        let _ = ailetos::deb_control::resume_deb_actor(handle);
+        let _ = deb::control::resume_deb_actor(handle);
         self.env.dag.write().set_state(handle, NodeState::Running);
         println!("Resumed node {}", handle.id());
         Ok(())

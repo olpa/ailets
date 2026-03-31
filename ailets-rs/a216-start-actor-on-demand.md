@@ -68,11 +68,19 @@ The system runs as many actors concurrently as possible. Parallelism is limited 
 **Phase 1 Complete!**
 
 Implementation notes:
-- The `deb` actor is native-only (not compiled to WASM) to allow access to the `ailetos::deb_control` module
-- Configuration is passed via thread-local storage (byte_limit) set by the environment before spawning
+- The `deb` actor is native-only (not compiled to WASM) to allow access to the control module
+- `deb_control` module is in the `deb` crate, not in `ailetos` (keeps ailetos clean)
+- Configuration is passed via thread-local storage (byte_limit) set by the init hook
 - Control commands are sent from dagsh via `resume <node>` command
 - The actor uses tracing for logging with the node handle
 - Test script: `test_deb.dagsh`
+
+**Architecture:**
+- Added general-purpose actor initialization hooks to `ailetos::ActorRegistry`
+- New API: `register_with_init(name, actor_fn, init_fn)` where init_fn receives the node handle
+- Init hooks are called before the actor starts executing
+- This allows any actor to set up actor-specific state without polluting ailetos
+- The deb actor uses this to register itself in the global control registry
 
 ### Phase 2: Analysis
 - [ ] Understand current spawning behavior in `Environment::spawn_actor_tasks`

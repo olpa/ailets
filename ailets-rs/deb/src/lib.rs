@@ -1,3 +1,5 @@
+pub mod control;
+
 use actor_io::{error_kind_to_str, AReader, AWriter};
 use embedded_io::{Read, Write};
 
@@ -12,13 +14,13 @@ const DEFAULT_BYTE_LIMIT: usize = 100;
 /// Returns error if I/O operations fail or if configuration is invalid
 pub fn execute<'a>(mut reader: AReader<'a>, mut writer: AWriter<'a>) -> Result<(), String> {
     // Get the control handle from thread-local storage
-    let control = ailetos::deb_control::get_current_deb_control()
+    let control = control::get_current_deb_control()
         .ok_or_else(|| "deb actor not properly initialized (no control handle)".to_string())?;
 
     tracing::info!("deb actor starting");
 
     // Get byte limit from thread-local (set by environment before spawning)
-    let byte_limit = ailetos::deb_control::get_current_deb_byte_limit()
+    let byte_limit = control::get_current_deb_byte_limit()
         .unwrap_or(DEFAULT_BYTE_LIMIT);
     tracing::debug!(byte_limit = byte_limit, "deb actor configuration");
 
