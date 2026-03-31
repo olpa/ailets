@@ -13,6 +13,6 @@ path = "src/main.rs"
 ailetos = { path = "../ailetos" }
 actor_io.workspace = true
 cat = { path = "../cat" }
-deb = { path = "../deb" }
+dbg = { path = "../dbg" }
 tokio = { version = "1.41", features = ["sync", "time", "rt", "rt-multi-thread", "macros", "io-util", "io-std"] }
 rustyline = "15"

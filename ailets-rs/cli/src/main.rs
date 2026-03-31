@@ -28,7 +28,7 @@ impl DagShell {
         let mut env = Environment::new(Arc::clone(&kv));
         env.actor_registry.register("cat", cat::execute);
         env.actor_registry
-            .register_with_init("deb", deb::execute, deb::control::init_deb_actor);
+            .register_with_init("dbg", dbg::execute, dbg::control::init_dbg_actor);
         Self {
             env,
             kv,
@@ -83,7 +83,7 @@ impl DagShell {
             r"DAG Shell Commands:
 
 Node Management:
-  node add <actor> [--explain=text]   Add actor node (actors: cat, deb)
+  node add <actor> [--explain=text]   Add actor node (actors: cat, dbg)
   node value <data> [--explain=text]  Add value node (constant data)
   node alias <name> <target>          Add alias node
   node list                           List all nodes with status
@@ -110,7 +110,7 @@ Status:
 
 Debug:
   suspend <node>                      Suspend a running actor
-  resume <node>                       Resume a suspended actor (deb or general)
+  resume <node>                       Resume a suspended actor (dbg or general)
 
 Session:
   load <file>                         Run script file (alias: source)
@@ -476,7 +476,7 @@ Variables:
         self.env = Environment::new(Arc::clone(&self.kv));
         self.env.actor_registry.register("cat", cat::execute);
         self.env.actor_registry
-            .register_with_init("deb", deb::execute, deb::control::init_deb_actor);
+            .register_with_init("dbg", dbg::execute, dbg::control::init_dbg_actor);
         println!("DAG cleared.");
     }
 
@@ -539,7 +539,7 @@ Variables:
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
         self.env.suspension.resume(handle);
-        let _ = deb::control::resume_deb_actor(handle);
+        let _ = dbg::control::resume_dbg_actor(handle);
         self.env.dag.write().set_state(handle, NodeState::Running);
         println!("Resumed node {}", handle.id());
         Ok(())

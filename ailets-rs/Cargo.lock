@@ -219,13 +219,13 @@ dependencies = [
  "actor_io",
  "ailetos",
  "cat",
- "deb",
+ "dbg",
  "rustyline",
  "tokio",
 ]
 
 [[package]]
-name = "deb"
+name = "dbg"
 version = "0.1.0"
 dependencies = [
  "actor_io",
