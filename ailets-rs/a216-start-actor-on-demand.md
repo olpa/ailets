@@ -49,28 +49,24 @@ The system runs as many actors concurrently as possible. Parallelism is limited 
   - Global registry + thread-local storage for control handles
   - `init_dbg_actor(handle)` - called by actor init hook
 
-**3. Integration with ailetos**
-- Add actor initialization hooks to `ailetos::ActorRegistry`
-- New type: `ActorInitFn = fn(Handle)`
-- New struct: `ActorMetadata { execute: ActorFn, init: Option<ActorInitFn> }`
-- New method: `register_with_init(name, actor_fn, init_fn)`
-- Update `spawn_actor_task` to call init hook before actor execution
-
-**4. Integration with CLI**
+**3. Integration with CLI**
 - Update workspace `Cargo.toml` to include `dbg` member
 - Update `cli/Cargo.toml` to depend on `dbg` crate
-- Register actor in `cli/src/main.rs`: `env.actor_registry.register_with_init("dbg", dbg::execute, dbg::control::init_dbg_actor)`
+- Register actor in `cli/src/main.rs`: `env.actor_registry.register("dbg", dbg::execute)`
+- Before running the DAG, initialize debug actors by checking `idname`:
+  - Iterate through all nodes in the DAG
+  - For nodes with `idname == "dbg"`, call `dbg::control::init_dbg_actor(node_handle)`
 - Add `resume <node>` command that calls `dbg::control::resume_dbg_actor(handle)`
 
 **Files created/modified:**
 - `dbg/Cargo.toml` - ✅ created (native-only rlib)
 - `dbg/src/lib.rs` - ✅ created (actor implementation)
-- `dbg/src/control.rs` - ✅ created (control registry, moved from ailetos)
-- `ailetos/src/environment.rs` - ✅ modified (add actor init hooks)
-- `ailetos/src/lib.rs` - ✅ modified (export ActorInitFn, ActorMetadata)
+- `dbg/src/control.rs` - ✅ created (control registry)
+- `ailetos/src/environment.rs` - ✅ modified (reverted metadata system, simple ActorRegistry)
+- `ailetos/src/lib.rs` - ✅ modified (simplified exports)
 - `Cargo.toml` - ✅ modified (add dbg to workspace members)
 - `cli/Cargo.toml` - ✅ modified (add dbg dependency)
-- `cli/src/main.rs` - ✅ modified (register dbg actor with init hook, add resume command)
+- `cli/src/main.rs` - ✅ modified (register dbg actor, initialize by idname, add resume command)
 - `test_dbg.dagsh` - ✅ created (test script)
 
 **Phase 1 Complete!**
@@ -84,11 +80,12 @@ Implementation notes:
 - Test script: `test_dbg.dagsh`
 
 **Architecture:**
-- Added general-purpose actor initialization hooks to `ailetos::ActorRegistry`
-- New API: `register_with_init(name, actor_fn, init_fn)` where init_fn receives the node handle
-- Init hooks are called before the actor starts executing
-- This allows any actor to set up actor-specific state without polluting ailetos
-- The dbg actor uses this to register itself in the global control registry
+- `ActorRegistry` remains simple: maps actor name to actor function only
+- Debug actor initialization is handled in CLI layer, not in ailetos
+- Before running the DAG, CLI iterates nodes and checks `idname` field
+- For nodes with `idname == "dbg"`, CLI calls `dbg::control::init_dbg_actor(handle)`
+- This approach uses the existing `idname` field to differentiate actors, avoiding metadata complexity
+- Keeps ailetos clean and free from dependencies on specific actor implementations
 
 ### Phase 2: Analysis
 - [ ] Understand current spawning behavior in `Environment::spawn_actor_tasks`

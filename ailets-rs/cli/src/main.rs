@@ -27,8 +27,7 @@ impl DagShell {
         let kv = Arc::new(MemKV::new());
         let mut env = Environment::new(Arc::clone(&kv));
         env.actor_registry.register("cat", cat::execute);
-        env.actor_registry
-            .register_with_init("dbg", dbg::execute, dbg::control::init_dbg_actor);
+        env.actor_registry.register("dbg", dbg::execute);
         Self {
             env,
             kv,
@@ -346,6 +345,18 @@ Variables:
         // Attach stdout based on stop conditions
         self.attach_stdout_for_run(handle, one_step, stop_before, stop_after);
 
+        // Initialize debug actors by checking idname
+        {
+            let dag = self.env.dag.read();
+            for &node_handle in &self.handles {
+                if let Some(node) = dag.get_node(node_handle) {
+                    if node.idname == "dbg" {
+                        dbg::control::init_dbg_actor(node_handle);
+                    }
+                }
+            }
+        }
+
         let stop_conditions = StopConditions {
             one_step,
             stop_before,
@@ -475,8 +486,7 @@ Variables:
         self.vars.clear();
         self.env = Environment::new(Arc::clone(&self.kv));
         self.env.actor_registry.register("cat", cat::execute);
-        self.env.actor_registry
-            .register_with_init("dbg", dbg::execute, dbg::control::init_dbg_actor);
+        self.env.actor_registry.register("dbg", dbg::execute);
         println!("DAG cleared.");
     }
 

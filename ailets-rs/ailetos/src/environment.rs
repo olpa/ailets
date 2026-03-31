@@ -22,21 +22,9 @@ use crate::{BlockingActorRuntime, IoRequest, KVBuffers, KVError, ShutdownHandle,
 /// Type for actor functions
 pub type ActorFn = fn(actor_io::AReader, actor_io::AWriter) -> Result<(), String>;
 
-/// Type for actor initialization functions
-///
-/// Called before the actor starts executing, receives the node handle.
-/// Useful for setting up actor-specific state or registering with control systems.
-pub type ActorInitFn = fn(Handle);
-
-/// Metadata for an actor
-pub struct ActorMetadata {
-    pub execute: ActorFn,
-    pub init: Option<ActorInitFn>,
-}
-
 /// Registry mapping actor names to their implementation functions
 pub struct ActorRegistry {
-    actors: HashMap<String, ActorMetadata>,
+    actors: HashMap<String, ActorFn>,
 }
 
 impl ActorRegistry {
@@ -49,50 +37,13 @@ impl ActorRegistry {
 
     /// Register an actor function
     pub fn register(&mut self, name: impl Into<String>, actor_fn: ActorFn) {
-        self.register_with_metadata(
-            name,
-            ActorMetadata {
-                execute: actor_fn,
-                init: None,
-            },
-        );
+        self.actors.insert(name.into(), actor_fn);
     }
 
-    /// Register an actor function with an initialization hook
-    ///
-    /// The init function is called before the actor starts executing,
-    /// and receives the node handle. This allows actors to set up
-    /// actor-specific state or register with control systems.
-    pub fn register_with_init(
-        &mut self,
-        name: impl Into<String>,
-        actor_fn: ActorFn,
-        init_fn: ActorInitFn,
-    ) {
-        self.register_with_metadata(
-            name,
-            ActorMetadata {
-                execute: actor_fn,
-                init: Some(init_fn),
-            },
-        );
-    }
-
-    /// Register an actor with full metadata
-    fn register_with_metadata(&mut self, name: impl Into<String>, metadata: ActorMetadata) {
-        self.actors.insert(name.into(), metadata);
-    }
-
-    /// Get actor metadata by name
-    #[must_use]
-    pub fn get_metadata(&self, name: &str) -> Option<&ActorMetadata> {
-        self.actors.get(name)
-    }
-
-    /// Get an actor function by name (for backwards compatibility)
+    /// Get an actor function by name
     #[must_use]
     pub fn get(&self, name: &str) -> Option<ActorFn> {
-        self.actors.get(name).map(|m| m.execute)
+        self.actors.get(name).copied()
     }
 }
 
@@ -231,24 +182,16 @@ impl<K: KVBuffers> Environment<K> {
     fn spawn_actor_task(
         node_handle: Handle,
         idname: String,
-        metadata: &ActorMetadata,
+        actor_fn: ActorFn,
         actor_runtime: BlockingActorRuntime,
         shutdown: ShutdownHandle,
     ) -> tokio::task::JoinHandle<()> {
         use actor_io::{AReader, AWriter};
         use actor_runtime::StdHandle;
 
-        let actor_fn = metadata.execute;
-        let init_fn = metadata.init;
-
         tokio::task::spawn_blocking(move || {
             debug!(node = ?actor_runtime.node_handle(), name = %idname, "task starting");
 
-            // Call initialization hook if provided
-            if let Some(init) = init_fn {
-                debug!(node = ?node_handle, name = %idname, "calling init hook");
-                init(node_handle);
-            }
             actor_runtime.register_std_fds();
 
             let areader = AReader::new_from_std(&actor_runtime, StdHandle::Stdin);
@@ -295,8 +238,8 @@ impl<K: KVBuffers> Environment<K> {
             let (actor_runtime, shutdown) =
                 BlockingActorRuntime::new(node_handle, system_tx.clone(), Arc::clone(suspension));
 
-            if let Some(metadata) = actor_registry.get_metadata(&idname) {
-                let task = Self::spawn_actor_task(node_handle, idname, metadata, actor_runtime, shutdown);
+            if let Some(actor_fn) = actor_registry.get(&idname) {
+                let task = Self::spawn_actor_task(node_handle, idname, actor_fn, actor_runtime, shutdown);
                 tasks.push(task);
             } else {
                 warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
