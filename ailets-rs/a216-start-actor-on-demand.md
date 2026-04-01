@@ -31,12 +31,18 @@ The system runs as many actors concurrently as possible. Parallelism is limited 
 - Actor signature changed: `ActorFn = fn(BlockingActorRuntime) -> Result<(), String>`
   - Actors receive full runtime, can call `runtime.node_handle()` to get their ID
   - Enables self-configuration pattern (actors look themselves up in registries)
-- Removed thread-local storage from dbg_control
-  - Now uses only global registry: `HashMap<Handle, Arc<DbgControl>>`
-  - Actor looks up control by its node handle
+- Configuration passed at node creation time
+  - Shell parses `--bytes-before-pause=N` when node is created
+  - Immediately registers actor with configuration: `register_dbg_actor(handle, bytes_before_pause)`
+  - No post-creation initialization loop needed
+- Global registry only: `HashMap<Handle, Arc<DbgControl>>`
+  - No thread-local storage
+  - Actor looks up control by its node handle at runtime
 - Test script: `cli/scripts/test_dbg.dagsh`
 
-**Latest commit:** 85e0a5a "A216 Refactor actor signature to pass runtime, remove thread-locals"
+**Latest commits:**
+- 4b9e133 "A216 Move dbg actor registration to node creation, improve naming"
+- 85e0a5a "A216 Refactor actor signature to pass runtime, remove thread-locals"
 
 ### Phase 2: Analysis 🔄 NEXT
 
