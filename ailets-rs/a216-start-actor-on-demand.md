@@ -23,7 +23,9 @@ The system runs as many actors concurrently as possible. Parallelism is limited 
 **Purpose:** Create a controllable actor to test on-demand spawning behavior.
 
 **What was built:**
-- `dbg` actor: passes through N bytes (default 100), then pauses
+- `dbg` actor: by default copies all data (like cat), optionally pauses after N bytes
+  - Default: `node add dbg` → copies everything without pause
+  - Debug mode: `node add dbg --bytes-before-pause=50` → pauses after 50 bytes
 - Control system: `resume <node>` command to unpause actors
 - Integrated into CLI at `cli/src/dbg_actor.rs` and `cli/src/dbg_control.rs`
 
@@ -41,6 +43,7 @@ The system runs as many actors concurrently as possible. Parallelism is limited 
 - Test script: `cli/scripts/test_dbg.dagsh`
 
 **Latest commits:**
+- 4fb274f "A216 Make dbg actor copy everything by default"
 - 4b9e133 "A216 Move dbg actor registration to node creation, improve naming"
 - 85e0a5a "A216 Refactor actor signature to pass runtime, remove thread-locals"
 
