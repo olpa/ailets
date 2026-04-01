@@ -7,9 +7,10 @@ use embedded_io::{Read, Write};
 
 use crate::dbg_control;
 
-const DEFAULT_BYTES_BEFORE_PAUSE: usize = 100;
-
-/// Debug actor that passes through N bytes, then pauses for resume
+/// Debug actor that passes through data, optionally pausing after N bytes
+///
+/// By default, copies all data without pausing (acts like cat).
+/// If --bytes-before-pause=N is specified, pauses after N bytes and waits for resume.
 ///
 /// Configuration is retrieved from the global registry using the actor's node handle.
 ///
@@ -25,33 +26,47 @@ pub fn execute(runtime: BlockingActorRuntime) -> Result<(), String> {
 
     tracing::info!(node = ?my_handle, "dbg actor starting");
 
-    // Get configuration from control structure
-    let bytes_before_pause = control.bytes_before_pause().unwrap_or(DEFAULT_BYTES_BEFORE_PAUSE);
-    tracing::debug!(node = ?my_handle, bytes_before_pause = bytes_before_pause, "dbg actor configuration");
-
     // Create I/O streams
     let mut reader = AReader::new_from_std(&runtime, StdHandle::Stdin);
     let mut writer = AWriter::new_from_std(&runtime, StdHandle::Stdout);
 
-    // Phase 1: Pass through N bytes
-    let bytes_copied = copy_n_bytes(&mut reader, &mut writer, bytes_before_pause)?;
-    tracing::info!(
-        node = ?my_handle,
-        bytes_copied = bytes_copied,
-        "dbg actor reached pause threshold, pausing"
-    );
+    // Get configuration from control structure
+    match control.bytes_before_pause() {
+        None => {
+            // No pause configured - copy everything like cat
+            tracing::debug!(node = ?my_handle, "dbg actor: no pause configured, copying all");
+            let total_bytes = copy_until_eof(&mut reader, &mut writer)?;
+            tracing::info!(
+                node = ?my_handle,
+                total_bytes = total_bytes,
+                "dbg actor finished (EOF reached)"
+            );
+        }
+        Some(bytes_before_pause) => {
+            // Pause configured - copy N bytes, pause, resume, continue
+            tracing::debug!(node = ?my_handle, bytes_before_pause = bytes_before_pause, "dbg actor: pause configured");
 
-    // Phase 2: Pause and wait for resume
-    control.wait_for_resume();
-    tracing::info!(node = ?my_handle, "dbg actor resumed, continuing");
+            // Phase 1: Pass through N bytes
+            let bytes_copied = copy_n_bytes(&mut reader, &mut writer, bytes_before_pause)?;
+            tracing::info!(
+                node = ?my_handle,
+                bytes_copied = bytes_copied,
+                "dbg actor reached pause threshold, pausing"
+            );
 
-    // Phase 3: Continue until EOF
-    let remaining_bytes = copy_until_eof(&mut reader, &mut writer)?;
-    tracing::info!(
-        node = ?my_handle,
-        remaining_bytes = remaining_bytes,
-        "dbg actor finished (EOF reached)"
-    );
+            // Phase 2: Pause and wait for resume
+            control.wait_for_resume();
+            tracing::info!(node = ?my_handle, "dbg actor resumed, continuing");
+
+            // Phase 3: Continue until EOF
+            let remaining_bytes = copy_until_eof(&mut reader, &mut writer)?;
+            tracing::info!(
+                node = ?my_handle,
+                remaining_bytes = remaining_bytes,
+                "dbg actor finished (EOF reached)"
+            );
+        }
+    }
 
     Ok(())
 }
