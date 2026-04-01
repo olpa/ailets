@@ -24,22 +24,22 @@ pub enum DbgControlState {
 pub struct DbgControl {
     state: Mutex<DbgControlState>,
     condvar: Condvar,
-    /// Optional byte limit configuration
-    byte_limit: Option<usize>,
+    /// Number of bytes to pass before pausing
+    bytes_before_pause: Option<usize>,
 }
 
 impl DbgControl {
-    fn new(byte_limit: Option<usize>) -> Self {
+    fn new(bytes_before_pause: Option<usize>) -> Self {
         Self {
             state: Mutex::new(DbgControlState::Paused),
             condvar: Condvar::new(),
-            byte_limit,
+            bytes_before_pause,
         }
     }
 
-    /// Get the configured byte limit
-    pub fn byte_limit(&self) -> Option<usize> {
-        self.byte_limit
+    /// Get the configured number of bytes to pass before pausing
+    pub fn bytes_before_pause(&self) -> Option<usize> {
+        self.bytes_before_pause
     }
 
     /// Wait until the actor is resumed
@@ -62,22 +62,14 @@ impl DbgControl {
 static REGISTRY: Lazy<Mutex<HashMap<Handle, Arc<DbgControl>>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-/// Register a new debug actor and return its control handle
-pub fn register_dbg_actor(handle: Handle) -> Arc<DbgControl> {
-    register_dbg_actor_with_config(handle, None)
-}
-
-/// Init hook for registering debug actors (discards return value)
+/// Register a new debug actor with configuration
 ///
-/// This is the function signature expected by the CLI's init pattern.
-pub fn init_dbg_actor(handle: Handle) {
-    let _ = register_dbg_actor(handle);
-}
-
-/// Register a new debug actor with optional byte limit configuration
-pub fn register_dbg_actor_with_config(handle: Handle, byte_limit: Option<usize>) -> Arc<DbgControl> {
+/// # Arguments
+/// * `handle` - The node handle for this actor
+/// * `bytes_before_pause` - Number of bytes to pass before pausing (None = default 100)
+pub fn register_dbg_actor(handle: Handle, bytes_before_pause: Option<usize>) -> Arc<DbgControl> {
     let mut registry = REGISTRY.lock().unwrap();
-    let control = Arc::new(DbgControl::new(byte_limit));
+    let control = Arc::new(DbgControl::new(bytes_before_pause));
     registry.insert(handle, Arc::clone(&control));
     control
 }

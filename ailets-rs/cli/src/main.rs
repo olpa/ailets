@@ -173,6 +173,13 @@ Variables:
                 let explain = parse_explain(rest);
                 let handle = self.env.add_node(actor.clone(), &[], explain.clone());
                 self.handles.push(handle);
+
+                // If this is a dbg actor, register it with configuration
+                if actor == "dbg" {
+                    let bytes_before_pause = parse_bytes_before_pause(rest);
+                    dbg_control::register_dbg_actor(handle, bytes_before_pause);
+                }
+
                 let id = handle.id();
                 let expl = explain.map_or_else(String::new, |e| format!("({e})"));
                 println!("Added node {id}: {actor} {expl}");
@@ -347,18 +354,6 @@ Variables:
 
         // Attach stdout based on stop conditions
         self.attach_stdout_for_run(handle, one_step, stop_before, stop_after);
-
-        // Initialize debug actors by checking idname
-        {
-            let dag = self.env.dag.read();
-            for &node_handle in &self.handles {
-                if let Some(node) = dag.get_node(node_handle) {
-                    if node.idname == "dbg" {
-                        dbg_control::init_dbg_actor(node_handle);
-                    }
-                }
-            }
-        }
 
         let stop_conditions = StopConditions {
             one_step,
@@ -577,6 +572,20 @@ fn parse_explain(args: &[&str]) -> Option<String> {
     }
     // No quotes, take until whitespace
     rest.split_whitespace().next().map(str::to_string)
+}
+
+fn parse_bytes_before_pause(args: &[&str]) -> Option<usize> {
+    // Look for --bytes-before-pause= and parse the numeric value
+    let joined = args.join(" ");
+    let rest = joined.strip_prefix("--bytes-before-pause=").or_else(|| {
+        joined
+            .find("--bytes-before-pause=")
+            .map(|pos| &joined[pos + "--bytes-before-pause=".len()..])
+    })?;
+    // Take until whitespace and parse as usize
+    rest.split_whitespace()
+        .next()
+        .and_then(|s| s.parse::<usize>().ok())
 }
 
 fn parse_quoted_string(args: &[&str]) -> String {

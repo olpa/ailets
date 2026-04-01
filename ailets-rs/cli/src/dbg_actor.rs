@@ -7,7 +7,7 @@ use embedded_io::{Read, Write};
 
 use crate::dbg_control;
 
-const DEFAULT_BYTE_LIMIT: usize = 100;
+const DEFAULT_BYTES_BEFORE_PAUSE: usize = 100;
 
 /// Debug actor that passes through N bytes, then pauses for resume
 ///
@@ -25,20 +25,20 @@ pub fn execute(runtime: BlockingActorRuntime) -> Result<(), String> {
 
     tracing::info!(node = ?my_handle, "dbg actor starting");
 
-    // Get byte limit from control structure
-    let byte_limit = control.byte_limit().unwrap_or(DEFAULT_BYTE_LIMIT);
-    tracing::debug!(node = ?my_handle, byte_limit = byte_limit, "dbg actor configuration");
+    // Get configuration from control structure
+    let bytes_before_pause = control.bytes_before_pause().unwrap_or(DEFAULT_BYTES_BEFORE_PAUSE);
+    tracing::debug!(node = ?my_handle, bytes_before_pause = bytes_before_pause, "dbg actor configuration");
 
     // Create I/O streams
     let mut reader = AReader::new_from_std(&runtime, StdHandle::Stdin);
     let mut writer = AWriter::new_from_std(&runtime, StdHandle::Stdout);
 
     // Phase 1: Pass through N bytes
-    let bytes_copied = copy_n_bytes(&mut reader, &mut writer, byte_limit)?;
+    let bytes_copied = copy_n_bytes(&mut reader, &mut writer, bytes_before_pause)?;
     tracing::info!(
         node = ?my_handle,
         bytes_copied = bytes_copied,
-        "dbg actor reached byte limit, pausing"
+        "dbg actor reached pause threshold, pausing"
     );
 
     // Phase 2: Pause and wait for resume
