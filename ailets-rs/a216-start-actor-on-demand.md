@@ -58,14 +58,17 @@ The system runs as many actors concurrently as possible. Parallelism is limited 
 - Add `resume <node>` command that calls `dbg_control::resume_dbg_actor(handle)`
 
 **Files created/modified:**
-- `cli/src/dbg_actor.rs` - ✅ created (debug actor implementation)
-- `cli/src/dbg_control.rs` - ✅ created (control registry)
+- `cli/src/dbg_actor.rs` - ✅ created (debug actor implementation, refactored to use runtime.node_handle())
+- `cli/src/dbg_control.rs` - ✅ created (control registry, refactored to remove thread-local storage)
 - `cli/src/main.rs` - ✅ modified (add modules, register dbg actor, initialize by idname, add resume command)
-- `cli/Cargo.toml` - ✅ modified (add embedded-io and tracing dependencies)
-- `ailetos/src/environment.rs` - ✅ modified (reverted metadata system, simple ActorRegistry)
+- `cli/Cargo.toml` - ✅ modified (add embedded-io, tracing, actor_runtime, and once_cell dependencies)
+- `ailetos/src/environment.rs` - ✅ modified (reverted metadata system, simple ActorRegistry, updated ActorFn signature)
+- `ailetos/src/stub_actor_runtime.rs` - ✅ modified (added node_handle() getter method)
 - `ailetos/src/lib.rs` - ✅ modified (simplified exports)
 - `Cargo.toml` - ✅ modified (removed dbg from workspace members)
 - `cli/scripts/test_dbg.dagsh` - ✅ created (test script)
+- `cat/src/lib.rs` - ✅ modified (updated to new ActorFn signature with helper function for WASM)
+- `cat/Cargo.toml` - ✅ modified (added ailetos dependency)
 
 **Phase 1 Complete!**
 
@@ -77,6 +80,30 @@ Implementation notes:
 - The actor uses tracing for logging with the node handle
 - Test script: `cli/scripts/test_dbg.dagsh`
 
+**Actor Signature Change (Critical Fix):**
+- Changed `ActorFn` from `fn(AReader, AWriter) -> Result<(), String>` to `fn(BlockingActorRuntime) -> Result<(), String>`
+- Actors now receive the full runtime instead of just pre-created reader/writer
+- This allows actors to:
+  - Access stderr for logging
+  - Open additional file descriptors beyond stdin/stdout
+  - Get their node handle for identification via `runtime.node_handle()`
+  - Control runtime behavior (e.g., pause/resume in dbg actor)
+- Updated `spawn_actor_task` to pass runtime to actor function
+- Both `cat` and `dbg` actors updated to new signature
+- WASM compatibility maintained via helper function pattern in `cat` actor
+- Added `node_handle()` getter method to `BlockingActorRuntime`
+
+**Dbg Control Refactoring (Removed Thread-Local Storage):**
+- Refactored `dbg_control.rs` to eliminate thread-local storage
+- Now uses only a global registry: `HashMap<Handle, Arc<DbgControl>>`
+- Actors look up their control structure by their node handle
+- Simplified architecture:
+  - Actor calls `runtime.node_handle()` to get its ID
+  - Looks up control via `dbg_control::get_dbg_control(handle)`
+  - No more thread-local setup before spawning
+- DbgControl now stores optional byte_limit configuration
+- Cleaner, more direct access pattern using actor IDs
+
 **Architecture:**
 - `ActorRegistry` remains simple: maps actor name to actor function only
 - Debug actor is inlined into CLI as normal modules, not a separate crate
@@ -85,6 +112,7 @@ Implementation notes:
 - For nodes with `idname == "dbg"`, CLI calls `dbg_control::init_dbg_actor(handle)`
 - This approach uses the existing `idname` field to differentiate actors, avoiding metadata complexity
 - Keeps ailetos clean and free from dependencies on specific actor implementations
+- Actor functions receive `BlockingActorRuntime` giving them full access to runtime capabilities
 
 ### Phase 2: Analysis
 - [ ] Understand current spawning behavior in `Environment::spawn_actor_tasks`

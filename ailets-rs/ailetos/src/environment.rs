@@ -20,7 +20,7 @@ use crate::suspension::SuspensionState;
 use crate::{BlockingActorRuntime, IoRequest, KVBuffers, KVError, ShutdownHandle, SystemRuntime};
 
 /// Type for actor functions
-pub type ActorFn = fn(actor_io::AReader, actor_io::AWriter) -> Result<(), String>;
+pub type ActorFn = fn(BlockingActorRuntime) -> Result<(), String>;
 
 /// Registry mapping actor names to their implementation functions
 pub struct ActorRegistry {
@@ -186,18 +186,12 @@ impl<K: KVBuffers> Environment<K> {
         actor_runtime: BlockingActorRuntime,
         shutdown: ShutdownHandle,
     ) -> tokio::task::JoinHandle<()> {
-        use actor_io::{AReader, AWriter};
-        use actor_runtime::StdHandle;
-
         tokio::task::spawn_blocking(move || {
             debug!(node = ?actor_runtime.node_handle(), name = %idname, "task starting");
 
             actor_runtime.register_std_fds();
 
-            let areader = AReader::new_from_std(&actor_runtime, StdHandle::Stdin);
-            let awriter = AWriter::new_from_std(&actor_runtime, StdHandle::Stdout);
-
-            let result = actor_fn(areader, awriter);
+            let result = actor_fn(actor_runtime);
 
             match result {
                 Ok(()) => {

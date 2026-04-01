@@ -1,17 +1,17 @@
 use actor_io::{error_kind_to_str, AReader, AWriter};
 use actor_runtime::{err_to_heap_c_string, FfiActorRuntime, StdHandle};
+use ailetos::BlockingActorRuntime;
 use embedded_io::{Read, Write};
 use std::ffi::c_char;
 
-/// Core business logic: copies data from reader to writer
+/// Core business logic implementation: copies data from reader to writer
 ///
 /// # Errors
 ///
 /// Returns an error if:
 /// - Reading from the input fails
 /// - Writing to the output fails
-/// - Closing the reader or writer fails
-pub fn execute<'a>(mut reader: AReader<'a>, mut writer: AWriter<'a>) -> Result<(), String> {
+fn execute_impl<'a>(mut reader: AReader<'a>, mut writer: AWriter<'a>) -> Result<(), String> {
     // Manual copy loop since std::io::copy is not available with embedded_io
     let mut buffer = [0u8; 8192];
     loop {
@@ -39,6 +39,19 @@ pub fn execute<'a>(mut reader: AReader<'a>, mut writer: AWriter<'a>) -> Result<(
     Ok(())
 }
 
+/// Native actor entry point - receives runtime and creates I/O streams
+///
+/// # Errors
+///
+/// Returns an error if:
+/// - Reading from the input fails
+/// - Writing to the output fails
+pub fn execute(runtime: BlockingActorRuntime) -> Result<(), String> {
+    let reader = AReader::new_from_std(&runtime, StdHandle::Stdin);
+    let writer = AWriter::new_from_std(&runtime, StdHandle::Stdout);
+    execute_impl(reader, writer)
+}
+
 /// WASM FFI wrapper
 #[no_mangle]
 pub extern "C" fn execute_wasm() -> *const c_char {
@@ -46,7 +59,7 @@ pub extern "C" fn execute_wasm() -> *const c_char {
     let reader = AReader::new_from_std(&runtime, StdHandle::Stdin);
     let writer = AWriter::new_from_std(&runtime, StdHandle::Stdout);
 
-    match execute(reader, writer) {
+    match execute_impl(reader, writer) {
         Ok(()) => std::ptr::null(),
         Err(e) => err_to_heap_c_string(-1, &e),
     }

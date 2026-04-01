@@ -1,6 +1,8 @@
 //! Debug actor that passes through N bytes, then pauses for resume
 
 use actor_io::{error_kind_to_str, AReader, AWriter};
+use actor_runtime::StdHandle;
+use ailetos::BlockingActorRuntime;
 use embedded_io::{Read, Write};
 
 use crate::dbg_control;
@@ -9,37 +11,44 @@ const DEFAULT_BYTE_LIMIT: usize = 100;
 
 /// Debug actor that passes through N bytes, then pauses for resume
 ///
-/// Configuration (via thread-local from environment):
-/// - `byte_limit`: number of bytes to pass through before pausing (default: 100)
+/// Configuration is retrieved from the global registry using the actor's node handle.
 ///
 /// # Errors
 /// Returns error if I/O operations fail or if configuration is invalid
-pub fn execute<'a>(mut reader: AReader<'a>, mut writer: AWriter<'a>) -> Result<(), String> {
-    // Get the control handle from thread-local storage
-    let control = dbg_control::get_current_dbg_control()
-        .ok_or_else(|| "dbg actor not properly initialized (no control handle)".to_string())?;
+pub fn execute(runtime: BlockingActorRuntime) -> Result<(), String> {
+    // Get my node handle from runtime
+    let my_handle = runtime.node_handle();
 
-    tracing::info!("dbg actor starting");
+    // Look up my control structure in global registry
+    let control = dbg_control::get_dbg_control(my_handle)
+        .ok_or_else(|| format!("dbg actor {:?} not properly initialized (not registered)", my_handle))?;
 
-    // Get byte limit from thread-local (set by environment before spawning)
-    let byte_limit = dbg_control::get_current_dbg_byte_limit()
-        .unwrap_or(DEFAULT_BYTE_LIMIT);
-    tracing::debug!(byte_limit = byte_limit, "dbg actor configuration");
+    tracing::info!(node = ?my_handle, "dbg actor starting");
+
+    // Get byte limit from control structure
+    let byte_limit = control.byte_limit().unwrap_or(DEFAULT_BYTE_LIMIT);
+    tracing::debug!(node = ?my_handle, byte_limit = byte_limit, "dbg actor configuration");
+
+    // Create I/O streams
+    let mut reader = AReader::new_from_std(&runtime, StdHandle::Stdin);
+    let mut writer = AWriter::new_from_std(&runtime, StdHandle::Stdout);
 
     // Phase 1: Pass through N bytes
     let bytes_copied = copy_n_bytes(&mut reader, &mut writer, byte_limit)?;
     tracing::info!(
+        node = ?my_handle,
         bytes_copied = bytes_copied,
         "dbg actor reached byte limit, pausing"
     );
 
     // Phase 2: Pause and wait for resume
     control.wait_for_resume();
-    tracing::info!("dbg actor resumed, continuing");
+    tracing::info!(node = ?my_handle, "dbg actor resumed, continuing");
 
     // Phase 3: Continue until EOF
     let remaining_bytes = copy_until_eof(&mut reader, &mut writer)?;
     tracing::info!(
+        node = ?my_handle,
         remaining_bytes = remaining_bytes,
         "dbg actor finished (EOF reached)"
     );

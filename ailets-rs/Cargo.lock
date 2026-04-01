@@ -171,6 +171,7 @@ version = "0.1.0"
 dependencies = [
  "actor_io",
  "actor_runtime",
+ "ailetos",
  "embedded-io",
  "getrandom",
 ]
@@ -217,9 +218,11 @@ name = "dagsh"
 version = "0.1.0"
 dependencies = [
  "actor_io",
+ "actor_runtime",
  "ailetos",
  "cat",
  "embedded-io",
+ "once_cell",
  "rustyline",
  "tokio",
  "tracing",
