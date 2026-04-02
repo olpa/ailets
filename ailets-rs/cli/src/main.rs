@@ -4,6 +4,8 @@
 
 mod dbg_actor;
 mod dbg_control;
+mod shell_input_actor;
+mod shell_input_control;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -31,6 +33,7 @@ impl DagShell {
         let mut env = Environment::new(Arc::clone(&kv));
         env.actor_registry.register("cat", cat::execute);
         env.actor_registry.register("dbg", dbg_actor::execute);
+        env.actor_registry.register("shell_input", shell_input_actor::execute);
         Self {
             env,
             kv,
@@ -72,6 +75,8 @@ impl DagShell {
             "reset" => self.cmd_reset(),
             "suspend" => self.cmd_suspend(rest)?,
             "resume" => self.cmd_resume(rest)?,
+            "write" => self.cmd_write(rest)?,
+            "close" => self.cmd_close(rest)?,
             _ => {
                 println!("Unknown command: {cmd}. Type 'help' for usage.");
             }
@@ -85,7 +90,7 @@ impl DagShell {
             r"DAG Shell Commands:
 
 Node Management:
-  node add <actor> [--explain=text]   Add actor node (actors: cat, dbg)
+  node add <actor> [--explain=text]   Add actor node (actors: cat, dbg, shell_input)
   node value <data> [--explain=text]  Add value node (constant data)
   node alias <name> <target>          Add alias node
   node list                           List all nodes with status
@@ -113,6 +118,10 @@ Status:
 Debug:
   suspend <node>                      Suspend a running actor
   resume <node>                       Resume a suspended actor (dbg or general)
+
+Shell Input:
+  write <node> <data>                 Write data to a shell_input actor
+  close <node>                        Close a shell_input actor (send EOF)
 
 Session:
   load <file>                         Run script file (alias: source)
@@ -178,6 +187,11 @@ Variables:
                 if actor == "dbg" {
                     let bytes_before_pause = parse_bytes_before_pause(rest);
                     dbg_control::register_dbg_actor(handle, bytes_before_pause);
+                }
+
+                // If this is a shell_input actor, register it
+                if actor == "shell_input" {
+                    shell_input_control::register_shell_input_actor(handle);
                 }
 
                 let id = handle.id();
@@ -485,6 +499,7 @@ Variables:
         self.env = Environment::new(Arc::clone(&self.kv));
         self.env.actor_registry.register("cat", cat::execute);
         self.env.actor_registry.register("dbg", dbg_actor::execute);
+        self.env.actor_registry.register("shell_input", shell_input_actor::execute);
         println!("DAG cleared.");
     }
 
@@ -551,6 +566,40 @@ Variables:
         self.env.dag.write().set_state(handle, NodeState::Running);
         println!("Resumed node {}", handle.id());
         Ok(())
+    }
+
+    fn cmd_write(&self, args: &[&str]) -> Result<(), String> {
+        let handle_str = args.first().ok_or("Usage: write <node> <data>")?;
+        let handle = self
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+
+        let data = parse_quoted_string(&args[1..]);
+
+        match shell_input_control::write_to_shell_input(handle, data.into_bytes()) {
+            Ok(()) => {
+                let hid = handle.id();
+                println!("Wrote data to node {hid}");
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to write: {e}")),
+        }
+    }
+
+    fn cmd_close(&self, args: &[&str]) -> Result<(), String> {
+        let handle_str = args.first().ok_or("Usage: close <node>")?;
+        let handle = self
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+
+        match shell_input_control::close_shell_input(handle) {
+            Ok(()) => {
+                let hid = handle.id();
+                println!("Closed node {hid}");
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to close: {e}")),
+        }
     }
 }
 
