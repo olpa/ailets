@@ -34,7 +34,7 @@ pub fn execute(runtime: BlockingActorRuntime) -> Result<(), String> {
     match control.bytes_before_pause() {
         None => {
             // No pause configured - copy everything like cat
-            tracing::debug!(node = ?my_handle, "dbg actor: no pause configured, copying all");
+            tracing::info!(node = ?my_handle, "dbg actor: no pause configured, copying all");
             let total_bytes = copy_until_eof(&mut reader, &mut writer)?;
             tracing::info!(
                 node = ?my_handle,
@@ -44,7 +44,7 @@ pub fn execute(runtime: BlockingActorRuntime) -> Result<(), String> {
         }
         Some(bytes_before_pause) => {
             // Pause configured - copy N bytes, pause, resume, continue
-            tracing::debug!(node = ?my_handle, bytes_before_pause = bytes_before_pause, "dbg actor: pause configured");
+            tracing::info!(node = ?my_handle, bytes_before_pause = bytes_before_pause, "dbg actor: pause configured");
 
             // Phase 1: Pass through N bytes
             let bytes_copied = copy_n_bytes(&mut reader, &mut writer, bytes_before_pause)?;

@@ -415,8 +415,10 @@ Variables:
 
         // Start the run in a background thread with abort capability
         let thread = std::thread::spawn(move || {
+            tracing::info!("Foreground thread starting");
             let rt = tokio::runtime::Runtime::new().unwrap();
             let future = env.run(handle, stop_conditions);
+            tracing::info!("About to run environment");
             let result = rt.block_on(Abortable::new(future, abort_registration));
 
             match result {
@@ -480,7 +482,15 @@ Variables:
         use futures::future::Abortable;
         let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
 
+        // Use a barrier to ensure the thread actually starts before we return
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let barrier_clone = barrier.clone();
+
         let thread = std::thread::spawn(move || {
+            tracing::info!("Background thread starting");
+            // Signal that we've started
+            barrier_clone.wait();
+
             let rt = tokio::runtime::Runtime::new().unwrap();
             let future = env.run(handle, stop_conditions);
             let result = rt.block_on(Abortable::new(future, abort_registration));
@@ -492,6 +502,10 @@ Variables:
         });
 
         self.bg_job = Some(BackgroundJob { thread, abort_handle });
+
+        // Wait for the background thread to actually start
+        barrier.wait();
+
         println!("Started background run (use 'fg' to wait, 'kill' to terminate)");
 
         Ok(())
@@ -832,6 +846,14 @@ fn print_usage() {
 }
 
 fn main() {
+    // Initialize tracing subscriber to enable logging
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::from_default_env()
+                .add_directive(tracing::Level::INFO.into()),
+        )
+        .init();
+
     let args: Vec<String> = std::env::args().collect();
 
     // Parse command line arguments

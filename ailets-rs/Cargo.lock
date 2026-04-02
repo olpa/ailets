@@ -227,6 +227,7 @@ dependencies = [
  "rustyline",
  "tokio",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
