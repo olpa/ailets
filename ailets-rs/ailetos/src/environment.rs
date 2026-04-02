@@ -61,7 +61,7 @@ pub struct Environment<K: KVBuffers> {
     pub actor_registry: ActorRegistry,
     pub suspension: Arc<SuspensionState>,
     /// Attachment configuration
-    attachment_config: crate::attachments::AttachmentConfig,
+    attachment_config: Arc<RwLock<crate::attachments::AttachmentConfig>>,
 }
 
 impl<K: KVBuffers> Environment<K> {
@@ -76,7 +76,7 @@ impl<K: KVBuffers> Environment<K> {
             kv,
             actor_registry: ActorRegistry::new(),
             suspension: Arc::new(SuspensionState::new()),
-            attachment_config: crate::attachments::AttachmentConfig::default(),
+            attachment_config: Arc::new(RwLock::new(crate::attachments::AttachmentConfig::default())),
         }
     }
 
@@ -90,8 +90,8 @@ impl<K: KVBuffers> Environment<K> {
     ///
     /// # Arguments
     /// * `actor_handle` - The handle of the actor whose stdout should be attached
-    pub fn attach_stdout(&mut self, actor_handle: Handle) {
-        self.attachment_config.attach_stdout(actor_handle);
+    pub fn attach_stdout(&self, actor_handle: Handle) {
+        self.attachment_config.write().attach_stdout(actor_handle);
     }
 
     /// Add a value node - a node that outputs a constant value
@@ -106,7 +106,7 @@ impl<K: KVBuffers> Environment<K> {
     /// # Errors
     /// Returns `KVError` if writing the data to KV storage fails
     pub async fn add_value_node(
-        &mut self,
+        &self,
         data: Vec<u8>,
         explain: Option<String>,
     ) -> Result<Handle, KVError> {
@@ -138,7 +138,7 @@ impl<K: KVBuffers> Environment<K> {
     ///
     /// # Returns
     /// The handle to the created node
-    pub fn add_node(&mut self, idname: String, deps: &[Handle], explain: Option<String>) -> Handle {
+    pub fn add_node(&self, idname: String, deps: &[Handle], explain: Option<String>) -> Handle {
         let mut dag = self.dag.write();
         let handle = dag.add_node_with_explain(idname, NodeKind::Concrete, explain);
 
@@ -150,7 +150,7 @@ impl<K: KVBuffers> Environment<K> {
     }
 
     /// Add an alias node
-    pub fn add_alias(&mut self, alias_name: String, target: Handle) -> Handle {
+    pub fn add_alias(&self, alias_name: String, target: Handle) -> Handle {
         let mut dag = self.dag.write();
         let handle = dag.add_node(alias_name, NodeKind::Alias);
         dag.add_dependency(For(handle), DependsOn(target));
@@ -244,16 +244,17 @@ impl<K: KVBuffers> Environment<K> {
     }
 
     /// Run the system: spawn system runtime and actor tasks, wait for completion
-    pub async fn run(&mut self, target: Handle, stop_conditions: StopConditions)
+    pub async fn run(&self, target: Handle, stop_conditions: StopConditions)
     where
         K: 'static,
     {
         // Create system runtime with attachment configuration
+        let attachment_config = self.attachment_config.read().clone();
         let system_runtime = SystemRuntime::new(
             Arc::clone(&self.dag),
             Arc::clone(&self.kv),
             Arc::clone(&self.idgen),
-            self.attachment_config.clone(),
+            attachment_config,
         );
 
         // Get sender before moving system_runtime
