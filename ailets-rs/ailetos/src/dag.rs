@@ -20,6 +20,7 @@ pub struct DependsOn(pub Handle);
 pub enum NodeState {
     NotStarted,
     Running,
+    Suspended,
     Terminating,
     Terminated,
 }
@@ -228,6 +229,7 @@ impl Dag {
             match node.state {
                 NodeState::NotStarted => format!("{YELLOW}⋯ not built{RESET}"),
                 NodeState::Running => format!("{MAGENTA}⚙ running{RESET}"),
+                NodeState::Suspended => format!("{YELLOW}⏸ suspended{RESET}"),
                 NodeState::Terminating => format!("{MAGENTA}⏳ terminating{RESET}"),
                 NodeState::Terminated => format!("{GREEN}✓ built{RESET}"),
             }
@@ -235,6 +237,7 @@ impl Dag {
             match node.state {
                 NodeState::NotStarted => "⋯ not built".to_string(),
                 NodeState::Running => "⚙ running".to_string(),
+                NodeState::Suspended => "⏸ suspended".to_string(),
                 NodeState::Terminating => "⏳ terminating".to_string(),
                 NodeState::Terminated => "✓ built".to_string(),
             }

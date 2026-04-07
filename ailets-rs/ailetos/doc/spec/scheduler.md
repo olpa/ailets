@@ -4,23 +4,28 @@
 
 Nodes that have already completed execution are not executed again. The scheduler skips nodes in `Terminated` state, enabling incremental builds.
 
-## skip-suspended
+## scheduler-ignores-suspended
 
-Nodes marked as `Suspended` are not eligible for execution. The scheduler skips suspended nodes until they are resumed.
+The scheduler iterator yields nodes in topological order regardless of `Suspended` state. The scheduler's responsibility is determining execution order, not filtering based on runtime state.
 
-A suspended node that was never started remains unscheduled. A suspended node that was running is paused.
+Rationale: If a suspended node produced output before suspension, dependent nodes should still be able to process that output. If no output is available, the runtime will naturally block waiting for input.
 
 ## suspend-resume
 
 Clients can suspend and resume individual nodes:
-- **Suspend**: Pause a node, preventing it from executing
-- **Resume**: Restore a node to its pre-suspension state
+- **Suspend**: Pause a node, preventing further execution
+- **Resume**: Restore a node to continue execution
 
-These operations enable interactive control over DAG execution, similar to Erlang's process suspension.
+These operations enable interactive control over node execution, similar to Erlang's process suspension. The runtime (not the scheduler) handles the actual pausing and resuming.
 
-## dependency-independence
+## data-flow-independence
 
-Suspending a node does not affect its dependencies. Dependencies continue executing normally. Dependents may block if waiting for the suspended node's output.
+Suspending a node:
+- Does NOT block the scheduler from yielding dependent nodes
+- Does NOT prevent dependents from consuming already-produced output
+- DOES prevent the suspended node from further execution until resumed
+
+Dependencies and dependents continue operating normally based on data availability.
 
 ## state-model
 
@@ -30,8 +35,8 @@ Nodes have the following states:
 |-------|-------------|
 | `NotStarted` | Node has not been executed yet |
 | `Running` | Node is currently executing |
-| `Suspended` | Node is paused, will not be scheduled |
+| `Suspended` | Node is paused (runtime prevents execution) |
 | `Terminating` | Node is shutting down |
 | `Terminated` | Node has completed execution |
 
-The `Suspended` state is orthogonal to execution progress - a node can be suspended before starting or while running.
+The `Suspended` state is a runtime concern - the scheduler treats it the same as `NotStarted` or `Running`.

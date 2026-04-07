@@ -476,6 +476,7 @@ Variables:
             let mut running = 0;
             let mut terminated = 0;
             let mut not_started = 0;
+            let mut suspended = 0;
 
             for &handle in &self.handles {
                 if let Some(node) = dag.get_node(handle) {
@@ -484,11 +485,12 @@ Variables:
                         NodeState::Running => running += 1,
                         NodeState::Terminated => terminated += 1,
                         NodeState::NotStarted => not_started += 1,
+                        NodeState::Suspended => suspended += 1,
                         NodeState::Terminating => {}
                     }
                 }
             }
-            println!("Nodes: {total} total, {not_started} not started, {running} running, {terminated} terminated");
+            println!("Nodes: {total} total, {not_started} not started, {running} running, {suspended} suspended, {terminated} terminated");
         } else if let Some(handle_str) = args.first() {
             let handle = self
                 .parse_handle(handle_str)
@@ -543,6 +545,7 @@ fn format_state(state: NodeState) -> &'static str {
     match state {
         NodeState::NotStarted => "⋯ not built",
         NodeState::Running => "⚙ running",
+        NodeState::Suspended => "⏸ suspended",
         NodeState::Terminating => "⏳ terminating",
         NodeState::Terminated => "✓ built",
     }
