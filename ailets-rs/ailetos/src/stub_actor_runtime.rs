@@ -4,12 +4,15 @@
 //! synchronous actor code with the async `SystemRuntime`. It maintains per-actor
 //! state (fd table) and proxies all I/O operations to `SystemRuntime`.
 
+use std::sync::Arc;
+
 use actor_runtime::ActorRuntime;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{error, warn};
 
 use crate::fd_table::{FdEntry, FdTable};
 use crate::idgen::Handle;
+use crate::suspension::SuspensionState;
 use crate::system_runtime::{IoRequest, SendableBuffer};
 
 /// Blocking `ActorRuntime` implementation
@@ -23,6 +26,8 @@ pub struct BlockingActorRuntime {
     system_tx: mpsc::UnboundedSender<IoRequest>,
     /// Per-actor fd table (POSIX fd → global `ChannelHandle`)
     fd_table: std::sync::Mutex<FdTable>,
+    /// Shared suspension state (owned by Environment)
+    suspension: Arc<SuspensionState>,
 }
 
 impl Clone for BlockingActorRuntime {
@@ -31,6 +36,7 @@ impl Clone for BlockingActorRuntime {
             node_handle: self.node_handle,
             system_tx: self.system_tx.clone(),
             fd_table: std::sync::Mutex::new(FdTable::new()),
+            suspension: Arc::clone(&self.suspension),
         }
     }
 }
@@ -38,13 +44,30 @@ impl Clone for BlockingActorRuntime {
 impl BlockingActorRuntime {
     /// Create a new `ActorRuntime` for the given node handle
     #[must_use]
-    pub fn new(node_handle: Handle, system_tx: mpsc::UnboundedSender<IoRequest>) -> Self {
+    pub fn new(
+        node_handle: Handle,
+        system_tx: mpsc::UnboundedSender<IoRequest>,
+        suspension: Arc<SuspensionState>,
+    ) -> Self {
         Self {
             node_handle,
             system_tx,
             fd_table: std::sync::Mutex::new(FdTable::new()),
+            suspension,
         }
     }
+
+    /// Check for suspension before/after I/O yield points.
+    fn check_suspension(&self) {
+        self.suspension.check_and_wait(self.node_handle);
+    }
+
+    /// Get this actor's node handle
+    #[must_use]
+    pub fn node_handle(&self) -> Handle {
+        self.node_handle
+    }
+
 
     /// Register all standard file descriptors for this actor.
     /// Actual readers/writers are created lazily on first read/write.
@@ -106,6 +129,9 @@ impl BlockingActorRuntime {
                 return;
             }
         }
+
+        // Clean up any pending suspension so the actor can exit cleanly
+        self.suspension.deregister(self.node_handle);
 
         // Notify SystemRuntime to close pipes and cleanup resources
         if let Err(e) = self.system_tx.send(IoRequest::ActorShutdown {
@@ -231,6 +257,9 @@ impl ActorRuntime for BlockingActorRuntime {
             }
         };
 
+        // Check for suspension before issuing the read
+        self.check_suspension();
+
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
 
@@ -252,13 +281,17 @@ impl ActorRuntime for BlockingActorRuntime {
         }
 
         // Block waiting for SystemRuntime to complete the async read
-        match rx.blocking_recv() {
+        let result = match rx.blocking_recv() {
             Ok(n) => n,
             Err(e) => {
                 error!(actor = ?self.node_handle, fd = fd, error = ?e, "aread: failed to receive response");
-                -1
+                return -1;
             }
-        }
+        };
+
+        // Check for suspension after the read completes
+        self.check_suspension();
+        result
     }
 
     fn awrite(&self, fd: isize, buffer: &[u8]) -> isize {
@@ -300,6 +333,9 @@ impl ActorRuntime for BlockingActorRuntime {
             }
         };
 
+        // Check for suspension before issuing the write
+        self.check_suspension();
+
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
 
@@ -313,13 +349,17 @@ impl ActorRuntime for BlockingActorRuntime {
             return -1;
         }
 
-        match rx.blocking_recv() {
+        let result = match rx.blocking_recv() {
             Ok(n) => n,
             Err(e) => {
                 error!(actor = ?self.node_handle, fd = fd, error = ?e, "awrite: failed to receive response");
-                -1
+                return -1;
             }
-        }
+        };
+
+        // Check for suspension after the write completes
+        self.check_suspension();
+        result
     }
 
     fn aclose(&self, fd: isize) -> isize {
@@ -346,6 +386,9 @@ impl ActorRuntime for BlockingActorRuntime {
                 0
             }
             FdEntry::ActiveReader(channel_handle) => {
+                // Check for suspension before issuing the close
+                self.check_suspension();
+
                 // Close reader via SystemRuntime
                 let (tx, rx) = oneshot::channel();
 
@@ -357,18 +400,25 @@ impl ActorRuntime for BlockingActorRuntime {
                     return -1;
                 }
 
-                match rx.blocking_recv() {
+                let result = match rx.blocking_recv() {
                     Ok(n) => n,
                     Err(e) => {
                         error!(actor = ?self.node_handle, fd = fd, error = ?e, "aclose: failed to receive Close response");
-                        -1
+                        return -1;
                     }
-                }
+                };
+
+                // Check for suspension after the close completes
+                self.check_suspension();
+                result
             }
             FdEntry::ActiveWriter {
                 node_handle,
                 std_handle,
             } => {
+                // Check for suspension before issuing the close
+                self.check_suspension();
+
                 // Close writer via SystemRuntime
                 let (tx, rx) = oneshot::channel();
 
@@ -381,13 +431,17 @@ impl ActorRuntime for BlockingActorRuntime {
                     return -1;
                 }
 
-                match rx.blocking_recv() {
+                let result = match rx.blocking_recv() {
                     Ok(n) => n,
                     Err(e) => {
                         error!(actor = ?self.node_handle, fd = fd, error = ?e, "aclose: failed to receive CloseWriter response");
-                        -1
+                        return -1;
                     }
-                }
+                };
+
+                // Check for suspension after the close completes
+                self.check_suspension();
+                result
             }
         }
     }

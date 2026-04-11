@@ -16,6 +16,7 @@ use tracing::{debug, error, warn};
 use crate::dag::{Dag, DependsOn, For, NodeKind, NodeState};
 use crate::idgen::{Handle, IdGen};
 use crate::scheduler::{Scheduler, StopConditions};
+use crate::suspension::SuspensionState;
 use crate::{BlockingActorRuntime, IoRequest, KVBuffers, KVError, SystemRuntime};
 
 /// Type for actor functions
@@ -58,6 +59,7 @@ pub struct Environment<K: KVBuffers> {
     pub idgen: Arc<IdGen>,
     pub kv: Arc<K>,
     pub actor_registry: ActorRegistry,
+    pub suspension: Arc<SuspensionState>,
     /// Attachment configuration
     attachment_config: crate::attachments::AttachmentConfig,
 }
@@ -73,6 +75,7 @@ impl<K: KVBuffers> Environment<K> {
             idgen,
             kv,
             actor_registry: ActorRegistry::new(),
+            suspension: Arc::new(SuspensionState::new()),
             attachment_config: crate::attachments::AttachmentConfig::default(),
         }
     }
@@ -215,6 +218,7 @@ impl<K: KVBuffers> Environment<K> {
         stop_conditions: &StopConditions,
         system_tx: &mpsc::UnboundedSender<IoRequest>,
         actor_registry: &ActorRegistry,
+        suspension: &Arc<SuspensionState>,
     ) -> Vec<tokio::task::JoinHandle<()>> {
         let dag_guard = dag.read();
         let scheduler =
@@ -229,7 +233,7 @@ impl<K: KVBuffers> Environment<K> {
             let idname = node.idname.clone();
             debug!(node = ?node_handle, name = %idname, "spawning actor task");
 
-            let runtime = BlockingActorRuntime::new(node_handle, system_tx.clone());
+            let runtime = BlockingActorRuntime::new(node_handle, system_tx.clone(), Arc::clone(suspension));
 
             if let Some(actor_fn) = actor_registry.get(&idname) {
                 let task = Self::spawn_actor_task(node_handle, idname, actor_fn, runtime);
@@ -273,6 +277,7 @@ impl<K: KVBuffers> Environment<K> {
             &stop_conditions,
             &system_tx,
             &self.actor_registry,
+            &self.suspension,
         );
 
         // Drop our sender so the channel can close when all actors finish

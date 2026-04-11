@@ -66,6 +66,8 @@ impl DagShell {
             "status" => self.cmd_status(rest)?,
             "source" | "load" => self.cmd_source(rest)?,
             "reset" => self.cmd_reset(),
+            "suspend" => self.cmd_suspend(rest)?,
+            "resume" => self.cmd_resume(rest)?,
             _ => {
                 println!("Unknown command: {cmd}. Type 'help' for usage.");
             }
@@ -103,6 +105,11 @@ I/O:
 Status:
   status                              Overall DAG status
   status <node>                       Node status
+
+Debug:
+  suspend <node>                      Suspend a running actor
+  resume <node>                       Resume a suspended actor
+
 
 Session:
   load <file>                         Run script file (alias: source)
@@ -504,6 +511,33 @@ Variables:
             }
         }
         Ok(())
+    }
+
+    fn cmd_suspend(&self, args: &[&str]) -> Result<(), String> {
+        let handle_str = args.first().ok_or("Usage: suspend <node>")?;
+        let handle = self
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+
+        self.env.suspension.suspend(handle)?;
+        self.env.dag.write().set_state(handle, NodeState::Suspended);
+        println!("Suspended node {}", handle.id());
+        Ok(())
+    }
+
+    fn cmd_resume(&self, args: &[&str]) -> Result<(), String> {
+        let handle_str = args.first().ok_or("Usage: resume <node>")?;
+        let handle = self
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+
+        if self.env.suspension.resume(handle).is_ok() {
+            self.env.dag.write().set_state(handle, NodeState::Running);
+            println!("Resumed node {}", handle.id());
+            Ok(())
+        } else {
+            Err(format!("Node {} is not suspended", handle.id()))
+        }
     }
 }
 
