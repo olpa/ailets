@@ -191,10 +191,11 @@ impl<K: KVBuffers> Environment<K> {
         tokio::task::spawn_blocking(move || {
             debug!(node = ?node_handle, name = %idname, "task starting");
 
-            runtime.register_std_fds();
+            let actor_runtime = runtime.clone();
+            actor_runtime.register_std_fds();
 
-            let areader = AReader::new_from_std(&runtime, StdHandle::Stdin);
-            let awriter = AWriter::new_from_std(&runtime, StdHandle::Stdout);
+            let areader = AReader::new_from_std(&actor_runtime, StdHandle::Stdin);
+            let awriter = AWriter::new_from_std(&actor_runtime, StdHandle::Stdout);
 
             let result = actor_fn(areader, awriter);
 

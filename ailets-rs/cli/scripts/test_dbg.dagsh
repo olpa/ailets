@@ -9,7 +9,7 @@
 # === Part 1: dbg actor self-pause ===
 
 set src = node add shell_input --explain="Data source"
-set proc = node add dbg --bytes=2 --explain="Pauses after 2 bytes"
+set proc = node add dbg --bytes-before-pause=2 --explain="Pauses after 2 bytes"
 dep $proc $src
 
 show
