@@ -110,16 +110,17 @@ fn test_scheduler_yields_suspended_nodes() {
     let (mut dag, nodes) = create_linear_dag();
     let [node1, node2, node3, node4] = [nodes[0], nodes[1], nodes[2], nodes[3]];
 
-    // Suspend node2 - scheduler should still yield it
-    dag.set_state(node2, NodeState::Suspended);
+    // Mark node2 as running - scheduler should still yield it
+    // Suspension is a runtime attribute (not a DAG state); the scheduler
+    // yields all non-Terminated nodes regardless of runtime state.
+    dag.set_state(node2, NodeState::Running);
 
     let scheduler = Scheduler::new(&dag, node4);
     let executed: Vec<_> = scheduler.iter().collect();
 
-    // Scheduler yields all nodes in topological order, including suspended ones
     assert_eq!(
         executed,
         vec![node1, node2, node3, node4],
-        "Scheduler should yield suspended nodes; runtime decides whether to execute"
+        "Scheduler should yield all non-Terminated nodes; runtime decides whether to execute"
     );
 }

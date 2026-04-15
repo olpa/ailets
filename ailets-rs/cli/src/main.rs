@@ -494,8 +494,10 @@ Variables:
                         NodeState::Running => running += 1,
                         NodeState::Terminated => terminated += 1,
                         NodeState::NotStarted => not_started += 1,
-                        NodeState::Suspended => suspended += 1,
                         NodeState::Terminating => {}
+                    }
+                    if self.env.suspension.is_suspended(handle) {
+                        suspended += 1;
                     }
                 }
             }
@@ -522,7 +524,6 @@ Variables:
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
         self.env.suspension.suspend(handle);
-        self.env.dag.write().set_state(handle, NodeState::Suspended);
         println!("Suspended node {}", handle.id());
         Ok(())
     }
@@ -534,7 +535,6 @@ Variables:
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
         self.env.suspension.resume(handle);
-        self.env.dag.write().set_state(handle, NodeState::Running);
         println!("Resumed node {}", handle.id());
         Ok(())
     }
@@ -578,7 +578,6 @@ fn format_state(state: NodeState) -> &'static str {
     match state {
         NodeState::NotStarted => "⋯ not built",
         NodeState::Running => "⚙ running",
-        NodeState::Suspended => "⏸ suspended",
         NodeState::Terminating => "⏳ terminating",
         NodeState::Terminated => "✓ built",
     }
