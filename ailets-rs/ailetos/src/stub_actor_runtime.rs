@@ -57,8 +57,8 @@ impl BlockingActorRuntime {
         }
     }
 
-    /// Check for suspension before/after I/O yield points.
-    fn check_suspension(&self) {
+    /// Yield cooperatively if this actor has been suspended; blocks until resumed.
+    fn yield_if_suspended(&self) {
         self.suspension.check_and_wait(self.node_handle);
     }
 
@@ -257,8 +257,8 @@ impl ActorRuntime for BlockingActorRuntime {
             }
         };
 
-        // Check for suspension before issuing the read
-        self.check_suspension();
+        // Yield if suspended before issuing the read
+        self.yield_if_suspended();
 
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
@@ -289,8 +289,8 @@ impl ActorRuntime for BlockingActorRuntime {
             }
         };
 
-        // Check for suspension after the read completes
-        self.check_suspension();
+        // Yield if suspended after the read completes
+        self.yield_if_suspended();
         result
     }
 
@@ -333,8 +333,8 @@ impl ActorRuntime for BlockingActorRuntime {
             }
         };
 
-        // Check for suspension before issuing the write
-        self.check_suspension();
+        // Yield if suspended before issuing the write
+        self.yield_if_suspended();
 
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
@@ -357,8 +357,8 @@ impl ActorRuntime for BlockingActorRuntime {
             }
         };
 
-        // Check for suspension after the write completes
-        self.check_suspension();
+        // Yield if suspended after the write completes
+        self.yield_if_suspended();
         result
     }
 
@@ -386,8 +386,8 @@ impl ActorRuntime for BlockingActorRuntime {
                 0
             }
             FdEntry::ActiveReader(channel_handle) => {
-                // Check for suspension before issuing the close
-                self.check_suspension();
+                // Yield if suspended before issuing the close
+                self.yield_if_suspended();
 
                 // Close reader via SystemRuntime
                 let (tx, rx) = oneshot::channel();
@@ -408,16 +408,16 @@ impl ActorRuntime for BlockingActorRuntime {
                     }
                 };
 
-                // Check for suspension after the close completes
-                self.check_suspension();
+                // Yield if suspended after the close completes
+                self.yield_if_suspended();
                 result
             }
             FdEntry::ActiveWriter {
                 node_handle,
                 std_handle,
             } => {
-                // Check for suspension before issuing the close
-                self.check_suspension();
+                // Yield if suspended before issuing the close
+                self.yield_if_suspended();
 
                 // Close writer via SystemRuntime
                 let (tx, rx) = oneshot::channel();
@@ -439,8 +439,8 @@ impl ActorRuntime for BlockingActorRuntime {
                     }
                 };
 
-                // Check for suspension after the close completes
-                self.check_suspension();
+                // Yield if suspended after the close completes
+                self.yield_if_suspended();
                 result
             }
         }
