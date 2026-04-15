@@ -40,7 +40,7 @@ pub use attachments::AttachmentConfig;
 pub use fd_table::{FdEntry, FdTable};
 
 // Re-export blocking actor runtime
-pub use stub_actor_runtime::BlockingActorRuntime;
+pub use stub_actor_runtime::{BlockingActorRuntime, ShutdownHandle};
 
 // Re-export environment types
 pub use environment::{ActorFn, ActorRegistry, Environment};

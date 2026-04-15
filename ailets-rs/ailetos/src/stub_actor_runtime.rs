@@ -30,31 +30,60 @@ pub struct BlockingActorRuntime {
     suspension: Arc<SuspensionState>,
 }
 
-impl Clone for BlockingActorRuntime {
-    fn clone(&self) -> Self {
-        Self {
+/// Lifecycle handle that notifies `SystemRuntime` when an actor is done.
+///
+/// Returned alongside `BlockingActorRuntime` from `BlockingActorRuntime::new`.
+/// Call `shutdown()` explicitly at the normal exit point; `Drop` fires the same
+/// cleanup automatically if the actor panics or returns early without calling it.
+/// Sending `ActorShutdown` multiple times is safe — `SystemRuntime` is idempotent.
+pub struct ShutdownHandle {
+    node_handle: Handle,
+    system_tx: mpsc::UnboundedSender<IoRequest>,
+    suspension: Arc<SuspensionState>,
+}
+
+impl ShutdownHandle {
+    fn do_shutdown(&self) {
+        self.suspension.deregister(self.node_handle);
+        if let Err(e) = self.system_tx.send(IoRequest::ActorShutdown {
             node_handle: self.node_handle,
-            system_tx: self.system_tx.clone(),
-            fd_table: std::sync::Mutex::new(FdTable::new()),
-            suspension: Arc::clone(&self.suspension),
+        }) {
+            error!(actor = ?self.node_handle, error = ?e, "shutdown: failed to send ActorShutdown notification");
         }
     }
 }
 
+impl Drop for ShutdownHandle {
+    /// Fires shutdown unconditionally — safe to call after an explicit `shutdown()`.
+    fn drop(&mut self) {
+        self.do_shutdown();
+    }
+}
+
 impl BlockingActorRuntime {
-    /// Create a new `ActorRuntime` for the given node handle
+    /// Create a new `ActorRuntime` for the given node handle.
+    ///
+    /// Returns the runtime together with a `ShutdownHandle`. Call
+    /// `ShutdownHandle::shutdown` at the normal exit point; the handle will also
+    /// fire cleanup automatically on drop if `shutdown` is never called.
     #[must_use]
     pub fn new(
         node_handle: Handle,
         system_tx: mpsc::UnboundedSender<IoRequest>,
         suspension: Arc<SuspensionState>,
-    ) -> Self {
-        Self {
+    ) -> (Self, ShutdownHandle) {
+        let runtime = Self {
+            node_handle,
+            system_tx: system_tx.clone(),
+            fd_table: std::sync::Mutex::new(FdTable::new()),
+            suspension: Arc::clone(&suspension),
+        };
+        let shutdown = ShutdownHandle {
             node_handle,
             system_tx,
-            fd_table: std::sync::Mutex::new(FdTable::new()),
             suspension,
-        }
+        };
+        (runtime, shutdown)
     }
 
     /// Yield cooperatively if this actor has been suspended; blocks until resumed.
@@ -93,53 +122,6 @@ impl BlockingActorRuntime {
         table.set(StdHandle::Trace as isize, FdEntry::AllowedWriter);
     }
 
-    /// Shutdown this actor runtime and clean up local state.
-    ///
-    /// # Pipe Cleanup Responsibility
-    ///
-    /// At the moment, pipes (writers and readers) are indirectly created by `SystemRuntime`
-    /// through the channel table and `PipePool`. Therefore, it is `SystemRuntime`'s
-    /// responsibility to close pipes and clean up their resources, not the actor's.
-    ///
-    /// This function only clears the actor's local fd table mapping (actor fd → system
-    /// `ChannelHandle`). It does NOT close individual file descriptors or send close requests
-    /// to `SystemRuntime`. The actual pipe cleanup happens in `SystemRuntime` when it
-    /// receives the `ActorShutdown` notification and calls `pipe_pool.close_actor_writers()`.
-    ///
-    /// # Design Rationale
-    ///
-    /// - **Ownership**: `SystemRuntime` owns the pipes via `PipePool`, so it should clean them up
-    /// - **Centralized cleanup**: All pipe closure happens in one place (`PipePool::close_actor_writers`)
-    /// - **Prevents double-close**: Actor doesn't close pipes that `SystemRuntime` will close
-    /// - **Simpler shutdown**: Actor only needs to drop its local fd mapping
-    ///
-    /// After clearing the fd table, this function sends an `ActorShutdown` notification to
-    /// `SystemRuntime` to trigger pipe cleanup.
-    ///
-    /// If the fd table lock is poisoned, logs an error and returns without clearing the table.
-    pub fn shutdown(&self) {
-        // Clear the fd table without closing individual fds
-        // The pipes themselves will be closed by SystemRuntime via PipePool
-        match self.fd_table.lock() {
-            Ok(mut table) => {
-                table.clear();
-            }
-            Err(e) => {
-                error!(actor = ?self.node_handle, error = ?e, "shutdown: fd_table lock poisoned");
-                return;
-            }
-        }
-
-        // Clean up any pending suspension so the actor can exit cleanly
-        self.suspension.deregister(self.node_handle);
-
-        // Notify SystemRuntime to close pipes and cleanup resources
-        if let Err(e) = self.system_tx.send(IoRequest::ActorShutdown {
-            node_handle: self.node_handle,
-        }) {
-            error!(actor = ?self.node_handle, error = ?e, "shutdown: failed to send ActorShutdown notification");
-        }
-    }
 }
 
 #[allow(clippy::unwrap_used)] // Blocking implementation - panics on channel failures

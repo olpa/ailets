@@ -17,7 +17,7 @@ use crate::dag::{Dag, DependsOn, For, NodeKind, NodeState};
 use crate::idgen::{Handle, IdGen};
 use crate::scheduler::{Scheduler, StopConditions};
 use crate::suspension::SuspensionState;
-use crate::{BlockingActorRuntime, IoRequest, KVBuffers, KVError, SystemRuntime};
+use crate::{BlockingActorRuntime, IoRequest, KVBuffers, KVError, ShutdownHandle, SystemRuntime};
 
 /// Type for actor functions
 pub type ActorFn = fn(actor_io::AReader, actor_io::AWriter) -> Result<(), String>;
@@ -180,18 +180,17 @@ impl<K: KVBuffers> Environment<K> {
 
     /// Spawn a task for an actor node
     fn spawn_actor_task(
-        node_handle: Handle,
         idname: String,
         actor_fn: ActorFn,
-        runtime: BlockingActorRuntime,
+        actor_runtime: BlockingActorRuntime,
+        shutdown: ShutdownHandle,
     ) -> tokio::task::JoinHandle<()> {
         use actor_io::{AReader, AWriter};
         use actor_runtime::StdHandle;
 
         tokio::task::spawn_blocking(move || {
-            debug!(node = ?node_handle, name = %idname, "task starting");
+            debug!(node = ?actor_runtime.node_handle(), name = %idname, "task starting");
 
-            let actor_runtime = runtime.clone();
             actor_runtime.register_std_fds();
 
             let areader = AReader::new_from_std(&actor_runtime, StdHandle::Stdin);
@@ -200,15 +199,14 @@ impl<K: KVBuffers> Environment<K> {
             let result = actor_fn(areader, awriter);
 
             match result {
-                Ok(()) => debug!(node = ?node_handle, name = %idname, "task completed"),
+                Ok(()) => debug!(node = ?actor_runtime.node_handle(), name = %idname, "task completed"),
                 Err(e) => {
-                    warn!(node = ?node_handle, name = %idname, error = %e, "task error");
+                    warn!(node = ?actor_runtime.node_handle(), name = %idname, error = %e, "task error");
                 }
             }
 
-            // Clear actor's local fd table and notify SystemRuntime
-            runtime.shutdown();
-            debug!(node = ?node_handle, name = %idname, "task done");
+            debug!(node = ?actor_runtime.node_handle(), name = %idname, "task done, shutdown via Drop");
+            drop(shutdown);
         })
     }
 
@@ -234,10 +232,10 @@ impl<K: KVBuffers> Environment<K> {
             let idname = node.idname.clone();
             debug!(node = ?node_handle, name = %idname, "spawning actor task");
 
-            let runtime = BlockingActorRuntime::new(node_handle, system_tx.clone(), Arc::clone(suspension));
+            let (actor_runtime, shutdown) = BlockingActorRuntime::new(node_handle, system_tx.clone(), Arc::clone(suspension));
 
             if let Some(actor_fn) = actor_registry.get(&idname) {
-                let task = Self::spawn_actor_task(node_handle, idname, actor_fn, runtime);
+                let task = Self::spawn_actor_task(idname, actor_fn, actor_runtime, shutdown);
                 tasks.push(task);
             } else {
                 warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
