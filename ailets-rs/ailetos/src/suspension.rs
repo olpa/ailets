@@ -100,6 +100,12 @@ impl SuspensionState {
         }
     }
 
+    /// Returns `true` if the actor is currently suspended.
+    #[must_use]
+    pub fn is_suspended(&self, handle: Handle) -> bool {
+        self.registry.lock().unwrap().contains_key(&handle)
+    }
+
     /// Check if this actor should suspend and block until resumed.
     /// Fast no-op when `any_suspended` is false.
     pub fn check_and_wait(&self, handle: Handle) {

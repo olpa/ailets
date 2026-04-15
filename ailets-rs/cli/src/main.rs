@@ -271,24 +271,26 @@ Variables:
                 .collect();
 
             // If no terminals (e.g., due to circular dependencies), show all nodes
+            let suspension = Some(&*self.env.suspension);
             if terminals.is_empty() {
                 for handle in &self.handles {
-                    let tree = dag.dump_colored(*handle);
+                    let tree = dag.dump_colored(*handle, suspension);
                     print!("{tree}");
                 }
             } else {
                 for handle in terminals {
-                    let tree = dag.dump_colored(handle);
+                    let tree = dag.dump_colored(handle, suspension);
                     print!("{tree}");
                 }
             }
             return Ok(());
         }
+        let suspension = Some(&*self.env.suspension);
         let handle_str = args.first().ok_or("Usage: show <node>")?;
         let handle = self
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
-        let tree = dag.dump_colored(handle);
+        let tree = dag.dump_colored(handle, suspension);
         print!("{tree}");
         Ok(())
     }

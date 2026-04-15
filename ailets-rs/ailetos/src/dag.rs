@@ -5,6 +5,7 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 
 use crate::idgen::{Handle, IdGen};
+use crate::suspension::SuspensionState;
 
 /// Wrapper for the dependent node in `add_dependency(For(A), DependsOn(B))`.
 /// Reads as: "for node A, add dependency on B".
@@ -132,8 +133,8 @@ impl Dag {
     /// If the starting node is an alias, it is skipped and its resolved
     /// dependencies are printed as root nodes instead.
     #[must_use]
-    pub fn dump(&self, pid: Handle) -> String {
-        self.dump_impl(pid, false)
+    pub fn dump(&self, pid: Handle, suspension: Option<&SuspensionState>) -> String {
+        self.dump_impl(pid, false, suspension)
     }
 
     /// Prints the dependency tree for a given node with ANSI colors
@@ -141,11 +142,11 @@ impl Dag {
     /// If the starting node is an alias, it is skipped and its resolved
     /// dependencies are printed as root nodes instead.
     #[must_use]
-    pub fn dump_colored(&self, pid: Handle) -> String {
-        self.dump_impl(pid, true)
+    pub fn dump_colored(&self, pid: Handle, suspension: Option<&SuspensionState>) -> String {
+        self.dump_impl(pid, true, suspension)
     }
 
-    fn dump_impl(&self, pid: Handle, use_colors: bool) -> String {
+    fn dump_impl(&self, pid: Handle, use_colors: bool, suspension: Option<&SuspensionState>) -> String {
         let mut output = String::new();
         let mut visited = HashSet::new();
         let mut printed = HashSet::new();
@@ -162,6 +163,7 @@ impl Dag {
                         is_last,
                         true,
                         use_colors,
+                        suspension,
                         &mut output,
                         &mut visited,
                         &mut printed,
@@ -177,6 +179,7 @@ impl Dag {
             true,
             true,
             use_colors,
+            suspension,
             &mut output,
             &mut visited,
             &mut printed,
@@ -192,6 +195,7 @@ impl Dag {
         is_last: bool,
         is_root: bool,
         use_colors: bool,
+        suspension: Option<&SuspensionState>,
         output: &mut String,
         visited: &mut HashSet<Handle>,
         printed: &mut HashSet<Handle>,
@@ -225,6 +229,8 @@ impl Dag {
             "├── "
         };
 
+        let is_suspended = suspension.is_some_and(|s| s.is_suspended(pid));
+
         let state_symbol = if use_colors {
             match node.state {
                 NodeState::NotStarted => format!("{YELLOW}⋯ not built{RESET}"),
@@ -243,6 +249,8 @@ impl Dag {
             }
         };
 
+        let suspended_suffix = if is_suspended { " ⏸ suspended" } else { "" };
+
         let explain_suffix = node
             .explain
             .as_ref()
@@ -259,7 +267,7 @@ impl Dag {
 
         let _ = writeln!(
             output,
-            "{prefix}{connector}{}.{} [{state_symbol}]{explain_suffix}{circular_suffix}",
+            "{prefix}{connector}{}.{} [{state_symbol}{suspended_suffix}]{explain_suffix}{circular_suffix}",
             node.idname,
             node.pid.id()
         );
@@ -305,6 +313,7 @@ impl Dag {
                             is_last_target,
                             false,
                             use_colors,
+                            suspension,
                             output,
                             visited,
                             printed,
@@ -320,6 +329,7 @@ impl Dag {
                 is_last_child,
                 false,
                 use_colors,
+                suspension,
                 output,
                 visited,
                 printed,
