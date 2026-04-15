@@ -9,6 +9,8 @@ use std::sync::{
     Arc, Condvar, Mutex,
 };
 
+use tracing::warn;
+
 use crate::idgen::Handle;
 
 struct SuspensionControl {
@@ -56,19 +58,19 @@ impl SuspensionState {
         }
     }
 
-    /// Suspend an actor. Returns an error if already suspended.
-    pub fn suspend(&self, handle: Handle) -> Result<(), String> {
+    /// Suspend an actor. Warns if already suspended (no-op in that case).
+    pub fn suspend(&self, handle: Handle) {
         let mut registry = self.registry.lock().unwrap();
         if registry.contains_key(&handle) {
-            return Err(format!("Actor {handle:?} is already suspended"));
+            warn!(actor = ?handle, "suspend: actor is already suspended");
+            return;
         }
         registry.insert(handle, Arc::new(SuspensionControl::new()));
         self.any_suspended.store(true, Ordering::Relaxed);
-        Ok(())
     }
 
-    /// Resume a suspended actor. Returns an error if not suspended.
-    pub fn resume(&self, handle: Handle) -> Result<(), String> {
+    /// Resume a suspended actor. Warns if not suspended (no-op in that case).
+    pub fn resume(&self, handle: Handle) {
         let control = {
             let mut registry = self.registry.lock().unwrap();
             let entry = registry.remove(&handle);
@@ -78,11 +80,8 @@ impl SuspensionState {
             entry
         };
         match control {
-            Some(c) => {
-                c.signal_resume();
-                Ok(())
-            }
-            None => Err(format!("Actor {handle:?} is not suspended")),
+            Some(c) => c.signal_resume(),
+            None => warn!(actor = ?handle, "resume: actor is not suspended"),
         }
     }
 

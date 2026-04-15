@@ -519,7 +519,7 @@ Variables:
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
-        self.env.suspension.suspend(handle)?;
+        self.env.suspension.suspend(handle);
         self.env.dag.write().set_state(handle, NodeState::Suspended);
         println!("Suspended node {}", handle.id());
         Ok(())
@@ -531,13 +531,10 @@ Variables:
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
-        if self.env.suspension.resume(handle).is_ok() {
-            self.env.dag.write().set_state(handle, NodeState::Running);
-            println!("Resumed node {}", handle.id());
-            Ok(())
-        } else {
-            Err(format!("Node {} is not suspended", handle.id()))
-        }
+        self.env.suspension.resume(handle);
+        self.env.dag.write().set_state(handle, NodeState::Running);
+        println!("Resumed node {}", handle.id());
+        Ok(())
     }
 }
 
