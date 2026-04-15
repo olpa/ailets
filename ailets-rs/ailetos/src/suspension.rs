@@ -45,7 +45,7 @@ impl SuspensionControl {
 pub struct SuspensionState {
     /// Global hint: true if any actor is currently suspended.
     /// Actors check this with Relaxed ordering for a fast no-cost path in production.
-    pub any_suspended: Arc<AtomicBool>,
+    any_suspended: Arc<AtomicBool>,
     registry: Mutex<HashMap<Handle, Arc<SuspensionControl>>>,
 }
 
