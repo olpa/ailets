@@ -1,0 +1,57 @@
+# Concurrent On-Demand Start
+#
+# Demonstrates two runtime properties:
+#   1. Actors are not started until they have input.
+#   2. Several actors can run at the same time.
+#
+# Topology:  shell_input → dbg_1 (pause@5B) → dbg_2 (pause@3B)
+# Input: "hello world" (11 bytes)
+#
+# Property 1 — on-demand start:
+#   Observe in the fg log: "dbg actor starting" for dbg_2 appears *after*
+#   dbg_1 has forwarded its first 5 bytes. dbg_2 had no input until then.
+#
+# Property 2 — concurrent execution:
+#   dbg_1 reaches its pause point and calls suspend_and_wait. Before it
+#   returns, dbg_2 has already started and reaches its own pause point.
+#   The log shows both actors interleaved — they overlap in time.
+#
+# Note: the mid-run `status` calls race the background scheduler thread and
+# may show actors still in NotStarted state. The log output from `fg` is the
+# authoritative view of what actually happened concurrently.
+#
+# See docs/concurrent_on_demand_start.md for full walkthrough.
+
+set src  = node add shell_input --explain="Input source"
+set dbg1 = node add dbg --bytes-before-pause=5 --explain="Forwards 5 B then pauses"
+set dbg2 = node add dbg --bytes-before-pause=3 --explain="Forwards 3 B then pauses"
+dep $dbg1 $src
+dep $dbg2 $dbg1
+
+show
+
+# Start the scheduler in background. No data has arrived yet — actors have
+# not started (Property 1). Status confirms the not-started count.
+run --bg
+status
+
+# Feed 11 bytes and signal EOF. The scheduler will sequence:
+#   shell_input → writes "hello world", exits
+#   dbg_1       → forwards "hello" (5 B), hits suspend_and_wait
+#   dbg_2       → starts (Property 1 visible in log), forwards "hel" (3 B),
+#                 hits suspend_and_wait while dbg_1 is still paused (Property 2)
+write $src "hello world"
+close $src
+
+# Status races the scheduler; may still show NotStarted. See log from fg.
+status
+
+# Pre-resume both actors so their suspend_and_wait calls return immediately.
+# (Resume is idempotent: if called before the actor suspends, it pre-signals
+# the handle so the actor skips waiting when it reaches suspend_and_wait.)
+resume $dbg1
+resume $dbg2
+fg
+
+# Expected: 3 total, 0 not started, 0 running, 0 suspended, 3 terminated
+status
