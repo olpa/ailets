@@ -11,14 +11,16 @@
 use std::io::IsTerminal;
 use std::sync::Arc;
 
-use actor_io::{error_kind_to_str, AReader, AWriter};
+use actor_io::{error_kind_to_str, AWriter};
+use actor_runtime::StdHandle;
 use ailetos::idgen::Handle;
-use ailetos::{Environment, SqliteKV};
+use ailetos::{BlockingActorRuntime, Environment, SqliteKV};
 use embedded_io::Write;
 use std::io::Read;
 
 /// Stdin source actor: reads from OS stdin and writes to actor stdout
-fn stdin_actor<'a>(_reader: AReader<'a>, mut writer: AWriter<'a>) -> Result<(), String> {
+fn stdin_actor(runtime: BlockingActorRuntime) -> Result<(), String> {
+    let mut writer = AWriter::new_from_std(&runtime, StdHandle::Stdout);
     let mut stdin = std::io::stdin();
     let mut buffer = [0u8; 8192];
 
@@ -92,14 +94,15 @@ async fn main() {
 
     // Print dependency tree (with colors if stdout is a terminal)
     let tree = if std::io::stdout().is_terminal() {
-        env.dag.read().dump_colored(end_node)
+        env.dag.read().dump_colored(end_node, None)
     } else {
-        env.dag.read().dump(end_node)
+        env.dag.read().dump(end_node, None)
     };
     print!("{tree}");
 
     // Attach the last actor's stdout to host stdout
-    env.attach_stdout(env.resolve(end_node));
+    let resolved = env.resolve(end_node);
+    env.attach_stdout(resolved);
 
     // Run the system
     use ailetos::scheduler::StopConditions;

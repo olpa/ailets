@@ -24,7 +24,7 @@ struct BackgroundJob {
 }
 
 struct DagShell {
-    env: Arc<Environment<MemKV>>,
+    env: Environment<MemKV>,
     kv: Arc<MemKV>,
     /// Track all created node handles for listing
     handles: Vec<Handle>,
@@ -41,7 +41,7 @@ impl DagShell {
         env.actor_registry.register("dbg", dbg_actor::execute);
         env.actor_registry.register("shell_input", shell_input_actor::execute);
         Self {
-            env: Arc::new(env),
+            env,
             kv,
             handles: Vec::new(),
             vars: HashMap::new(),
@@ -408,7 +408,7 @@ Variables:
             return Err("Background job already running. Use 'fg' or 'kill' first.".to_string());
         }
 
-        let env = Arc::clone(&self.env);
+        let run_handle = Arc::new(self.env.make_run_handle());
 
         use futures::future::Abortable;
         let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
@@ -417,7 +417,7 @@ Variables:
         let thread = std::thread::spawn(move || {
             tracing::info!("Foreground thread starting");
             let rt = tokio::runtime::Runtime::new().unwrap();
-            let future = env.run(handle, stop_conditions);
+            let future = run_handle.run(handle, stop_conditions);
             tracing::info!("About to run environment");
             let result = rt.block_on(Abortable::new(future, abort_registration));
 
@@ -477,7 +477,7 @@ Variables:
             return Err("Background job already running. Use 'fg' or 'kill' first.".to_string());
         }
 
-        let env = Arc::clone(&self.env);
+        let run_handle = Arc::new(self.env.make_run_handle());
 
         use futures::future::Abortable;
         let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
@@ -492,7 +492,7 @@ Variables:
             barrier_clone.wait();
 
             let rt = tokio::runtime::Runtime::new().unwrap();
-            let future = env.run(handle, stop_conditions);
+            let future = run_handle.run(handle, stop_conditions);
             let result = rt.block_on(Abortable::new(future, abort_registration));
 
             match result {
@@ -633,7 +633,7 @@ Variables:
         env.actor_registry.register("cat", cat::execute);
         env.actor_registry.register("dbg", dbg_actor::execute);
         env.actor_registry.register("shell_input", shell_input_actor::execute);
-        self.env = Arc::new(env);
+        self.env = env;
         println!("DAG cleared.");
     }
 
