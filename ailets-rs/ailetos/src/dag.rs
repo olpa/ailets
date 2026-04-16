@@ -145,7 +145,12 @@ impl Dag {
         self.dump_impl(pid, true, suspension)
     }
 
-    fn dump_impl(&self, pid: Handle, use_colors: bool, suspension: Option<&SuspensionState>) -> String {
+    fn dump_impl(
+        &self,
+        pid: Handle,
+        use_colors: bool,
+        suspension: Option<&SuspensionState>,
+    ) -> String {
         let mut output = String::new();
         let mut visited = HashSet::new();
         let mut printed = HashSet::new();
@@ -186,6 +191,29 @@ impl Dag {
         output
     }
 
+    fn format_state_symbol(state: NodeState, use_colors: bool) -> String {
+        const GREEN: &str = "\x1b[32m";
+        const YELLOW: &str = "\x1b[33m";
+        const MAGENTA: &str = "\x1b[35m";
+        const RESET: &str = "\x1b[0m";
+
+        if use_colors {
+            match state {
+                NodeState::NotStarted => format!("{YELLOW}⋯ not built{RESET}"),
+                NodeState::Running => format!("{MAGENTA}⚙ running{RESET}"),
+                NodeState::Terminating => format!("{MAGENTA}⏳ terminating{RESET}"),
+                NodeState::Terminated => format!("{GREEN}✓ built{RESET}"),
+            }
+        } else {
+            match state {
+                NodeState::NotStarted => "⋯ not built".to_string(),
+                NodeState::Running => "⚙ running".to_string(),
+                NodeState::Terminating => "⏳ terminating".to_string(),
+                NodeState::Terminated => "✓ built".to_string(),
+            }
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn dump_recursive(
         &self,
@@ -199,12 +227,6 @@ impl Dag {
         visited: &mut HashSet<Handle>,
         printed: &mut HashSet<Handle>,
     ) {
-        // ANSI color codes
-        const GREEN: &str = "\x1b[32m";
-        const YELLOW: &str = "\x1b[33m";
-        const MAGENTA: &str = "\x1b[35m";
-        const RESET: &str = "\x1b[0m";
-
         // Get node info
         let Some(node) = self.get_node(pid) else {
             let _ = writeln!(output, "{prefix}├── [PID {pid:?} not found]");
@@ -230,21 +252,7 @@ impl Dag {
 
         let is_suspended = suspension.is_some_and(|s| s.is_suspended(pid));
 
-        let state_symbol = if use_colors {
-            match node.state {
-                NodeState::NotStarted => format!("{YELLOW}⋯ not built{RESET}"),
-                NodeState::Running => format!("{MAGENTA}⚙ running{RESET}"),
-                NodeState::Terminating => format!("{MAGENTA}⏳ terminating{RESET}"),
-                NodeState::Terminated => format!("{GREEN}✓ built{RESET}"),
-            }
-        } else {
-            match node.state {
-                NodeState::NotStarted => "⋯ not built".to_string(),
-                NodeState::Running => "⚙ running".to_string(),
-                NodeState::Terminating => "⏳ terminating".to_string(),
-                NodeState::Terminated => "✓ built".to_string(),
-            }
-        };
+        let state_symbol = Self::format_state_symbol(node.state, use_colors);
 
         let suspended_suffix = if is_suspended { " ⏸ suspended" } else { "" };
 

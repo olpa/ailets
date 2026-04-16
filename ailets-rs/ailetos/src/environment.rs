@@ -199,7 +199,9 @@ impl<K: KVBuffers> Environment<K> {
             let result = actor_fn(areader, awriter);
 
             match result {
-                Ok(()) => debug!(node = ?actor_runtime.node_handle(), name = %idname, "task completed"),
+                Ok(()) => {
+                    debug!(node = ?actor_runtime.node_handle(), name = %idname, "task completed");
+                }
                 Err(e) => {
                     warn!(node = ?actor_runtime.node_handle(), name = %idname, error = %e, "task error");
                 }
@@ -232,7 +234,8 @@ impl<K: KVBuffers> Environment<K> {
             let idname = node.idname.clone();
             debug!(node = ?node_handle, name = %idname, "spawning actor task");
 
-            let (actor_runtime, shutdown) = BlockingActorRuntime::new(node_handle, system_tx.clone(), Arc::clone(suspension));
+            let (actor_runtime, shutdown) =
+                BlockingActorRuntime::new(node_handle, system_tx.clone(), Arc::clone(suspension));
 
             if let Some(actor_fn) = actor_registry.get(&idname) {
                 let task = Self::spawn_actor_task(idname, actor_fn, actor_runtime, shutdown);

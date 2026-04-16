@@ -97,7 +97,6 @@ impl BlockingActorRuntime {
         self.node_handle
     }
 
-
     /// Register all standard file descriptors for this actor.
     /// Actual readers/writers are created lazily on first read/write.
     pub fn register_std_fds(&self) {
@@ -121,7 +120,6 @@ impl BlockingActorRuntime {
         table.set(StdHandle::Metrics as isize, FdEntry::AllowedWriter);
         table.set(StdHandle::Trace as isize, FdEntry::AllowedWriter);
     }
-
 }
 
 #[allow(clippy::unwrap_used)] // Blocking implementation - panics on channel failures

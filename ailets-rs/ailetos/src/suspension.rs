@@ -79,9 +79,10 @@ impl SuspensionState {
             }
             entry
         };
-        match control {
-            Some(c) => c.signal_resume(),
-            None => warn!(actor = ?handle, "resume: actor is not suspended"),
+        if let Some(c) = control {
+            c.signal_resume();
+        } else {
+            warn!(actor = ?handle, "resume: actor is not suspended");
         }
     }
 

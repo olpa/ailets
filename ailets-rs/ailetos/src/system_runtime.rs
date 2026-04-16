@@ -640,7 +640,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                             }
                             IoRequest::ActorShutdown { node_handle } => {
                                 let state = self.dag.read().get_node(node_handle).map(|n| n.state);
-                                if matches!(state, Some(NodeState::Terminating) | Some(NodeState::Terminated)) {
+                                if matches!(state, Some(NodeState::Terminating | NodeState::Terminated)) {
                                     debug!(node = ?node_handle, "actor shutdown - already terminating/terminated, ignoring");
                                 } else {
                                     debug!(node = ?node_handle, "actor shutdown - setting state to Terminating");
