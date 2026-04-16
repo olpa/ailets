@@ -6,8 +6,10 @@
 use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc, Condvar, Mutex,
+    Arc,
 };
+
+use parking_lot::{Condvar, Mutex};
 
 use tracing::warn;
 
@@ -28,14 +30,14 @@ impl SuspensionControl {
     }
 
     fn wait(&self) {
-        let mut guard = self.suspended.lock().unwrap();
+        let mut guard = self.suspended.lock();
         while *guard {
-            guard = self.condvar.wait(guard).unwrap();
+            self.condvar.wait(&mut guard);
         }
     }
 
     fn signal_resume(&self) {
-        let mut guard = self.suspended.lock().unwrap();
+        let mut guard = self.suspended.lock();
         *guard = false;
         self.condvar.notify_one();
     }
@@ -60,7 +62,7 @@ impl SuspensionState {
 
     /// Suspend an actor. Warns if already suspended (no-op in that case).
     pub fn suspend(&self, handle: Handle) {
-        let mut registry = self.registry.lock().unwrap();
+        let mut registry = self.registry.lock();
         if registry.contains_key(&handle) {
             warn!(actor = ?handle, "suspend: actor is already suspended");
             return;
@@ -72,7 +74,7 @@ impl SuspensionState {
     /// Resume a suspended actor. Warns if not suspended (no-op in that case).
     pub fn resume(&self, handle: Handle) {
         let control = {
-            let mut registry = self.registry.lock().unwrap();
+            let mut registry = self.registry.lock();
             let entry = registry.remove(&handle);
             if registry.is_empty() {
                 self.any_suspended.store(false, Ordering::Relaxed);
@@ -89,7 +91,7 @@ impl SuspensionState {
     /// Deregister an actor at shutdown. Wakes it if it was waiting, so it can exit cleanly.
     pub fn deregister(&self, handle: Handle) {
         let control = {
-            let mut registry = self.registry.lock().unwrap();
+            let mut registry = self.registry.lock();
             let entry = registry.remove(&handle);
             if registry.is_empty() {
                 self.any_suspended.store(false, Ordering::Relaxed);
@@ -104,7 +106,7 @@ impl SuspensionState {
     /// Returns `true` if the actor is currently suspended.
     #[must_use]
     pub fn is_suspended(&self, handle: Handle) -> bool {
-        self.registry.lock().unwrap().contains_key(&handle)
+        self.registry.lock().contains_key(&handle)
     }
 
     /// Check if this actor should suspend and block until resumed.
@@ -114,7 +116,7 @@ impl SuspensionState {
             return;
         }
         let control = {
-            let registry = self.registry.lock().unwrap();
+            let registry = self.registry.lock();
             registry.get(&handle).cloned()
         };
         if let Some(c) = control {
