@@ -122,7 +122,6 @@ impl BlockingActorRuntime {
     }
 }
 
-#[allow(clippy::unwrap_used)] // Blocking implementation - panics on channel failures
 impl ActorRuntime for BlockingActorRuntime {
     fn get_errno(&self) -> isize {
         0 // No error
