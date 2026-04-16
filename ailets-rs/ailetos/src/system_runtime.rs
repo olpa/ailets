@@ -639,14 +639,19 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                                 pending_ops.push(fut);
                             }
                             IoRequest::ActorShutdown { node_handle } => {
-                                debug!(node = ?node_handle, "actor shutdown - setting state to Terminating");
-                                self.dag.write().set_state(node_handle, NodeState::Terminating);
+                                let state = self.dag.read().get_node(node_handle).map(|n| n.state);
+                                if matches!(state, Some(NodeState::Terminating | NodeState::Terminated)) {
+                                    debug!(node = ?node_handle, "actor shutdown - already terminating/terminated, ignoring");
+                                } else {
+                                    debug!(node = ?node_handle, "actor shutdown - setting state to Terminating");
+                                    self.dag.write().set_state(node_handle, NodeState::Terminating);
 
-                                debug!(node = ?node_handle, "actor shutdown - closing all writers");
-                                self.pipe_pool.close_actor_writers(node_handle);
+                                    debug!(node = ?node_handle, "actor shutdown - closing all writers");
+                                    self.pipe_pool.close_actor_writers(node_handle);
 
-                                debug!(node = ?node_handle, "actor shutdown - setting state to Terminated");
-                                self.dag.write().set_state(node_handle, NodeState::Terminated);
+                                    debug!(node = ?node_handle, "actor shutdown - setting state to Terminated");
+                                    self.dag.write().set_state(node_handle, NodeState::Terminated);
+                                }
                             }
                             IoRequest::MaterializeStdin { node_handle, response } => {
                                 let channel_handle = self.materialize_stdin(node_handle);

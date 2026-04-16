@@ -5,6 +5,7 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 
 use crate::idgen::{Handle, IdGen};
+use crate::suspension::SuspensionState;
 
 /// Wrapper for the dependent node in `add_dependency(For(A), DependsOn(B))`.
 /// Reads as: "for node A, add dependency on B".
@@ -45,6 +46,14 @@ pub struct Dag {
     // Dependencies: each (for_node, depends_on) edge
     deps: Vec<(Handle, Handle)>,
     idgen: Arc<IdGen>,
+}
+
+struct DumpContext<'a> {
+    use_colors: bool,
+    suspension: Option<&'a SuspensionState>,
+    output: &'a mut String,
+    visited: &'a mut HashSet<Handle>,
+    printed: &'a mut HashSet<Handle>,
 }
 
 impl Dag {
@@ -131,8 +140,8 @@ impl Dag {
     /// If the starting node is an alias, it is skipped and its resolved
     /// dependencies are printed as root nodes instead.
     #[must_use]
-    pub fn dump(&self, pid: Handle) -> String {
-        self.dump_impl(pid, false)
+    pub fn dump(&self, pid: Handle, suspension: Option<&SuspensionState>) -> String {
+        self.dump_impl(pid, false, suspension)
     }
 
     /// Prints the dependency tree for a given node with ANSI colors
@@ -140,14 +149,26 @@ impl Dag {
     /// If the starting node is an alias, it is skipped and its resolved
     /// dependencies are printed as root nodes instead.
     #[must_use]
-    pub fn dump_colored(&self, pid: Handle) -> String {
-        self.dump_impl(pid, true)
+    pub fn dump_colored(&self, pid: Handle, suspension: Option<&SuspensionState>) -> String {
+        self.dump_impl(pid, true, suspension)
     }
 
-    fn dump_impl(&self, pid: Handle, use_colors: bool) -> String {
+    fn dump_impl(
+        &self,
+        pid: Handle,
+        use_colors: bool,
+        suspension: Option<&SuspensionState>,
+    ) -> String {
         let mut output = String::new();
         let mut visited = HashSet::new();
         let mut printed = HashSet::new();
+        let mut ctx = DumpContext {
+            use_colors,
+            suspension,
+            output: &mut output,
+            visited: &mut visited,
+            printed: &mut printed,
+        };
 
         // If starting from an alias, skip it and dump its resolved dependencies
         if let Some(node) = self.get_node(pid) {
@@ -155,65 +176,60 @@ impl Dag {
                 let deps: Vec<Handle> = self.resolve_dependencies(pid).collect();
                 for (idx, &dep_pid) in deps.iter().enumerate() {
                     let is_last = idx == deps.len() - 1;
-                    self.dump_recursive(
-                        dep_pid,
-                        "",
-                        is_last,
-                        true,
-                        use_colors,
-                        &mut output,
-                        &mut visited,
-                        &mut printed,
-                    );
+                    self.dump_recursive(dep_pid, "", is_last, true, &mut ctx);
                 }
                 return output;
             }
         }
 
-        self.dump_recursive(
-            pid,
-            "",
-            true,
-            true,
-            use_colors,
-            &mut output,
-            &mut visited,
-            &mut printed,
-        );
+        self.dump_recursive(pid, "", true, true, &mut ctx);
         output
     }
 
-    #[allow(clippy::too_many_arguments)]
+    fn format_state_symbol(state: NodeState, use_colors: bool) -> String {
+        const GREEN: &str = "\x1b[32m";
+        const YELLOW: &str = "\x1b[33m";
+        const MAGENTA: &str = "\x1b[35m";
+        const RESET: &str = "\x1b[0m";
+
+        if use_colors {
+            match state {
+                NodeState::NotStarted => format!("{YELLOW}⋯ not built{RESET}"),
+                NodeState::Running => format!("{MAGENTA}⚙ running{RESET}"),
+                NodeState::Terminating => format!("{MAGENTA}⏳ terminating{RESET}"),
+                NodeState::Terminated => format!("{GREEN}✓ built{RESET}"),
+            }
+        } else {
+            match state {
+                NodeState::NotStarted => "⋯ not built".to_string(),
+                NodeState::Running => "⚙ running".to_string(),
+                NodeState::Terminating => "⏳ terminating".to_string(),
+                NodeState::Terminated => "✓ built".to_string(),
+            }
+        }
+    }
+
     fn dump_recursive(
         &self,
         pid: Handle,
         prefix: &str,
         is_last: bool,
         is_root: bool,
-        use_colors: bool,
-        output: &mut String,
-        visited: &mut HashSet<Handle>,
-        printed: &mut HashSet<Handle>,
+        ctx: &mut DumpContext<'_>,
     ) {
-        // ANSI color codes
-        const GREEN: &str = "\x1b[32m";
-        const YELLOW: &str = "\x1b[33m";
-        const MAGENTA: &str = "\x1b[35m";
-        const RESET: &str = "\x1b[0m";
-
         // Get node info
         let Some(node) = self.get_node(pid) else {
-            let _ = writeln!(output, "{prefix}├── [PID {pid:?} not found]");
+            let _ = writeln!(ctx.output, "{prefix}├── [PID {pid:?} not found]");
             return;
         };
 
         // Check for cycles BEFORE printing the node
         // This way we can still show the node but mark it as circular
-        let is_circular = visited.contains(&pid);
+        let is_circular = ctx.visited.contains(&pid);
 
         // Check if node was already printed with its dependencies
         let has_deps = self.get_direct_dependencies(pid).next().is_some();
-        let already_printed = printed.contains(&pid) && has_deps;
+        let already_printed = ctx.printed.contains(&pid) && has_deps;
 
         // Format the current node line (root nodes have no connector)
         let connector = if is_root {
@@ -224,21 +240,11 @@ impl Dag {
             "├── "
         };
 
-        let state_symbol = if use_colors {
-            match node.state {
-                NodeState::NotStarted => format!("{YELLOW}⋯ not built{RESET}"),
-                NodeState::Running => format!("{MAGENTA}⚙ running{RESET}"),
-                NodeState::Terminating => format!("{MAGENTA}⏳ terminating{RESET}"),
-                NodeState::Terminated => format!("{GREEN}✓ built{RESET}"),
-            }
-        } else {
-            match node.state {
-                NodeState::NotStarted => "⋯ not built".to_string(),
-                NodeState::Running => "⚙ running".to_string(),
-                NodeState::Terminating => "⏳ terminating".to_string(),
-                NodeState::Terminated => "✓ built".to_string(),
-            }
-        };
+        let is_suspended = ctx.suspension.is_some_and(|s| s.is_suspended(pid));
+
+        let state_symbol = Self::format_state_symbol(node.state, ctx.use_colors);
+
+        let suspended_suffix = if is_suspended { " ⏸ suspended" } else { "" };
 
         let explain_suffix = node
             .explain
@@ -255,8 +261,8 @@ impl Dag {
         };
 
         let _ = writeln!(
-            output,
-            "{prefix}{connector}{}.{} [{state_symbol}]{explain_suffix}{circular_suffix}",
+            ctx.output,
+            "{prefix}{connector}{}.{} [{state_symbol}{suspended_suffix}]{explain_suffix}{circular_suffix}",
             node.idname,
             node.pid.id()
         );
@@ -265,17 +271,17 @@ impl Dag {
         if is_circular || already_printed {
             return;
         }
-        visited.insert(pid);
+        ctx.visited.insert(pid);
 
         // Get direct dependencies (not resolved) to handle cycles better
         let deps: Vec<Handle> = self.get_direct_dependencies(pid).collect();
         if deps.is_empty() {
-            visited.remove(&pid);
+            ctx.visited.remove(&pid);
             return;
         }
 
         // Mark this node as printed before recursing into children
-        printed.insert(pid);
+        ctx.printed.insert(pid);
 
         // Prepare prefix for children (root nodes have no prefix extension)
         let child_prefix = if is_root {
@@ -296,34 +302,16 @@ impl Dag {
                         self.get_direct_dependencies(dep_pid).collect();
                     for (alias_idx, &target_pid) in alias_targets.iter().enumerate() {
                         let is_last_target = alias_idx == alias_targets.len() - 1 && is_last_child;
-                        self.dump_recursive(
-                            target_pid,
-                            &child_prefix,
-                            is_last_target,
-                            false,
-                            use_colors,
-                            output,
-                            visited,
-                            printed,
-                        );
+                        self.dump_recursive(target_pid, &child_prefix, is_last_target, false, ctx);
                     }
                     continue;
                 }
             }
 
-            self.dump_recursive(
-                dep_pid,
-                &child_prefix,
-                is_last_child,
-                false,
-                use_colors,
-                output,
-                visited,
-                printed,
-            );
+            self.dump_recursive(dep_pid, &child_prefix, is_last_child, false, ctx);
         }
 
-        visited.remove(&pid);
+        ctx.visited.remove(&pid);
     }
 }
 

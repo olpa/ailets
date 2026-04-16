@@ -4,12 +4,15 @@
 //! synchronous actor code with the async `SystemRuntime`. It maintains per-actor
 //! state (fd table) and proxies all I/O operations to `SystemRuntime`.
 
+use std::sync::Arc;
+
 use actor_runtime::ActorRuntime;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{error, warn};
 
 use crate::fd_table::{FdEntry, FdTable};
 use crate::idgen::Handle;
+use crate::suspension::SuspensionState;
 use crate::system_runtime::{IoRequest, SendableBuffer};
 
 /// Blocking `ActorRuntime` implementation
@@ -23,27 +26,75 @@ pub struct BlockingActorRuntime {
     system_tx: mpsc::UnboundedSender<IoRequest>,
     /// Per-actor fd table (POSIX fd → global `ChannelHandle`)
     fd_table: std::sync::Mutex<FdTable>,
+    /// Shared suspension state (owned by Environment)
+    suspension: Arc<SuspensionState>,
 }
 
-impl Clone for BlockingActorRuntime {
-    fn clone(&self) -> Self {
-        Self {
+/// Lifecycle handle that notifies `SystemRuntime` when an actor is done.
+///
+/// Returned alongside `BlockingActorRuntime` from `BlockingActorRuntime::new`.
+/// Call `shutdown()` explicitly at the normal exit point; `Drop` fires the same
+/// cleanup automatically if the actor panics or returns early without calling it.
+/// Sending `ActorShutdown` multiple times is safe — `SystemRuntime` is idempotent.
+pub struct ShutdownHandle {
+    node_handle: Handle,
+    system_tx: mpsc::UnboundedSender<IoRequest>,
+    suspension: Arc<SuspensionState>,
+}
+
+impl ShutdownHandle {
+    fn do_shutdown(&self) {
+        self.suspension.deregister(self.node_handle);
+        if let Err(e) = self.system_tx.send(IoRequest::ActorShutdown {
             node_handle: self.node_handle,
-            system_tx: self.system_tx.clone(),
-            fd_table: std::sync::Mutex::new(FdTable::new()),
+        }) {
+            error!(actor = ?self.node_handle, error = ?e, "shutdown: failed to send ActorShutdown notification");
         }
     }
 }
 
+impl Drop for ShutdownHandle {
+    /// Fires shutdown unconditionally — safe to call after an explicit `shutdown()`.
+    fn drop(&mut self) {
+        self.do_shutdown();
+    }
+}
+
 impl BlockingActorRuntime {
-    /// Create a new `ActorRuntime` for the given node handle
+    /// Create a new `ActorRuntime` for the given node handle.
+    ///
+    /// Returns the runtime together with a `ShutdownHandle`. Call
+    /// `ShutdownHandle::shutdown` at the normal exit point; the handle will also
+    /// fire cleanup automatically on drop if `shutdown` is never called.
     #[must_use]
-    pub fn new(node_handle: Handle, system_tx: mpsc::UnboundedSender<IoRequest>) -> Self {
-        Self {
+    pub fn new(
+        node_handle: Handle,
+        system_tx: mpsc::UnboundedSender<IoRequest>,
+        suspension: Arc<SuspensionState>,
+    ) -> (Self, ShutdownHandle) {
+        let runtime = Self {
+            node_handle,
+            system_tx: system_tx.clone(),
+            fd_table: std::sync::Mutex::new(FdTable::new()),
+            suspension: Arc::clone(&suspension),
+        };
+        let shutdown = ShutdownHandle {
             node_handle,
             system_tx,
-            fd_table: std::sync::Mutex::new(FdTable::new()),
-        }
+            suspension,
+        };
+        (runtime, shutdown)
+    }
+
+    /// Yield cooperatively if this actor has been suspended; blocks until resumed.
+    fn yield_if_suspended(&self) {
+        self.suspension.check_and_wait(self.node_handle);
+    }
+
+    /// Get this actor's node handle
+    #[must_use]
+    pub fn node_handle(&self) -> Handle {
+        self.node_handle
     }
 
     /// Register all standard file descriptors for this actor.
@@ -69,54 +120,8 @@ impl BlockingActorRuntime {
         table.set(StdHandle::Metrics as isize, FdEntry::AllowedWriter);
         table.set(StdHandle::Trace as isize, FdEntry::AllowedWriter);
     }
-
-    /// Shutdown this actor runtime and clean up local state.
-    ///
-    /// # Pipe Cleanup Responsibility
-    ///
-    /// At the moment, pipes (writers and readers) are indirectly created by `SystemRuntime`
-    /// through the channel table and `PipePool`. Therefore, it is `SystemRuntime`'s
-    /// responsibility to close pipes and clean up their resources, not the actor's.
-    ///
-    /// This function only clears the actor's local fd table mapping (actor fd → system
-    /// `ChannelHandle`). It does NOT close individual file descriptors or send close requests
-    /// to `SystemRuntime`. The actual pipe cleanup happens in `SystemRuntime` when it
-    /// receives the `ActorShutdown` notification and calls `pipe_pool.close_actor_writers()`.
-    ///
-    /// # Design Rationale
-    ///
-    /// - **Ownership**: `SystemRuntime` owns the pipes via `PipePool`, so it should clean them up
-    /// - **Centralized cleanup**: All pipe closure happens in one place (`PipePool::close_actor_writers`)
-    /// - **Prevents double-close**: Actor doesn't close pipes that `SystemRuntime` will close
-    /// - **Simpler shutdown**: Actor only needs to drop its local fd mapping
-    ///
-    /// After clearing the fd table, this function sends an `ActorShutdown` notification to
-    /// `SystemRuntime` to trigger pipe cleanup.
-    ///
-    /// If the fd table lock is poisoned, logs an error and returns without clearing the table.
-    pub fn shutdown(&self) {
-        // Clear the fd table without closing individual fds
-        // The pipes themselves will be closed by SystemRuntime via PipePool
-        match self.fd_table.lock() {
-            Ok(mut table) => {
-                table.clear();
-            }
-            Err(e) => {
-                error!(actor = ?self.node_handle, error = ?e, "shutdown: fd_table lock poisoned");
-                return;
-            }
-        }
-
-        // Notify SystemRuntime to close pipes and cleanup resources
-        if let Err(e) = self.system_tx.send(IoRequest::ActorShutdown {
-            node_handle: self.node_handle,
-        }) {
-            error!(actor = ?self.node_handle, error = ?e, "shutdown: failed to send ActorShutdown notification");
-        }
-    }
 }
 
-#[allow(clippy::unwrap_used)] // Blocking implementation - panics on channel failures
 impl ActorRuntime for BlockingActorRuntime {
     fn get_errno(&self) -> isize {
         0 // No error
@@ -231,6 +236,9 @@ impl ActorRuntime for BlockingActorRuntime {
             }
         };
 
+        // Yield if suspended before issuing the read
+        self.yield_if_suspended();
+
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
 
@@ -252,13 +260,17 @@ impl ActorRuntime for BlockingActorRuntime {
         }
 
         // Block waiting for SystemRuntime to complete the async read
-        match rx.blocking_recv() {
+        let result = match rx.blocking_recv() {
             Ok(n) => n,
             Err(e) => {
                 error!(actor = ?self.node_handle, fd = fd, error = ?e, "aread: failed to receive response");
-                -1
+                return -1;
             }
-        }
+        };
+
+        // Yield if suspended after the read completes
+        self.yield_if_suspended();
+        result
     }
 
     fn awrite(&self, fd: isize, buffer: &[u8]) -> isize {
@@ -300,6 +312,9 @@ impl ActorRuntime for BlockingActorRuntime {
             }
         };
 
+        // Yield if suspended before issuing the write
+        self.yield_if_suspended();
+
         // Send request to SystemRuntime and block for response
         let (tx, rx) = oneshot::channel();
 
@@ -313,13 +328,17 @@ impl ActorRuntime for BlockingActorRuntime {
             return -1;
         }
 
-        match rx.blocking_recv() {
+        let result = match rx.blocking_recv() {
             Ok(n) => n,
             Err(e) => {
                 error!(actor = ?self.node_handle, fd = fd, error = ?e, "awrite: failed to receive response");
-                -1
+                return -1;
             }
-        }
+        };
+
+        // Yield if suspended after the write completes
+        self.yield_if_suspended();
+        result
     }
 
     fn aclose(&self, fd: isize) -> isize {
@@ -346,6 +365,9 @@ impl ActorRuntime for BlockingActorRuntime {
                 0
             }
             FdEntry::ActiveReader(channel_handle) => {
+                // Yield if suspended before issuing the close
+                self.yield_if_suspended();
+
                 // Close reader via SystemRuntime
                 let (tx, rx) = oneshot::channel();
 
@@ -357,18 +379,25 @@ impl ActorRuntime for BlockingActorRuntime {
                     return -1;
                 }
 
-                match rx.blocking_recv() {
+                let result = match rx.blocking_recv() {
                     Ok(n) => n,
                     Err(e) => {
                         error!(actor = ?self.node_handle, fd = fd, error = ?e, "aclose: failed to receive Close response");
-                        -1
+                        return -1;
                     }
-                }
+                };
+
+                // Yield if suspended after the close completes
+                self.yield_if_suspended();
+                result
             }
             FdEntry::ActiveWriter {
                 node_handle,
                 std_handle,
             } => {
+                // Yield if suspended before issuing the close
+                self.yield_if_suspended();
+
                 // Close writer via SystemRuntime
                 let (tx, rx) = oneshot::channel();
 
@@ -381,13 +410,17 @@ impl ActorRuntime for BlockingActorRuntime {
                     return -1;
                 }
 
-                match rx.blocking_recv() {
+                let result = match rx.blocking_recv() {
                     Ok(n) => n,
                     Err(e) => {
                         error!(actor = ?self.node_handle, fd = fd, error = ?e, "aclose: failed to receive CloseWriter response");
-                        -1
+                        return -1;
                     }
-                }
+                };
+
+                // Yield if suspended after the close completes
+                self.yield_if_suspended();
+                result
             }
         }
     }

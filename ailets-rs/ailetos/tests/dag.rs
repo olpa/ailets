@@ -14,7 +14,7 @@ fn test_dump_colored_shows_ansi_codes() {
     let built = dag.add_node("built_node".to_string(), NodeKind::Concrete);
     dag.set_state(built, NodeState::Terminated);
 
-    let output = dag.dump_colored(built);
+    let output = dag.dump_colored(built, None);
     // Should contain green ANSI code for built status
     assert!(
         output.contains("\x1b[32m"),
@@ -39,7 +39,7 @@ fn test_dump_colored_different_states() {
     dag.add_dependency(For(root), DependsOn(running));
     dag.add_dependency(For(root), DependsOn(not_built));
 
-    let output = dag.dump_colored(root);
+    let output = dag.dump_colored(root, None);
     // Yellow for not built
     assert!(
         output.contains("\x1b[33m"),
@@ -469,7 +469,7 @@ fn test_dump_single_node() {
     let mut dag = Dag::new(idgen);
     let pid = dag.add_node("root".to_string(), NodeKind::Concrete);
 
-    let output = dag.dump(pid);
+    let output = dag.dump(pid, None);
     assert!(output.contains("root"));
     assert!(output.contains("⋯ not built"));
     // Root node should not have tree connector prefix
@@ -491,7 +491,7 @@ fn test_dump_linear_chain() {
     dag.add_dependency(For(pid1), DependsOn(pid2));
     dag.add_dependency(For(pid2), DependsOn(pid3));
 
-    let output = dag.dump(pid1);
+    let output = dag.dump(pid1, None);
     assert!(output.contains("node1"));
     assert!(output.contains("node2"));
     assert!(output.contains("node3"));
@@ -509,7 +509,7 @@ fn test_dump_multiple_dependencies() {
     dag.add_dependency(For(root), DependsOn(dep1));
     dag.add_dependency(For(root), DependsOn(dep2));
 
-    let output = dag.dump(root);
+    let output = dag.dump(root, None);
     assert!(output.contains("root"));
     assert!(output.contains("dep1"));
     assert!(output.contains("dep2"));
@@ -531,7 +531,7 @@ fn test_dump_different_states() {
     dag.add_dependency(For(root), DependsOn(running));
     dag.add_dependency(For(root), DependsOn(finished));
 
-    let output = dag.dump(root);
+    let output = dag.dump(root, None);
     assert!(output.contains("⋯ not built")); // root
     assert!(output.contains("⚙ running"));
     assert!(output.contains("✓ built"));
@@ -551,7 +551,7 @@ fn test_dump_diamond_structure() {
     dag.add_dependency(For(b), DependsOn(d));
     dag.add_dependency(For(c), DependsOn(d));
 
-    let output = dag.dump(a);
+    let output = dag.dump(a, None);
     // D should appear twice (once under B, once under C)
     let d_count = output.matches("D").count();
     assert_eq!(d_count, 2);
@@ -561,7 +561,7 @@ fn test_dump_diamond_structure() {
 fn test_dump_nonexistent_node() {
     let idgen = Arc::new(IdGen::new());
     let dag = Dag::new(idgen);
-    let output = dag.dump(Handle::new(999));
+    let output = dag.dump(Handle::new(999), None);
     assert!(output.contains("not found"));
 }
 
@@ -571,7 +571,7 @@ fn test_dump_node_with_no_dependencies() {
     let mut dag = Dag::new(idgen);
     let pid = dag.add_node("lonely_node".to_string(), NodeKind::Concrete);
 
-    let output = dag.dump(pid);
+    let output = dag.dump(pid, None);
     assert!(output.contains("lonely_node"));
     // Should just show the node itself, no dependencies
     assert_eq!(output.lines().count(), 1);
@@ -590,7 +590,7 @@ fn test_dump_deep_tree() {
         current = next;
     }
 
-    let output = dag.dump(level0);
+    let output = dag.dump(level0, None);
     assert!(output.contains("level0"));
     assert!(output.contains("level5"));
     // Linear chain uses └── for each level
@@ -610,7 +610,7 @@ fn test_dump_with_alias_resolution() {
 
     dag.add_dependency(For(root), DependsOn(alias));
 
-    let output = dag.dump(root);
+    let output = dag.dump(root, None);
     // Aliases should be resolved, so we see concrete nodes, not the alias
     assert!(output.contains("node1"));
     assert!(output.contains("node2"));
@@ -625,7 +625,7 @@ fn test_dump_starting_from_alias_skips_alias() {
     let alias = dag.add_node(".end".to_string(), NodeKind::Alias);
     dag.add_dependency(For(alias), DependsOn(node1));
 
-    let output = dag.dump(alias);
+    let output = dag.dump(alias, None);
     // When starting from an alias, the alias itself should not be printed
     assert!(!output.contains(".end"), "Alias should not appear in dump");
     assert!(output.contains("node1"), "Target node should appear");
@@ -647,7 +647,7 @@ fn test_dump_starting_from_alias_with_multiple_targets() {
     dag.add_dependency(For(alias), DependsOn(node1));
     dag.add_dependency(For(alias), DependsOn(node2));
 
-    let output = dag.dump(alias);
+    let output = dag.dump(alias, None);
     // When starting from an alias with multiple targets, all targets should appear
     assert!(!output.contains(".end"), "Alias should not appear in dump");
     assert!(output.contains("node1"), "First target should appear");
@@ -691,7 +691,7 @@ fn test_dump_shared_dependency_with_children_shows_reference() {
     dag.add_dependency(For(root), DependsOn(branch1));
     dag.add_dependency(For(root), DependsOn(branch2));
 
-    let output = dag.dump(root);
+    let output = dag.dump(root, None);
 
     // The first occurrence of "shared" should show its dependency on "leaf"
     // The second occurrence should show "[see above]" or similar
@@ -736,7 +736,7 @@ fn test_dump_shared_dependency_without_children_shows_node() {
     dag.add_dependency(For(root), DependsOn(branch1));
     dag.add_dependency(For(root), DependsOn(branch2));
 
-    let output = dag.dump(root);
+    let output = dag.dump(root, None);
 
     // Leaf node should appear twice (once under each branch)
     let leaf_count = output.matches("shared_leaf").count();

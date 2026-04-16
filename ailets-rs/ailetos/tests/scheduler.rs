@@ -104,3 +104,23 @@ fn test_one_step_skips_already_terminated_nodes() {
         "Should skip already-terminated node1 and execute node2"
     );
 }
+
+#[test]
+fn test_scheduler_yields_suspended_nodes() {
+    let (mut dag, nodes) = create_linear_dag();
+    let [node1, node2, node3, node4] = [nodes[0], nodes[1], nodes[2], nodes[3]];
+
+    // Mark node2 as running - scheduler should still yield it
+    // Suspension is a runtime attribute (not a DAG state); the scheduler
+    // yields all non-Terminated nodes regardless of runtime state.
+    dag.set_state(node2, NodeState::Running);
+
+    let scheduler = Scheduler::new(&dag, node4);
+    let executed: Vec<_> = scheduler.iter().collect();
+
+    assert_eq!(
+        executed,
+        vec![node1, node2, node3, node4],
+        "Scheduler should yield all non-Terminated nodes; runtime decides whether to execute"
+    );
+}

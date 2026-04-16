@@ -66,6 +66,8 @@ impl DagShell {
             "status" => self.cmd_status(rest)?,
             "source" | "load" => self.cmd_source(rest)?,
             "reset" => self.cmd_reset(),
+            "suspend" => self.cmd_suspend(rest)?,
+            "resume" => self.cmd_resume(rest)?,
             _ => {
                 println!("Unknown command: {cmd}. Type 'help' for usage.");
             }
@@ -103,6 +105,11 @@ I/O:
 Status:
   status                              Overall DAG status
   status <node>                       Node status
+
+Debug:
+  suspend <node>                      Suspend a running actor
+  resume <node>                       Resume a suspended actor
+
 
 Session:
   load <file>                         Run script file (alias: source)
@@ -264,24 +271,26 @@ Variables:
                 .collect();
 
             // If no terminals (e.g., due to circular dependencies), show all nodes
+            let suspension = Some(&*self.env.suspension);
             if terminals.is_empty() {
                 for handle in &self.handles {
-                    let tree = dag.dump_colored(*handle);
+                    let tree = dag.dump_colored(*handle, suspension);
                     print!("{tree}");
                 }
             } else {
                 for handle in terminals {
-                    let tree = dag.dump_colored(handle);
+                    let tree = dag.dump_colored(handle, suspension);
                     print!("{tree}");
                 }
             }
             return Ok(());
         }
+        let suspension = Some(&*self.env.suspension);
         let handle_str = args.first().ok_or("Usage: show <node>")?;
         let handle = self
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
-        let tree = dag.dump_colored(handle);
+        let tree = dag.dump_colored(handle, suspension);
         print!("{tree}");
         Ok(())
     }
@@ -476,6 +485,7 @@ Variables:
             let mut running = 0;
             let mut terminated = 0;
             let mut not_started = 0;
+            let mut suspended = 0;
 
             for &handle in &self.handles {
                 if let Some(node) = dag.get_node(handle) {
@@ -486,9 +496,12 @@ Variables:
                         NodeState::NotStarted => not_started += 1,
                         NodeState::Terminating => {}
                     }
+                    if self.env.suspension.is_suspended(handle) {
+                        suspended += 1;
+                    }
                 }
             }
-            println!("Nodes: {total} total, {not_started} not started, {running} running, {terminated} terminated");
+            println!("Nodes: {total} total, {not_started} not started, {running} running, {suspended} suspended, {terminated} terminated");
         } else if let Some(handle_str) = args.first() {
             let handle = self
                 .parse_handle(handle_str)
@@ -501,6 +514,28 @@ Variables:
                 println!("Node {hid} not found");
             }
         }
+        Ok(())
+    }
+
+    fn cmd_suspend(&self, args: &[&str]) -> Result<(), String> {
+        let handle_str = args.first().ok_or("Usage: suspend <node>")?;
+        let handle = self
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+
+        self.env.suspension.suspend(handle);
+        println!("Suspended node {}", handle.id());
+        Ok(())
+    }
+
+    fn cmd_resume(&self, args: &[&str]) -> Result<(), String> {
+        let handle_str = args.first().ok_or("Usage: resume <node>")?;
+        let handle = self
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+
+        self.env.suspension.resume(handle);
+        println!("Resumed node {}", handle.id());
         Ok(())
     }
 }

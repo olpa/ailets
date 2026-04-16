@@ -8,6 +8,7 @@ pub mod pipe;
 pub mod scheduler;
 pub mod storage;
 pub mod stub_actor_runtime;
+pub mod suspension;
 pub mod system_runtime;
 
 // Re-export DAG types for convenience
@@ -39,10 +40,13 @@ pub use attachments::AttachmentConfig;
 pub use fd_table::{FdEntry, FdTable};
 
 // Re-export blocking actor runtime
-pub use stub_actor_runtime::BlockingActorRuntime;
+pub use stub_actor_runtime::{BlockingActorRuntime, ShutdownHandle};
 
 // Re-export environment types
 pub use environment::{ActorFn, ActorRegistry, Environment};
+
+// Re-export suspension types
+pub use suspension::SuspensionState;
 
 // Re-export scheduler
 pub use scheduler::{Scheduler, StopConditions};
