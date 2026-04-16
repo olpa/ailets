@@ -696,7 +696,6 @@ Variables:
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
         self.env.suspension.resume(handle);
-        let _ = dbg_control::resume_dbg_actor(handle);
         self.env.dag.write().set_state(handle, NodeState::Running);
         println!("Resumed node {}", handle.id());
         Ok(())

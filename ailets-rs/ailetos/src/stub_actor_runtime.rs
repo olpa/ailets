@@ -91,6 +91,15 @@ impl BlockingActorRuntime {
         self.suspension.check_and_wait(self.node_handle);
     }
 
+    /// Self-suspend: register this actor as suspended, then block until resumed.
+    ///
+    /// The caller (e.g. a debug actor) decides when to pause; an external party
+    /// (e.g. the CLI `resume` command) calls `SuspensionState::resume` to unblock.
+    pub fn suspend_and_wait(&self) {
+        self.suspension.suspend(self.node_handle);
+        self.suspension.check_and_wait(self.node_handle);
+    }
+
 
     /// Get this actor's node handle
     #[must_use]
