@@ -34,11 +34,16 @@ pub fn execute(runtime: BlockingActorRuntime) -> Result<(), String> {
         Some(n) => {
             tracing::info!(node = ?my_handle, bytes_before_pause = n, "dbg actor: pause configured");
 
-            let bytes_copied = copy_n_bytes(&mut reader, &mut writer, n)?;
-            tracing::info!(node = ?my_handle, bytes_copied, "dbg actor reached pause threshold, pausing");
+            let collected = collect_n_bytes(&mut reader, n)?;
+            tracing::info!(node = ?my_handle, bytes_collected = collected.len(), "dbg actor reached pause threshold, pausing");
 
             runtime.suspend_and_wait();
-            tracing::info!(node = ?my_handle, "dbg actor resumed, continuing");
+            tracing::info!(node = ?my_handle, "dbg actor resumed, outputting collected data");
+
+            if let Err(e) = writer.write_all(&collected) {
+                return Err(format!("Failed to write collected data: {}", error_kind_to_str(e)));
+            }
+            tracing::info!(node = ?my_handle, bytes_written = collected.len(), "dbg actor wrote collected data, continuing");
 
             let remaining_bytes = copy_until_eof(&mut reader, &mut writer)?;
             tracing::info!(node = ?my_handle, remaining_bytes, "dbg actor finished (EOF reached)");
@@ -48,35 +53,25 @@ pub fn execute(runtime: BlockingActorRuntime) -> Result<(), String> {
     Ok(())
 }
 
-/// Copy up to N bytes from reader to writer
-fn copy_n_bytes<'a>(
-    reader: &mut AReader<'a>,
-    writer: &mut AWriter<'a>,
-    n: usize,
-) -> Result<usize, String> {
+/// Collect up to N bytes from reader into a Vec (does not write to output)
+fn collect_n_bytes(reader: &mut AReader<'_>, n: usize) -> Result<Vec<u8>, String> {
     let mut buffer = [0u8; 8192];
-    let mut total_copied = 0;
+    let mut collected = Vec::with_capacity(n);
 
-    while total_copied < n {
-        let remaining = n - total_copied;
+    while collected.len() < n {
+        let remaining = n - collected.len();
         let to_read = remaining.min(buffer.len());
 
         match reader.read(&mut buffer[..to_read]) {
             Ok(0) => break,
             Ok(bytes_read) => {
-                let Some(data) = buffer.get(..bytes_read) else {
-                    return Err("Buffer slice out of bounds".to_string());
-                };
-                if let Err(e) = writer.write_all(data) {
-                    return Err(format!("Failed to write: {}", error_kind_to_str(e)));
-                }
-                total_copied += bytes_read;
+                collected.extend_from_slice(&buffer[..bytes_read]);
             }
             Err(e) => return Err(format!("Failed to read: {}", error_kind_to_str(e))),
         }
     }
 
-    Ok(total_copied)
+    Ok(collected)
 }
 
 /// Copy all remaining bytes from reader to writer until EOF

@@ -1,32 +1,31 @@
 # Concurrent On-Demand Start
 #
-# Demonstrates two runtime properties:
-#   1. Actors are not started until they have input.
-#   2. Several actors can run at the same time.
+# Demonstrates actor state transitions by feeding data in portions.
 #
-# Topology:  shell_input → dbg_1 (pause@5B) → dbg_2 (pause@3B)
-# Input: "hello world" (11 bytes)
+# Topology:  shell_input → dbg_1 (collect 3B) → dbg_2 (collect 5B) → cat
+# Input: "hello world" (11 bytes) written in portions
 #
-# Property 1 — on-demand start:
-#   Observe in the fg log: "dbg actor starting" for dbg_2 appears *after*
-#   dbg_1 has forwarded its first 5 bytes. dbg_2 had no input until then.
+# The dbg actor collects N bytes without outputting, then suspends. Only after
+# resume does it output the collected bytes and continue copying normally.
 #
-# Property 2 — concurrent execution:
-#   dbg_1 reaches its pause point and calls suspend_and_wait. Before it
-#   returns, dbg_2 has already started and reaches its own pause point.
-#   The log shows both actors interleaved — they overlap in time.
+# State transitions demonstrated:
+#   1. Write "he" (2B)  → dbg1 running, waiting for 1 more byte
+#   2. Write "l" (1B)   → dbg1 suspends (collected "hel")
+#   3. Resume dbg1      → dbg1 outputs "hel", dbg2 starts
+#   4. Write "lo w" (4B)→ dbg2 running, has 4 bytes
+#   5. Write "o" (1B)   → dbg2 suspends (collected "lo wo")
+#   6. Resume dbg2      → dbg2 outputs "lo wo"
+#   7. Write "rld", EOF → flows through to cat
 #
-# Note: the mid-run `status` calls race the background scheduler thread and
-# may show actors still in NotStarted state. The log output from `fg` is the
-# authoritative view of what actually happened concurrently.
-#
-# See docs/concurrent_on_demand_start.md for full walkthrough.
+# Each step shows status and topology to observe state changes.
 
 set src  = node add shell_input --explain="Input source"
-set dbg1 = node add dbg --bytes-before-pause=5 --explain="Forwards 5 B then pauses"
-set dbg2 = node add dbg --bytes-before-pause=3 --explain="Forwards 3 B then pauses"
+set dbg1 = node add dbg --bytes-before-pause=3 --explain="Collects 3 B then pauses"
+set dbg2 = node add dbg --bytes-before-pause=5 --explain="Collects 5 B then pauses"
+set out  = node add cat --explain="Output sink"
 dep $dbg1 $src
 dep $dbg2 $dbg1
+dep $out $dbg2
 
 show
 
@@ -35,23 +34,46 @@ show
 run --bg
 status
 
-# Feed 11 bytes and signal EOF. The scheduler will sequence:
-#   shell_input → writes "hello world", exits
-#   dbg_1       → forwards "hello" (5 B), hits suspend_and_wait
-#   dbg_2       → starts (Property 1 visible in log), forwards "hel" (3 B),
-#                 hits suspend_and_wait while dbg_1 is still paused (Property 2)
-write $src "hello world"
-close $src
+# Feed "hello world" (11 bytes) in portions to observe state changes.
+# dbg1 collects 3B before pause, dbg2 collects 5B before pause.
 
-# Status races the scheduler; may still show NotStarted. See log from fg.
+# Write "he" (2 bytes) — dbg1 running, waiting for 1 more byte to reach 3B threshold
+write $src "he"
 status
+show
 
-# Pre-resume both actors so their suspend_and_wait calls return immediately.
-# (Resume is idempotent: if called before the actor suspends, it pre-signals
-# the handle so the actor skips waiting when it reaches suspend_and_wait.)
+# Write "l" (1 byte) — dbg1 now has 3B, should suspend
+write $src "l"
+status
+show
+
+# Resume dbg1 — it outputs "hel", then continues copying; dbg2 starts
 resume $dbg1
+status
+show
+
+# Write "lo w" (4 bytes) — flows through dbg1 to dbg2, dbg2 has 4 bytes
+write $src "lo w"
+status
+show
+
+# Write "o" (1 byte) — dbg2 now has 5B, should suspend
+write $src "o"
+status
+show
+
+# Resume dbg2 — it outputs collected data, continues copying
 resume $dbg2
+status
+show
+
+# Write "rld" (3 bytes) and close — flows through to cat
+write $src "rld"
+close $src
+status
+show
+
 fg
 
-# Expected: 3 total, 0 not started, 0 running, 0 suspended, 3 terminated
+# Expected: 4 total, 0 not started, 0 running, 0 suspended, 4 terminated
 status
