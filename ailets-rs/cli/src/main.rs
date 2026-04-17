@@ -661,7 +661,7 @@ Variables:
                     }
                 }
             }
-            println!("Nodes: {total} total, {not_started} not started, {running} running, {suspended} suspended, {terminated} terminated");
+            println!("Nodes: {total} total, {not_started} pending, {running} running, {suspended} suspended, {terminated} terminated");
         } else if let Some(handle_str) = args.first() {
             let handle = self
                 .parse_handle(handle_str)
@@ -819,7 +819,7 @@ fn parse_quoted_string(args: &[&str]) -> String {
 
 fn format_state(state: NodeState) -> &'static str {
     match state {
-        NodeState::NotStarted => "⋯ not built",
+        NodeState::NotStarted => "⋯ pending",
         NodeState::Running => "⚙ running",
         NodeState::Terminating => "⏳ terminating",
         NodeState::Terminated => "✓ built",

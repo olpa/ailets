@@ -268,18 +268,25 @@ impl<K: KVBuffers> RunHandle<K> {
         actor_registry: &ActorRegistry,
         suspension: &Arc<SuspensionState>,
     ) -> Vec<tokio::task::JoinHandle<()>> {
-        let dag_guard = dag.read();
-        let scheduler =
-            Scheduler::with_stop_conditions(&dag_guard, target, stop_conditions.clone());
+        let nodes_to_spawn: Vec<(Handle, String)> = {
+            let dag_guard = dag.read();
+            let scheduler =
+                Scheduler::with_stop_conditions(&dag_guard, target, stop_conditions.clone());
+            scheduler
+                .iter()
+                .filter_map(|node_handle| {
+                    let node = dag_guard.get_node(node_handle)?;
+                    Some((node_handle, node.idname.clone()))
+                })
+                .collect()
+        };
+
         let mut tasks = Vec::new();
 
-        for node_handle in scheduler.iter() {
-            let Some(node) = dag_guard.get_node(node_handle) else {
-                warn!(node = ?node_handle, "node not found in DAG, skipping");
-                continue;
-            };
-            let idname = node.idname.clone();
+        for (node_handle, idname) in nodes_to_spawn {
             debug!(node = ?node_handle, name = %idname, "spawning actor task");
+
+            dag.write().set_state(node_handle, NodeState::Running);
 
             let (actor_runtime, shutdown) =
                 BlockingActorRuntime::new(node_handle, system_tx.clone(), Arc::clone(suspension));
