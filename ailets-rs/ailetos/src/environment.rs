@@ -23,10 +23,65 @@ use crate::dag::{Dag, DependsOn, For, NodeKind, NodeState};
 use crate::idgen::{Handle, IdGen};
 use crate::scheduler::{Scheduler, StopConditions};
 use crate::suspension::SuspensionState;
+use crate::pipe::PipePool;
 use crate::{BlockingActorRuntime, IoRequest, KVBuffers, KVError, ShutdownHandle, SystemRuntime};
 
 /// Type for actor functions
 pub type ActorFn = fn(BlockingActorRuntime) -> Result<(), String>;
+
+/// Decide whether a node is ready to be spawned.
+///
+/// Decision table (iterate concrete deps, first decisive result wins):
+///
+/// | Dep state              | Has output (pipe realized) | Decision       |
+/// |------------------------|----------------------------|----------------|
+/// | NotStarted             | —                          | don't start    |
+/// | Suspended              | —                          | don't start    |
+/// | Running / Terminating  | yes                        | start          |
+/// | Running / Terminating  | no                         | don't start    |
+/// | Terminated             | yes                        | start          |
+/// | Terminated             | no                         | skip (neutral) |
+/// | (all deps exhausted)   | —                          | start          |
+///
+/// "Has output" is checked optimistically: a dep has output if its stdout
+/// pipe is realized (writer exists in the pool), regardless of byte count.
+pub fn is_ready_to_spawn<K: KVBuffers>(
+    node_handle: Handle,
+    dag: &Dag,
+    pipe_pool: &PipePool<K>,
+    suspension: &SuspensionState,
+) -> bool {
+    use actor_runtime::StdHandle;
+
+    for dep in dag.resolve_dependencies(node_handle) {
+        let Some(dep_node) = dag.get_node(dep) else {
+            continue;
+        };
+
+        if suspension.is_suspended(dep) {
+            return false;
+        }
+
+        let has_output = pipe_pool
+            .get_already_realized_writer((dep, StdHandle::Stdout))
+            .is_some();
+
+        match dep_node.state {
+            NodeState::NotStarted => return false,
+            NodeState::Running | NodeState::Terminating => {
+                return has_output;
+            }
+            NodeState::Terminated => {
+                if has_output {
+                    return true;
+                }
+                // neutral: no output from this dep, continue to next
+            }
+        }
+    }
+
+    true
+}
 
 /// Registry mapping actor names to their implementation functions
 #[derive(Clone)]
@@ -259,8 +314,14 @@ impl<K: KVBuffers> RunHandle<K> {
         })
     }
 
-    /// Spawn actor tasks for all nodes in the system
-    fn spawn_actor_tasks(
+    /// Spawn actor tasks for nodes whose dependencies are already running or terminated.
+    ///
+    /// Implements spec://executor.md#on-demand-spawn: actor spawning is deferred until
+    /// input is available. A node is ready when all its concrete dependencies are in
+    /// Running, Terminating, or Terminated state (not NotStarted).
+    ///
+    /// Returns the newly spawned tasks. Call in a loop until the result is empty.
+    fn spawn_ready_actor_tasks(
         dag: &Arc<RwLock<Dag>>,
         target: Handle,
         stop_conditions: &StopConditions,
@@ -276,7 +337,21 @@ impl<K: KVBuffers> RunHandle<K> {
                 .iter()
                 .filter_map(|node_handle| {
                     let node = dag_guard.get_node(node_handle)?;
-                    Some((node_handle, node.idname.clone()))
+                    if node.state != NodeState::NotStarted {
+                        return None;
+                    }
+                    let all_deps_ready = dag_guard
+                        .resolve_dependencies(node_handle)
+                        .all(|dep| {
+                            dag_guard
+                                .get_node(dep)
+                                .map_or(false, |n| n.state != NodeState::NotStarted)
+                        });
+                    if all_deps_ready {
+                        Some((node_handle, node.idname.clone()))
+                    } else {
+                        None
+                    }
                 })
                 .collect()
         };
@@ -326,15 +401,23 @@ impl<K: KVBuffers> RunHandle<K> {
             system_runtime.run().await;
         });
 
-        // Spawn actor tasks
-        let actor_tasks = Self::spawn_actor_tasks(
-            &self.dag,
-            target,
-            &stop_conditions,
-            &system_tx,
-            &self.actor_registry,
-            &self.suspension,
-        );
+        // Spawn actor tasks on-demand: loop until no new nodes become ready.
+        // Each pass sets newly spawned nodes to Running, unlocking the next tier.
+        let mut actor_tasks = Vec::new();
+        loop {
+            let new_tasks = Self::spawn_ready_actor_tasks(
+                &self.dag,
+                target,
+                &stop_conditions,
+                &system_tx,
+                &self.actor_registry,
+                &self.suspension,
+            );
+            if new_tasks.is_empty() {
+                break;
+            }
+            actor_tasks.extend(new_tasks);
+        }
 
         // Drop our sender so the channel can close when all actors finish
         drop(system_tx);
