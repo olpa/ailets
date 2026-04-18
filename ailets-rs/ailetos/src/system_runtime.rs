@@ -76,7 +76,7 @@ use std::sync::Arc;
 
 use futures::stream::{FuturesUnordered, StreamExt};
 use parking_lot::RwLock;
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::{mpsc, oneshot, Notify};
 #[cfg(debug_assertions)]
 use tracing::error;
 use tracing::{debug, trace, warn};
@@ -249,6 +249,8 @@ pub struct SystemRuntime<K: KVBuffers> {
     id_gen: Arc<IdGen>,
     /// Manages dynamic attachment of actor streams to host stdout/stderr
     attachment_manager: Arc<AttachmentManager>,
+    /// Notifies the spawn loop when something changes that may affect node readiness
+    spawn_notify: Arc<Notify>,
 }
 
 impl<K: KVBuffers + 'static> SystemRuntime<K> {
@@ -274,7 +276,14 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
             request_rx,
             id_gen,
             attachment_manager,
+            spawn_notify: Arc::new(Notify::new()),
         }
+    }
+
+    /// Get the notify handle so the spawn loop can wait for readiness changes
+    #[must_use]
+    pub fn get_spawn_notify(&self) -> Arc<Notify> {
+        Arc::clone(&self.spawn_notify)
     }
 
     /// Materialize stdin reader for an actor on first read
@@ -345,6 +354,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         {
             Ok(_) => {
                 debug!(node = ?node_handle, "pipe ready");
+                self.spawn_notify.notify_one();
             }
             Err(e) => {
                 warn!(node = ?node_handle, error = %e, "failed to create writer");
@@ -427,6 +437,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         let pipe_pool = Arc::clone(&self.pipe_pool);
         let id_gen = Arc::clone(&self.id_gen);
         let attachment_manager = Arc::clone(&self.attachment_manager);
+        let spawn_notify = Arc::clone(&self.spawn_notify);
         let data = data.to_vec();
 
         // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
@@ -454,6 +465,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                 }
             };
 
+            spawn_notify.notify_one();
             IoEvent::SyncComplete { result, response }
         })
     }
@@ -495,6 +507,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
                     let pipe_pool = Arc::clone(&self.pipe_pool);
                     let kv = Arc::clone(&self.kv);
+                    let spawn_notify = Arc::clone(&self.spawn_notify);
                     // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
                     Box::pin(async move {
                         let result_code = if let Some(writer) =
@@ -512,6 +525,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                             -1
                         };
 
+                        spawn_notify.notify_one();
                         IoEvent::SyncComplete {
                             result: result_code,
                             response,
@@ -552,6 +566,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
         let pipe_pool = Arc::clone(&self.pipe_pool);
         let kv = Arc::clone(&self.kv);
+        let spawn_notify = Arc::clone(&self.spawn_notify);
 
         // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
         Box::pin(async move {
@@ -570,6 +585,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                 0
             };
 
+            spawn_notify.notify_one();
             IoEvent::SyncComplete {
                 result: result_code,
                 response,
@@ -649,6 +665,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
                                     debug!(node = ?node_handle, "actor shutdown - setting state to Terminated");
                                     self.dag.write().set_state(node_handle, NodeState::Terminated);
+                                    self.spawn_notify.notify_one();
                                 }
                             }
                             IoRequest::MaterializeStdin { node_handle, response } => {
