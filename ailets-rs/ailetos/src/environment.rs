@@ -16,7 +16,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use tokio::sync::mpsc;
 use tracing::{debug, error, warn};
 
 use crate::dag::{Dag, DependsOn, For, NodeKind, NodeState};
@@ -24,7 +23,7 @@ use crate::idgen::{Handle, IdGen};
 use crate::scheduler::{Scheduler, StopConditions};
 use crate::suspension::SuspensionState;
 use crate::pipe::PipePool;
-use crate::{BlockingActorRuntime, IoRequest, KVBuffers, KVError, ShutdownHandle, SystemRuntime};
+use crate::{BlockingActorRuntime, KVBuffers, KVError, ShutdownHandle, SystemRuntime};
 
 /// Type for actor functions
 pub type ActorFn = fn(BlockingActorRuntime) -> Result<(), String>;
@@ -314,77 +313,14 @@ impl<K: KVBuffers> RunHandle<K> {
         })
     }
 
-    /// Spawn actor tasks for nodes whose dependencies are already running or terminated.
-    ///
-    /// Implements spec://executor.md#on-demand-spawn: actor spawning is deferred until
-    /// input is available. A node is ready when all its concrete dependencies are in
-    /// Running, Terminating, or Terminated state (not NotStarted).
-    ///
-    /// Returns the newly spawned tasks. Call in a loop until the result is empty.
-    fn spawn_ready_actor_tasks(
-        dag: &Arc<RwLock<Dag>>,
-        target: Handle,
-        stop_conditions: &StopConditions,
-        system_tx: &mpsc::UnboundedSender<IoRequest>,
-        actor_registry: &ActorRegistry,
-        suspension: &Arc<SuspensionState>,
-    ) -> Vec<tokio::task::JoinHandle<()>> {
-        let nodes_to_spawn: Vec<(Handle, String)> = {
-            let dag_guard = dag.read();
-            let scheduler =
-                Scheduler::with_stop_conditions(&dag_guard, target, stop_conditions.clone());
-            scheduler
-                .iter()
-                .filter_map(|node_handle| {
-                    let node = dag_guard.get_node(node_handle)?;
-                    if node.state != NodeState::NotStarted {
-                        return None;
-                    }
-                    let all_deps_ready = dag_guard
-                        .resolve_dependencies(node_handle)
-                        .all(|dep| {
-                            dag_guard
-                                .get_node(dep)
-                                .map_or(false, |n| n.state != NodeState::NotStarted)
-                        });
-                    if all_deps_ready {
-                        Some((node_handle, node.idname.clone()))
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        };
-
-        let mut tasks = Vec::new();
-
-        for (node_handle, idname) in nodes_to_spawn {
-            debug!(node = ?node_handle, name = %idname, "spawning actor task");
-
-            dag.write().set_state(node_handle, NodeState::Running);
-
-            let (actor_runtime, shutdown) =
-                BlockingActorRuntime::new(node_handle, system_tx.clone(), Arc::clone(suspension));
-
-            if let Some(actor_fn) = actor_registry.get(&idname) {
-                let task = Self::spawn_actor_task(node_handle, idname, actor_fn, actor_runtime, shutdown);
-                tasks.push(task);
-            } else {
-                warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
-            }
-        }
-
-        tasks
-    }
-
     /// Run the system: spawn system runtime and actor tasks, wait for completion
     pub async fn run(&self, target: Handle, stop_conditions: StopConditions)
     where
         K: 'static,
     {
+        // --- Setup: pipe pool, system runtime, notification handle ---
         let pipe_pool = Arc::new(PipePool::new(Arc::clone(&self.kv)));
 
-        // Create system runtime with a snapshot of the attachment configuration
         let system_runtime = SystemRuntime::new(
             Arc::clone(&self.dag),
             Arc::clone(&self.kv),
@@ -393,44 +329,93 @@ impl<K: KVBuffers> RunHandle<K> {
             Arc::clone(&pipe_pool),
         );
 
-        // Get sender before moving system_runtime
+        let spawn_notify = system_runtime.get_spawn_notify();
+
         let Some(system_tx) = system_runtime.get_system_tx() else {
             error!("Failed to get system_tx - system runtime already started");
             return;
         };
 
-        // Spawn SystemRuntime task
+        // --- Launch system runtime concurrently ---
         let system_task = tokio::spawn(async move {
             system_runtime.run().await;
         });
 
-        // Spawn actor tasks on-demand: loop until no new nodes become ready.
-        // Each pass sets newly spawned nodes to Running, unlocking the next tier.
+        // --- Build initial pending list: NotStarted nodes in topological order ---
+        let mut pending: Vec<Handle> = {
+            let dag_guard = self.dag.read();
+            let scheduler =
+                Scheduler::with_stop_conditions(&dag_guard, target, stop_conditions.clone());
+            scheduler
+                .iter()
+                .filter(|&n| {
+                    dag_guard
+                        .get_node(n)
+                        .map_or(false, |node| node.state == NodeState::NotStarted)
+                })
+                .collect()
+        };
+
         let mut actor_tasks = Vec::new();
+
+        // --- On-demand spawn loop: runs concurrently with actors ---
         loop {
-            let new_tasks = Self::spawn_ready_actor_tasks(
-                &self.dag,
-                target,
-                &stop_conditions,
-                &system_tx,
-                &self.actor_registry,
-                &self.suspension,
-            );
-            if new_tasks.is_empty() {
+            // Find all pending nodes whose inputs are ready
+            let to_spawn: Vec<(Handle, String)> = {
+                let dag_guard = self.dag.read();
+                pending
+                    .iter()
+                    .filter(|&&n| is_ready_to_spawn(n, &dag_guard, &pipe_pool, &self.suspension))
+                    .filter_map(|&n| {
+                        dag_guard.get_node(n).map(|node| (n, node.idname.clone()))
+                    })
+                    .collect()
+            };
+
+            // Spawn each ready node
+            for (node_handle, idname) in &to_spawn {
+                pending.retain(|&h| h != *node_handle);
+
+                debug!(node = ?node_handle, name = %idname, "spawning actor task");
+                self.dag.write().set_state(*node_handle, NodeState::Running);
+
+                let (actor_runtime, shutdown) = BlockingActorRuntime::new(
+                    *node_handle,
+                    system_tx.clone(),
+                    Arc::clone(&self.suspension),
+                );
+
+                if let Some(actor_fn) = self.actor_registry.get(idname) {
+                    let task = Self::spawn_actor_task(
+                        *node_handle,
+                        idname.clone(),
+                        actor_fn,
+                        actor_runtime,
+                        shutdown,
+                    );
+                    actor_tasks.push(task);
+                } else {
+                    warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
+                }
+            }
+
+            // All nodes spawned — exit loop
+            if pending.is_empty() {
                 break;
             }
-            actor_tasks.extend(new_tasks);
+
+            // Wait for a pipe-realized or actor-terminated signal
+            spawn_notify.notified().await;
         }
 
-        // Drop our sender so the channel can close when all actors finish
+        // --- Drop sender so SystemRuntime channel closes when all actors finish ---
         drop(system_tx);
 
-        // Wait for system runtime
+        // --- Wait for system runtime and all actor tasks ---
         if let Err(e) = system_task.await {
             warn!(error = %e, "SystemRuntime task failed");
         }
 
-        // Wait for all actor tasks
         for task in actor_tasks {
             if let Err(e) = task.await {
                 warn!(error = %e, "actor task failed");
