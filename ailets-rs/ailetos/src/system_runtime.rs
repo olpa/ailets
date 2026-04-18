@@ -257,11 +257,9 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         kv: Arc<K>,
         id_gen: Arc<IdGen>,
         attachment_config: AttachmentConfig,
+        pipe_pool: Arc<PipePool<K>>,
     ) -> Self {
         let (system_tx, request_rx) = mpsc::unbounded_channel();
-
-        // Create pipe pool
-        let pipe_pool = Arc::new(PipePool::new(Arc::clone(&kv)));
 
         // Create attachment manager
         let attachment_manager = Arc::new(AttachmentManager::new(attachment_config));

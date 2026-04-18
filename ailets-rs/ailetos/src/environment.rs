@@ -382,12 +382,15 @@ impl<K: KVBuffers> RunHandle<K> {
     where
         K: 'static,
     {
+        let pipe_pool = Arc::new(PipePool::new(Arc::clone(&self.kv)));
+
         // Create system runtime with a snapshot of the attachment configuration
         let system_runtime = SystemRuntime::new(
             Arc::clone(&self.dag),
             Arc::clone(&self.kv),
             Arc::clone(&self.idgen),
             self.attachment_config.clone(),
+            Arc::clone(&pipe_pool),
         );
 
         // Get sender before moving system_runtime
