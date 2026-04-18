@@ -82,11 +82,11 @@ fn test_stop_after_includes_target_node() {
 }
 
 #[test]
-fn test_one_step_skips_already_terminated_nodes() {
+fn test_one_step_yields_first_node_regardless_of_state() {
     let (mut dag, nodes) = create_linear_dag();
-    let [node1, node2, _node3, node4] = [nodes[0], nodes[1], nodes[2], nodes[3]];
+    let [node1, _node2, _node3, node4] = [nodes[0], nodes[1], nodes[2], nodes[3]];
 
-    // Mark node1 as already terminated (e.g., it's a value node that was created as terminated)
+    // Scheduler yields all nodes unfiltered; the spawn loop filters by state.
     dag.set_state(node1, NodeState::Terminated);
 
     let stop_conditions = StopConditions {
@@ -98,11 +98,8 @@ fn test_one_step_skips_already_terminated_nodes() {
     let scheduler = Scheduler::with_stop_conditions(&dag, node4, stop_conditions);
     let executed: Vec<_> = scheduler.iter().collect();
 
-    assert_eq!(executed.len(), 1, "one_step should execute only one node");
-    assert_eq!(
-        executed[0], node2,
-        "Should skip already-terminated node1 and execute node2"
-    );
+    assert_eq!(executed.len(), 1, "one_step should yield only one node");
+    assert_eq!(executed[0], node1, "yields first node regardless of state");
 }
 
 #[test]
@@ -121,6 +118,6 @@ fn test_scheduler_yields_suspended_nodes() {
     assert_eq!(
         executed,
         vec![node1, node2, node3, node4],
-        "Scheduler should yield all non-Terminated nodes; runtime decides whether to execute"
+        "Scheduler yields all nodes unfiltered; spawn loop decides whether to execute"
     );
 }

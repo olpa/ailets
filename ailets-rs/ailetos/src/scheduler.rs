@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use crate::dag::{Dag, NodeKind, NodeState};
+use crate::dag::{Dag, NodeKind};
 use crate::idgen::Handle;
 
 /// Conditions for stopping DAG iteration
@@ -126,38 +126,18 @@ impl Iterator for SchedulerIter<'_> {
             return None;
         }
 
-        // Loop to find the next node that isn't already terminated
-        loop {
-            let node = *self.result.get(self.result_index)?;
+        let node = *self.result.get(self.result_index)?;
+        self.result_index += 1;
 
-            // Check if this node is already terminated
-            if let Some(node_info) = self.dag.get_node(node) {
-                if node_info.state == NodeState::Terminated {
-                    // Skip this node and continue to the next one
-                    self.result_index += 1;
-                    continue;
-                }
-            }
-
-            // Check stop_before - don't yield this node
-            if self.stop_conditions.stop_before == Some(node) {
-                self.stopped = true;
-                return None;
-            }
-
-            self.result_index += 1;
-
-            // Check one_step - stop after first node
-            if self.stop_conditions.one_step {
-                self.stopped = true;
-            }
-
-            // Check stop_after - yield but stop after
-            if self.stop_conditions.stop_after == Some(node) {
-                self.stopped = true;
-            }
-
-            return Some(node);
+        if self.stop_conditions.stop_before == Some(node) {
+            self.stopped = true;
+            return None;
         }
+
+        if self.stop_conditions.one_step || self.stop_conditions.stop_after == Some(node) {
+            self.stopped = true;
+        }
+
+        Some(node)
     }
 }
