@@ -99,7 +99,6 @@ impl BlockingActorRuntime {
         self.suspension.self_suspend_and_wait(self.node_handle);
     }
 
-
     /// Get this actor's node handle
     #[must_use]
     pub fn node_handle(&self) -> Handle {

@@ -14,11 +14,12 @@ use crate::shell_input_control;
 ///
 /// # Errors
 /// Returns error if I/O operations fail or if the actor is not properly registered
+#[allow(clippy::needless_pass_by_value)]
 pub fn execute(runtime: BlockingActorRuntime) -> Result<(), String> {
     let my_handle = runtime.node_handle();
 
     let receiver = shell_input_control::take_receiver(my_handle)
-        .ok_or_else(|| format!("shell_input actor {:?} not properly initialized (not registered)", my_handle))?;
+        .ok_or_else(|| format!("shell_input actor {my_handle:?} not properly initialized (not registered)"))?;
 
     tracing::info!(node = ?my_handle, "shell_input actor starting");
 

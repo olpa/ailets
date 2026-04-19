@@ -97,7 +97,8 @@ impl SuspensionState {
             warn!(actor = ?handle, "suspend: actor is already suspended");
             return;
         }
-        reg.suspended.insert(handle, Arc::new(SuspensionControl::new()));
+        reg.suspended
+            .insert(handle, Arc::new(SuspensionControl::new()));
         self.any_suspended.store(true, Ordering::Relaxed);
     }
 

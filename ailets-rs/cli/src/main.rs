@@ -10,6 +10,7 @@ mod shell_input_control;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use futures::future::Abortable;
 use ailetos::{
     DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState, OpenMode, Scheduler,
     StopConditions,
@@ -39,7 +40,8 @@ impl DagShell {
         let mut env = Environment::new(Arc::clone(&kv));
         env.actor_registry.register("cat", cat::execute);
         env.actor_registry.register("dbg", dbg_actor::execute);
-        env.actor_registry.register("shell_input", shell_input_actor::execute);
+        env.actor_registry
+            .register("shell_input", shell_input_actor::execute);
         Self {
             env,
             kv,
@@ -403,27 +405,31 @@ Variables:
         Ok(())
     }
 
-    fn run_foreground(&mut self, handle: Handle, stop_conditions: StopConditions) -> Result<(), String> {
+    fn run_foreground(
+        &mut self,
+        handle: Handle,
+        stop_conditions: StopConditions,
+    ) -> Result<(), String> {
         if self.bg_job.is_some() {
             return Err("Background job already running. Use 'fg' or 'kill' first.".to_string());
         }
 
         let run_handle = Arc::new(self.env.make_run_handle());
 
-        use futures::future::Abortable;
         let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
 
         // Start the run in a background thread with abort capability
         let thread = std::thread::spawn(move || {
             tracing::info!("Foreground thread starting");
-            let rt = tokio::runtime::Runtime::new().unwrap();
+            let Ok(rt) = tokio::runtime::Runtime::new() else { return; };
             let future = run_handle.run(handle, stop_conditions);
             tracing::info!("About to run environment");
             let result = rt.block_on(Abortable::new(future, abort_registration));
 
-            match result {
-                Ok(_) => tracing::info!("Run completed"),
-                Err(_) => tracing::info!("Run aborted"),
+            if let Ok(()) = result {
+                tracing::info!("Run completed");
+            } else {
+                tracing::info!("Run aborted");
             }
         });
 
@@ -432,7 +438,7 @@ Variables:
 
         // Spawn a thread to wait for Ctrl+C
         std::thread::spawn(move || {
-            let rt = tokio::runtime::Runtime::new().unwrap();
+            let Ok(rt) = tokio::runtime::Runtime::new() else { return; };
             rt.block_on(async {
                 if tokio::signal::ctrl_c().await.is_ok() {
                     let _ = tx.send(());
@@ -441,11 +447,14 @@ Variables:
         });
 
         // Wait for either the job to complete or Ctrl+C
-        let mut job = Some(BackgroundJob { thread, abort_handle });
+        let mut job = Some(BackgroundJob {
+            thread,
+            abort_handle,
+        });
 
         loop {
             match rx.recv_timeout(std::time::Duration::from_millis(100)) {
-                Ok(_) => {
+                Ok(()) => {
                     // Ctrl+C pressed - move to background
                     println!("\n^C - Moved to background (use 'fg' to wait, 'kill' to terminate)");
                     self.bg_job = job.take();
@@ -453,12 +462,11 @@ Variables:
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     // Check if thread is done
-                    if let Some(ref j) = job {
-                        if j.thread.is_finished() {
-                            let j = job.take().unwrap();
+                    if job.as_ref().is_some_and(|j| j.thread.is_finished()) {
+                        if let Some(j) = job.take() {
                             j.thread.join().ok();
-                            return Ok(());
                         }
+                        return Ok(());
                     }
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -472,14 +480,17 @@ Variables:
         }
     }
 
-    fn run_background(&mut self, handle: Handle, stop_conditions: StopConditions) -> Result<(), String> {
+    fn run_background(
+        &mut self,
+        handle: Handle,
+        stop_conditions: StopConditions,
+    ) -> Result<(), String> {
         if self.bg_job.is_some() {
             return Err("Background job already running. Use 'fg' or 'kill' first.".to_string());
         }
 
         let run_handle = Arc::new(self.env.make_run_handle());
 
-        use futures::future::Abortable;
         let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
 
         // Use a barrier to ensure the thread actually starts before we return
@@ -491,17 +502,21 @@ Variables:
             // Signal that we've started
             barrier_clone.wait();
 
-            let rt = tokio::runtime::Runtime::new().unwrap();
+            let Ok(rt) = tokio::runtime::Runtime::new() else { return; };
             let future = run_handle.run(handle, stop_conditions);
             let result = rt.block_on(Abortable::new(future, abort_registration));
 
-            match result {
-                Ok(_) => tracing::info!("Background job completed"),
-                Err(_) => tracing::info!("Background job aborted"),
+            if let Ok(()) = result {
+                tracing::info!("Background job completed");
+            } else {
+                tracing::info!("Background job aborted");
             }
         });
 
-        self.bg_job = Some(BackgroundJob { thread, abort_handle });
+        self.bg_job = Some(BackgroundJob {
+            thread,
+            abort_handle,
+        });
 
         // Wait for the background thread to actually start
         barrier.wait();
@@ -632,7 +647,8 @@ Variables:
         let mut env = Environment::new(Arc::clone(&self.kv));
         env.actor_registry.register("cat", cat::execute);
         env.actor_registry.register("dbg", dbg_actor::execute);
-        env.actor_registry.register("shell_input", shell_input_actor::execute);
+        env.actor_registry
+            .register("shell_input", shell_input_actor::execute);
         self.env = env;
         println!("DAG cleared.");
     }
@@ -688,7 +704,6 @@ Variables:
         Ok(())
     }
 
-
     fn cmd_resume(&self, args: &[&str]) -> Result<(), String> {
         let handle_str = args.first().ok_or("Usage: resume <node>")?;
         let handle = self
@@ -707,7 +722,7 @@ Variables:
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
-        let data = parse_quoted_string(&args[1..]);
+        let data = parse_quoted_string(args.get(1..).unwrap_or(&[]));
 
         match shell_input_control::write_to_shell_input(handle, data.into_bytes()) {
             Ok(()) => {
@@ -738,7 +753,8 @@ Variables:
     fn cmd_fg(&mut self, _args: &[&str]) -> Result<(), String> {
         if let Some(job) = self.bg_job.take() {
             println!("Waiting for background job to complete...");
-            job.thread.join()
+            job.thread
+                .join()
                 .map_err(|_| "Background job panicked".to_string())?;
             println!("Job completed");
             Ok(())
@@ -751,7 +767,7 @@ Variables:
         if let Some(job) = self.bg_job.take() {
             println!("Killing background job...");
             job.abort_handle.abort();
-            job.thread.join().ok();  // Ignore join errors
+            job.thread.join().ok(); // Ignore join errors
             println!("Job killed");
             Ok(())
         } else {

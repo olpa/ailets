@@ -14,11 +14,12 @@ use crate::dbg_control;
 ///
 /// # Errors
 /// Returns error if I/O operations fail or if configuration is invalid
+#[allow(clippy::needless_pass_by_value)]
 pub fn execute(runtime: BlockingActorRuntime) -> Result<(), String> {
     let my_handle = runtime.node_handle();
 
     let bytes_before_pause = dbg_control::get_bytes_before_pause(my_handle)
-        .ok_or_else(|| format!("dbg actor {:?} not properly initialized (not registered)", my_handle))?;
+        .ok_or_else(|| format!("dbg actor {my_handle:?} not properly initialized (not registered)"))?;
 
     tracing::info!(node = ?my_handle, "dbg actor starting");
 
@@ -41,7 +42,10 @@ pub fn execute(runtime: BlockingActorRuntime) -> Result<(), String> {
             tracing::info!(node = ?my_handle, "dbg actor resumed, outputting collected data");
 
             if let Err(e) = writer.write_all(&collected) {
-                return Err(format!("Failed to write collected data: {}", error_kind_to_str(e)));
+                return Err(format!(
+                    "Failed to write collected data: {}",
+                    error_kind_to_str(e)
+                ));
             }
             tracing::info!(node = ?my_handle, bytes_written = collected.len(), "dbg actor wrote collected data, continuing");
 
@@ -62,10 +66,13 @@ fn collect_n_bytes(reader: &mut AReader<'_>, n: usize) -> Result<Vec<u8>, String
         let remaining = n - collected.len();
         let to_read = remaining.min(buffer.len());
 
-        match reader.read(&mut buffer[..to_read]) {
+        let buf = buffer.get_mut(..to_read).ok_or("slice out of bounds")?;
+        match reader.read(buf) {
             Ok(0) => break,
             Ok(bytes_read) => {
-                collected.extend_from_slice(&buffer[..bytes_read]);
+                if let Some(slice) = buf.get(..bytes_read) {
+                    collected.extend_from_slice(slice);
+                }
             }
             Err(e) => return Err(format!("Failed to read: {}", error_kind_to_str(e))),
         }

@@ -3,10 +3,10 @@ use std::sync::Arc;
 use actor_runtime::StdHandle;
 use ailetos::dag::{Dag, DependsOn, For, NodeKind, NodeState};
 use ailetos::idgen::IdGen;
+use ailetos::is_ready_to_spawn;
 use ailetos::pipe::PipePool;
 use ailetos::storage::MemKV;
 use ailetos::suspension::SuspensionState;
-use ailetos::is_ready_to_spawn;
 
 fn make_dag() -> (Dag, Arc<IdGen>) {
     let id_gen = Arc::new(IdGen::new());
@@ -58,7 +58,9 @@ async fn running_dep_with_output_is_ready() {
     let node = dag.add_node("node".into(), NodeKind::Concrete);
     dag.add_dependency(For(node), DependsOn(dep));
     dag.set_state(dep, NodeState::Running);
-    pool.touch_writer(dep, StdHandle::Stdout, &pool_id_gen).await.unwrap();
+    pool.touch_writer(dep, StdHandle::Stdout, &pool_id_gen)
+        .await
+        .unwrap();
 
     assert!(is_ready_to_spawn(node, &dag, &pool, &suspension));
 }
@@ -108,7 +110,9 @@ async fn suspended_dep_blocks() {
     let node = dag.add_node("node".into(), NodeKind::Concrete);
     dag.add_dependency(For(node), DependsOn(dep));
     dag.set_state(dep, NodeState::Running);
-    pool.touch_writer(dep, StdHandle::Stdout, &pool_id_gen).await.unwrap();
+    pool.touch_writer(dep, StdHandle::Stdout, &pool_id_gen)
+        .await
+        .unwrap();
     suspension.suspend(dep);
 
     assert!(!is_ready_to_spawn(node, &dag, &pool, &suspension));

@@ -20,9 +20,9 @@ use tracing::{debug, error, warn};
 
 use crate::dag::{Dag, DependsOn, For, NodeKind, NodeState};
 use crate::idgen::{Handle, IdGen};
+use crate::pipe::PipePool;
 use crate::scheduler::{Scheduler, StopConditions};
 use crate::suspension::SuspensionState;
-use crate::pipe::PipePool;
 use crate::{BlockingActorRuntime, KVBuffers, KVError, ShutdownHandle, SystemRuntime};
 
 /// Type for actor functions
@@ -34,7 +34,7 @@ pub type ActorFn = fn(BlockingActorRuntime) -> Result<(), String>;
 ///
 /// | Dep state              | Has output (pipe realized) | Decision       |
 /// |------------------------|----------------------------|----------------|
-/// | NotStarted             | —                          | don't start    |
+/// | `NotStarted`           | —                          | don't start    |
 /// | Suspended              | —                          | don't start    |
 /// | Running / Terminating  | yes                        | start          |
 /// | Running / Terminating  | no                         | don't start    |
@@ -243,6 +243,7 @@ impl<K: KVBuffers> Environment<K> {
     ///
     /// Actors registered or attachments configured after this call will not be
     /// visible to the returned handle.
+    #[must_use]
     pub fn make_run_handle(&self) -> RunHandle<K> {
         RunHandle {
             dag: Arc::clone(&self.dag),
@@ -351,7 +352,7 @@ impl<K: KVBuffers> RunHandle<K> {
                 .filter(|&n| {
                     dag_guard
                         .get_node(n)
-                        .map_or(false, |node| node.state == NodeState::NotStarted)
+                        .is_some_and(|node| node.state == NodeState::NotStarted)
                 })
                 .collect()
         };
@@ -366,9 +367,7 @@ impl<K: KVBuffers> RunHandle<K> {
                 pending
                     .iter()
                     .filter(|&&n| is_ready_to_spawn(n, &dag_guard, &pipe_pool, &self.suspension))
-                    .filter_map(|&n| {
-                        dag_guard.get_node(n).map(|node| (n, node.idname.clone()))
-                    })
+                    .filter_map(|&n| dag_guard.get_node(n).map(|node| (n, node.idname.clone())))
                     .collect()
             };
 
