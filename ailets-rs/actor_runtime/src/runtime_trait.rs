@@ -23,3 +23,12 @@ pub trait ActorRuntime {
     /// Close a file descriptor
     fn aclose(&self, fd: isize) -> isize;
 }
+
+impl<T: ActorRuntime> ActorRuntime for &T {
+    fn get_errno(&self) -> isize { (*self).get_errno() }
+    fn open_read(&self, name: &str) -> isize { (*self).open_read(name) }
+    fn open_write(&self, name: &str) -> isize { (*self).open_write(name) }
+    fn aread(&self, fd: isize, buffer: &mut [u8]) -> isize { (*self).aread(fd, buffer) }
+    fn awrite(&self, fd: isize, buffer: &[u8]) -> isize { (*self).awrite(fd, buffer) }
+    fn aclose(&self, fd: isize) -> isize { (*self).aclose(fd) }
+}

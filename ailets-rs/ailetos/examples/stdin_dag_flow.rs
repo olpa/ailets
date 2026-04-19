@@ -19,7 +19,7 @@ use embedded_io::Write;
 use std::io::Read;
 
 /// Stdin source actor: reads from OS stdin and writes to actor stdout
-fn stdin_actor(runtime: BlockingActorRuntime) -> Result<(), String> {
+fn stdin_actor(runtime: &BlockingActorRuntime) -> Result<(), String> {
     let mut writer = AWriter::new_from_std(&runtime, StdHandle::Stdout);
     let mut stdin = std::io::stdin();
     let mut buffer = [0u8; 8192];

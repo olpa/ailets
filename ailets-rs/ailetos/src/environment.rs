@@ -26,7 +26,7 @@ use crate::suspension::SuspensionState;
 use crate::{BlockingActorRuntime, KVBuffers, KVError, ShutdownHandle, SystemRuntime};
 
 /// Type for actor functions
-pub type ActorFn = fn(BlockingActorRuntime) -> Result<(), String>;
+pub type ActorFn = fn(&BlockingActorRuntime) -> Result<(), String>;
 
 /// Decide whether a node is ready to be spawned.
 ///
@@ -298,7 +298,7 @@ impl<K: KVBuffers> RunHandle<K> {
 
             actor_runtime.register_std_fds();
 
-            let result = actor_fn(actor_runtime);
+            let result = actor_fn(&actor_runtime);
 
             match result {
                 Ok(()) => {

@@ -46,8 +46,7 @@ fn execute_impl<'a>(mut reader: AReader<'a>, mut writer: AWriter<'a>) -> Result<
 /// Returns an error if:
 /// - Reading from the input fails
 /// - Writing to the output fails
-#[allow(clippy::needless_pass_by_value)]
-pub fn execute(runtime: BlockingActorRuntime) -> Result<(), String> {
+pub fn execute(runtime: &BlockingActorRuntime) -> Result<(), String> {
     let reader = AReader::new_from_std(&runtime, StdHandle::Stdin);
     let writer = AWriter::new_from_std(&runtime, StdHandle::Stdout);
     execute_impl(reader, writer)
