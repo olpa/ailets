@@ -1,71 +1,112 @@
 # On-Demand Actor Spawn — Handover
 
-## Context
+## Status: implemented, one bug remaining
 
-Actors are currently all spawned upfront before any execute. The goal
-(`spec://executor.md#on-demand-spawn`) is to defer spawning until a node's
-inputs are available.
+All four planned steps are done and committed on branch
+`a216-dagsh-background-exec`:
 
-`is_ready_to_spawn` in `environment.rs` is already implemented and tested
-(6 tests in `tests/on_demand_spawn.rs`). The spawn loop in `RunHandle::run`
-needs to be replaced.
+| Commit  | Change |
+|---------|--------|
+| bb3ddc3 | Lift `PipePool` out of `SystemRuntime` into `RunHandle::run` |
+| ebfa591 | Add `spawn_notify` to `SystemRuntime`; fire on write/shutdown |
+| a8c1957 | Replace sync spawn loop with async on-demand spawn loop |
+| 1ca3170 | Remove `Terminated`-skipping filter from `SchedulerIter` |
 
-## Target spawn loop (pseudocode)
+## Remaining bug: spawn loop starved while CLI runs --bg commands
+
+### Symptom
+
+Running `scripts/concurrent_on_demand_start.dagsh` with `run --bg` shows
+`shell_input` staying `pending` throughout all CLI commands. It only starts
+(and immediately terminates) after `fg` is called. The job then hangs.
+
+### Root cause
+
+`run --bg` launches an async task (spawn loop + `SystemRuntime`) on the tokio
+runtime. But CLI commands — `write`, `status`, `resume`, `show`, `close` —
+execute synchronously on the foreground thread without yielding to the
+executor. The spawn loop never gets a scheduling slot until `fg` blocks the
+foreground thread.
+
+Consequence: `shell_input` (which has no deps and is immediately ready) is
+never spawned while the script runs. By the time `fg` unblocks the executor,
+`close $src` has already been called. `shell_input` starts, finds its CLI
+input queue closed, and terminates without writing anything to its stdout.
+
+`dbg1` and `dbg2` were spawned earlier by the `resume` commands (those
+apparently do yield briefly to the executor). They are blocked reading from
+`shell_input`'s stdout, which was never realized. The job hangs.
+
+### Fix
+
+The CLI's `run --bg` command needs to yield to the tokio executor between
+commands so the spawn loop can make progress. The minimal fix is to add a
+short `tokio::task::yield_now().await` (or equivalent) after each CLI command
+executes in background mode.
+
+An alternative is to ensure `run --bg` uses a separate OS thread with its own
+tokio runtime, so the spawn loop is truly independent of the CLI's execution.
+
+### How to reproduce
+
+From `ailets-rs/cli/`:
 
 ```
-// Scheduler yields all reachable nodes in topological order, unfiltered.
-// Filter for NotStarted to build pending.
-// If dynamic DAG changes are added later, re-build pending on each wakeup.
-pending: OrderedSet<Handle> = scheduler.iter()
-    .filter(|n| n.state == NotStarted)
-    .collect()
-
-loop:
-    for node in pending (in topological order):
-        if is_ready_to_spawn(node, dag, pipe_pool, suspension):
-            pending.remove(node)
-            launch actor task  // sets node state to Running
-    if pending.is_empty():
-        break
-    spawn_notify.notified().await
+cargo run -- --load scripts/concurrent_on_demand_start.dagsh
 ```
 
-The loop runs **concurrently with actors**. `spawn_notify` is an
-`Arc<tokio::sync::Notify>` fired by `SystemRuntime` when a pipe is realized
-(`handle_open_write` → `touch_writer`) or an actor terminates (`ActorShutdown`
-→ `Terminated`).
+Close stdin when the interactive prompt appears (Ctrl-D or pipe `echo ""`),
+otherwise the shell waits for interactive input and never exits.
 
-## Changes required
+### What to observe
 
-### 1. Lift PipePool
+**Current (broken) output** — key lines to watch:
 
-`PipePool` is created inside `SystemRuntime::new()` and never shared.
-Create `Arc<PipePool<K>>` in `RunHandle::run()` and pass it into
-`SystemRuntime::new()`.
+```
+dagsh> run --bg
+Started background run ...
 
-### 2. Add spawn_notify to SystemRuntime
+dagsh> status
+Nodes: 4 total, 4 pending, 0 running ...   ← shell_input should be running here
 
-Add `Arc<tokio::sync::Notify>` to `SystemRuntime`. Fire it in
-`handle_open_write` (after `touch_writer` succeeds) and in `ActorShutdown`
-(after state transitions to `Terminated`). Expose via a getter so
-`RunHandle::run()` can clone it before moving `system_runtime` into its task.
+dagsh> write $src "he"
+dagsh> status
+Nodes: 4 total, 4 pending, 0 running ...   ← still pending, spawn loop never ran
 
-### 3. Replace spawn_ready_actor_tasks with the async spawn loop
+dagsh> resume $dbg1
+dagsh> status
+Nodes: 4 total, 3 pending, 1 running ...   ← dbg1 running (resume yielded to executor)
+                                              but shell_input still pending
 
-Remove `spawn_ready_actor_tasks` and replace with the async `pending`-based
-loop in `RunHandle::run`. Hold `system_tx` alive for the duration of the loop;
-drop it when `pending` is empty so the `SystemRuntime` channel can close.
+dagsh> fg
+Waiting for background job to complete...
+shell_input actor starting
+shell_input actor: channel closed, terminating  ← starts too late; src already closed
+                                                   hangs here — dbg1/dbg2 starved
+```
 
-### 4. Remove filtering from Scheduler
+**Expected (fixed) output** — after the fix:
 
-`SchedulerIter` currently skips `Terminated` nodes. Remove that — the iterator
-yields all reachable nodes unfiltered. The spawn loop filters for `NotStarted`
-when building `pending`.
+```
+dagsh> run --bg
+dagsh> status
+Nodes: 4 total, 3 pending, 1 running ...   ← shell_input running immediately
 
-## Files changed
+dagsh> write $src "he"
+dagsh> write $src "l"
+dagsh> status
+Nodes: 4 total, 2 pending, 1 running, 1 suspended ...  ← dbg1 suspended after 3B
+
+... (intermediate states per script comments) ...
+
+dagsh> fg
+Job completed
+dagsh> status
+Nodes: 4 total, 0 pending, 0 running, 0 suspended, 4 terminated
+```
+
+### Files to change
 
 | File | What changes |
 |------|-------------|
-| `ailetos/src/environment.rs` | replace `spawn_ready_actor_tasks` with async spawn loop |
-| `ailetos/src/system_runtime.rs` | add `spawn_notify`, fire on write/shutdown, accept `Arc<PipePool>` |
-| `ailetos/src/scheduler.rs` | remove `Terminated`-skipping filter |
+| `cli/src/…` (background command dispatch) | yield to executor between commands |
