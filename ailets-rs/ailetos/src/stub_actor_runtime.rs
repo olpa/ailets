@@ -91,14 +91,6 @@ impl BlockingActorRuntime {
         self.suspension.check_and_wait(self.node_handle);
     }
 
-    /// Self-suspend: block until the CLI calls `resume` for this actor.
-    ///
-    /// If `resume` was already called before this point (pre-resume), returns
-    /// immediately without blocking.
-    pub fn suspend_and_wait(&self) {
-        self.suspension.self_suspend_and_wait(self.node_handle);
-    }
-
     /// Get this actor's node handle
     #[must_use]
     pub fn node_handle(&self) -> Handle {
@@ -431,5 +423,13 @@ impl ActorRuntime for BlockingActorRuntime {
                 result
             }
         }
+    }
+
+    fn node_handle(&self) -> i64 {
+        self.node_handle.id()
+    }
+
+    fn suspend_and_wait(&self) {
+        self.suspension.self_suspend_and_wait(self.node_handle);
     }
 }

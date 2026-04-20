@@ -1,8 +1,8 @@
 //! Debug actor that passes through N bytes, then pauses for resume
 
 use actor_io::{error_kind_to_str, AReader, AWriter};
-use actor_runtime::StdHandle;
-use ailetos::BlockingActorRuntime;
+use actor_runtime::{ActorRuntime, StdHandle};
+use ailetos::Handle;
 use embedded_io::{Read, Write};
 
 use crate::dbg_control;
@@ -14,8 +14,8 @@ use crate::dbg_control;
 ///
 /// # Errors
 /// Returns error if I/O operations fail or if configuration is invalid
-pub fn execute(runtime: &BlockingActorRuntime) -> Result<(), String> {
-    let my_handle = runtime.node_handle();
+pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
+    let my_handle = Handle::new(runtime.node_handle());
 
     let bytes_before_pause = dbg_control::get_bytes_before_pause(my_handle)
         .ok_or_else(|| format!("dbg actor {my_handle:?} not properly initialized (not registered)"))?;

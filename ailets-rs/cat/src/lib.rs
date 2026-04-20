@@ -1,6 +1,5 @@
 use actor_io::{error_kind_to_str, AReader, AWriter};
-use actor_runtime::{err_to_heap_c_string, FfiActorRuntime, StdHandle};
-use ailetos::BlockingActorRuntime;
+use actor_runtime::{err_to_heap_c_string, ActorRuntime, FfiActorRuntime, StdHandle};
 use embedded_io::{Read, Write};
 use std::ffi::c_char;
 
@@ -46,7 +45,7 @@ fn execute_impl<'a>(mut reader: AReader<'a>, mut writer: AWriter<'a>) -> Result<
 /// Returns an error if:
 /// - Reading from the input fails
 /// - Writing to the output fails
-pub fn execute(runtime: &BlockingActorRuntime) -> Result<(), String> {
+pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
     let reader = AReader::new_from_std(runtime, StdHandle::Stdin);
     let writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
     execute_impl(reader, writer)

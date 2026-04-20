@@ -4,8 +4,8 @@
 //! and exits when the channel is closed (EOF).
 
 use actor_io::{error_kind_to_str, AWriter};
-use actor_runtime::StdHandle;
-use ailetos::BlockingActorRuntime;
+use actor_runtime::{ActorRuntime, StdHandle};
+use ailetos::Handle;
 use embedded_io::Write;
 
 use crate::shell_input_control;
@@ -14,8 +14,8 @@ use crate::shell_input_control;
 ///
 /// # Errors
 /// Returns error if I/O operations fail or if the actor is not properly registered
-pub fn execute(runtime: &BlockingActorRuntime) -> Result<(), String> {
-    let my_handle = runtime.node_handle();
+pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
+    let my_handle = Handle::new(runtime.node_handle());
 
     let receiver = shell_input_control::take_receiver(my_handle)
         .ok_or_else(|| format!("shell_input actor {my_handle:?} not properly initialized (not registered)"))?;

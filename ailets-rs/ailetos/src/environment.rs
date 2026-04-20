@@ -26,7 +26,7 @@ use crate::suspension::SuspensionState;
 use crate::{BlockingActorRuntime, KVBuffers, KVError, ShutdownHandle, SystemRuntime};
 
 /// Type for actor functions
-pub type ActorFn = fn(&BlockingActorRuntime) -> Result<(), String>;
+pub type ActorFn = fn(&dyn actor_runtime::ActorRuntime) -> Result<(), String>;
 
 /// Decide whether a node is ready to be spawned.
 ///

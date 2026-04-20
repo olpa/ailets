@@ -358,4 +358,12 @@ impl actor_runtime::ActorRuntime for VfsActorRuntime {
     fn aclose(&self, fd: isize) -> isize {
         self.vfs.aclose(fd)
     }
+
+    fn node_handle(&self) -> i64 {
+        0 // Mock runtime doesn't track node handles
+    }
+
+    fn suspend_and_wait(&self) {
+        // No-op in mock runtime
+    }
 }
