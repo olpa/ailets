@@ -227,7 +227,6 @@ pub struct TopologicalOrderIter<'a> {
     stack: Vec<(Handle, bool)>,
     visited: HashSet<Handle>,
     result: Vec<Handle>,
-    done: bool,
     result_index: usize,
     stopped: bool,
     stop_conditions: StopConditions,
@@ -250,7 +249,6 @@ impl<'a> TopologicalOrderIter<'a> {
             stack: vec![(target, false)],
             visited: HashSet::new(),
             result: Vec::new(),
-            done: false,
             result_index: 0,
             stopped: false,
             stop_conditions,
@@ -284,7 +282,6 @@ impl<'a> TopologicalOrderIter<'a> {
             }
         }
 
-        self.done = true;
     }
 }
 
@@ -292,7 +289,7 @@ impl Iterator for TopologicalOrderIter<'_> {
     type Item = Handle;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if !self.done {
+        if !self.stack.is_empty() {
             self.build_order();
         }
 
