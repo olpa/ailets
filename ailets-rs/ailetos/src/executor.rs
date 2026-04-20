@@ -222,7 +222,9 @@ pub async fn run<K: KVBuffers + 'static>(
 /// one by one via `result_index`. The `stopped` flag allows early termination.
 pub struct TopologicalOrderIter<'a> {
     dag: &'a Dag,
-    stack: Vec<Handle>,
+    // (node, deps_pushed): when false, push deps then re-push with true;
+    // when true, emit the node (post-order ensures deps come first).
+    stack: Vec<(Handle, bool)>,
     visited: HashSet<Handle>,
     result: Vec<Handle>,
     done: bool,
@@ -245,7 +247,7 @@ impl<'a> TopologicalOrderIter<'a> {
     ) -> Self {
         Self {
             dag,
-            stack: vec![target],
+            stack: vec![(target, false)],
             visited: HashSet::new(),
             result: Vec::new(),
             done: false,
@@ -255,33 +257,33 @@ impl<'a> TopologicalOrderIter<'a> {
         }
     }
 
-    /// Build the full topological order. Only concrete nodes are included;
-    /// aliases are traversed but not yielded.
+    /// Build the full topological order using post-order DFS.
+    /// Only concrete nodes are included; aliases are traversed but not yielded.
     fn build_order(&mut self) {
-        while let Some(node) = self.stack.pop() {
-            if self.visited.contains(&node) {
+        while let Some((node, deps_pushed)) = self.stack.pop() {
+            if deps_pushed {
+                if let Some(node_info) = self.dag.get_node(node) {
+                    if node_info.kind == NodeKind::Concrete {
+                        self.result.push(node);
+                    }
+                }
                 continue;
             }
-            self.visited.insert(node);
 
-            let Some(node_info) = self.dag.get_node(node) else {
+            if !self.visited.insert(node) {
                 continue;
-            };
-
-            let deps: Vec<Handle> = self.dag.resolve_dependencies(node).collect();
-
-            if node_info.kind == NodeKind::Concrete {
-                self.result.push(node);
             }
 
-            for dep in deps {
+            // Re-push to emit after all deps are processed
+            self.stack.push((node, true));
+
+            for dep in self.dag.resolve_dependencies(node) {
                 if !self.visited.contains(&dep) {
-                    self.stack.push(dep);
+                    self.stack.push((dep, false));
                 }
             }
         }
 
-        self.result.reverse();
         self.done = true;
     }
 }

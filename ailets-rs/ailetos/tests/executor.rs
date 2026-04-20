@@ -120,3 +120,33 @@ fn test_scheduler_yields_suspended_nodes() {
         "TopologicalOrderIter yields all nodes unfiltered; spawn loop decides whether to execute"
     );
 }
+
+#[test]
+fn test_diamond_dag_valid_topological_order() {
+    // Diamond: node1 <- node2, node3 <- node4
+    //          (node4 depends on node2 and node3, both depend on node1)
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
+
+    let node1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
+    let node2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
+    let node3 = dag.add_node("node3".to_string(), NodeKind::Concrete);
+    let node4 = dag.add_node("node4".to_string(), NodeKind::Concrete);
+
+    dag.add_dependency(For(node2), DependsOn(node1));
+    dag.add_dependency(For(node3), DependsOn(node1));
+    dag.add_dependency(For(node4), DependsOn(node2));
+    dag.add_dependency(For(node4), DependsOn(node3));
+
+    let order: Vec<_> = TopologicalOrderIter::new(&dag, node4).collect();
+
+    assert_eq!(order.len(), 4, "all four nodes should be yielded");
+    assert_eq!(order[3], node4, "node4 must be last");
+
+    let pos: std::collections::HashMap<_, _> =
+        order.iter().enumerate().map(|(i, &h)| (h, i)).collect();
+    assert!(pos[&node1] < pos[&node2], "node1 must precede node2");
+    assert!(pos[&node1] < pos[&node3], "node1 must precede node3");
+    assert!(pos[&node2] < pos[&node4], "node2 must precede node4");
+    assert!(pos[&node3] < pos[&node4], "node3 must precede node4");
+}
