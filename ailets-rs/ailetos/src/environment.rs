@@ -12,107 +12,17 @@
 //!   fields are shared with the originating `Environment`, allowing the build-phase
 //!   owner to observe and control running actors.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use tracing::{debug, error, warn};
+use tracing::{error, warn};
 
 use crate::dag::{Dag, DependsOn, For, NodeKind, NodeState};
 use crate::idgen::{Handle, IdGen};
 use crate::pipe::PipePool;
-use crate::scheduler::{Scheduler, StopConditions};
+use crate::scheduler::{run_spawn_loop, ActorRegistry, StopConditions};
 use crate::suspension::SuspensionState;
-use crate::{BlockingActorRuntime, KVBuffers, KVError, ShutdownHandle, SystemRuntime};
-
-/// Type for actor functions
-pub type ActorFn = fn(&dyn actor_runtime::ActorRuntime) -> Result<(), String>;
-
-/// Decide whether a node is ready to be spawned.
-///
-/// Decision table (iterate concrete deps, first decisive result wins):
-///
-/// | Dep state              | Has output (pipe realized) | Decision       |
-/// |------------------------|----------------------------|----------------|
-/// | `NotStarted`           | —                          | don't start    |
-/// | Suspended              | —                          | don't start    |
-/// | Running / Terminating  | yes                        | start          |
-/// | Running / Terminating  | no                         | don't start    |
-/// | Terminated             | yes                        | start          |
-/// | Terminated             | no                         | skip (neutral) |
-/// | (all deps exhausted)   | —                          | start          |
-///
-/// "Has output" is checked optimistically: a dep has output if its stdout
-/// pipe is realized (writer exists in the pool), regardless of byte count.
-pub fn is_ready_to_spawn<K: KVBuffers>(
-    node_handle: Handle,
-    dag: &Dag,
-    pipe_pool: &PipePool<K>,
-    suspension: &SuspensionState,
-) -> bool {
-    use actor_runtime::StdHandle;
-
-    for dep in dag.resolve_dependencies(node_handle) {
-        let Some(dep_node) = dag.get_node(dep) else {
-            continue;
-        };
-
-        if suspension.is_suspended(dep) {
-            return false;
-        }
-
-        let has_output = pipe_pool
-            .get_already_realized_writer((dep, StdHandle::Stdout))
-            .is_some();
-
-        match dep_node.state {
-            NodeState::NotStarted => return false,
-            NodeState::Running | NodeState::Terminating => {
-                return has_output;
-            }
-            NodeState::Terminated => {
-                if has_output {
-                    return true;
-                }
-                // neutral: no output from this dep, continue to next
-            }
-        }
-    }
-
-    true
-}
-
-/// Registry mapping actor names to their implementation functions
-#[derive(Clone)]
-pub struct ActorRegistry {
-    actors: HashMap<String, ActorFn>,
-}
-
-impl ActorRegistry {
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            actors: HashMap::new(),
-        }
-    }
-
-    /// Register an actor function
-    pub fn register(&mut self, name: impl Into<String>, actor_fn: ActorFn) {
-        self.actors.insert(name.into(), actor_fn);
-    }
-
-    /// Get an actor function by name
-    #[must_use]
-    pub fn get(&self, name: &str) -> Option<ActorFn> {
-        self.actors.get(name).copied()
-    }
-}
-
-impl Default for ActorRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+use crate::{KVBuffers, KVError, SystemRuntime};
 
 /// Build-phase owner of the actor system.
 ///
@@ -278,42 +188,13 @@ impl<K: KVBuffers> Environment<K> {
 pub struct RunHandle<K: KVBuffers> {
     pub dag: Arc<RwLock<Dag>>,
     pub suspension: Arc<SuspensionState>,
+    pub actor_registry: ActorRegistry,
     kv: Arc<K>,
     idgen: Arc<IdGen>,
     attachment_config: crate::attachments::AttachmentConfig,
-    actor_registry: ActorRegistry,
 }
 
 impl<K: KVBuffers> RunHandle<K> {
-    /// Spawn a task for an actor node
-    fn spawn_actor_task(
-        node_handle: Handle,
-        idname: String,
-        actor_fn: ActorFn,
-        actor_runtime: BlockingActorRuntime,
-        shutdown: ShutdownHandle,
-    ) -> tokio::task::JoinHandle<()> {
-        tokio::task::spawn_blocking(move || {
-            debug!(node = ?node_handle, name = %idname, "task starting");
-
-            actor_runtime.register_std_fds();
-
-            let result = actor_fn(&actor_runtime);
-
-            match result {
-                Ok(()) => {
-                    debug!(node = ?node_handle, name = %idname, "task completed");
-                }
-                Err(e) => {
-                    warn!(node = ?node_handle, name = %idname, error = %e, "task error");
-                }
-            }
-
-            debug!(node = ?node_handle, name = %idname, "task done, shutdown via Drop");
-            drop(shutdown);
-        })
-    }
-
     /// Run the system: spawn system runtime and actor tasks, wait for completion
     pub async fn run(&self, target: Handle, stop_conditions: StopConditions)
     where
@@ -342,70 +223,16 @@ impl<K: KVBuffers> RunHandle<K> {
             system_runtime.run().await;
         });
 
-        // --- Build initial pending list: NotStarted nodes in topological order ---
-        let mut pending: Vec<Handle> = {
-            let dag_guard = self.dag.read();
-            let scheduler =
-                Scheduler::with_stop_conditions(&dag_guard, target, stop_conditions.clone());
-            scheduler
-                .iter()
-                .filter(|&n| {
-                    dag_guard
-                        .get_node(n)
-                        .is_some_and(|node| node.state == NodeState::NotStarted)
-                })
-                .collect()
-        };
-
-        let mut actor_tasks = Vec::new();
-
-        // --- On-demand spawn loop: runs concurrently with actors ---
-        loop {
-            // Find all pending nodes whose inputs are ready
-            let to_spawn: Vec<(Handle, String)> = {
-                let dag_guard = self.dag.read();
-                pending
-                    .iter()
-                    .filter(|&&n| is_ready_to_spawn(n, &dag_guard, &pipe_pool, &self.suspension))
-                    .filter_map(|&n| dag_guard.get_node(n).map(|node| (n, node.idname.clone())))
-                    .collect()
-            };
-
-            // Spawn each ready node
-            for (node_handle, idname) in &to_spawn {
-                pending.retain(|&h| h != *node_handle);
-
-                debug!(node = ?node_handle, name = %idname, "spawning actor task");
-                self.dag.write().set_state(*node_handle, NodeState::Running);
-
-                let (actor_runtime, shutdown) = BlockingActorRuntime::new(
-                    *node_handle,
-                    system_tx.clone(),
-                    Arc::clone(&self.suspension),
-                );
-
-                if let Some(actor_fn) = self.actor_registry.get(idname) {
-                    let task = Self::spawn_actor_task(
-                        *node_handle,
-                        idname.clone(),
-                        actor_fn,
-                        actor_runtime,
-                        shutdown,
-                    );
-                    actor_tasks.push(task);
-                } else {
-                    warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
-                }
-            }
-
-            // All nodes spawned — exit loop
-            if pending.is_empty() {
-                break;
-            }
-
-            // Wait for a pipe-realized or actor-terminated signal
-            spawn_notify.notified().await;
-        }
+        // --- Run the spawn loop ---
+        let actor_tasks = run_spawn_loop(
+            self,
+            target,
+            stop_conditions,
+            pipe_pool,
+            system_tx.clone(),
+            spawn_notify,
+        )
+        .await;
 
         // --- Drop sender so SystemRuntime channel closes when all actors finish ---
         drop(system_tx);
