@@ -66,17 +66,18 @@ pub fn is_ready_to_spawn<K: KVBuffers>(
             return false;
         }
 
-        let has_output = pipe_pool
-            .get_already_realized_writer((dep, StdHandle::Stdout))
-            .is_some();
-
         match dep_node.state {
             NodeState::NotStarted => return false,
             NodeState::Running | NodeState::Terminating => {
-                return has_output;
+                return pipe_pool
+                    .get_already_realized_writer((dep, StdHandle::Stdout))
+                    .is_some();
             }
             NodeState::Terminated => {
-                if has_output {
+                if pipe_pool
+                    .get_already_realized_writer((dep, StdHandle::Stdout))
+                    .is_some()
+                {
                     return true;
                 }
                 // neutral: no output from this dep, continue to next
