@@ -49,6 +49,4 @@ pub use environment::{ActorRegistry, Environment, RunHandle};
 pub use suspension::SuspensionState;
 
 // Re-export executor
-pub use executor::{
-    is_ready_to_spawn, run, run_spawn_loop, ActorFn, StopConditions, TopologicalOrderIter,
-};
+pub use executor::{is_ready_to_spawn, run, ActorFn, StopConditions, TopologicalOrderIter};

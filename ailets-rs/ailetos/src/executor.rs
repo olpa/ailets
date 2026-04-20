@@ -9,7 +9,6 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use tokio::sync::mpsc;
 use tracing::{debug, error, warn};
 
 use crate::dag::{Dag, NodeKind, NodeState};
@@ -17,7 +16,6 @@ use crate::environment::RunHandle;
 use crate::idgen::Handle;
 use crate::pipe::PipePool;
 use crate::suspension::SuspensionState;
-use crate::system_runtime::IoRequest;
 use crate::{BlockingActorRuntime, KVBuffers, ShutdownHandle, SystemRuntime};
 
 /// Type for actor functions
@@ -117,82 +115,6 @@ fn spawn_actor_task(
     })
 }
 
-/// Run the spawn loop: spawn actors as their dependencies become ready
-///
-/// Returns the list of spawned actor tasks for the caller to await.
-pub async fn run_spawn_loop<K: KVBuffers>(
-    run_handle: &RunHandle<K>,
-    target: Handle,
-    stop_conditions: StopConditions,
-    pipe_pool: Arc<PipePool<K>>,
-    system_tx: mpsc::UnboundedSender<IoRequest>,
-    spawn_notify: Arc<tokio::sync::Notify>,
-) -> Vec<tokio::task::JoinHandle<()>> {
-    // Build initial pending list: NotStarted nodes in topological order
-    let mut pending: Vec<Handle> = {
-        let dag_guard = run_handle.dag.read();
-        TopologicalOrderIter::with_stop_conditions(&dag_guard, target, stop_conditions)
-            .filter(|&n| {
-                dag_guard
-                    .get_node(n)
-                    .is_some_and(|node| node.state == NodeState::NotStarted)
-            })
-            .collect()
-    };
-
-    let mut actor_tasks = Vec::new();
-
-    // On-demand spawn loop: runs concurrently with actors
-    loop {
-        // Find all pending nodes whose inputs are ready
-        let to_spawn: Vec<(Handle, String)> = {
-            let dag_guard = run_handle.dag.read();
-            pending
-                .iter()
-                .filter(|&&n| is_ready_to_spawn(n, &dag_guard, &pipe_pool, &run_handle.suspension))
-                .filter_map(|&n| dag_guard.get_node(n).map(|node| (n, node.idname.clone())))
-                .collect()
-        };
-
-        // Spawn each ready node
-        for (node_handle, idname) in &to_spawn {
-            pending.retain(|&h| h != *node_handle);
-
-            debug!(node = ?node_handle, name = %idname, "spawning actor task");
-            run_handle.dag.write().set_state(*node_handle, NodeState::Running);
-
-            let (actor_runtime, shutdown) = BlockingActorRuntime::new(
-                *node_handle,
-                system_tx.clone(),
-                Arc::clone(&run_handle.suspension),
-            );
-
-            if let Some(actor_fn) = run_handle.actor_registry.get(idname) {
-                let task = spawn_actor_task(
-                    *node_handle,
-                    idname.clone(),
-                    actor_fn,
-                    actor_runtime,
-                    shutdown,
-                );
-                actor_tasks.push(task);
-            } else {
-                warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
-            }
-        }
-
-        // All nodes spawned — exit loop
-        if pending.is_empty() {
-            break;
-        }
-
-        // Wait for a pipe-realized or actor-terminated signal
-        spawn_notify.notified().await;
-    }
-
-    actor_tasks
-}
-
 /// Run the system: spawn system runtime and actor tasks, wait for completion
 pub async fn run<K: KVBuffers + 'static>(
     run_handle: &RunHandle<K>,
@@ -220,15 +142,62 @@ pub async fn run<K: KVBuffers + 'static>(
         system_runtime.run().await;
     });
 
-    let actor_tasks = run_spawn_loop(
-        run_handle,
-        target,
-        stop_conditions,
-        pipe_pool,
-        system_tx.clone(),
-        spawn_notify,
-    )
-    .await;
+    // Build initial pending list: NotStarted nodes in topological order
+    let mut pending: Vec<Handle> = {
+        let dag_guard = run_handle.dag.read();
+        TopologicalOrderIter::with_stop_conditions(&dag_guard, target, stop_conditions)
+            .filter(|&n| {
+                dag_guard
+                    .get_node(n)
+                    .is_some_and(|node| node.state == NodeState::NotStarted)
+            })
+            .collect()
+    };
+
+    let mut actor_tasks = Vec::new();
+
+    loop {
+        let to_spawn: Vec<(Handle, String)> = {
+            let dag_guard = run_handle.dag.read();
+            pending
+                .iter()
+                .filter(|&&n| is_ready_to_spawn(n, &dag_guard, &pipe_pool, &run_handle.suspension))
+                .filter_map(|&n| dag_guard.get_node(n).map(|node| (n, node.idname.clone())))
+                .collect()
+        };
+
+        for (node_handle, idname) in &to_spawn {
+            pending.retain(|&h| h != *node_handle);
+
+            debug!(node = ?node_handle, name = %idname, "spawning actor task");
+            run_handle.dag.write().set_state(*node_handle, NodeState::Running);
+
+            let (actor_runtime, shutdown) = BlockingActorRuntime::new(
+                *node_handle,
+                system_tx.clone(),
+                Arc::clone(&run_handle.suspension),
+            );
+
+            if let Some(actor_fn) = run_handle.actor_registry.get(idname) {
+                actor_tasks.push(spawn_actor_task(
+                    *node_handle,
+                    idname.clone(),
+                    actor_fn,
+                    actor_runtime,
+                    shutdown,
+                ));
+            } else {
+                warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
+            }
+        }
+
+        if pending.is_empty() {
+            break;
+        }
+
+        // Wait for a pipe-realized or actor-terminated signal
+        spawn_notify.notified().await;
+    }
 
     drop(system_tx);
 
