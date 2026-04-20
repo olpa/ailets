@@ -16,14 +16,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use tracing::{error, warn};
 
 use crate::dag::{Dag, DependsOn, For, NodeKind, NodeState};
+use crate::executor::{ActorFn, StopConditions};
 use crate::idgen::{Handle, IdGen};
-use crate::pipe::PipePool;
-use crate::scheduler::{run_spawn_loop, ActorFn, StopConditions};
 use crate::suspension::SuspensionState;
-use crate::{KVBuffers, KVError, SystemRuntime};
+use crate::{KVBuffers, KVError};
 
 /// Registry mapping actor names to their implementation functions
 #[derive(Clone)]
@@ -206,7 +204,7 @@ impl<K: KVBuffers> Environment<K> {
     where
         K: 'static,
     {
-        self.make_run_handle().run(target, stop_conditions).await;
+        crate::executor::run(&self.make_run_handle(), target, stop_conditions).await;
     }
 }
 
@@ -222,63 +220,7 @@ pub struct RunHandle<K: KVBuffers> {
     pub dag: Arc<RwLock<Dag>>,
     pub suspension: Arc<SuspensionState>,
     pub actor_registry: ActorRegistry,
-    kv: Arc<K>,
-    idgen: Arc<IdGen>,
-    attachment_config: crate::attachments::AttachmentConfig,
-}
-
-impl<K: KVBuffers> RunHandle<K> {
-    /// Run the system: spawn system runtime and actor tasks, wait for completion
-    pub async fn run(&self, target: Handle, stop_conditions: StopConditions)
-    where
-        K: 'static,
-    {
-        // --- Setup: pipe pool, system runtime, notification handle ---
-        let pipe_pool = Arc::new(PipePool::new(Arc::clone(&self.kv)));
-
-        let system_runtime = SystemRuntime::new(
-            Arc::clone(&self.dag),
-            Arc::clone(&self.kv),
-            Arc::clone(&self.idgen),
-            self.attachment_config.clone(),
-            Arc::clone(&pipe_pool),
-        );
-
-        let spawn_notify = system_runtime.get_spawn_notify();
-
-        let Some(system_tx) = system_runtime.get_system_tx() else {
-            error!("Failed to get system_tx - system runtime already started");
-            return;
-        };
-
-        // --- Launch system runtime concurrently ---
-        let system_task = tokio::spawn(async move {
-            system_runtime.run().await;
-        });
-
-        // --- Run the spawn loop ---
-        let actor_tasks = run_spawn_loop(
-            self,
-            target,
-            stop_conditions,
-            pipe_pool,
-            system_tx.clone(),
-            spawn_notify,
-        )
-        .await;
-
-        // --- Drop sender so SystemRuntime channel closes when all actors finish ---
-        drop(system_tx);
-
-        // --- Wait for system runtime and all actor tasks ---
-        if let Err(e) = system_task.await {
-            warn!(error = %e, "SystemRuntime task failed");
-        }
-
-        for task in actor_tasks {
-            if let Err(e) = task.await {
-                warn!(error = %e, "actor task failed");
-            }
-        }
-    }
+    pub(crate) kv: Arc<K>,
+    pub(crate) idgen: Arc<IdGen>,
+    pub(crate) attachment_config: crate::attachments::AttachmentConfig,
 }

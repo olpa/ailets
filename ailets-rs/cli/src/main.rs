@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use futures::future::Abortable;
 use ailetos::{
-    DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState, OpenMode, Scheduler,
+    run, DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState, OpenMode, Scheduler,
     StopConditions,
 };
 use rustyline::config::Configurer;
@@ -422,7 +422,7 @@ Variables:
         let thread = std::thread::spawn(move || {
             tracing::info!("Foreground thread starting");
             let Ok(rt) = tokio::runtime::Runtime::new() else { return; };
-            let future = run_handle.run(handle, stop_conditions);
+            let future = run(&*run_handle, handle, stop_conditions);
             tracing::info!("About to run environment");
             let result = rt.block_on(Abortable::new(future, abort_registration));
 
@@ -503,7 +503,7 @@ Variables:
             barrier_clone.wait();
 
             let Ok(rt) = tokio::runtime::Runtime::new() else { return; };
-            let future = run_handle.run(handle, stop_conditions);
+            let future = run(&*run_handle, handle, stop_conditions);
             let result = rt.block_on(Abortable::new(future, abort_registration));
 
             if let Ok(()) = result {

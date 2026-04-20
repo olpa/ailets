@@ -105,7 +105,7 @@ async fn main() {
     env.attach_stdout(resolved);
 
     // Run the system
-    use ailetos::scheduler::StopConditions;
+    use ailetos::executor::StopConditions;
     env.run(end_node, StopConditions::default()).await;
 
     // Drop environment to release KV reference

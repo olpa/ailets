@@ -1,15 +1,16 @@
-//! Scheduler - execution scheduling for the actor system
+//! Executor - actor execution for the actor system
 //!
 //! This module handles:
 //! - Topological ordering of DAG nodes
 //! - Readiness checking for node spawning
 //! - The spawn loop that runs actors
+//! - Top-level execution of a DAG run
 
 use std::collections::HashSet;
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 use crate::dag::{Dag, NodeKind, NodeState};
 use crate::environment::RunHandle;
@@ -17,7 +18,7 @@ use crate::idgen::Handle;
 use crate::pipe::PipePool;
 use crate::suspension::SuspensionState;
 use crate::system_runtime::IoRequest;
-use crate::{BlockingActorRuntime, KVBuffers, ShutdownHandle};
+use crate::{BlockingActorRuntime, KVBuffers, ShutdownHandle, SystemRuntime};
 
 /// Type for actor functions
 pub type ActorFn = fn(&dyn actor_runtime::ActorRuntime) -> Result<(), String>;
@@ -192,6 +193,56 @@ pub async fn run_spawn_loop<K: KVBuffers>(
     }
 
     actor_tasks
+}
+
+/// Run the system: spawn system runtime and actor tasks, wait for completion
+pub async fn run<K: KVBuffers + 'static>(
+    run_handle: &RunHandle<K>,
+    target: Handle,
+    stop_conditions: StopConditions,
+) {
+    let pipe_pool = Arc::new(PipePool::new(Arc::clone(&run_handle.kv)));
+
+    let system_runtime = SystemRuntime::new(
+        Arc::clone(&run_handle.dag),
+        Arc::clone(&run_handle.kv),
+        Arc::clone(&run_handle.idgen),
+        run_handle.attachment_config.clone(),
+        Arc::clone(&pipe_pool),
+    );
+
+    let spawn_notify = system_runtime.get_spawn_notify();
+
+    let Some(system_tx) = system_runtime.get_system_tx() else {
+        error!("Failed to get system_tx - system runtime already started");
+        return;
+    };
+
+    let system_task = tokio::spawn(async move {
+        system_runtime.run().await;
+    });
+
+    let actor_tasks = run_spawn_loop(
+        run_handle,
+        target,
+        stop_conditions,
+        pipe_pool,
+        system_tx.clone(),
+        spawn_notify,
+    )
+    .await;
+
+    drop(system_tx);
+
+    if let Err(e) = system_task.await {
+        warn!(error = %e, "SystemRuntime task failed");
+    }
+
+    for task in actor_tasks {
+        if let Err(e) = task.await {
+            warn!(error = %e, "actor task failed");
+        }
+    }
 }
 
 /// Topological order iterator for DAG nodes

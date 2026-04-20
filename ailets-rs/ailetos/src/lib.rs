@@ -5,7 +5,7 @@ pub mod fd_table;
 pub mod idgen;
 pub mod notification_queue;
 pub mod pipe;
-pub mod scheduler;
+pub mod executor;
 pub mod storage;
 pub mod stub_actor_runtime;
 pub mod suspension;
@@ -48,7 +48,7 @@ pub use environment::{ActorRegistry, Environment, RunHandle};
 // Re-export suspension types
 pub use suspension::SuspensionState;
 
-// Re-export scheduler
-pub use scheduler::{
-    is_ready_to_spawn, run_spawn_loop, ActorFn, Scheduler, StopConditions,
+// Re-export executor
+pub use executor::{
+    is_ready_to_spawn, run, run_spawn_loop, ActorFn, Scheduler, StopConditions,
 };

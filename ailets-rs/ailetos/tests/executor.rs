@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use ailetos::dag::{Dag, DependsOn, For, NodeKind, NodeState};
-use ailetos::scheduler::{Scheduler, StopConditions};
+use ailetos::executor::{Scheduler, StopConditions};
 use ailetos::IdGen;
 
 fn create_linear_dag() -> (Dag, Vec<ailetos::Handle>) {
