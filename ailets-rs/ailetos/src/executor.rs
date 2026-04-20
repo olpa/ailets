@@ -177,8 +177,16 @@ pub async fn run<K: KVBuffers + 'static>(
                 continue;
             };
 
+            {
+                let mut dag = run_handle.dag.write();
+                // Re-check state under the write lock: an actor task running
+                // concurrently may have already advanced this node past NotStarted.
+                if dag.get_node(*node_handle).map_or(true, |n| n.state != NodeState::NotStarted) {
+                    continue;
+                }
+                dag.set_state(*node_handle, NodeState::Running);
+            }
             debug!(node = ?node_handle, name = %idname, "spawning actor task");
-            run_handle.dag.write().set_state(*node_handle, NodeState::Running);
 
             let (actor_runtime, shutdown) = BlockingActorRuntime::new(
                 *node_handle,
