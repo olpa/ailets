@@ -50,5 +50,5 @@ pub use suspension::SuspensionState;
 
 // Re-export executor
 pub use executor::{
-    is_ready_to_spawn, run, run_spawn_loop, ActorFn, Scheduler, StopConditions,
+    is_ready_to_spawn, run, run_spawn_loop, ActorFn, StopConditions, TopologicalOrderIter,
 };

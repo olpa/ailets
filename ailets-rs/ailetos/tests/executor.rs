@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use ailetos::dag::{Dag, DependsOn, For, NodeKind, NodeState};
-use ailetos::executor::{Scheduler, StopConditions};
+use ailetos::executor::{StopConditions, TopologicalOrderIter};
 use ailetos::IdGen;
 
 fn create_linear_dag() -> (Dag, Vec<ailetos::Handle>) {
@@ -32,8 +32,8 @@ fn test_one_step_executes_only_first_node() {
         stop_after: None,
     };
 
-    let scheduler = Scheduler::with_stop_conditions(&dag, node4, stop_conditions);
-    let executed: Vec<_> = scheduler.iter().collect();
+    let executed: Vec<_> =
+        TopologicalOrderIter::with_stop_conditions(&dag, node4, stop_conditions).collect();
 
     assert_eq!(executed.len(), 1, "one_step should execute only one node");
     assert_eq!(executed[0], node1, "Should execute the first node (node1)");
@@ -50,8 +50,8 @@ fn test_stop_before_excludes_target_node() {
         stop_after: None,
     };
 
-    let scheduler = Scheduler::with_stop_conditions(&dag, node4, stop_conditions);
-    let executed: Vec<_> = scheduler.iter().collect();
+    let executed: Vec<_> =
+        TopologicalOrderIter::with_stop_conditions(&dag, node4, stop_conditions).collect();
 
     assert_eq!(
         executed,
@@ -71,8 +71,8 @@ fn test_stop_after_includes_target_node() {
         stop_after: Some(node2),
     };
 
-    let scheduler = Scheduler::with_stop_conditions(&dag, node4, stop_conditions);
-    let executed: Vec<_> = scheduler.iter().collect();
+    let executed: Vec<_> =
+        TopologicalOrderIter::with_stop_conditions(&dag, node4, stop_conditions).collect();
 
     assert_eq!(
         executed,
@@ -95,8 +95,8 @@ fn test_one_step_yields_first_node_regardless_of_state() {
         stop_after: None,
     };
 
-    let scheduler = Scheduler::with_stop_conditions(&dag, node4, stop_conditions);
-    let executed: Vec<_> = scheduler.iter().collect();
+    let executed: Vec<_> =
+        TopologicalOrderIter::with_stop_conditions(&dag, node4, stop_conditions).collect();
 
     assert_eq!(executed.len(), 1, "one_step should yield only one node");
     assert_eq!(executed[0], node1, "yields first node regardless of state");
@@ -112,12 +112,11 @@ fn test_scheduler_yields_suspended_nodes() {
     // yields all non-Terminated nodes regardless of runtime state.
     dag.set_state(node2, NodeState::Running);
 
-    let scheduler = Scheduler::new(&dag, node4);
-    let executed: Vec<_> = scheduler.iter().collect();
+    let executed: Vec<_> = TopologicalOrderIter::new(&dag, node4).collect();
 
     assert_eq!(
         executed,
         vec![node1, node2, node3, node4],
-        "Scheduler yields all nodes unfiltered; spawn loop decides whether to execute"
+        "TopologicalOrderIter yields all nodes unfiltered; spawn loop decides whether to execute"
     );
 }

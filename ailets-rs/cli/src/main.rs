@@ -12,8 +12,8 @@ use std::sync::Arc;
 
 use futures::future::Abortable;
 use ailetos::{
-    run, DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState, OpenMode, Scheduler,
-    StopConditions,
+    run, DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState, OpenMode,
+    StopConditions, TopologicalOrderIter,
 };
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
@@ -551,7 +551,7 @@ Variables:
             // --one-step: find first ready node and attach stdout to it
             let ready_node = {
                 let dag = self.env.dag.read();
-                let first = Scheduler::new(&dag, target).iter().next();
+                let first = TopologicalOrderIter::new(&dag, target).next();
                 first
             };
             if let Some(ready_node) = ready_node {

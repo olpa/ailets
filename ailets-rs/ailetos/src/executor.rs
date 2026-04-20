@@ -131,9 +131,7 @@ pub async fn run_spawn_loop<K: KVBuffers>(
     // Build initial pending list: NotStarted nodes in topological order
     let mut pending: Vec<Handle> = {
         let dag_guard = run_handle.dag.read();
-        let scheduler = Scheduler::with_stop_conditions(&dag_guard, target, stop_conditions);
-        scheduler
-            .iter()
+        TopologicalOrderIter::with_stop_conditions(&dag_guard, target, stop_conditions)
             .filter(|&n| {
                 dag_guard
                     .get_node(n)
@@ -245,48 +243,11 @@ pub async fn run<K: KVBuffers + 'static>(
     }
 }
 
-/// Topological order iterator for DAG nodes
-pub struct Scheduler<'a> {
-    dag: &'a Dag,
-    target: Handle,
-    stop_conditions: StopConditions,
-}
-
-impl<'a> Scheduler<'a> {
-    #[must_use]
-    pub fn new(dag: &'a Dag, target: Handle) -> Self {
-        Self {
-            dag,
-            target,
-            stop_conditions: StopConditions::default(),
-        }
-    }
-
-    #[must_use]
-    pub fn with_stop_conditions(
-        dag: &'a Dag,
-        target: Handle,
-        stop_conditions: StopConditions,
-    ) -> Self {
-        Self {
-            dag,
-            target,
-            stop_conditions,
-        }
-    }
-
-    /// Returns iterator over nodes needed to build target (topological order).
-    /// Dependencies are yielded before dependents.
-    pub fn iter(&self) -> impl Iterator<Item = Handle> + '_ {
-        SchedulerIter::new(self.dag, self.target, self.stop_conditions.clone())
-    }
-}
-
-/// Iterator that yields nodes in topological order.
+/// Iterator that yields DAG nodes in topological order (dependencies before dependents).
 ///
-/// On first `next()`, computes full order into `result`. Then yields nodes
+/// On first `next()`, computes the full order into `result`. Then yields nodes
 /// one by one via `result_index`. The `stopped` flag allows early termination.
-struct SchedulerIter<'a> {
+pub struct TopologicalOrderIter<'a> {
     dag: &'a Dag,
     stack: Vec<Handle>,
     visited: HashSet<Handle>,
@@ -297,8 +258,18 @@ struct SchedulerIter<'a> {
     stop_conditions: StopConditions,
 }
 
-impl<'a> SchedulerIter<'a> {
-    fn new(dag: &'a Dag, target: Handle, stop_conditions: StopConditions) -> Self {
+impl<'a> TopologicalOrderIter<'a> {
+    #[must_use]
+    pub fn new(dag: &'a Dag, target: Handle) -> Self {
+        Self::with_stop_conditions(dag, target, StopConditions::default())
+    }
+
+    #[must_use]
+    pub fn with_stop_conditions(
+        dag: &'a Dag,
+        target: Handle,
+        stop_conditions: StopConditions,
+    ) -> Self {
         Self {
             dag,
             stack: vec![target],
@@ -311,10 +282,9 @@ impl<'a> SchedulerIter<'a> {
         }
     }
 
-    /// Build the full topological order, then drain it.
-    /// Only concrete nodes are included; aliases are traversed but not yielded.
+    /// Build the full topological order. Only concrete nodes are included;
+    /// aliases are traversed but not yielded.
     fn build_order(&mut self) {
-        // DFS-based topological sort
         while let Some(node) = self.stack.pop() {
             if self.visited.contains(&node) {
                 continue;
@@ -325,10 +295,8 @@ impl<'a> SchedulerIter<'a> {
                 continue;
             };
 
-            // Get dependencies and push them to stack
             let deps: Vec<Handle> = self.dag.resolve_dependencies(node).collect();
 
-            // Only add concrete nodes to result; skip aliases
             if node_info.kind == NodeKind::Concrete {
                 self.result.push(node);
             }
@@ -340,13 +308,12 @@ impl<'a> SchedulerIter<'a> {
             }
         }
 
-        // Reverse to get dependencies before dependents
         self.result.reverse();
         self.done = true;
     }
 }
 
-impl Iterator for SchedulerIter<'_> {
+impl Iterator for TopologicalOrderIter<'_> {
     type Item = Handle;
 
     fn next(&mut self) -> Option<Self::Item> {
