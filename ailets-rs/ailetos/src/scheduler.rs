@@ -5,7 +5,7 @@
 //! - Readiness checking for node spawning
 //! - The spawn loop that runs actors
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
@@ -21,38 +21,6 @@ use crate::{BlockingActorRuntime, KVBuffers, ShutdownHandle};
 
 /// Type for actor functions
 pub type ActorFn = fn(&dyn actor_runtime::ActorRuntime) -> Result<(), String>;
-
-/// Registry mapping actor names to their implementation functions
-#[derive(Clone)]
-pub struct ActorRegistry {
-    actors: HashMap<String, ActorFn>,
-}
-
-impl ActorRegistry {
-    #[must_use]
-    pub fn new() -> Self {
-        Self {
-            actors: HashMap::new(),
-        }
-    }
-
-    /// Register an actor function
-    pub fn register(&mut self, name: impl Into<String>, actor_fn: ActorFn) {
-        self.actors.insert(name.into(), actor_fn);
-    }
-
-    /// Get an actor function by name
-    #[must_use]
-    pub fn get(&self, name: &str) -> Option<ActorFn> {
-        self.actors.get(name).copied()
-    }
-}
-
-impl Default for ActorRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 /// Conditions for stopping DAG iteration
 #[derive(Debug, Clone, Default)]

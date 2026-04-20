@@ -12,6 +12,7 @@
 //!   fields are shared with the originating `Environment`, allowing the build-phase
 //!   owner to observe and control running actors.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
@@ -20,9 +21,41 @@ use tracing::{error, warn};
 use crate::dag::{Dag, DependsOn, For, NodeKind, NodeState};
 use crate::idgen::{Handle, IdGen};
 use crate::pipe::PipePool;
-use crate::scheduler::{run_spawn_loop, ActorRegistry, StopConditions};
+use crate::scheduler::{run_spawn_loop, ActorFn, StopConditions};
 use crate::suspension::SuspensionState;
 use crate::{KVBuffers, KVError, SystemRuntime};
+
+/// Registry mapping actor names to their implementation functions
+#[derive(Clone)]
+pub struct ActorRegistry {
+    actors: HashMap<String, ActorFn>,
+}
+
+impl ActorRegistry {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            actors: HashMap::new(),
+        }
+    }
+
+    /// Register an actor function
+    pub fn register(&mut self, name: impl Into<String>, actor_fn: ActorFn) {
+        self.actors.insert(name.into(), actor_fn);
+    }
+
+    /// Get an actor function by name
+    #[must_use]
+    pub fn get(&self, name: &str) -> Option<ActorFn> {
+        self.actors.get(name).copied()
+    }
+}
+
+impl Default for ActorRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Build-phase owner of the actor system.
 ///
