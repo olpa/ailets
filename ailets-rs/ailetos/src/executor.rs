@@ -16,6 +16,7 @@ use crate::environment::RunHandle;
 use crate::idgen::Handle;
 use crate::pipe::PipePool;
 use crate::suspension::SuspensionState;
+use crate::system_runtime::IoRequest;
 use crate::{BlockingActorRuntime, KVBuffers, ShutdownHandle, SystemRuntime};
 
 /// Type for actor functions
@@ -169,6 +170,13 @@ pub async fn run<K: KVBuffers + 'static>(
         for (node_handle, idname) in &to_spawn {
             pending.retain(|&h| h != *node_handle);
 
+            let Some(actor_fn) = run_handle.actor_registry.get(idname) else {
+                warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
+                // Terminate the node explicitly so dependents are not blocked.
+                let _ = system_tx.send(IoRequest::ActorShutdown { node_handle: *node_handle });
+                continue;
+            };
+
             debug!(node = ?node_handle, name = %idname, "spawning actor task");
             run_handle.dag.write().set_state(*node_handle, NodeState::Running);
 
@@ -178,17 +186,13 @@ pub async fn run<K: KVBuffers + 'static>(
                 Arc::clone(&run_handle.suspension),
             );
 
-            if let Some(actor_fn) = run_handle.actor_registry.get(idname) {
-                actor_tasks.push(spawn_actor_task(
-                    *node_handle,
-                    idname.clone(),
-                    actor_fn,
-                    actor_runtime,
-                    shutdown,
-                ));
-            } else {
-                warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
-            }
+            actor_tasks.push(spawn_actor_task(
+                *node_handle,
+                idname.clone(),
+                actor_fn,
+                actor_runtime,
+                shutdown,
+            ));
         }
 
         if pending.is_empty() {
