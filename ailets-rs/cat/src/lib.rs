@@ -47,8 +47,8 @@ fn execute_impl<'a>(mut reader: AReader<'a>, mut writer: AWriter<'a>) -> Result<
 /// - Reading from the input fails
 /// - Writing to the output fails
 pub fn execute(runtime: &BlockingActorRuntime) -> Result<(), String> {
-    let reader = AReader::new_from_std(&runtime, StdHandle::Stdin);
-    let writer = AWriter::new_from_std(&runtime, StdHandle::Stdout);
+    let reader = AReader::new_from_std(runtime, StdHandle::Stdin);
+    let writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
     execute_impl(reader, writer)
 }
 

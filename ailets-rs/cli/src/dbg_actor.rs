@@ -22,8 +22,8 @@ pub fn execute(runtime: &BlockingActorRuntime) -> Result<(), String> {
 
     tracing::info!(node = ?my_handle, "dbg actor starting");
 
-    let mut reader = AReader::new_from_std(&runtime, StdHandle::Stdin);
-    let mut writer = AWriter::new_from_std(&runtime, StdHandle::Stdout);
+    let mut reader = AReader::new_from_std(runtime, StdHandle::Stdin);
+    let mut writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
 
     match bytes_before_pause {
         None => {

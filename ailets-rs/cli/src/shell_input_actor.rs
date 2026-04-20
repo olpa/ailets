@@ -22,7 +22,7 @@ pub fn execute(runtime: &BlockingActorRuntime) -> Result<(), String> {
 
     tracing::info!(node = ?my_handle, "shell_input actor starting");
 
-    let mut writer = AWriter::new_from_std(&runtime, StdHandle::Stdout);
+    let mut writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
 
     for data in receiver {
         tracing::debug!(node = ?my_handle, bytes = data.len(), "received data from shell, writing to stdout");
