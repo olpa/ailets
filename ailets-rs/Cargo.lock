@@ -224,6 +224,7 @@ dependencies = [
  "embedded-io",
  "futures",
  "once_cell",
+ "parking_lot",
  "rustyline",
  "tokio",
  "tracing",

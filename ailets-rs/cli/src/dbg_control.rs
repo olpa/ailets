@@ -4,9 +4,10 @@
 //! synchronisation is handled by `SuspensionState` in the ailetos crate.
 
 use std::collections::HashMap;
-use std::sync::{LazyLock, Mutex};
+use std::sync::LazyLock;
 
 use ailetos::Handle;
+use parking_lot::Mutex;
 
 /// Global registry: node handle → `bytes_before_pause`
 static REGISTRY: LazyLock<Mutex<HashMap<Handle, Option<usize>>>> =
@@ -14,10 +15,7 @@ static REGISTRY: LazyLock<Mutex<HashMap<Handle, Option<usize>>>> =
 
 /// Register a dbg actor with its configuration.
 pub fn register_dbg_actor(handle: Handle, bytes_before_pause: Option<usize>) {
-    REGISTRY
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .insert(handle, bytes_before_pause);
+    REGISTRY.lock().insert(handle, bytes_before_pause);
 }
 
 /// Get the `bytes_before_pause` config for a registered dbg actor.
@@ -25,9 +23,5 @@ pub fn register_dbg_actor(handle: Handle, bytes_before_pause: Option<usize>) {
 /// Returns `None` if the handle is not registered.
 #[allow(clippy::option_option)]
 pub fn get_bytes_before_pause(handle: Handle) -> Option<Option<usize>> {
-    REGISTRY
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .get(&handle)
-        .copied()
+    REGISTRY.lock().get(&handle).copied()
 }
