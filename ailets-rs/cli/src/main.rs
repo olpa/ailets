@@ -417,11 +417,15 @@ Variables:
         let run_handle = Arc::new(self.env.make_run_handle());
 
         let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
+        let (ctrlc_abort_handle, ctrlc_abort_reg) = futures::future::AbortHandle::new_pair();
 
         // Start the run in a background thread with abort capability
         let thread = std::thread::spawn(move || {
             tracing::info!("Foreground thread starting");
-            let Ok(rt) = tokio::runtime::Runtime::new() else { return; };
+            let Ok(rt) = tokio::runtime::Runtime::new() else {
+                tracing::error!("Failed to create tokio runtime");
+                return;
+            };
             let future = run(&*run_handle, handle, stop_conditions);
             tracing::info!("About to run environment");
             let result = rt.block_on(Abortable::new(future, abort_registration));
@@ -436,11 +440,14 @@ Variables:
         // Create a channel to signal when Ctrl+C is pressed
         let (tx, rx) = std::sync::mpsc::channel();
 
-        // Spawn a thread to wait for Ctrl+C
+        // Spawn a thread to wait for Ctrl+C; exits early if ctrlc_abort_reg is fired
         std::thread::spawn(move || {
             let Ok(rt) = tokio::runtime::Runtime::new() else { return; };
             rt.block_on(async {
-                if tokio::signal::ctrl_c().await.is_ok() {
+                if Abortable::new(tokio::signal::ctrl_c(), ctrlc_abort_reg)
+                    .await
+                    .is_ok_and(|r| r.is_ok())
+                {
                     let _ = tx.send(());
                 }
             });
@@ -463,6 +470,7 @@ Variables:
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                     // Check if thread is done
                     if job.as_ref().is_some_and(|j| j.thread.is_finished()) {
+                        ctrlc_abort_handle.abort();
                         if let Some(j) = job.take() {
                             j.thread.join().ok();
                         }
@@ -470,7 +478,7 @@ Variables:
                     }
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    // Ctrl+C handler died, just wait for completion
+                    // Ctrl+C handler exited on its own; wait for job completion
                     if let Some(j) = job.take() {
                         j.thread.join().ok();
                     }
@@ -492,17 +500,18 @@ Variables:
         let run_handle = Arc::new(self.env.make_run_handle());
 
         let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
-
-        // Use a barrier to ensure the thread actually starts before we return
-        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
-        let barrier_clone = barrier.clone();
+        let (started_tx, started_rx) = std::sync::mpsc::channel::<Result<(), String>>();
 
         let thread = std::thread::spawn(move || {
             tracing::info!("Background thread starting");
-            // Signal that we've started
-            barrier_clone.wait();
+            let Ok(rt) = tokio::runtime::Runtime::new() else {
+                started_tx
+                    .send(Err("Failed to create tokio runtime".to_string()))
+                    .ok();
+                return;
+            };
+            started_tx.send(Ok(())).ok();
 
-            let Ok(rt) = tokio::runtime::Runtime::new() else { return; };
             let future = run(&*run_handle, handle, stop_conditions);
             let result = rt.block_on(Abortable::new(future, abort_registration));
 
@@ -513,13 +522,22 @@ Variables:
             }
         });
 
+        match started_rx.recv() {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                thread.join().ok();
+                return Err(e);
+            }
+            Err(_) => {
+                thread.join().ok();
+                return Err("Background thread exited before signalling ready".to_string());
+            }
+        }
+
         self.bg_job = Some(BackgroundJob {
             thread,
             abort_handle,
         });
-
-        // Wait for the background thread to actually start
-        barrier.wait();
 
         println!("Started background run (use 'fg' to wait, 'kill' to terminate)");
 
@@ -806,17 +824,9 @@ fn parse_explain(args: &[&str]) -> Option<String> {
 }
 
 fn parse_bytes_before_pause(args: &[&str]) -> Option<usize> {
-    // Look for --bytes-before-pause= and parse the numeric value
-    let joined = args.join(" ");
-    let rest = joined.strip_prefix("--bytes-before-pause=").or_else(|| {
-        joined
-            .find("--bytes-before-pause=")
-            .map(|pos| &joined[pos + "--bytes-before-pause=".len()..])
-    })?;
-    // Take until whitespace and parse as usize
-    rest.split_whitespace()
-        .next()
-        .and_then(|s| s.parse::<usize>().ok())
+    args.iter()
+        .find_map(|a| a.strip_prefix("--bytes-before-pause="))
+        .and_then(|s| s.parse().ok())
 }
 
 fn parse_quoted_string(args: &[&str]) -> String {
