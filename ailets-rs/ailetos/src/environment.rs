@@ -18,7 +18,10 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 
 use crate::dag::{Dag, DependsOn, For, NodeKind, NodeState};
-use crate::executor::{ActorFn, StopConditions};
+use crate::executor::StopConditions;
+
+/// Type for actor functions
+pub type ActorFn = fn(&dyn actor_runtime::ActorRuntime) -> Result<(), String>;
 use crate::idgen::{Handle, IdGen};
 use crate::suspension::SuspensionState;
 use crate::{KVBuffers, KVError};

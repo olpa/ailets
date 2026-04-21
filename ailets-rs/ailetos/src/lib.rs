@@ -43,10 +43,10 @@ pub use fd_table::{FdEntry, FdTable};
 pub use stub_actor_runtime::{BlockingActorRuntime, ShutdownHandle};
 
 // Re-export environment types
-pub use environment::{ActorRegistry, Environment, RunHandle};
+pub use environment::{ActorFn, ActorRegistry, Environment, RunHandle};
 
 // Re-export suspension types
 pub use suspension::SuspensionState;
 
 // Re-export executor
-pub use executor::{is_ready_to_spawn, run, ActorFn, StopConditions, TopologicalOrderIter};
+pub use executor::{is_ready_to_spawn, run, StopConditions, TopologicalOrderIter};

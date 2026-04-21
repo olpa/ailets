@@ -12,15 +12,12 @@ use std::sync::Arc;
 use tracing::{debug, error, warn};
 
 use crate::dag::{Dag, NodeKind, NodeState};
-use crate::environment::RunHandle;
+use crate::environment::{ActorFn, RunHandle};
 use crate::idgen::Handle;
 use crate::pipe::PipePool;
 use crate::suspension::SuspensionState;
 use crate::system_runtime::IoRequest;
 use crate::{BlockingActorRuntime, KVBuffers, ShutdownHandle, SystemRuntime};
-
-/// Type for actor functions
-pub type ActorFn = fn(&dyn actor_runtime::ActorRuntime) -> Result<(), String>;
 
 /// Conditions for stopping DAG iteration
 #[derive(Debug, Clone, Default)]
