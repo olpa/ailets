@@ -15,7 +15,6 @@ use crate::dag::{Dag, NodeKind, NodeState};
 use crate::environment::{ActorFn, RunHandle};
 use crate::idgen::Handle;
 use crate::pipe::PipePool;
-use crate::suspension::SuspensionState;
 use crate::system_runtime::IoRequest;
 use crate::{BlockingActorRuntime, KVBuffers, ShutdownHandle, SystemRuntime};
 
@@ -37,7 +36,6 @@ pub struct StopConditions {
 /// | Dep state              | Has output (pipe realized) | Decision       |
 /// |------------------------|----------------------------|----------------|
 /// | `NotStarted`           | —                          | don't start    |
-/// | Suspended              | —                          | don't start    |
 /// | Running / Terminating  | yes                        | start          |
 /// | Running / Terminating  | no                         | don't start    |
 /// | Terminated             | yes                        | start          |
@@ -46,11 +44,14 @@ pub struct StopConditions {
 ///
 /// "Has output" is checked optimistically: a dep has output if its stdout
 /// pipe is realized (writer exists in the pool), regardless of byte count.
+///
+/// Note: Suspension state does not affect spawn readiness. If a dependency
+/// has produced output, downstream actors can start consuming it regardless
+/// of whether the dependency is suspended.
 pub fn is_ready_to_spawn<K: KVBuffers>(
     node_handle: Handle,
     dag: &Dag,
     pipe_pool: &PipePool<K>,
-    suspension: &SuspensionState,
 ) -> bool {
     use actor_runtime::StdHandle;
 
@@ -58,10 +59,6 @@ pub fn is_ready_to_spawn<K: KVBuffers>(
         let Some(dep_node) = dag.get_node(dep) else {
             continue;
         };
-
-        if suspension.is_suspended(dep) {
-            return false;
-        }
 
         match dep_node.state {
             NodeState::NotStarted => return false,
@@ -160,7 +157,7 @@ pub async fn run<K: KVBuffers + 'static>(
             let dag_guard = run_handle.dag.read();
             pending
                 .iter()
-                .filter(|&&n| is_ready_to_spawn(n, &dag_guard, &pipe_pool, &run_handle.suspension))
+                .filter(|&&n| is_ready_to_spawn(n, &dag_guard, &pipe_pool))
                 .filter_map(|&n| dag_guard.get_node(n).map(|node| (n, node.idname.clone())))
                 .collect()
         };
