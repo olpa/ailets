@@ -76,6 +76,21 @@ async fn terminated_dep_no_output_skips_to_start() {
     assert!(is_ready_to_spawn(node, &dag, &pool));
 }
 
+// Running dep without realized pipe → not ready
+#[tokio::test]
+async fn running_dep_no_output_yields_not_ready() {
+    let (mut dag, id_gen) = make_dag();
+    let (pool, _) = make_pool(&id_gen);
+
+    let dep = dag.add_node("dep".into(), NodeKind::Concrete);
+    let node = dag.add_node("node".into(), NodeKind::Concrete);
+    dag.add_dependency(For(node), DependsOn(dep));
+    dag.set_state(dep, NodeState::Running);
+    // no pipe realized
+
+    assert!(!is_ready_to_spawn(node, &dag, &pool));
+}
+
 // Terminated dep (no pipe) then NotStarted dep → don't start
 #[tokio::test]
 async fn skip_then_not_started_blocks() {
