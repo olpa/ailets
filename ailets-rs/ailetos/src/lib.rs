@@ -1,11 +1,11 @@
 pub mod attachments;
 pub mod dag;
 pub mod environment;
+pub mod executor;
 pub mod fd_table;
 pub mod idgen;
 pub mod notification_queue;
 pub mod pipe;
-pub mod executor;
 pub mod storage;
 pub mod stub_actor_runtime;
 pub mod suspension;

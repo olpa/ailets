@@ -10,11 +10,11 @@ mod shell_input_control;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use futures::future::Abortable;
 use ailetos::{
     run, DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState, OpenMode,
     StopConditions, TopologicalOrderIter,
 };
+use futures::future::Abortable;
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
@@ -442,7 +442,9 @@ Variables:
 
         // Spawn a thread to wait for Ctrl+C; exits early if ctrlc_abort_reg is fired
         std::thread::spawn(move || {
-            let Ok(rt) = tokio::runtime::Runtime::new() else { return; };
+            let Ok(rt) = tokio::runtime::Runtime::new() else {
+                return;
+            };
             rt.block_on(async {
                 if Abortable::new(tokio::signal::ctrl_c(), ctrlc_abort_reg)
                     .await

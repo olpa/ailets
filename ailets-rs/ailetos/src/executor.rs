@@ -168,7 +168,9 @@ pub async fn run<K: KVBuffers + 'static>(
             let Some(actor_fn) = run_handle.actor_registry.get(idname) else {
                 warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
                 // Terminate the node explicitly so dependents are not blocked.
-                let _ = system_tx.send(IoRequest::ActorShutdown { node_handle: *node_handle });
+                let _ = system_tx.send(IoRequest::ActorShutdown {
+                    node_handle: *node_handle,
+                });
                 continue;
             };
 
@@ -176,7 +178,10 @@ pub async fn run<K: KVBuffers + 'static>(
                 let mut dag = run_handle.dag.write();
                 // Re-check state under the write lock: an actor task running
                 // concurrently may have already advanced this node past NotStarted.
-                if dag.get_node(*node_handle).map_or(true, |n| n.state != NodeState::NotStarted) {
+                if dag
+                    .get_node(*node_handle)
+                    .is_none_or(|n| n.state != NodeState::NotStarted)
+                {
                     continue;
                 }
                 dag.set_state(*node_handle, NodeState::Running);
@@ -284,7 +289,6 @@ impl<'a> TopologicalOrderIter<'a> {
                 }
             }
         }
-
     }
 }
 

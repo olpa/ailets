@@ -17,8 +17,9 @@ use crate::shell_input_control;
 pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
     let my_handle = Handle::new(runtime.node_handle());
 
-    let receiver = shell_input_control::take_receiver(my_handle)
-        .ok_or_else(|| format!("shell_input actor {my_handle:?} not properly initialized (not registered)"))?;
+    let receiver = shell_input_control::take_receiver(my_handle).ok_or_else(|| {
+        format!("shell_input actor {my_handle:?} not properly initialized (not registered)")
+    })?;
 
     tracing::info!(node = ?my_handle, "shell_input actor starting");
 

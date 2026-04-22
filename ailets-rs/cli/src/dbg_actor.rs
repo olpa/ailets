@@ -17,8 +17,9 @@ use crate::dbg_control;
 pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
     let my_handle = Handle::new(runtime.node_handle());
 
-    let bytes_before_pause = dbg_control::get_bytes_before_pause(my_handle)
-        .ok_or_else(|| format!("dbg actor {my_handle:?} not properly initialized (not registered)"))?;
+    let bytes_before_pause = dbg_control::get_bytes_before_pause(my_handle).ok_or_else(|| {
+        format!("dbg actor {my_handle:?} not properly initialized (not registered)")
+    })?;
 
     tracing::info!(node = ?my_handle, "dbg actor starting");
 
@@ -28,27 +29,30 @@ pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
     match bytes_before_pause {
         None => {
             tracing::info!(node = ?my_handle, "dbg actor: no pause configured, copying all");
-            let total_bytes = std::io::copy(&mut reader, &mut writer)
-                .map_err(|e| format!("I/O error: {e}"))?;
+            let total_bytes =
+                std::io::copy(&mut reader, &mut writer).map_err(|e| format!("I/O error: {e}"))?;
             tracing::info!(node = ?my_handle, total_bytes, "dbg actor finished (EOF reached)");
         }
         Some(n) => {
             tracing::info!(node = ?my_handle, bytes_before_pause = n, "dbg actor: pause configured");
 
             let mut collected = Vec::new();
-            (&mut reader).take(n as u64).read_to_end(&mut collected)
+            (&mut reader)
+                .take(n as u64)
+                .read_to_end(&mut collected)
                 .map_err(|e| format!("Failed to read: {e}"))?;
             tracing::info!(node = ?my_handle, bytes_collected = collected.len(), "dbg actor reached pause threshold, pausing");
 
             runtime.suspend_and_wait();
             tracing::info!(node = ?my_handle, "dbg actor resumed, outputting collected data");
 
-            writer.write_all(&collected)
+            writer
+                .write_all(&collected)
                 .map_err(|e| format!("Failed to write collected data: {e}"))?;
             tracing::info!(node = ?my_handle, bytes_written = collected.len(), "dbg actor wrote collected data, continuing");
 
-            let remaining_bytes = std::io::copy(&mut reader, &mut writer)
-                .map_err(|e| format!("I/O error: {e}"))?;
+            let remaining_bytes =
+                std::io::copy(&mut reader, &mut writer).map_err(|e| format!("I/O error: {e}"))?;
             tracing::info!(node = ?my_handle, remaining_bytes, "dbg actor finished (EOF reached)");
         }
     }

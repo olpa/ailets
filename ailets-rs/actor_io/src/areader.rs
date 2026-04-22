@@ -126,7 +126,7 @@ impl embedded_io::Read for AReader<'_> {
 impl std::io::Read for AReader<'_> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
         embedded_io::Read::read(self, buf)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e:?}")))
+            .map_err(|e| std::io::Error::other(format!("{e:?}")))
     }
 }
 

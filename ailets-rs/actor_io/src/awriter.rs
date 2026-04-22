@@ -147,7 +147,7 @@ impl embedded_io::Write for AWriter<'_> {
 impl std::io::Write for AWriter<'_> {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         embedded_io::Write::write(self, buf)
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, format!("{e:?}")))
+            .map_err(|e| std::io::Error::other(format!("{e:?}")))
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
