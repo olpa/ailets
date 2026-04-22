@@ -729,7 +729,6 @@ Variables:
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
         self.env.suspension.resume(handle);
-        self.env.dag.write().set_state(handle, NodeState::Running);
         println!("Resumed node {}", handle.id());
         Ok(())
     }
@@ -874,8 +873,8 @@ fn main() {
     // Initialize tracing subscriber to enable logging
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::from_default_env()
-                .add_directive(tracing::Level::INFO.into()),
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
 

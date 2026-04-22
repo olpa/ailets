@@ -43,7 +43,11 @@ pub fn write_to_shell_input(handle: Handle, data: Vec<u8>) -> Result<(), String>
 /// Close the actor's input (EOF). Drops the sender so the actor's `recv()` returns Err.
 /// Also cleans up the receiver if the actor never started.
 pub fn close_shell_input(handle: Handle) -> Result<(), String> {
-    RECEIVERS.lock().remove(&handle);
+    // Do not remove the receiver here: if the actor hasn't started yet (likely when the
+    // script runs faster than the executor), removing it causes take_receiver() to return
+    // None and the actor fails before processing any data. The sender drop below is enough
+    // to signal EOF; the actor takes and owns the receiver itself.
+    // RECEIVERS.lock().remove(&handle);
     match SENDERS.lock().remove(&handle) {
         Some(_) => Ok(()),
         None => Err(format!("shell_input actor {handle:?} not found")),
