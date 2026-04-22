@@ -471,7 +471,7 @@ fn test_dump_single_node() {
 
     let output = dag.dump(pid, None);
     assert!(output.contains("root"));
-    assert!(output.contains("⋯ not built"));
+    assert!(output.contains("⋯ pending"));
     // Root node should not have tree connector prefix
     assert!(
         output.starts_with("root."),
@@ -532,7 +532,7 @@ fn test_dump_different_states() {
     dag.add_dependency(For(root), DependsOn(finished));
 
     let output = dag.dump(root, None);
-    assert!(output.contains("⋯ not built")); // root
+    assert!(output.contains("⋯ pending")); // root
     assert!(output.contains("⚙ running"));
     assert!(output.contains("✓ built"));
 }

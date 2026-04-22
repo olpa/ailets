@@ -143,6 +143,18 @@ impl embedded_io::Write for AWriter<'_> {
     }
 }
 
+#[cfg(feature = "std")]
+impl std::io::Write for AWriter<'_> {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        embedded_io::Write::write(self, buf)
+            .map_err(|e| std::io::Error::other(format!("{e:?}")))
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 impl core::fmt::Debug for AWriter<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("AWriter").field("fd", &self.fd).finish()

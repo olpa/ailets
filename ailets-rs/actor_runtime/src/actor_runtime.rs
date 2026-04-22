@@ -49,4 +49,10 @@ extern "C" {
     ///
     /// return: 0 if success, or -1 if error
     pub fn dag_alias_fd(alias_ptr: *const c_char, fd: isize) -> isize;
+
+    /// Get this actor's node handle (identity)
+    pub fn get_node_handle() -> i64;
+
+    /// Self-suspend: block until the host calls resume for this actor
+    pub fn suspend_and_wait();
 }

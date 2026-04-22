@@ -22,4 +22,11 @@ pub trait ActorRuntime {
 
     /// Close a file descriptor
     fn aclose(&self, fd: isize) -> isize;
+
+    /// Get this actor's node handle (identity)
+    fn node_handle(&self) -> i64;
+
+    /// Self-suspend: block until the host calls resume for this actor.
+    /// In test/mock environments, this may be a no-op.
+    fn suspend_and_wait(&self);
 }

@@ -1,4 +1,6 @@
-use crate::actor_runtime::{aclose, aread, awrite, get_errno, open_read, open_write};
+use crate::actor_runtime::{
+    aclose, aread, awrite, get_errno, get_node_handle, open_read, open_write, suspend_and_wait,
+};
 use crate::runtime_trait::ActorRuntime;
 use std::ffi::CString;
 
@@ -50,5 +52,13 @@ impl ActorRuntime for FfiActorRuntime {
 
     fn aclose(&self, fd: isize) -> isize {
         unsafe { aclose(fd) }
+    }
+
+    fn node_handle(&self) -> i64 {
+        unsafe { get_node_handle() }
+    }
+
+    fn suspend_and_wait(&self) {
+        unsafe { suspend_and_wait() }
     }
 }

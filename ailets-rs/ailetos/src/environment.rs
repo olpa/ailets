@@ -1,28 +1,33 @@
 //! Environment - high-level orchestration for the actor system
 //!
-//! This module provides the Environment struct, which is the main entry point
-//! for building and running actor systems. It manages:
-//! - DAG construction with value nodes
-//! - System runtime orchestration
-//! - Actor spawning and execution
+//! This module provides two structs with distinct responsibilities:
+//!
+//! - `Environment` — build phase. Owns all mutable state. Use `&mut self` methods
+//!   to construct the DAG, register actors, and configure attachments. Nothing here
+//!   is safe to share across threads.
+//!
+//! - `RunHandle` — run phase. Created from `Environment::make_run_handle()`. All
+//!   fields are either `Arc`-wrapped or value-snapshotted, so it is cheap to wrap
+//!   in `Arc` for background or concurrent execution. The `dag` and `suspension`
+//!   fields are shared with the originating `Environment`, allowing the build-phase
+//!   owner to observe and control running actors.
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
-use tokio::sync::mpsc;
-use tracing::{debug, error, warn};
 
 use crate::dag::{Dag, DependsOn, For, NodeKind, NodeState};
-use crate::idgen::{Handle, IdGen};
-use crate::scheduler::{Scheduler, StopConditions};
-use crate::suspension::SuspensionState;
-use crate::{BlockingActorRuntime, IoRequest, KVBuffers, KVError, ShutdownHandle, SystemRuntime};
+use crate::executor::StopConditions;
 
 /// Type for actor functions
-pub type ActorFn = fn(actor_io::AReader, actor_io::AWriter) -> Result<(), String>;
+pub type ActorFn = fn(&dyn actor_runtime::ActorRuntime) -> Result<(), String>;
+use crate::idgen::{Handle, IdGen};
+use crate::suspension::SuspensionState;
+use crate::{KVBuffers, KVError};
 
 /// Registry mapping actor names to their implementation functions
+#[derive(Clone)]
 pub struct ActorRegistry {
     actors: HashMap<String, ActorFn>,
 }
@@ -53,14 +58,16 @@ impl Default for ActorRegistry {
     }
 }
 
-/// Environment for building and running actor systems
+/// Build-phase owner of the actor system.
+///
+/// Construct the DAG and configure the system here, then call
+/// `make_run_handle()` to obtain a `RunHandle` for execution.
 pub struct Environment<K: KVBuffers> {
     pub dag: Arc<RwLock<Dag>>,
     pub idgen: Arc<IdGen>,
     pub kv: Arc<K>,
     pub actor_registry: ActorRegistry,
     pub suspension: Arc<SuspensionState>,
-    /// Attachment configuration
     attachment_config: crate::attachments::AttachmentConfig,
 }
 
@@ -100,9 +107,6 @@ impl<K: KVBuffers> Environment<K> {
     /// * `data` - The bytes to write to the node's output
     /// * `explain` - Optional explanation of what this value represents
     ///
-    /// # Returns
-    /// The handle to the created node
-    ///
     /// # Errors
     /// Returns `KVError` if writing the data to KV storage fails
     pub async fn add_value_node(
@@ -135,9 +139,6 @@ impl<K: KVBuffers> Environment<K> {
     /// * `idname` - Name/type of the actor (e.g., "stdin", "cat")
     /// * `deps` - List of dependency node handles
     /// * `explain` - Optional explanation
-    ///
-    /// # Returns
-    /// The handle to the created node
     pub fn add_node(&mut self, idname: String, deps: &[Handle], explain: Option<String>) -> Handle {
         let mut dag = self.dag.write();
         let handle = dag.add_node_with_explain(idname, NodeKind::Concrete, explain);
@@ -178,123 +179,51 @@ impl<K: KVBuffers> Environment<K> {
         target.map_or(handle, |t| self.resolve(t))
     }
 
-    /// Spawn a task for an actor node
-    fn spawn_actor_task(
-        idname: String,
-        actor_fn: ActorFn,
-        actor_runtime: BlockingActorRuntime,
-        shutdown: ShutdownHandle,
-    ) -> tokio::task::JoinHandle<()> {
-        use actor_io::{AReader, AWriter};
-        use actor_runtime::StdHandle;
-
-        tokio::task::spawn_blocking(move || {
-            debug!(node = ?actor_runtime.node_handle(), name = %idname, "task starting");
-
-            actor_runtime.register_std_fds();
-
-            let areader = AReader::new_from_std(&actor_runtime, StdHandle::Stdin);
-            let awriter = AWriter::new_from_std(&actor_runtime, StdHandle::Stdout);
-
-            let result = actor_fn(areader, awriter);
-
-            match result {
-                Ok(()) => {
-                    debug!(node = ?actor_runtime.node_handle(), name = %idname, "task completed");
-                }
-                Err(e) => {
-                    warn!(node = ?actor_runtime.node_handle(), name = %idname, error = %e, "task error");
-                }
-            }
-
-            debug!(node = ?actor_runtime.node_handle(), name = %idname, "task done, shutdown via Drop");
-            drop(shutdown);
-        })
-    }
-
-    /// Spawn actor tasks for all nodes in the system
-    fn spawn_actor_tasks(
-        dag: &Arc<RwLock<Dag>>,
-        target: Handle,
-        stop_conditions: &StopConditions,
-        system_tx: &mpsc::UnboundedSender<IoRequest>,
-        actor_registry: &ActorRegistry,
-        suspension: &Arc<SuspensionState>,
-    ) -> Vec<tokio::task::JoinHandle<()>> {
-        let dag_guard = dag.read();
-        let scheduler =
-            Scheduler::with_stop_conditions(&dag_guard, target, stop_conditions.clone());
-        let mut tasks = Vec::new();
-
-        for node_handle in scheduler.iter() {
-            let Some(node) = dag_guard.get_node(node_handle) else {
-                warn!(node = ?node_handle, "node not found in DAG, skipping");
-                continue;
-            };
-            let idname = node.idname.clone();
-            debug!(node = ?node_handle, name = %idname, "spawning actor task");
-
-            let (actor_runtime, shutdown) =
-                BlockingActorRuntime::new(node_handle, system_tx.clone(), Arc::clone(suspension));
-
-            if let Some(actor_fn) = actor_registry.get(&idname) {
-                let task = Self::spawn_actor_task(idname, actor_fn, actor_runtime, shutdown);
-                tasks.push(task);
-            } else {
-                warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
-            }
+    /// Create a `RunHandle` from this environment.
+    ///
+    /// Clones the `Arc`-based shared fields and snapshots `attachment_config`
+    /// and `actor_registry` at this point in time. The returned handle can be
+    /// wrapped in `Arc` for concurrent or background execution.
+    ///
+    /// Actors registered or attachments configured after this call will not be
+    /// visible to the returned handle.
+    #[must_use]
+    pub fn make_run_handle(&self) -> RunHandle<K> {
+        RunHandle {
+            dag: Arc::clone(&self.dag),
+            kv: Arc::clone(&self.kv),
+            idgen: Arc::clone(&self.idgen),
+            attachment_config: self.attachment_config.clone(),
+            actor_registry: self.actor_registry.clone(),
+            suspension: Arc::clone(&self.suspension),
         }
-
-        tasks
     }
 
-    /// Run the system: spawn system runtime and actor tasks, wait for completion
-    pub async fn run(&mut self, target: Handle, stop_conditions: StopConditions)
+    /// Convenience: run the environment directly without managing a `RunHandle`.
+    ///
+    /// For background execution, use `make_run_handle()` and wrap the result in
+    /// `Arc` instead.
+    pub async fn run(&self, target: Handle, stop_conditions: StopConditions)
     where
         K: 'static,
     {
-        // Create system runtime with attachment configuration
-        let system_runtime = SystemRuntime::new(
-            Arc::clone(&self.dag),
-            Arc::clone(&self.kv),
-            Arc::clone(&self.idgen),
-            self.attachment_config.clone(),
-        );
-
-        // Get sender before moving system_runtime
-        let Some(system_tx) = system_runtime.get_system_tx() else {
-            error!("Failed to get system_tx - system runtime already started");
-            return;
-        };
-
-        // Spawn SystemRuntime task
-        let system_task = tokio::spawn(async move {
-            system_runtime.run().await;
-        });
-
-        // Spawn actor tasks
-        let actor_tasks = Self::spawn_actor_tasks(
-            &self.dag,
-            target,
-            &stop_conditions,
-            &system_tx,
-            &self.actor_registry,
-            &self.suspension,
-        );
-
-        // Drop our sender so the channel can close when all actors finish
-        drop(system_tx);
-
-        // Wait for system runtime
-        if let Err(e) = system_task.await {
-            warn!(error = %e, "SystemRuntime task failed");
-        }
-
-        // Wait for all actor tasks
-        for task in actor_tasks {
-            if let Err(e) = task.await {
-                warn!(error = %e, "actor task failed");
-            }
-        }
+        crate::executor::run(&self.make_run_handle(), target, stop_conditions).await;
     }
+}
+
+/// Run-phase handle for an actor system.
+///
+/// Obtained from `Environment::make_run_handle()`. All fields are either
+/// `Arc`-wrapped or snapshotted values, so this struct is cheap to wrap in
+/// `Arc` for background or concurrent execution.
+///
+/// `dag` and `suspension` are shared with the originating `Environment`,
+/// allowing the build-phase owner to observe and resume running actors.
+pub struct RunHandle<K: KVBuffers> {
+    pub dag: Arc<RwLock<Dag>>,
+    pub suspension: Arc<SuspensionState>,
+    pub actor_registry: ActorRegistry,
+    pub(crate) kv: Arc<K>,
+    pub(crate) idgen: Arc<IdGen>,
+    pub(crate) attachment_config: crate::attachments::AttachmentConfig,
 }

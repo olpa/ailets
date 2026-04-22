@@ -194,14 +194,14 @@ impl Dag {
 
         if use_colors {
             match state {
-                NodeState::NotStarted => format!("{YELLOW}⋯ not built{RESET}"),
+                NodeState::NotStarted => format!("{YELLOW}⋯ pending{RESET}"),
                 NodeState::Running => format!("{MAGENTA}⚙ running{RESET}"),
                 NodeState::Terminating => format!("{MAGENTA}⏳ terminating{RESET}"),
                 NodeState::Terminated => format!("{GREEN}✓ built{RESET}"),
             }
         } else {
             match state {
-                NodeState::NotStarted => "⋯ not built".to_string(),
+                NodeState::NotStarted => "⋯ pending".to_string(),
                 NodeState::Running => "⚙ running".to_string(),
                 NodeState::Terminating => "⏳ terminating".to_string(),
                 NodeState::Terminated => "✓ built".to_string(),

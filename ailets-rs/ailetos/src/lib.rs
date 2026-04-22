@@ -1,11 +1,11 @@
 pub mod attachments;
 pub mod dag;
 pub mod environment;
+pub mod executor;
 pub mod fd_table;
 pub mod idgen;
 pub mod notification_queue;
 pub mod pipe;
-pub mod scheduler;
 pub mod storage;
 pub mod stub_actor_runtime;
 pub mod suspension;
@@ -43,10 +43,10 @@ pub use fd_table::{FdEntry, FdTable};
 pub use stub_actor_runtime::{BlockingActorRuntime, ShutdownHandle};
 
 // Re-export environment types
-pub use environment::{ActorFn, ActorRegistry, Environment};
+pub use environment::{ActorFn, ActorRegistry, Environment, RunHandle};
 
 // Re-export suspension types
 pub use suspension::SuspensionState;
 
-// Re-export scheduler
-pub use scheduler::{Scheduler, StopConditions};
+// Re-export executor
+pub use executor::{is_ready_to_spawn, run, StopConditions, TopologicalOrderIter};

@@ -2,16 +2,27 @@
 //!
 //! Minimal implementation for manually building and running DAGs.
 
+mod dbg_actor;
+mod dbg_control;
+mod shell_input_actor;
+mod shell_input_control;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use ailetos::{
-    DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState, OpenMode, Scheduler,
-    StopConditions,
+    run, DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState, OpenMode,
+    StopConditions, TopologicalOrderIter,
 };
+use futures::future::Abortable;
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
+
+struct BackgroundJob {
+    thread: std::thread::JoinHandle<()>,
+    abort_handle: futures::future::AbortHandle,
+}
 
 struct DagShell {
     env: Environment<MemKV>,
@@ -20,6 +31,7 @@ struct DagShell {
     handles: Vec<Handle>,
     /// Variables mapping names to handles
     vars: HashMap<String, Handle>,
+    bg_job: Option<BackgroundJob>,
 }
 
 impl DagShell {
@@ -27,11 +39,15 @@ impl DagShell {
         let kv = Arc::new(MemKV::new());
         let mut env = Environment::new(Arc::clone(&kv));
         env.actor_registry.register("cat", cat::execute);
+        env.actor_registry.register("dbg", dbg_actor::execute);
+        env.actor_registry
+            .register("shell_input", shell_input_actor::execute);
         Self {
             env,
             kv,
             handles: Vec::new(),
             vars: HashMap::new(),
+            bg_job: None,
         }
     }
 
@@ -68,6 +84,10 @@ impl DagShell {
             "reset" => self.cmd_reset(),
             "suspend" => self.cmd_suspend(rest)?,
             "resume" => self.cmd_resume(rest)?,
+            "write" => self.cmd_write(rest)?,
+            "close" => self.cmd_close(rest)?,
+            "fg" => self.cmd_fg(rest)?,
+            "kill" => self.cmd_kill(rest)?,
             _ => {
                 println!("Unknown command: {cmd}. Type 'help' for usage.");
             }
@@ -81,7 +101,7 @@ impl DagShell {
             r"DAG Shell Commands:
 
 Node Management:
-  node add <actor> [--explain=text]   Add actor node (actors: cat)
+  node add <actor> [--explain=text]   Add actor node (actors: cat, dbg, shell_input)
   node value <data> [--explain=text]  Add value node (constant data)
   node alias <name> <target>          Add alias node
   node list                           List all nodes with status
@@ -98,6 +118,11 @@ Execution:
     --one-step                        Execute only the first ready node
     --stop-before <node>              Stop before executing this node
     --stop-after <node>               Stop after executing this node
+    --bg                              Run in background
+
+Job Control:
+  fg                                  Wait for background job to complete
+  kill                                Terminate background job
 
 I/O:
   cat <node>                          Show output of a node
@@ -108,8 +133,11 @@ Status:
 
 Debug:
   suspend <node>                      Suspend a running actor
-  resume <node>                       Resume a suspended actor
+  resume <node>                       Resume a suspended actor (dbg or general)
 
+Shell Input:
+  write <node> <data>                 Write data to a shell_input actor
+  close <node>                        Close a shell_input actor (send EOF)
 
 Session:
   load <file>                         Run script file (alias: source)
@@ -170,6 +198,18 @@ Variables:
                 let explain = parse_explain(rest);
                 let handle = self.env.add_node(actor.clone(), &[], explain.clone());
                 self.handles.push(handle);
+
+                // If this is a dbg actor, register it with configuration
+                if actor == "dbg" {
+                    let bytes_before_pause = parse_bytes_before_pause(rest);
+                    dbg_control::register_dbg_actor(handle, bytes_before_pause);
+                }
+
+                // If this is a shell_input actor, register it
+                if actor == "shell_input" {
+                    shell_input_control::register_shell_input_actor(handle);
+                }
+
                 let id = handle.id();
                 let expl = explain.map_or_else(String::new, |e| format!("({e})"));
                 println!("Added node {id}: {actor} {expl}");
@@ -300,6 +340,7 @@ Variables:
         let mut stop_before: Option<Handle> = None;
         let mut stop_after: Option<Handle> = None;
         let mut target_arg: Option<&str> = None;
+        let mut bg_flag = false;
 
         // Parse arguments
         let mut i = 0;
@@ -307,6 +348,7 @@ Variables:
             let arg = args.get(i).ok_or("Internal error: index out of bounds")?;
             match arg {
                 &"--one-step" => one_step = true,
+                &"--bg" => bg_flag = true,
                 &"--stop-before" => {
                     i += 1;
                     let h = args.get(i).ok_or("--stop-before requires a node")?;
@@ -351,13 +393,156 @@ Variables:
             stop_after,
         };
 
-        // Run synchronously using tokio runtime
-        let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-        rt.block_on(async {
-            self.env.run(handle, stop_conditions).await;
-        });
+        if bg_flag {
+            // Background run
+            self.run_background(handle, stop_conditions)?;
+        } else {
+            // Foreground run with Ctrl+C support
+            self.run_foreground(handle, stop_conditions)?;
+        }
 
         println!();
+        Ok(())
+    }
+
+    fn run_foreground(
+        &mut self,
+        handle: Handle,
+        stop_conditions: StopConditions,
+    ) -> Result<(), String> {
+        if self.bg_job.is_some() {
+            return Err("Background job already running. Use 'fg' or 'kill' first.".to_string());
+        }
+
+        let run_handle = Arc::new(self.env.make_run_handle());
+
+        let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
+        let (ctrlc_abort_handle, ctrlc_abort_reg) = futures::future::AbortHandle::new_pair();
+
+        // Start the run in a background thread with abort capability
+        let thread = std::thread::spawn(move || {
+            tracing::info!("Foreground thread starting");
+            let Ok(rt) = tokio::runtime::Runtime::new() else {
+                tracing::error!("Failed to create tokio runtime");
+                return;
+            };
+            let future = run(&*run_handle, handle, stop_conditions);
+            tracing::info!("About to run environment");
+            let result = rt.block_on(Abortable::new(future, abort_registration));
+
+            if let Ok(()) = result {
+                tracing::info!("Run completed");
+            } else {
+                tracing::info!("Run aborted");
+            }
+        });
+
+        // Create a channel to signal when Ctrl+C is pressed
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        // Spawn a thread to wait for Ctrl+C; exits early if ctrlc_abort_reg is fired
+        std::thread::spawn(move || {
+            let Ok(rt) = tokio::runtime::Runtime::new() else {
+                return;
+            };
+            rt.block_on(async {
+                if Abortable::new(tokio::signal::ctrl_c(), ctrlc_abort_reg)
+                    .await
+                    .is_ok_and(|r| r.is_ok())
+                {
+                    let _ = tx.send(());
+                }
+            });
+        });
+
+        // Wait for either the job to complete or Ctrl+C
+        let mut job = Some(BackgroundJob {
+            thread,
+            abort_handle,
+        });
+
+        loop {
+            match rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                Ok(()) => {
+                    // Ctrl+C pressed - move to background
+                    println!("\n^C - Moved to background (use 'fg' to wait, 'kill' to terminate)");
+                    self.bg_job = job.take();
+                    return Ok(());
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    // Check if thread is done
+                    if job.as_ref().is_some_and(|j| j.thread.is_finished()) {
+                        ctrlc_abort_handle.abort();
+                        if let Some(j) = job.take() {
+                            j.thread.join().ok();
+                        }
+                        return Ok(());
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    // Ctrl+C handler exited on its own; wait for job completion
+                    if let Some(j) = job.take() {
+                        j.thread.join().ok();
+                    }
+                    return Ok(());
+                }
+            }
+        }
+    }
+
+    fn run_background(
+        &mut self,
+        handle: Handle,
+        stop_conditions: StopConditions,
+    ) -> Result<(), String> {
+        if self.bg_job.is_some() {
+            return Err("Background job already running. Use 'fg' or 'kill' first.".to_string());
+        }
+
+        let run_handle = Arc::new(self.env.make_run_handle());
+
+        let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
+        let (started_tx, started_rx) = std::sync::mpsc::channel::<Result<(), String>>();
+
+        let thread = std::thread::spawn(move || {
+            tracing::info!("Background thread starting");
+            let Ok(rt) = tokio::runtime::Runtime::new() else {
+                started_tx
+                    .send(Err("Failed to create tokio runtime".to_string()))
+                    .ok();
+                return;
+            };
+            started_tx.send(Ok(())).ok();
+
+            let future = run(&*run_handle, handle, stop_conditions);
+            let result = rt.block_on(Abortable::new(future, abort_registration));
+
+            if let Ok(()) = result {
+                tracing::info!("Background job completed");
+            } else {
+                tracing::info!("Background job aborted");
+            }
+        });
+
+        match started_rx.recv() {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                thread.join().ok();
+                return Err(e);
+            }
+            Err(_) => {
+                thread.join().ok();
+                return Err("Background thread exited before signalling ready".to_string());
+            }
+        }
+
+        self.bg_job = Some(BackgroundJob {
+            thread,
+            abort_handle,
+        });
+
+        println!("Started background run (use 'fg' to wait, 'kill' to terminate)");
+
         Ok(())
     }
 
@@ -386,7 +571,7 @@ Variables:
             // --one-step: find first ready node and attach stdout to it
             let ready_node = {
                 let dag = self.env.dag.read();
-                let first = Scheduler::new(&dag, target).iter().next();
+                let first = TopologicalOrderIter::new(&dag, target).next();
                 first
             };
             if let Some(ready_node) = ready_node {
@@ -470,10 +655,21 @@ Variables:
     }
 
     fn cmd_reset(&mut self) {
+        // Kill background job if running
+        if let Some(job) = self.bg_job.take() {
+            println!("Killing background job...");
+            job.abort_handle.abort();
+            job.thread.join().ok();
+        }
+
         self.handles.clear();
         self.vars.clear();
-        self.env = Environment::new(Arc::clone(&self.kv));
-        self.env.actor_registry.register("cat", cat::execute);
+        let mut env = Environment::new(Arc::clone(&self.kv));
+        env.actor_registry.register("cat", cat::execute);
+        env.actor_registry.register("dbg", dbg_actor::execute);
+        env.actor_registry
+            .register("shell_input", shell_input_actor::execute);
+        self.env = env;
         println!("DAG cleared.");
     }
 
@@ -501,7 +697,7 @@ Variables:
                     }
                 }
             }
-            println!("Nodes: {total} total, {not_started} not started, {running} running, {suspended} suspended, {terminated} terminated");
+            println!("Nodes: {total} total, {not_started} pending, {running} running, {suspended} suspended, {terminated} terminated");
         } else if let Some(handle_str) = args.first() {
             let handle = self
                 .parse_handle(handle_str)
@@ -538,6 +734,74 @@ Variables:
         println!("Resumed node {}", handle.id());
         Ok(())
     }
+
+    fn cmd_write(&self, args: &[&str]) -> Result<(), String> {
+        let handle_str = args.first().ok_or("Usage: write <node> <data>")?;
+        let handle = self
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+
+        let data = parse_quoted_string(args.get(1..).unwrap_or(&[]));
+
+        match shell_input_control::write_to_shell_input(handle, data.into_bytes()) {
+            Ok(()) => {
+                let hid = handle.id();
+                println!("Wrote data to node {hid}");
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to write: {e}")),
+        }
+    }
+
+    fn cmd_close(&self, args: &[&str]) -> Result<(), String> {
+        let handle_str = args.first().ok_or("Usage: close <node>")?;
+        let handle = self
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+
+        match shell_input_control::close_shell_input(handle) {
+            Ok(()) => {
+                let hid = handle.id();
+                println!("Closed node {hid}");
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to close: {e}")),
+        }
+    }
+
+    fn cmd_fg(&mut self, _args: &[&str]) -> Result<(), String> {
+        if let Some(job) = self.bg_job.take() {
+            println!("Waiting for background job to complete...");
+            job.thread
+                .join()
+                .map_err(|_| "Background job panicked".to_string())?;
+            println!("Job completed");
+            Ok(())
+        } else {
+            Err("No background job running".to_string())
+        }
+    }
+
+    fn cmd_kill(&mut self, _args: &[&str]) -> Result<(), String> {
+        if let Some(job) = self.bg_job.take() {
+            println!("Killing background job...");
+            job.abort_handle.abort();
+            job.thread.join().ok(); // Ignore join errors
+            println!("Job killed");
+            Ok(())
+        } else {
+            Err("No background job running".to_string())
+        }
+    }
+}
+
+impl Drop for DagShell {
+    fn drop(&mut self) {
+        if let Some(job) = self.bg_job.take() {
+            job.abort_handle.abort();
+            let _ = job.thread.join();
+        }
+    }
 }
 
 fn parse_explain(args: &[&str]) -> Option<String> {
@@ -560,6 +824,12 @@ fn parse_explain(args: &[&str]) -> Option<String> {
     rest.split_whitespace().next().map(str::to_string)
 }
 
+fn parse_bytes_before_pause(args: &[&str]) -> Option<usize> {
+    args.iter()
+        .find_map(|a| a.strip_prefix("--bytes-before-pause="))
+        .and_then(|s| s.parse().ok())
+}
+
 fn parse_quoted_string(args: &[&str]) -> String {
     // Parse first argument which may be quoted and span multiple tokens
     let joined = args.join(" ");
@@ -576,7 +846,7 @@ fn parse_quoted_string(args: &[&str]) -> String {
 
 fn format_state(state: NodeState) -> &'static str {
     match state {
-        NodeState::NotStarted => "⋯ not built",
+        NodeState::NotStarted => "⋯ pending",
         NodeState::Running => "⚙ running",
         NodeState::Terminating => "⏳ terminating",
         NodeState::Terminated => "✓ built",
@@ -602,6 +872,14 @@ fn print_usage() {
 }
 
 fn main() {
+    // Initialize tracing subscriber to enable logging
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+        )
+        .init();
+
     let args: Vec<String> = std::env::args().collect();
 
     // Parse command line arguments

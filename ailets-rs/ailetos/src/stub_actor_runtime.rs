@@ -424,4 +424,12 @@ impl ActorRuntime for BlockingActorRuntime {
             }
         }
     }
+
+    fn node_handle(&self) -> i64 {
+        self.node_handle.id()
+    }
+
+    fn suspend_and_wait(&self) {
+        self.suspension.self_suspend_and_wait(self.node_handle);
+    }
 }

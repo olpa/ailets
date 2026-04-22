@@ -9,5 +9,6 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 actor_io.workspace = true
 actor_runtime.workspace = true
+ailetos = { path = "../ailetos" }
 embedded-io.workspace = true
 getrandom.workspace = true

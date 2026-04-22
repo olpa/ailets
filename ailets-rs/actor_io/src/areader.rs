@@ -122,6 +122,14 @@ impl embedded_io::Read for AReader<'_> {
     }
 }
 
+#[cfg(feature = "std")]
+impl std::io::Read for AReader<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        embedded_io::Read::read(self, buf)
+            .map_err(|e| std::io::Error::other(format!("{e:?}")))
+    }
+}
+
 impl core::fmt::Debug for AReader<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("AReader").field("fd", &self.fd).finish()

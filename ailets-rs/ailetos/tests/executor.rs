@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use ailetos::dag::{Dag, DependsOn, For, NodeKind, NodeState};
-use ailetos::scheduler::{Scheduler, StopConditions};
+use ailetos::executor::{StopConditions, TopologicalOrderIter};
 use ailetos::IdGen;
 
 fn create_linear_dag() -> (Dag, Vec<ailetos::Handle>) {
@@ -32,8 +32,8 @@ fn test_one_step_executes_only_first_node() {
         stop_after: None,
     };
 
-    let scheduler = Scheduler::with_stop_conditions(&dag, node4, stop_conditions);
-    let executed: Vec<_> = scheduler.iter().collect();
+    let executed: Vec<_> =
+        TopologicalOrderIter::with_stop_conditions(&dag, node4, stop_conditions).collect();
 
     assert_eq!(executed.len(), 1, "one_step should execute only one node");
     assert_eq!(executed[0], node1, "Should execute the first node (node1)");
@@ -50,8 +50,8 @@ fn test_stop_before_excludes_target_node() {
         stop_after: None,
     };
 
-    let scheduler = Scheduler::with_stop_conditions(&dag, node4, stop_conditions);
-    let executed: Vec<_> = scheduler.iter().collect();
+    let executed: Vec<_> =
+        TopologicalOrderIter::with_stop_conditions(&dag, node4, stop_conditions).collect();
 
     assert_eq!(
         executed,
@@ -71,8 +71,8 @@ fn test_stop_after_includes_target_node() {
         stop_after: Some(node2),
     };
 
-    let scheduler = Scheduler::with_stop_conditions(&dag, node4, stop_conditions);
-    let executed: Vec<_> = scheduler.iter().collect();
+    let executed: Vec<_> =
+        TopologicalOrderIter::with_stop_conditions(&dag, node4, stop_conditions).collect();
 
     assert_eq!(
         executed,
@@ -82,11 +82,11 @@ fn test_stop_after_includes_target_node() {
 }
 
 #[test]
-fn test_one_step_skips_already_terminated_nodes() {
+fn test_one_step_yields_first_node_regardless_of_state() {
     let (mut dag, nodes) = create_linear_dag();
-    let [node1, node2, _node3, node4] = [nodes[0], nodes[1], nodes[2], nodes[3]];
+    let [node1, _node2, _node3, node4] = [nodes[0], nodes[1], nodes[2], nodes[3]];
 
-    // Mark node1 as already terminated (e.g., it's a value node that was created as terminated)
+    // Scheduler yields all nodes unfiltered; the spawn loop filters by state.
     dag.set_state(node1, NodeState::Terminated);
 
     let stop_conditions = StopConditions {
@@ -95,14 +95,11 @@ fn test_one_step_skips_already_terminated_nodes() {
         stop_after: None,
     };
 
-    let scheduler = Scheduler::with_stop_conditions(&dag, node4, stop_conditions);
-    let executed: Vec<_> = scheduler.iter().collect();
+    let executed: Vec<_> =
+        TopologicalOrderIter::with_stop_conditions(&dag, node4, stop_conditions).collect();
 
-    assert_eq!(executed.len(), 1, "one_step should execute only one node");
-    assert_eq!(
-        executed[0], node2,
-        "Should skip already-terminated node1 and execute node2"
-    );
+    assert_eq!(executed.len(), 1, "one_step should yield only one node");
+    assert_eq!(executed[0], node1, "yields first node regardless of state");
 }
 
 #[test]
@@ -115,12 +112,41 @@ fn test_scheduler_yields_suspended_nodes() {
     // yields all non-Terminated nodes regardless of runtime state.
     dag.set_state(node2, NodeState::Running);
 
-    let scheduler = Scheduler::new(&dag, node4);
-    let executed: Vec<_> = scheduler.iter().collect();
+    let executed: Vec<_> = TopologicalOrderIter::new(&dag, node4).collect();
 
     assert_eq!(
         executed,
         vec![node1, node2, node3, node4],
-        "Scheduler should yield all non-Terminated nodes; runtime decides whether to execute"
+        "TopologicalOrderIter yields all nodes unfiltered; spawn loop decides whether to execute"
     );
+}
+
+#[test]
+fn test_diamond_dag_valid_topological_order() {
+    // Diamond: node1 <- node2, node3 <- node4
+    //          (node4 depends on node2 and node3, both depend on node1)
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
+
+    let node1 = dag.add_node("node1".to_string(), NodeKind::Concrete);
+    let node2 = dag.add_node("node2".to_string(), NodeKind::Concrete);
+    let node3 = dag.add_node("node3".to_string(), NodeKind::Concrete);
+    let node4 = dag.add_node("node4".to_string(), NodeKind::Concrete);
+
+    dag.add_dependency(For(node2), DependsOn(node1));
+    dag.add_dependency(For(node3), DependsOn(node1));
+    dag.add_dependency(For(node4), DependsOn(node2));
+    dag.add_dependency(For(node4), DependsOn(node3));
+
+    let order: Vec<_> = TopologicalOrderIter::new(&dag, node4).collect();
+
+    assert_eq!(order.len(), 4, "all four nodes should be yielded");
+    assert_eq!(order[3], node4, "node4 must be last");
+
+    let pos: std::collections::HashMap<_, _> =
+        order.iter().enumerate().map(|(i, &h)| (h, i)).collect();
+    assert!(pos[&node1] < pos[&node2], "node1 must precede node2");
+    assert!(pos[&node1] < pos[&node3], "node1 must precede node3");
+    assert!(pos[&node2] < pos[&node4], "node2 must precede node4");
+    assert!(pos[&node3] < pos[&node4], "node3 must precede node4");
 }
