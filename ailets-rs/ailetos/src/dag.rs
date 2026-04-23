@@ -262,7 +262,8 @@ impl Dag {
             "├── "
         };
 
-        let is_suspended = ctx.suspension.is_some_and(|s| s.is_suspended(pid));
+        let is_suspended = node.state != NodeState::Terminated
+            && ctx.suspension.is_some_and(|s| s.is_suspended(pid));
 
         let state_symbol = Self::format_state_symbol(node.state, node.exit_code, ctx.use_colors);
 
