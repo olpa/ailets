@@ -104,6 +104,7 @@ fn spawn_actor_task(
             }
             Err(e) => {
                 warn!(node = ?node_handle, name = %idname, error = %e, "task error");
+                shutdown.mark_failed();
             }
         }
 
@@ -185,6 +186,7 @@ pub async fn run_with_tx<K: KVBuffers + 'static>(
                 // Terminate the node explicitly so dependents are not blocked.
                 let _ = system_tx.send(IoRequest::ActorShutdown {
                     node_handle: *node_handle,
+                    exit_code: None,
                 });
                 continue;
             };

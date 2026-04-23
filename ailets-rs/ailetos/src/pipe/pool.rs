@@ -258,12 +258,12 @@ impl<K: KVBuffers> PipePool<K> {
         Ok((writer_arc, true))
     }
 
-    /// Close all writers (realized and latent) for an actor
+    /// Close all writers (realized and latent) for an actor.
     ///
-    /// Called on actor shutdown to clean up all pipes for the actor.
-    /// - For realized writers: calls `close()` on each
-    /// - For latent writers (waiting): marks as closed and notifies waiting readers
-    pub fn close_actor_writers(&self, actor_handle: Handle) {
+    /// `exit_code`: None = clean termination, Some(e) = failed with POSIX errno e.
+    /// For realized writers with a non-None exit code, sets the error before closing
+    /// so readers see the error after consuming all written data.
+    pub fn close_actor_writers(&self, actor_handle: Handle, exit_code: Option<i32>) {
         let (writers_to_close, notifies) = {
             let mut writers = self.writers.lock();
 
@@ -295,8 +295,11 @@ impl<K: KVBuffers> PipePool<K> {
 
         // Close writers outside lock
         for (h, s, writer) in writers_to_close {
+            if let Some(e) = exit_code {
+                writer.set_error(e);
+            }
             writer.close();
-            debug!(key = ?(h, s), "closed realized writer on actor shutdown");
+            debug!(key = ?(h, s), exit_code = ?exit_code, "closed realized writer on actor shutdown");
         }
 
         // Notify latent waiters outside lock

@@ -192,8 +192,9 @@ pub enum IoRequest {
         handle: ChannelHandle,
         response: oneshot::Sender<isize>,
     },
-    /// Actor shutdown - close all writers (realized and latent) for this actor
-    ActorShutdown { node_handle: Handle },
+    /// Actor shutdown - close all writers (realized and latent) for this actor.
+    /// `exit_code`: None = clean termination, Some(e) = failed with POSIX errno e.
+    ActorShutdown { node_handle: Handle, exit_code: Option<i32> },
     /// Materialize stdin reader for an actor (creates `MergeReader`, returns `ChannelHandle`)
     /// Called on first read from stdin
     MaterializeStdin {
@@ -652,7 +653,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                                 let fut = self.handle_close(handle, response);
                                 pending_ops.push(fut);
                             }
-                            IoRequest::ActorShutdown { node_handle } => {
+                            IoRequest::ActorShutdown { node_handle, exit_code } => {
                                 let state = self.dag.read().get_node(node_handle).map(|n| n.state);
                                 if matches!(state, Some(NodeState::Terminating | NodeState::Terminated)) {
                                     debug!(node = ?node_handle, "actor shutdown - already terminating/terminated, ignoring");
@@ -660,8 +661,8 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                                     debug!(node = ?node_handle, "actor shutdown - setting state to Terminating");
                                     self.dag.write().set_state(node_handle, NodeState::Terminating);
 
-                                    debug!(node = ?node_handle, "actor shutdown - closing all writers");
-                                    self.pipe_pool.close_actor_writers(node_handle);
+                                    debug!(node = ?node_handle, exit_code = ?exit_code, "actor shutdown - closing all writers");
+                                    self.pipe_pool.close_actor_writers(node_handle, exit_code);
 
                                     debug!(node = ?node_handle, "actor shutdown - setting state to Terminated");
                                     self.dag.write().set_state(node_handle, NodeState::Terminated);

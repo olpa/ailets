@@ -5,6 +5,7 @@
 //! state (fd table) and proxies all I/O operations to `SystemRuntime`.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI32, Ordering};
 
 use actor_runtime::ActorRuntime;
 use tokio::sync::{mpsc, oneshot};
@@ -40,13 +41,23 @@ pub struct ShutdownHandle {
     node_handle: Handle,
     system_tx: mpsc::UnboundedSender<IoRequest>,
     suspension: Arc<SuspensionState>,
+    /// 0 = clean termination; non-zero = POSIX errno (e.g. 130 EOWNERDEAD)
+    exit_code: Arc<AtomicI32>,
 }
 
 impl ShutdownHandle {
+    /// Mark the actor as failed with errno 130 (EOWNERDEAD).
+    pub fn mark_failed(&self) {
+        self.exit_code.store(130, Ordering::Relaxed);
+    }
+
     fn do_shutdown(&self) {
         self.suspension.deregister(self.node_handle);
+        let code = self.exit_code.load(Ordering::Relaxed);
+        let exit_code = if code == 0 { None } else { Some(code) };
         if let Err(e) = self.system_tx.send(IoRequest::ActorShutdown {
             node_handle: self.node_handle,
+            exit_code,
         }) {
             error!(actor = ?self.node_handle, error = ?e, "shutdown: failed to send ActorShutdown notification");
         }
@@ -72,6 +83,7 @@ impl BlockingActorRuntime {
         system_tx: mpsc::UnboundedSender<IoRequest>,
         suspension: Arc<SuspensionState>,
     ) -> (Self, ShutdownHandle) {
+        let exit_code = Arc::new(AtomicI32::new(0));
         let runtime = Self {
             node_handle,
             system_tx: system_tx.clone(),
@@ -82,6 +94,7 @@ impl BlockingActorRuntime {
             node_handle,
             system_tx,
             suspension,
+            exit_code,
         };
         (runtime, shutdown)
     }
