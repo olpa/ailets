@@ -38,6 +38,8 @@ pub struct Node {
     pub kind: NodeKind,
     pub state: NodeState,
     pub explain: Option<String>,
+    /// POSIX exit code: 0 = clean exit, non-zero = error.
+    pub exit_code: i32,
 }
 
 #[derive(Debug)]
@@ -83,6 +85,7 @@ impl Dag {
             kind,
             state: NodeState::NotStarted,
             explain,
+            exit_code: 0,
         });
 
         pid
@@ -100,6 +103,12 @@ impl Dag {
     pub fn set_state(&mut self, pid: Handle, state: NodeState) {
         if let Some(node) = self.get_node_mut(pid) {
             node.state = state;
+        }
+    }
+
+    pub fn set_exit_code(&mut self, pid: Handle, exit_code: i32) {
+        if let Some(node) = self.get_node_mut(pid) {
+            node.exit_code = exit_code;
         }
     }
 
@@ -186,10 +195,11 @@ impl Dag {
         output
     }
 
-    fn format_state_symbol(state: NodeState, use_colors: bool) -> String {
+    fn format_state_symbol(state: NodeState, exit_code: i32, use_colors: bool) -> String {
         const GREEN: &str = "\x1b[32m";
         const YELLOW: &str = "\x1b[33m";
         const MAGENTA: &str = "\x1b[35m";
+        const RED: &str = "\x1b[31m";
         const RESET: &str = "\x1b[0m";
 
         if use_colors {
@@ -197,14 +207,26 @@ impl Dag {
                 NodeState::NotStarted => format!("{YELLOW}⋯ pending{RESET}"),
                 NodeState::Running => format!("{MAGENTA}⚙ running{RESET}"),
                 NodeState::Terminating => format!("{MAGENTA}⏳ terminating{RESET}"),
-                NodeState::Terminated => format!("{GREEN}✓ built{RESET}"),
+                NodeState::Terminated => {
+                    if exit_code == 0 {
+                        format!("{GREEN}✓ built{RESET}")
+                    } else {
+                        format!("{RED}✗ failed({exit_code}){RESET}")
+                    }
+                }
             }
         } else {
             match state {
                 NodeState::NotStarted => "⋯ pending".to_string(),
                 NodeState::Running => "⚙ running".to_string(),
                 NodeState::Terminating => "⏳ terminating".to_string(),
-                NodeState::Terminated => "✓ built".to_string(),
+                NodeState::Terminated => {
+                    if exit_code == 0 {
+                        "✓ built".to_string()
+                    } else {
+                        format!("✗ failed({exit_code})")
+                    }
+                }
             }
         }
     }
@@ -242,7 +264,7 @@ impl Dag {
 
         let is_suspended = ctx.suspension.is_some_and(|s| s.is_suspended(pid));
 
-        let state_symbol = Self::format_state_symbol(node.state, ctx.use_colors);
+        let state_symbol = Self::format_state_symbol(node.state, node.exit_code, ctx.use_colors);
 
         let suspended_suffix = if is_suspended { " ⏸ suspended" } else { "" };
 

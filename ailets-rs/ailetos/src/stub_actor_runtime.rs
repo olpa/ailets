@@ -53,8 +53,7 @@ impl ShutdownHandle {
 
     fn do_shutdown(&self) {
         self.suspension.deregister(self.node_handle);
-        let code = self.exit_code.load(Ordering::Relaxed);
-        let exit_code = if code == 0 { None } else { Some(code) };
+        let exit_code = self.exit_code.load(Ordering::Relaxed);
         if let Err(e) = self.system_tx.send(IoRequest::ActorShutdown {
             node_handle: self.node_handle,
             exit_code,

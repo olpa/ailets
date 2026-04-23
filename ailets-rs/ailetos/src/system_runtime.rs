@@ -193,8 +193,8 @@ pub enum IoRequest {
         response: oneshot::Sender<isize>,
     },
     /// Actor shutdown - close all writers (realized and latent) for this actor.
-    /// `exit_code`: None = clean termination, Some(e) = failed with POSIX errno e.
-    ActorShutdown { node_handle: Handle, exit_code: Option<i32> },
+    /// `exit_code`: 0 = clean termination, non-zero = POSIX errno.
+    ActorShutdown { node_handle: Handle, exit_code: i32 },
     /// Materialize stdin reader for an actor (creates `MergeReader`, returns `ChannelHandle`)
     /// Called on first read from stdin
     MaterializeStdin {
@@ -661,11 +661,15 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                                     debug!(node = ?node_handle, "actor shutdown - setting state to Terminating");
                                     self.dag.write().set_state(node_handle, NodeState::Terminating);
 
-                                    debug!(node = ?node_handle, exit_code = ?exit_code, "actor shutdown - closing all writers");
+                                    debug!(node = ?node_handle, exit_code, "actor shutdown - closing all writers");
                                     self.pipe_pool.close_actor_writers(node_handle, exit_code);
 
                                     debug!(node = ?node_handle, "actor shutdown - setting state to Terminated");
-                                    self.dag.write().set_state(node_handle, NodeState::Terminated);
+                                    {
+                                        let mut dag = self.dag.write();
+                                        dag.set_state(node_handle, NodeState::Terminated);
+                                        dag.set_exit_code(node_handle, exit_code);
+                                    }
                                     self.spawn_notify.notify_one();
                                 }
                             }

@@ -846,7 +846,7 @@ Variables:
         system_tx
             .send(IoRequest::ActorShutdown {
                 node_handle: handle,
-                exit_code: Some(exit_code),
+                exit_code,
             })
             .map_err(|_| "Failed to send kill signal (job may have completed)".to_string())?;
 
