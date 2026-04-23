@@ -91,6 +91,39 @@ async fn running_dep_no_output_yields_not_ready() {
     assert!(!is_ready_to_spawn(node, &dag, &pool));
 }
 
+// Terminated dep with non-zero exit code and no pipe → don't start
+#[tokio::test]
+async fn terminated_dep_with_error_no_output_blocks() {
+    let (mut dag, id_gen) = make_dag();
+    let (pool, _) = make_pool(&id_gen);
+
+    let dep = dag.add_node("dep".into(), NodeKind::Concrete);
+    let node = dag.add_node("node".into(), NodeKind::Concrete);
+    dag.add_dependency(For(node), DependsOn(dep));
+    dag.set_state(dep, NodeState::Terminated);
+    dag.set_exit_code(dep, 130);
+
+    assert!(!is_ready_to_spawn(node, &dag, &pool));
+}
+
+// Terminated dep with non-zero exit code even with realized pipe → don't start
+#[tokio::test]
+async fn terminated_dep_with_error_and_output_blocks() {
+    let (mut dag, id_gen) = make_dag();
+    let (pool, pool_id_gen) = make_pool(&id_gen);
+
+    let dep = dag.add_node("dep".into(), NodeKind::Concrete);
+    let node = dag.add_node("node".into(), NodeKind::Concrete);
+    dag.add_dependency(For(node), DependsOn(dep));
+    dag.set_state(dep, NodeState::Terminated);
+    dag.set_exit_code(dep, 130);
+    pool.touch_writer(dep, StdHandle::Stdout, &pool_id_gen)
+        .await
+        .unwrap();
+
+    assert!(!is_ready_to_spawn(node, &dag, &pool));
+}
+
 // Terminated dep (no pipe) then NotStarted dep → don't start
 #[tokio::test]
 async fn skip_then_not_started_blocks() {

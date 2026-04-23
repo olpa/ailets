@@ -34,14 +34,15 @@ pub struct StopConditions {
 ///
 /// Decision table (iterate concrete deps, first decisive result wins):
 ///
-/// | Dep state              | Has output (pipe realized) | Decision       |
-/// |------------------------|----------------------------|----------------|
-/// | `NotStarted`           | —                          | don't start    |
-/// | Running / Terminating  | yes                        | start          |
-/// | Running / Terminating  | no                         | don't start    |
-/// | Terminated             | yes                        | start          |
-/// | Terminated             | no                         | skip (neutral) |
-/// | (all deps exhausted)   | —                          | start          |
+/// | Dep state                      | Has output | Decision        |
+/// |--------------------------------|------------|-----------------|
+/// | `NotStarted`                   | —          | don't start     |
+/// | Running / Terminating          | yes        | start           |
+/// | Running / Terminating          | no         | don't start     |
+/// | Terminated, exit_code != 0     | —          | don't start     |
+/// | Terminated, exit_code == 0     | yes        | start           |
+/// | Terminated, exit_code == 0     | no         | skip (neutral)  |
+/// | (all deps exhausted)           | —          | start           |
 ///
 /// "Has output" is checked optimistically: a dep has output if its stdout
 /// pipe is realized (writer exists in the pool), regardless of byte count.
@@ -69,13 +70,16 @@ pub fn is_ready_to_spawn<K: KVBuffers>(
                     .is_some();
             }
             NodeState::Terminated => {
+                if dep_node.exit_code != 0 {
+                    return false;
+                }
                 if pipe_pool
                     .get_already_realized_writer((dep, StdHandle::Stdout))
                     .is_some()
                 {
                     return true;
                 }
-                // neutral: no output from this dep, continue to next
+                // neutral: clean termination with no output, continue to next dep
             }
         }
     }
