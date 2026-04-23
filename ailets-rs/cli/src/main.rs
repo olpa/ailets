@@ -11,8 +11,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ailetos::{
-    run, DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState, OpenMode,
-    StopConditions, TopologicalOrderIter,
+    run_with_tx, DependsOn, Environment, For, Handle, IoRequest, KVBuffers, MemKV, NodeState,
+    OpenMode, StopConditions, TopologicalOrderIter,
 };
 use futures::future::Abortable;
 use rustyline::config::Configurer;
@@ -22,6 +22,7 @@ use rustyline::Editor;
 struct BackgroundJob {
     thread: std::thread::JoinHandle<()>,
     abort_handle: futures::future::AbortHandle,
+    system_tx: tokio::sync::mpsc::UnboundedSender<IoRequest>,
 }
 
 struct DagShell {
@@ -122,7 +123,7 @@ Execution:
 
 Job Control:
   fg                                  Wait for background job to complete
-  kill <node>                         Kill a specific actor
+  kill [-N] <node>                    Kill actor with exit code N (default 130)
 
 I/O:
   cat <node>                          Show output of a node
@@ -418,24 +419,51 @@ Variables:
 
         let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
         let (ctrlc_abort_handle, ctrlc_abort_reg) = futures::future::AbortHandle::new_pair();
+        let (ready_tx, ready_rx) =
+            std::sync::mpsc::channel::<Result<tokio::sync::mpsc::UnboundedSender<IoRequest>, String>>();
 
-        // Start the run in a background thread with abort capability
         let thread = std::thread::spawn(move || {
             tracing::info!("Foreground thread starting");
             let Ok(rt) = tokio::runtime::Runtime::new() else {
-                tracing::error!("Failed to create tokio runtime");
+                ready_tx
+                    .send(Err("Failed to create tokio runtime".to_string()))
+                    .ok();
                 return;
             };
-            let future = run(&*run_handle, handle, stop_conditions);
-            tracing::info!("About to run environment");
-            let result = rt.block_on(Abortable::new(future, abort_registration));
-
-            if let Ok(()) = result {
-                tracing::info!("Run completed");
-            } else {
-                tracing::info!("Run aborted");
-            }
+            rt.block_on(async move {
+                let (stx_tx, stx_rx) = tokio::sync::oneshot::channel();
+                tokio::spawn(async move {
+                    match stx_rx.await {
+                        Ok(stx) => ready_tx.send(Ok(stx)).ok(),
+                        Err(_) => ready_tx
+                            .send(Err("System runtime failed to start".to_string()))
+                            .ok(),
+                    };
+                });
+                let future = run_with_tx(&*run_handle, handle, stop_conditions, Some(stx_tx));
+                tracing::info!("About to run environment");
+                let result = Abortable::new(future, abort_registration).await;
+                if let Ok(()) = result {
+                    tracing::info!("Run completed");
+                } else {
+                    tracing::info!("Run aborted");
+                }
+            });
         });
+
+        // Wait for system runtime to be ready before entering the Ctrl+C loop
+        let system_tx = match ready_rx.recv() {
+            Ok(Ok(stx)) => stx,
+            Ok(Err(e)) => {
+                thread.join().ok();
+                return Err(e);
+            }
+            Err(_) => {
+                // Thread finished before relaying system_tx (instant job)
+                thread.join().ok();
+                return Ok(());
+            }
+        };
 
         // Create a channel to signal when Ctrl+C is pressed
         let (tx, rx) = std::sync::mpsc::channel();
@@ -459,6 +487,7 @@ Variables:
         let mut job = Some(BackgroundJob {
             thread,
             abort_handle,
+            system_tx,
         });
 
         loop {
@@ -502,30 +531,39 @@ Variables:
         let run_handle = Arc::new(self.env.make_run_handle());
 
         let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
-        let (started_tx, started_rx) = std::sync::mpsc::channel::<Result<(), String>>();
+        let (ready_tx, ready_rx) =
+            std::sync::mpsc::channel::<Result<tokio::sync::mpsc::UnboundedSender<IoRequest>, String>>();
 
         let thread = std::thread::spawn(move || {
             tracing::info!("Background thread starting");
             let Ok(rt) = tokio::runtime::Runtime::new() else {
-                started_tx
+                ready_tx
                     .send(Err("Failed to create tokio runtime".to_string()))
                     .ok();
                 return;
             };
-            started_tx.send(Ok(())).ok();
-
-            let future = run(&*run_handle, handle, stop_conditions);
-            let result = rt.block_on(Abortable::new(future, abort_registration));
-
-            if let Ok(()) = result {
-                tracing::info!("Background job completed");
-            } else {
-                tracing::info!("Background job aborted");
-            }
+            rt.block_on(async move {
+                let (stx_tx, stx_rx) = tokio::sync::oneshot::channel();
+                tokio::spawn(async move {
+                    match stx_rx.await {
+                        Ok(stx) => ready_tx.send(Ok(stx)).ok(),
+                        Err(_) => ready_tx
+                            .send(Err("System runtime failed to start".to_string()))
+                            .ok(),
+                    };
+                });
+                let future = run_with_tx(&*run_handle, handle, stop_conditions, Some(stx_tx));
+                let result = Abortable::new(future, abort_registration).await;
+                if let Ok(()) = result {
+                    tracing::info!("Background job completed");
+                } else {
+                    tracing::info!("Background job aborted");
+                }
+            });
         });
 
-        match started_rx.recv() {
-            Ok(Ok(())) => {}
+        let system_tx = match ready_rx.recv() {
+            Ok(Ok(stx)) => stx,
             Ok(Err(e)) => {
                 thread.join().ok();
                 return Err(e);
@@ -534,11 +572,12 @@ Variables:
                 thread.join().ok();
                 return Err("Background thread exited before signalling ready".to_string());
             }
-        }
+        };
 
         self.bg_job = Some(BackgroundJob {
             thread,
             abort_handle,
+            system_tx,
         });
 
         println!("Started background run (use 'fg' to wait, 'kill' to terminate)");
@@ -783,13 +822,35 @@ Variables:
     }
 
     fn cmd_kill(&mut self, args: &[&str]) -> Result<(), String> {
-        let handle_str = args.first().ok_or("Usage: kill <node>")?;
+        let (exit_code, handle_str) = match args {
+            [flag, node] if flag.starts_with('-') => {
+                let code: i32 = flag[1..]
+                    .parse()
+                    .map_err(|_| format!("Invalid exit code: {flag}"))?;
+                (code, *node)
+            }
+            [node] => (130, *node), // 130 = EOWNERDEAD
+            _ => return Err("Usage: kill [-N] <node>".to_string()),
+        };
+
         let handle = self
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
-        // REVIEW: placeholder — should close files with EOWNERDEAD per spec://errors.md#actor-to-files
-        self.env.suspension.suspend(handle);
-        println!("Killed node {}", handle.id());
+
+        let system_tx = self
+            .bg_job
+            .as_ref()
+            .map(|j| &j.system_tx)
+            .ok_or("No background job running")?;
+
+        system_tx
+            .send(IoRequest::ActorShutdown {
+                node_handle: handle,
+                exit_code: Some(exit_code),
+            })
+            .map_err(|_| "Failed to send kill signal (job may have completed)".to_string())?;
+
+        println!("Killed node {} with exit code {}", handle.id(), exit_code);
         Ok(())
     }
 }
