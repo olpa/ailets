@@ -4,6 +4,7 @@ use ailetos::idgen::{Handle, IdGen};
 use ailetos::pipe::{pipe_path, PipePool};
 use ailetos::storage::memkv::MemKV;
 use ailetos::storage::KVBuffers;
+use ailetos::{EOWNERDEAD, EPIPE};
 use parking_lot::RwLock;
 use std::sync::Arc;
 use std::time::Duration;
@@ -1312,4 +1313,38 @@ async fn test_race_reader_loop_and_recheck() {
     let mut buf = vec![0u8; 100];
     let n = reader.read(&mut buf).await;
     assert!(n > 0, "Should be able to read data from the pipe");
+}
+
+// close_actor_writers with non-zero exit code: reader drains buffered data then sees EPIPE
+#[tokio::test]
+async fn test_close_actor_writers_with_error_reader_sees_epipe() {
+    let (pool, _, id_gen, _) = create_test_pool();
+    let actor_handle = Handle::new(1);
+    let std_handle = StdHandle::Stdout;
+
+    let (writer, _) = pool
+        .touch_writer(actor_handle, std_handle, &id_gen)
+        .await
+        .expect("Failed to create writer");
+
+    writer.write(b"buffered");
+
+    let mut reader = pool
+        .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
+        .await
+        .expect("Failed to create reader");
+
+    // Actor fails: close_actor_writers propagates EOWNERDEAD to the writer
+    pool.close_actor_writers(actor_handle, EOWNERDEAD);
+
+    // Reader drains the buffered data first
+    let mut buf = [0u8; 64];
+    let n = reader.read(&mut buf).await;
+    assert_eq!(n, 8);
+    assert_eq!(&buf[..8], b"buffered");
+
+    // After drain, reader receives EPIPE (not EOWNERDEAD)
+    let n = reader.read(&mut buf).await;
+    assert_eq!(n, -1);
+    assert_eq!(reader.get_error(), EPIPE);
 }

@@ -174,10 +174,11 @@ pub enum IoRequest {
     /// Read from a channel (async operation)
     /// SAFETY: The buffer pointer must remain valid until the response is sent.
     /// This is guaranteed because `aread()` blocks waiting for the response.
+    /// Response is `(bytes_read, errno)`: errno is non-zero only when bytes_read < 0.
     Read {
         handle: ChannelHandle,
         buffer: SendableBuffer,
-        response: oneshot::Sender<isize>,
+        response: oneshot::Sender<(isize, i32)>,
     },
     /// Write to an actor's output pipe (async operation)
     /// Uses `node_handle` + `std_handle` to write directly to `PipePool`
@@ -217,7 +218,9 @@ pub enum IoEvent<K: KVBuffers> {
         handle: ChannelHandle,
         reader: MergeReader<K>,
         bytes_read: isize,
-        response: oneshot::Sender<isize>,
+        /// errno when bytes_read < 0, else 0
+        errno: i32,
+        response: oneshot::Sender<(isize, i32)>,
     },
     /// Synchronous operation completed (write, open, close)
     SyncComplete {
@@ -381,7 +384,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         &mut self,
         handle: ChannelHandle,
         buffer: SendableBuffer,
-        response: oneshot::Sender<isize>,
+        response: oneshot::Sender<(isize, i32)>,
     ) -> IoFuture<K> {
         if let Some(Channel::Reader(reader_slot)) = self.channels.get_mut(&handle) {
             if let Some(mut reader) = reader_slot.take() {
@@ -390,31 +393,29 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                     // SAFETY: Buffer remains valid because aread() blocks until response
                     let buf = unsafe { &mut *buffer.into_raw() };
                     let bytes_read = reader.read(buf).await;
+                    let errno = if bytes_read < 0 { reader.get_error() } else { 0 };
                     IoEvent::ReadComplete {
                         handle,
                         reader,
                         bytes_read,
+                        errno,
                         response,
                     }
                 })
             } else {
                 warn!(channel = ?handle, "reader not available (already in use?)");
-                // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
                 Box::pin(async move {
-                    IoEvent::SyncComplete {
-                        result: 0,
-                        response,
-                    }
+                    let _ = response.send((0, 0));
+                    let (dummy_tx, _) = oneshot::channel();
+                    IoEvent::SyncComplete { result: 0, response: dummy_tx }
                 })
             }
         } else {
             warn!(channel = ?handle, "channel not found or not a reader");
-            // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
             Box::pin(async move {
-                IoEvent::SyncComplete {
-                    result: 0,
-                    response,
-                }
+                let _ = response.send((0, 0));
+                let (dummy_tx, _) = oneshot::channel();
+                IoEvent::SyncComplete { result: 0, response: dummy_tx }
             })
         }
     }
@@ -600,13 +601,14 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         handle: ChannelHandle,
         reader: MergeReader<K>,
         bytes_read: isize,
-        response: oneshot::Sender<isize>,
+        errno: i32,
+        response: oneshot::Sender<(isize, i32)>,
     ) {
         // Put reader back into the channel
         if let Some(Channel::Reader(slot)) = self.channels.get_mut(&handle) {
             *slot = Some(reader);
         }
-        let _ = response.send(bytes_read);
+        let _ = response.send((bytes_read, errno));
     }
 
     /// Handler for `SyncComplete` events
@@ -691,8 +693,8 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                 // Handle completed operations
                 Some(event) = pending_ops.next(), if !pending_ops.is_empty() => {
                     match event {
-                        IoEvent::ReadComplete { handle, reader, bytes_read, response } => {
-                            self.handle_read_complete(handle, reader, bytes_read, response);
+                        IoEvent::ReadComplete { handle, reader, bytes_read, errno, response } => {
+                            self.handle_read_complete(handle, reader, bytes_read, errno, response);
                         }
                         IoEvent::SyncComplete { result, response } => {
                             Self::handle_sync_complete(result, response);

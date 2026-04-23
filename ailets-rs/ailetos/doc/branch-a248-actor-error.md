@@ -16,22 +16,24 @@ Spec reference: `spec://errors`
 
 ## Deferred
 
-- [ ] Unit test: `close_actor_writers` with error code — reader sees error after data
-  — `tests/pipe/pool.rs`
+- [x] Unit test: `close_actor_writers` with error code — reader sees error after data
+  — `test_close_actor_writers_with_error_reader_sees_epipe` in `tests/pipe/pool.rs`
 
 - [x] `writer-to-reader` EPIPE transformation (`spec://errors#writer-to-reader`)
   — `Reader::get_error()` now returns 32 when writer has non-zero errno
   — updated 3 existing tests + added `test_writer_error_transformed_to_epipe`
   — `src/pipe/reader.rs`
 
-- [ ] `reader-to-actor` propagation (`spec://errors#reader-to-actor`)
-  — when actor reads 32 (`EPIPE`), it should fail and its output files close with 32
-  — requires: accurate `get_errno()` in `BlockingActorRuntime`
+- [x] `reader-to-actor` propagation (`spec://errors#reader-to-actor`)
+  — `IoRequest::Read` response now carries `(isize, i32)` (bytes_read, errno)
+  — `aread()` stores errno in `last_read_errno: Arc<AtomicI32>` on failure
+  — `mark_failed()` uses `last_read_errno` if set, else falls back to EOWNERDEAD
+  — `MergeReader::get_error()` added; `handle_read` captures it after read
+  — `tests/reader_to_actor.rs`: 3 tests covering get_errno, mark_failed with EPIPE/EOWNERDEAD
+
+- [x] Per-call `get_errno` in `BlockingActorRuntime` (`src/stub_actor_runtime.rs`)
+  — `get_errno()` returns `last_read_errno` (shared Arc with ShutdownHandle)
 
 - [ ] Backward propagation (`spec://errors#backward-propagation`)
   — when all readers of a file close, writer receives 32 (`EPIPE`) on next write
   — requires: reader-count tracking in `PipePool`
-
-- [ ] Per-call `get_errno` in `BlockingActorRuntime` (`src/stub_actor_runtime.rs`)
-  — currently always returns 0
-  — needed for actors to distinguish error types after failed reads/writes

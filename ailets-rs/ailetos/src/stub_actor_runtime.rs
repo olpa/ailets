@@ -30,6 +30,8 @@ pub struct BlockingActorRuntime {
     fd_table: std::sync::Mutex<FdTable>,
     /// Shared suspension state (owned by Environment)
     suspension: Arc<SuspensionState>,
+    /// errno from the last failed read (0 = no error); shared with ShutdownHandle
+    last_read_errno: Arc<AtomicI32>,
 }
 
 /// Lifecycle handle that notifies `SystemRuntime` when an actor is done.
@@ -44,12 +46,19 @@ pub struct ShutdownHandle {
     suspension: Arc<SuspensionState>,
     /// 0 = clean termination; non-zero = POSIX errno
     exit_code: Arc<AtomicI32>,
+    /// errno from the last failed read; shared with BlockingActorRuntime
+    last_read_errno: Arc<AtomicI32>,
 }
 
 impl ShutdownHandle {
-    /// Mark the actor as failed with `EOWNERDEAD`.
+    /// Mark the actor as failed.
+    ///
+    /// Uses the errno from the last failed read if set (per spec://errors#reader-to-actor),
+    /// otherwise falls back to EOWNERDEAD.
     pub fn mark_failed(&self) {
-        self.exit_code.store(EOWNERDEAD, Ordering::Relaxed);
+        let read_errno = self.last_read_errno.load(Ordering::Relaxed);
+        let code = if read_errno != 0 { read_errno } else { EOWNERDEAD };
+        self.exit_code.store(code, Ordering::Relaxed);
     }
 
     fn do_shutdown(&self) {
@@ -84,17 +93,20 @@ impl BlockingActorRuntime {
         suspension: Arc<SuspensionState>,
     ) -> (Self, ShutdownHandle) {
         let exit_code = Arc::new(AtomicI32::new(0));
+        let last_read_errno = Arc::new(AtomicI32::new(0));
         let runtime = Self {
             node_handle,
             system_tx: system_tx.clone(),
             fd_table: std::sync::Mutex::new(FdTable::new()),
             suspension: Arc::clone(&suspension),
+            last_read_errno: Arc::clone(&last_read_errno),
         };
         let shutdown = ShutdownHandle {
             node_handle,
             system_tx,
             suspension,
             exit_code,
+            last_read_errno,
         };
         (runtime, shutdown)
     }
@@ -137,7 +149,7 @@ impl BlockingActorRuntime {
 
 impl ActorRuntime for BlockingActorRuntime {
     fn get_errno(&self) -> isize {
-        0 // No error
+        self.last_read_errno.load(Ordering::Relaxed) as isize
     }
 
     fn open_read(&self, _name: &str) -> isize {
@@ -252,9 +264,6 @@ impl ActorRuntime for BlockingActorRuntime {
         // Yield if suspended before issuing the read
         self.yield_if_suspended();
 
-        // Send request to SystemRuntime and block for response
-        let (tx, rx) = oneshot::channel();
-
         // SAFETY: We're passing a raw pointer to our buffer and will block until
         // the handler finishes using it. The buffer remains valid because:
         // 1. Our stack frame stays alive (we block via blocking_recv)
@@ -262,6 +271,8 @@ impl ActorRuntime for BlockingActorRuntime {
         // 3. The channel ensures happens-before ordering
         // 4. The SendableBuffer is consumed exactly once in the handler
         let buffer_ptr = unsafe { SendableBuffer::new(buffer) };
+
+        let (tx, rx) = oneshot::channel::<(isize, i32)>();
 
         if let Err(e) = self.system_tx.send(IoRequest::Read {
             handle: channel_handle,
@@ -273,13 +284,17 @@ impl ActorRuntime for BlockingActorRuntime {
         }
 
         // Block waiting for SystemRuntime to complete the async read
-        let result = match rx.blocking_recv() {
-            Ok(n) => n,
+        let (result, errno) = match rx.blocking_recv() {
+            Ok(pair) => pair,
             Err(e) => {
                 error!(actor = ?self.node_handle, fd = fd, error = ?e, "aread: failed to receive response");
                 return -1;
             }
         };
+
+        if result < 0 && errno != 0 {
+            self.last_read_errno.store(errno, Ordering::Relaxed);
+        }
 
         // Yield if suspended after the read completes
         self.yield_if_suspended();
