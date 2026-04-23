@@ -122,7 +122,7 @@ Execution:
 
 Job Control:
   fg                                  Wait for background job to complete
-  kill                                Terminate background job
+  kill <node>                         Kill a specific actor
 
 I/O:
   cat <node>                          Show output of a node
@@ -782,16 +782,15 @@ Variables:
         }
     }
 
-    fn cmd_kill(&mut self, _args: &[&str]) -> Result<(), String> {
-        if let Some(job) = self.bg_job.take() {
-            println!("Killing background job...");
-            job.abort_handle.abort();
-            job.thread.join().ok(); // Ignore join errors
-            println!("Job killed");
-            Ok(())
-        } else {
-            Err("No background job running".to_string())
-        }
+    fn cmd_kill(&mut self, args: &[&str]) -> Result<(), String> {
+        let handle_str = args.first().ok_or("Usage: kill <node>")?;
+        let handle = self
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+        // REVIEW: placeholder — should close files with EOWNERDEAD per spec://errors.md#actor-to-files
+        self.env.suspension.suspend(handle);
+        println!("Killed node {}", handle.id());
+        Ok(())
     }
 }
 

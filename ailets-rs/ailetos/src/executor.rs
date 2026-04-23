@@ -9,6 +9,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, warn};
 
 use crate::dag::{Dag, NodeKind, NodeState};
@@ -117,6 +118,16 @@ pub async fn run<K: KVBuffers + 'static>(
     target: Handle,
     stop_conditions: StopConditions,
 ) {
+    run_with_tx(run_handle, target, stop_conditions, None).await;
+}
+
+/// Like `run`, but sends `system_tx` back via `tx_out` once the system runtime is ready.
+pub async fn run_with_tx<K: KVBuffers + 'static>(
+    run_handle: &RunHandle<K>,
+    target: Handle,
+    stop_conditions: StopConditions,
+    tx_out: Option<oneshot::Sender<mpsc::UnboundedSender<IoRequest>>>,
+) {
     let pipe_pool = Arc::new(PipePool::new(Arc::clone(&run_handle.kv)));
 
     let system_runtime = SystemRuntime::new(
@@ -133,6 +144,10 @@ pub async fn run<K: KVBuffers + 'static>(
         error!("Failed to get system_tx - system runtime already started");
         return;
     };
+
+    if let Some(sender) = tx_out {
+        sender.send(system_tx.clone()).ok();
+    }
 
     let system_task = tokio::spawn(async move {
         system_runtime.run().await;
