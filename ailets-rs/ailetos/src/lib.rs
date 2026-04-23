@@ -1,4 +1,5 @@
 pub mod attachments;
+pub mod errno;
 pub mod dag;
 pub mod environment;
 pub mod executor;
@@ -50,3 +51,6 @@ pub use suspension::SuspensionState;
 
 // Re-export executor
 pub use executor::{is_ready_to_spawn, run, run_with_tx, StopConditions, TopologicalOrderIter};
+
+// Re-export errno constants
+pub use errno::{EOWNERDEAD, EPIPE};

@@ -12,7 +12,7 @@ use std::sync::Arc;
 
 use ailetos::{
     run_with_tx, DependsOn, Environment, For, Handle, IoRequest, KVBuffers, MemKV, NodeState,
-    OpenMode, StopConditions, TopologicalOrderIter,
+    OpenMode, StopConditions, TopologicalOrderIter, EOWNERDEAD,
 };
 use futures::future::Abortable;
 use rustyline::config::Configurer;
@@ -829,7 +829,7 @@ Variables:
                     .map_err(|_| format!("Invalid exit code: {flag}"))?;
                 (code, *node)
             }
-            [node] => (130, *node), // 130 = EOWNERDEAD
+            [node] => (EOWNERDEAD, *node),
             _ => return Err("Usage: kill [-N] <node>".to_string()),
         };
 

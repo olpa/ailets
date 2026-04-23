@@ -5,6 +5,7 @@ use std::fmt;
 use std::sync::Arc;
 use tracing::{error, trace};
 
+use crate::errno::EPIPE;
 use crate::idgen::Handle;
 use crate::notification_queue::NotificationQueueArc;
 
@@ -87,13 +88,17 @@ impl Reader {
     }
 
     /// Get current error state (checks own error first, then writer error)
+    ///
+    /// Per `spec://errors#writer-to-reader`: when the writer closed with a non-zero
+    /// errno, this reader always reports EPIPE (32) regardless of the writer's actual
+    /// error code.
     #[must_use]
     pub fn get_error(&self) -> i32 {
         if self.own_errno != 0 {
-            self.own_errno
-        } else {
-            self.buffer.lock().errno
+            return self.own_errno;
         }
+        let writer_errno = self.buffer.lock().errno;
+        if writer_errno != 0 { EPIPE } else { 0 }
     }
 
     /// Set reader's own error state (does not notify)

@@ -11,6 +11,7 @@ use actor_runtime::ActorRuntime;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{error, warn};
 
+use crate::errno::EOWNERDEAD;
 use crate::fd_table::{FdEntry, FdTable};
 use crate::idgen::Handle;
 use crate::suspension::SuspensionState;
@@ -41,14 +42,14 @@ pub struct ShutdownHandle {
     node_handle: Handle,
     system_tx: mpsc::UnboundedSender<IoRequest>,
     suspension: Arc<SuspensionState>,
-    /// 0 = clean termination; non-zero = POSIX errno (e.g. 130 EOWNERDEAD)
+    /// 0 = clean termination; non-zero = POSIX errno
     exit_code: Arc<AtomicI32>,
 }
 
 impl ShutdownHandle {
-    /// Mark the actor as failed with errno 130 (EOWNERDEAD).
+    /// Mark the actor as failed with `EOWNERDEAD`.
     pub fn mark_failed(&self) {
-        self.exit_code.store(130, Ordering::Relaxed);
+        self.exit_code.store(EOWNERDEAD, Ordering::Relaxed);
     }
 
     fn do_shutdown(&self) {

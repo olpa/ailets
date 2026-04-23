@@ -6,6 +6,7 @@ use ailetos::idgen::IdGen;
 use ailetos::is_ready_to_spawn;
 use ailetos::pipe::PipePool;
 use ailetos::storage::MemKV;
+use ailetos::EOWNERDEAD;
 
 fn make_dag() -> (Dag, Arc<IdGen>) {
     let id_gen = Arc::new(IdGen::new());
@@ -101,7 +102,7 @@ async fn terminated_dep_with_error_no_output_blocks() {
     let node = dag.add_node("node".into(), NodeKind::Concrete);
     dag.add_dependency(For(node), DependsOn(dep));
     dag.set_state(dep, NodeState::Terminated);
-    dag.set_exit_code(dep, 130);
+    dag.set_exit_code(dep, EOWNERDEAD);
 
     assert!(!is_ready_to_spawn(node, &dag, &pool));
 }
@@ -116,7 +117,7 @@ async fn terminated_dep_with_error_and_output_blocks() {
     let node = dag.add_node("node".into(), NodeKind::Concrete);
     dag.add_dependency(For(node), DependsOn(dep));
     dag.set_state(dep, NodeState::Terminated);
-    dag.set_exit_code(dep, 130);
+    dag.set_exit_code(dep, EOWNERDEAD);
     pool.touch_writer(dep, StdHandle::Stdout, &pool_id_gen)
         .await
         .unwrap();

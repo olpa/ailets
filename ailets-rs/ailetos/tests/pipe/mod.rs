@@ -1,7 +1,7 @@
 use ailetos::idgen::Handle;
 use ailetos::notification_queue::NotificationQueueArc;
 use ailetos::pipe::{Reader, Writer};
-use ailetos::Buffer;
+use ailetos::{Buffer, EOWNERDEAD, EPIPE};
 
 #[tokio::test]
 async fn test_write_read() {
@@ -337,8 +337,8 @@ async fn test_reader_get_writer_error() {
     // Writer sets error
     writer.set_error(99);
 
-    // Reader should see writer's error
-    assert_eq!(reader.get_error(), 99);
+    // Reader should see EPIPE, not the writer's raw errno
+    assert_eq!(reader.get_error(), EPIPE);
 }
 
 #[tokio::test]
@@ -362,10 +362,10 @@ async fn test_reader_read_with_writer_error() {
     // Writer sets error
     writer.set_error(88);
 
-    // Next read should return -1 (error)
+    // Next read should return -1 (error) with EPIPE, not the writer's raw errno
     let result = reader.read(&mut buf).await;
     assert_eq!(result, -1);
-    assert_eq!(reader.get_error(), 88);
+    assert_eq!(reader.get_error(), EPIPE);
 }
 
 #[tokio::test]
@@ -390,10 +390,10 @@ async fn test_reader_drains_buffer_before_error() {
     assert_eq!(result, 8);
     assert_eq!(&buf[..8], b"buffered");
 
-    // Now that buffer is drained, next read should return error
+    // Now that buffer is drained, next read should return EPIPE
     let result = reader.read(&mut buf).await;
     assert_eq!(result, -1);
-    assert_eq!(reader.get_error(), 77);
+    assert_eq!(reader.get_error(), EPIPE);
 }
 
 #[tokio::test]
@@ -454,6 +454,32 @@ async fn test_reader_own_error_takes_precedence() {
     let result = reader.read(&mut buf).await;
     assert_eq!(result, -1);
     assert_eq!(reader.get_error(), 10);
+}
+
+// Writer-to-reader EPIPE transformation: reader always sees EPIPE regardless of writer's errno
+#[tokio::test]
+async fn test_writer_error_transformed_to_epipe() {
+    let queue = NotificationQueueArc::new();
+    let writer_handle = Handle::new(1);
+    let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
+
+    let shared_data = writer.share_with_reader();
+    let mut reader = Reader::new(Handle::new(2), shared_data);
+
+    assert_eq!(writer.write(b"data"), 4);
+    // Writer closes with EOWNERDEAD — typical actor failure code
+    writer.set_error(EOWNERDEAD);
+    writer.close();
+
+    // Reader drains buffered data first
+    let mut buf = [0u8; 10];
+    let result = reader.read(&mut buf).await;
+    assert_eq!(result, 4);
+
+    // After drain, reader sees EPIPE, not EOWNERDEAD
+    let result = reader.read(&mut buf).await;
+    assert_eq!(result, -1);
+    assert_eq!(reader.get_error(), EPIPE);
 }
 
 #[tokio::test]

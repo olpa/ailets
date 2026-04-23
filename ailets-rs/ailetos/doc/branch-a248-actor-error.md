@@ -2,34 +2,26 @@
 
 Spec reference: `spec://errors`
 
-## Milestone: Error codes for terminated actors (no auto-close)
+## Milestone: Error codes for terminated actors (no auto-close) ✓
 
-### Tasks
-
-- [x] Add `exit_code: Option<i32>` to `IoRequest::ActorShutdown`
-  — `src/system_runtime.rs`
-
-- [x] `ShutdownHandle`: store exit code, expose `mark_failed()`
-  — `src/stub_actor_runtime.rs`
-  — add `exit_code: Arc<AtomicI32>` (default 0 = clean)
-  — `mark_failed()` sets 130 (`EOWNERDEAD`)
-  — `do_shutdown()` reads and forwards exit code
-
-- [x] `spawn_actor_task`: call `shutdown.mark_failed()` on actor `Err`
-  — `src/executor.rs`
-
-- [x] `PipePool::close_actor_writers`: accept and apply `exit_code: Option<i32>`
-  — `src/pipe/pool.rs`
-  — for realized writers: call `writer.set_error(e)` before `writer.close()`
-
+- [x] Add `exit_code: i32` to `IoRequest::ActorShutdown` (0 = clean)
+- [x] `ShutdownHandle`: store exit code, `mark_failed()` sets 130 (`EOWNERDEAD`)
+- [x] `spawn_actor_task`: call `mark_failed()` on actor `Err`
+- [x] `PipePool::close_actor_writers`: set `writer.set_error(e)` before close
 - [x] `SystemRuntime` shutdown handler: pass exit code to `close_actor_writers`
-  — `src/system_runtime.rs`
+- [x] `Node.exit_code: i32`: recorded on shutdown, shown in dag dump
+- [x] Dag dump: red `✗ failed(N)` for non-zero exit code; hide suspended badge on terminated nodes
+- [x] `dagsh kill [-N] <node>`: sends `ActorShutdown` with exit code N (default 130)
+- [x] `is_ready_to_spawn`: return false when a dep terminated with non-zero exit code
 
-### Deferred
+## Deferred
 
-- [ ] `writer-to-reader` EPIPE transformation (`spec://errors#writer-to-reader`)
-  — readers currently see the writer's errno (e.g. 130) instead of 32 (`EPIPE`)
-  — `Reader::get_error()` should return 32 when writer errno is non-zero
+- [ ] Unit test: `close_actor_writers` with error code — reader sees error after data
+  — `tests/pipe/pool.rs`
+
+- [x] `writer-to-reader` EPIPE transformation (`spec://errors#writer-to-reader`)
+  — `Reader::get_error()` now returns 32 when writer has non-zero errno
+  — updated 3 existing tests + added `test_writer_error_transformed_to_epipe`
   — `src/pipe/reader.rs`
 
 - [ ] `reader-to-actor` propagation (`spec://errors#reader-to-actor`)
