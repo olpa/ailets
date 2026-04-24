@@ -34,6 +34,7 @@ Spec reference: `spec://errors`
 - [x] Per-call `get_errno` in `BlockingActorRuntime` (`src/stub_actor_runtime.rs`)
   — `get_errno()` returns `last_read_errno` (shared Arc with ShutdownHandle)
 
-- [ ] Backward propagation (`spec://errors#backward-propagation`)
-  — when all readers of a file close, writer receives 32 (`EPIPE`) on next write
-  — requires: reader-count tracking in `PipePool`
+- [x] Backward propagation (`spec://errors#backward-propagation`)
+  — `SharedBuffer.reader_count` tracks live readers; `Reader::close()` decrements it
+  — when count reaches 0 (writer still open, no prior error), sets `errno = EPIPE` on the shared buffer
+  — 3 tests in `tests/pipe/pool.rs`: single reader, no readers, multiple readers

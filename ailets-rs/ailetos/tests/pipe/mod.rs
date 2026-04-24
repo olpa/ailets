@@ -9,8 +9,8 @@ async fn test_write_read() {
     let writer_handle = Handle::new(1);
 
     let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
-    let shared_data = writer.share_with_reader();
-    let mut reader = Reader::new(Handle::new(2), shared_data);
+    let (shared_data, guard) = writer.share_with_reader();
+    let mut reader = Reader::new(Handle::new(2), shared_data, guard);
     let _reader_handle = *reader.handle();
 
     // Write some data
@@ -32,8 +32,8 @@ async fn test_multiple_write_read_cycles() {
     let writer_handle = Handle::new(1);
     let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
 
-    let shared_data = writer.share_with_reader();
-    let mut reader = Reader::new(Handle::new(2), shared_data);
+    let (shared_data, guard) = writer.share_with_reader();
+    let mut reader = Reader::new(Handle::new(2), shared_data, guard);
 
     // Cycle 1: write-write-read
     assert_eq!(writer.write(b"Hello"), 5);
@@ -82,10 +82,11 @@ async fn test_multiple_readers() {
 
     let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
 
-    let shared_data = writer.share_with_reader();
-    let mut reader1 = Reader::new(Handle::new(2), shared_data.clone());
+    let (shared_data1, guard1) = writer.share_with_reader();
+    let mut reader1 = Reader::new(Handle::new(2), shared_data1, guard1);
     let _reader1_handle = *reader1.handle();
-    let mut reader2 = Reader::new(Handle::new(3), shared_data);
+    let (shared_data2, guard2) = writer.share_with_reader();
+    let mut reader2 = Reader::new(Handle::new(3), shared_data2, guard2);
     let _reader2_handle = *reader2.handle();
 
     // Write data
@@ -216,8 +217,8 @@ async fn test_empty_write_does_not_wake_waiting_reader() {
     let writer_handle = Handle::new(1);
     let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
 
-    let shared_data = writer.share_with_reader();
-    let mut reader = Reader::new(Handle::new(2), shared_data);
+    let (shared_data, guard) = writer.share_with_reader();
+    let mut reader = Reader::new(Handle::new(2), shared_data, guard);
 
     // Subscribe to writer's handle to observe notifications
     let mut subscriber = queue
@@ -303,8 +304,8 @@ async fn test_reader_dont_read_when_error() {
     let writer_handle = Handle::new(1);
     let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
 
-    let shared_data = writer.share_with_reader();
-    let mut reader = Reader::new(Handle::new(2), shared_data);
+    let (shared_data, guard) = writer.share_with_reader();
+    let mut reader = Reader::new(Handle::new(2), shared_data, guard);
 
     // Write some data
     assert_eq!(writer.write(b"hello"), 5);
@@ -331,8 +332,8 @@ async fn test_reader_get_writer_error() {
     let writer_handle = Handle::new(1);
     let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
 
-    let shared_data = writer.share_with_reader();
-    let reader = Reader::new(Handle::new(2), shared_data);
+    let (shared_data, guard) = writer.share_with_reader();
+    let reader = Reader::new(Handle::new(2), shared_data, guard);
 
     // Writer sets error
     writer.set_error(99);
@@ -347,8 +348,8 @@ async fn test_reader_read_with_writer_error() {
     let writer_handle = Handle::new(1);
     let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
 
-    let shared_data = writer.share_with_reader();
-    let mut reader = Reader::new(Handle::new(2), shared_data);
+    let (shared_data, guard) = writer.share_with_reader();
+    let mut reader = Reader::new(Handle::new(2), shared_data, guard);
 
     // Write some data
     assert_eq!(writer.write(b"test"), 4);
@@ -381,8 +382,8 @@ async fn test_reader_drains_buffer_before_error() {
     writer.set_error(77);
 
     // Create reader after error is set
-    let shared_data = writer.share_with_reader();
-    let mut reader = Reader::new(Handle::new(2), shared_data);
+    let (shared_data, guard) = writer.share_with_reader();
+    let mut reader = Reader::new(Handle::new(2), shared_data, guard);
 
     // Reader should still be able to read the buffered data
     let mut buf = [0u8; 10];
@@ -402,8 +403,8 @@ async fn test_writer_error_notifies_reader() {
     let writer_handle = Handle::new(1);
     let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
 
-    let shared_data = writer.share_with_reader();
-    let mut reader = Reader::new(Handle::new(2), shared_data);
+    let (shared_data, guard) = writer.share_with_reader();
+    let mut reader = Reader::new(Handle::new(2), shared_data, guard);
 
     // Subscribe to writer's handle to observe when notification is sent
     let mut subscriber = queue
@@ -437,8 +438,8 @@ async fn test_reader_own_error_takes_precedence() {
     let writer_handle = Handle::new(1);
     let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
 
-    let shared_data = writer.share_with_reader();
-    let mut reader = Reader::new(Handle::new(2), shared_data);
+    let (shared_data, guard) = writer.share_with_reader();
+    let mut reader = Reader::new(Handle::new(2), shared_data, guard);
 
     // Writer sets error
     writer.set_error(5);
@@ -463,8 +464,8 @@ async fn test_writer_error_transformed_to_epipe() {
     let writer_handle = Handle::new(1);
     let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
 
-    let shared_data = writer.share_with_reader();
-    let mut reader = Reader::new(Handle::new(2), shared_data);
+    let (shared_data, guard) = writer.share_with_reader();
+    let mut reader = Reader::new(Handle::new(2), shared_data, guard);
 
     assert_eq!(writer.write(b"data"), 4);
     // Writer closes with EOWNERDEAD — typical actor failure code
@@ -488,8 +489,8 @@ async fn test_reader_error_checked_before_writer() {
     let writer_handle = Handle::new(1);
     let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
 
-    let shared_data = writer.share_with_reader();
-    let mut reader = Reader::new(Handle::new(2), shared_data);
+    let (shared_data, guard) = writer.share_with_reader();
+    let mut reader = Reader::new(Handle::new(2), shared_data, guard);
 
     // Write some data
     assert_eq!(writer.write(b"data"), 4);
@@ -515,9 +516,10 @@ async fn test_multiple_readers_independent_errors() {
     let writer_handle = Handle::new(1);
     let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
 
-    let shared_data = writer.share_with_reader();
-    let mut reader1 = Reader::new(Handle::new(2), shared_data.clone());
-    let mut reader2 = Reader::new(Handle::new(3), shared_data);
+    let (shared_data1, guard1) = writer.share_with_reader();
+    let mut reader1 = Reader::new(Handle::new(2), shared_data1, guard1);
+    let (shared_data2, guard2) = writer.share_with_reader();
+    let mut reader2 = Reader::new(Handle::new(3), shared_data2, guard2);
 
     // Each reader sets different error
     reader1.set_error(100);

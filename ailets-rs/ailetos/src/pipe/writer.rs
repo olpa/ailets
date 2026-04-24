@@ -6,11 +6,12 @@ use std::fmt;
 use std::sync::Arc;
 use tracing::{error, trace};
 
+use crate::errno::EPIPE;
 use crate::idgen::Handle;
 use crate::notification_queue::NotificationQueueArc;
 use crate::storage::Buffer;
 
-use super::rw_shared::{ReaderSharedData, SharedBuffer};
+use super::rw_shared::{ReaderCountGuard, ReaderSharedData, SharedBuffer};
 
 /// Writer side of the memory pipe
 ///
@@ -112,6 +113,10 @@ impl Writer {
                 return -1;
             }
 
+            if shared.had_readers && shared.reader_count == 0 && shared.errno == 0 {
+                shared.errno = EPIPE;
+            }
+
             if shared.errno != 0 {
                 return -1;
             }
@@ -173,14 +178,23 @@ impl Writer {
         &self.handle
     }
 
-    /// Create shared data for a new reader
+    /// Create shared data and a drop guard for a new reader.
+    ///
+    /// The caller must pass the `ReaderCountGuard` to the `Reader`. When the guard is
+    /// dropped, `reader_count` is decremented automatically.
     #[must_use]
-    pub fn share_with_reader(&self) -> ReaderSharedData {
-        ReaderSharedData {
+    pub fn share_with_reader(&self) -> (ReaderSharedData, ReaderCountGuard) {
+        let mut shared = self.shared.lock();
+        shared.reader_count += 1;
+        shared.had_readers = true;
+        drop(shared);
+        let data = ReaderSharedData {
             buffer: Arc::clone(&self.shared),
             writer_handle: self.handle,
             queue: self.queue.clone(),
-        }
+        };
+        let guard = ReaderCountGuard(Arc::clone(&self.shared));
+        (data, guard)
     }
 }
 

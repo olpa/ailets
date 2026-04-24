@@ -9,7 +9,7 @@ use crate::errno::EPIPE;
 use crate::idgen::Handle;
 use crate::notification_queue::NotificationQueueArc;
 
-use super::rw_shared::{ReaderSharedData, SharedBuffer};
+use super::rw_shared::{ReaderCountGuard, ReaderSharedData, SharedBuffer};
 
 /// Action to take when checking if reader should wait
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,11 +50,12 @@ pub struct Reader {
     pos: usize,
     own_closed: bool,
     own_errno: i32,
+    _guard: Option<ReaderCountGuard>,
 }
 
 impl Reader {
     #[must_use]
-    pub fn new(handle: Handle, shared_data: ReaderSharedData) -> Self {
+    pub fn new(handle: Handle, shared_data: ReaderSharedData, guard: ReaderCountGuard) -> Self {
         Self {
             own_handle: handle,
             buffer: shared_data.buffer,
@@ -63,6 +64,7 @@ impl Reader {
             pos: 0,
             own_closed: false,
             own_errno: 0,
+            _guard: Some(guard),
         }
     }
 
@@ -79,6 +81,7 @@ impl Reader {
             return;
         }
         self.own_closed = true;
+        self._guard.take();
     }
 
     /// Check if reader is closed
