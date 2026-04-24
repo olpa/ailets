@@ -95,7 +95,10 @@ pub struct ChannelHandle(pub isize);
 /// A channel endpoint - either a reader or writer
 pub enum Channel<K: KVBuffers> {
     /// Reader channel - holds the `MergeReader` (None when in use during async read)
-    Reader(Option<MergeReader<K>>),
+    Reader {
+        node_handle: Handle,
+        reader: Option<MergeReader<K>>,
+    },
     /// Writer channel - holds the actor's node handle and std handle for pipe lookup
     Writer {
         node_handle: Handle,
@@ -309,8 +312,13 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         );
 
         let stdin = self.alloc_channel_handle();
-        self.channels
-            .insert(stdin, Channel::Reader(Some(merge_reader)));
+        self.channels.insert(
+            stdin,
+            Channel::Reader {
+                node_handle,
+                reader: Some(merge_reader),
+            },
+        );
 
         stdin
     }
@@ -386,7 +394,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         buffer: SendableBuffer,
         response: oneshot::Sender<(isize, i32)>,
     ) -> IoFuture<K> {
-        if let Some(Channel::Reader(reader_slot)) = self.channels.get_mut(&handle) {
+        if let Some(Channel::Reader { reader: reader_slot, .. }) = self.channels.get_mut(&handle) {
             if let Some(mut reader) = reader_slot.take() {
                 // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
                 Box::pin(async move {
@@ -483,7 +491,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
     ) -> IoFuture<K> {
         if let Some(channel) = self.channels.remove(&handle) {
             match channel {
-                Channel::Reader(_) => {
+                Channel::Reader { .. } => {
                     // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
                     Box::pin(async move {
                         IoEvent::SyncComplete {
@@ -605,7 +613,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         response: oneshot::Sender<(isize, i32)>,
     ) {
         // Put reader back into the channel
-        if let Some(Channel::Reader(slot)) = self.channels.get_mut(&handle) {
+        if let Some(Channel::Reader { reader: slot, .. }) = self.channels.get_mut(&handle) {
             *slot = Some(reader);
         }
         let _ = response.send((bytes_read, errno));
@@ -665,6 +673,11 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
                                     debug!(node = ?node_handle, exit_code, "actor shutdown - closing all writers");
                                     self.pipe_pool.close_actor_writers(node_handle, exit_code);
+
+                                    debug!(node = ?node_handle, "actor shutdown - dropping reader channels");
+                                    self.channels.retain(|_, ch| {
+                                        !matches!(ch, Channel::Reader { node_handle: h, .. } if *h == node_handle)
+                                    });
 
                                     debug!(node = ?node_handle, "actor shutdown - setting state to Terminated");
                                     {
