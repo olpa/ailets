@@ -91,6 +91,11 @@ impl Dag {
         pid
     }
 
+    /// Iterate over all nodes in the DAG.
+    pub fn nodes(&self) -> impl Iterator<Item = &Node> {
+        self.nodes.iter()
+    }
+
     #[must_use]
     pub fn get_node(&self, pid: Handle) -> Option<&Node> {
         self.nodes.iter().find(|n| n.pid == pid)

@@ -5,3 +5,6 @@ pub const EPIPE: i32 = 32;
 
 /// Owner died: set on actor output files when the actor terminates abnormally.
 pub const EOWNERDEAD: i32 = 130;
+
+/// Operation cancelled: set on nodes whose dependency failed and can never run.
+pub const ECANCELED: i32 = 125;

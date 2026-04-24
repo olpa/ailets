@@ -73,7 +73,7 @@ that node? Currently there is no per-node index into `channels`.
 
 ---
 
-### INV-2: Shell hangs on exit after a dependency fails
+### INV-2: Shell hangs on exit after a dependency fails ✓
 
 **Observed:** After `dbg.2` fails and `shell_input.1` closes, `cat.3` stays
 `⋯ pending` forever. The shell hangs (or takes very long to exit) when the user
