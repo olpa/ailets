@@ -869,7 +869,7 @@ impl Drop for DagShell {
     fn drop(&mut self) {
         if let Some(job) = self.bg_job.take() {
             self.release_background_job();
-            job.abort_handle.abort();
+            drop(job.system_tx);
             let _ = job.thread.join();
         }
     }
