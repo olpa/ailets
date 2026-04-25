@@ -364,9 +364,15 @@ impl ActorRuntime for BlockingActorRuntime {
             }
         };
 
+        // Linux kernel convention: negative result encodes errno (-EPIPE = -32).
+        // -1 is reserved for "unknown error" (no specific errno).
+        if result < -1 {
+            self.last_read_errno.store((-result) as i32, Ordering::Relaxed);
+        }
+
         // Yield if suspended after the write completes
         self.yield_if_suspended();
-        result
+        if result < 0 { -1 } else { result }
     }
 
     fn aclose(&self, fd: isize) -> isize {

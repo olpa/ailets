@@ -467,7 +467,13 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                             Arc::clone(&id_gen),
                         );
                     }
-                    writer.write(&data)
+                    let n = writer.write(&data);
+                    if n < 0 {
+                        let errno = writer.get_error();
+                        if errno != 0 { -(errno as isize) } else { -1 }
+                    } else {
+                        n
+                    }
                 }
                 Err(e) => {
                     warn!(node = ?node_handle, std = ?std_handle, error = %e, "failed to get writer");
