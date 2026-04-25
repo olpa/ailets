@@ -71,6 +71,9 @@ impl DagShell {
         match cmd {
             "quit" | "exit" | "q" => {
                 shell_input_control::close_all_shell_inputs();
+                for &handle in &self.handles {
+                    self.env.suspension.resume(handle);
+                }
                 return Ok(false);
             }
             "help" | "?" => Self::cmd_help(),
