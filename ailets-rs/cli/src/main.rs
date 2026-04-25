@@ -69,7 +69,10 @@ impl DagShell {
         };
 
         match cmd {
-            "quit" | "exit" | "q" => return Ok(false),
+            "quit" | "exit" | "q" => {
+                shell_input_control::close_all_shell_inputs();
+                return Ok(false);
+            }
             "help" | "?" => Self::cmd_help(),
             "set" => self.cmd_set(rest)?,
             "node" => {
@@ -858,6 +861,7 @@ Variables:
 impl Drop for DagShell {
     fn drop(&mut self) {
         if let Some(job) = self.bg_job.take() {
+            shell_input_control::close_all_shell_inputs();
             job.abort_handle.abort();
             let _ = job.thread.join();
         }
