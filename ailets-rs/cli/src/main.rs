@@ -70,10 +70,7 @@ impl DagShell {
 
         match cmd {
             "quit" | "exit" | "q" => {
-                shell_input_control::close_all_shell_inputs();
-                for &handle in &self.handles {
-                    self.env.suspension.resume(handle);
-                }
+                self.release_background_job();
                 return Ok(false);
             }
             "help" | "?" => Self::cmd_help(),
@@ -859,12 +856,19 @@ Variables:
         println!("Killed node {} with exit code {}", handle.id(), exit_code);
         Ok(())
     }
+
+    fn release_background_job(&mut self) {
+        shell_input_control::close_all_shell_inputs();
+        for &handle in &self.handles {
+            self.env.suspension.resume(handle);
+        }
+    }
 }
 
 impl Drop for DagShell {
     fn drop(&mut self) {
         if let Some(job) = self.bg_job.take() {
-            shell_input_control::close_all_shell_inputs();
+            self.release_background_job();
             job.abort_handle.abort();
             let _ = job.thread.join();
         }
