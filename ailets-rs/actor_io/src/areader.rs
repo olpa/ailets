@@ -26,6 +26,8 @@
 use actor_runtime::{ActorRuntime, StdHandle};
 
 use crate::error_mapping::errno_to_error_kind;
+#[cfg(feature = "std")]
+use crate::error_mapping::embedded_io_to_std_error;
 
 pub struct AReader<'a> {
     fd: Option<isize>,
@@ -125,8 +127,7 @@ impl embedded_io::Read for AReader<'_> {
 #[cfg(feature = "std")]
 impl std::io::Read for AReader<'_> {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        embedded_io::Read::read(self, buf)
-            .map_err(|e| std::io::Error::other(format!("{e:?}")))
+        embedded_io::Read::read(self, buf).map_err(embedded_io_to_std_error)
     }
 }
 

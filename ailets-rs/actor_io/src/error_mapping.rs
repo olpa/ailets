@@ -20,6 +20,32 @@ pub fn errno_to_error_kind(errno: isize) -> embedded_io::ErrorKind {
     }
 }
 
+/// Convert `embedded_io::ErrorKind` to `std::io::Error`, preserving the error kind.
+#[cfg(feature = "std")]
+#[must_use]
+pub fn embedded_io_to_std_error(kind: embedded_io::ErrorKind) -> std::io::Error {
+    let std_kind = match kind {
+        embedded_io::ErrorKind::NotFound => std::io::ErrorKind::NotFound,
+        embedded_io::ErrorKind::PermissionDenied => std::io::ErrorKind::PermissionDenied,
+        embedded_io::ErrorKind::ConnectionRefused => std::io::ErrorKind::ConnectionRefused,
+        embedded_io::ErrorKind::ConnectionReset => std::io::ErrorKind::ConnectionReset,
+        embedded_io::ErrorKind::ConnectionAborted => std::io::ErrorKind::ConnectionAborted,
+        embedded_io::ErrorKind::NotConnected => std::io::ErrorKind::NotConnected,
+        embedded_io::ErrorKind::AddrInUse => std::io::ErrorKind::AddrInUse,
+        embedded_io::ErrorKind::AddrNotAvailable => std::io::ErrorKind::AddrNotAvailable,
+        embedded_io::ErrorKind::BrokenPipe => std::io::ErrorKind::BrokenPipe,
+        embedded_io::ErrorKind::AlreadyExists => std::io::ErrorKind::AlreadyExists,
+        embedded_io::ErrorKind::InvalidInput => std::io::ErrorKind::InvalidInput,
+        embedded_io::ErrorKind::InvalidData => std::io::ErrorKind::InvalidData,
+        embedded_io::ErrorKind::TimedOut => std::io::ErrorKind::TimedOut,
+        embedded_io::ErrorKind::Interrupted => std::io::ErrorKind::Interrupted,
+        embedded_io::ErrorKind::Unsupported => std::io::ErrorKind::Unsupported,
+        embedded_io::ErrorKind::OutOfMemory => std::io::ErrorKind::OutOfMemory,
+        _ => std::io::ErrorKind::Other,
+    };
+    std::io::Error::new(std_kind, error_kind_to_str(kind))
+}
+
 /// Convert error kind to a static string description
 #[must_use]
 pub fn error_kind_to_str(kind: embedded_io::ErrorKind) -> &'static str {
