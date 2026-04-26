@@ -17,17 +17,25 @@ show
 
 run --bg
 status
+show
 
 # Write 3 bytes — dbg1 suspends after collecting them
 write $src "hel"
+wait suspended $dbg1
 status
+show
 
 # Kill dbg1 while it is suspended
 kill $dbg1
+wait terminated $dbg1
 status
+show
 
 # Clean up: close input and wait for the run to finish
 close $src
+status
+show
 fg
 
 status
+show

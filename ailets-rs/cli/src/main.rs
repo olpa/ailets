@@ -88,6 +88,7 @@ impl DagShell {
             "reset" => self.cmd_reset(),
             "suspend" => self.cmd_suspend(rest)?,
             "resume" => self.cmd_resume(rest)?,
+            "wait" => self.cmd_wait(rest)?,
             "write" => self.cmd_write(rest)?,
             "close" => self.cmd_close(rest)?,
             "fg" => self.cmd_fg(rest)?,
@@ -138,6 +139,8 @@ Status:
 Debug:
   suspend <node>                      Suspend a running actor
   resume <node>                       Resume a suspended actor (dbg or general)
+  wait suspended <node>               Block until node is suspended (polls with 10 ms interval, 5 s timeout)
+  wait terminated <node>              Block until node is terminated (polls with 10 ms interval, 5 s timeout)
 
 Shell Input:
   write <node> <data>                 Write data to a shell_input actor
@@ -775,6 +778,62 @@ Variables:
         self.env.suspension.resume(handle);
         println!("Resumed node {}", handle.id());
         Ok(())
+    }
+
+    fn cmd_wait(&self, args: &[&str]) -> Result<(), String> {
+        let condition = args.first().ok_or("Usage: wait <condition> [args]")?;
+        match *condition {
+            "suspended" => {
+                let handle_str = args.get(1).ok_or("Usage: wait suspended <node>")?;
+                let handle = self
+                    .parse_handle(handle_str)
+                    .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+
+                let timeout = std::time::Duration::from_secs(5);
+                let poll_interval = std::time::Duration::from_millis(10);
+                let deadline = std::time::Instant::now() + timeout;
+
+                loop {
+                    if self.env.suspension.is_suspended(handle) {
+                        return Ok(());
+                    }
+                    if std::time::Instant::now() >= deadline {
+                        return Err(format!(
+                            "Timeout: node {} not suspended after {}s",
+                            handle.id(),
+                            timeout.as_secs()
+                        ));
+                    }
+                    std::thread::sleep(poll_interval);
+                }
+            }
+            "terminated" => {
+                let handle_str = args.get(1).ok_or("Usage: wait terminated <node>")?;
+                let handle = self
+                    .parse_handle(handle_str)
+                    .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+
+                let timeout = std::time::Duration::from_secs(5);
+                let poll_interval = std::time::Duration::from_millis(10);
+                let deadline = std::time::Instant::now() + timeout;
+
+                loop {
+                    let state = self.env.dag.read().get_node(handle).map(|n| n.state);
+                    if matches!(state, Some(ailetos::dag::NodeState::Terminated)) {
+                        return Ok(());
+                    }
+                    if std::time::Instant::now() >= deadline {
+                        return Err(format!(
+                            "Timeout: node {} not terminated after {}s",
+                            handle.id(),
+                            timeout.as_secs()
+                        ));
+                    }
+                    std::thread::sleep(poll_interval);
+                }
+            }
+            other => Err(format!("Unknown wait condition: {other}")),
+        }
     }
 
     fn cmd_write(&self, args: &[&str]) -> Result<(), String> {
