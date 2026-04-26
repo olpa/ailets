@@ -12,6 +12,8 @@ When a file is closed with an error, readers of that file receive `EPIPE`.
 
 When an actor receives `EPIPE` reading its input, the actor fails with `EPIPE` and the runtime closes its output files with `EPIPE`.
 
-## backward-propagation
+## reader-to-writer
 
-When at least one reader of a file has been created and all of them have since closed, the writer receives `EPIPE` on its next write to that file.
+If at least one reader of a file has been created and all of them have since closed — normally or due to an error — the writer receives an error on its next write. The error code is implementation-defined.
+
+A writer that closes while at least one reader is still open is considered successful.

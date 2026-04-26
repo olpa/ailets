@@ -1315,6 +1315,36 @@ async fn test_race_reader_loop_and_recheck() {
     assert!(n > 0, "Should be able to read data from the pipe");
 }
 
+// reader-to-writer: reader fails and closes, writer closes without another write — writer is successful
+#[tokio::test]
+async fn test_reader_to_writer_writer_closes_without_write_after_reader_fails_is_successful() {
+    let (pool, _, id_gen, _) = create_test_pool();
+    let actor_handle = Handle::new(1);
+    let std_handle = StdHandle::Stdout;
+
+    let (writer, _) = pool
+        .touch_writer(actor_handle, std_handle, &id_gen)
+        .await
+        .expect("Failed to create writer");
+
+    let mut reader = pool
+        .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
+        .await
+        .expect("Failed to create reader");
+
+    let _ = writer.write(b"hello");
+
+    // Reader fails and closes — all readers are now gone
+    reader.set_error(EPIPE);
+    reader.close();
+    drop(reader);
+
+    // Writer closes without writing again — error is only triggered on next write,
+    // so writer must be successful
+    writer.close();
+    assert_eq!(writer.get_error(), 0);
+}
+
 // backward-propagation: when all readers close, writer receives EPIPE on next write
 #[tokio::test]
 async fn test_backward_propagation_last_reader_closed() {
@@ -1389,6 +1419,40 @@ async fn test_backward_propagation_multiple_readers_last_close_triggers_epipe() 
     assert_eq!(writer.get_error(), 0);
 
     // Close last reader — writer should now receive EPIPE
+    reader2.close();
+    drop(reader2);
+    assert_eq!(writer.write(b"now fails"), -1);
+    assert_eq!(writer.get_error(), EPIPE);
+}
+
+// backward-propagation: one reader drops abruptly (no close), second reader still open — no EPIPE
+#[tokio::test]
+async fn test_backward_propagation_abrupt_drop_of_one_reader_no_epipe_until_last_gone() {
+    let (pool, _, id_gen, _) = create_test_pool();
+    let actor_handle = Handle::new(1);
+    let std_handle = StdHandle::Stdout;
+
+    let (writer, _) = pool
+        .touch_writer(actor_handle, std_handle, &id_gen)
+        .await
+        .expect("Failed to create writer");
+
+    let reader1 = pool
+        .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
+        .await
+        .expect("Failed to create reader1");
+    let mut reader2 = pool
+        .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
+        .await
+        .expect("Failed to create reader2");
+
+    // Drop reader1 without explicit close (simulates a failed/panicked consumer).
+    // reader2 is still alive — spec says EPIPE fires only when ALL readers are gone.
+    drop(reader1);
+    assert_eq!(writer.write(b"still ok"), 8);
+    assert_eq!(writer.get_error(), 0);
+
+    // Now the last reader closes — writer must see EPIPE on next write.
     reader2.close();
     drop(reader2);
     assert_eq!(writer.write(b"now fails"), -1);
