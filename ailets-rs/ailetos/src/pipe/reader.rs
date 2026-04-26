@@ -50,7 +50,7 @@ pub struct Reader {
     pos: usize,
     own_closed: bool,
     own_errno: i32,
-    _guard: Option<ReaderCountGuard>,
+    guard: Option<ReaderCountGuard>,
 }
 
 impl Reader {
@@ -64,7 +64,7 @@ impl Reader {
             pos: 0,
             own_closed: false,
             own_errno: 0,
-            _guard: Some(guard),
+            guard: Some(guard),
         }
     }
 
@@ -81,7 +81,7 @@ impl Reader {
             return;
         }
         self.own_closed = true;
-        self._guard.take();
+        self.guard.take();
     }
 
     /// Check if reader is closed
@@ -101,7 +101,11 @@ impl Reader {
             return self.own_errno;
         }
         let writer_errno = self.buffer.lock().errno;
-        if writer_errno != 0 { EPIPE } else { 0 }
+        if writer_errno != 0 {
+            EPIPE
+        } else {
+            0
+        }
     }
 
     /// Set reader's own error state (does not notify)
@@ -192,8 +196,8 @@ impl Reader {
 
             // Read data from buffer
             let shared = self.buffer.lock();
-            let buffer_guard = shared.buffer.lock();
-            let available = buffer_guard.len().saturating_sub(self.pos);
+            let bufferguard = shared.buffer.lock();
+            let available = bufferguard.len().saturating_sub(self.pos);
             let to_read = available.min(buf.len());
             let end_pos = self.pos + to_read;
 
@@ -207,9 +211,9 @@ impl Reader {
                 );
                 return -1;
             };
-            let Some(src_slice) = buffer_guard.get(self.pos..end_pos) else {
+            let Some(src_slice) = bufferguard.get(self.pos..end_pos) else {
                 error!(
-                    buffer_len = buffer_guard.len(),
+                    buffer_len = bufferguard.len(),
                     pos = self.pos,
                     end_pos = end_pos,
                     "CRITICAL: source buffer slice out of bounds"
@@ -219,7 +223,7 @@ impl Reader {
             dest_slice.copy_from_slice(src_slice);
             self.pos = end_pos;
 
-            drop(buffer_guard);
+            drop(bufferguard);
             drop(shared);
             return to_read.cast_signed();
         }

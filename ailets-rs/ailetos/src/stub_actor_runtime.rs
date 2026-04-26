@@ -4,8 +4,8 @@
 //! synchronous actor code with the async `SystemRuntime`. It maintains per-actor
 //! state (fd table) and proxies all I/O operations to `SystemRuntime`.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::Arc;
 
 use actor_runtime::ActorRuntime;
 use tokio::sync::{mpsc, oneshot};
@@ -30,7 +30,7 @@ pub struct BlockingActorRuntime {
     fd_table: std::sync::Mutex<FdTable>,
     /// Shared suspension state (owned by Environment)
     suspension: Arc<SuspensionState>,
-    /// errno from the last failed read (0 = no error); shared with ShutdownHandle
+    /// errno from the last failed read (0 = no error); shared with `ShutdownHandle`
     last_read_errno: Arc<AtomicI32>,
 }
 
@@ -46,18 +46,22 @@ pub struct ShutdownHandle {
     suspension: Arc<SuspensionState>,
     /// 0 = clean termination; non-zero = POSIX errno
     exit_code: Arc<AtomicI32>,
-    /// errno from the last failed read; shared with BlockingActorRuntime
+    /// errno from the last failed read; shared with `BlockingActorRuntime`
     last_read_errno: Arc<AtomicI32>,
 }
 
 impl ShutdownHandle {
     /// Mark the actor as failed.
     ///
-    /// Uses the errno from the last failed read if set (per spec://errors#reader-to-actor),
+    /// Uses the errno from the last failed read if set (per `<spec://errors#reader-to-actor>`),
     /// otherwise falls back to EOWNERDEAD.
     pub fn mark_failed(&self) {
         let read_errno = self.last_read_errno.load(Ordering::Relaxed);
-        let code = if read_errno != 0 { read_errno } else { EOWNERDEAD };
+        let code = if read_errno != 0 {
+            read_errno
+        } else {
+            EOWNERDEAD
+        };
         self.exit_code.store(code, Ordering::Relaxed);
     }
 
@@ -367,12 +371,19 @@ impl ActorRuntime for BlockingActorRuntime {
         // Linux kernel convention: negative result encodes errno (-EPIPE = -32).
         // -1 is reserved for "unknown error" (no specific errno).
         if result < -1 {
-            self.last_read_errno.store((-result) as i32, Ordering::Relaxed);
+            // errno values are small positive integers; truncation from isize is safe
+            #[allow(clippy::cast_possible_truncation)]
+            let errno = (-result) as i32;
+            self.last_read_errno.store(errno, Ordering::Relaxed);
         }
 
         // Yield if suspended after the write completes
         self.yield_if_suspended();
-        if result < 0 { -1 } else { result }
+        if result < 0 {
+            -1
+        } else {
+            result
+        }
     }
 
     fn aclose(&self, fd: isize) -> isize {

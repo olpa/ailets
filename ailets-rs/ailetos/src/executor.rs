@@ -39,9 +39,9 @@ pub struct StopConditions {
 /// | `NotStarted`                   | —          | don't start     |
 /// | Running / Terminating          | yes        | start           |
 /// | Running / Terminating          | no         | don't start     |
-/// | Terminated, exit_code != 0     | —          | don't start     |
-/// | Terminated, exit_code == 0     | yes        | start           |
-/// | Terminated, exit_code == 0     | no         | skip (neutral)  |
+/// | Terminated, `exit_code` != 0   | —          | don't start     |
+/// | Terminated, `exit_code` == 0   | yes        | start           |
+/// | Terminated, `exit_code` == 0   | no         | skip (neutral)  |
 /// | (all deps exhausted)           | —          | start           |
 ///
 /// "Has output" is checked optimistically: a dep has output if its stdout

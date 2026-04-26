@@ -425,8 +425,9 @@ Variables:
 
         let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
         let (ctrlc_abort_handle, ctrlc_abort_reg) = futures::future::AbortHandle::new_pair();
-        let (ready_tx, ready_rx) =
-            std::sync::mpsc::channel::<Result<tokio::sync::mpsc::UnboundedSender<IoRequest>, String>>();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<
+            Result<tokio::sync::mpsc::UnboundedSender<IoRequest>, String>,
+        >();
 
         let thread = std::thread::spawn(move || {
             tracing::info!("Foreground thread starting");
@@ -537,8 +538,9 @@ Variables:
         let run_handle = Arc::new(self.env.make_run_handle());
 
         let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
-        let (ready_tx, ready_rx) =
-            std::sync::mpsc::channel::<Result<tokio::sync::mpsc::UnboundedSender<IoRequest>, String>>();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<
+            Result<tokio::sync::mpsc::UnboundedSender<IoRequest>, String>,
+        >();
 
         let thread = std::thread::spawn(move || {
             tracing::info!("Background thread starting");

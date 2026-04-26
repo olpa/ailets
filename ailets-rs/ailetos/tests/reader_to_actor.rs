@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use ailetos::suspension::SuspensionState;
 use ailetos::system_runtime::{ChannelHandle, IoRequest};
-use ailetos::{BlockingActorRuntime, Handle, IdGen, EPIPE, EOWNERDEAD};
+use ailetos::{BlockingActorRuntime, Handle, IdGen, EOWNERDEAD, EPIPE};
 
 /// When aread() receives EPIPE from the system runtime, get_errno() returns EPIPE
 /// and mark_failed() uses EPIPE as the exit code (spec://errors#reader-to-actor).
@@ -46,7 +46,10 @@ async fn test_reader_to_actor_epipe_propagation() {
     .unwrap();
 
     assert_eq!(read_result, -1, "aread should return -1 on error");
-    assert_eq!(errno_after_read, EPIPE as isize, "get_errno should return EPIPE");
+    assert_eq!(
+        errno_after_read, EPIPE as isize,
+        "get_errno should return EPIPE"
+    );
 
     io_task.abort();
 }
@@ -98,7 +101,11 @@ async fn test_mark_failed_uses_epipe_from_last_read() {
     .unwrap();
 
     let exit_code = io_task.await.unwrap();
-    assert_eq!(exit_code, Some(EPIPE), "ActorShutdown exit_code should be EPIPE");
+    assert_eq!(
+        exit_code,
+        Some(EPIPE),
+        "ActorShutdown exit_code should be EPIPE"
+    );
 }
 
 /// When mark_failed() is called with no prior read error, exit code is EOWNERDEAD.
@@ -109,8 +116,7 @@ async fn test_mark_failed_uses_eownerdead_without_read_error() {
     let (system_tx, mut system_rx) = tokio::sync::mpsc::unbounded_channel::<IoRequest>();
     let suspension = Arc::new(SuspensionState::new());
 
-    let (_runtime, shutdown) =
-        BlockingActorRuntime::new(node_handle, system_tx, suspension);
+    let (_runtime, shutdown) = BlockingActorRuntime::new(node_handle, system_tx, suspension);
 
     let io_task = tokio::spawn(async move {
         let mut shutdown_exit_code = None;
@@ -131,5 +137,9 @@ async fn test_mark_failed_uses_eownerdead_without_read_error() {
     .unwrap();
 
     let exit_code = io_task.await.unwrap();
-    assert_eq!(exit_code, Some(EOWNERDEAD), "ActorShutdown exit_code should be EOWNERDEAD when no read error");
+    assert_eq!(
+        exit_code,
+        Some(EOWNERDEAD),
+        "ActorShutdown exit_code should be EOWNERDEAD when no read error"
+    );
 }

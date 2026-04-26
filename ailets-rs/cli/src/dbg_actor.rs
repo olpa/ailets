@@ -43,7 +43,9 @@ pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
                 .map_err(|e| format!("Failed to read: {e}"))?;
             if collected.len() < n {
                 tracing::info!(node = ?my_handle, bytes_collected = collected.len(), "dbg actor: EOF before pause threshold, exiting without suspend");
-                writer.write_all(&collected).map_err(|e| format!("Failed to write collected data: {e}"))?;
+                writer
+                    .write_all(&collected)
+                    .map_err(|e| format!("Failed to write collected data: {e}"))?;
                 return Ok(());
             }
 

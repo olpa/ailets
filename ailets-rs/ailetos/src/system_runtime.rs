@@ -177,7 +177,7 @@ pub enum IoRequest {
     /// Read from a channel (async operation)
     /// SAFETY: The buffer pointer must remain valid until the response is sent.
     /// This is guaranteed because `aread()` blocks waiting for the response.
-    /// Response is `(bytes_read, errno)`: errno is non-zero only when bytes_read < 0.
+    /// Response is `(bytes_read, errno)`: errno is non-zero only when `bytes_read` < 0.
     Read {
         handle: ChannelHandle,
         buffer: SendableBuffer,
@@ -221,7 +221,7 @@ pub enum IoEvent<K: KVBuffers> {
         handle: ChannelHandle,
         reader: MergeReader<K>,
         bytes_read: isize,
-        /// errno when bytes_read < 0, else 0
+        /// errno when `bytes_read` < 0, else 0
         errno: i32,
         response: oneshot::Sender<(isize, i32)>,
     },
@@ -394,14 +394,22 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         buffer: SendableBuffer,
         response: oneshot::Sender<(isize, i32)>,
     ) -> IoFuture<K> {
-        if let Some(Channel::Reader { reader: reader_slot, .. }) = self.channels.get_mut(&handle) {
+        if let Some(Channel::Reader {
+            reader: reader_slot,
+            ..
+        }) = self.channels.get_mut(&handle)
+        {
             if let Some(mut reader) = reader_slot.take() {
                 // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
                 Box::pin(async move {
                     // SAFETY: Buffer remains valid because aread() blocks until response
                     let buf = unsafe { &mut *buffer.into_raw() };
                     let bytes_read = reader.read(buf).await;
-                    let errno = if bytes_read < 0 { reader.get_error() } else { 0 };
+                    let errno = if bytes_read < 0 {
+                        reader.get_error()
+                    } else {
+                        0
+                    };
                     IoEvent::ReadComplete {
                         handle,
                         reader,
@@ -415,7 +423,10 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                 Box::pin(async move {
                     let _ = response.send((0, 0));
                     let (dummy_tx, _) = oneshot::channel();
-                    IoEvent::SyncComplete { result: 0, response: dummy_tx }
+                    IoEvent::SyncComplete {
+                        result: 0,
+                        response: dummy_tx,
+                    }
                 })
             }
         } else {
@@ -423,7 +434,10 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
             Box::pin(async move {
                 let _ = response.send((0, 0));
                 let (dummy_tx, _) = oneshot::channel();
-                IoEvent::SyncComplete { result: 0, response: dummy_tx }
+                IoEvent::SyncComplete {
+                    result: 0,
+                    response: dummy_tx,
+                }
             })
         }
     }
@@ -470,7 +484,11 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                     let n = writer.write(&data);
                     if n < 0 {
                         let errno = writer.get_error();
-                        if errno != 0 { -(errno as isize) } else { -1 }
+                        if errno != 0 {
+                            -(errno as isize)
+                        } else {
+                            -1
+                        }
                     } else {
                         n
                     }

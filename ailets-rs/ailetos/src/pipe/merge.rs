@@ -189,7 +189,7 @@ impl<K: KVBuffers> MergeReader<K> {
     /// Get the error code from the current reader (0 if none or no error).
     #[must_use]
     pub fn get_error(&self) -> i32 {
-        self.current_reader.as_ref().map_or(0, |r| r.get_error())
+        self.current_reader.as_ref().map_or(0, super::reader::Reader::get_error)
     }
 
     /// Close the merge reader.
