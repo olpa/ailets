@@ -9,6 +9,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, warn};
 
 use crate::dag::{Dag, NodeKind, NodeState};
@@ -33,14 +34,15 @@ pub struct StopConditions {
 ///
 /// Decision table (iterate concrete deps, first decisive result wins):
 ///
-/// | Dep state              | Has output (pipe realized) | Decision       |
-/// |------------------------|----------------------------|----------------|
-/// | `NotStarted`           | —                          | don't start    |
-/// | Running / Terminating  | yes                        | start          |
-/// | Running / Terminating  | no                         | don't start    |
-/// | Terminated             | yes                        | start          |
-/// | Terminated             | no                         | skip (neutral) |
-/// | (all deps exhausted)   | —                          | start          |
+/// | Dep state                      | Has output | Decision        |
+/// |--------------------------------|------------|-----------------|
+/// | `NotStarted`                   | —          | don't start     |
+/// | Running / Terminating          | yes        | start           |
+/// | Running / Terminating          | no         | don't start     |
+/// | Terminated, `exit_code` != 0   | —          | don't start     |
+/// | Terminated, `exit_code` == 0   | yes        | start           |
+/// | Terminated, `exit_code` == 0   | no         | skip (neutral)  |
+/// | (all deps exhausted)           | —          | start           |
 ///
 /// "Has output" is checked optimistically: a dep has output if its stdout
 /// pipe is realized (writer exists in the pool), regardless of byte count.
@@ -68,18 +70,30 @@ pub fn is_ready_to_spawn<K: KVBuffers>(
                     .is_some();
             }
             NodeState::Terminated => {
+                if dep_node.exit_code != 0 {
+                    return false;
+                }
                 if pipe_pool
                     .get_already_realized_writer((dep, StdHandle::Stdout))
                     .is_some()
                 {
                     return true;
                 }
-                // neutral: no output from this dep, continue to next
+                // neutral: clean termination with no output, continue to next dep
             }
         }
     }
 
     true
+}
+
+/// True if any node is Running or Terminating (i.e. an actor task is still alive).
+/// Used by the spawn loop to decide whether `spawn_notify` can ever fire again.
+fn has_active_actors(dag: &Dag) -> bool {
+    dag.nodes().any(|n| match n.state {
+        NodeState::Running | NodeState::Terminating => true,
+        NodeState::NotStarted | NodeState::Terminated => false,
+    })
 }
 
 /// Spawn a task for an actor node
@@ -103,6 +117,7 @@ fn spawn_actor_task(
             }
             Err(e) => {
                 warn!(node = ?node_handle, name = %idname, error = %e, "task error");
+                shutdown.mark_failed();
             }
         }
 
@@ -116,6 +131,16 @@ pub async fn run<K: KVBuffers + 'static>(
     run_handle: &RunHandle<K>,
     target: Handle,
     stop_conditions: StopConditions,
+) {
+    run_with_tx(run_handle, target, stop_conditions, None).await;
+}
+
+/// Like `run`, but sends `system_tx` back via `tx_out` once the system runtime is ready.
+pub async fn run_with_tx<K: KVBuffers + 'static>(
+    run_handle: &RunHandle<K>,
+    target: Handle,
+    stop_conditions: StopConditions,
+    tx_out: Option<oneshot::Sender<mpsc::UnboundedSender<IoRequest>>>,
 ) {
     let pipe_pool = Arc::new(PipePool::new(Arc::clone(&run_handle.kv)));
 
@@ -133,6 +158,10 @@ pub async fn run<K: KVBuffers + 'static>(
         error!("Failed to get system_tx - system runtime already started");
         return;
     };
+
+    if let Some(sender) = tx_out {
+        sender.send(system_tx.clone()).ok();
+    }
 
     let system_task = tokio::spawn(async move {
         system_runtime.run().await;
@@ -170,6 +199,7 @@ pub async fn run<K: KVBuffers + 'static>(
                 // Terminate the node explicitly so dependents are not blocked.
                 let _ = system_tx.send(IoRequest::ActorShutdown {
                     node_handle: *node_handle,
+                    exit_code: 0,
                 });
                 continue;
             };
@@ -207,7 +237,22 @@ pub async fn run<K: KVBuffers + 'static>(
             break;
         }
 
-        // Wait for a pipe-realized or actor-terminated signal
+        // Quiescence check: nothing changed this iteration (no node was ready
+        // to spawn) AND no actor is Running or Terminating.
+        //
+        // When both hold, spawn_notify can never fire again — nothing changed,
+        // and nothing will change. Remaining pending nodes are blocked by a
+        // failed dependency and will never run in this execution. Break instead
+        // of waiting forever; those nodes stay NotStarted and are eligible for
+        // an incremental re-run once the failure is resolved.
+        if to_spawn.is_empty() && !has_active_actors(&run_handle.dag.read()) {
+            debug!("quiescent: pending nodes remain but no actors are active — stopping");
+            break;
+        }
+
+        // Something is running or was just spawned. Wait for a state change:
+        // either an actor terminates (possibly unblocking a dependent) or a
+        // pipe is realized (making a dep's output available).
         spawn_notify.notified().await;
     }
 

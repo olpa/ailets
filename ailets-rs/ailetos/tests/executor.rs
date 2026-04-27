@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use ailetos::dag::{Dag, DependsOn, For, NodeKind, NodeState};
 use ailetos::executor::{StopConditions, TopologicalOrderIter};
-use ailetos::IdGen;
+use ailetos::storage::MemKV;
+use ailetos::{Environment, IdGen};
 
 fn create_linear_dag() -> (Dag, Vec<ailetos::Handle>) {
     // Create a linear DAG: node1 -> node2 -> node3 -> node4
@@ -149,4 +150,39 @@ fn test_diamond_dag_valid_topological_order() {
     assert!(pos[&node1] < pos[&node3], "node1 must precede node3");
     assert!(pos[&node2] < pos[&node4], "node2 must precede node4");
     assert!(pos[&node3] < pos[&node4], "node3 must precede node4");
+}
+
+// When C fails and B is transitively blocked (A -> B -> C), the executor must
+// terminate and leave A and B as NotStarted (not cancel them with ECANCELED).
+#[tokio::test]
+async fn test_transitive_block_terminates_and_leaves_nodes_not_started() {
+    let kv = Arc::new(MemKV::new());
+    let mut env = Environment::new(kv);
+
+    let c = env.add_node("failing".into(), &[], None);
+    let b = env.add_node("noop".into(), &[c], None);
+    let a = env.add_node("noop".into(), &[b], None);
+
+    env.actor_registry
+        .register("failing", |_| Err("intentional failure".into()));
+    env.actor_registry.register("noop", |_| Ok(()));
+
+    tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        env.run(a, StopConditions::default()),
+    )
+    .await
+    .expect("executor hung — transitive block not handled");
+
+    let dag = env.dag.read();
+    assert_eq!(
+        dag.get_node(b).unwrap().state,
+        NodeState::NotStarted,
+        "b should remain NotStarted (eligible for incremental re-run)"
+    );
+    assert_eq!(
+        dag.get_node(a).unwrap().state,
+        NodeState::NotStarted,
+        "a should remain NotStarted (eligible for incremental re-run)"
+    );
 }

@@ -129,9 +129,9 @@ impl<K: KVBuffers> PipePool<K> {
                 match existing_state {
                     Some(WriterState::Realized(writer)) => {
                         // Case 1: Writer exists - create reader immediately
-                        let shared_data = writer.share_with_reader();
+                        let (shared_data, guard) = writer.share_with_reader();
                         let reader_handle = Handle::new(id_gen.get_next());
-                        return Ok(Reader::new(reader_handle, shared_data));
+                        return Ok(Reader::new(reader_handle, shared_data, guard));
                     }
                     Some(WriterState::Latent {
                         state: LatentState::Closed,
@@ -258,12 +258,12 @@ impl<K: KVBuffers> PipePool<K> {
         Ok((writer_arc, true))
     }
 
-    /// Close all writers (realized and latent) for an actor
+    /// Close all writers (realized and latent) for an actor.
     ///
-    /// Called on actor shutdown to clean up all pipes for the actor.
-    /// - For realized writers: calls `close()` on each
-    /// - For latent writers (waiting): marks as closed and notifies waiting readers
-    pub fn close_actor_writers(&self, actor_handle: Handle) {
+    /// `exit_code`: 0 = clean termination, non-zero = POSIX errno.
+    /// For realized writers with a non-zero exit code, sets the error before closing
+    /// so readers see the error after consuming all written data.
+    pub fn close_actor_writers(&self, actor_handle: Handle, exit_code: i32) {
         let (writers_to_close, notifies) = {
             let mut writers = self.writers.lock();
 
@@ -295,8 +295,11 @@ impl<K: KVBuffers> PipePool<K> {
 
         // Close writers outside lock
         for (h, s, writer) in writers_to_close {
+            if exit_code != 0 {
+                writer.set_error(exit_code);
+            }
             writer.close();
-            debug!(key = ?(h, s), "closed realized writer on actor shutdown");
+            debug!(key = ?(h, s), exit_code, "closed realized writer on actor shutdown");
         }
 
         // Notify latent waiters outside lock

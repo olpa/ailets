@@ -5,10 +5,11 @@ use std::fmt;
 use std::sync::Arc;
 use tracing::{error, trace};
 
+use crate::errno::EPIPE;
 use crate::idgen::Handle;
 use crate::notification_queue::NotificationQueueArc;
 
-use super::rw_shared::{ReaderSharedData, SharedBuffer};
+use super::rw_shared::{ReaderCountGuard, ReaderSharedData, SharedBuffer};
 
 /// Action to take when checking if reader should wait
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,11 +50,12 @@ pub struct Reader {
     pos: usize,
     own_closed: bool,
     own_errno: i32,
+    guard: Option<ReaderCountGuard>,
 }
 
 impl Reader {
     #[must_use]
-    pub fn new(handle: Handle, shared_data: ReaderSharedData) -> Self {
+    pub fn new(handle: Handle, shared_data: ReaderSharedData, guard: ReaderCountGuard) -> Self {
         Self {
             own_handle: handle,
             buffer: shared_data.buffer,
@@ -62,6 +64,7 @@ impl Reader {
             pos: 0,
             own_closed: false,
             own_errno: 0,
+            guard: Some(guard),
         }
     }
 
@@ -78,6 +81,7 @@ impl Reader {
             return;
         }
         self.own_closed = true;
+        self.guard.take();
     }
 
     /// Check if reader is closed
@@ -87,12 +91,20 @@ impl Reader {
     }
 
     /// Get current error state (checks own error first, then writer error)
+    ///
+    /// Per `spec://errors#writer-to-reader`: when the writer closed with a non-zero
+    /// errno, this reader always reports EPIPE (32) regardless of the writer's actual
+    /// error code.
     #[must_use]
     pub fn get_error(&self) -> i32 {
         if self.own_errno != 0 {
-            self.own_errno
+            return self.own_errno;
+        }
+        let writer_errno = self.buffer.lock().errno;
+        if writer_errno != 0 {
+            EPIPE
         } else {
-            self.buffer.lock().errno
+            0
         }
     }
 
@@ -184,8 +196,8 @@ impl Reader {
 
             // Read data from buffer
             let shared = self.buffer.lock();
-            let buffer_guard = shared.buffer.lock();
-            let available = buffer_guard.len().saturating_sub(self.pos);
+            let bufferguard = shared.buffer.lock();
+            let available = bufferguard.len().saturating_sub(self.pos);
             let to_read = available.min(buf.len());
             let end_pos = self.pos + to_read;
 
@@ -199,9 +211,9 @@ impl Reader {
                 );
                 return -1;
             };
-            let Some(src_slice) = buffer_guard.get(self.pos..end_pos) else {
+            let Some(src_slice) = bufferguard.get(self.pos..end_pos) else {
                 error!(
-                    buffer_len = buffer_guard.len(),
+                    buffer_len = bufferguard.len(),
                     pos = self.pos,
                     end_pos = end_pos,
                     "CRITICAL: source buffer slice out of bounds"
@@ -211,7 +223,7 @@ impl Reader {
             dest_slice.copy_from_slice(src_slice);
             self.pos = end_pos;
 
-            drop(buffer_guard);
+            drop(bufferguard);
             drop(shared);
             return to_read.cast_signed();
         }

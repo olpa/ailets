@@ -4,6 +4,7 @@ use ailetos::idgen::{Handle, IdGen};
 use ailetos::pipe::{pipe_path, PipePool};
 use ailetos::storage::memkv::MemKV;
 use ailetos::storage::KVBuffers;
+use ailetos::{EOWNERDEAD, EPIPE};
 use parking_lot::RwLock;
 use std::sync::Arc;
 use std::time::Duration;
@@ -248,7 +249,7 @@ async fn test_reader_on_latent_pipe_closed_without_realizing() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Close the latent writer without realizing it
-    pool.close_actor_writers(actor_handle);
+    pool.close_actor_writers(actor_handle, 0);
 
     // Reader should unblock and get an error
     let result = tokio::time::timeout(Duration::from_secs(1), reader_task)
@@ -336,7 +337,7 @@ async fn test_latent_to_closed_transition() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Close without realizing
-    pool.close_actor_writers(actor_handle);
+    pool.close_actor_writers(actor_handle, 0);
 
     // New reader request should get error (closed state)
     let result = pool
@@ -462,7 +463,7 @@ async fn test_close_latent_writer_without_realizing() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Close latent writer (abnormal case - should log warning)
-    pool.close_actor_writers(actor_handle);
+    pool.close_actor_writers(actor_handle, 0);
 
     // Writer still doesn't exist (latent was closed)
     assert!(pool
@@ -477,7 +478,7 @@ async fn test_close_nonexistent_pipe() {
     let std_handle = StdHandle::Stdout;
 
     // Close non-existent pipe - should be no-op
-    pool.close_actor_writers(actor_handle);
+    pool.close_actor_writers(actor_handle, 0);
 
     // Writer still doesn't exist
     assert!(pool
@@ -1051,7 +1052,7 @@ async fn test_race_consumer_opens_during_shutdown() {
     tokio::time::sleep(Duration::from_millis(10)).await;
 
     // Now close the actor's writers (simulating shutdown)
-    pool.close_actor_writers(actor_handle);
+    pool.close_actor_writers(actor_handle, 0);
 
     // Reader task should complete (not hang forever)
     let reader_result = tokio::time::timeout(Duration::from_secs(1), reader_task)
@@ -1117,7 +1118,7 @@ async fn test_race_concurrent_consumers_during_shutdown() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Shutdown the producer
-    pool.close_actor_writers(actor_handle);
+    pool.close_actor_writers(actor_handle, 0);
 
     // All consumers should complete within reasonable time
     let timeout_result = tokio::time::timeout(Duration::from_secs(2), async move {
@@ -1186,7 +1187,7 @@ async fn test_race_latent_waiters_notified_on_close() {
 
     // Producer "crashes" without ever creating the writer
     // Just close all its pipes
-    pool.close_actor_writers(actor_handle);
+    pool.close_actor_writers(actor_handle, 0);
 
     // All waiters should be notified and complete
     let timeout_result = tokio::time::timeout(Duration::from_secs(1), async move {
@@ -1252,7 +1253,7 @@ async fn test_race_touch_writer_vs_close() {
     let pool_clone = Arc::clone(&pool);
     let close_handle = tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(20)).await;
-        pool_clone.close_actor_writers(actor_handle);
+        pool_clone.close_actor_writers(actor_handle, 0);
     });
 
     // Wait for all tasks
@@ -1312,4 +1313,182 @@ async fn test_race_reader_loop_and_recheck() {
     let mut buf = vec![0u8; 100];
     let n = reader.read(&mut buf).await;
     assert!(n > 0, "Should be able to read data from the pipe");
+}
+
+// reader-to-writer: reader fails and closes, writer closes without another write — writer is successful
+#[tokio::test]
+async fn test_reader_to_writer_writer_closes_without_write_after_reader_fails_is_successful() {
+    let (pool, _, id_gen, _) = create_test_pool();
+    let actor_handle = Handle::new(1);
+    let std_handle = StdHandle::Stdout;
+
+    let (writer, _) = pool
+        .touch_writer(actor_handle, std_handle, &id_gen)
+        .await
+        .expect("Failed to create writer");
+
+    let mut reader = pool
+        .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
+        .await
+        .expect("Failed to create reader");
+
+    let _ = writer.write(b"hello");
+
+    // Reader fails and closes — all readers are now gone
+    reader.set_error(EPIPE);
+    reader.close();
+    drop(reader);
+
+    // Writer closes without writing again — error is only triggered on next write,
+    // so writer must be successful
+    writer.close();
+    assert_eq!(writer.get_error(), 0);
+}
+
+// backward-propagation: when all readers close, writer receives EPIPE on next write
+#[tokio::test]
+async fn test_backward_propagation_last_reader_closed() {
+    let (pool, _, id_gen, _) = create_test_pool();
+    let actor_handle = Handle::new(1);
+    let std_handle = StdHandle::Stdout;
+
+    let (writer, _) = pool
+        .touch_writer(actor_handle, std_handle, &id_gen)
+        .await
+        .expect("Failed to create writer");
+
+    let mut reader = pool
+        .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
+        .await
+        .expect("Failed to create reader");
+
+    // Writer can write while reader is open
+    assert_eq!(writer.write(b"hello"), 5);
+
+    // Close the only reader
+    reader.close();
+    drop(reader);
+
+    // Next write must fail with EPIPE (spec://errors#backward-propagation)
+    assert_eq!(writer.write(b"after"), -1);
+    assert_eq!(writer.get_error(), EPIPE);
+}
+
+// backward-propagation: no EPIPE if no readers were ever created
+#[tokio::test]
+async fn test_backward_propagation_no_readers_no_epipe() {
+    let (pool, _, id_gen, _) = create_test_pool();
+    let actor_handle = Handle::new(1);
+    let std_handle = StdHandle::Stdout;
+
+    let (writer, _) = pool
+        .touch_writer(actor_handle, std_handle, &id_gen)
+        .await
+        .expect("Failed to create writer");
+
+    // No readers were ever created — writes should succeed
+    assert_eq!(writer.write(b"hello"), 5);
+    assert_eq!(writer.get_error(), 0);
+}
+
+// backward-propagation: EPIPE only after the last of multiple readers closes
+#[tokio::test]
+async fn test_backward_propagation_multiple_readers_last_close_triggers_epipe() {
+    let (pool, _, id_gen, _) = create_test_pool();
+    let actor_handle = Handle::new(1);
+    let std_handle = StdHandle::Stdout;
+
+    let (writer, _) = pool
+        .touch_writer(actor_handle, std_handle, &id_gen)
+        .await
+        .expect("Failed to create writer");
+
+    let mut reader1 = pool
+        .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
+        .await
+        .expect("Failed to create reader1");
+    let mut reader2 = pool
+        .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
+        .await
+        .expect("Failed to create reader2");
+
+    // Close first reader — writer still has one open reader, no EPIPE
+    reader1.close();
+    drop(reader1);
+    assert_eq!(writer.write(b"still ok"), 8);
+    assert_eq!(writer.get_error(), 0);
+
+    // Close last reader — writer should now receive EPIPE
+    reader2.close();
+    drop(reader2);
+    assert_eq!(writer.write(b"now fails"), -1);
+    assert_eq!(writer.get_error(), EPIPE);
+}
+
+// backward-propagation: one reader drops abruptly (no close), second reader still open — no EPIPE
+#[tokio::test]
+async fn test_backward_propagation_abrupt_drop_of_one_reader_no_epipe_until_last_gone() {
+    let (pool, _, id_gen, _) = create_test_pool();
+    let actor_handle = Handle::new(1);
+    let std_handle = StdHandle::Stdout;
+
+    let (writer, _) = pool
+        .touch_writer(actor_handle, std_handle, &id_gen)
+        .await
+        .expect("Failed to create writer");
+
+    let reader1 = pool
+        .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
+        .await
+        .expect("Failed to create reader1");
+    let mut reader2 = pool
+        .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
+        .await
+        .expect("Failed to create reader2");
+
+    // Drop reader1 without explicit close (simulates a failed/panicked consumer).
+    // reader2 is still alive — spec says EPIPE fires only when ALL readers are gone.
+    drop(reader1);
+    assert_eq!(writer.write(b"still ok"), 8);
+    assert_eq!(writer.get_error(), 0);
+
+    // Now the last reader closes — writer must see EPIPE on next write.
+    reader2.close();
+    drop(reader2);
+    assert_eq!(writer.write(b"now fails"), -1);
+    assert_eq!(writer.get_error(), EPIPE);
+}
+
+// close_actor_writers with non-zero exit code: reader drains buffered data then sees EPIPE
+#[tokio::test]
+async fn test_close_actor_writers_with_error_reader_sees_epipe() {
+    let (pool, _, id_gen, _) = create_test_pool();
+    let actor_handle = Handle::new(1);
+    let std_handle = StdHandle::Stdout;
+
+    let (writer, _) = pool
+        .touch_writer(actor_handle, std_handle, &id_gen)
+        .await
+        .expect("Failed to create writer");
+
+    writer.write(b"buffered");
+
+    let mut reader = pool
+        .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
+        .await
+        .expect("Failed to create reader");
+
+    // Actor fails: close_actor_writers propagates EOWNERDEAD to the writer
+    pool.close_actor_writers(actor_handle, EOWNERDEAD);
+
+    // Reader drains the buffered data first
+    let mut buf = [0u8; 64];
+    let n = reader.read(&mut buf).await;
+    assert_eq!(n, 8);
+    assert_eq!(&buf[..8], b"buffered");
+
+    // After drain, reader receives EPIPE (not EOWNERDEAD)
+    let n = reader.read(&mut buf).await;
+    assert_eq!(n, -1);
+    assert_eq!(reader.get_error(), EPIPE);
 }

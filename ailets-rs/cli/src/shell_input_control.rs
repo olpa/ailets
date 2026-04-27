@@ -40,6 +40,13 @@ pub fn write_to_shell_input(handle: Handle, data: Vec<u8>) -> Result<(), String>
     }
 }
 
+/// Close all registered `shell_input` actors (EOF). Call this on shell exit so that
+/// actors blocked in `for data in receiver` unblock and their `spawn_blocking` tasks
+/// can complete, allowing the Tokio runtime to shut down cleanly.
+pub fn close_all_shell_inputs() {
+    SENDERS.lock().clear();
+}
+
 /// Close the actor's input (EOF). Drops the sender so the actor's `recv()` returns Err.
 /// Also cleans up the receiver if the actor never started.
 pub fn close_shell_input(handle: Handle) -> Result<(), String> {

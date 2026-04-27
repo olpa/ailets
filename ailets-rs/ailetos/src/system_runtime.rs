@@ -95,7 +95,10 @@ pub struct ChannelHandle(pub isize);
 /// A channel endpoint - either a reader or writer
 pub enum Channel<K: KVBuffers> {
     /// Reader channel - holds the `MergeReader` (None when in use during async read)
-    Reader(Option<MergeReader<K>>),
+    Reader {
+        node_handle: Handle,
+        reader: Option<MergeReader<K>>,
+    },
     /// Writer channel - holds the actor's node handle and std handle for pipe lookup
     Writer {
         node_handle: Handle,
@@ -174,10 +177,11 @@ pub enum IoRequest {
     /// Read from a channel (async operation)
     /// SAFETY: The buffer pointer must remain valid until the response is sent.
     /// This is guaranteed because `aread()` blocks waiting for the response.
+    /// Response is `(bytes_read, errno)`: errno is non-zero only when `bytes_read` < 0.
     Read {
         handle: ChannelHandle,
         buffer: SendableBuffer,
-        response: oneshot::Sender<isize>,
+        response: oneshot::Sender<(isize, i32)>,
     },
     /// Write to an actor's output pipe (async operation)
     /// Uses `node_handle` + `std_handle` to write directly to `PipePool`
@@ -192,8 +196,9 @@ pub enum IoRequest {
         handle: ChannelHandle,
         response: oneshot::Sender<isize>,
     },
-    /// Actor shutdown - close all writers (realized and latent) for this actor
-    ActorShutdown { node_handle: Handle },
+    /// Actor shutdown - close all writers (realized and latent) for this actor.
+    /// `exit_code`: 0 = clean termination, non-zero = POSIX errno.
+    ActorShutdown { node_handle: Handle, exit_code: i32 },
     /// Materialize stdin reader for an actor (creates `MergeReader`, returns `ChannelHandle`)
     /// Called on first read from stdin
     MaterializeStdin {
@@ -216,7 +221,9 @@ pub enum IoEvent<K: KVBuffers> {
         handle: ChannelHandle,
         reader: MergeReader<K>,
         bytes_read: isize,
-        response: oneshot::Sender<isize>,
+        /// errno when `bytes_read` < 0, else 0
+        errno: i32,
+        response: oneshot::Sender<(isize, i32)>,
     },
     /// Synchronous operation completed (write, open, close)
     SyncComplete {
@@ -305,8 +312,13 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         );
 
         let stdin = self.alloc_channel_handle();
-        self.channels
-            .insert(stdin, Channel::Reader(Some(merge_reader)));
+        self.channels.insert(
+            stdin,
+            Channel::Reader {
+                node_handle,
+                reader: Some(merge_reader),
+            },
+        );
 
         stdin
     }
@@ -380,39 +392,51 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         &mut self,
         handle: ChannelHandle,
         buffer: SendableBuffer,
-        response: oneshot::Sender<isize>,
+        response: oneshot::Sender<(isize, i32)>,
     ) -> IoFuture<K> {
-        if let Some(Channel::Reader(reader_slot)) = self.channels.get_mut(&handle) {
+        if let Some(Channel::Reader {
+            reader: reader_slot,
+            ..
+        }) = self.channels.get_mut(&handle)
+        {
             if let Some(mut reader) = reader_slot.take() {
                 // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
                 Box::pin(async move {
                     // SAFETY: Buffer remains valid because aread() blocks until response
                     let buf = unsafe { &mut *buffer.into_raw() };
                     let bytes_read = reader.read(buf).await;
+                    let errno = if bytes_read < 0 {
+                        reader.get_error()
+                    } else {
+                        0
+                    };
                     IoEvent::ReadComplete {
                         handle,
                         reader,
                         bytes_read,
+                        errno,
                         response,
                     }
                 })
             } else {
                 warn!(channel = ?handle, "reader not available (already in use?)");
-                // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
                 Box::pin(async move {
+                    let _ = response.send((0, 0));
+                    let (dummy_tx, _) = oneshot::channel();
                     IoEvent::SyncComplete {
                         result: 0,
-                        response,
+                        response: dummy_tx,
                     }
                 })
             }
         } else {
             warn!(channel = ?handle, "channel not found or not a reader");
-            // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
             Box::pin(async move {
+                let _ = response.send((0, 0));
+                let (dummy_tx, _) = oneshot::channel();
                 IoEvent::SyncComplete {
                     result: 0,
-                    response,
+                    response: dummy_tx,
                 }
             })
         }
@@ -457,7 +481,17 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                             Arc::clone(&id_gen),
                         );
                     }
-                    writer.write(&data)
+                    let n = writer.write(&data);
+                    if n < 0 {
+                        let errno = writer.get_error();
+                        if errno != 0 {
+                            -(errno as isize)
+                        } else {
+                            -1
+                        }
+                    } else {
+                        n
+                    }
                 }
                 Err(e) => {
                     warn!(node = ?node_handle, std = ?std_handle, error = %e, "failed to get writer");
@@ -481,7 +515,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
     ) -> IoFuture<K> {
         if let Some(channel) = self.channels.remove(&handle) {
             match channel {
-                Channel::Reader(_) => {
+                Channel::Reader { .. } => {
                     // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
                     Box::pin(async move {
                         IoEvent::SyncComplete {
@@ -599,13 +633,14 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         handle: ChannelHandle,
         reader: MergeReader<K>,
         bytes_read: isize,
-        response: oneshot::Sender<isize>,
+        errno: i32,
+        response: oneshot::Sender<(isize, i32)>,
     ) {
         // Put reader back into the channel
-        if let Some(Channel::Reader(slot)) = self.channels.get_mut(&handle) {
+        if let Some(Channel::Reader { reader: slot, .. }) = self.channels.get_mut(&handle) {
             *slot = Some(reader);
         }
-        let _ = response.send(bytes_read);
+        let _ = response.send((bytes_read, errno));
     }
 
     /// Handler for `SyncComplete` events
@@ -652,7 +687,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                                 let fut = self.handle_close(handle, response);
                                 pending_ops.push(fut);
                             }
-                            IoRequest::ActorShutdown { node_handle } => {
+                            IoRequest::ActorShutdown { node_handle, exit_code } => {
                                 let state = self.dag.read().get_node(node_handle).map(|n| n.state);
                                 if matches!(state, Some(NodeState::Terminating | NodeState::Terminated)) {
                                     debug!(node = ?node_handle, "actor shutdown - already terminating/terminated, ignoring");
@@ -660,11 +695,20 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                                     debug!(node = ?node_handle, "actor shutdown - setting state to Terminating");
                                     self.dag.write().set_state(node_handle, NodeState::Terminating);
 
-                                    debug!(node = ?node_handle, "actor shutdown - closing all writers");
-                                    self.pipe_pool.close_actor_writers(node_handle);
+                                    debug!(node = ?node_handle, exit_code, "actor shutdown - closing all writers");
+                                    self.pipe_pool.close_actor_writers(node_handle, exit_code);
+
+                                    debug!(node = ?node_handle, "actor shutdown - dropping reader channels");
+                                    self.channels.retain(|_, ch| {
+                                        !matches!(ch, Channel::Reader { node_handle: h, .. } if *h == node_handle)
+                                    });
 
                                     debug!(node = ?node_handle, "actor shutdown - setting state to Terminated");
-                                    self.dag.write().set_state(node_handle, NodeState::Terminated);
+                                    {
+                                        let mut dag = self.dag.write();
+                                        dag.set_state(node_handle, NodeState::Terminated);
+                                        dag.set_exit_code(node_handle, exit_code);
+                                    }
                                     self.spawn_notify.notify_one();
                                 }
                             }
@@ -686,8 +730,8 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                 // Handle completed operations
                 Some(event) = pending_ops.next(), if !pending_ops.is_empty() => {
                     match event {
-                        IoEvent::ReadComplete { handle, reader, bytes_read, response } => {
-                            self.handle_read_complete(handle, reader, bytes_read, response);
+                        IoEvent::ReadComplete { handle, reader, bytes_read, errno, response } => {
+                            self.handle_read_complete(handle, reader, bytes_read, errno, response);
                         }
                         IoEvent::SyncComplete { result, response } => {
                             Self::handle_sync_complete(result, response);
