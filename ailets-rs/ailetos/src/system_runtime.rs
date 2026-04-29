@@ -200,9 +200,10 @@ pub enum IoRequest {
     /// `exit_code`: 0 = clean termination, non-zero = POSIX errno.
     ActorShutdown { node_handle: Handle, exit_code: i32 },
     /// Materialize stdin reader for an actor (creates `MergeReader`, returns `ChannelHandle`)
-    /// Called on first read from stdin
+    /// Called on first read from stdin. The iterator is pre-built by the executor at spawn time.
     MaterializeStdin {
         node_handle: Handle,
+        dep_iterator: OwnedDependencyIterator,
         response: oneshot::Sender<ChannelHandle>,
     },
     /// Close a writer for an actor
@@ -295,15 +296,11 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
     /// Materialize stdin reader for an actor on first read
     ///
-    /// Creates a `MergeReader` with dependencies from the DAG and returns a `ChannelHandle`.
+    /// Creates a `MergeReader` from the pre-built iterator and returns a `ChannelHandle`.
     /// Called lazily when the actor first reads from stdin.
-    fn materialize_stdin(&mut self, node_handle: Handle) -> ChannelHandle {
+    fn materialize_stdin(&mut self, node_handle: Handle, dep_iterator: OwnedDependencyIterator) -> ChannelHandle {
         debug!(actor = ?node_handle, "materializing stdin reader");
 
-        // Create OwnedDependencyIterator from DAG
-        let dep_iterator = OwnedDependencyIterator::new(Arc::clone(&self.dag), node_handle);
-
-        // Create MergeReader with the dependency iterator
         let merge_reader = MergeReader::new(
             dep_iterator,
             Arc::clone(&self.pipe_pool),
@@ -712,8 +709,8 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                                     self.notify.notify_one();
                                 }
                             }
-                            IoRequest::MaterializeStdin { node_handle, response } => {
-                                let channel_handle = self.materialize_stdin(node_handle);
+                            IoRequest::MaterializeStdin { node_handle, dep_iterator, response } => {
+                                let channel_handle = self.materialize_stdin(node_handle, dep_iterator);
                                 let _ = response.send(channel_handle);
                             }
                             IoRequest::CloseWriter { node_handle, std_handle, response } => {

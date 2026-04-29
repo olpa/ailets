@@ -11,6 +11,7 @@ use actor_runtime::ActorRuntime;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{error, warn};
 
+use crate::dag::OwnedDependencyIterator;
 use crate::errno::EOWNERDEAD;
 use crate::fd_table::{FdEntry, FdTable};
 use crate::idgen::Handle;
@@ -32,6 +33,8 @@ pub struct BlockingActorRuntime {
     suspension: Arc<SuspensionState>,
     /// errno from the last failed read (0 = no error); shared with `ShutdownHandle`
     last_read_errno: Arc<AtomicI32>,
+    /// Pre-built dependency iterator for stdin; consumed on first read
+    stdin_dep_iterator: std::sync::Mutex<Option<OwnedDependencyIterator>>,
 }
 
 /// Lifecycle handle that notifies `SystemRuntime` when an actor is done.
@@ -95,6 +98,7 @@ impl BlockingActorRuntime {
         node_handle: Handle,
         system_tx: mpsc::UnboundedSender<IoRequest>,
         suspension: Arc<SuspensionState>,
+        stdin_dep_iterator: OwnedDependencyIterator,
     ) -> (Self, ShutdownHandle) {
         let exit_code = Arc::new(AtomicI32::new(0));
         let last_read_errno = Arc::new(AtomicI32::new(0));
@@ -104,6 +108,7 @@ impl BlockingActorRuntime {
             fd_table: std::sync::Mutex::new(FdTable::new()),
             suspension: Arc::clone(&suspension),
             last_read_errno: Arc::clone(&last_read_errno),
+            stdin_dep_iterator: std::sync::Mutex::new(Some(stdin_dep_iterator)),
         };
         let shutdown = ShutdownHandle {
             node_handle,
@@ -222,10 +227,25 @@ impl ActorRuntime for BlockingActorRuntime {
                     // Need to materialize stdin - release lock first
                     drop(table);
 
+                    let dep_iterator = match self.stdin_dep_iterator.lock() {
+                        Ok(mut g) => match g.take() {
+                            Some(it) => it,
+                            None => {
+                                error!(actor = ?self.node_handle, "aread: stdin iterator already consumed but fd entry is AllowedReader");
+                                return -1;
+                            }
+                        },
+                        Err(e) => {
+                            error!(actor = ?self.node_handle, error = ?e, "aread: stdin_dep_iterator lock poisoned");
+                            return -1;
+                        }
+                    };
+
                     let (tx, rx) = oneshot::channel();
 
                     if let Err(e) = self.system_tx.send(IoRequest::MaterializeStdin {
                         node_handle: self.node_handle,
+                        dep_iterator,
                         response: tx,
                     }) {
                         error!(actor = ?self.node_handle, error = ?e, "aread: failed to send MaterializeStdin");

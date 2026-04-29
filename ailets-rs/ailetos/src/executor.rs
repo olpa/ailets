@@ -12,7 +12,7 @@ use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, error, warn};
 
-use crate::dag::{Dag, NodeKind, NodeState};
+use crate::dag::{Dag, NodeKind, NodeState, OwnedDependencyIterator};
 use crate::environment::{ActorFn, RunHandle};
 use crate::idgen::Handle;
 use crate::pipe::PipePool;
@@ -220,10 +220,16 @@ pub async fn run_with_tx<K: KVBuffers + 'static>(
             }
             debug!(node = ?node_handle, name = %idname, "spawning actor task");
 
+            let dep_iterator = OwnedDependencyIterator::new(
+                Arc::clone(&run_handle.dag),
+                *node_handle,
+            );
+
             let (actor_runtime, shutdown) = BlockingActorRuntime::new(
                 *node_handle,
                 system_tx.clone(),
                 Arc::clone(&run_handle.suspension),
+                dep_iterator,
             );
 
             actor_tasks.push(spawn_actor_task(

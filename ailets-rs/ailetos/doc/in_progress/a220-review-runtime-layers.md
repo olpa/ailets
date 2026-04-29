@@ -53,7 +53,7 @@ The executor already owns the "start" side of actor lifecycle — it writes `Nod
 - Remove `SystemRuntime::get_spawn_notify()`
 - No behavioral change; establishes correct dependency direction before the bigger steps
 
-### Step 2 — Extract `materialize_stdin` to the executor (low risk)
+### Step 2 — Extract `materialize_stdin` to the executor (low risk) ✓ DONE
 
 - At spawn time in the executor, build the `MergeReader` from DAG dependencies
 - Pass the reader into `BlockingActorRuntime::new()` (or a new constructor parameter)
