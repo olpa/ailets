@@ -257,7 +257,12 @@ pub struct SystemRuntime<K: KVBuffers> {
     /// Manages dynamic attachment of actor streams to host stdout/stderr
     attachment_manager: Arc<AttachmentManager>,
     /// Notifies the spawn loop when something changes that may affect node readiness
-    spawn_notify: Arc<Notify>,
+    /// Fired when I/O state changes that may affect dependent actor readiness.
+    /// Use cases:
+    /// - a pipe is realized
+    /// - a writer is closed
+    /// - an actor terminates
+    notify: Arc<Notify>,
 }
 
 impl<K: KVBuffers + 'static> SystemRuntime<K> {
@@ -267,6 +272,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         id_gen: Arc<IdGen>,
         attachment_config: AttachmentConfig,
         pipe_pool: Arc<PipePool<K>>,
+        notify: Arc<Notify>,
     ) -> Self {
         let (system_tx, request_rx) = mpsc::unbounded_channel();
 
@@ -283,14 +289,8 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
             request_rx,
             id_gen,
             attachment_manager,
-            spawn_notify: Arc::new(Notify::new()),
+            notify,
         }
-    }
-
-    /// Get the notify handle so the spawn loop can wait for readiness changes
-    #[must_use]
-    pub fn get_spawn_notify(&self) -> Arc<Notify> {
-        Arc::clone(&self.spawn_notify)
     }
 
     /// Materialize stdin reader for an actor on first read
@@ -366,7 +366,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         {
             Ok(_) => {
                 debug!(node = ?node_handle, "pipe ready");
-                self.spawn_notify.notify_one();
+                self.notify.notify_one();
             }
             Err(e) => {
                 warn!(node = ?node_handle, error = %e, "failed to create writer");
@@ -461,7 +461,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         let pipe_pool = Arc::clone(&self.pipe_pool);
         let id_gen = Arc::clone(&self.id_gen);
         let attachment_manager = Arc::clone(&self.attachment_manager);
-        let spawn_notify = Arc::clone(&self.spawn_notify);
+        let notify = Arc::clone(&self.notify);
         let data = data.to_vec();
 
         // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
@@ -499,7 +499,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                 }
             };
 
-            spawn_notify.notify_one();
+            notify.notify_one();
             IoEvent::SyncComplete { result, response }
         })
     }
@@ -541,7 +541,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
                     let pipe_pool = Arc::clone(&self.pipe_pool);
                     let kv = Arc::clone(&self.kv);
-                    let spawn_notify = Arc::clone(&self.spawn_notify);
+                    let notify = Arc::clone(&self.notify);
                     // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
                     Box::pin(async move {
                         let result_code = if let Some(writer) =
@@ -559,7 +559,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                             -1
                         };
 
-                        spawn_notify.notify_one();
+                        notify.notify_one();
                         IoEvent::SyncComplete {
                             result: result_code,
                             response,
@@ -600,7 +600,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
         let pipe_pool = Arc::clone(&self.pipe_pool);
         let kv = Arc::clone(&self.kv);
-        let spawn_notify = Arc::clone(&self.spawn_notify);
+        let notify = Arc::clone(&self.notify);
 
         // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
         Box::pin(async move {
@@ -619,7 +619,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                 0
             };
 
-            spawn_notify.notify_one();
+            notify.notify_one();
             IoEvent::SyncComplete {
                 result: result_code,
                 response,
@@ -709,7 +709,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                                         dag.set_state(node_handle, NodeState::Terminated);
                                         dag.set_exit_code(node_handle, exit_code);
                                     }
-                                    self.spawn_notify.notify_one();
+                                    self.notify.notify_one();
                                 }
                             }
                             IoRequest::MaterializeStdin { node_handle, response } => {

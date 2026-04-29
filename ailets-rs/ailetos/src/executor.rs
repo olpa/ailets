@@ -88,7 +88,8 @@ pub fn is_ready_to_spawn<K: KVBuffers>(
 }
 
 /// True if any node is Running or Terminating (i.e. an actor task is still alive).
-/// Used by the spawn loop to decide whether `spawn_notify` can ever fire again.
+/// When false and no nodes were spawned this iteration, no further I/O events
+/// can occur, so remaining pending nodes will never become ready.
 fn has_active_actors(dag: &Dag) -> bool {
     dag.nodes().any(|n| match n.state {
         NodeState::Running | NodeState::Terminating => true,
@@ -144,15 +145,16 @@ pub async fn run_with_tx<K: KVBuffers + 'static>(
 ) {
     let pipe_pool = Arc::new(PipePool::new(Arc::clone(&run_handle.kv)));
 
+    let notify = Arc::new(tokio::sync::Notify::new());
+
     let system_runtime = SystemRuntime::new(
         Arc::clone(&run_handle.dag),
         Arc::clone(&run_handle.kv),
         Arc::clone(&run_handle.idgen),
         run_handle.attachment_config.clone(),
         Arc::clone(&pipe_pool),
+        Arc::clone(&notify),
     );
-
-    let spawn_notify = system_runtime.get_spawn_notify();
 
     let Some(system_tx) = system_runtime.get_system_tx() else {
         error!("Failed to get system_tx - system runtime already started");
@@ -240,7 +242,7 @@ pub async fn run_with_tx<K: KVBuffers + 'static>(
         // Quiescence check: nothing changed this iteration (no node was ready
         // to spawn) AND no actor is Running or Terminating.
         //
-        // When both hold, spawn_notify can never fire again — nothing changed,
+        // When both hold, notify can never fire again — nothing changed,
         // and nothing will change. Remaining pending nodes are blocked by a
         // failed dependency and will never run in this execution. Break instead
         // of waiting forever; those nodes stay NotStarted and are eligible for
@@ -253,7 +255,7 @@ pub async fn run_with_tx<K: KVBuffers + 'static>(
         // Something is running or was just spawned. Wait for a state change:
         // either an actor terminates (possibly unblocking a dependent) or a
         // pipe is realized (making a dep's output available).
-        spawn_notify.notified().await;
+        notify.notified().await;
     }
 
     drop(system_tx);
