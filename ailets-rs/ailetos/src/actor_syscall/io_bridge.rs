@@ -183,6 +183,84 @@ pub enum IoEvent<K: KVBuffers> {
 /// Type alias for I/O futures
 pub type IoFuture<K> = Pin<Box<dyn Future<Output = IoEvent<K>> + Send>>;
 
+/// Global table of open channel endpoints, analogous to the kernel's open-file-descriptions table.
+///
+/// Each entry maps a [`ChannelHandle`] (an opaque integer given to the actor) to its
+/// underlying [`Channel`] — either a reader holding a [`MergeReader`] or a writer
+/// identified by `(node_handle, std_handle)`.
+///
+/// The per-actor fd → [`ChannelHandle`] mapping lives in [`super::fd_table::FdTable`];
+/// this table holds the system-side objects those handles resolve to.
+struct ChannelTable<K: KVBuffers> {
+    map: HashMap<ChannelHandle, Channel<K>>,
+    next_id: isize,
+}
+
+impl<K: KVBuffers> ChannelTable<K> {
+    fn new() -> Self {
+        Self { map: HashMap::new(), next_id: 0 }
+    }
+
+    /// Allocate a new handle without inserting a channel (used for dummy/unimplemented paths).
+    fn alloc_handle(&mut self) -> ChannelHandle {
+        let handle = ChannelHandle(self.next_id);
+        self.next_id += 1;
+        handle
+    }
+
+    /// Insert a new reader channel and return its handle.
+    fn insert_reader(&mut self, node_handle: Handle, reader: MergeReader<K>) -> ChannelHandle {
+        let handle = self.alloc_handle();
+        self.map.insert(handle, Channel::Reader { node_handle, reader: Some(reader) });
+        handle
+    }
+
+    /// Insert a new writer channel and return its handle.
+    fn insert_writer(&mut self, node_handle: Handle, std_handle: actor_runtime::StdHandle) -> ChannelHandle {
+        let handle = self.alloc_handle();
+        self.map.insert(handle, Channel::Writer { node_handle, std_handle });
+        handle
+    }
+
+    /// Move the reader out of its slot to hand it to an async read future.
+    ///
+    /// `handle_read` returns a `Box::pin(async move { ... })` that is pushed into
+    /// `pending_ops`. That future must *own* the reader — it cannot hold a reference
+    /// into `ChannelTable` because `self` must remain usable immediately to process
+    /// the next request. So the reader leaves the table for the duration of the async
+    /// read; the slot stays as `None` ("reader in flight"). `return_reader` puts it
+    /// back once the future completes.
+    ///
+    /// Returns `None` if the handle does not exist, is not a reader, or the reader
+    /// is already in flight.
+    fn take_reader(&mut self, handle: ChannelHandle) -> Option<MergeReader<K>> {
+        if let Some(Channel::Reader { reader: slot, .. }) = self.map.get_mut(&handle) {
+            slot.take()
+        } else {
+            None
+        }
+    }
+
+    /// Return a reader to its slot after an async read completes.
+    fn return_reader(&mut self, handle: ChannelHandle, reader: MergeReader<K>) {
+        if let Some(Channel::Reader { reader: slot, .. }) = self.map.get_mut(&handle) {
+            *slot = Some(reader);
+        }
+    }
+
+    /// Remove and return a channel by handle (used by `Close`).
+    fn remove(&mut self, handle: ChannelHandle) -> Option<Channel<K>> {
+        self.map.remove(&handle)
+    }
+
+    /// Drop all reader channels belonging to `node_handle` (called on actor shutdown).
+    fn drop_actor_readers(&mut self, node_handle: Handle) {
+        self.map.retain(|_, ch| {
+            !matches!(ch, Channel::Reader { node_handle: h, .. } if *h == node_handle)
+        });
+    }
+}
+
 /// `IoBridge` manages all async I/O operations
 /// Actors communicate with it via channels
 pub struct IoBridge<K: KVBuffers> {
@@ -190,10 +268,8 @@ pub struct IoBridge<K: KVBuffers> {
     pipe_pool: Arc<PipePool<K>>,
     /// Key-value store for pipe buffers
     kv: Arc<K>,
-    /// Global channel table: `ChannelHandle` → Channel (reader or writer endpoint)
-    channels: HashMap<ChannelHandle, Channel<K>>,
-    /// Next channel handle ID
-    next_channel_id: isize,
+    /// Open channel endpoints: ChannelHandle → reader or writer
+    channel_table: ChannelTable<K>,
     /// Channel to send I/O requests to this runtime (None after `run()` starts)
     system_tx: Option<mpsc::UnboundedSender<IoRequest>>,
     /// Receives I/O requests from actors
@@ -232,8 +308,7 @@ impl<K: KVBuffers + 'static> IoBridge<K> {
         Self {
             pipe_pool,
             kv,
-            channels: HashMap::new(),
-            next_channel_id: 0,
+            channel_table: ChannelTable::new(),
             system_tx: Some(system_tx),
             request_rx,
             id_gen,
@@ -257,23 +332,7 @@ impl<K: KVBuffers + 'static> IoBridge<K> {
             Arc::clone(&self.id_gen),
         );
 
-        let stdin = self.alloc_channel_handle();
-        self.channels.insert(
-            stdin,
-            Channel::Reader {
-                node_handle,
-                reader: Some(merge_reader),
-            },
-        );
-
-        stdin
-    }
-
-    /// Allocate a new global channel handle
-    fn alloc_channel_handle(&mut self) -> ChannelHandle {
-        let handle = ChannelHandle(self.next_channel_id);
-        self.next_channel_id += 1;
-        handle
+        self.channel_table.insert_reader(node_handle, merge_reader)
     }
 
     /// Get the sender for creating actor runtimes
@@ -305,9 +364,7 @@ impl<K: KVBuffers + 'static> IoBridge<K> {
         self.pipe_pool.close_actor_writers(node_handle, exit_code);
 
         debug!(node = ?node_handle, "actor shutdown - dropping reader channels");
-        self.channels.retain(|_, ch| {
-            !matches!(ch, Channel::Reader { node_handle: h, .. } if *h == node_handle)
-        });
+        self.channel_table.drop_actor_readers(node_handle);
 
         let (tx2, rx2) = oneshot::channel::<NodeState>();
         if self.actor_done_tx.send(ActorLifecycleEvent::Terminated {
@@ -328,7 +385,7 @@ impl<K: KVBuffers + 'static> IoBridge<K> {
     fn handle_open_read(&mut self, node_handle: Handle, response: oneshot::Sender<ChannelHandle>) {
         debug!(node = ?node_handle, "processing OpenRead");
         // No dependency wiring for now - just return a dummy handle
-        let channel_handle = self.alloc_channel_handle();
+        let channel_handle = self.channel_table.alloc_handle();
         warn!(node = ?node_handle, channel = ?channel_handle, "OpenRead: no input configured, returning dummy");
         let _ = response.send(channel_handle);
     }
@@ -358,14 +415,7 @@ impl<K: KVBuffers + 'static> IoBridge<K> {
             }
         }
 
-        let channel_handle = self.alloc_channel_handle();
-        self.channels.insert(
-            channel_handle,
-            Channel::Writer {
-                node_handle,
-                std_handle,
-            },
-        );
+        let channel_handle = self.channel_table.insert_writer(node_handle, std_handle);
         let _ = response.send(channel_handle);
     }
 
@@ -379,50 +429,21 @@ impl<K: KVBuffers + 'static> IoBridge<K> {
         buffer: SendableBuffer,
         response: oneshot::Sender<(isize, i32)>,
     ) -> IoFuture<K> {
-        if let Some(Channel::Reader {
-            reader: reader_slot,
-            ..
-        }) = self.channels.get_mut(&handle)
-        {
-            if let Some(mut reader) = reader_slot.take() {
-                // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
-                Box::pin(async move {
-                    // SAFETY: Buffer remains valid because aread() blocks until response
-                    let buf = unsafe { &mut *buffer.into_raw() };
-                    let bytes_read = reader.read(buf).await;
-                    let errno = if bytes_read < 0 {
-                        reader.get_error()
-                    } else {
-                        0
-                    };
-                    IoEvent::ReadComplete {
-                        handle,
-                        reader,
-                        bytes_read,
-                        errno,
-                        response,
-                    }
-                })
-            } else {
-                warn!(channel = ?handle, "reader not available (already in use?)");
-                Box::pin(async move {
-                    let _ = response.send((0, 0));
-                    let (dummy_tx, _) = oneshot::channel();
-                    IoEvent::SyncComplete {
-                        result: 0,
-                        response: dummy_tx,
-                    }
-                })
-            }
+        if let Some(mut reader) = self.channel_table.take_reader(handle) {
+            // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
+            Box::pin(async move {
+                // SAFETY: Buffer remains valid because aread() blocks until response
+                let buf = unsafe { &mut *buffer.into_raw() };
+                let bytes_read = reader.read(buf).await;
+                let errno = if bytes_read < 0 { reader.get_error() } else { 0 };
+                IoEvent::ReadComplete { handle, reader, bytes_read, errno, response }
+            })
         } else {
-            warn!(channel = ?handle, "channel not found or not a reader");
+            warn!(channel = ?handle, "reader not available");
             Box::pin(async move {
                 let _ = response.send((0, 0));
                 let (dummy_tx, _) = oneshot::channel();
-                IoEvent::SyncComplete {
-                    result: 0,
-                    response: dummy_tx,
-                }
+                IoEvent::SyncComplete { result: 0, response: dummy_tx }
             })
         }
     }
@@ -498,7 +519,7 @@ impl<K: KVBuffers + 'static> IoBridge<K> {
         handle: ChannelHandle,
         response: oneshot::Sender<isize>,
     ) -> IoFuture<K> {
-        if let Some(channel) = self.channels.remove(&handle) {
+        if let Some(channel) = self.channel_table.remove(handle) {
             match channel {
                 Channel::Reader { .. } => {
                     // See: ARCHITECTURE: Sync-to-Async Bridge Pattern
@@ -621,10 +642,7 @@ impl<K: KVBuffers + 'static> IoBridge<K> {
         errno: i32,
         response: oneshot::Sender<(isize, i32)>,
     ) {
-        // Put reader back into the channel
-        if let Some(Channel::Reader { reader: slot, .. }) = self.channels.get_mut(&handle) {
-            *slot = Some(reader);
-        }
+        self.channel_table.return_reader(handle, reader);
         let _ = response.send((bytes_read, errno));
     }
 
