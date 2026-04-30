@@ -17,6 +17,7 @@
 //! - `Connection` trait bounds: <https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html>
 //! - Multi-threaded usage discussion: <https://github.com/rusqlite/rusqlite/issues/342>
 
+use async_trait::async_trait;
 use super::flush_coordinator::FlushCoordinator;
 use crate::{Buffer, KVBuffers, KVError, OpenMode};
 use parking_lot::Mutex;
@@ -103,6 +104,7 @@ impl SqliteKV {
     }
 }
 
+#[async_trait]
 impl KVBuffers for SqliteKV {
     async fn open(&self, path: &str, mode: OpenMode) -> Result<Buffer, KVError> {
         let mut buffers = self.buffers.lock();
