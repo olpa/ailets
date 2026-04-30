@@ -1,150 +1,165 @@
 use std::sync::Arc;
 
+use actor_runtime::StdHandle;
+use ailetos::actor_syscall::lifecycle_event::ActorLifecycleEvent;
+use ailetos::attachments::AttachmentConfig;
+use ailetos::dag::{Dag, NodeKind, NodeState, OwnedDependencyIterator};
+use ailetos::idgen::{Handle, IdGen};
+use ailetos::pipe::PipePool;
+use ailetos::storage::{KVBuffers, MemKV};
 use ailetos::suspension::SuspensionState;
-use ailetos::actor_syscall::{ChannelHandle, IoRequest};
-use ailetos::{BlockingActorRuntime, Dag, Handle, IdGen, OwnedDependencyIterator, EOWNERDEAD, EPIPE};
+use ailetos::{BlockingActorRuntime, IoBridge, EOWNERDEAD, EPIPE};
+use parking_lot::RwLock;
+use tokio::sync::{mpsc, Notify};
 
-fn make_dep_iterator(id_gen: &Arc<IdGen>, node_handle: Handle) -> OwnedDependencyIterator {
-    let dag = Arc::new(parking_lot::RwLock::new(Dag::new(Arc::clone(id_gen))));
-    OwnedDependencyIterator::new(dag, node_handle)
+fn make_test_components(id_gen: &Arc<IdGen>) -> (Arc<IoBridge>, Arc<PipePool>, tokio::task::JoinHandle<Option<i32>>) {
+    let kv: Arc<dyn KVBuffers> = Arc::new(MemKV::new());
+    let pipe_pool = Arc::new(PipePool::new(Arc::clone(&kv)));
+    let notify = Arc::new(Notify::new());
+    let (actor_done_tx, mut actor_done_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
+
+    let bridge = Arc::new(IoBridge::new(
+        kv,
+        Arc::clone(id_gen),
+        AttachmentConfig::default(),
+        Arc::clone(&pipe_pool),
+        notify,
+        actor_done_tx,
+    ));
+
+    // Lifecycle handler: replies to Terminating/Terminated, captures exit_code
+    let lifecycle_task = tokio::spawn(async move {
+        let mut last_exit_code = None;
+        while let Some(event) = actor_done_rx.recv().await {
+            match event {
+                ActorLifecycleEvent::Terminating { reply, .. } => {
+                    let _ = reply.send(NodeState::Running);
+                }
+                ActorLifecycleEvent::Terminated { exit_code, reply, .. } => {
+                    let _ = reply.send(NodeState::Terminating);
+                    last_exit_code = Some(exit_code);
+                }
+            }
+        }
+        last_exit_code
+    });
+
+    (bridge, pipe_pool, lifecycle_task)
 }
 
-/// When aread() receives EPIPE from the system runtime, get_errno() returns EPIPE
+fn make_dag_with_dep(id_gen: &Arc<IdGen>) -> (Arc<RwLock<Dag>>, Handle, Handle) {
+    let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(id_gen))));
+    let (dep_handle, actor_handle) = {
+        let mut d = dag.write();
+        let dep = d.add_node("dep".into(), NodeKind::Concrete);
+        let actor = d.add_node("actor".into(), NodeKind::Concrete);
+        d.add_dependency(ailetos::dag::For(actor), ailetos::dag::DependsOn(dep));
+        d.set_state(dep, NodeState::Running);
+        (dep, actor)
+    };
+    (dag, dep_handle, actor_handle)
+}
+
+/// When aread() receives EPIPE from the bridge, get_errno() returns EPIPE
 /// and mark_failed() uses EPIPE as the exit code (spec://errors#reader-to-actor).
 #[tokio::test]
 async fn test_reader_to_actor_epipe_propagation() {
     let id_gen = Arc::new(IdGen::new());
-    let node_handle = Handle::new(id_gen.get_next());
-    let (system_tx, mut system_rx) = tokio::sync::mpsc::unbounded_channel::<IoRequest>();
+    let (bridge, pipe_pool, lifecycle_task) = make_test_components(&id_gen);
+    let (dag, dep_handle, actor_handle) = make_dag_with_dep(&id_gen);
     let suspension = Arc::new(SuspensionState::new());
 
-    let (runtime, _shutdown) =
-        BlockingActorRuntime::new(node_handle, system_tx, Arc::clone(&suspension), make_dep_iterator(&id_gen, node_handle));
+    // Realize dep's pipe and set EPIPE error so MergeReader sees it
+    let (writer, _) = pipe_pool.touch_writer(dep_handle, StdHandle::Stdout, &id_gen).await.unwrap();
+    writer.set_error(EPIPE);
+    writer.close();
+
+    let dep_iterator = OwnedDependencyIterator::new(dag, actor_handle);
+
+    let (runtime, shutdown) = BlockingActorRuntime::new(
+        actor_handle, Arc::clone(&bridge), Arc::clone(&suspension), dep_iterator,
+    );
     runtime.register_std_fds();
 
-    // Mock IO bridge: MaterializeStdin → ChannelHandle, then Read → (-1, EPIPE)
-    let io_task = tokio::spawn(async move {
-        while let Some(req) = system_rx.recv().await {
-            match req {
-                IoRequest::MaterializeStdin { response, .. } => {
-                    let _ = response.send(ChannelHandle(0));
-                }
-                IoRequest::Read { response, .. } => {
-                    let _ = response.send((-1, EPIPE));
-                    return;
-                }
-                _ => {}
-            }
-        }
-    });
-
-    // Run aread in a blocking context (it calls blocking_recv internally)
     let (read_result, errno_after_read) = tokio::task::spawn_blocking(move || {
         use actor_runtime::ActorRuntime;
         let mut buf = [0u8; 64];
         let n = runtime.aread(0, &mut buf);
         let errno = runtime.get_errno();
-        // mark_failed uses last_read_errno: should use EPIPE, not EOWNERDEAD
+        drop(shutdown);
         (n, errno)
     })
     .await
     .unwrap();
 
     assert_eq!(read_result, -1, "aread should return -1 on error");
-    assert_eq!(
-        errno_after_read, EPIPE as isize,
-        "get_errno should return EPIPE"
-    );
+    assert_eq!(errno_after_read, EPIPE as isize, "get_errno should return EPIPE");
 
-    io_task.abort();
+    drop(bridge);
+    lifecycle_task.await.unwrap();
 }
 
-/// When mark_failed() is called after a read that returned EPIPE, the ActorShutdown
-/// message carries EPIPE as the exit code.
+/// When mark_failed() is called after a read that returned EPIPE, the shutdown
+/// carries EPIPE as the exit code.
 #[tokio::test]
 async fn test_mark_failed_uses_epipe_from_last_read() {
     let id_gen = Arc::new(IdGen::new());
-    let node_handle = Handle::new(id_gen.get_next());
-    let (system_tx, mut system_rx) = tokio::sync::mpsc::unbounded_channel::<IoRequest>();
+    let (bridge, pipe_pool, lifecycle_task) = make_test_components(&id_gen);
+    let (dag, dep_handle, actor_handle) = make_dag_with_dep(&id_gen);
     let suspension = Arc::new(SuspensionState::new());
 
-    let (runtime, shutdown) =
-        BlockingActorRuntime::new(node_handle, system_tx, Arc::clone(&suspension), make_dep_iterator(&id_gen, node_handle));
+    let (writer, _) = pipe_pool.touch_writer(dep_handle, StdHandle::Stdout, &id_gen).await.unwrap();
+    writer.set_error(EPIPE);
+    writer.close();
+
+    let dep_iterator = OwnedDependencyIterator::new(dag, actor_handle);
+
+    let (runtime, shutdown) = BlockingActorRuntime::new(
+        actor_handle, Arc::clone(&bridge), Arc::clone(&suspension), dep_iterator,
+    );
     runtime.register_std_fds();
 
-    // Respond to MaterializeStdin + Read with EPIPE, then capture ActorShutdown exit_code
-    let io_task = tokio::spawn(async move {
-        let mut shutdown_exit_code = None;
-        while let Some(req) = system_rx.recv().await {
-            match req {
-                IoRequest::MaterializeStdin { response, .. } => {
-                    let _ = response.send(ChannelHandle(0));
-                }
-                IoRequest::Read { response, .. } => {
-                    let _ = response.send((-1, EPIPE));
-                }
-                IoRequest::ActorShutdown { exit_code, .. } => {
-                    shutdown_exit_code = Some(exit_code);
-                    break;
-                }
-                _ => {}
-            }
-        }
-        shutdown_exit_code
-    });
-
-    // Do a read that gets EPIPE, then fail the actor
     tokio::task::spawn_blocking(move || {
         use actor_runtime::ActorRuntime;
         let mut buf = [0u8; 64];
         runtime.aread(0, &mut buf);
-        // actor "returns Err" → spawn_actor_task calls shutdown.mark_failed()
         shutdown.mark_failed();
-        // drop(shutdown) fires do_shutdown → sends ActorShutdown
+        // drop fires actor_shutdown with EPIPE exit code
     })
     .await
     .unwrap();
 
-    let exit_code = io_task.await.unwrap();
-    assert_eq!(
-        exit_code,
-        Some(EPIPE),
-        "ActorShutdown exit_code should be EPIPE"
-    );
+    drop(bridge);
+    let exit_code = lifecycle_task.await.unwrap();
+    assert_eq!(exit_code, Some(EPIPE), "exit code should be EPIPE");
 }
 
 /// When mark_failed() is called with no prior read error, exit code is EOWNERDEAD.
 #[tokio::test]
 async fn test_mark_failed_uses_eownerdead_without_read_error() {
     let id_gen = Arc::new(IdGen::new());
-    let node_handle = Handle::new(id_gen.get_next());
-    let (system_tx, mut system_rx) = tokio::sync::mpsc::unbounded_channel::<IoRequest>();
+    let actor_handle = Handle::new(id_gen.get_next());
+
+    let (bridge, _pipe_pool, lifecycle_task) = make_test_components(&id_gen);
     let suspension = Arc::new(SuspensionState::new());
 
-    let (_runtime, shutdown) = BlockingActorRuntime::new(node_handle, system_tx, suspension, make_dep_iterator(&id_gen, node_handle));
+    let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&id_gen))));
+    let dep_iterator = OwnedDependencyIterator::new(dag, actor_handle);
 
-    let io_task = tokio::spawn(async move {
-        let mut shutdown_exit_code = None;
-        while let Some(req) = system_rx.recv().await {
-            if let IoRequest::ActorShutdown { exit_code, .. } = req {
-                shutdown_exit_code = Some(exit_code);
-                break;
-            }
-        }
-        shutdown_exit_code
-    });
+    let (_runtime, shutdown) = BlockingActorRuntime::new(
+        actor_handle, Arc::clone(&bridge), suspension, dep_iterator,
+    );
 
     tokio::task::spawn_blocking(move || {
         shutdown.mark_failed();
-        // drop fires do_shutdown
+        // drop fires actor_shutdown with EOWNERDEAD
     })
     .await
     .unwrap();
 
-    let exit_code = io_task.await.unwrap();
-    assert_eq!(
-        exit_code,
-        Some(EOWNERDEAD),
-        "ActorShutdown exit_code should be EOWNERDEAD when no read error"
-    );
+    // _runtime holds Arc<IoBridge>; drop it before bridge so actor_done_tx closes
+    drop(_runtime);
+    drop(bridge);
+    let exit_code = lifecycle_task.await.unwrap();
+    assert_eq!(exit_code, Some(EOWNERDEAD), "exit code should be EOWNERDEAD");
 }

@@ -10,13 +10,13 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 
 use crate::dag::{Dag, NodeKind, NodeState, OwnedDependencyIterator};
 use crate::environment::{ActorFn, RunHandle};
 use crate::idgen::Handle;
 use crate::pipe::PipePool;
-use crate::actor_syscall::{ActorLifecycleEvent, IoRequest};
+use crate::actor_syscall::ActorLifecycleEvent;
 use crate::{BlockingActorRuntime, IoBridge, ShutdownHandle};
 
 /// Conditions for stopping DAG iteration
@@ -136,12 +136,12 @@ pub async fn run(
     run_with_tx(run_handle, target, stop_conditions, None).await;
 }
 
-/// Like `run`, but sends `system_tx` back via `tx_out` once the system runtime is ready.
+/// Like `run`, but sends the `IoBridge` back via `tx_out` once ready.
 pub async fn run_with_tx(
     run_handle: &RunHandle,
     target: Handle,
     stop_conditions: StopConditions,
-    tx_out: Option<oneshot::Sender<mpsc::UnboundedSender<IoRequest>>>,
+    tx_out: Option<oneshot::Sender<Arc<IoBridge>>>,
 ) {
     let pipe_pool = Arc::new(PipePool::new(Arc::clone(&run_handle.kv)));
 
@@ -149,27 +149,18 @@ pub async fn run_with_tx(
 
     let (actor_done_tx, mut actor_done_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
 
-    let system_runtime = IoBridge::new(
+    let bridge = Arc::new(IoBridge::new(
         Arc::clone(&run_handle.kv),
         Arc::clone(&run_handle.idgen),
         run_handle.attachment_config.clone(),
         Arc::clone(&pipe_pool),
         Arc::clone(&notify),
         actor_done_tx,
-    );
-
-    let Some(system_tx) = system_runtime.get_system_tx() else {
-        error!("Failed to get system_tx - system runtime already started");
-        return;
-    };
+    ));
 
     if let Some(sender) = tx_out {
-        sender.send(system_tx.clone()).ok();
+        sender.send(Arc::clone(&bridge)).ok();
     }
-
-    let system_task = tokio::spawn(async move {
-        system_runtime.run().await;
-    });
 
     // Receives actor lifecycle events from the IO bridge, updates DAG state,
     // replies to unblock the IO bridge, and fires notify so the spawn loop can react.
@@ -251,10 +242,9 @@ pub async fn run_with_tx(
             let Some(actor_fn) = run_handle.actor_registry.get(idname) else {
                 warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
                 // Terminate the node explicitly so dependents are not blocked.
-                let _ = system_tx.send(IoRequest::ActorShutdown {
-                    node_handle: *node_handle,
-                    exit_code: 0,
-                });
+                let bridge_clone = Arc::clone(&bridge);
+                let nh = *node_handle;
+                tokio::task::spawn_blocking(move || bridge_clone.actor_shutdown(nh, 0));
                 continue;
             };
 
@@ -279,7 +269,7 @@ pub async fn run_with_tx(
 
             let (actor_runtime, shutdown) = BlockingActorRuntime::new(
                 *node_handle,
-                system_tx.clone(),
+                Arc::clone(&bridge),
                 Arc::clone(&run_handle.suspension),
                 dep_iterator,
             );
@@ -316,20 +306,23 @@ pub async fn run_with_tx(
         notify.notified().await;
     }
 
-    drop(system_tx);
-
-    if let Err(e) = system_task.await {
-        warn!(error = %e, "IoBridge task failed");
-    }
-
-    if let Err(e) = actor_done_task.await {
-        warn!(error = %e, "actor_done task failed");
-    }
-
+    // Join actor tasks first: ShutdownHandle::drop calls bridge.actor_shutdown(),
+    // which blocks on actor_done_task replies — so actor_done_task must still be
+    // running here.
     for task in actor_tasks {
         if let Err(e) = task.await {
             warn!(error = %e, "actor task failed");
         }
+    }
+
+    // All actors done; wait for attachment tasks.
+    bridge.shutdown().await;
+
+    // Dropping bridge closes actor_done_tx, signalling actor_done_task to exit.
+    drop(bridge);
+
+    if let Err(e) = actor_done_task.await {
+        warn!(error = %e, "actor_done task failed");
     }
 }
 
