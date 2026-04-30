@@ -31,7 +31,8 @@ pub use pipe::PipePool;
 
 // Re-export system runtime types for convenience
 pub use system_runtime::{
-    Channel, ChannelHandle, IoEvent, IoFuture, IoRequest, SendableBuffer, SystemRuntime,
+    ActorLifecycleEvent, Channel, ChannelHandle, IoEvent, IoFuture, IoRequest, SendableBuffer,
+    SystemRuntime,
 };
 
 // Re-export attachment types

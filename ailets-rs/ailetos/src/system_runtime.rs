@@ -75,14 +75,13 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use futures::stream::{FuturesUnordered, StreamExt};
-use parking_lot::RwLock;
 use tokio::sync::{mpsc, oneshot, Notify};
 #[cfg(debug_assertions)]
 use tracing::error;
 use tracing::{debug, trace, warn};
 
 use crate::attachments::{AttachmentConfig, AttachmentManager};
-use crate::dag::{Dag, NodeState, OwnedDependencyIterator};
+use crate::dag::{NodeState, OwnedDependencyIterator};
 use crate::idgen::{Handle, IdGen};
 use crate::pipe::{MergeReader, PipePool};
 use crate::KVBuffers;
@@ -236,11 +235,20 @@ pub enum IoEvent<K: KVBuffers> {
 /// Type alias for I/O futures
 pub type IoFuture<K> = Pin<Box<dyn Future<Output = IoEvent<K>> + Send>>;
 
+/// Actor lifecycle events sent from SystemRuntime to the executor.
+pub enum ActorLifecycleEvent {
+    /// Request to transition actor to Terminating state.
+    /// Executor replies with the state that was set before the transition.
+    /// If the prior state was already Terminating or Terminated, the IO bridge skips cleanup.
+    Terminating { node_handle: Handle, reply: oneshot::Sender<NodeState> },
+    /// I/O cleanup complete; executor should mark the actor Terminated.
+    /// Executor replies with the prior state once the transition is done.
+    Terminated { node_handle: Handle, exit_code: i32, reply: oneshot::Sender<NodeState> },
+}
+
 /// `SystemRuntime` manages all async I/O operations
 /// Actors communicate with it via channels
 pub struct SystemRuntime<K: KVBuffers> {
-    /// The DAG describing actor dependencies (wrapped in `RwLock` for state updates)
-    dag: Arc<RwLock<Dag>>,
     /// Pool of output pipes (one per actor)
     pipe_pool: Arc<PipePool<K>>,
     /// Key-value store for pipe buffers
@@ -262,18 +270,22 @@ pub struct SystemRuntime<K: KVBuffers> {
     /// Use cases:
     /// - a pipe is realized
     /// - a writer is closed
-    /// - an actor terminates
     notify: Arc<Notify>,
+    /// Signals the executor when an actor's I/O is fully torn down (pipes closed, channels dropped).
+    /// Out-of-domain for the IO bridge: the executor owns actor lifecycle state, but the signal
+    /// originates here because I/O cleanup must complete before the executor can mark the actor
+    /// Terminated and update DAG state.
+    actor_done_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
 }
 
 impl<K: KVBuffers + 'static> SystemRuntime<K> {
     pub fn new(
-        dag: Arc<RwLock<Dag>>,
         kv: Arc<K>,
         id_gen: Arc<IdGen>,
         attachment_config: AttachmentConfig,
         pipe_pool: Arc<PipePool<K>>,
         notify: Arc<Notify>,
+        actor_done_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
     ) -> Self {
         let (system_tx, request_rx) = mpsc::unbounded_channel();
 
@@ -281,7 +293,6 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
         let attachment_manager = Arc::new(AttachmentManager::new(attachment_config));
 
         Self {
-            dag,
             pipe_pool,
             kv,
             channels: HashMap::new(),
@@ -291,6 +302,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
             id_gen,
             attachment_manager,
             notify,
+            actor_done_tx,
         }
     }
 
@@ -333,6 +345,45 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
     #[must_use]
     pub fn get_system_tx(&self) -> Option<mpsc::UnboundedSender<IoRequest>> {
         self.system_tx.clone()
+    }
+
+    /// Handler for `ActorShutdown` requests
+    async fn handle_actor_shutdown(&mut self, node_handle: Handle, exit_code: i32) {
+        let (tx, rx) = oneshot::channel::<NodeState>();
+        if self.actor_done_tx.send(ActorLifecycleEvent::Terminating {
+            node_handle,
+            reply: tx,
+        }).is_err() {
+            warn!(node = ?node_handle, "actor shutdown - executor gone, dropping");
+            return;
+        }
+
+        let prior_state = rx.await.unwrap_or(NodeState::Terminating);
+        if matches!(prior_state, NodeState::Terminating | NodeState::Terminated) {
+            debug!(node = ?node_handle, "actor shutdown - already terminating/terminated, ignoring");
+            return;
+        }
+
+        debug!(node = ?node_handle, exit_code, "actor shutdown - closing all writers");
+        self.pipe_pool.close_actor_writers(node_handle, exit_code);
+
+        debug!(node = ?node_handle, "actor shutdown - dropping reader channels");
+        self.channels.retain(|_, ch| {
+            !matches!(ch, Channel::Reader { node_handle: h, .. } if *h == node_handle)
+        });
+
+        let (tx2, rx2) = oneshot::channel::<NodeState>();
+        if self.actor_done_tx.send(ActorLifecycleEvent::Terminated {
+            node_handle,
+            exit_code,
+            reply: tx2,
+        }).is_err() {
+            warn!(node = ?node_handle, "actor shutdown - executor gone before Terminated");
+            return;
+        }
+        if rx2.await.is_err() {
+            warn!(node = ?node_handle, "actor shutdown - Terminated reply dropped");
+        }
     }
 
     /// Handler for `OpenRead` requests
@@ -685,29 +736,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
                                 pending_ops.push(fut);
                             }
                             IoRequest::ActorShutdown { node_handle, exit_code } => {
-                                let state = self.dag.read().get_node(node_handle).map(|n| n.state);
-                                if matches!(state, Some(NodeState::Terminating | NodeState::Terminated)) {
-                                    debug!(node = ?node_handle, "actor shutdown - already terminating/terminated, ignoring");
-                                } else {
-                                    debug!(node = ?node_handle, "actor shutdown - setting state to Terminating");
-                                    self.dag.write().set_state(node_handle, NodeState::Terminating);
-
-                                    debug!(node = ?node_handle, exit_code, "actor shutdown - closing all writers");
-                                    self.pipe_pool.close_actor_writers(node_handle, exit_code);
-
-                                    debug!(node = ?node_handle, "actor shutdown - dropping reader channels");
-                                    self.channels.retain(|_, ch| {
-                                        !matches!(ch, Channel::Reader { node_handle: h, .. } if *h == node_handle)
-                                    });
-
-                                    debug!(node = ?node_handle, "actor shutdown - setting state to Terminated");
-                                    {
-                                        let mut dag = self.dag.write();
-                                        dag.set_state(node_handle, NodeState::Terminated);
-                                        dag.set_exit_code(node_handle, exit_code);
-                                    }
-                                    self.notify.notify_one();
-                                }
+                                self.handle_actor_shutdown(node_handle, exit_code).await;
                             }
                             IoRequest::MaterializeStdin { node_handle, dep_iterator, response } => {
                                 let channel_handle = self.materialize_stdin(node_handle, dep_iterator);

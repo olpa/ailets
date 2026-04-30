@@ -60,10 +60,21 @@ The executor already owns the "start" side of actor lifecycle — it writes `Nod
 - Remove `IoRequest::MaterializeStdin` and `SystemRuntime::materialize_stdin`
 - After this step, SystemRuntime no longer needs to read the DAG for I/O wiring
 
-### Step 3 — Extract `ActorShutdown` lifecycle work to the executor (high impact)
+### Step 3 — Extract `ActorShutdown` lifecycle work to the executor (high impact) ✓ DONE
 
-- Add `actor_done_tx: mpsc::Sender<(Handle, i32)>` passed into SystemRuntime
+Implementation notes:
+- `ActorLifecycleEvent` enum with `Terminating` (reply: prior `NodeState`) and `Terminated` (reply: prior `NodeState`)
+- Reply channels preserve ordering: `Terminating` reply gates writer close; `Terminated` reply confirms DAG update
+- `handle_actor_shutdown` extracted as `async fn` for linear early-exit flow
+- `actor_done_task` uses exhaustive match with warn on unexpected states
+
+- Add `actor_done_tx: mpsc::UnboundedSender<(Handle, i32)>` passed into SystemRuntime
 - In `ActorShutdown` handler: keep I/O cleanup (`close_actor_writers`, `channels.retain`); send `(node_handle, exit_code)` on `actor_done_tx` instead of writing DAG state
-- In executor loop: add `select!` arm on `actor_done_rx`; do DAG state writes (`Terminating` → `Terminated`, `set_exit_code`) there; fire `spawn_notify` after
-- Remove DAG write lock from SystemRuntime; `Arc<RwLock<Dag>>` field can be dropped once Step 2 is also done
-- Rename `SystemRuntime` → `IoBridge` and `system_runtime.rs` → `io_bridge.rs`
+- Spawn a small `actor_done_task` in the executor that receives completions, writes DAG state (`Terminating` → `Terminated`, `set_exit_code`), and fires `notify`
+- Remove the `dag` field from SystemRuntime entirely
+
+### Step 4 — Rename `SystemRuntime` → `IoBridge`
+
+- Rename `system_runtime.rs` → `io_bridge.rs`
+- Rename the struct `SystemRuntime` → `IoBridge` and update all references
+- Update `pub mod system_runtime` and re-exports in `lib.rs`

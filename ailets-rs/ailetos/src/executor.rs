@@ -16,7 +16,7 @@ use crate::dag::{Dag, NodeKind, NodeState, OwnedDependencyIterator};
 use crate::environment::{ActorFn, RunHandle};
 use crate::idgen::Handle;
 use crate::pipe::PipePool;
-use crate::system_runtime::IoRequest;
+use crate::system_runtime::{ActorLifecycleEvent, IoRequest};
 use crate::{BlockingActorRuntime, KVBuffers, ShutdownHandle, SystemRuntime};
 
 /// Conditions for stopping DAG iteration
@@ -147,13 +147,15 @@ pub async fn run_with_tx<K: KVBuffers + 'static>(
 
     let notify = Arc::new(tokio::sync::Notify::new());
 
+    let (actor_done_tx, mut actor_done_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
+
     let system_runtime = SystemRuntime::new(
-        Arc::clone(&run_handle.dag),
         Arc::clone(&run_handle.kv),
         Arc::clone(&run_handle.idgen),
         run_handle.attachment_config.clone(),
         Arc::clone(&pipe_pool),
         Arc::clone(&notify),
+        actor_done_tx,
     );
 
     let Some(system_tx) = system_runtime.get_system_tx() else {
@@ -167,6 +169,56 @@ pub async fn run_with_tx<K: KVBuffers + 'static>(
 
     let system_task = tokio::spawn(async move {
         system_runtime.run().await;
+    });
+
+    // Receives actor lifecycle events from the IO bridge, updates DAG state,
+    // replies to unblock the IO bridge, and fires notify so the spawn loop can react.
+    let actor_done_dag = Arc::clone(&run_handle.dag);
+    let actor_done_notify = Arc::clone(&notify);
+    let actor_done_task = tokio::spawn(async move {
+        while let Some(event) = actor_done_rx.recv().await {
+            match event {
+                ActorLifecycleEvent::Terminating { node_handle, reply } => {
+                    let prior = {
+                        let mut dag = actor_done_dag.write();
+                        let prior = dag.get_node(node_handle)
+                            .map_or(NodeState::Terminating, |n| n.state);
+                        match prior {
+                            NodeState::Terminating | NodeState::Terminated => {}
+                            NodeState::Running => {
+                                dag.set_state(node_handle, NodeState::Terminating);
+                            }
+                            NodeState::NotStarted => {
+                                warn!(node = ?node_handle, "actor shutdown received but node was never started");
+                                dag.set_state(node_handle, NodeState::Terminating);
+                            }
+                        }
+                        prior
+                    };
+                    if reply.send(prior).is_err() {
+                        warn!(node = ?node_handle, "actor_done: Terminating reply receiver dropped");
+                    }
+                    actor_done_notify.notify_one();
+                }
+                ActorLifecycleEvent::Terminated { node_handle, exit_code, reply } => {
+                    let prior = {
+                        let mut dag = actor_done_dag.write();
+                        let prior = dag.get_node(node_handle)
+                            .map_or(NodeState::Terminated, |n| n.state);
+                        if prior != NodeState::Terminating {
+                            warn!(node = ?node_handle, ?prior, "actor Terminated but prior state was not Terminating");
+                        }
+                        dag.set_state(node_handle, NodeState::Terminated);
+                        dag.set_exit_code(node_handle, exit_code);
+                        prior
+                    };
+                    if reply.send(prior).is_err() {
+                        warn!(node = ?node_handle, "actor_done: Terminated reply receiver dropped");
+                    }
+                    actor_done_notify.notify_one();
+                }
+            }
+        }
     });
 
     // Build initial pending list: NotStarted nodes in topological order
@@ -268,6 +320,10 @@ pub async fn run_with_tx<K: KVBuffers + 'static>(
 
     if let Err(e) = system_task.await {
         warn!(error = %e, "SystemRuntime task failed");
+    }
+
+    if let Err(e) = actor_done_task.await {
+        warn!(error = %e, "actor_done task failed");
     }
 
     for task in actor_tasks {
