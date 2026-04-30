@@ -16,7 +16,7 @@ use crate::dag::{Dag, NodeKind, NodeState, OwnedDependencyIterator};
 use crate::environment::{ActorFn, RunHandle};
 use crate::idgen::Handle;
 use crate::pipe::PipePool;
-use crate::io_bridge::{ActorLifecycleEvent, IoRequest};
+use crate::actor_syscall::{ActorLifecycleEvent, IoRequest};
 use crate::{BlockingActorRuntime, IoBridge, KVBuffers, ShutdownHandle};
 
 /// Conditions for stopping DAG iteration

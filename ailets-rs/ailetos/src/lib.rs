@@ -1,16 +1,14 @@
+pub mod actor_syscall;
 pub mod attachments;
 pub mod dag;
 pub mod environment;
 pub mod errno;
 pub mod executor;
-pub mod fd_table;
 pub mod idgen;
 pub mod notification_queue;
 pub mod pipe;
 pub mod storage;
-pub mod stub_actor_runtime;
 pub mod suspension;
-pub mod io_bridge;
 
 // Re-export DAG types for convenience
 pub use dag::{Dag, DependsOn, For, Node, NodeKind, NodeState, OwnedDependencyIterator};
@@ -29,20 +27,14 @@ pub use storage::{KVBuffers, KVError, MemKV, OpenMode};
 // Re-export PipePool for convenience
 pub use pipe::PipePool;
 
-// Re-export IO bridge types for convenience
-pub use io_bridge::{
-    ActorLifecycleEvent, Channel, ChannelHandle, IoBridge, IoEvent, IoFuture, IoRequest,
-    SendableBuffer,
+// Re-export actor syscall layer types for convenience
+pub use actor_syscall::{
+    ActorLifecycleEvent, BlockingActorRuntime, Channel, ChannelHandle, FdEntry, FdTable, IoBridge,
+    IoEvent, IoFuture, IoRequest, SendableBuffer, ShutdownHandle,
 };
 
 // Re-export attachment types
 pub use attachments::AttachmentConfig;
-
-// Re-export fd table types
-pub use fd_table::{FdEntry, FdTable};
-
-// Re-export blocking actor runtime
-pub use stub_actor_runtime::{BlockingActorRuntime, ShutdownHandle};
 
 // Re-export environment types
 pub use environment::{ActorFn, ActorRegistry, Environment, RunHandle};

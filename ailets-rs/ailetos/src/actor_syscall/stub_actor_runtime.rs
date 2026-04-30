@@ -13,10 +13,10 @@ use tracing::{error, warn};
 
 use crate::dag::OwnedDependencyIterator;
 use crate::errno::EOWNERDEAD;
-use crate::fd_table::{FdEntry, FdTable};
 use crate::idgen::Handle;
 use crate::suspension::SuspensionState;
-use crate::io_bridge::{IoRequest, SendableBuffer};
+use super::fd_table::{FdEntry, FdTable};
+use super::io_bridge::{IoRequest, SendableBuffer};
 
 /// Blocking `ActorRuntime` implementation
 /// Acts as a pure proxy to `IoBridge` for all I/O operations

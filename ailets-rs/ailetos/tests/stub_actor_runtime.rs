@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use ailetos::suspension::SuspensionState;
-use ailetos::io_bridge::{ChannelHandle, IoRequest};
+use ailetos::actor_syscall::{ChannelHandle, IoRequest};
 use ailetos::{BlockingActorRuntime, Dag, Handle, IdGen, OwnedDependencyIterator, EOWNERDEAD, EPIPE};
 
 fn make_dep_iterator(id_gen: &Arc<IdGen>, node_handle: Handle) -> OwnedDependencyIterator {
