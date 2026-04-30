@@ -10,11 +10,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 // Test helper to create a test pool
-fn create_test_pool() -> (PipePool<MemKV>, Arc<MemKV>, Arc<IdGen>, Arc<RwLock<Dag>>) {
+fn create_test_pool() -> (PipePool, Arc<MemKV>, Arc<IdGen>, Arc<RwLock<Dag>>) {
     let kv = Arc::new(MemKV::new());
     let id_gen = Arc::new(IdGen::new());
     let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&id_gen))));
-    let pool = PipePool::new(kv.clone());
+    let pool = PipePool::new(Arc::clone(&kv) as Arc<dyn KVBuffers>);
     (pool, kv, id_gen, dag)
 }
 

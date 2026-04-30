@@ -74,22 +74,22 @@ enum WriterState {
 /// Pool of output pipes, indexed by (actor handle, `StdHandle`) pair
 ///
 /// Uses interior mutability via `Mutex` to allow shared access through `Arc<PipePool>`.
-pub struct PipePool<K: KVBuffers> {
+pub struct PipePool {
     /// Writers in various states (Realized or Latent)
     writers: Mutex<Vec<(Handle, StdHandle, WriterState)>>,
     /// Key-value store for pipe buffers
-    kv: Arc<K>,
+    kv: Arc<dyn KVBuffers>,
     /// Notification queue for pipe data events
     notification_queue: NotificationQueueArc,
 }
 
-impl<K: KVBuffers> PipePool<K> {
+impl PipePool {
     /// Create a new empty pipe pool
     ///
     /// # Parameters
     /// - `kv`: Key-value store for pipe buffers
     #[must_use]
-    pub fn new(kv: Arc<K>) -> Self {
+    pub fn new(kv: Arc<dyn KVBuffers>) -> Self {
         Self {
             writers: Mutex::new(Vec::new()),
             kv,

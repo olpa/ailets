@@ -31,8 +31,8 @@ pub fn pipe_path(actor_handle: Handle, std_handle: StdHandle) -> String {
 ///
 /// # Errors
 /// Returns error if buffer allocation fails
-pub async fn create_writer<K: KVBuffers>(
-    kv: &K,
+pub async fn create_writer(
+    kv: &dyn KVBuffers,
     notification_queue: NotificationQueueArc,
     handle: Handle,
     path: &str,
@@ -48,8 +48,8 @@ pub async fn create_writer<K: KVBuffers>(
 ///
 /// # Errors
 /// Returns error if buffer operations fail
-pub async fn write_completed_buffer<K: KVBuffers>(
-    kv: &K,
+pub async fn write_completed_buffer(
+    kv: &dyn KVBuffers,
     path: &str,
     data: &[u8],
 ) -> Result<(), KVError> {
@@ -75,8 +75,8 @@ pub async fn write_completed_buffer<K: KVBuffers>(
 ///
 /// # Errors
 /// Returns error if buffer doesn't exist or cannot be opened
-pub async fn create_reader_from_completed<K: KVBuffers>(
-    kv: &K,
+pub async fn create_reader_from_completed(
+    kv: &dyn KVBuffers,
     reader_handle: Handle,
     path: &str,
 ) -> Result<Reader, KVError> {

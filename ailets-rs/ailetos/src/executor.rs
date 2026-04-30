@@ -17,7 +17,7 @@ use crate::environment::{ActorFn, RunHandle};
 use crate::idgen::Handle;
 use crate::pipe::PipePool;
 use crate::actor_syscall::{ActorLifecycleEvent, IoRequest};
-use crate::{BlockingActorRuntime, IoBridge, KVBuffers, ShutdownHandle};
+use crate::{BlockingActorRuntime, IoBridge, ShutdownHandle};
 
 /// Conditions for stopping DAG iteration
 #[derive(Debug, Clone, Default)]
@@ -50,10 +50,10 @@ pub struct StopConditions {
 /// Note: Suspension state does not affect spawn readiness. If a dependency
 /// has produced output, downstream actors can start consuming it regardless
 /// of whether the dependency is suspended.
-pub fn is_ready_to_spawn<K: KVBuffers>(
+pub fn is_ready_to_spawn(
     node_handle: Handle,
     dag: &Dag,
-    pipe_pool: &PipePool<K>,
+    pipe_pool: &PipePool,
 ) -> bool {
     use actor_runtime::StdHandle;
 
@@ -128,8 +128,8 @@ fn spawn_actor_task(
 }
 
 /// Run the system: spawn system runtime and actor tasks, wait for completion
-pub async fn run<K: KVBuffers + 'static>(
-    run_handle: &RunHandle<K>,
+pub async fn run(
+    run_handle: &RunHandle,
     target: Handle,
     stop_conditions: StopConditions,
 ) {
@@ -137,8 +137,8 @@ pub async fn run<K: KVBuffers + 'static>(
 }
 
 /// Like `run`, but sends `system_tx` back via `tx_out` once the system runtime is ready.
-pub async fn run_with_tx<K: KVBuffers + 'static>(
-    run_handle: &RunHandle<K>,
+pub async fn run_with_tx(
+    run_handle: &RunHandle,
     target: Handle,
     stop_conditions: StopConditions,
     tx_out: Option<oneshot::Sender<mpsc::UnboundedSender<IoRequest>>>,

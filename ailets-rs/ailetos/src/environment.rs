@@ -62,18 +62,18 @@ impl Default for ActorRegistry {
 ///
 /// Construct the DAG and configure the system here, then call
 /// `make_run_handle()` to obtain a `RunHandle` for execution.
-pub struct Environment<K: KVBuffers> {
+pub struct Environment {
     pub dag: Arc<RwLock<Dag>>,
     pub idgen: Arc<IdGen>,
-    pub kv: Arc<K>,
+    pub kv: Arc<dyn KVBuffers>,
     pub actor_registry: ActorRegistry,
     pub suspension: Arc<SuspensionState>,
     attachment_config: crate::attachments::AttachmentConfig,
 }
 
-impl<K: KVBuffers> Environment<K> {
+impl Environment {
     /// Create a new environment
-    pub fn new(kv: Arc<K>) -> Self {
+    pub fn new(kv: Arc<dyn KVBuffers>) -> Self {
         let idgen = Arc::new(IdGen::new());
         let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&idgen))));
 
@@ -188,7 +188,7 @@ impl<K: KVBuffers> Environment<K> {
     /// Actors registered or attachments configured after this call will not be
     /// visible to the returned handle.
     #[must_use]
-    pub fn make_run_handle(&self) -> RunHandle<K> {
+    pub fn make_run_handle(&self) -> RunHandle {
         RunHandle {
             dag: Arc::clone(&self.dag),
             kv: Arc::clone(&self.kv),
@@ -203,10 +203,7 @@ impl<K: KVBuffers> Environment<K> {
     ///
     /// For background execution, use `make_run_handle()` and wrap the result in
     /// `Arc` instead.
-    pub async fn run(&self, target: Handle, stop_conditions: StopConditions)
-    where
-        K: 'static,
-    {
+    pub async fn run(&self, target: Handle, stop_conditions: StopConditions) {
         crate::executor::run(&self.make_run_handle(), target, stop_conditions).await;
     }
 }
@@ -219,11 +216,11 @@ impl<K: KVBuffers> Environment<K> {
 ///
 /// `dag` and `suspension` are shared with the originating `Environment`,
 /// allowing the build-phase owner to observe and resume running actors.
-pub struct RunHandle<K: KVBuffers> {
+pub struct RunHandle {
     pub dag: Arc<RwLock<Dag>>,
     pub suspension: Arc<SuspensionState>,
     pub actor_registry: ActorRegistry,
-    pub(crate) kv: Arc<K>,
+    pub(crate) kv: Arc<dyn KVBuffers>,
     pub(crate) idgen: Arc<IdGen>,
     pub(crate) attachment_config: crate::attachments::AttachmentConfig,
 }

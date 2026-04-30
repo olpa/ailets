@@ -7,7 +7,7 @@ use ailetos::Environment;
 
 #[tokio::test]
 async fn test_value_node_is_built_at_creation() {
-    let kv = Arc::new(MemKV::new());
+    let kv: Arc<dyn KVBuffers> = Arc::new(MemKV::new());
     let mut env = Environment::new(kv);
 
     let handle = env
@@ -26,7 +26,7 @@ async fn test_value_node_is_built_at_creation() {
 
 #[tokio::test]
 async fn test_value_node_writes_data_to_kv() {
-    let kv = Arc::new(MemKV::new());
+    let kv: Arc<dyn KVBuffers> = Arc::new(MemKV::new());
     let mut env = Environment::new(Arc::clone(&kv));
 
     let test_data = b"immediate value data";

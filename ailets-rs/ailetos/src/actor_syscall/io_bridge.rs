@@ -20,7 +20,7 @@
 //!   time via an mpsc channel. It exits when its request channel closes (on actor
 //!   shutdown or channel close).
 //! - **Writes / flushes** — `tokio::spawn` for each write or close operation; the
-//!   task owns a cloned `Arc<PipePool>` and `Arc<K>` and sends the reply when done.
+//!   task owns a cloned `Arc<PipePool>` and `Arc<dyn KVBuffers>` and sends the reply when done.
 //!
 //! ## Actor shutdown (two-phase)
 //!
@@ -50,7 +50,7 @@ use crate::attachments::{AttachmentConfig, AttachmentManager};
 use crate::dag::{NodeState, OwnedDependencyIterator};
 use crate::idgen::{Handle, IdGen};
 use crate::pipe::{MergeReader, PipePool};
-use crate::KVBuffers;
+use crate::storage::KVBuffers;
 use super::lifecycle_event::ActorLifecycleEvent;
 use super::sendable_buffer::SendableBuffer;
 
@@ -137,8 +137,8 @@ pub(crate) struct ReadRequest {
 /// Spawned by `materialize_stdin` when the actor first reads from stdin. The task exits
 /// when its `request_rx` closes — i.e., when the channel entry is removed from
 /// `ChannelTable` (on `Close` or actor shutdown).
-async fn run_reader_task<K: KVBuffers>(
-    mut reader: MergeReader<K>,
+async fn run_reader_task(
+    mut reader: MergeReader,
     mut request_rx: mpsc::UnboundedReceiver<ReadRequest>,
 ) {
     while let Some(ReadRequest { buffer, response }) = request_rx.recv().await {
@@ -214,11 +214,11 @@ impl ChannelTable {
 
 /// `IoBridge` manages all async I/O operations
 /// Actors communicate with it via channels
-pub struct IoBridge<K: KVBuffers> {
+pub struct IoBridge {
     /// Pool of output pipes (one per actor)
-    pipe_pool: Arc<PipePool<K>>,
+    pipe_pool: Arc<PipePool>,
     /// Key-value store for pipe buffers
-    kv: Arc<K>,
+    kv: Arc<dyn KVBuffers>,
     /// Open channel endpoints: ChannelHandle → reader or writer
     channel_table: ChannelTable,
     /// Channel to send I/O requests to this runtime (None after `run()` starts)
@@ -241,12 +241,12 @@ pub struct IoBridge<K: KVBuffers> {
     actor_done_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
 }
 
-impl<K: KVBuffers + 'static> IoBridge<K> {
+impl IoBridge {
     pub fn new(
-        kv: Arc<K>,
+        kv: Arc<dyn KVBuffers>,
         id_gen: Arc<IdGen>,
         attachment_config: AttachmentConfig,
-        pipe_pool: Arc<PipePool<K>>,
+        pipe_pool: Arc<PipePool>,
         notify: Arc<Notify>,
         actor_done_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
     ) -> Self {

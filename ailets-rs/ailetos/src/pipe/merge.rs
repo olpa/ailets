@@ -36,20 +36,20 @@ use crate::storage::KVBuffers;
 /// - 0 dependencies: immediately returns EOF
 /// - 1 dependency: reads from that single dependency
 /// - N dependencies: reads from each in sequence
-pub struct MergeReader<K: KVBuffers> {
+pub struct MergeReader {
     /// The currently active reader (None before first read or between deps)
     current_reader: Option<Reader>,
     /// Iterator over dependency handles (resolves aliases)
     dep_iterator: OwnedDependencyIterator,
     /// Pool of pipes to get `ReaderSharedData` from dependency handles
-    pipe_pool: Arc<PipePool<K>>,
+    pipe_pool: Arc<PipePool>,
     /// Key-value storage for completed actor output
-    kv: Arc<K>,
+    kv: Arc<dyn KVBuffers>,
     /// ID generator for creating reader handles
     id_gen: Arc<IdGen>,
 }
 
-impl<K: KVBuffers> MergeReader<K> {
+impl MergeReader {
     /// Create a new `MergeReader` with a dependency iterator, pipe pool, and KV storage.
     ///
     /// # Arguments
@@ -61,8 +61,8 @@ impl<K: KVBuffers> MergeReader<K> {
     #[must_use]
     pub fn new(
         dep_iterator: OwnedDependencyIterator,
-        pipe_pool: Arc<PipePool<K>>,
-        kv: Arc<K>,
+        pipe_pool: Arc<PipePool>,
+        kv: Arc<dyn KVBuffers>,
         id_gen: Arc<IdGen>,
     ) -> Self {
         Self {
@@ -215,13 +215,13 @@ impl<K: KVBuffers> MergeReader<K> {
     }
 }
 
-impl<K: KVBuffers> std::fmt::Debug for MergeReader<K> {
+impl std::fmt::Debug for MergeReader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "MergeReader(current_reader={:?})", self.current_reader)
     }
 }
 
-impl<K: KVBuffers> Drop for MergeReader<K> {
+impl Drop for MergeReader {
     fn drop(&mut self) {
         trace!("MergeReader: destroying (drop)");
         if self.current_reader.is_some() {

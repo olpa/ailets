@@ -14,8 +14,8 @@ fn make_dag() -> (Dag, Arc<IdGen>) {
     (dag, id_gen)
 }
 
-fn make_pool(id_gen: &Arc<IdGen>) -> (PipePool<MemKV>, Arc<IdGen>) {
-    let kv = Arc::new(MemKV::new());
+fn make_pool(id_gen: &Arc<IdGen>) -> (PipePool, Arc<IdGen>) {
+    let kv: Arc<dyn ailetos::KVBuffers> = Arc::new(MemKV::new());
     let pool = PipePool::new(Arc::clone(&kv));
     (pool, Arc::clone(id_gen))
 }

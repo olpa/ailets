@@ -13,7 +13,6 @@ use tracing::{debug, error, trace, warn};
 
 use crate::idgen::{Handle, IdGen};
 use crate::pipe::{PipePool, Reader};
-use crate::storage::KVBuffers;
 
 /// Configuration for attachment behavior
 #[derive(Debug, Clone)]
@@ -80,11 +79,11 @@ impl AttachmentManager {
     ///
     /// This is called synchronously when a writer is created.
     /// Determines if attachment is needed and spawns the task.
-    pub fn on_writer_realized<K: KVBuffers + 'static>(
+    pub fn on_writer_realized(
         &self,
         node_handle: Handle,
         std_handle: StdHandle,
-        pipe_pool: Arc<PipePool<K>>,
+        pipe_pool: Arc<PipePool>,
         id_gen: Arc<IdGen>,
     ) {
         // Determine if attachment is needed
