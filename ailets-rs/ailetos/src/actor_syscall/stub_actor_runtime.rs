@@ -16,7 +16,8 @@ use crate::errno::EOWNERDEAD;
 use crate::idgen::Handle;
 use crate::suspension::SuspensionState;
 use super::fd_table::{FdEntry, FdTable};
-use super::io_bridge::{IoRequest, SendableBuffer};
+use super::io_bridge::IoRequest;
+use super::sendable_buffer::SendableBuffer;
 
 /// Blocking `ActorRuntime` implementation
 /// Acts as a pure proxy to `IoBridge` for all I/O operations

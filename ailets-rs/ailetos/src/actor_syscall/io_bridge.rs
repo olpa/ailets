@@ -75,8 +75,6 @@ use std::sync::Arc;
 
 use futures::stream::{FuturesUnordered, StreamExt};
 use tokio::sync::{mpsc, oneshot, Notify};
-#[cfg(debug_assertions)]
-use tracing::error;
 use tracing::{debug, trace, warn};
 
 use crate::attachments::{AttachmentConfig, AttachmentManager};
@@ -84,6 +82,8 @@ use crate::dag::{NodeState, OwnedDependencyIterator};
 use crate::idgen::{Handle, IdGen};
 use crate::pipe::{MergeReader, PipePool};
 use crate::KVBuffers;
+use super::lifecycle_event::ActorLifecycleEvent;
+use super::sendable_buffer::SendableBuffer;
 
 /// Global unique identifier for a pipe endpoint (reader or writer)
 /// Used by `IoBridge` to identify channels across all actors
@@ -103,62 +103,6 @@ pub enum Channel<K: KVBuffers> {
         std_handle: actor_runtime::StdHandle,
     },
 }
-
-/// A wrapper around a raw mutable slice pointer that can be sent between threads.
-/// SAFETY: This is only safe because the sender (aread) blocks until the receiver
-/// (`IoBridge` handler) sends a response, ensuring:
-/// 1. The buffer remains valid (stack frame doesn't unwind)
-/// 2. No concurrent access (sender is blocked)
-/// 3. Proper synchronization (channel enforces happens-before)
-pub struct SendableBuffer {
-    ptr: *mut [u8],
-    #[cfg(debug_assertions)]
-    consumed: std::sync::Arc<std::sync::atomic::AtomicBool>,
-}
-
-impl SendableBuffer {
-    /// Create a new `SendableBuffer` from a mutable slice reference.
-    ///
-    /// # Safety
-    ///
-    /// Caller must ensure:
-    /// 1. The pointer remains valid until consumed via `into_raw()`
-    /// 2. The caller will block waiting for a response before the buffer goes out of scope
-    /// 3. No other references to this buffer exist during the async operation
-    /// 4. The `SendableBuffer` is consumed exactly once via `into_raw()`
-    pub unsafe fn new(buffer: &mut [u8]) -> Self {
-        Self {
-            ptr: std::ptr::from_mut::<[u8]>(buffer),
-            #[cfg(debug_assertions)]
-            consumed: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
-        }
-    }
-
-    /// Consume the `SendableBuffer` and return the raw pointer.
-    /// This prevents accidental reuse of the same buffer.
-    ///
-    /// If the buffer has already been consumed, logs a critical error but still returns
-    /// the pointer. This violates the safety contract and indicates a serious programming error.
-    #[must_use]
-    pub fn into_raw(self) -> *mut [u8] {
-        #[cfg(debug_assertions)]
-        {
-            let already_consumed = self
-                .consumed
-                .swap(true, std::sync::atomic::Ordering::SeqCst);
-            if already_consumed {
-                error!(
-                    "CRITICAL: SendableBuffer used twice - safety contract violated! \
-                     This may lead to use-after-free or double-free bugs."
-                );
-            }
-        }
-        self.ptr
-    }
-}
-
-// SAFETY: See SendableBuffer documentation above
-unsafe impl Send for SendableBuffer {}
 
 /// I/O requests sent from `ActorRuntime` to `IoBridge`
 pub enum IoRequest {
@@ -233,17 +177,6 @@ pub enum IoEvent<K: KVBuffers> {
 
 /// Type alias for I/O futures
 pub type IoFuture<K> = Pin<Box<dyn Future<Output = IoEvent<K>> + Send>>;
-
-/// Actor lifecycle events sent from IoBridge to the executor.
-pub enum ActorLifecycleEvent {
-    /// Request to transition actor to Terminating state.
-    /// Executor replies with the state that was set before the transition.
-    /// If the prior state was already Terminating or Terminated, the IO bridge skips cleanup.
-    Terminating { node_handle: Handle, reply: oneshot::Sender<NodeState> },
-    /// I/O cleanup complete; executor should mark the actor Terminated.
-    /// Executor replies with the prior state once the transition is done.
-    Terminated { node_handle: Handle, exit_code: i32, reply: oneshot::Sender<NodeState> },
-}
 
 /// `IoBridge` manages all async I/O operations
 /// Actors communicate with it via channels
