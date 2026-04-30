@@ -1,72 +1,77 @@
-//! IO bridge for managing actors and I/O operations
+//! Async half of the actor syscall bridge.
 //!
-//! This module provides the core runtime infrastructure for executing actors
-//! in a multi-actor system. It handles:
-//! - I/O request routing between actors and the system
-//! - Channel management (reader/writer endpoints)
-//! - Async I/O operations with sync-to-async bridging
+//! `IoBridge` is an async event loop that receives [`IoRequest`]s from actor threads,
+//! dispatches them to pipes and storage, and sends replies. It is one half of the
+//! actor syscall layer; the other half is `stub_actor_runtime`, which runs on each
+//! actor's blocking thread and sends the requests.
 //!
-//! # ARCHITECTURE: Sync-to-Async Bridge Pattern
+//! Supporting types live in sibling modules:
+//! - [`super::sendable_buffer`] — zero-copy buffer pointer for read operations
+//! - [`super::lifecycle_event`] — two-phase shutdown handshake with the executor
 //!
-//! This module uses a specific pattern `Box::pin(async move { ... })` in handlers
-//! like `handle_close`, `handle_read`, and `handle_write`. This pattern is essential
-//! for bridging synchronous actor code with asynchronous I/O operations.
+//! # Sync-to-Async Bridge
 //!
-//! ## The Sync-to-Async Bridge
-//!
-//! Actors run synchronously and call blocking functions like `aread()`, `awrite()`,
-//! and `aclose()` (see `BlockingActorRuntime`). These functions:
-//! 1. Send an `IoRequest` to `IoBridge` via an async channel
-//! 2. Call `blocking_recv()` to wait for the response
+//! Actors call blocking functions (`aread`, `awrite`, `aclose`) that:
+//! 1. Send an [`IoRequest`] to `IoBridge` via an unbounded mpsc channel
+//! 2. Call `blocking_recv()` on a oneshot channel to wait for the reply
 //! 3. Return the result to the actor
 //!
-//! The actor thread is **blocked** while waiting for the async operation to complete.
+//! The actor thread is **blocked** the entire time. `IoBridge` runs concurrently
+//! on the Tokio runtime and never blocks.
 //!
 //! ## Why `pending_ops`?
 //!
-//! The `pending_ops` queue (a `FuturesUnordered`) allows `IoBridge` to:
-//! 1. **Accept multiple requests concurrently** - While one actor is blocked waiting
-//!    for a slow read operation, other actors can send their requests
-//! 2. **Process I/O operations in parallel** - Multiple reads/writes can execute
-//!    concurrently using `tokio::select!` to poll both new requests and pending operations
-//! 3. **Maintain responsiveness** - The bridge doesn't block waiting for one operation
-//!    to complete before accepting new requests
+//! The `pending_ops` queue (a `FuturesUnordered`) lets `IoBridge` handle multiple
+//! actors at once:
+//! 1. While one actor waits for a slow read, others can send their requests
+//! 2. Reads, writes, and flushes execute concurrently via `tokio::select!`
+//! 3. The bridge never stalls on one operation before accepting the next
 //!
-//! ## Why `Box::pin(async` move { ... }) inside handlers?
+//! ## Why `Box::pin(async move { ... })` inside handlers?
 //!
-//! Handlers cannot be `async fn` because:
-//! 1. An `async fn` returns a future that captures `&mut self` by reference
-//! 2. This borrow would need a `'static` lifetime for `pending_ops`
-//! 3. This prevents any other use of `self` in the `tokio::select!` loop
+//! Handlers cannot be `async fn` because an async fn borrows `&mut self` for the
+//! duration of the future — which conflicts with pushing that future into `pending_ops`
+//! while still needing `self` in the select loop.
 //!
-//! Instead, handlers:
-//! 1. Perform synchronous setup with `&mut self` (e.g., remove channel)
-//! 2. Clone any Arc references needed for async work
-//! 3. Return `Box::pin(async move { ... })` that owns all its data
-//! 4. The `&mut self` borrow ends when the handler returns
-//! 5. The returned future can be pushed to `pending_ops` without borrowing issues
+//! Instead, each handler:
+//! 1. Does synchronous setup with `&mut self` (e.g., removes a channel from the table)
+//! 2. Clones any `Arc`s needed for the async work
+//! 3. Returns `Box::pin(async move { ... })` that owns all its data
 //!
-//! **Important**: We cannot move `Box::pin` to the call site because even
-//! `Box::pin(self.async_handler(...))` still borrows `&mut self` for `'static`.
+//! The `&mut self` borrow ends when the handler returns; the boxed future goes into
+//! `pending_ops` with no remaining borrow on `self`.
 //!
-//! ## Example Flow (Close operation)
+//! (`Box::pin(self.handler())` at the call site does not help — it still borrows
+//! `&mut self` for `'static` before the pin is created.)
 //!
-//! 1. Actor calls `aclose(fd)` (blocking)
-//! 2. `aclose` sends `IoRequest::Close` and blocks on `rx.blocking_recv()`
-//! 3. `IoBridge::run` receives the request in `tokio::select!`
-//! 4. Calls `handle_close()` which:
-//!    - Removes the channel from `self.channels` (synchronous)
-//!    - Closes the writer pipe (synchronous)
-//!    - Clones `pipe_pool` Arc
-//!    - Returns `Box::pin(async move { pipe_pool.flush_buffer().await })`
-//! 5. The `&mut self` borrow ends, future is pushed to `pending_ops`
-//! 6. `IoBridge` continues processing new requests immediately
+//! ## Actor shutdown (two-phase)
+//!
+//! Shutdown is split into two phases to preserve ordering between I/O cleanup and
+//! DAG state updates, which are owned by the executor:
+//!
+//! 1. **Terminating** — `IoBridge` sends `ActorLifecycleEvent::Terminating` and awaits
+//!    the reply. The executor sets `NodeState::Terminating` and replies with the prior
+//!    state. If the actor was already terminating (duplicate shutdown), `IoBridge` returns
+//!    early and skips I/O cleanup.
+//! 2. **I/O cleanup** — writers are closed, reader channels are dropped.
+//! 3. **Terminated** — `IoBridge` sends `ActorLifecycleEvent::Terminated` and awaits the
+//!    reply. The executor sets `NodeState::Terminated`, records the exit code, and fires
+//!    `notify` so the spawn loop can react.
+//!
+//! The reply channels enforce ordering: each phase waits for the executor to finish
+//! its DAG update before the next phase begins.
+//!
+//! ## Example flow (close operation)
+//!
+//! 1. Actor calls `aclose(fd)` — blocks on `rx.blocking_recv()`
+//! 2. `stub_actor_runtime` sends `IoRequest::Close` on the mpsc channel
+//! 3. `IoBridge::run` receives it in `tokio::select!`
+//! 4. `handle_close()` removes the channel from `self.channels`, closes the pipe
+//!    writer synchronously, clones `pipe_pool`, returns `Box::pin(async move { flush })`
+//! 5. The `&mut self` borrow ends; the future is pushed to `pending_ops`
+//! 6. `IoBridge` immediately loops back to accept new requests
 //! 7. When the flush completes, `pending_ops.next()` yields the result
-//! 8. Response is sent back to the actor via oneshot channel
-//! 9. Actor's `blocking_recv()` returns, unblocking the actor thread
-//!
-//! This architecture bridges synchronous actor code with async I/O operations
-//! while maintaining concurrency across multiple actors.
+//! 8. The oneshot reply is sent; `blocking_recv()` on the actor thread returns
 
 use std::collections::HashMap;
 use std::future::Future;
