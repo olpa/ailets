@@ -73,7 +73,7 @@ Implementation notes:
 - Spawn a small `actor_done_task` in the executor that receives completions, writes DAG state (`Terminating` → `Terminated`, `set_exit_code`), and fires `notify`
 - Remove the `dag` field from SystemRuntime entirely
 
-### Step 4 — Rename `SystemRuntime` → `IoBridge`
+### Step 4 — Rename `SystemRuntime` → `IoBridge` ✓ DONE
 
 - Rename `system_runtime.rs` → `io_bridge.rs`
 - Rename the struct `SystemRuntime` → `IoBridge` and update all references

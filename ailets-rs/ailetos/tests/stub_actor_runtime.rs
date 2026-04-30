@@ -1,8 +1,13 @@
 use std::sync::Arc;
 
 use ailetos::suspension::SuspensionState;
-use ailetos::system_runtime::{ChannelHandle, IoRequest};
-use ailetos::{BlockingActorRuntime, Handle, IdGen, EOWNERDEAD, EPIPE};
+use ailetos::io_bridge::{ChannelHandle, IoRequest};
+use ailetos::{BlockingActorRuntime, Dag, Handle, IdGen, OwnedDependencyIterator, EOWNERDEAD, EPIPE};
+
+fn make_dep_iterator(id_gen: &Arc<IdGen>, node_handle: Handle) -> OwnedDependencyIterator {
+    let dag = Arc::new(parking_lot::RwLock::new(Dag::new(Arc::clone(id_gen))));
+    OwnedDependencyIterator::new(dag, node_handle)
+}
 
 /// When aread() receives EPIPE from the system runtime, get_errno() returns EPIPE
 /// and mark_failed() uses EPIPE as the exit code (spec://errors#reader-to-actor).
@@ -14,10 +19,10 @@ async fn test_reader_to_actor_epipe_propagation() {
     let suspension = Arc::new(SuspensionState::new());
 
     let (runtime, _shutdown) =
-        BlockingActorRuntime::new(node_handle, system_tx, Arc::clone(&suspension));
+        BlockingActorRuntime::new(node_handle, system_tx, Arc::clone(&suspension), make_dep_iterator(&id_gen, node_handle));
     runtime.register_std_fds();
 
-    // Mock system runtime: MaterializeStdin → ChannelHandle, then Read → (-1, EPIPE)
+    // Mock IO bridge: MaterializeStdin → ChannelHandle, then Read → (-1, EPIPE)
     let io_task = tokio::spawn(async move {
         while let Some(req) = system_rx.recv().await {
             match req {
@@ -64,7 +69,7 @@ async fn test_mark_failed_uses_epipe_from_last_read() {
     let suspension = Arc::new(SuspensionState::new());
 
     let (runtime, shutdown) =
-        BlockingActorRuntime::new(node_handle, system_tx, Arc::clone(&suspension));
+        BlockingActorRuntime::new(node_handle, system_tx, Arc::clone(&suspension), make_dep_iterator(&id_gen, node_handle));
     runtime.register_std_fds();
 
     // Respond to MaterializeStdin + Read with EPIPE, then capture ActorShutdown exit_code
@@ -116,7 +121,7 @@ async fn test_mark_failed_uses_eownerdead_without_read_error() {
     let (system_tx, mut system_rx) = tokio::sync::mpsc::unbounded_channel::<IoRequest>();
     let suspension = Arc::new(SuspensionState::new());
 
-    let (_runtime, shutdown) = BlockingActorRuntime::new(node_handle, system_tx, suspension);
+    let (_runtime, shutdown) = BlockingActorRuntime::new(node_handle, system_tx, suspension, make_dep_iterator(&id_gen, node_handle));
 
     let io_task = tokio::spawn(async move {
         let mut shutdown_exit_code = None;

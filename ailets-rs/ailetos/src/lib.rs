@@ -10,7 +10,7 @@ pub mod pipe;
 pub mod storage;
 pub mod stub_actor_runtime;
 pub mod suspension;
-pub mod system_runtime;
+pub mod io_bridge;
 
 // Re-export DAG types for convenience
 pub use dag::{Dag, DependsOn, For, Node, NodeKind, NodeState, OwnedDependencyIterator};
@@ -29,10 +29,10 @@ pub use storage::{KVBuffers, KVError, MemKV, OpenMode};
 // Re-export PipePool for convenience
 pub use pipe::PipePool;
 
-// Re-export system runtime types for convenience
-pub use system_runtime::{
-    ActorLifecycleEvent, Channel, ChannelHandle, IoEvent, IoFuture, IoRequest, SendableBuffer,
-    SystemRuntime,
+// Re-export IO bridge types for convenience
+pub use io_bridge::{
+    ActorLifecycleEvent, Channel, ChannelHandle, IoBridge, IoEvent, IoFuture, IoRequest,
+    SendableBuffer,
 };
 
 // Re-export attachment types

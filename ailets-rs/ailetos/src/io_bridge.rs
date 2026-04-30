@@ -1,10 +1,9 @@
-//! System runtime for managing actors and I/O operations
+//! IO bridge for managing actors and I/O operations
 //!
 //! This module provides the core runtime infrastructure for executing actors
 //! in a multi-actor system. It handles:
 //! - I/O request routing between actors and the system
 //! - Channel management (reader/writer endpoints)
-//! - File descriptor table management per actor
 //! - Async I/O operations with sync-to-async bridging
 //!
 //! # ARCHITECTURE: Sync-to-Async Bridge Pattern
@@ -17,7 +16,7 @@
 //!
 //! Actors run synchronously and call blocking functions like `aread()`, `awrite()`,
 //! and `aclose()` (see `BlockingActorRuntime`). These functions:
-//! 1. Send an `IoRequest` to `SystemRuntime` via an async channel
+//! 1. Send an `IoRequest` to `IoBridge` via an async channel
 //! 2. Call `blocking_recv()` to wait for the response
 //! 3. Return the result to the actor
 //!
@@ -25,12 +24,12 @@
 //!
 //! ## Why `pending_ops`?
 //!
-//! The `pending_ops` queue (a `FuturesUnordered`) allows `SystemRuntime` to:
+//! The `pending_ops` queue (a `FuturesUnordered`) allows `IoBridge` to:
 //! 1. **Accept multiple requests concurrently** - While one actor is blocked waiting
 //!    for a slow read operation, other actors can send their requests
 //! 2. **Process I/O operations in parallel** - Multiple reads/writes can execute
 //!    concurrently using `tokio::select!` to poll both new requests and pending operations
-//! 3. **Maintain responsiveness** - The runtime doesn't block waiting for one operation
+//! 3. **Maintain responsiveness** - The bridge doesn't block waiting for one operation
 //!    to complete before accepting new requests
 //!
 //! ## Why `Box::pin(async` move { ... }) inside handlers?
@@ -54,14 +53,14 @@
 //!
 //! 1. Actor calls `aclose(fd)` (blocking)
 //! 2. `aclose` sends `IoRequest::Close` and blocks on `rx.blocking_recv()`
-//! 3. `SystemRuntime::run` receives the request in `tokio::select!`
+//! 3. `IoBridge::run` receives the request in `tokio::select!`
 //! 4. Calls `handle_close()` which:
 //!    - Removes the channel from `self.channels` (synchronous)
 //!    - Closes the writer pipe (synchronous)
 //!    - Clones `pipe_pool` Arc
 //!    - Returns `Box::pin(async move { pipe_pool.flush_buffer().await })`
 //! 5. The `&mut self` borrow ends, future is pushed to `pending_ops`
-//! 6. `SystemRuntime` continues processing new requests immediately
+//! 6. `IoBridge` continues processing new requests immediately
 //! 7. When the flush completes, `pending_ops.next()` yields the result
 //! 8. Response is sent back to the actor via oneshot channel
 //! 9. Actor's `blocking_recv()` returns, unblocking the actor thread
@@ -87,7 +86,7 @@ use crate::pipe::{MergeReader, PipePool};
 use crate::KVBuffers;
 
 /// Global unique identifier for a pipe endpoint (reader or writer)
-/// Used by `SystemRuntime` to identify channels across all actors
+/// Used by `IoBridge` to identify channels across all actors
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ChannelHandle(pub isize);
 
@@ -107,7 +106,7 @@ pub enum Channel<K: KVBuffers> {
 
 /// A wrapper around a raw mutable slice pointer that can be sent between threads.
 /// SAFETY: This is only safe because the sender (aread) blocks until the receiver
-/// (`SystemRuntime` handler) sends a response, ensuring:
+/// (`IoBridge` handler) sends a response, ensuring:
 /// 1. The buffer remains valid (stack frame doesn't unwind)
 /// 2. No concurrent access (sender is blocked)
 /// 3. Proper synchronization (channel enforces happens-before)
@@ -161,7 +160,7 @@ impl SendableBuffer {
 // SAFETY: See SendableBuffer documentation above
 unsafe impl Send for SendableBuffer {}
 
-/// I/O requests sent from `ActorRuntime` to `SystemRuntime`
+/// I/O requests sent from `ActorRuntime` to `IoBridge`
 pub enum IoRequest {
     /// Open a stream for reading (returns global `ChannelHandle`)
     OpenRead {
@@ -235,7 +234,7 @@ pub enum IoEvent<K: KVBuffers> {
 /// Type alias for I/O futures
 pub type IoFuture<K> = Pin<Box<dyn Future<Output = IoEvent<K>> + Send>>;
 
-/// Actor lifecycle events sent from SystemRuntime to the executor.
+/// Actor lifecycle events sent from IoBridge to the executor.
 pub enum ActorLifecycleEvent {
     /// Request to transition actor to Terminating state.
     /// Executor replies with the state that was set before the transition.
@@ -246,9 +245,9 @@ pub enum ActorLifecycleEvent {
     Terminated { node_handle: Handle, exit_code: i32, reply: oneshot::Sender<NodeState> },
 }
 
-/// `SystemRuntime` manages all async I/O operations
+/// `IoBridge` manages all async I/O operations
 /// Actors communicate with it via channels
-pub struct SystemRuntime<K: KVBuffers> {
+pub struct IoBridge<K: KVBuffers> {
     /// Pool of output pipes (one per actor)
     pipe_pool: Arc<PipePool<K>>,
     /// Key-value store for pipe buffers
@@ -278,7 +277,7 @@ pub struct SystemRuntime<K: KVBuffers> {
     actor_done_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
 }
 
-impl<K: KVBuffers + 'static> SystemRuntime<K> {
+impl<K: KVBuffers + 'static> IoBridge<K> {
     pub fn new(
         kv: Arc<K>,
         id_gen: Arc<IdGen>,
@@ -698,7 +697,7 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
 
     /// Main event loop - processes I/O requests asynchronously
     pub async fn run(mut self) {
-        trace!("SystemRuntime::run: entering request_rx loop");
+        trace!("IoBridge::run: entering request_rx loop");
         // Drop our copy of the sender so channel closes when all actors finish
         drop(self.system_tx.take());
 
@@ -767,13 +766,13 @@ impl<K: KVBuffers + 'static> SystemRuntime<K> {
             }
         }
 
-        trace!("SystemRuntime::run: exited request_rx loop");
+        trace!("IoBridge::run: exited request_rx loop");
 
         // Wait for all attachment tasks to complete
         // Attachment tasks read their pipes to EOF, then exit naturally when pipes close
         self.attachment_manager.waiting_shutdown().await;
-        trace!("SystemRuntime: all attachments completed");
+        trace!("IoBridge: all attachments completed");
 
-        trace!("SystemRuntime: destroying");
+        trace!("IoBridge: destroying");
     }
 }

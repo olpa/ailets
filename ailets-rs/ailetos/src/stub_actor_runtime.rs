@@ -1,8 +1,8 @@
 //! Blocking `ActorRuntime` implementation
 //!
 //! This module provides a blocking `ActorRuntime` implementation that bridges
-//! synchronous actor code with the async `SystemRuntime`. It maintains per-actor
-//! state (fd table) and proxies all I/O operations to `SystemRuntime`.
+//! synchronous actor code with the async `IoBridge`. It maintains per-actor
+//! state (fd table) and proxies all I/O operations to `IoBridge`.
 
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
@@ -16,16 +16,16 @@ use crate::errno::EOWNERDEAD;
 use crate::fd_table::{FdEntry, FdTable};
 use crate::idgen::Handle;
 use crate::suspension::SuspensionState;
-use crate::system_runtime::{IoRequest, SendableBuffer};
+use crate::io_bridge::{IoRequest, SendableBuffer};
 
 /// Blocking `ActorRuntime` implementation
-/// Acts as a pure proxy to `SystemRuntime` for all I/O operations
+/// Acts as a pure proxy to `IoBridge` for all I/O operations
 /// Provides sync-to-async adapters (blocking on async operations)
 /// Maintains a per-actor fd table for POSIX-style fd semantics
 pub struct BlockingActorRuntime {
     /// This actor's node handle (used as actor identifier)
     node_handle: Handle,
-    /// Channel to send async I/O requests to `SystemRuntime`
+    /// Channel to send async I/O requests to `IoBridge`
     system_tx: mpsc::UnboundedSender<IoRequest>,
     /// Per-actor fd table (POSIX fd → global `ChannelHandle`)
     fd_table: std::sync::Mutex<FdTable>,
@@ -37,12 +37,12 @@ pub struct BlockingActorRuntime {
     stdin_dep_iterator: std::sync::Mutex<Option<OwnedDependencyIterator>>,
 }
 
-/// Lifecycle handle that notifies `SystemRuntime` when an actor is done.
+/// Lifecycle handle that notifies `IoBridge` when an actor is done.
 ///
 /// Returned alongside `BlockingActorRuntime` from `BlockingActorRuntime::new`.
 /// Call `shutdown()` explicitly at the normal exit point; `Drop` fires the same
 /// cleanup automatically if the actor panics or returns early without calling it.
-/// Sending `ActorShutdown` multiple times is safe — `SystemRuntime` is idempotent.
+/// Sending `ActorShutdown` multiple times is safe — `IoBridge` is idempotent.
 pub struct ShutdownHandle {
     node_handle: Handle,
     system_tx: mpsc::UnboundedSender<IoRequest>,

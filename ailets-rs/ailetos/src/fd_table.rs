@@ -5,7 +5,7 @@
 //! channel handles used by the system runtime.
 
 use crate::idgen::Handle;
-use crate::system_runtime::ChannelHandle;
+use crate::io_bridge::ChannelHandle;
 
 /// File descriptor entry - tracks the state of an fd.
 ///

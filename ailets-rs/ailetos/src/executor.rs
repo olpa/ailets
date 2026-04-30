@@ -16,8 +16,8 @@ use crate::dag::{Dag, NodeKind, NodeState, OwnedDependencyIterator};
 use crate::environment::{ActorFn, RunHandle};
 use crate::idgen::Handle;
 use crate::pipe::PipePool;
-use crate::system_runtime::{ActorLifecycleEvent, IoRequest};
-use crate::{BlockingActorRuntime, KVBuffers, ShutdownHandle, SystemRuntime};
+use crate::io_bridge::{ActorLifecycleEvent, IoRequest};
+use crate::{BlockingActorRuntime, IoBridge, KVBuffers, ShutdownHandle};
 
 /// Conditions for stopping DAG iteration
 #[derive(Debug, Clone, Default)]
@@ -149,7 +149,7 @@ pub async fn run_with_tx<K: KVBuffers + 'static>(
 
     let (actor_done_tx, mut actor_done_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
 
-    let system_runtime = SystemRuntime::new(
+    let system_runtime = IoBridge::new(
         Arc::clone(&run_handle.kv),
         Arc::clone(&run_handle.idgen),
         run_handle.attachment_config.clone(),
@@ -319,7 +319,7 @@ pub async fn run_with_tx<K: KVBuffers + 'static>(
     drop(system_tx);
 
     if let Err(e) = system_task.await {
-        warn!(error = %e, "SystemRuntime task failed");
+        warn!(error = %e, "IoBridge task failed");
     }
 
     if let Err(e) = actor_done_task.await {
