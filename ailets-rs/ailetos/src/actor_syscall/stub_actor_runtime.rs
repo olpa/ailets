@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 
 use actor_runtime::ActorRuntime;
+use parking_lot::Mutex;
 use tracing::{error, warn};
 
 use crate::dag::OwnedDependencyIterator;
@@ -26,13 +27,13 @@ pub struct BlockingActorRuntime {
     node_handle: Handle,
     bridge: Arc<IoBridge>,
     /// Per-actor fd table (POSIX fd → global `ChannelHandle`)
-    fd_table: std::sync::Mutex<FdTable>,
+    fd_table: Mutex<FdTable>,
     /// Shared suspension state (owned by Environment)
     suspension: Arc<SuspensionState>,
     /// errno from the last failed read (0 = no error); shared with `ShutdownHandle`
     last_read_errno: Arc<AtomicI32>,
     /// Pre-built dependency iterator for stdin; consumed on first read
-    stdin_dep_iterator: std::sync::Mutex<Option<OwnedDependencyIterator>>,
+    stdin_dep_iterator: Mutex<Option<OwnedDependencyIterator>>,
 }
 
 /// Lifecycle handle that calls `IoBridge::actor_shutdown` when dropped.
@@ -88,10 +89,10 @@ impl BlockingActorRuntime {
         let runtime = Self {
             node_handle,
             bridge: Arc::clone(&bridge),
-            fd_table: std::sync::Mutex::new(FdTable::new()),
+            fd_table: Mutex::new(FdTable::new()),
             suspension: Arc::clone(&suspension),
             last_read_errno: Arc::clone(&last_read_errno),
-            stdin_dep_iterator: std::sync::Mutex::new(Some(stdin_dep_iterator)),
+            stdin_dep_iterator: Mutex::new(Some(stdin_dep_iterator)),
         };
         let shutdown = ShutdownHandle {
             node_handle,
@@ -119,13 +120,7 @@ impl BlockingActorRuntime {
     pub fn register_std_fds(&self) {
         use actor_runtime::StdHandle;
 
-        let mut table = match self.fd_table.lock() {
-            Ok(t) => t,
-            Err(e) => {
-                error!(actor = ?self.node_handle, error = ?e, "register_std_fds: fd_table lock poisoned");
-                return;
-            }
-        };
+        let mut table = self.fd_table.lock();
 
         // Readers
         table.set(StdHandle::Stdin as isize, FdEntry::AllowedReader);
@@ -138,29 +133,16 @@ impl BlockingActorRuntime {
     }
 
     fn materialize_stdin_handle(&self, fd: isize) -> Option<ChannelHandle> {
-        let dep_iterator = match self.stdin_dep_iterator.lock() {
-            Ok(mut g) => match g.take() {
-                Some(it) => it,
-                None => {
-                    error!(actor = ?self.node_handle, "aread: stdin iterator already consumed");
-                    return None;
-                }
-            },
-            Err(e) => {
-                error!(actor = ?self.node_handle, error = ?e, "aread: stdin_dep_iterator lock poisoned");
+        let dep_iterator = match self.stdin_dep_iterator.lock().take() {
+            Some(it) => it,
+            None => {
+                error!(actor = ?self.node_handle, "aread: stdin iterator already consumed");
                 return None;
             }
         };
         let handle = self.bridge.materialize_stdin(self.node_handle, dep_iterator);
-        match self.fd_table.lock() {
-            Ok(mut table) => {
-                if let Some(entry) = table.get_mut(fd) {
-                    *entry = FdEntry::ActiveReader(handle);
-                }
-            }
-            Err(e) => {
-                error!(actor = ?self.node_handle, fd = fd, error = ?e, "aread: fd_table lock poisoned after materialize");
-            }
+        if let Some(entry) = self.fd_table.lock().get_mut(fd) {
+            *entry = FdEntry::ActiveReader(handle);
         }
         Some(handle)
     }
@@ -173,40 +155,22 @@ impl ActorRuntime for BlockingActorRuntime {
 
     fn open_read(&self, _name: &str) -> isize {
         let channel_handle = self.bridge.open_read(self.node_handle);
-        match self.fd_table.lock() {
-            Ok(mut table) => table.insert(FdEntry::ActiveReader(channel_handle)),
-            Err(e) => {
-                error!(actor = ?self.node_handle, error = ?e, "open_read: fd_table lock poisoned");
-                -1
-            }
-        }
+        self.fd_table.lock().insert(FdEntry::ActiveReader(channel_handle))
     }
 
     fn open_write(&self, _name: &str) -> isize {
         // For now, open_write creates an ActiveWriter directly with Stdout.
         // TODO: Support named streams (map _name to the appropriate StdHandle).
-        match self.fd_table.lock() {
-            Ok(mut table) => table.insert(FdEntry::ActiveWriter {
-                node_handle: self.node_handle,
-                std_handle: actor_runtime::StdHandle::Stdout,
-            }),
-            Err(e) => {
-                error!(actor = ?self.node_handle, error = ?e, "open_write: fd_table lock poisoned");
-                -1
-            }
-        }
+        self.fd_table.lock().insert(FdEntry::ActiveWriter {
+            node_handle: self.node_handle,
+            std_handle: actor_runtime::StdHandle::Stdout,
+        })
     }
 
     fn aread(&self, fd: isize, buffer: &mut [u8]) -> isize {
         // Get the channel handle, materializing stdin if needed
         let channel_handle = {
-            let table = match self.fd_table.lock() {
-                Ok(t) => t,
-                Err(e) => {
-                    error!(actor = ?self.node_handle, fd = fd, error = ?e, "aread: fd_table lock poisoned");
-                    return -1;
-                }
-            };
+            let table = self.fd_table.lock();
             match table.get(fd) {
                 Some(FdEntry::ActiveReader(handle)) => *handle,
                 Some(FdEntry::AllowedReader) => {
@@ -246,13 +210,7 @@ impl ActorRuntime for BlockingActorRuntime {
     fn awrite(&self, fd: isize, buffer: &[u8]) -> isize {
         // Get the write info, upgrading AllowedWriter to ActiveWriter on first use
         let (node_handle, std_handle) = {
-            let mut table = match self.fd_table.lock() {
-                Ok(t) => t,
-                Err(e) => {
-                    error!(actor = ?self.node_handle, fd = fd, error = ?e, "awrite: fd_table lock poisoned");
-                    return -1;
-                }
-            };
+            let mut table = self.fd_table.lock();
             match table.get(fd) {
                 Some(FdEntry::ActiveWriter { node_handle, std_handle }) => (*node_handle, *std_handle),
                 Some(FdEntry::AllowedWriter) => {
@@ -294,16 +252,10 @@ impl ActorRuntime for BlockingActorRuntime {
 
     fn aclose(&self, fd: isize) -> isize {
         // Remove the fd entry
-        let entry = match self.fd_table.lock() {
-            Ok(mut table) => match table.remove(fd) {
-                Some(e) => e,
-                None => {
-                    warn!(actor = ?self.node_handle, fd = fd, "aclose: fd not found");
-                    return -1;
-                }
-            },
-            Err(e) => {
-                error!(actor = ?self.node_handle, fd = fd, error = ?e, "aclose: fd_table lock poisoned");
+        let entry = match self.fd_table.lock().remove(fd) {
+            Some(e) => e,
+            None => {
+                warn!(actor = ?self.node_handle, fd = fd, "aclose: fd not found");
                 return -1;
             }
         };
