@@ -12,14 +12,13 @@
 //! # Components
 //!
 //! **Actor side** — runs on the actor's blocking thread:
-//! - [`stub_actor_runtime`] — implements `ActorRuntime`; translates each blocking call
-//!   into an [`IoRequest`], sends it to `IoBridge`, and blocks on the oneshot reply.
+//! - [`stub_actor_runtime`] — implements `ActorRuntime`; calls `IoBridge` methods directly
+//!   and blocks on oneshot replies for results.
 //! - [`fd_table`] — per-actor POSIX fd → [`ChannelHandle`] map; owned by `BlockingActorRuntime`.
 //!
-//! **Bridge** — runs on the Tokio runtime:
-//! - [`io_bridge`] — async event loop; receives [`IoRequest`]s, dispatches to pipes and
-//!   storage, and sends replies. See its module doc for the full architecture, including
-//!   why handlers use `Box::pin(async move { ... })` and how `FuturesUnordered` works.
+//! **Bridge** — shared object callable from any blocking thread:
+//! - [`io_bridge`] — directly-callable I/O bridge; methods spawn Tokio tasks for async work
+//!   and block the caller on a oneshot reply. See its module doc for the full architecture.
 //!
 //! **Supporting types:**
 //! - [`sendable_buffer`] — wraps a raw pointer to an actor's stack buffer so it can
@@ -30,13 +29,13 @@
 //! # Data flow (read example)
 //!
 //! ```text
-//! actor thread                      Tokio runtime
+//! actor thread (blocking)           Tokio runtime
 //! ────────────────────────────────  ──────────────────────────────
 //! aread(fd)
-//!   → IoRequest::Read ──────────→  IoBridge::run (tokio::select!)
-//!   blocking_recv() …              handle_read() → pending_ops
-//!                                  MergeReader::read().await
-//!   ← (bytes, errno) ←──────────  oneshot reply
+//!   bridge.read(handle, buf)
+//!   → ReadRequest ──────────────→  reader task (long-lived)
+//!   blocking_recv() …               MergeReader::read().await
+//!   ← (bytes, errno) ←───────────  oneshot reply
 //! returns to actor
 //! ```
 
