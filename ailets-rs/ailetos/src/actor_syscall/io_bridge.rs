@@ -90,6 +90,7 @@ pub(crate) struct ReadRequest {
 /// Spawned by `IoBridge::materialize_stdin`. Exits when its `request_rx` closes —
 /// i.e., when the channel entry is removed from `ChannelTable` on close or shutdown.
 async fn run_reader_task(
+    node_handle: Handle,
     mut reader: MergeReader,
     mut request_rx: mpsc::UnboundedReceiver<ReadRequest>,
 ) {
@@ -98,7 +99,9 @@ async fn run_reader_task(
         let buf = unsafe { &mut *buffer.into_raw() };
         let bytes_read = reader.read(buf).await;
         let errno = if bytes_read < 0 { reader.get_error() } else { 0 };
-        let _ = response.send((bytes_read, errno));
+        if response.send((bytes_read, errno)).is_err() {
+            warn!(actor = ?node_handle, "reader task: reply receiver dropped, actor may have exited");
+        }
     }
 }
 
@@ -233,7 +236,7 @@ impl IoBridge {
             Arc::clone(&self.id_gen),
         );
         let (request_tx, request_rx) = mpsc::unbounded_channel::<ReadRequest>();
-        tokio::spawn(run_reader_task(reader, request_rx));
+        tokio::spawn(run_reader_task(node_handle, reader, request_rx));
         self.channel_table.lock().insert_reader(node_handle, request_tx)
     }
 
@@ -281,7 +284,9 @@ impl IoBridge {
                 }
             };
             notify.notify_one();
-            let _ = tx.send(result);
+            if tx.send(result).is_err() {
+                warn!(node = ?node_handle, std = ?std_handle, "write: reply receiver dropped");
+            }
         });
         rx.blocking_recv().unwrap_or(-1)
     }
@@ -311,7 +316,9 @@ impl IoBridge {
                         -1
                     };
                     notify.notify_one();
-                    let _ = tx.send(result);
+                    if tx.send(result).is_err() {
+                        warn!(node = ?node_handle, std = ?std_handle, "close: reply receiver dropped");
+                    }
                 });
                 rx.blocking_recv().unwrap_or(-1)
             }
@@ -340,7 +347,9 @@ impl IoBridge {
                 }
             } else { 0 };
             notify.notify_one();
-            let _ = tx.send(result);
+            if tx.send(result).is_err() {
+                warn!(node = ?node_handle, std = ?std_handle, "close_writer: reply receiver dropped");
+            }
         });
         rx.blocking_recv().unwrap_or(-1)
     }
