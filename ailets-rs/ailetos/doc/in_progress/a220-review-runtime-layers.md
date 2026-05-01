@@ -1,80 +1,89 @@
-# SystemRuntime → IO Bridge: Responsibility Extraction
+# Runtime Layer Refactoring
 
-**Date**: 2026-04-29
 **Branch**: a220-review-runtime-layers
-**Status**: Planning
 
 ---
 
-## Background
+## Phase 1 — IoBridge Extraction ✓ COMPLETE
 
-`SystemRuntime` was reviewed against the claim that it should be renamed to `IO Bridge`. The review confirmed the name change is justified — the dominant architectural pattern is sync-to-async I/O bridging — but identified three responsibilities that do not belong in an IO Bridge.
+Original goal: extract `SystemRuntime` into a clean `IoBridge` by removing three foreign responsibilities (DAG state in ActorShutdown, DAG read in materialize_stdin, spawn_notify ownership) and renaming the struct. All four steps completed.
 
----
-
-## Foreign Responsibilities
-
-### 1. DAG state in `ActorShutdown` (`system_runtime.rs:691–713`)
-
-The handler mixes I/O cleanup with lifecycle management:
-
-**I/O cleanup** (belongs in IO Bridge):
-- `pipe_pool.close_actor_writers(node_handle, exit_code)` — closes pipe writers
-- `channels.retain(...)` — drops reader channels from the internal channel table
-
-**Lifecycle management** (foreign to IO Bridge):
-- `dag.set_state(node_handle, NodeState::Terminating)` / `Terminated`
-- `dag.set_exit_code(node_handle, exit_code)`
-- `spawn_notify.notify_one()`
-
-The executor already owns the "start" side of actor lifecycle — it writes `NodeState::Running` at spawn time (`executor.rs:217`). The "end" side naturally belongs there too.
-
-**Extraction blocker**: ordering constraint. The executor waits on `spawn_notify`, then immediately reads DAG state in `is_ready_to_spawn`. DAG state must be written *before* `notify_one()` fires. Solution: SystemRuntime sends a completion event on a second channel (`actor_done_tx: mpsc::Sender<(Handle, i32)>`); the executor's loop selects on it, does the DAG state write, then re-checks readiness. SystemRuntime drops the lifecycle concern entirely.
-
-### 2. DAG read in `materialize_stdin` (`system_runtime.rs:300–323`)
-
-`materialize_stdin` reads the DAG only to build an `OwnedDependencyIterator` for a new `MergeReader`. This is the sole reason SystemRuntime holds `Arc<RwLock<Dag>>` apart from `ActorShutdown`.
-
-**Extraction path**: The executor knows an actor's dependencies at spawn time. It can construct the `MergeReader` there and pass it into `BlockingActorRuntime::new()` alongside `system_tx`. The `MaterializeStdin` `IoRequest` variant disappears. This is the cleanest extraction — no ordering constraints, no new channels needed.
-
-### 3. `spawn_notify` ownership (`system_runtime.rs:259–260`)
-
-`spawn_notify` is created inside SystemRuntime and lent to the executor via `get_spawn_notify()`. The executor owns the "wait" side; SystemRuntime owns "notify." The dependency arrow points the wrong way.
-
-**Extraction path**: Flip ownership — the executor creates `Arc<Notify>` and passes it into `SystemRuntime::new()`. The IO Bridge becomes a *consumer* (fires it when I/O events occur); the executor is the *owner*. After `ActorShutdown` is extracted, the executor also fires it after DAG state updates. No behavioral change, but the dependency direction becomes correct.
+Additional cleanup done in this branch:
+- Switch `actor_syscall` to `parking_lot::Mutex`
+- Replace `let _ = send(...)` with `warn!` on dropped receivers
+- Update module docs to reflect direct-call model
+- Document `pipe_pool` ownership intent (`regression:` comment)
 
 ---
 
-## 3-Step Plan
+## Phase 2 — Environment / RunHandle Merge & Live DAG Preparation
 
-### Step 1 — Flip `spawn_notify` ownership (trivial) ✓ DONE
+### Background
 
-- Executor creates `Arc<Notify>`, passes it to `SystemRuntime::new()`
-- Remove `SystemRuntime::get_spawn_notify()`
-- No behavioral change; establishes correct dependency direction before the bigger steps
+`Environment` (build phase) and `RunHandle` (run phase) are structurally identical — six fields, same types. `make_run_handle()` clones two fields (`actor_registry`, `attachment_config`) and Arc-clones the other four. The clone/snapshot semantics are wrong: all six fields should be Arc-shared so executor always sees current state. This is not just cleanup — it is architecturally required for live DAG support (see Step 5).
 
-### Step 2 — Extract `materialize_stdin` to the executor (low risk) ✓ DONE
+Future capability: nodes will be addable during execution ("live DAG"). The steps below prepare the architecture for that without implementing it yet.
 
-- At spawn time in the executor, build the `MergeReader` from DAG dependencies
-- Pass the reader into `BlockingActorRuntime::new()` (or a new constructor parameter)
-- Remove `IoRequest::MaterializeStdin` and `SystemRuntime::materialize_stdin`
-- After this step, SystemRuntime no longer needs to read the DAG for I/O wiring
+---
 
-### Step 3 — Extract `ActorShutdown` lifecycle work to the executor (high impact) ✓ DONE
+### Step 1 — Arc-share `actor_registry` and `attachment_config`
 
-Implementation notes:
-- `ActorLifecycleEvent` enum with `Terminating` (reply: prior `NodeState`) and `Terminated` (reply: prior `NodeState`)
-- Reply channels preserve ordering: `Terminating` reply gates writer close; `Terminated` reply confirms DAG update
-- `handle_actor_shutdown` extracted as `async fn` for linear early-exit flow
-- `actor_done_task` uses exhaustive match with warn on unexpected states
+**Goal**: Eliminate snapshot semantics. Both fields must be Arc-shared so the executor always sees the current state, including registrations made after a run starts.
 
-- Add `actor_done_tx: mpsc::UnboundedSender<(Handle, i32)>` passed into SystemRuntime
-- In `ActorShutdown` handler: keep I/O cleanup (`close_actor_writers`, `channels.retain`); send `(node_handle, exit_code)` on `actor_done_tx` instead of writing DAG state
-- Spawn a small `actor_done_task` in the executor that receives completions, writes DAG state (`Terminating` → `Terminated`, `set_exit_code`), and fires `notify`
-- Remove the `dag` field from SystemRuntime entirely
+- `actor_registry: Arc<RwLock<ActorRegistry>>`
+- `attachment_config: Arc<AttachmentConfig>` (RwLock if runtime mutation is needed)
+- Update build-phase mutation methods to acquire write lock
+- Update executor read sites to acquire read lock (or snapshot via `read().clone()` at spawn time if contention is a concern)
 
-### Step 4 — Rename `SystemRuntime` → `IoBridge` ✓ DONE
+---
 
-- Rename `system_runtime.rs` → `io_bridge.rs`
-- Rename the struct `SystemRuntime` → `IoBridge` and update all references
-- Update `pub mod system_runtime` and re-exports in `lib.rs`
+### Step 2 — Merge `Environment` and `RunHandle`
+
+**Goal**: One type. `RunHandle` is deleted; `Environment` serves as the single system handle for both build and run phases.
+
+- Make `attachment_config` `pub(crate)` (executor access)
+- Implement `Clone` for `Environment` — pure Arc::clone of all six fields, zero heap allocation
+- Change `executor::run` and `run_with_tx` to take `Arc<Environment>` instead of `&RunHandle`
+- `Environment::run()` becomes `executor::run(Arc::new(self.clone()), ...)`
+- Delete `RunHandle` and `make_run_handle()`
+- Update tests and examples
+
+**Dependency**: Step 1 must be complete.
+
+---
+
+### Step 3 — Move `PipePool` to `Environment`
+
+**Goal**: `PipePool` is the runtime realization of DAG edges — it conceptually belongs to the system runtime, not to `IoBridge` (see `regression:` comment in `IoBridge::new`).
+
+- Add `pipe_pool: Arc<PipePool>` field to `Environment` (created in `Environment::new()` from `kv`)
+- Remove `pipe_pool` parameter from `IoBridge::new`
+- `is_ready_to_spawn` receives `&Environment` instead of `&PipePool` (or accesses it through the env)
+- Remove the local `pipe_pool` variable in `run_with_tx`
+
+**Dependency**: Step 2 must be complete.
+
+---
+
+### Step 4 — `IoBridge` holds `Arc<Environment>`
+
+**Goal**: `IoBridge` accesses all shared state through the merged environment instead of individually extracted fields. This is the access path required for future actor-initiated node creation.
+
+- Remove `kv`, `id_gen`, `attachment_manager`, `pipe_pool` fields from `IoBridge`
+- `IoBridge` stores `Arc<Environment>`, accesses fields through it
+- `IoBridge::new` signature shrinks to `(env: Arc<Environment>, notify: Arc<Notify>, actor_done_tx: ...)`
+- Internal method bodies updated to use `self.env.kv`, `self.env.id_gen`, etc.
+
+**Dependency**: Step 3 must be complete.
+
+---
+
+### Step 5 — Structural preparation for live DAG
+
+**Goal**: Make the executor structurally ready to accept nodes added during execution. No live-DAG functionality yet — only the structural changes that would otherwise require a disruptive rewrite later.
+
+- **Replace static `pending` list with per-iteration re-scan**: currently computed once at startup; change the spawn loop to scan all `NotStarted` nodes each iteration (small change, non-breaking, unlocks dynamic node pickup)
+- **Document `WorkSource` quiescence model**: the executor needs a "no more nodes will ever arrive" signal to know when to stop. Design: a `WorkSource` handle (like `actor_done_tx`) held by anything that can add nodes; when all are dropped, the executor may exit after draining. No implementation yet — document the concept and the intended integration point.
+- **Reserve `spawn_node` in `ActorRuntime` trait**: add the method signature with a `todo!()` / `unimplemented!()` body so the trait boundary is established and actor implementations know what's coming.
+
+**Dependency**: Step 4 must be complete (`IoBridge` holding `Arc<Environment>` is required for `spawn_node` to have a path to the DAG).
