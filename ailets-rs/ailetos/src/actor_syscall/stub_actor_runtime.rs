@@ -17,7 +17,7 @@ use crate::idgen::Handle;
 use crate::suspension::SuspensionState;
 use super::fd_table::{FdEntry, FdTable};
 use super::io_bridge::{ChannelHandle, IoBridge};
-use super::sendable_buffer::SendableBuffer;
+use super::sendable_buffer::{SendableConstPtr, SendableMutPtr};
 
 /// Blocking `ActorRuntime` implementation.
 ///
@@ -215,7 +215,7 @@ impl ActorRuntime for BlockingActorRuntime {
         };
 
         // SAFETY: buffer is valid for the duration of blocking_recv inside bridge.read
-        let buffer_ptr = unsafe { SendableBuffer::new(buffer) };
+        let buffer_ptr = unsafe { SendableMutPtr::new(buffer) };
         self.bridged_io(|| self.bridge.read(channel_handle, buffer_ptr))
     }
 
@@ -247,7 +247,9 @@ impl ActorRuntime for BlockingActorRuntime {
             }
         };
 
-        self.bridged_io(|| self.bridge.write(node_handle, std_handle, buffer.to_vec()))
+        // SAFETY: buffer is valid for the duration of blocking_recv inside bridge.write
+        let buffer_ptr = unsafe { SendableConstPtr::new(buffer) };
+        self.bridged_io(|| self.bridge.write(node_handle, std_handle, buffer_ptr))
     }
 
     fn aclose(&self, fd: isize) -> isize {

@@ -59,7 +59,7 @@ use crate::errno::{EBADF, EIO, EPIPE};
 use crate::idgen::Handle;
 use crate::pipe::MergeReader;
 use super::lifecycle_event::ActorLifecycleEvent;
-use super::sendable_buffer::SendableBuffer;
+use super::sendable_buffer::{SendableConstPtr, SendableMutPtr};
 
 /// Global unique identifier for a pipe endpoint (reader or writer)
 /// Used by `IoBridge` to identify channels across all actors
@@ -82,7 +82,7 @@ pub(crate) enum Channel {
 
 /// A read request forwarded from `IoBridge` to a reader task.
 pub(crate) struct ReadRequest {
-    pub buffer: SendableBuffer,
+    pub buffer: SendableMutPtr,
     pub response: oneshot::Sender<(isize, i32)>,
 }
 
@@ -234,7 +234,7 @@ impl IoBridge {
     }
 
     /// Route a read request to the channel's reader task and block for the result.
-    pub fn read(&self, handle: ChannelHandle, buffer: SendableBuffer) -> (isize, i32) {
+    pub fn read(&self, handle: ChannelHandle, buffer: SendableMutPtr) -> (isize, i32) {
         let tx = self.channel_table.lock().get_reader_tx(handle).cloned();
         if let Some(tx) = tx {
             let (resp_tx, resp_rx) = oneshot::channel();
@@ -250,12 +250,14 @@ impl IoBridge {
     }
 
     /// Spawn an async write task and block for the result.
-    pub fn write(&self, node_handle: Handle, std_handle: actor_runtime::StdHandle, data: Vec<u8>) -> (isize, i32) {
+    pub fn write(&self, node_handle: Handle, std_handle: actor_runtime::StdHandle, data: SendableConstPtr) -> (isize, i32) {
         let (tx, rx) = oneshot::channel::<(isize, i32)>();
         let env = Arc::clone(&self.env);
         let attachment_manager = Arc::clone(&self.attachment_manager);
         let notify = Arc::clone(&self.notify);
         tokio::spawn(async move {
+            // SAFETY: Buffer remains valid because awrite() blocks until response is sent
+            let data = unsafe { &*data.into_raw() };
             let result: (isize, i32) = match env.pipe_pool.touch_writer(node_handle, std_handle, &env.idgen).await {
                 Ok((writer, is_new)) => {
                     if is_new {
@@ -264,7 +266,7 @@ impl IoBridge {
                             Arc::clone(&env.pipe_pool), Arc::clone(&env.idgen),
                         );
                     }
-                    let n = writer.write(&data);
+                    let n = writer.write(data);
                     if n < 0 { (-1, writer.get_error()) } else { (n, 0) }
                 }
                 Err(e) => {
