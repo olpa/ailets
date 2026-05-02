@@ -4,6 +4,7 @@
 //! mappings between POSIX-style file descriptors (integers) and the underlying
 //! channel handles used by the system runtime.
 
+use crate::errno::EMFILE;
 use crate::idgen::Handle;
 use super::io_bridge::ChannelHandle;
 
@@ -63,36 +64,27 @@ impl FdTable {
     }
 
     /// Allocate a new fd and associate it with an `FdEntry`.
-    /// Finds the first empty slot or appends. Returns the fd (index).
-    /// Returns -1 on overflow.
-    pub fn insert(&mut self, entry: FdEntry) -> isize {
+    /// Finds the first empty slot or appends. Returns `(fd, 0)` on success, `(-1, EMFILE)` on overflow.
+    pub fn insert(&mut self, entry: FdEntry) -> (isize, i32) {
         // Find first None slot
         if let Some(fd) = self.table.iter().position(std::option::Option::is_none) {
-            // Defensive: check for isize overflow
             if fd > isize::MAX as usize {
-                return -1;
+                return (-1, EMFILE);
             }
             if let Some(slot) = self.table.get_mut(fd) {
                 *slot = Some(entry);
             }
-            // Safe: overflow checked above
             #[allow(clippy::cast_possible_wrap)]
-            {
-                return fd as isize;
-            }
+            return (fd as isize, 0);
         }
         // No empty slot, append
         let fd = self.table.len();
-        // Defensive: check for isize overflow
         if fd > isize::MAX as usize {
-            return -1;
+            return (-1, EMFILE);
         }
         self.table.push(Some(entry));
-        // Safe: overflow checked above
         #[allow(clippy::cast_possible_wrap)]
-        {
-            fd as isize
-        }
+        (fd as isize, 0)
     }
 
     /// Look up the `FdEntry` for a given fd

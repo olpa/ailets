@@ -12,7 +12,7 @@ use parking_lot::Mutex;
 use tracing::{error, warn};
 
 use crate::dag::OwnedDependencyIterator;
-use crate::errno::EOWNERDEAD;
+use crate::errno::{EBADF, EIO, EOWNERDEAD};
 use crate::idgen::Handle;
 use crate::suspension::SuspensionState;
 use super::fd_table::{FdEntry, FdTable};
@@ -31,7 +31,7 @@ pub struct BlockingActorRuntime {
     /// Shared suspension state (owned by Environment)
     suspension: Arc<SuspensionState>,
     /// errno from the last failed read (0 = no error); shared with `ShutdownHandle`
-    last_read_errno: Arc<AtomicI32>,
+    last_errno: Arc<AtomicI32>,
     /// Pre-built dependency iterator for stdin; consumed on first read
     stdin_dep_iterator: Mutex<Option<OwnedDependencyIterator>>,
 }
@@ -48,7 +48,7 @@ pub struct ShutdownHandle {
     /// 0 = clean termination; non-zero = POSIX errno
     exit_code: Arc<AtomicI32>,
     /// errno from the last failed read; shared with `BlockingActorRuntime`
-    last_read_errno: Arc<AtomicI32>,
+    last_errno: Arc<AtomicI32>,
 }
 
 impl ShutdownHandle {
@@ -57,7 +57,7 @@ impl ShutdownHandle {
     /// Uses the errno from the last failed read if set (per `<spec://errors#reader-to-actor>`),
     /// otherwise falls back to EOWNERDEAD.
     pub fn mark_failed(&self) {
-        let read_errno = self.last_read_errno.load(Ordering::Relaxed);
+        let read_errno = self.last_errno.load(Ordering::Relaxed);
         let code = if read_errno != 0 { read_errno } else { EOWNERDEAD };
         self.exit_code.store(code, Ordering::Relaxed);
     }
@@ -85,13 +85,13 @@ impl BlockingActorRuntime {
         stdin_dep_iterator: OwnedDependencyIterator,
     ) -> (Self, ShutdownHandle) {
         let exit_code = Arc::new(AtomicI32::new(0));
-        let last_read_errno = Arc::new(AtomicI32::new(0));
+        let last_errno = Arc::new(AtomicI32::new(0));
         let runtime = Self {
             node_handle,
             bridge: Arc::clone(&bridge),
             fd_table: Mutex::new(FdTable::new()),
             suspension: Arc::clone(&suspension),
-            last_read_errno: Arc::clone(&last_read_errno),
+            last_errno: Arc::clone(&last_errno),
             stdin_dep_iterator: Mutex::new(Some(stdin_dep_iterator)),
         };
         let shutdown = ShutdownHandle {
@@ -99,7 +99,7 @@ impl BlockingActorRuntime {
             bridge,
             suspension,
             exit_code,
-            last_read_errno,
+            last_errno,
         };
         (runtime, shutdown)
     }
@@ -150,21 +150,29 @@ impl BlockingActorRuntime {
 
 impl ActorRuntime for BlockingActorRuntime {
     fn get_errno(&self) -> isize {
-        self.last_read_errno.load(Ordering::Relaxed) as isize
+        self.last_errno.load(Ordering::Relaxed) as isize
     }
 
     fn open_read(&self, _name: &str) -> isize {
         let channel_handle = self.bridge.open_read(self.node_handle);
-        self.fd_table.lock().insert(FdEntry::ActiveReader(channel_handle))
+        let (fd, errno) = self.fd_table.lock().insert(FdEntry::ActiveReader(channel_handle));
+        if fd < 0 {
+            self.last_errno.store(errno, Ordering::Relaxed);
+        }
+        fd
     }
 
     fn open_write(&self, _name: &str) -> isize {
         // For now, open_write creates an ActiveWriter directly with Stdout.
         // TODO: Support named streams (map _name to the appropriate StdHandle).
-        self.fd_table.lock().insert(FdEntry::ActiveWriter {
+        let (fd, errno) = self.fd_table.lock().insert(FdEntry::ActiveWriter {
             node_handle: self.node_handle,
             std_handle: actor_runtime::StdHandle::Stdout,
-        })
+        });
+        if fd < 0 {
+            self.last_errno.store(errno, Ordering::Relaxed);
+        }
+        fd
     }
 
     fn aread(&self, fd: isize, buffer: &mut [u8]) -> isize {
@@ -177,15 +185,20 @@ impl ActorRuntime for BlockingActorRuntime {
                     drop(table);
                     match self.materialize_stdin_handle(fd) {
                         Some(h) => h,
-                        None => return -1,
+                        None => {
+                            self.last_errno.store(EIO, Ordering::Relaxed);
+                            return -1;
+                        }
                     }
                 }
                 Some(FdEntry::AllowedWriter | FdEntry::ActiveWriter { .. }) => {
                     warn!(actor = ?self.node_handle, fd = fd, "aread: cannot read from stdout");
+                    self.last_errno.store(EBADF, Ordering::Relaxed);
                     return -1;
                 }
                 None => {
                     warn!(actor = ?self.node_handle, fd = fd, "aread: fd not found");
+                    self.last_errno.store(EBADF, Ordering::Relaxed);
                     return -1;
                 }
             }
@@ -199,7 +212,7 @@ impl ActorRuntime for BlockingActorRuntime {
         let (result, errno) = self.bridge.read(channel_handle, buffer_ptr);
 
         if result < 0 && errno != 0 {
-            self.last_read_errno.store(errno, Ordering::Relaxed);
+            self.last_errno.store(errno, Ordering::Relaxed);
         }
 
         // Yield if suspended after the read completes
@@ -224,10 +237,12 @@ impl ActorRuntime for BlockingActorRuntime {
                 }
                 Some(FdEntry::AllowedReader | FdEntry::ActiveReader(_)) => {
                     warn!(actor = ?self.node_handle, fd = fd, "awrite: cannot write to stdin");
+                    self.last_errno.store(EBADF, Ordering::Relaxed);
                     return -1;
                 }
                 None => {
                     warn!(actor = ?self.node_handle, fd = fd, "awrite: fd not found");
+                    self.last_errno.store(EBADF, Ordering::Relaxed);
                     return -1;
                 }
             }
@@ -235,19 +250,15 @@ impl ActorRuntime for BlockingActorRuntime {
 
         // Yield if suspended before issuing the write
         self.yield_if_suspended();
-        let result = self.bridge.write(node_handle, std_handle, buffer.to_vec());
+        let (result, errno) = self.bridge.write(node_handle, std_handle, buffer.to_vec());
 
-        // Linux kernel convention: negative result encodes errno
-        if result < -1 {
-            // errno values are small positive integers; truncation from isize is safe
-            #[allow(clippy::cast_possible_truncation)]
-            let errno = (-result) as i32;
-            self.last_read_errno.store(errno, Ordering::Relaxed);
+        if result < 0 && errno != 0 {
+            self.last_errno.store(errno, Ordering::Relaxed);
         }
 
         // Yield if suspended after the write completes
         self.yield_if_suspended();
-        if result < 0 { -1 } else { result }
+        result
     }
 
     fn aclose(&self, fd: isize) -> isize {
@@ -256,6 +267,7 @@ impl ActorRuntime for BlockingActorRuntime {
             Some(e) => e,
             None => {
                 warn!(actor = ?self.node_handle, fd = fd, "aclose: fd not found");
+                self.last_errno.store(EBADF, Ordering::Relaxed);
                 return -1;
             }
         };
@@ -265,16 +277,20 @@ impl ActorRuntime for BlockingActorRuntime {
             // Never materialized — nothing to close
             FdEntry::AllowedReader | FdEntry::AllowedWriter => 0,
             FdEntry::ActiveReader(channel_handle) => {
-                // Yield before/after closing reader via IoBridge
                 self.yield_if_suspended();
-                let result = self.bridge.close(channel_handle);
+                let (result, errno) = self.bridge.close(channel_handle);
+                if result < 0 && errno != 0 {
+                    self.last_errno.store(errno, Ordering::Relaxed);
+                }
                 self.yield_if_suspended();
                 result
             }
             FdEntry::ActiveWriter { node_handle, std_handle } => {
-                // Yield before/after closing writer via IoBridge
                 self.yield_if_suspended();
-                let result = self.bridge.close_writer(node_handle, std_handle);
+                let (result, errno) = self.bridge.close_writer(node_handle, std_handle);
+                if result < 0 && errno != 0 {
+                    self.last_errno.store(errno, Ordering::Relaxed);
+                }
                 self.yield_if_suspended();
                 result
             }

@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use tracing::{trace, warn};
 
+use crate::errno::EIO;
 use super::pool::PipePool;
 use super::reader::Reader;
 use crate::dag::{NodeState, OwnedDependencyIterator};
@@ -47,6 +48,8 @@ pub struct MergeReader {
     kv: Arc<dyn KVBuffers>,
     /// ID generator for creating reader handles
     id_gen: Arc<IdGen>,
+    /// Error from dependency resolution (set when create_next_reader fails)
+    own_errno: i32,
 }
 
 impl MergeReader {
@@ -71,6 +74,7 @@ impl MergeReader {
             pipe_pool,
             kv,
             id_gen,
+            own_errno: 0,
         }
     }
 
@@ -156,8 +160,8 @@ impl MergeReader {
                         return 0;
                     }
                     Err(e) => {
-                        // Error getting reader from dependency
                         warn!(error = ?e, "MergeReader: failed to get reader for dependency");
+                        self.own_errno = EIO;
                         return -1;
                     }
                 }
@@ -189,6 +193,9 @@ impl MergeReader {
     /// Get the error code from the current reader (0 if none or no error).
     #[must_use]
     pub fn get_error(&self) -> i32 {
+        if self.own_errno != 0 {
+            return self.own_errno;
+        }
         self.current_reader.as_ref().map_or(0, super::reader::Reader::get_error)
     }
 

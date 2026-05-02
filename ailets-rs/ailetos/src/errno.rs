@@ -1,5 +1,14 @@
 //! POSIX errno constants used by the actor runtime error propagation chain.
 
+/// I/O error: returned when an infrastructure operation (e.g. flush) fails.
+pub const EIO: i32 = 5;
+
+/// Bad file descriptor: returned when a channel or fd is not found.
+pub const EBADF: i32 = 9;
+
+/// Too many open files: returned when the fd table overflows.
+pub const EMFILE: i32 = 24;
+
 /// Broken pipe: a reader receives this when the writer closed with any error.
 pub const EPIPE: i32 = 32;
 

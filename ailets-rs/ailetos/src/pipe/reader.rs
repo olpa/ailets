@@ -5,7 +5,7 @@ use std::fmt;
 use std::sync::Arc;
 use tracing::{error, trace};
 
-use crate::errno::EPIPE;
+use crate::errno::{EIO, EPIPE};
 use crate::idgen::Handle;
 use crate::notification_queue::NotificationQueueArc;
 
@@ -209,6 +209,9 @@ impl Reader {
                     to_read = to_read,
                     "CRITICAL: destination buffer slice out of bounds"
                 );
+                drop(bufferguard);
+                drop(shared);
+                self.set_error(EIO);
                 return -1;
             };
             let Some(src_slice) = bufferguard.get(self.pos..end_pos) else {
@@ -218,6 +221,9 @@ impl Reader {
                     end_pos = end_pos,
                     "CRITICAL: source buffer slice out of bounds"
                 );
+                drop(bufferguard);
+                drop(shared);
+                self.set_error(EIO);
                 return -1;
             };
             dest_slice.copy_from_slice(src_slice);
