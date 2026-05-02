@@ -132,6 +132,16 @@ impl BlockingActorRuntime {
         table.set(StdHandle::Trace as isize, FdEntry::AllowedWriter);
     }
 
+    fn bridged_io(&self, f: impl FnOnce() -> (isize, i32)) -> isize {
+        self.yield_if_suspended();
+        let (result, errno) = f();
+        if result < 0 && errno != 0 {
+            self.last_errno.store(errno, Ordering::Relaxed);
+        }
+        self.yield_if_suspended();
+        result
+    }
+
     fn materialize_stdin_handle(&self, fd: isize) -> Option<ChannelHandle> {
         let dep_iterator = match self.stdin_dep_iterator.lock().take() {
             Some(it) => it,
@@ -204,20 +214,9 @@ impl ActorRuntime for BlockingActorRuntime {
             }
         };
 
-        // Yield if suspended before issuing the read
-        self.yield_if_suspended();
-
         // SAFETY: buffer is valid for the duration of blocking_recv inside bridge.read
         let buffer_ptr = unsafe { SendableBuffer::new(buffer) };
-        let (result, errno) = self.bridge.read(channel_handle, buffer_ptr);
-
-        if result < 0 && errno != 0 {
-            self.last_errno.store(errno, Ordering::Relaxed);
-        }
-
-        // Yield if suspended after the read completes
-        self.yield_if_suspended();
-        result
+        self.bridged_io(|| self.bridge.read(channel_handle, buffer_ptr))
     }
 
     fn awrite(&self, fd: isize, buffer: &[u8]) -> isize {
@@ -248,17 +247,7 @@ impl ActorRuntime for BlockingActorRuntime {
             }
         };
 
-        // Yield if suspended before issuing the write
-        self.yield_if_suspended();
-        let (result, errno) = self.bridge.write(node_handle, std_handle, buffer.to_vec());
-
-        if result < 0 && errno != 0 {
-            self.last_errno.store(errno, Ordering::Relaxed);
-        }
-
-        // Yield if suspended after the write completes
-        self.yield_if_suspended();
-        result
+        self.bridged_io(|| self.bridge.write(node_handle, std_handle, buffer.to_vec()))
     }
 
     fn aclose(&self, fd: isize) -> isize {
@@ -277,22 +266,10 @@ impl ActorRuntime for BlockingActorRuntime {
             // Never materialized — nothing to close
             FdEntry::AllowedReader | FdEntry::AllowedWriter => 0,
             FdEntry::ActiveReader(channel_handle) => {
-                self.yield_if_suspended();
-                let (result, errno) = self.bridge.close(channel_handle);
-                if result < 0 && errno != 0 {
-                    self.last_errno.store(errno, Ordering::Relaxed);
-                }
-                self.yield_if_suspended();
-                result
+                self.bridged_io(|| self.bridge.close(channel_handle))
             }
             FdEntry::ActiveWriter { node_handle, std_handle } => {
-                self.yield_if_suspended();
-                let (result, errno) = self.bridge.close_writer(node_handle, std_handle);
-                if result < 0 && errno != 0 {
-                    self.last_errno.store(errno, Ordering::Relaxed);
-                }
-                self.yield_if_suspended();
-                result
+                self.bridged_io(|| self.bridge.close_writer(node_handle, std_handle))
             }
         }
     }
