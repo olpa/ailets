@@ -86,8 +86,8 @@ async fn main() {
 
     // Register actors in the environment
     // Note: "value" nodes are handled specially by the Environment, no actor needed
-    env.actor_registry.register("stdin", stdin_actor);
-    env.actor_registry.register("cat", cat::execute);
+    env.actor_registry.write().register("stdin", stdin_actor);
+    env.actor_registry.write().register("cat", cat::execute);
 
     // Build the flow
     let end_node = build_flow(&mut env).await.expect("Failed to build flow");

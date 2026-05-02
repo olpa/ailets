@@ -152,7 +152,7 @@ pub async fn run_with_tx(
     let bridge = Arc::new(IoBridge::new(
         Arc::clone(&run_handle.kv),
         Arc::clone(&run_handle.idgen),
-        run_handle.attachment_config.clone(),
+        run_handle.attachment_config.read().clone(),
         Arc::clone(&pipe_pool),
         Arc::clone(&notify),
         actor_done_tx,
@@ -239,7 +239,7 @@ pub async fn run_with_tx(
         for (node_handle, idname) in &to_spawn {
             pending.retain(|&h| h != *node_handle);
 
-            let Some(actor_fn) = run_handle.actor_registry.get(idname) else {
+            let Some(actor_fn) = run_handle.actor_registry.read().get(idname) else {
                 warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
                 // Terminate the node explicitly so dependents are not blocked.
                 let bridge_clone = Arc::clone(&bridge);

@@ -66,9 +66,9 @@ pub struct Environment {
     pub dag: Arc<RwLock<Dag>>,
     pub idgen: Arc<IdGen>,
     pub kv: Arc<dyn KVBuffers>,
-    pub actor_registry: ActorRegistry,
+    pub actor_registry: Arc<RwLock<ActorRegistry>>,
     pub suspension: Arc<SuspensionState>,
-    attachment_config: crate::attachments::AttachmentConfig,
+    pub(crate) attachment_config: Arc<RwLock<crate::attachments::AttachmentConfig>>,
 }
 
 impl Environment {
@@ -81,9 +81,9 @@ impl Environment {
             dag,
             idgen,
             kv,
-            actor_registry: ActorRegistry::new(),
+            actor_registry: Arc::new(RwLock::new(ActorRegistry::new())),
             suspension: Arc::new(SuspensionState::new()),
-            attachment_config: crate::attachments::AttachmentConfig::default(),
+            attachment_config: Arc::new(RwLock::new(crate::attachments::AttachmentConfig::default())),
         }
     }
 
@@ -97,8 +97,8 @@ impl Environment {
     ///
     /// # Arguments
     /// * `actor_handle` - The handle of the actor whose stdout should be attached
-    pub fn attach_stdout(&mut self, actor_handle: Handle) {
-        self.attachment_config.attach_stdout(actor_handle);
+    pub fn attach_stdout(&self, actor_handle: Handle) {
+        self.attachment_config.write().attach_stdout(actor_handle);
     }
 
     /// Add a value node - a node that outputs a constant value
@@ -193,8 +193,8 @@ impl Environment {
             dag: Arc::clone(&self.dag),
             kv: Arc::clone(&self.kv),
             idgen: Arc::clone(&self.idgen),
-            attachment_config: self.attachment_config.clone(),
-            actor_registry: self.actor_registry.clone(),
+            attachment_config: Arc::clone(&self.attachment_config),
+            actor_registry: Arc::clone(&self.actor_registry),
             suspension: Arc::clone(&self.suspension),
         }
     }
@@ -219,8 +219,8 @@ impl Environment {
 pub struct RunHandle {
     pub dag: Arc<RwLock<Dag>>,
     pub suspension: Arc<SuspensionState>,
-    pub actor_registry: ActorRegistry,
+    pub actor_registry: Arc<RwLock<ActorRegistry>>,
     pub(crate) kv: Arc<dyn KVBuffers>,
     pub(crate) idgen: Arc<IdGen>,
-    pub(crate) attachment_config: crate::attachments::AttachmentConfig,
+    pub(crate) attachment_config: Arc<RwLock<crate::attachments::AttachmentConfig>>,
 }

@@ -164,8 +164,9 @@ async fn test_transitive_block_terminates_and_leaves_nodes_not_started() {
     let a = env.add_node("noop".into(), &[b], None);
 
     env.actor_registry
+        .write()
         .register("failing", |_| Err("intentional failure".into()));
-    env.actor_registry.register("noop", |_| Ok(()));
+    env.actor_registry.write().register("noop", |_| Ok(()));
 
     tokio::time::timeout(
         std::time::Duration::from_secs(5),
