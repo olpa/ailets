@@ -178,11 +178,11 @@ impl ActorRuntime for BlockingActorRuntime {
     fn aread(&self, fd: isize, buffer: &mut [u8]) -> isize {
         // Get the channel handle, materializing stdin if needed
         let channel_handle = {
-            let table = self.fd_table.lock();
-            match table.get(fd) {
+            let guard = self.fd_table.lock();
+            match guard.get(fd) {
                 Some(FdEntry::ActiveReader(handle)) => *handle,
                 Some(FdEntry::AllowedReader) => {
-                    drop(table);
+                    drop(guard);
                     match self.materialize_stdin_handle(fd) {
                         Some(h) => h,
                         None => {
