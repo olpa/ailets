@@ -148,10 +148,7 @@ pub async fn run_with_tx(
     let (actor_done_tx, mut actor_done_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
 
     let bridge = Arc::new(IoBridge::new(
-        Arc::clone(&env.kv),
-        Arc::clone(&env.idgen),
-        env.attachment_config.read().clone(),
-        Arc::clone(&env.pipe_pool),
+        Arc::clone(&env),
         Arc::clone(&notify),
         actor_done_tx,
     ));

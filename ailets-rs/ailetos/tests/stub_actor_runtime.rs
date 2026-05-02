@@ -2,27 +2,23 @@ use std::sync::Arc;
 
 use actor_runtime::StdHandle;
 use ailetos::actor_syscall::lifecycle_event::ActorLifecycleEvent;
-use ailetos::attachments::AttachmentConfig;
 use ailetos::dag::{Dag, NodeKind, NodeState, OwnedDependencyIterator};
 use ailetos::idgen::{Handle, IdGen};
-use ailetos::pipe::PipePool;
+use ailetos::environment::Environment;
 use ailetos::storage::{KVBuffers, MemKV};
 use ailetos::suspension::SuspensionState;
 use ailetos::{BlockingActorRuntime, IoBridge, EOWNERDEAD, EPIPE};
 use parking_lot::RwLock;
 use tokio::sync::{mpsc, Notify};
 
-fn make_test_components(id_gen: &Arc<IdGen>) -> (Arc<IoBridge>, Arc<PipePool>, tokio::task::JoinHandle<Option<i32>>) {
+fn make_test_components() -> (Arc<Environment>, Arc<IoBridge>, tokio::task::JoinHandle<Option<i32>>) {
     let kv: Arc<dyn KVBuffers> = Arc::new(MemKV::new());
-    let pipe_pool = Arc::new(PipePool::new(Arc::clone(&kv)));
+    let env = Arc::new(Environment::new(kv));
     let notify = Arc::new(Notify::new());
     let (actor_done_tx, mut actor_done_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
 
     let bridge = Arc::new(IoBridge::new(
-        kv,
-        Arc::clone(id_gen),
-        AttachmentConfig::default(),
-        Arc::clone(&pipe_pool),
+        Arc::clone(&env),
         notify,
         actor_done_tx,
     ));
@@ -44,7 +40,7 @@ fn make_test_components(id_gen: &Arc<IdGen>) -> (Arc<IoBridge>, Arc<PipePool>, t
         last_exit_code
     });
 
-    (bridge, pipe_pool, lifecycle_task)
+    (env, bridge, lifecycle_task)
 }
 
 fn make_dag_with_dep(id_gen: &Arc<IdGen>) -> (Arc<RwLock<Dag>>, Handle, Handle) {
@@ -64,13 +60,12 @@ fn make_dag_with_dep(id_gen: &Arc<IdGen>) -> (Arc<RwLock<Dag>>, Handle, Handle) 
 /// and mark_failed() uses EPIPE as the exit code (spec://errors#reader-to-actor).
 #[tokio::test]
 async fn test_reader_to_actor_epipe_propagation() {
-    let id_gen = Arc::new(IdGen::new());
-    let (bridge, pipe_pool, lifecycle_task) = make_test_components(&id_gen);
-    let (dag, dep_handle, actor_handle) = make_dag_with_dep(&id_gen);
+    let (env, bridge, lifecycle_task) = make_test_components();
+    let (dag, dep_handle, actor_handle) = make_dag_with_dep(&env.idgen);
     let suspension = Arc::new(SuspensionState::new());
 
     // Realize dep's pipe and set EPIPE error so MergeReader sees it
-    let (writer, _) = pipe_pool.touch_writer(dep_handle, StdHandle::Stdout, &id_gen).await.unwrap();
+    let (writer, _) = env.pipe_pool.touch_writer(dep_handle, StdHandle::Stdout, &env.idgen).await.unwrap();
     writer.set_error(EPIPE);
     writer.close();
 
@@ -103,12 +98,11 @@ async fn test_reader_to_actor_epipe_propagation() {
 /// carries EPIPE as the exit code.
 #[tokio::test]
 async fn test_mark_failed_uses_epipe_from_last_read() {
-    let id_gen = Arc::new(IdGen::new());
-    let (bridge, pipe_pool, lifecycle_task) = make_test_components(&id_gen);
-    let (dag, dep_handle, actor_handle) = make_dag_with_dep(&id_gen);
+    let (env, bridge, lifecycle_task) = make_test_components();
+    let (dag, dep_handle, actor_handle) = make_dag_with_dep(&env.idgen);
     let suspension = Arc::new(SuspensionState::new());
 
-    let (writer, _) = pipe_pool.touch_writer(dep_handle, StdHandle::Stdout, &id_gen).await.unwrap();
+    let (writer, _) = env.pipe_pool.touch_writer(dep_handle, StdHandle::Stdout, &env.idgen).await.unwrap();
     writer.set_error(EPIPE);
     writer.close();
 
@@ -137,13 +131,11 @@ async fn test_mark_failed_uses_epipe_from_last_read() {
 /// When mark_failed() is called with no prior read error, exit code is EOWNERDEAD.
 #[tokio::test]
 async fn test_mark_failed_uses_eownerdead_without_read_error() {
-    let id_gen = Arc::new(IdGen::new());
-    let actor_handle = Handle::new(id_gen.get_next());
-
-    let (bridge, _pipe_pool, lifecycle_task) = make_test_components(&id_gen);
+    let (env, bridge, lifecycle_task) = make_test_components();
+    let actor_handle = Handle::new(env.idgen.get_next());
     let suspension = Arc::new(SuspensionState::new());
 
-    let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&id_gen))));
+    let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&env.idgen))));
     let dep_iterator = OwnedDependencyIterator::new(dag, actor_handle);
 
     let (_runtime, shutdown) = BlockingActorRuntime::new(
