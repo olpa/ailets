@@ -103,7 +103,7 @@ impl Environment {
     /// # Errors
     /// Returns `KVError` if writing the data to KV storage fails
     pub async fn add_value_node(
-        &mut self,
+        &self,
         data: Vec<u8>,
         explain: Option<String>,
     ) -> Result<Handle, KVError> {
@@ -132,7 +132,7 @@ impl Environment {
     /// * `idname` - Name/type of the actor (e.g., "stdin", "cat")
     /// * `deps` - List of dependency node handles
     /// * `explain` - Optional explanation
-    pub fn add_node(&mut self, idname: String, deps: &[Handle], explain: Option<String>) -> Handle {
+    pub fn add_node(&self, idname: String, deps: &[Handle], explain: Option<String>) -> Handle {
         let mut dag = self.dag.write();
         let handle = dag.add_node_with_explain(idname, NodeKind::Concrete, explain);
 
@@ -144,7 +144,7 @@ impl Environment {
     }
 
     /// Add an alias node
-    pub fn add_alias(&mut self, alias_name: String, target: Handle) -> Handle {
+    pub fn add_alias(&self, alias_name: String, target: Handle) -> Handle {
         let mut dag = self.dag.write();
         let handle = dag.add_node(alias_name, NodeKind::Alias);
         dag.add_dependency(For(handle), DependsOn(target));

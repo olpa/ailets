@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ailetos::{
-    run_with_tx, DependsOn, Environment, For, Handle, IoRequest, KVBuffers, MemKV, NodeState,
+    run_with_tx, DependsOn, Environment, For, Handle, IoBridge, KVBuffers, MemKV, NodeState,
     OpenMode, StopConditions, TopologicalOrderIter, EOWNERDEAD,
 };
 use futures::future::Abortable;
@@ -22,11 +22,11 @@ use rustyline::Editor;
 struct BackgroundJob {
     thread: std::thread::JoinHandle<()>,
     abort_handle: futures::future::AbortHandle,
-    system_tx: tokio::sync::mpsc::UnboundedSender<IoRequest>,
+    bridge: std::sync::Arc<IoBridge>,
 }
 
 struct DagShell {
-    env: Environment<MemKV>,
+    env: std::sync::Arc<Environment>,
     kv: Arc<MemKV>,
     /// Track all created node handles for listing
     handles: Vec<Handle>,
@@ -38,11 +38,10 @@ struct DagShell {
 impl DagShell {
     fn new() -> Self {
         let kv = Arc::new(MemKV::new());
-        let mut env = Environment::new(Arc::clone(&kv));
-        env.actor_registry.register("cat", cat::execute);
-        env.actor_registry.register("dbg", dbg_actor::execute);
-        env.actor_registry
-            .register("shell_input", shell_input_actor::execute);
+        let env = Arc::new(Environment::new(Arc::clone(&kv) as Arc<dyn KVBuffers>));
+        env.actor_registry.write().register("cat", cat::execute);
+        env.actor_registry.write().register("dbg", dbg_actor::execute);
+        env.actor_registry.write().register("shell_input", shell_input_actor::execute);
         Self {
             env,
             kv,
@@ -421,13 +420,11 @@ Variables:
             return Err("Background job already running. Use 'fg' or 'kill' first.".to_string());
         }
 
-        let run_handle = Arc::new(self.env.make_run_handle());
+        let env = Arc::clone(&self.env);
 
         let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
         let (ctrlc_abort_handle, ctrlc_abort_reg) = futures::future::AbortHandle::new_pair();
-        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<
-            Result<tokio::sync::mpsc::UnboundedSender<IoRequest>, String>,
-        >();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<Arc<IoBridge>, String>>();
 
         let thread = std::thread::spawn(move || {
             tracing::info!("Foreground thread starting");
@@ -438,16 +435,16 @@ Variables:
                 return;
             };
             rt.block_on(async move {
-                let (stx_tx, stx_rx) = tokio::sync::oneshot::channel();
+                let (stx_tx, stx_rx) = tokio::sync::oneshot::channel::<Arc<IoBridge>>();
                 tokio::spawn(async move {
                     match stx_rx.await {
-                        Ok(stx) => ready_tx.send(Ok(stx)).ok(),
+                        Ok(bridge) => ready_tx.send(Ok(bridge)).ok(),
                         Err(_) => ready_tx
                             .send(Err("System runtime failed to start".to_string()))
                             .ok(),
                     };
                 });
-                let future = run_with_tx(&*run_handle, handle, stop_conditions, Some(stx_tx));
+                let future = run_with_tx(env, handle, stop_conditions, Some(stx_tx));
                 tracing::info!("About to run environment");
                 let result = Abortable::new(future, abort_registration).await;
                 if let Ok(()) = result {
@@ -459,14 +456,14 @@ Variables:
         });
 
         // Wait for system runtime to be ready before entering the Ctrl+C loop
-        let system_tx = match ready_rx.recv() {
-            Ok(Ok(stx)) => stx,
+        let bridge = match ready_rx.recv() {
+            Ok(Ok(b)) => b,
             Ok(Err(e)) => {
                 thread.join().ok();
                 return Err(e);
             }
             Err(_) => {
-                // Thread finished before relaying system_tx (instant job)
+                // Thread finished before relaying bridge (instant job)
                 thread.join().ok();
                 return Ok(());
             }
@@ -494,7 +491,7 @@ Variables:
         let mut job = Some(BackgroundJob {
             thread,
             abort_handle,
-            system_tx,
+            bridge,
         });
 
         loop {
@@ -535,12 +532,10 @@ Variables:
             return Err("Background job already running. Use 'fg' or 'kill' first.".to_string());
         }
 
-        let run_handle = Arc::new(self.env.make_run_handle());
+        let env = Arc::clone(&self.env);
 
         let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
-        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<
-            Result<tokio::sync::mpsc::UnboundedSender<IoRequest>, String>,
-        >();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<Arc<IoBridge>, String>>();
 
         let thread = std::thread::spawn(move || {
             tracing::info!("Background thread starting");
@@ -551,16 +546,16 @@ Variables:
                 return;
             };
             rt.block_on(async move {
-                let (stx_tx, stx_rx) = tokio::sync::oneshot::channel();
+                let (stx_tx, stx_rx) = tokio::sync::oneshot::channel::<Arc<IoBridge>>();
                 tokio::spawn(async move {
                     match stx_rx.await {
-                        Ok(stx) => ready_tx.send(Ok(stx)).ok(),
+                        Ok(bridge) => ready_tx.send(Ok(bridge)).ok(),
                         Err(_) => ready_tx
                             .send(Err("System runtime failed to start".to_string()))
                             .ok(),
                     };
                 });
-                let future = run_with_tx(&*run_handle, handle, stop_conditions, Some(stx_tx));
+                let future = run_with_tx(env, handle, stop_conditions, Some(stx_tx));
                 let result = Abortable::new(future, abort_registration).await;
                 if let Ok(()) = result {
                     tracing::info!("Background job completed");
@@ -570,8 +565,8 @@ Variables:
             });
         });
 
-        let system_tx = match ready_rx.recv() {
-            Ok(Ok(stx)) => stx,
+        let bridge = match ready_rx.recv() {
+            Ok(Ok(b)) => b,
             Ok(Err(e)) => {
                 thread.join().ok();
                 return Err(e);
@@ -585,7 +580,7 @@ Variables:
         self.bg_job = Some(BackgroundJob {
             thread,
             abort_handle,
-            system_tx,
+            bridge,
         });
 
         println!("Started background run (use 'fg' to wait, 'kill' to terminate)");
@@ -711,11 +706,10 @@ Variables:
 
         self.handles.clear();
         self.vars.clear();
-        let mut env = Environment::new(Arc::clone(&self.kv));
-        env.actor_registry.register("cat", cat::execute);
-        env.actor_registry.register("dbg", dbg_actor::execute);
-        env.actor_registry
-            .register("shell_input", shell_input_actor::execute);
+        let env = Arc::new(Environment::new(Arc::clone(&self.kv) as Arc<dyn KVBuffers>));
+        env.actor_registry.write().register("cat", cat::execute);
+        env.actor_registry.write().register("dbg", dbg_actor::execute);
+        env.actor_registry.write().register("shell_input", shell_input_actor::execute);
         self.env = env;
         println!("DAG cleared.");
     }
@@ -901,18 +895,13 @@ Variables:
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
-        let system_tx = self
+        let bridge = self
             .bg_job
             .as_ref()
-            .map(|j| &j.system_tx)
+            .map(|j| Arc::clone(&j.bridge))
             .ok_or("No background job running")?;
 
-        system_tx
-            .send(IoRequest::ActorShutdown {
-                node_handle: handle,
-                exit_code,
-            })
-            .map_err(|_| "Failed to send kill signal (job may have completed)".to_string())?;
+        bridge.actor_shutdown(handle, exit_code);
 
         println!("Killed node {} with exit code {}", handle.id(), exit_code);
         Ok(())
@@ -930,7 +919,7 @@ impl Drop for DagShell {
     fn drop(&mut self) {
         if let Some(job) = self.bg_job.take() {
             self.release_background_job();
-            drop(job.system_tx);
+            drop(job.bridge);
             let _ = job.thread.join();
         }
     }
