@@ -1,16 +1,8 @@
 //! Environment - high-level orchestration for the actor system
 //!
-//! This module provides two structs with distinct responsibilities:
-//!
-//! - `Environment` — build phase. Owns all mutable state. Use `&mut self` methods
-//!   to construct the DAG, register actors, and configure attachments. Nothing here
-//!   is safe to share across threads.
-//!
-//! - `RunHandle` — run phase. Created from `Environment::make_run_handle()`. All
-//!   fields are either `Arc`-wrapped or value-snapshotted, so it is cheap to wrap
-//!   in `Arc` for background or concurrent execution. The `dag` and `suspension`
-//!   fields are shared with the originating `Environment`, allowing the build-phase
-//!   owner to observe and control running actors.
+//! `Environment` is the single handle for both the build phase and run phase.
+//! All fields are `Arc`-wrapped, so `clone()` is a pure reference-count increment.
+//! Wrap in `Arc<Environment>` for background or concurrent execution.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -58,10 +50,7 @@ impl Default for ActorRegistry {
     }
 }
 
-/// Build-phase owner of the actor system.
-///
-/// Construct the DAG and configure the system here, then call
-/// `make_run_handle()` to obtain a `RunHandle` for execution.
+#[derive(Clone)]
 pub struct Environment {
     pub dag: Arc<RwLock<Dag>>,
     pub idgen: Arc<IdGen>,
@@ -179,48 +168,12 @@ impl Environment {
         target.map_or(handle, |t| self.resolve(t))
     }
 
-    /// Create a `RunHandle` from this environment.
+    /// Run the environment.
     ///
-    /// Clones the `Arc`-based shared fields and snapshots `attachment_config`
-    /// and `actor_registry` at this point in time. The returned handle can be
-    /// wrapped in `Arc` for concurrent or background execution.
-    ///
-    /// Actors registered or attachments configured after this call will not be
-    /// visible to the returned handle.
-    #[must_use]
-    pub fn make_run_handle(&self) -> RunHandle {
-        RunHandle {
-            dag: Arc::clone(&self.dag),
-            kv: Arc::clone(&self.kv),
-            idgen: Arc::clone(&self.idgen),
-            attachment_config: Arc::clone(&self.attachment_config),
-            actor_registry: Arc::clone(&self.actor_registry),
-            suspension: Arc::clone(&self.suspension),
-        }
-    }
-
-    /// Convenience: run the environment directly without managing a `RunHandle`.
-    ///
-    /// For background execution, use `make_run_handle()` and wrap the result in
-    /// `Arc` instead.
+    /// For background execution, wrap a clone in `Arc`:
+    /// `executor::run(Arc::new(env.clone()), target, conditions)`
     pub async fn run(&self, target: Handle, stop_conditions: StopConditions) {
-        crate::executor::run(&self.make_run_handle(), target, stop_conditions).await;
+        crate::executor::run(Arc::new(self.clone()), target, stop_conditions).await;
     }
 }
 
-/// Run-phase handle for an actor system.
-///
-/// Obtained from `Environment::make_run_handle()`. All fields are either
-/// `Arc`-wrapped or snapshotted values, so this struct is cheap to wrap in
-/// `Arc` for background or concurrent execution.
-///
-/// `dag` and `suspension` are shared with the originating `Environment`,
-/// allowing the build-phase owner to observe and resume running actors.
-pub struct RunHandle {
-    pub dag: Arc<RwLock<Dag>>,
-    pub suspension: Arc<SuspensionState>,
-    pub actor_registry: Arc<RwLock<ActorRegistry>>,
-    pub(crate) kv: Arc<dyn KVBuffers>,
-    pub(crate) idgen: Arc<IdGen>,
-    pub(crate) attachment_config: Arc<RwLock<crate::attachments::AttachmentConfig>>,
-}

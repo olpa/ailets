@@ -37,7 +37,7 @@ pub use actor_syscall::{
 pub use attachments::AttachmentConfig;
 
 // Re-export environment types
-pub use environment::{ActorFn, ActorRegistry, Environment, RunHandle};
+pub use environment::{ActorFn, ActorRegistry, Environment};
 
 // Re-export suspension types
 pub use suspension::SuspensionState;

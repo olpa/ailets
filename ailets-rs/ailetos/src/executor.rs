@@ -13,7 +13,7 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, warn};
 
 use crate::dag::{Dag, NodeKind, NodeState, OwnedDependencyIterator};
-use crate::environment::{ActorFn, RunHandle};
+use crate::environment::{ActorFn, Environment};
 use crate::idgen::Handle;
 use crate::pipe::PipePool;
 use crate::actor_syscall::ActorLifecycleEvent;
@@ -129,30 +129,30 @@ fn spawn_actor_task(
 
 /// Run the system: spawn system runtime and actor tasks, wait for completion
 pub async fn run(
-    run_handle: &RunHandle,
+    env: Arc<Environment>,
     target: Handle,
     stop_conditions: StopConditions,
 ) {
-    run_with_tx(run_handle, target, stop_conditions, None).await;
+    run_with_tx(env, target, stop_conditions, None).await;
 }
 
 /// Like `run`, but sends the `IoBridge` back via `tx_out` once ready.
 pub async fn run_with_tx(
-    run_handle: &RunHandle,
+    env: Arc<Environment>,
     target: Handle,
     stop_conditions: StopConditions,
     tx_out: Option<oneshot::Sender<Arc<IoBridge>>>,
 ) {
-    let pipe_pool = Arc::new(PipePool::new(Arc::clone(&run_handle.kv)));
+    let pipe_pool = Arc::new(PipePool::new(Arc::clone(&env.kv)));
 
     let notify = Arc::new(tokio::sync::Notify::new());
 
     let (actor_done_tx, mut actor_done_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
 
     let bridge = Arc::new(IoBridge::new(
-        Arc::clone(&run_handle.kv),
-        Arc::clone(&run_handle.idgen),
-        run_handle.attachment_config.read().clone(),
+        Arc::clone(&env.kv),
+        Arc::clone(&env.idgen),
+        env.attachment_config.read().clone(),
         Arc::clone(&pipe_pool),
         Arc::clone(&notify),
         actor_done_tx,
@@ -164,7 +164,7 @@ pub async fn run_with_tx(
 
     // Receives actor lifecycle events from the IO bridge, updates DAG state,
     // replies to unblock the IO bridge, and fires notify so the spawn loop can react.
-    let actor_done_dag = Arc::clone(&run_handle.dag);
+    let actor_done_dag = Arc::clone(&env.dag);
     let actor_done_notify = Arc::clone(&notify);
     let actor_done_task = tokio::spawn(async move {
         while let Some(event) = actor_done_rx.recv().await {
@@ -214,7 +214,7 @@ pub async fn run_with_tx(
 
     // Build initial pending list: NotStarted nodes in topological order
     let mut pending: Vec<Handle> = {
-        let dag_guard = run_handle.dag.read();
+        let dag_guard = env.dag.read();
         TopologicalOrderIter::with_stop_conditions(&dag_guard, target, stop_conditions)
             .filter(|&n| {
                 dag_guard
@@ -228,7 +228,7 @@ pub async fn run_with_tx(
 
     loop {
         let to_spawn: Vec<(Handle, String)> = {
-            let dag_guard = run_handle.dag.read();
+            let dag_guard = env.dag.read();
             pending
                 .iter()
                 .filter(|&&n| is_ready_to_spawn(n, &dag_guard, &pipe_pool))
@@ -239,7 +239,7 @@ pub async fn run_with_tx(
         for (node_handle, idname) in &to_spawn {
             pending.retain(|&h| h != *node_handle);
 
-            let Some(actor_fn) = run_handle.actor_registry.read().get(idname) else {
+            let Some(actor_fn) = env.actor_registry.read().get(idname) else {
                 warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
                 // Terminate the node explicitly so dependents are not blocked.
                 let bridge_clone = Arc::clone(&bridge);
@@ -249,7 +249,7 @@ pub async fn run_with_tx(
             };
 
             {
-                let mut dag = run_handle.dag.write();
+                let mut dag = env.dag.write();
                 // Re-check state under the write lock: an actor task running
                 // concurrently may have already advanced this node past NotStarted.
                 if dag
@@ -263,14 +263,14 @@ pub async fn run_with_tx(
             debug!(node = ?node_handle, name = %idname, "spawning actor task");
 
             let dep_iterator = OwnedDependencyIterator::new(
-                Arc::clone(&run_handle.dag),
+                Arc::clone(&env.dag),
                 *node_handle,
             );
 
             let (actor_runtime, shutdown) = BlockingActorRuntime::new(
                 *node_handle,
                 Arc::clone(&bridge),
-                Arc::clone(&run_handle.suspension),
+                Arc::clone(&env.suspension),
                 dep_iterator,
             );
 
@@ -295,7 +295,7 @@ pub async fn run_with_tx(
         // failed dependency and will never run in this execution. Break instead
         // of waiting forever; those nodes stay NotStarted and are eligible for
         // an incremental re-run once the failure is resolved.
-        if to_spawn.is_empty() && !has_active_actors(&run_handle.dag.read()) {
+        if to_spawn.is_empty() && !has_active_actors(&env.dag.read()) {
             debug!("quiescent: pending nodes remain but no actors are active — stopping");
             break;
         }
