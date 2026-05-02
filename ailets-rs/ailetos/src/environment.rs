@@ -11,6 +11,7 @@ use parking_lot::RwLock;
 
 use crate::dag::{Dag, DependsOn, For, NodeKind, NodeState};
 use crate::executor::StopConditions;
+use crate::pipe::PipePool;
 
 /// Type for actor functions
 pub type ActorFn = fn(&dyn actor_runtime::ActorRuntime) -> Result<(), String>;
@@ -55,6 +56,7 @@ pub struct Environment {
     pub dag: Arc<RwLock<Dag>>,
     pub idgen: Arc<IdGen>,
     pub kv: Arc<dyn KVBuffers>,
+    pub pipe_pool: Arc<PipePool>,
     pub actor_registry: Arc<RwLock<ActorRegistry>>,
     pub suspension: Arc<SuspensionState>,
     pub(crate) attachment_config: Arc<RwLock<crate::attachments::AttachmentConfig>>,
@@ -66,10 +68,12 @@ impl Environment {
         let idgen = Arc::new(IdGen::new());
         let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&idgen))));
 
+        let pipe_pool = Arc::new(PipePool::new(Arc::clone(&kv)));
         Self {
             dag,
             idgen,
             kv,
+            pipe_pool,
             actor_registry: Arc::new(RwLock::new(ActorRegistry::new())),
             suspension: Arc::new(SuspensionState::new()),
             attachment_config: Arc::new(RwLock::new(crate::attachments::AttachmentConfig::default())),

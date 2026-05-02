@@ -143,8 +143,6 @@ pub async fn run_with_tx(
     stop_conditions: StopConditions,
     tx_out: Option<oneshot::Sender<Arc<IoBridge>>>,
 ) {
-    let pipe_pool = Arc::new(PipePool::new(Arc::clone(&env.kv)));
-
     let notify = Arc::new(tokio::sync::Notify::new());
 
     let (actor_done_tx, mut actor_done_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
@@ -153,7 +151,7 @@ pub async fn run_with_tx(
         Arc::clone(&env.kv),
         Arc::clone(&env.idgen),
         env.attachment_config.read().clone(),
-        Arc::clone(&pipe_pool),
+        Arc::clone(&env.pipe_pool),
         Arc::clone(&notify),
         actor_done_tx,
     ));
@@ -231,7 +229,7 @@ pub async fn run_with_tx(
             let dag_guard = env.dag.read();
             pending
                 .iter()
-                .filter(|&&n| is_ready_to_spawn(n, &dag_guard, &pipe_pool))
+                .filter(|&&n| is_ready_to_spawn(n, &dag_guard, &env.pipe_pool))
                 .filter_map(|&n| dag_guard.get_node(n).map(|node| (n, node.idname.clone())))
                 .collect()
         };

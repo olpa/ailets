@@ -184,9 +184,8 @@ impl IoBridge {
         kv: Arc<dyn KVBuffers>,
         id_gen: Arc<IdGen>,
         attachment_config: AttachmentConfig,
-        // regression: pipe_pool belongs to the system runtime, not to IoBridge —
-        // it is the runtime realization of DAG edges and is also queried by the
-        // executor's `is_ready_to_spawn` readiness check.
+        // pipe_pool lives on Environment (system runtime); passed here until Step 4
+        // when IoBridge will hold Arc<Environment> and access it directly.
         pipe_pool: Arc<PipePool>,
         notify: Arc<Notify>,
         actor_done_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
