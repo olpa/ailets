@@ -4,9 +4,9 @@
 //! mappings between POSIX-style file descriptors (integers) and the underlying
 //! channel handles used by the system runtime.
 
+use super::io_bridge::ChannelHandle;
 use crate::errno::EMFILE;
 use crate::idgen::Handle;
-use super::io_bridge::ChannelHandle;
 
 /// File descriptor entry - tracks the state of an fd.
 ///

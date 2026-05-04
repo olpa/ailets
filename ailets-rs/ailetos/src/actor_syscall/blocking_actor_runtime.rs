@@ -14,13 +14,13 @@ use actor_runtime::ActorRuntime;
 use parking_lot::Mutex;
 use tracing::{error, warn};
 
+use super::fd_table::{FdEntry, FdTable};
+use super::io_bridge::{ChannelHandle, IoBridge};
+use super::sendable_buffer::{SendableConstPtr, SendableMutPtr};
 use crate::dag::OwnedDependencyIterator;
 use crate::errno::{EBADF, EIO, EOWNERDEAD};
 use crate::idgen::Handle;
 use crate::suspension::SuspensionState;
-use super::fd_table::{FdEntry, FdTable};
-use super::io_bridge::{ChannelHandle, IoBridge};
-use super::sendable_buffer::{SendableConstPtr, SendableMutPtr};
 
 /// Blocking `ActorRuntime` implementation.
 ///
@@ -75,7 +75,11 @@ impl BlockingActorRuntime {
     /// otherwise falls back to EOWNERDEAD.
     pub fn mark_failed(&self) {
         let read_errno = self.last_errno.load(Ordering::Relaxed);
-        let code = if read_errno != 0 { read_errno } else { EOWNERDEAD };
+        let code = if read_errno != 0 {
+            read_errno
+        } else {
+            EOWNERDEAD
+        };
         self.exit_code.store(code, Ordering::Relaxed);
     }
 
@@ -118,14 +122,13 @@ impl BlockingActorRuntime {
     }
 
     fn materialize_stdin_handle(&self, fd: isize) -> Option<ChannelHandle> {
-        let dep_iterator = match self.stdin_dep_iterator.lock().take() {
-            Some(it) => it,
-            None => {
-                error!(actor = ?self.node_handle, "aread: stdin iterator already consumed");
-                return None;
-            }
+        let Some(dep_iterator) = self.stdin_dep_iterator.lock().take() else {
+            error!(actor = ?self.node_handle, "aread: stdin iterator already consumed");
+            return None;
         };
-        let handle = self.bridge.materialize_stdin(self.node_handle, dep_iterator);
+        let handle = self
+            .bridge
+            .materialize_stdin(self.node_handle, dep_iterator);
         if let Some(entry) = self.fd_table.lock().get_mut(fd) {
             *entry = FdEntry::ActiveReader(handle);
         }
@@ -140,7 +143,10 @@ impl ActorRuntime for BlockingActorRuntime {
 
     fn open_read(&self, _name: &str) -> isize {
         let channel_handle = self.bridge.open_read(self.node_handle);
-        let (fd, errno) = self.fd_table.lock().insert(FdEntry::ActiveReader(channel_handle));
+        let (fd, errno) = self
+            .fd_table
+            .lock()
+            .insert(FdEntry::ActiveReader(channel_handle));
         if fd < 0 {
             self.last_errno.store(errno, Ordering::Relaxed);
         }
@@ -168,13 +174,11 @@ impl ActorRuntime for BlockingActorRuntime {
                 Some(FdEntry::ActiveReader(handle)) => *handle,
                 Some(FdEntry::AllowedReader) => {
                     drop(guard);
-                    match self.materialize_stdin_handle(fd) {
-                        Some(h) => h,
-                        None => {
-                            self.last_errno.store(EIO, Ordering::Relaxed);
-                            return -1;
-                        }
-                    }
+                    let Some(h) = self.materialize_stdin_handle(fd) else {
+                        self.last_errno.store(EIO, Ordering::Relaxed);
+                        return -1;
+                    };
+                    h
                 }
                 Some(FdEntry::AllowedWriter | FdEntry::ActiveWriter { .. }) => {
                     warn!(actor = ?self.node_handle, fd = fd, "aread: cannot read from stdout");
@@ -199,13 +203,19 @@ impl ActorRuntime for BlockingActorRuntime {
         let (node_handle, std_handle) = {
             let mut table = self.fd_table.lock();
             match table.get(fd) {
-                Some(FdEntry::ActiveWriter { node_handle, std_handle }) => (*node_handle, *std_handle),
+                Some(FdEntry::ActiveWriter {
+                    node_handle,
+                    std_handle,
+                }) => (*node_handle, *std_handle),
                 Some(FdEntry::AllowedWriter) => {
                     // Upgrade to ActiveWriter
                     let nh = self.node_handle;
                     let sh = actor_runtime::StdHandle::Stdout;
                     if let Some(entry) = table.get_mut(fd) {
-                        *entry = FdEntry::ActiveWriter { node_handle: nh, std_handle: sh };
+                        *entry = FdEntry::ActiveWriter {
+                            node_handle: nh,
+                            std_handle: sh,
+                        };
                     }
                     (nh, sh)
                 }
@@ -229,13 +239,10 @@ impl ActorRuntime for BlockingActorRuntime {
 
     fn aclose(&self, fd: isize) -> isize {
         // Remove the fd entry
-        let entry = match self.fd_table.lock().remove(fd) {
-            Some(e) => e,
-            None => {
-                warn!(actor = ?self.node_handle, fd = fd, "aclose: fd not found");
-                self.last_errno.store(EBADF, Ordering::Relaxed);
-                return -1;
-            }
+        let Some(entry) = self.fd_table.lock().remove(fd) else {
+            warn!(actor = ?self.node_handle, fd = fd, "aclose: fd not found");
+            self.last_errno.store(EBADF, Ordering::Relaxed);
+            return -1;
         };
 
         // Handle based on entry type
@@ -245,9 +252,10 @@ impl ActorRuntime for BlockingActorRuntime {
             FdEntry::ActiveReader(channel_handle) => {
                 self.bridged_io(|| self.bridge.close(channel_handle))
             }
-            FdEntry::ActiveWriter { node_handle, std_handle } => {
-                self.bridged_io(|| self.bridge.close_writer(node_handle, std_handle))
-            }
+            FdEntry::ActiveWriter {
+                node_handle,
+                std_handle,
+            } => self.bridged_io(|| self.bridge.close_writer(node_handle, std_handle)),
         }
     }
 

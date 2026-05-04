@@ -39,14 +39,14 @@
 //! returns to actor
 //! ```
 
-pub mod lifecycle_event;
+pub mod blocking_actor_runtime;
 pub mod fd_table;
 pub mod io_bridge;
+pub mod lifecycle_event;
 pub mod sendable_buffer;
-pub mod blocking_actor_runtime;
 
-pub use lifecycle_event::ActorLifecycleEvent;
+pub use blocking_actor_runtime::BlockingActorRuntime;
 pub use fd_table::{FdEntry, FdTable};
 pub use io_bridge::{ChannelHandle, IoBridge};
+pub use lifecycle_event::ActorLifecycleEvent;
 pub use sendable_buffer::SendableMutPtr;
-pub use blocking_actor_runtime::BlockingActorRuntime;

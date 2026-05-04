@@ -1,7 +1,7 @@
 //! Key-value storage types and traits
 
-use async_trait::async_trait;
 use super::buffer::Buffer;
+use async_trait::async_trait;
 
 /// Mode for opening a buffer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

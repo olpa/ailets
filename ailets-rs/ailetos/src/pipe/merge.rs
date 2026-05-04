@@ -11,10 +11,10 @@ use std::sync::Arc;
 
 use tracing::{trace, warn};
 
-use crate::errno::EIO;
 use super::pool::PipePool;
 use super::reader::Reader;
 use crate::dag::{NodeState, OwnedDependencyIterator};
+use crate::errno::EIO;
 use crate::idgen::IdGen;
 use crate::storage::KVBuffers;
 
@@ -48,7 +48,7 @@ pub struct MergeReader {
     kv: Arc<dyn KVBuffers>,
     /// ID generator for creating reader handles
     id_gen: Arc<IdGen>,
-    /// Error from dependency resolution (set when create_next_reader fails)
+    /// Error from dependency resolution (set when `create_next_reader` fails)
     own_errno: i32,
 }
 
@@ -196,7 +196,9 @@ impl MergeReader {
         if self.own_errno != 0 {
             return self.own_errno;
         }
-        self.current_reader.as_ref().map_or(0, super::reader::Reader::get_error)
+        self.current_reader
+            .as_ref()
+            .map_or(0, super::reader::Reader::get_error)
     }
 
     /// Close the merge reader.

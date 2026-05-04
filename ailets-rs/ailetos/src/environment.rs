@@ -76,7 +76,9 @@ impl Environment {
             pipe_pool,
             actor_registry: Arc::new(RwLock::new(ActorRegistry::new())),
             suspension: Arc::new(SuspensionState::new()),
-            attachment_config: Arc::new(RwLock::new(crate::attachments::AttachmentConfig::default())),
+            attachment_config: Arc::new(RwLock::new(
+                crate::attachments::AttachmentConfig::default(),
+            )),
         }
     }
 
@@ -132,6 +134,7 @@ impl Environment {
     /// * `idname` - Name/type of the actor (e.g., "stdin", "cat")
     /// * `deps` - List of dependency node handles
     /// * `explain` - Optional explanation
+    #[must_use]
     pub fn add_node(&self, idname: String, deps: &[Handle], explain: Option<String>) -> Handle {
         let mut dag = self.dag.write();
         let handle = dag.add_node_with_explain(idname, NodeKind::Concrete, explain);
@@ -144,6 +147,7 @@ impl Environment {
     }
 
     /// Add an alias node
+    #[must_use]
     pub fn add_alias(&self, alias_name: String, target: Handle) -> Handle {
         let mut dag = self.dag.write();
         let handle = dag.add_node(alias_name, NodeKind::Alias);
@@ -180,4 +184,3 @@ impl Environment {
         crate::executor::run(Arc::new(self.clone()), target, stop_conditions).await;
     }
 }
-

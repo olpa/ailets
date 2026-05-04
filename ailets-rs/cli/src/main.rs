@@ -40,8 +40,12 @@ impl DagShell {
         let kv = Arc::new(MemKV::new());
         let env = Arc::new(Environment::new(Arc::clone(&kv) as Arc<dyn KVBuffers>));
         env.actor_registry.write().register("cat", cat::execute);
-        env.actor_registry.write().register("dbg", dbg_actor::execute);
-        env.actor_registry.write().register("shell_input", shell_input_actor::execute);
+        env.actor_registry
+            .write()
+            .register("dbg", dbg_actor::execute);
+        env.actor_registry
+            .write()
+            .register("shell_input", shell_input_actor::execute);
         Self {
             env,
             kv,
@@ -708,8 +712,12 @@ Variables:
         self.vars.clear();
         let env = Arc::new(Environment::new(Arc::clone(&self.kv) as Arc<dyn KVBuffers>));
         env.actor_registry.write().register("cat", cat::execute);
-        env.actor_registry.write().register("dbg", dbg_actor::execute);
-        env.actor_registry.write().register("shell_input", shell_input_actor::execute);
+        env.actor_registry
+            .write()
+            .register("dbg", dbg_actor::execute);
+        env.actor_registry
+            .write()
+            .register("shell_input", shell_input_actor::execute);
         self.env = env;
         println!("DAG cleared.");
     }

@@ -56,16 +56,21 @@ pub type SendableMutPtr = SendablePtr<*mut [u8]>;
 pub type SendableConstPtr = SendablePtr<*const [u8]>;
 
 impl SendableMutPtr {
-    /// # Safety: see `SendablePtr::new_inner`
+    /// # Safety
+    ///
+    /// See `SendablePtr::new_inner`.
     pub unsafe fn new(buffer: &mut [u8]) -> Self {
         unsafe { Self::new_inner(std::ptr::from_mut::<[u8]>(buffer)) }
     }
 }
 
 impl SendableConstPtr {
-    /// # Safety: see `SendablePtr::new_inner`
+    /// # Safety
+    ///
+    /// See `SendablePtr::new_inner`.
+    #[must_use]
     pub unsafe fn new(buffer: &[u8]) -> Self {
-        unsafe { Self::new_inner(buffer as *const [u8]) }
+        unsafe { Self::new_inner(std::ptr::from_ref::<[u8]>(buffer)) }
     }
 }
 

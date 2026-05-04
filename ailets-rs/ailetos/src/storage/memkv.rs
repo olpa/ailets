@@ -1,8 +1,8 @@
 //! In-memory implementation of `KVBuffers`
 
-use async_trait::async_trait;
 use super::buffer::Buffer;
 use super::types::{KVBuffers, KVError, OpenMode};
+use async_trait::async_trait;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 

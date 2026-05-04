@@ -17,9 +17,9 @@
 //! - `Connection` trait bounds: <https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html>
 //! - Multi-threaded usage discussion: <https://github.com/rusqlite/rusqlite/issues/342>
 
-use async_trait::async_trait;
 use super::flush_coordinator::FlushCoordinator;
 use crate::{Buffer, KVBuffers, KVError, OpenMode};
+use async_trait::async_trait;
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use std::collections::HashMap;

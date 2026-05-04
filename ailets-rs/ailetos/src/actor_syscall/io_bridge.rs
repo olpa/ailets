@@ -45,21 +45,21 @@
 //! 2. Close writers, drop reader channels (reader tasks exit naturally).
 //! 3. Send `ActorLifecycleEvent::Terminated`, block for executor reply.
 
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use parking_lot::Mutex;
 use tokio::sync::{mpsc, oneshot, Notify};
 use tracing::{debug, warn};
 
+use super::lifecycle_event::ActorLifecycleEvent;
+use super::sendable_buffer::{SendableConstPtr, SendableMutPtr};
 use crate::attachments::AttachmentManager;
 use crate::dag::{NodeState, OwnedDependencyIterator};
 use crate::environment::Environment;
 use crate::errno::{EBADF, EIO, EPIPE};
 use crate::idgen::Handle;
 use crate::pipe::MergeReader;
-use super::lifecycle_event::ActorLifecycleEvent;
-use super::sendable_buffer::{SendableConstPtr, SendableMutPtr};
 
 /// Global unique identifier for a pipe endpoint (reader or writer)
 /// Used by `IoBridge` to identify channels across all actors
@@ -99,7 +99,11 @@ async fn run_reader_task(
         // SAFETY: Buffer remains valid because aread() blocks until response is sent
         let buf = unsafe { &mut *buffer.into_raw() };
         let bytes_read = reader.read(buf).await;
-        let errno = if bytes_read < 0 { reader.get_error() } else { 0 };
+        let errno = if bytes_read < 0 {
+            reader.get_error()
+        } else {
+            0
+        };
         if response.send((bytes_read, errno)).is_err() {
             warn!(actor = ?node_handle, "reader task: reply receiver dropped, actor may have exited");
         }
@@ -117,7 +121,10 @@ struct ChannelTable {
 
 impl ChannelTable {
     fn new() -> Self {
-        Self { map: HashMap::new(), next_id: 0 }
+        Self {
+            map: HashMap::new(),
+            next_id: 0,
+        }
     }
 
     fn alloc_handle(&mut self) -> ChannelHandle {
@@ -126,15 +133,35 @@ impl ChannelTable {
         handle
     }
 
-    fn insert_reader(&mut self, node_handle: Handle, request_tx: mpsc::UnboundedSender<ReadRequest>) -> ChannelHandle {
+    fn insert_reader(
+        &mut self,
+        node_handle: Handle,
+        request_tx: mpsc::UnboundedSender<ReadRequest>,
+    ) -> ChannelHandle {
         let handle = self.alloc_handle();
-        self.map.insert(handle, Channel::Reader { node_handle, request_tx });
+        self.map.insert(
+            handle,
+            Channel::Reader {
+                node_handle,
+                request_tx,
+            },
+        );
         handle
     }
 
-    fn insert_writer(&mut self, node_handle: Handle, std_handle: actor_runtime::StdHandle) -> ChannelHandle {
+    fn insert_writer(
+        &mut self,
+        node_handle: Handle,
+        std_handle: actor_runtime::StdHandle,
+    ) -> ChannelHandle {
         let handle = self.alloc_handle();
-        self.map.insert(handle, Channel::Writer { node_handle, std_handle });
+        self.map.insert(
+            handle,
+            Channel::Writer {
+                node_handle,
+                std_handle,
+            },
+        );
         handle
     }
 
@@ -151,9 +178,9 @@ impl ChannelTable {
     }
 
     fn drop_actor_readers(&mut self, node_handle: Handle) {
-        self.map.retain(|_, ch| {
-            !matches!(ch, Channel::Reader { node_handle: h, .. } if *h == node_handle)
-        });
+        self.map.retain(
+            |_, ch| !matches!(ch, Channel::Reader { node_handle: h, .. } if *h == node_handle),
+        );
     }
 }
 
@@ -184,9 +211,8 @@ impl IoBridge {
         notify: Arc<Notify>,
         actor_done_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
     ) -> Self {
-        let attachment_manager = Arc::new(AttachmentManager::new(
-            env.attachment_config.read().clone(),
-        ));
+        let attachment_manager =
+            Arc::new(AttachmentManager::new(env.attachment_config.read().clone()));
         Self {
             env,
             channel_table: Mutex::new(ChannelTable::new()),
@@ -206,11 +232,18 @@ impl IoBridge {
     /// Register a writer channel and pre-create the pipe in the background.
     pub fn open_write(&self, node_handle: Handle) -> ChannelHandle {
         let std_handle = actor_runtime::StdHandle::Stdout;
-        let handle = self.channel_table.lock().insert_writer(node_handle, std_handle);
+        let handle = self
+            .channel_table
+            .lock()
+            .insert_writer(node_handle, std_handle);
         let env = Arc::clone(&self.env);
         let notify = Arc::clone(&self.notify);
         tokio::spawn(async move {
-            match env.pipe_pool.touch_writer(node_handle, std_handle, &env.idgen).await {
+            match env
+                .pipe_pool
+                .touch_writer(node_handle, std_handle, &env.idgen)
+                .await
+            {
                 Ok(_) => notify.notify_one(),
                 Err(e) => warn!(node = ?node_handle, error = %e, "failed to pre-create writer"),
             }
@@ -220,7 +253,11 @@ impl IoBridge {
 
     /// Materialize stdin: create a `MergeReader`, spawn its reader task, return the channel handle.
     /// Called lazily on the actor's first read from stdin.
-    pub fn materialize_stdin(&self, node_handle: Handle, dep_iterator: OwnedDependencyIterator) -> ChannelHandle {
+    pub fn materialize_stdin(
+        &self,
+        node_handle: Handle,
+        dep_iterator: OwnedDependencyIterator,
+    ) -> ChannelHandle {
         debug!(actor = ?node_handle, "materializing stdin reader");
         let reader = MergeReader::new(
             dep_iterator,
@@ -230,7 +267,9 @@ impl IoBridge {
         );
         let (request_tx, request_rx) = mpsc::unbounded_channel::<ReadRequest>();
         tokio::spawn(run_reader_task(node_handle, reader, request_rx));
-        self.channel_table.lock().insert_reader(node_handle, request_tx)
+        self.channel_table
+            .lock()
+            .insert_reader(node_handle, request_tx)
     }
 
     /// Route a read request to the channel's reader task and block for the result.
@@ -238,7 +277,13 @@ impl IoBridge {
         let tx = self.channel_table.lock().get_reader_tx(handle).cloned();
         if let Some(tx) = tx {
             let (resp_tx, resp_rx) = oneshot::channel();
-            if tx.send(ReadRequest { buffer, response: resp_tx }).is_err() {
+            if tx
+                .send(ReadRequest {
+                    buffer,
+                    response: resp_tx,
+                })
+                .is_err()
+            {
                 warn!(channel = ?handle, "reader task has exited");
                 return (-1, EPIPE);
             }
@@ -250,7 +295,12 @@ impl IoBridge {
     }
 
     /// Spawn an async write task and block for the result.
-    pub fn write(&self, node_handle: Handle, std_handle: actor_runtime::StdHandle, data: SendableConstPtr) -> (isize, i32) {
+    pub fn write(
+        &self,
+        node_handle: Handle,
+        std_handle: actor_runtime::StdHandle,
+        data: SendableConstPtr,
+    ) -> (isize, i32) {
         let (tx, rx) = oneshot::channel::<(isize, i32)>();
         let env = Arc::clone(&self.env);
         let attachment_manager = Arc::clone(&self.attachment_manager);
@@ -258,16 +308,26 @@ impl IoBridge {
         tokio::spawn(async move {
             // SAFETY: Buffer remains valid because awrite() blocks until response is sent
             let data = unsafe { &*data.into_raw() };
-            let result: (isize, i32) = match env.pipe_pool.touch_writer(node_handle, std_handle, &env.idgen).await {
+            let result: (isize, i32) = match env
+                .pipe_pool
+                .touch_writer(node_handle, std_handle, &env.idgen)
+                .await
+            {
                 Ok((writer, is_new)) => {
                     if is_new {
                         attachment_manager.on_writer_realized(
-                            node_handle, std_handle,
-                            Arc::clone(&env.pipe_pool), Arc::clone(&env.idgen),
+                            node_handle,
+                            std_handle,
+                            Arc::clone(&env.pipe_pool),
+                            Arc::clone(&env.idgen),
                         );
                     }
                     let n = writer.write(data);
-                    if n < 0 { (-1, writer.get_error()) } else { (n, 0) }
+                    if n < 0 {
+                        (-1, writer.get_error())
+                    } else {
+                        (n, 0)
+                    }
                 }
                 Err(e) => {
                     warn!(node = ?node_handle, std = ?std_handle, error = %e, "failed to get writer");
@@ -287,19 +347,32 @@ impl IoBridge {
         let channel = self.channel_table.lock().remove(handle);
         match channel {
             Some(Channel::Reader { .. }) => (0, 0),
-            Some(Channel::Writer { node_handle, std_handle }) => {
+            Some(Channel::Writer {
+                node_handle,
+                std_handle,
+            }) => {
                 debug!(channel = ?handle, node = ?node_handle, std = ?std_handle, "closing writer channel");
-                if let Some(writer) = self.env.pipe_pool.get_already_realized_writer((node_handle, std_handle)) {
+                if let Some(writer) = self
+                    .env
+                    .pipe_pool
+                    .get_already_realized_writer((node_handle, std_handle))
+                {
                     writer.close();
                 }
                 let (tx, rx) = oneshot::channel::<(isize, i32)>();
                 let env = Arc::clone(&self.env);
                 let notify = Arc::clone(&self.notify);
                 tokio::spawn(async move {
-                    let result: (isize, i32) = if let Some(writer) = env.pipe_pool.get_already_realized_writer((node_handle, std_handle)) {
+                    let result: (isize, i32) = if let Some(writer) = env
+                        .pipe_pool
+                        .get_already_realized_writer((node_handle, std_handle))
+                    {
                         match env.kv.flush_buffer(&writer.buffer()).await {
                             Ok(()) => (0, 0),
-                            Err(e) => { warn!(error = ?e, "failed to flush buffer"); (-1, EIO) }
+                            Err(e) => {
+                                warn!(error = ?e, "failed to flush buffer");
+                                (-1, EIO)
+                            }
                         }
                     } else {
                         warn!(node = ?node_handle, std = ?std_handle, "writer not found for flush");
@@ -320,8 +393,16 @@ impl IoBridge {
     }
 
     /// Close a writer directly via `PipePool` and flush.
-    pub fn close_writer(&self, node_handle: Handle, std_handle: actor_runtime::StdHandle) -> (isize, i32) {
-        if let Some(writer) = self.env.pipe_pool.get_already_realized_writer((node_handle, std_handle)) {
+    pub fn close_writer(
+        &self,
+        node_handle: Handle,
+        std_handle: actor_runtime::StdHandle,
+    ) -> (isize, i32) {
+        if let Some(writer) = self
+            .env
+            .pipe_pool
+            .get_already_realized_writer((node_handle, std_handle))
+        {
             writer.close();
             debug!(node = ?node_handle, std = ?std_handle, "closed writer pipe");
         }
@@ -329,10 +410,16 @@ impl IoBridge {
         let env = Arc::clone(&self.env);
         let notify = Arc::clone(&self.notify);
         tokio::spawn(async move {
-            let result: (isize, i32) = if let Some(writer) = env.pipe_pool.get_already_realized_writer((node_handle, std_handle)) {
+            let result: (isize, i32) = if let Some(writer) = env
+                .pipe_pool
+                .get_already_realized_writer((node_handle, std_handle))
+            {
                 match env.kv.flush_buffer(&writer.buffer()).await {
                     Ok(()) => (0, 0),
-                    Err(e) => { warn!(error = ?e, "failed to flush buffer"); (-1, EIO) }
+                    Err(e) => {
+                        warn!(error = ?e, "failed to flush buffer");
+                        (-1, EIO)
+                    }
                 }
             } else {
                 warn!(node = ?node_handle, std = ?std_handle, "close_writer: writer not found for flush");
@@ -352,9 +439,14 @@ impl IoBridge {
     /// Idempotent: if the actor is already Terminating or Terminated, returns early.
     pub fn actor_shutdown(&self, node_handle: Handle, exit_code: i32) {
         let (tx, rx) = oneshot::channel::<NodeState>();
-        if self.actor_done_tx.send(ActorLifecycleEvent::Terminating {
-            node_handle, reply: tx,
-        }).is_err() {
+        if self
+            .actor_done_tx
+            .send(ActorLifecycleEvent::Terminating {
+                node_handle,
+                reply: tx,
+            })
+            .is_err()
+        {
             warn!(node = ?node_handle, "actor shutdown - executor gone, dropping");
             return;
         }
@@ -366,15 +458,23 @@ impl IoBridge {
         }
 
         debug!(node = ?node_handle, exit_code, "actor shutdown - closing all writers");
-        self.env.pipe_pool.close_actor_writers(node_handle, exit_code);
+        self.env
+            .pipe_pool
+            .close_actor_writers(node_handle, exit_code);
 
         debug!(node = ?node_handle, "actor shutdown - dropping reader channels");
         self.channel_table.lock().drop_actor_readers(node_handle);
 
         let (tx2, rx2) = oneshot::channel::<NodeState>();
-        if self.actor_done_tx.send(ActorLifecycleEvent::Terminated {
-            node_handle, exit_code, reply: tx2,
-        }).is_err() {
+        if self
+            .actor_done_tx
+            .send(ActorLifecycleEvent::Terminated {
+                node_handle,
+                exit_code,
+                reply: tx2,
+            })
+            .is_err()
+        {
             warn!(node = ?node_handle, "actor shutdown - executor gone before Terminated");
             return;
         }
