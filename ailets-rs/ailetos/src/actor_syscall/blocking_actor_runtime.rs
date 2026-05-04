@@ -22,6 +22,7 @@ use super::sendable_buffer::{SendableConstPtr, SendableMutPtr};
 /// Blocking `ActorRuntime` implementation.
 ///
 /// Holds per-actor state and calls `IoBridge` directly for all I/O.
+/// Fires actor shutdown automatically on drop — including on panic or early return.
 pub struct BlockingActorRuntime {
     /// This actor's node handle (used as actor identifier)
     node_handle: Handle,
@@ -30,41 +31,15 @@ pub struct BlockingActorRuntime {
     fd_table: Mutex<FdTable>,
     /// Shared suspension state (owned by Environment)
     suspension: Arc<SuspensionState>,
-    /// errno from the last failed read (0 = no error); shared with `ShutdownHandle`
-    last_errno: Arc<AtomicI32>,
+    /// errno from the last failed syscall (0 = no error)
+    last_errno: AtomicI32,
+    /// 0 = clean termination; non-zero = POSIX errno
+    exit_code: AtomicI32,
     /// Pre-built dependency iterator for stdin; consumed on first read
     stdin_dep_iterator: Mutex<Option<OwnedDependencyIterator>>,
 }
 
-/// Lifecycle handle that calls `IoBridge::actor_shutdown` when dropped.
-///
-/// Returned alongside `BlockingActorRuntime` from `BlockingActorRuntime::new`.
-/// Drop fires shutdown automatically — including on panic or early return.
-/// Calling `actor_shutdown` multiple times is safe — `IoBridge` is idempotent.
-pub struct ShutdownHandle {
-    node_handle: Handle,
-    bridge: Arc<IoBridge>,
-    suspension: Arc<SuspensionState>,
-    /// 0 = clean termination; non-zero = POSIX errno
-    exit_code: Arc<AtomicI32>,
-    /// errno from the last failed read; shared with `BlockingActorRuntime`
-    last_errno: Arc<AtomicI32>,
-}
-
-impl ShutdownHandle {
-    /// Mark the actor as failed.
-    ///
-    /// Uses the errno from the last failed read if set (per `<spec://errors#reader-to-actor>`),
-    /// otherwise falls back to EOWNERDEAD.
-    pub fn mark_failed(&self) {
-        let read_errno = self.last_errno.load(Ordering::Relaxed);
-        let code = if read_errno != 0 { read_errno } else { EOWNERDEAD };
-        self.exit_code.store(code, Ordering::Relaxed);
-    }
-}
-
-impl Drop for ShutdownHandle {
-    /// Fires shutdown unconditionally — safe to call after an explicit shutdown().
+impl Drop for BlockingActorRuntime {
     fn drop(&mut self) {
         self.suspension.deregister(self.node_handle);
         let exit_code = self.exit_code.load(Ordering::Relaxed);
@@ -73,35 +48,32 @@ impl Drop for ShutdownHandle {
 }
 
 impl BlockingActorRuntime {
-    /// Create a new `BlockingActorRuntime` for the given node handle.
-    ///
-    /// Returns the runtime together with a `ShutdownHandle`. The handle fires
-    /// cleanup automatically on drop if never called explicitly.
     #[must_use]
     pub fn new(
         node_handle: Handle,
         bridge: Arc<IoBridge>,
         suspension: Arc<SuspensionState>,
         stdin_dep_iterator: OwnedDependencyIterator,
-    ) -> (Self, ShutdownHandle) {
-        let exit_code = Arc::new(AtomicI32::new(0));
-        let last_errno = Arc::new(AtomicI32::new(0));
-        let runtime = Self {
-            node_handle,
-            bridge: Arc::clone(&bridge),
-            fd_table: Mutex::new(FdTable::new()),
-            suspension: Arc::clone(&suspension),
-            last_errno: Arc::clone(&last_errno),
-            stdin_dep_iterator: Mutex::new(Some(stdin_dep_iterator)),
-        };
-        let shutdown = ShutdownHandle {
+    ) -> Self {
+        Self {
             node_handle,
             bridge,
+            fd_table: Mutex::new(FdTable::new()),
             suspension,
-            exit_code,
-            last_errno,
-        };
-        (runtime, shutdown)
+            last_errno: AtomicI32::new(0),
+            exit_code: AtomicI32::new(0),
+            stdin_dep_iterator: Mutex::new(Some(stdin_dep_iterator)),
+        }
+    }
+
+    /// Mark the actor as failed.
+    ///
+    /// Uses the errno from the last failed read if set (per `<spec://errors#reader-to-actor>`),
+    /// otherwise falls back to EOWNERDEAD.
+    pub fn mark_failed(&self) {
+        let read_errno = self.last_errno.load(Ordering::Relaxed);
+        let code = if read_errno != 0 { read_errno } else { EOWNERDEAD };
+        self.exit_code.store(code, Ordering::Relaxed);
     }
 
     /// Yield cooperatively if this actor has been suspended; blocks until resumed.

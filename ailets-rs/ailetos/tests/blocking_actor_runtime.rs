@@ -71,7 +71,7 @@ async fn test_reader_to_actor_epipe_propagation() {
 
     let dep_iterator = OwnedDependencyIterator::new(dag, actor_handle);
 
-    let (runtime, shutdown) = BlockingActorRuntime::new(
+    let runtime = BlockingActorRuntime::new(
         actor_handle, Arc::clone(&bridge), Arc::clone(&suspension), dep_iterator,
     );
     runtime.register_std_fds();
@@ -81,8 +81,8 @@ async fn test_reader_to_actor_epipe_propagation() {
         let mut buf = [0u8; 64];
         let n = runtime.aread(0, &mut buf);
         let errno = runtime.get_errno();
-        drop(shutdown);
         (n, errno)
+        // runtime dropped here, fires actor_shutdown
     })
     .await
     .unwrap();
@@ -108,7 +108,7 @@ async fn test_mark_failed_uses_epipe_from_last_read() {
 
     let dep_iterator = OwnedDependencyIterator::new(dag, actor_handle);
 
-    let (runtime, shutdown) = BlockingActorRuntime::new(
+    let runtime = BlockingActorRuntime::new(
         actor_handle, Arc::clone(&bridge), Arc::clone(&suspension), dep_iterator,
     );
     runtime.register_std_fds();
@@ -117,8 +117,8 @@ async fn test_mark_failed_uses_epipe_from_last_read() {
         use actor_runtime::ActorRuntime;
         let mut buf = [0u8; 64];
         runtime.aread(0, &mut buf);
-        shutdown.mark_failed();
-        // drop fires actor_shutdown with EPIPE exit code
+        runtime.mark_failed();
+        // runtime dropped here, fires actor_shutdown with EPIPE exit code
     })
     .await
     .unwrap();
@@ -138,19 +138,17 @@ async fn test_mark_failed_uses_eownerdead_without_read_error() {
     let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&env.idgen))));
     let dep_iterator = OwnedDependencyIterator::new(dag, actor_handle);
 
-    let (_runtime, shutdown) = BlockingActorRuntime::new(
+    let runtime = BlockingActorRuntime::new(
         actor_handle, Arc::clone(&bridge), suspension, dep_iterator,
     );
 
     tokio::task::spawn_blocking(move || {
-        shutdown.mark_failed();
-        // drop fires actor_shutdown with EOWNERDEAD
+        runtime.mark_failed();
+        // runtime dropped here, fires actor_shutdown with EOWNERDEAD
     })
     .await
     .unwrap();
 
-    // _runtime holds Arc<IoBridge>; drop it before bridge so actor_done_tx closes
-    drop(_runtime);
     drop(bridge);
     let exit_code = lifecycle_task.await.unwrap();
     assert_eq!(exit_code, Some(EOWNERDEAD), "exit code should be EOWNERDEAD");

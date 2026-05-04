@@ -49,4 +49,4 @@ pub use lifecycle_event::ActorLifecycleEvent;
 pub use fd_table::{FdEntry, FdTable};
 pub use io_bridge::{ChannelHandle, IoBridge};
 pub use sendable_buffer::SendableMutPtr;
-pub use blocking_actor_runtime::{BlockingActorRuntime, ShutdownHandle};
+pub use blocking_actor_runtime::BlockingActorRuntime;

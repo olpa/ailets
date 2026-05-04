@@ -17,7 +17,7 @@ use crate::environment::{ActorFn, Environment};
 use crate::idgen::Handle;
 use crate::pipe::PipePool;
 use crate::actor_syscall::ActorLifecycleEvent;
-use crate::{BlockingActorRuntime, IoBridge, ShutdownHandle};
+use crate::{BlockingActorRuntime, IoBridge};
 
 /// Conditions for stopping DAG iteration
 #[derive(Debug, Clone, Default)]
@@ -103,7 +103,6 @@ fn spawn_actor_task(
     idname: String,
     actor_fn: ActorFn,
     actor_runtime: BlockingActorRuntime,
-    shutdown: ShutdownHandle,
 ) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn_blocking(move || {
         debug!(node = ?node_handle, name = %idname, "task starting");
@@ -118,12 +117,11 @@ fn spawn_actor_task(
             }
             Err(e) => {
                 warn!(node = ?node_handle, name = %idname, error = %e, "task error");
-                shutdown.mark_failed();
+                actor_runtime.mark_failed();
             }
         }
 
         debug!(node = ?node_handle, name = %idname, "task done, shutdown via Drop");
-        drop(shutdown);
     })
 }
 
@@ -262,7 +260,7 @@ pub async fn run_with_tx(
                 *node_handle,
             );
 
-            let (actor_runtime, shutdown) = BlockingActorRuntime::new(
+            let actor_runtime = BlockingActorRuntime::new(
                 *node_handle,
                 Arc::clone(&bridge),
                 Arc::clone(&env.suspension),
@@ -274,7 +272,6 @@ pub async fn run_with_tx(
                 idname.clone(),
                 actor_fn,
                 actor_runtime,
-                shutdown,
             ));
         }
 
