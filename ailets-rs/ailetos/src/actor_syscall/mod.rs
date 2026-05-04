@@ -12,7 +12,7 @@
 //! # Components
 //!
 //! **Actor side** — runs on the actor's blocking thread:
-//! - [`stub_actor_runtime`] — implements `ActorRuntime`; calls `IoBridge` methods directly
+//! - [`blocking_actor_runtime`] — implements `ActorRuntime`; calls `IoBridge` methods directly
 //!   and blocks on oneshot replies for results.
 //! - [`fd_table`] — per-actor POSIX fd → [`ChannelHandle`] map; owned by `BlockingActorRuntime`.
 //!
@@ -43,10 +43,10 @@ pub mod lifecycle_event;
 pub mod fd_table;
 pub mod io_bridge;
 pub mod sendable_buffer;
-pub mod stub_actor_runtime;
+pub mod blocking_actor_runtime;
 
 pub use lifecycle_event::ActorLifecycleEvent;
 pub use fd_table::{FdEntry, FdTable};
 pub use io_bridge::{ChannelHandle, IoBridge};
 pub use sendable_buffer::SendableMutPtr;
-pub use stub_actor_runtime::{BlockingActorRuntime, ShutdownHandle};
+pub use blocking_actor_runtime::{BlockingActorRuntime, ShutdownHandle};

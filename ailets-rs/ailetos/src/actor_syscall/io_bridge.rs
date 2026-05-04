@@ -2,7 +2,7 @@
 //!
 //! `IoBridge` is a shared object that actors call directly to perform I/O.
 //! It is one half of the actor syscall layer; the other half is
-//! `stub_actor_runtime`, which runs on each actor's blocking thread.
+//! `blocking_actor_runtime`, which runs on each actor's blocking thread.
 //!
 //! Supporting types live in sibling modules:
 //! - [`super::sendable_buffer`] — zero-copy buffer pointer for read operations
