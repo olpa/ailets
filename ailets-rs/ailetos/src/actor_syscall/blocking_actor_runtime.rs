@@ -3,6 +3,9 @@
 //! This module provides a blocking `ActorRuntime` implementation — the user-space
 //! side of the actor syscall layer. It holds per-actor state (fd table) and calls
 //! `IoBridge` methods directly for all I/O operations.
+//!
+//! Among the consumers of this type is the WASM interface: `BlockingActorRuntime`
+//! is threaded through FFI glue into `FfiActorRuntime`, which exposes it to WebAssembly actors.
 
 use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;

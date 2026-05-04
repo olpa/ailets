@@ -6,6 +6,9 @@ use std::ffi::CString;
 
 /// FFI-based implementation of `ActorRuntime`.
 /// Uses the C FFI functions for WASM targets.
+///
+/// Receives a `BlockingActorRuntime` threaded through FFI glue and exposes
+/// it to WebAssembly actors as `FfiActorRuntime`.
 pub struct FfiActorRuntime;
 
 impl FfiActorRuntime {
