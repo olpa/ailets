@@ -122,7 +122,7 @@ impl ChannelTable {
 
     fn alloc_handle(&mut self) -> ChannelHandle {
         let handle = ChannelHandle(self.next_id);
-        self.next_id = self.next_id.wrapping_add(1);
+        self.next_id += 1;
         handle
     }
 
