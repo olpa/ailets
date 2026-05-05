@@ -487,16 +487,4 @@ impl IoBridge {
     pub async fn shutdown(&self) {
         self.attachment_manager.waiting_shutdown().await;
     }
-
-    /// Inject a test reader task into the channel table.
-    /// Returns the channel handle and the receiver end for the test to control.
-    #[cfg(test)]
-    pub fn inject_test_reader(
-        &self,
-        node_handle: Handle,
-    ) -> (ChannelHandle, mpsc::UnboundedReceiver<ReadRequest>) {
-        let (tx, rx) = mpsc::unbounded_channel();
-        let handle = self.channel_table.lock().insert_reader(node_handle, tx);
-        (handle, rx)
-    }
 }

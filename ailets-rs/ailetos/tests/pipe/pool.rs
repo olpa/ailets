@@ -1471,7 +1471,7 @@ async fn test_close_actor_writers_with_error_reader_sees_epipe() {
         .await
         .expect("Failed to create writer");
 
-    writer.write(b"buffered");
+    assert!(writer.write(b"buffered") > 0);
 
     let mut reader = pool
         .get_or_await_reader((actor_handle, std_handle), false, &id_gen)
