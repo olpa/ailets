@@ -71,15 +71,10 @@ impl BlockingActorRuntime {
 
     /// Mark the actor as failed.
     ///
-    /// Uses the errno from the last failed read if set (per `<spec://errors#reader-to-actor>`),
-    /// otherwise falls back to EOWNERDEAD.
+    /// Uses the errno from the last failed syscall if set, otherwise falls back to EOWNERDEAD.
     pub fn mark_failed(&self) {
-        let read_errno = self.last_errno.load(Ordering::Relaxed);
-        let code = if read_errno != 0 {
-            read_errno
-        } else {
-            EOWNERDEAD
-        };
+        let errno = self.last_errno.load(Ordering::Relaxed);
+        let code = if errno != 0 { errno } else { EOWNERDEAD };
         self.exit_code.store(code, Ordering::Relaxed);
     }
 
