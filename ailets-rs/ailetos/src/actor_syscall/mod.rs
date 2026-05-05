@@ -12,9 +12,8 @@
 //! # Components
 //!
 //! **Actor side** — runs on the actor's blocking thread:
-//! - [`blocking_actor_runtime`] — implements `ActorRuntime`; calls `IoBridge` methods directly
-//!   and blocks on oneshot replies for results.
-//! - [`fd_table`] — per-actor POSIX fd → [`ChannelHandle`] map; owned by `BlockingActorRuntime`.
+//! - [`blocking_actor_runtime`] — implements `ActorRuntime`; thin stateless wrapper that
+//!   passes (node_handle, fd) to `IoBridge` for all I/O operations.
 //!
 //! **Bridge** — shared object callable from any blocking thread:
 //! - [`io_bridge`] — directly-callable I/O bridge; methods spawn Tokio tasks for async work
@@ -40,13 +39,11 @@
 //! ```
 
 pub mod blocking_actor_runtime;
-pub mod fd_table;
 pub mod io_bridge;
 pub mod lifecycle_event;
 pub mod sendable_buffer;
 
 pub use blocking_actor_runtime::BlockingActorRuntime;
-pub use fd_table::{FdEntry, FdTable};
-pub use io_bridge::{ChannelHandle, IoBridge};
+pub use io_bridge::IoBridge;
 pub use lifecycle_event::ActorLifecycleEvent;
 pub use sendable_buffer::SendableMutPtr;

@@ -29,7 +29,7 @@ pub use pipe::PipePool;
 
 // Re-export actor syscall layer types for convenience
 pub use actor_syscall::{
-    ActorLifecycleEvent, BlockingActorRuntime, ChannelHandle, FdEntry, FdTable, IoBridge,
+    ActorLifecycleEvent, BlockingActorRuntime, IoBridge,
     SendableMutPtr,
 };
 

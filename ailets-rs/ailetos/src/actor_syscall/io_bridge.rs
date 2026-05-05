@@ -35,7 +35,6 @@
 //!   ← (bytes, errno)
 //! ```
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
@@ -50,28 +49,27 @@ use crate::errno::{EBADF, EIO, EPIPE};
 use crate::idgen::Handle;
 use crate::pipe::MergeReader;
 
-/// Global unique identifier for a pipe endpoint (reader or writer)
-/// Used by `IoBridge` to identify channels across all actors
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ChannelHandle(pub isize);
-
 /// A channel endpoint - either a reader or writer
 pub(crate) enum Channel {
     /// Reader channel - routes requests to a dedicated reader task
     Reader {
-        node_handle: Handle,
         request_tx: mpsc::UnboundedSender<ReadRequest>,
     },
-    /// Writer channel - holds the actor's node handle and std handle for pipe lookup
+    /// Writer channel - routes requests to a dedicated writer task
     Writer {
-        node_handle: Handle,
-        std_handle: actor_runtime::StdHandle,
+        request_tx: mpsc::UnboundedSender<WriteRequest>,
     },
 }
 
 /// A read request forwarded from `IoBridge` to a reader task.
 pub(crate) struct ReadRequest {
     pub buffer: SendableMutPtr,
+    pub response: oneshot::Sender<(isize, i32)>,
+}
+
+/// A write request forwarded from `IoBridge` to a writer task.
+pub(crate) struct WriteRequest {
+    pub data: SendableConstPtr,
     pub response: oneshot::Sender<(isize, i32)>,
 }
 
@@ -99,77 +97,175 @@ async fn run_reader_task(
     }
 }
 
+/// Long-lived task that owns access to a `Writer` and services write requests for one channel.
+///
+/// Spawned by `IoBridge::open_write`. Exits when its `request_rx` closes —
+/// i.e., when the channel entry is removed from `ChannelTable` on close or shutdown.
+async fn run_writer_task(
+    node_handle: Handle,
+    std_handle: actor_runtime::StdHandle,
+    env: Arc<Environment>,
+    attachment_manager: Arc<AttachmentManager>,
+    notify: Arc<Notify>,
+    mut request_rx: mpsc::UnboundedReceiver<WriteRequest>,
+) {
+    // Get/create writer once at task startup
+    let writer = match env
+        .pipe_pool
+        .touch_writer(node_handle, std_handle, &env.idgen)
+        .await
+    {
+        Ok((writer, is_new)) => {
+            if is_new {
+                attachment_manager.on_writer_realized(
+                    node_handle,
+                    std_handle,
+                    Arc::clone(&env.pipe_pool),
+                    Arc::clone(&env.idgen),
+                );
+            }
+            writer
+        }
+        Err(e) => {
+            warn!(node = ?node_handle, std = ?std_handle, error = %e, "writer task: failed to create writer");
+            // Send EIO to all incoming requests
+            while let Some(WriteRequest { response, .. }) = request_rx.recv().await {
+                let _ = response.send((-1, EIO));
+            }
+            return;
+        }
+    };
+
+    // Process write requests
+    while let Some(WriteRequest { data, response }) = request_rx.recv().await {
+        // SAFETY: Buffer remains valid because awrite() blocks until response is sent
+        let data_slice = unsafe { &*data.into_raw() };
+        let n = writer.write(data_slice);
+        let result = if n < 0 {
+            (-1, writer.get_error())
+        } else {
+            (n, 0)
+        };
+        notify.notify_one();
+        if response.send(result).is_err() {
+            warn!(node = ?node_handle, std = ?std_handle, "writer task: reply receiver dropped, actor may have exited");
+        }
+    }
+}
+
+/// State of an fd for an actor
+enum FdState {
+    /// Fd is allowed but not yet materialized (lazy)
+    Allowed,
+    /// Fd has been materialized with a channel task
+    Materialized(Channel),
+}
+
 /// Global table of open channel endpoints, analogous to the kernel's open-file-descriptions table.
 ///
-/// The per-actor fd → [`ChannelHandle`] mapping lives in [`super::fd_table::FdTable`];
-/// this table holds the system-side objects those handles resolve to.
+/// Maps (node_handle, fd) → FdState using a Vec with linear search.
+/// Efficient for small N (few fds per actor) with excellent cache locality.
 struct ChannelTable {
-    map: HashMap<ChannelHandle, Channel>,
-    next_id: isize,
+    /// Vector of (node_handle, fd, state) tuples
+    entries: Vec<(Handle, isize, FdState)>,
 }
 
 impl ChannelTable {
     fn new() -> Self {
         Self {
-            map: HashMap::new(),
-            next_id: 0,
+            entries: Vec::new(),
         }
     }
 
-    fn alloc_handle(&mut self) -> ChannelHandle {
-        let handle = ChannelHandle(self.next_id);
-        self.next_id += 1;
-        handle
+    /// Mark an fd as allowed for an actor
+    fn allow_fd(&mut self, node_handle: Handle, fd: isize) {
+        // Check if already exists
+        if self.entries.iter().any(|(h, f, _)| (*h, *f) == (node_handle, fd)) {
+            return;
+        }
+        self.entries.push((node_handle, fd, FdState::Allowed));
     }
 
-    fn insert_reader(
+    /// Check if fd is allowed (either Allowed or Materialized)
+    fn is_allowed(&self, node_handle: Handle, fd: isize) -> bool {
+        self.entries.iter().any(|(h, f, _)| (*h, *f) == (node_handle, fd))
+    }
+
+    /// Materialize a reader channel for (node_handle, fd)
+    fn materialize_reader(
         &mut self,
         node_handle: Handle,
+        fd: isize,
         request_tx: mpsc::UnboundedSender<ReadRequest>,
-    ) -> ChannelHandle {
-        let handle = self.alloc_handle();
-        self.map.insert(
-            handle,
-            Channel::Reader {
-                node_handle,
-                request_tx,
-            },
-        );
-        handle
-    }
-
-    fn insert_writer(
-        &mut self,
-        node_handle: Handle,
-        std_handle: actor_runtime::StdHandle,
-    ) -> ChannelHandle {
-        let handle = self.alloc_handle();
-        self.map.insert(
-            handle,
-            Channel::Writer {
-                node_handle,
-                std_handle,
-            },
-        );
-        handle
-    }
-
-    fn get_reader_tx(&self, handle: ChannelHandle) -> Option<&mpsc::UnboundedSender<ReadRequest>> {
-        if let Some(Channel::Reader { request_tx, .. }) = self.map.get(&handle) {
-            Some(request_tx)
+    ) {
+        // Find and update existing entry
+        if let Some((_, _, state)) = self.entries.iter_mut().find(|(h, f, _)| (*h, *f) == (node_handle, fd)) {
+            *state = FdState::Materialized(Channel::Reader { request_tx });
         } else {
-            None
+            // Shouldn't happen, but handle gracefully
+            self.entries.push((
+                node_handle,
+                fd,
+                FdState::Materialized(Channel::Reader { request_tx }),
+            ));
         }
     }
 
-    fn remove(&mut self, handle: ChannelHandle) -> Option<Channel> {
-        self.map.remove(&handle)
+    /// Materialize a writer channel for (node_handle, fd)
+    fn materialize_writer(
+        &mut self,
+        node_handle: Handle,
+        fd: isize,
+        request_tx: mpsc::UnboundedSender<WriteRequest>,
+    ) {
+        // Find and update existing entry
+        if let Some((_, _, state)) = self.entries.iter_mut().find(|(h, f, _)| (*h, *f) == (node_handle, fd)) {
+            *state = FdState::Materialized(Channel::Writer { request_tx });
+        } else {
+            // Shouldn't happen, but handle gracefully
+            self.entries.push((
+                node_handle,
+                fd,
+                FdState::Materialized(Channel::Writer { request_tx }),
+            ));
+        }
     }
 
-    fn drop_actor_readers(&mut self, node_handle: Handle) {
-        self.map.retain(
-            |_, ch| !matches!(ch, Channel::Reader { node_handle: h, .. } if *h == node_handle),
-        );
+    /// Get reader request sender for (node_handle, fd)
+    fn get_reader_tx(&self, node_handle: Handle, fd: isize) -> Option<&mpsc::UnboundedSender<ReadRequest>> {
+        self.entries
+            .iter()
+            .find(|(h, f, _)| (*h, *f) == (node_handle, fd))
+            .and_then(|(_, _, state)| match state {
+                FdState::Materialized(Channel::Reader { request_tx }) => Some(request_tx),
+                _ => None,
+            })
+    }
+
+    /// Get writer request sender for (node_handle, fd)
+    fn get_writer_tx(&self, node_handle: Handle, fd: isize) -> Option<&mpsc::UnboundedSender<WriteRequest>> {
+        self.entries
+            .iter()
+            .find(|(h, f, _)| (*h, *f) == (node_handle, fd))
+            .and_then(|(_, _, state)| match state {
+                FdState::Materialized(Channel::Writer { request_tx }) => Some(request_tx),
+                _ => None,
+            })
+    }
+
+    /// Remove channel for (node_handle, fd), returning the channel if materialized
+    fn remove(&mut self, node_handle: Handle, fd: isize) -> Option<Channel> {
+        let pos = self.entries.iter().position(|(h, f, _)| (*h, *f) == (node_handle, fd))?;
+        let (_, _, state) = self.entries.remove(pos);
+        match state {
+            FdState::Materialized(channel) => Some(channel),
+            FdState::Allowed => None,
+        }
+    }
+
+    /// Drop all entries for a given actor
+    fn drop_actor_entries(&mut self, node_handle: Handle) {
+        self.entries.retain(|(h, _, _)| *h != node_handle);
     }
 }
 
@@ -201,42 +297,26 @@ impl IoBridge {
         }
     }
 
-    /// Open a read channel. Currently returns a dummy handle (dependency wiring not implemented).
-    pub fn open_read(&self, node_handle: Handle) -> ChannelHandle {
-        let handle = self.channel_table.lock().alloc_handle();
-        warn!(node = ?node_handle, channel = ?handle, "OpenRead: no input configured, returning dummy");
-        handle
+    /// Register a file descriptor as "allowed" for an actor.
+    /// Actual reader/writer task is spawned lazily on first use.
+    pub fn register_std_fd(&self, node_handle: Handle, fd: isize) {
+        self.channel_table.lock().allow_fd(node_handle, fd);
     }
 
-    /// Register a writer channel and pre-create the pipe in the background.
-    pub fn open_write(&self, node_handle: Handle) -> ChannelHandle {
-        let std_handle = actor_runtime::StdHandle::Stdout;
-        let handle = self
-            .channel_table
-            .lock()
-            .insert_writer(node_handle, std_handle);
-        let env = Arc::clone(&self.env);
-        let notify = Arc::clone(&self.notify);
-        tokio::spawn(async move {
-            match env
-                .pipe_pool
-                .touch_writer(node_handle, std_handle, &env.idgen)
-                .await
-            {
-                Ok(_) => notify.notify_one(),
-                Err(e) => warn!(node = ?node_handle, error = %e, "failed to pre-create writer"),
-            }
-        });
-        handle
-    }
-
-    /// Materialize stdin: create a `MergeReader`, spawn its reader task, return the channel handle.
-    /// Called lazily on the actor's first read from stdin.
-    pub fn materialize_stdin(
+    /// Materialize stdin: create a `MergeReader`, spawn its reader task (if not already spawned).
+    /// Called lazily on the actor's first read from stdin (fd=0).
+    fn ensure_stdin_materialized(
         &self,
         node_handle: Handle,
         dep_iterator: OwnedDependencyIterator,
-    ) -> ChannelHandle {
+    ) {
+        let mut table = self.channel_table.lock();
+
+        // Check if already materialized
+        if table.get_reader_tx(node_handle, 0).is_some() {
+            return;
+        }
+
         debug!(actor = ?node_handle, "materializing stdin reader");
         let reader = MergeReader::new(
             dep_iterator,
@@ -246,14 +326,67 @@ impl IoBridge {
         );
         let (request_tx, request_rx) = mpsc::unbounded_channel::<ReadRequest>();
         tokio::spawn(run_reader_task(node_handle, reader, request_rx));
-        self.channel_table
-            .lock()
-            .insert_reader(node_handle, request_tx)
+        table.materialize_reader(node_handle, 0, request_tx);
+    }
+
+    /// Ensure writer task is spawned for (node_handle, fd).
+    /// Called lazily on the actor's first write to the fd.
+    fn ensure_writer_materialized(&self, node_handle: Handle, fd: isize) {
+        let mut table = self.channel_table.lock();
+
+        // Check if already materialized
+        if table.get_writer_tx(node_handle, fd).is_some() {
+            return;
+        }
+
+        let std_handle = match fd {
+            1 => actor_runtime::StdHandle::Stdout,
+            2 => actor_runtime::StdHandle::Log,
+            _ => {
+                warn!(node = ?node_handle, fd = fd, "ensure_writer_materialized: invalid fd");
+                return;
+            }
+        };
+
+        debug!(actor = ?node_handle, fd = fd, "materializing writer");
+        let (request_tx, request_rx) = mpsc::unbounded_channel::<WriteRequest>();
+
+        let env = Arc::clone(&self.env);
+        let attachment_manager = Arc::clone(&self.attachment_manager);
+        let notify = Arc::clone(&self.notify);
+        tokio::spawn(run_writer_task(
+            node_handle,
+            std_handle,
+            env,
+            attachment_manager,
+            notify,
+            request_rx,
+        ));
+
+        table.materialize_writer(node_handle, fd, request_tx);
     }
 
     /// Route a read request to the channel's reader task and block for the result.
-    pub fn read(&self, handle: ChannelHandle, buffer: SendableMutPtr) -> (isize, i32) {
-        let tx = self.channel_table.lock().get_reader_tx(handle).cloned();
+    /// Materializes stdin lazily on first call.
+    pub fn read(
+        &self,
+        node_handle: Handle,
+        fd: isize,
+        buffer: SendableMutPtr,
+        dep_iterator: Option<OwnedDependencyIterator>,
+    ) -> (isize, i32) {
+        // Check if fd is allowed
+        if !self.channel_table.lock().is_allowed(node_handle, fd) {
+            warn!(node = ?node_handle, fd = fd, "read: fd not registered");
+            return (-1, EBADF);
+        }
+
+        // Lazy materialization of stdin
+        if let Some(deps) = dep_iterator {
+            self.ensure_stdin_materialized(node_handle, deps);
+        }
+
+        let tx = self.channel_table.lock().get_reader_tx(node_handle, fd).cloned();
         if let Some(tx) = tx {
             let (resp_tx, resp_rx) = oneshot::channel();
             if tx
@@ -263,74 +396,72 @@ impl IoBridge {
                 })
                 .is_err()
             {
-                warn!(channel = ?handle, "reader task has exited");
+                warn!(node = ?node_handle, fd = fd, "reader task has exited");
                 return (-1, EPIPE);
             }
             resp_rx.blocking_recv().unwrap_or((-1, EPIPE))
         } else {
-            warn!(channel = ?handle, "reader not available");
+            warn!(node = ?node_handle, fd = fd, "reader not materialized");
             (-1, EBADF)
         }
     }
 
-    /// Spawn an async write task and block for the result.
+    /// Route a write request to the channel's writer task and block for the result.
+    /// Materializes writer lazily on first call.
     pub fn write(
         &self,
         node_handle: Handle,
-        std_handle: actor_runtime::StdHandle,
+        fd: isize,
         data: SendableConstPtr,
     ) -> (isize, i32) {
-        let (tx, rx) = oneshot::channel::<(isize, i32)>();
-        let env = Arc::clone(&self.env);
-        let attachment_manager = Arc::clone(&self.attachment_manager);
-        let notify = Arc::clone(&self.notify);
-        tokio::spawn(async move {
-            // SAFETY: Buffer remains valid because awrite() blocks until response is sent
-            let data = unsafe { &*data.into_raw() };
-            let result: (isize, i32) = match env
-                .pipe_pool
-                .touch_writer(node_handle, std_handle, &env.idgen)
-                .await
+        // Check if fd is allowed
+        if !self.channel_table.lock().is_allowed(node_handle, fd) {
+            warn!(node = ?node_handle, fd = fd, "write: fd not registered");
+            return (-1, EBADF);
+        }
+
+        // Lazy materialization of writer
+        self.ensure_writer_materialized(node_handle, fd);
+
+        let tx = self.channel_table.lock().get_writer_tx(node_handle, fd).cloned();
+        if let Some(tx) = tx {
+            let (resp_tx, resp_rx) = oneshot::channel();
+            if tx
+                .send(WriteRequest {
+                    data,
+                    response: resp_tx,
+                })
+                .is_err()
             {
-                Ok((writer, is_new)) => {
-                    if is_new {
-                        attachment_manager.on_writer_realized(
-                            node_handle,
-                            std_handle,
-                            Arc::clone(&env.pipe_pool),
-                            Arc::clone(&env.idgen),
-                        );
-                    }
-                    let n = writer.write(data);
-                    if n < 0 {
-                        (-1, writer.get_error())
-                    } else {
-                        (n, 0)
-                    }
-                }
-                Err(e) => {
-                    warn!(node = ?node_handle, std = ?std_handle, error = %e, "failed to get writer");
-                    (-1, EIO)
-                }
-            };
-            notify.notify_one();
-            if tx.send(result).is_err() {
-                warn!(node = ?node_handle, std = ?std_handle, "write: reply receiver dropped");
+                warn!(node = ?node_handle, fd = fd, "writer task has exited");
+                return (-1, EPIPE);
             }
-        });
-        rx.blocking_recv().unwrap_or((-1, EIO))
+            resp_rx.blocking_recv().unwrap_or((-1, EPIPE))
+        } else {
+            warn!(node = ?node_handle, fd = fd, "writer not materialized");
+            (-1, EBADF)
+        }
     }
 
-    /// Close a channel. For readers: drops the sender (reader task exits). For writers: flushes.
-    pub fn close(&self, handle: ChannelHandle) -> (isize, i32) {
-        let channel = self.channel_table.lock().remove(handle);
+    /// Close a specific fd for an actor. Drops the channel task and flushes writers.
+    pub fn close(&self, node_handle: Handle, fd: isize) -> (isize, i32) {
+        let channel = self.channel_table.lock().remove(node_handle, fd);
         match channel {
-            Some(Channel::Reader { .. }) => (0, 0),
-            Some(Channel::Writer {
-                node_handle,
-                std_handle,
-            }) => {
-                debug!(channel = ?handle, node = ?node_handle, std = ?std_handle, "closing writer channel");
+            Some(Channel::Reader { .. }) => {
+                debug!(node = ?node_handle, fd = fd, "closed reader channel");
+                (0, 0)
+            }
+            Some(Channel::Writer { .. }) => {
+                let std_handle = match fd {
+                    1 => actor_runtime::StdHandle::Stdout,
+                    2 => actor_runtime::StdHandle::Log,
+                    _ => {
+                        warn!(node = ?node_handle, fd = fd, "close: invalid writer fd");
+                        return (-1, EBADF);
+                    }
+                };
+
+                debug!(node = ?node_handle, fd = fd, "closing writer channel");
                 if let Some(writer) = self
                     .env
                     .pipe_pool
@@ -365,51 +496,10 @@ impl IoBridge {
                 rx.blocking_recv().unwrap_or((-1, EIO))
             }
             None => {
-                warn!(channel = ?handle, "channel not found");
+                warn!(node = ?node_handle, fd = fd, "close: channel not found");
                 (-1, EBADF)
             }
         }
-    }
-
-    /// Close a writer directly via `PipePool` and flush.
-    pub fn close_writer(
-        &self,
-        node_handle: Handle,
-        std_handle: actor_runtime::StdHandle,
-    ) -> (isize, i32) {
-        if let Some(writer) = self
-            .env
-            .pipe_pool
-            .get_already_realized_writer((node_handle, std_handle))
-        {
-            writer.close();
-            debug!(node = ?node_handle, std = ?std_handle, "closed writer pipe");
-        }
-        let (tx, rx) = oneshot::channel::<(isize, i32)>();
-        let env = Arc::clone(&self.env);
-        let notify = Arc::clone(&self.notify);
-        tokio::spawn(async move {
-            let result: (isize, i32) = if let Some(writer) = env
-                .pipe_pool
-                .get_already_realized_writer((node_handle, std_handle))
-            {
-                match env.kv.flush_buffer(&writer.buffer()).await {
-                    Ok(()) => (0, 0),
-                    Err(e) => {
-                        warn!(error = ?e, "failed to flush buffer");
-                        (-1, EIO)
-                    }
-                }
-            } else {
-                warn!(node = ?node_handle, std = ?std_handle, "close_writer: writer not found for flush");
-                (-1, EBADF)
-            };
-            notify.notify_one();
-            if tx.send(result).is_err() {
-                warn!(node = ?node_handle, std = ?std_handle, "close_writer: reply receiver dropped");
-            }
-        });
-        rx.blocking_recv().unwrap_or((-1, EIO))
     }
 
     pub fn cleanup_actor_io(&self, node_handle: Handle, exit_code: i32) {
@@ -418,8 +508,8 @@ impl IoBridge {
             .pipe_pool
             .close_actor_writers(node_handle, exit_code);
 
-        debug!(node = ?node_handle, "cleanup_actor_io: dropping reader channels");
-        self.channel_table.lock().drop_actor_readers(node_handle);
+        debug!(node = ?node_handle, "cleanup_actor_io: dropping all entries");
+        self.channel_table.lock().drop_actor_entries(node_handle);
     }
 
     /// Wait for all attachment tasks to complete. Call after all actors have shut down.
