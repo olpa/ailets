@@ -29,7 +29,7 @@ use crate::suspension::SuspensionState;
 pub struct BlockingActorRuntime {
     /// This actor's node handle (used as actor identifier)
     node_handle: Handle,
-    bridge: Arc<IoBridge>,
+    io_bridge: Arc<IoBridge>,
     /// Per-actor fd table (POSIX fd → global `ChannelHandle`)
     fd_table: Mutex<FdTable>,
     /// Shared suspension state (owned by Environment)
@@ -46,7 +46,7 @@ impl Drop for BlockingActorRuntime {
     fn drop(&mut self) {
         self.suspension.deregister(self.node_handle);
         let exit_code = self.exit_code.load(Ordering::Relaxed);
-        self.bridge.actor_shutdown(self.node_handle, exit_code);
+        self.io_bridge.actor_shutdown(self.node_handle, exit_code);
     }
 }
 
@@ -54,13 +54,13 @@ impl BlockingActorRuntime {
     #[must_use]
     pub fn new(
         node_handle: Handle,
-        bridge: Arc<IoBridge>,
+        io_bridge: Arc<IoBridge>,
         suspension: Arc<SuspensionState>,
         stdin_dep_iterator: OwnedDependencyIterator,
     ) -> Self {
         Self {
             node_handle,
-            bridge,
+            io_bridge,
             fd_table: Mutex::new(FdTable::new()),
             suspension,
             last_errno: AtomicI32::new(0),
@@ -127,7 +127,7 @@ impl BlockingActorRuntime {
             return None;
         };
         let handle = self
-            .bridge
+            .io_bridge
             .materialize_stdin(self.node_handle, dep_iterator);
         if let Some(entry) = self.fd_table.lock().get_mut(fd) {
             *entry = FdEntry::ActiveReader(handle);
@@ -142,7 +142,7 @@ impl ActorRuntime for BlockingActorRuntime {
     }
 
     fn open_read(&self, _name: &str) -> isize {
-        let channel_handle = self.bridge.open_read(self.node_handle);
+        let channel_handle = self.io_bridge.open_read(self.node_handle);
         let (fd, errno) = self
             .fd_table
             .lock()
@@ -195,7 +195,7 @@ impl ActorRuntime for BlockingActorRuntime {
 
         // SAFETY: buffer is valid for the duration of blocking_recv inside bridge.read
         let buffer_ptr = unsafe { SendableMutPtr::new(buffer) };
-        self.bridged_io(|| self.bridge.read(channel_handle, buffer_ptr))
+        self.bridged_io(|| self.io_bridge.read(channel_handle, buffer_ptr))
     }
 
     fn awrite(&self, fd: isize, buffer: &[u8]) -> isize {
@@ -234,7 +234,7 @@ impl ActorRuntime for BlockingActorRuntime {
 
         // SAFETY: buffer is valid for the duration of blocking_recv inside bridge.write
         let buffer_ptr = unsafe { SendableConstPtr::new(buffer) };
-        self.bridged_io(|| self.bridge.write(node_handle, std_handle, buffer_ptr))
+        self.bridged_io(|| self.io_bridge.write(node_handle, std_handle, buffer_ptr))
     }
 
     fn aclose(&self, fd: isize) -> isize {
@@ -250,12 +250,12 @@ impl ActorRuntime for BlockingActorRuntime {
             // Never materialized — nothing to close
             FdEntry::AllowedReader | FdEntry::AllowedWriter => 0,
             FdEntry::ActiveReader(channel_handle) => {
-                self.bridged_io(|| self.bridge.close(channel_handle))
+                self.bridged_io(|| self.io_bridge.close(channel_handle))
             }
             FdEntry::ActiveWriter {
                 node_handle,
                 std_handle,
-            } => self.bridged_io(|| self.bridge.close_writer(node_handle, std_handle)),
+            } => self.bridged_io(|| self.io_bridge.close_writer(node_handle, std_handle)),
         }
     }
 
