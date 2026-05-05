@@ -121,15 +121,17 @@ impl BlockingActorRuntime {
         result
     }
 
-    fn materialize_stdin_handle(&self, fd: isize) -> Option<ChannelHandle> {
-        let Some(dep_iterator) = self.stdin_dep_iterator.lock().take() else {
-            error!(actor = ?self.node_handle, "aread: stdin iterator already consumed");
-            return None;
-        };
+    /// Materialize stdin by consuming the dependency iterator.
+    fn materialize_stdin_handle(
+        &self,
+        fd: isize,
+        table: &mut parking_lot::MutexGuard<'_, FdTable>,
+    ) -> Option<ChannelHandle> {
+        let dep_iterator = self.stdin_dep_iterator.lock().take()?;
         let handle = self
             .io_bridge
             .materialize_stdin(self.node_handle, dep_iterator);
-        if let Some(entry) = self.fd_table.lock().get_mut(fd) {
+        if let Some(entry) = table.get_mut(fd) {
             *entry = FdEntry::ActiveReader(handle);
         }
         Some(handle)
@@ -169,12 +171,12 @@ impl ActorRuntime for BlockingActorRuntime {
     fn aread(&self, fd: isize, buffer: &mut [u8]) -> isize {
         // Get the channel handle, materializing stdin if needed
         let channel_handle = {
-            let guard = self.fd_table.lock();
-            match guard.get(fd) {
+            let mut table = self.fd_table.lock();
+            match table.get(fd) {
                 Some(FdEntry::ActiveReader(handle)) => *handle,
                 Some(FdEntry::AllowedReader) => {
-                    drop(guard);
-                    let Some(h) = self.materialize_stdin_handle(fd) else {
+                    let Some(h) = self.materialize_stdin_handle(fd, &mut table) else {
+                        error!(actor = ?self.node_handle, "aread: stdin iterator already consumed");
                         self.last_errno.store(EIO, Ordering::Relaxed);
                         return -1;
                     };
