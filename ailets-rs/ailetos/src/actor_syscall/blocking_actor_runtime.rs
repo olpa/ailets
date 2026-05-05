@@ -12,12 +12,14 @@ use std::sync::Arc;
 
 use actor_runtime::ActorRuntime;
 use parking_lot::Mutex;
-use tracing::{error, warn};
+use tokio::sync::{mpsc, oneshot};
+use tracing::{debug, error, warn};
 
 use super::fd_table::{FdEntry, FdTable};
 use super::io_bridge::{ChannelHandle, IoBridge};
+use super::lifecycle_event::ActorLifecycleEvent;
 use super::sendable_buffer::{SendableConstPtr, SendableMutPtr};
-use crate::dag::OwnedDependencyIterator;
+use crate::dag::{NodeState, OwnedDependencyIterator};
 use crate::errno::{EBADF, EIO, EOWNERDEAD};
 use crate::idgen::Handle;
 use crate::suspension::SuspensionState;
@@ -40,13 +42,13 @@ pub struct BlockingActorRuntime {
     exit_code: AtomicI32,
     /// Pre-built dependency iterator for stdin; consumed on first read
     stdin_dep_iterator: Mutex<Option<OwnedDependencyIterator>>,
+    /// Channel to notify executor of lifecycle events (Terminating/Terminated)
+    actor_done_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
 }
 
 impl Drop for BlockingActorRuntime {
     fn drop(&mut self) {
-        self.suspension.deregister(self.node_handle);
-        let exit_code = self.exit_code.load(Ordering::Relaxed);
-        self.io_bridge.actor_shutdown(self.node_handle, exit_code);
+        self.shutdown();
     }
 }
 
@@ -57,6 +59,7 @@ impl BlockingActorRuntime {
         io_bridge: Arc<IoBridge>,
         suspension: Arc<SuspensionState>,
         stdin_dep_iterator: OwnedDependencyIterator,
+        actor_done_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
     ) -> Self {
         Self {
             node_handle,
@@ -66,6 +69,52 @@ impl BlockingActorRuntime {
             last_errno: AtomicI32::new(0),
             exit_code: AtomicI32::new(0),
             stdin_dep_iterator: Mutex::new(Some(stdin_dep_iterator)),
+            actor_done_tx,
+        }
+    }
+
+    fn shutdown(&self) {
+        // Notify executor we're terminating
+        let (tx, rx) = oneshot::channel::<NodeState>();
+        if self
+            .actor_done_tx
+            .send(ActorLifecycleEvent::Terminating {
+                node_handle: self.node_handle,
+                reply: tx,
+            })
+            .is_err()
+        {
+            warn!(node = ?self.node_handle, "shutdown: executor gone");
+            return;
+        }
+
+        let prior = rx.blocking_recv().unwrap_or(NodeState::Terminating);
+        if matches!(prior, NodeState::Terminating | NodeState::Terminated) {
+            debug!(node = ?self.node_handle, "shutdown: already terminating/terminated");
+            return;
+        }
+
+        // Cleanup
+        let exit_code = self.exit_code.load(Ordering::Relaxed);
+        self.suspension.deregister(self.node_handle);
+        self.io_bridge.cleanup_actor_io(self.node_handle, exit_code);
+
+        // Notify executor we're terminated
+        let (tx2, rx2) = oneshot::channel::<NodeState>();
+        if self
+            .actor_done_tx
+            .send(ActorLifecycleEvent::Terminated {
+                node_handle: self.node_handle,
+                exit_code,
+                reply: tx2,
+            })
+            .is_err()
+        {
+            warn!(node = ?self.node_handle, "shutdown: executor gone before Terminated");
+            return;
+        }
+        if rx2.blocking_recv().is_err() {
+            warn!(node = ?self.node_handle, "shutdown: Terminated reply dropped");
         }
     }
 

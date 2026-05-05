@@ -1,5 +1,8 @@
 //! POSIX errno constants used by the actor runtime error propagation chain.
 
+/// No such file, directory, or entity.
+pub const ENOENT: i32 = 2;
+
 /// I/O error: returned when an infrastructure operation (e.g. flush) fails.
 pub const EIO: i32 = 5;
 

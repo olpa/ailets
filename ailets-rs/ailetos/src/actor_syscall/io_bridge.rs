@@ -34,16 +34,6 @@
 //!   blocking_recv() …          → oneshot reply
 //!   ← (bytes, errno)
 //! ```
-//!
-//! # Actor shutdown (two-phase)
-//!
-//! `actor_shutdown` is called from `ShutdownHandle::drop` on the blocking thread.
-//! It executes the two-phase lifecycle protocol synchronously using `blocking_recv`:
-//!
-//! 1. Send `ActorLifecycleEvent::Terminating`, block for executor reply.
-//!    If already terminating/terminated, return early.
-//! 2. Close writers, drop reader channels (reader tasks exit naturally).
-//! 3. Send `ActorLifecycleEvent::Terminated`, block for executor reply.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -52,10 +42,9 @@ use parking_lot::Mutex;
 use tokio::sync::{mpsc, oneshot, Notify};
 use tracing::{debug, warn};
 
-use super::lifecycle_event::ActorLifecycleEvent;
 use super::sendable_buffer::{SendableConstPtr, SendableMutPtr};
 use crate::attachments::AttachmentManager;
-use crate::dag::{NodeState, OwnedDependencyIterator};
+use crate::dag::OwnedDependencyIterator;
 use crate::environment::Environment;
 use crate::errno::{EBADF, EIO, EPIPE};
 use crate::idgen::Handle;
@@ -197,20 +186,11 @@ pub struct IoBridge {
     /// - a pipe is realized
     /// - a writer is closed
     notify: Arc<Notify>,
-    /// Signals the executor when an actor's I/O is fully torn down.
-    /// Out-of-domain for the IO bridge: the executor owns actor lifecycle state, but
-    /// the signal originates here because I/O cleanup must complete before the executor
-    /// can mark the actor Terminated and update DAG state.
-    actor_done_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
 }
 
 impl IoBridge {
     #[must_use]
-    pub fn new(
-        env: Arc<Environment>,
-        notify: Arc<Notify>,
-        actor_done_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
-    ) -> Self {
+    pub fn new(env: Arc<Environment>, notify: Arc<Notify>) -> Self {
         let attachment_manager =
             Arc::new(AttachmentManager::new(env.attachment_config.read().clone()));
         Self {
@@ -218,7 +198,6 @@ impl IoBridge {
             channel_table: Mutex::new(ChannelTable::new()),
             attachment_manager,
             notify,
-            actor_done_tx,
         }
     }
 
@@ -433,54 +412,14 @@ impl IoBridge {
         rx.blocking_recv().unwrap_or((-1, EIO))
     }
 
-    /// Execute two-phase actor shutdown from a blocking thread.
-    ///
-    /// Uses `blocking_recv` to wait for executor replies at each phase.
-    /// Idempotent: if the actor is already Terminating or Terminated, returns early.
-    pub fn actor_shutdown(&self, node_handle: Handle, exit_code: i32) {
-        let (tx, rx) = oneshot::channel::<NodeState>();
-        if self
-            .actor_done_tx
-            .send(ActorLifecycleEvent::Terminating {
-                node_handle,
-                reply: tx,
-            })
-            .is_err()
-        {
-            warn!(node = ?node_handle, "actor shutdown - executor gone, dropping");
-            return;
-        }
-
-        let prior = rx.blocking_recv().unwrap_or(NodeState::Terminating);
-        if matches!(prior, NodeState::Terminating | NodeState::Terminated) {
-            debug!(node = ?node_handle, "actor shutdown - already terminating/terminated, ignoring");
-            return;
-        }
-
-        debug!(node = ?node_handle, exit_code, "actor shutdown - closing all writers");
+    pub fn cleanup_actor_io(&self, node_handle: Handle, exit_code: i32) {
+        debug!(node = ?node_handle, exit_code, "cleanup_actor_io: closing writers");
         self.env
             .pipe_pool
             .close_actor_writers(node_handle, exit_code);
 
-        debug!(node = ?node_handle, "actor shutdown - dropping reader channels");
+        debug!(node = ?node_handle, "cleanup_actor_io: dropping reader channels");
         self.channel_table.lock().drop_actor_readers(node_handle);
-
-        let (tx2, rx2) = oneshot::channel::<NodeState>();
-        if self
-            .actor_done_tx
-            .send(ActorLifecycleEvent::Terminated {
-                node_handle,
-                exit_code,
-                reply: tx2,
-            })
-            .is_err()
-        {
-            warn!(node = ?node_handle, "actor shutdown - executor gone before Terminated");
-            return;
-        }
-        if rx2.blocking_recv().is_err() {
-            warn!(node = ?node_handle, "actor shutdown - Terminated reply dropped");
-        }
     }
 
     /// Wait for all attachment tasks to complete. Call after all actors have shut down.

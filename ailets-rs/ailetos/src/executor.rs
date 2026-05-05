@@ -192,6 +192,7 @@ async fn run_spawn_loop(
     bridge: &Arc<IoBridge>,
     mut pending: Vec<Handle>,
     notify: &Arc<tokio::sync::Notify>,
+    actor_done_tx: &mpsc::UnboundedSender<ActorLifecycleEvent>,
 ) -> Vec<tokio::task::JoinHandle<()>> {
     let mut actor_tasks = Vec::new();
 
@@ -210,10 +211,14 @@ async fn run_spawn_loop(
 
             let Some(actor_fn) = env.actor_registry.read().get(idname) else {
                 warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
-                // Terminate the node explicitly so dependents are not blocked.
-                let bridge_clone = Arc::clone(bridge);
-                let nh = *node_handle;
-                tokio::task::spawn_blocking(move || bridge_clone.actor_shutdown(nh, 0));
+                // Mark as terminated so dependents are not blocked.
+                // No lifecycle events needed since the actor was never started.
+                {
+                    let mut dag = env.dag.write();
+                    dag.set_exit_code(*node_handle, crate::errno::ENOENT);
+                    dag.set_state(*node_handle, NodeState::Terminated);
+                }
+                notify.notify_one();
                 continue;
             };
 
@@ -237,6 +242,7 @@ async fn run_spawn_loop(
                 Arc::clone(bridge),
                 Arc::clone(&env.suspension),
                 dep_iterator,
+                actor_done_tx.clone(),
             );
             actor_tasks.push(spawn_actor_task(
                 *node_handle,
@@ -282,11 +288,7 @@ pub async fn run_with_tx(
     let notify = Arc::new(tokio::sync::Notify::new());
     let (actor_done_tx, actor_done_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
 
-    let bridge = Arc::new(IoBridge::new(
-        Arc::clone(&env),
-        Arc::clone(&notify),
-        actor_done_tx,
-    ));
+    let bridge = Arc::new(IoBridge::new(Arc::clone(&env), Arc::clone(&notify)));
 
     if let Some(sender) = tx_out {
         sender.send(Arc::clone(&bridge)).ok();
@@ -306,10 +308,10 @@ pub async fn run_with_tx(
             .collect()
     };
 
-    let actor_tasks = run_spawn_loop(&env, &bridge, pending, &notify).await;
+    let actor_tasks = run_spawn_loop(&env, &bridge, pending, &notify, &actor_done_tx).await;
 
-    // Join actor tasks first: ShutdownHandle::drop calls bridge.actor_shutdown(),
-    // which blocks on actor_done_task replies — so actor_done_task must still be
+    // Join actor tasks first: BlockingActorRuntime::drop sends lifecycle events
+    // and blocks on actor_done_task replies — so actor_done_task must still be
     // running here.
     for task in actor_tasks {
         if let Err(e) = task.await {
@@ -320,7 +322,8 @@ pub async fn run_with_tx(
     // All actors done; wait for attachment tasks.
     bridge.shutdown().await;
 
-    // Dropping bridge closes actor_done_tx, signalling actor_done_task to exit.
+    // Dropping actor_done_tx signals actor_done_task to exit.
+    drop(actor_done_tx);
     drop(bridge);
 
     if let Err(e) = actor_done_task.await {
