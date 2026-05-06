@@ -122,7 +122,7 @@ impl Environment {
         };
 
         // Write data to KV storage immediately (spec://executor.md#immediate-values)
-        let path = pipe_path(handle, StdHandle::Stdout);
+        let path = pipe_path(handle, StdHandle::Stdout as isize);
         write_completed_buffer(self.kv.as_ref(), &path, &data).await?;
 
         Ok(handle)

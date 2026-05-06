@@ -96,11 +96,11 @@ impl MergeReader {
         // (close_actor_writers has already run, so latent would wait forever)
         let allow_latent = dep_state != NodeState::Terminated;
 
-        // Try pipe pool first (dependencies always output to stdout)
+        // Try pipe pool first (dependencies always output to stdout, fd=1)
         match self
             .pipe_pool
             .get_or_await_reader(
-                (dep_handle, actor_runtime::StdHandle::Stdout),
+                (dep_handle, actor_runtime::StdHandle::Stdout as isize),
                 allow_latent,
                 &self.id_gen,
             )
@@ -130,7 +130,8 @@ impl MergeReader {
         use super::allocator::create_reader_from_completed;
         use super::pipe_path;
 
-        let path = pipe_path(actor_handle, actor_runtime::StdHandle::Stdout);
+        // Dependencies always output to stdout (fd=1)
+        let path = pipe_path(actor_handle, actor_runtime::StdHandle::Stdout as isize);
         let reader_handle = crate::idgen::Handle::new(self.id_gen.get_next());
 
         create_reader_from_completed(self.kv.as_ref(), reader_handle, &path).await

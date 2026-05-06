@@ -1,6 +1,6 @@
 //! `PipePool` - manages output pipes for actors
 //!
-//! Each (actor, `StdHandle`) pair can have its own output pipe. Readers are created on-demand
+//! Each (actor, fd) pair can have its own output pipe. Readers are created on-demand
 //! when consuming actors need to read from dependencies.
 //!
 //! ## Latent Pipes
@@ -18,7 +18,6 @@
 
 use std::sync::Arc;
 
-use actor_runtime::StdHandle;
 use parking_lot::Mutex;
 use tracing::debug;
 
@@ -71,12 +70,12 @@ enum WriterState {
     },
 }
 
-/// Pool of output pipes, indexed by (actor handle, `StdHandle`) pair
+/// Pool of output pipes, indexed by (actor handle, fd) pair
 ///
 /// Uses interior mutability via `Mutex` to allow shared access through `Arc<PipePool>`.
 pub struct PipePool {
     /// Writers in various states (Realized or Latent)
-    writers: Mutex<Vec<(Handle, StdHandle, WriterState)>>,
+    writers: Mutex<Vec<(Handle, isize, WriterState)>>,
     /// Key-value store for pipe buffers
     kv: Arc<dyn KVBuffers>,
     /// Notification queue for pipe data events
@@ -111,7 +110,7 @@ impl PipePool {
     /// - `WouldBlock`: Pipe doesn't exist yet but `allow_latent=false`
     pub async fn get_or_await_reader(
         &self,
-        key: (Handle, StdHandle),
+        key: (Handle, isize),
         allow_latent: bool,
         id_gen: &IdGen,
     ) -> Result<Reader, PipeError> {
@@ -194,10 +193,10 @@ impl PipePool {
     pub async fn touch_writer(
         &self,
         actor_handle: Handle,
-        std_handle: StdHandle,
+        fd: isize,
         id_gen: &IdGen,
     ) -> Result<(Arc<Writer>, bool), crate::storage::KVError> {
-        let key = (actor_handle, std_handle);
+        let key = (actor_handle, fd);
 
         // Fast path: writer already realized
         {
@@ -214,7 +213,7 @@ impl PipePool {
 
         // Slow path: create writer
         let writer_handle = Handle::new(id_gen.get_next());
-        let path = pipe_path(actor_handle, std_handle);
+        let path = pipe_path(actor_handle, fd);
 
         // Create writer with buffer from KV storage
         let writer = create_writer(
@@ -314,7 +313,7 @@ impl PipePool {
     /// Returns None if the pipe doesn't exist or is still latent.
     ///
     /// The returned Arc shares ownership of the writer, preventing premature closure.
-    pub fn get_already_realized_writer(&self, key: (Handle, StdHandle)) -> Option<Arc<Writer>> {
+    pub fn get_already_realized_writer(&self, key: (Handle, isize)) -> Option<Arc<Writer>> {
         let writers = self.writers.lock();
         let existing_state = writers
             .iter()

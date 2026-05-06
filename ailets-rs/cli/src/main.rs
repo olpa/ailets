@@ -909,7 +909,7 @@ Variables:
             .map(|j| Arc::clone(&j.bridge))
             .ok_or("No background job running")?;
 
-        bridge.actor_shutdown(handle, exit_code);
+        bridge.cleanup_actor_io(handle, exit_code);
 
         println!("Killed node {} with exit code {}", handle.id(), exit_code);
         Ok(())

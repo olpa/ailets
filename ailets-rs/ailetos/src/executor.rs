@@ -62,7 +62,7 @@ pub fn is_ready_to_spawn(node_handle: Handle, dag: &Dag, pipe_pool: &PipePool) -
             NodeState::NotStarted => return false,
             NodeState::Running | NodeState::Terminating => {
                 return pipe_pool
-                    .get_already_realized_writer((dep, StdHandle::Stdout))
+                    .get_already_realized_writer((dep, StdHandle::Stdout as isize))
                     .is_some();
             }
             NodeState::Terminated => {
@@ -70,7 +70,7 @@ pub fn is_ready_to_spawn(node_handle: Handle, dag: &Dag, pipe_pool: &PipePool) -
                     return false;
                 }
                 if pipe_pool
-                    .get_already_realized_writer((dep, StdHandle::Stdout))
+                    .get_already_realized_writer((dep, StdHandle::Stdout as isize))
                     .is_some()
                 {
                     return true;

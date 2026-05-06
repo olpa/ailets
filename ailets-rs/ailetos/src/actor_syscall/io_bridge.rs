@@ -92,6 +92,7 @@ async fn run_reader_task(
 /// i.e., when the channel entry is removed from `ChannelTable` on close or shutdown.
 async fn run_writer_task(
     node_handle: Handle,
+    fd: isize,
     std_handle: actor_runtime::StdHandle,
     env: Arc<Environment>,
     attachment_manager: Arc<AttachmentManager>,
@@ -99,11 +100,7 @@ async fn run_writer_task(
     mut request_rx: mpsc::UnboundedReceiver<WriteRequest>,
 ) {
     // Get/create writer once at task startup
-    let writer = match env
-        .pipe_pool
-        .touch_writer(node_handle, std_handle, &env.idgen)
-        .await
-    {
+    let writer = match env.pipe_pool.touch_writer(node_handle, fd, &env.idgen).await {
         Ok((writer, is_new)) => {
             if is_new {
                 attachment_manager.on_writer_realized(
@@ -116,7 +113,7 @@ async fn run_writer_task(
             writer
         }
         Err(e) => {
-            warn!(node = ?node_handle, std = ?std_handle, error = %e, "writer task: failed to create writer");
+            warn!(node = ?node_handle, fd = fd, error = %e, "writer task: failed to create writer");
             // Send EIO to all incoming requests
             while let Some(WriteRequest { response, .. }) = request_rx.recv().await {
                 let _ = response.send((-1, EIO));
@@ -137,7 +134,7 @@ async fn run_writer_task(
         };
         notify.notify_one();
         if response.send(result).is_err() {
-            warn!(node = ?node_handle, std = ?std_handle, "writer task: reply receiver dropped, actor may have exited");
+            warn!(node = ?node_handle, fd = fd, "writer task: reply receiver dropped, actor may have exited");
         }
     }
 }
@@ -154,7 +151,6 @@ pub(crate) enum FdState {
     },
     /// Writer has been materialized with a writer task
     MaterializedWriter {
-        std_handle: actor_runtime::StdHandle,
         request_tx: mpsc::UnboundedSender<WriteRequest>,
     },
 }
@@ -303,22 +299,20 @@ impl IoBridge {
 
     /// Ensure writer task is spawned for (node_handle, fd).
     /// Called lazily on the actor's first write to the fd.
-    /// Returns the StdHandle if successful, None if fd is not an allowed writer.
-    fn ensure_writer_materialized(
-        &self,
-        node_handle: Handle,
-        fd: isize,
-    ) -> Option<actor_runtime::StdHandle> {
+    /// Returns true if successful, false if fd is not an allowed writer.
+    fn ensure_writer_materialized(&self, node_handle: Handle, fd: isize) -> bool {
         let mut table = self.channel_table.lock();
 
-        // Check current state and get StdHandle
-        let std_handle = match table.get_state(node_handle, fd)? {
-            FdState::AllowedWriter(sh) => *sh,
-            FdState::MaterializedWriter { std_handle, .. } => return Some(*std_handle),
-            FdState::AllowedReader(_) | FdState::MaterializedReader { .. } => return None,
+        // Check current state and get StdHandle for attachment manager
+        let std_handle = match table.get_state(node_handle, fd) {
+            Some(FdState::AllowedWriter(sh)) => *sh,
+            Some(FdState::MaterializedWriter { .. }) => return true,
+            Some(FdState::AllowedReader(_) | FdState::MaterializedReader { .. }) | None => {
+                return false
+            }
         };
 
-        debug!(actor = ?node_handle, fd = fd, std = ?std_handle, "materializing writer");
+        debug!(actor = ?node_handle, fd = fd, "materializing writer");
         let (request_tx, request_rx) = mpsc::unbounded_channel::<WriteRequest>();
 
         let env = Arc::clone(&self.env);
@@ -326,6 +320,7 @@ impl IoBridge {
         let notify = Arc::clone(&self.notify);
         tokio::spawn(run_writer_task(
             node_handle,
+            fd,
             std_handle,
             env,
             attachment_manager,
@@ -334,13 +329,10 @@ impl IoBridge {
         ));
 
         if let Some(state) = table.get_state_mut(node_handle, fd) {
-            *state = FdState::MaterializedWriter {
-                std_handle,
-                request_tx,
-            };
+            *state = FdState::MaterializedWriter { request_tx };
         }
 
-        Some(std_handle)
+        true
     }
 
     /// Route a read request to the channel's reader task and block for the result.
@@ -406,7 +398,7 @@ impl IoBridge {
     /// Materializes writer lazily on first call.
     pub fn write(&self, node_handle: Handle, fd: isize, data: SendableConstPtr) -> (isize, i32) {
         // Lazy materialization of writer (also validates it's a writer fd)
-        if self.ensure_writer_materialized(node_handle, fd).is_none() {
+        if !self.ensure_writer_materialized(node_handle, fd) {
             warn!(node = ?node_handle, fd = fd, "write: fd not a writer or not registered");
             return (-1, EBADF);
         }
@@ -451,12 +443,12 @@ impl IoBridge {
                 debug!(node = ?node_handle, fd = fd, "closed allowed writer (never materialized)");
                 (0, 0)
             }
-            Some(FdState::MaterializedWriter { std_handle, .. }) => {
-                debug!(node = ?node_handle, fd = fd, std = ?std_handle, "closing writer channel");
+            Some(FdState::MaterializedWriter { .. }) => {
+                debug!(node = ?node_handle, fd = fd, "closing writer channel");
                 if let Some(writer) = self
                     .env
                     .pipe_pool
-                    .get_already_realized_writer((node_handle, std_handle))
+                    .get_already_realized_writer((node_handle, fd))
                 {
                     writer.close();
                 }
@@ -464,9 +456,8 @@ impl IoBridge {
                 let env = Arc::clone(&self.env);
                 let notify = Arc::clone(&self.notify);
                 tokio::spawn(async move {
-                    let result: (isize, i32) = if let Some(writer) = env
-                        .pipe_pool
-                        .get_already_realized_writer((node_handle, std_handle))
+                    let result: (isize, i32) = if let Some(writer) =
+                        env.pipe_pool.get_already_realized_writer((node_handle, fd))
                     {
                         match env.kv.flush_buffer(&writer.buffer()).await {
                             Ok(()) => (0, 0),
@@ -476,12 +467,12 @@ impl IoBridge {
                             }
                         }
                     } else {
-                        warn!(node = ?node_handle, std = ?std_handle, "writer not found for flush");
+                        warn!(node = ?node_handle, fd = fd, "writer not found for flush");
                         (-1, EIO)
                     };
                     notify.notify_one();
                     if tx.send(result).is_err() {
-                        warn!(node = ?node_handle, std = ?std_handle, "close: reply receiver dropped");
+                        warn!(node = ?node_handle, fd = fd, "close: reply receiver dropped");
                     }
                 });
                 rx.blocking_recv().unwrap_or((-1, EIO))

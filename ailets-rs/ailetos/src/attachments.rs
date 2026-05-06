@@ -113,7 +113,7 @@ impl AttachmentManager {
         let task = tokio::spawn(async move {
             // Get reader for the realized writer
             let reader = match pipe_pool
-                .get_or_await_reader((node_handle, std_handle), false, &id_gen)
+                .get_or_await_reader((node_handle, std_handle as isize), false, &id_gen)
                 .await
             {
                 Ok(reader) => reader,

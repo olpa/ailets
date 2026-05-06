@@ -5,8 +5,6 @@
 use parking_lot::Mutex;
 use std::sync::Arc;
 
-use actor_runtime::StdHandle;
-
 use crate::idgen::Handle;
 use crate::notification_queue::NotificationQueueArc;
 use crate::storage::{KVBuffers, KVError, OpenMode};
@@ -15,10 +13,10 @@ use super::reader::Reader;
 use super::rw_shared::{ReaderCountGuard, ReaderSharedData, SharedBuffer};
 use super::writer::Writer;
 
-/// Returns the KV path for an actor's pipe: `pipes/actor-{id}-{handle}`
+/// Returns the KV path for an actor's pipe: `pipes/actor-{id}-{fd}`
 #[must_use]
-pub fn pipe_path(actor_handle: Handle, std_handle: StdHandle) -> String {
-    format!("pipes/actor-{}-{:?}", actor_handle.id(), std_handle)
+pub fn pipe_path(actor_handle: Handle, fd: isize) -> String {
+    format!("pipes/actor-{}-{}", actor_handle.id(), fd)
 }
 
 /// Create a writer with buffer allocated from KV storage

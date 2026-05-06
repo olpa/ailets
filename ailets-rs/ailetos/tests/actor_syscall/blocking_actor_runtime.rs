@@ -70,7 +70,7 @@ async fn test_reader_to_actor_epipe_propagation() {
     // Realize dep's pipe and set EPIPE error so MergeReader sees it
     let (writer, _) = env
         .pipe_pool
-        .touch_writer(dep_handle, StdHandle::Stdout, &env.idgen)
+        .touch_writer(dep_handle, StdHandle::Stdout as isize, &env.idgen)
         .await
         .unwrap();
     writer.set_error(EPIPE);
@@ -118,7 +118,7 @@ async fn test_mark_failed_uses_epipe_from_last_read() {
 
     let (writer, _) = env
         .pipe_pool
-        .touch_writer(dep_handle, StdHandle::Stdout, &env.idgen)
+        .touch_writer(dep_handle, StdHandle::Stdout as isize, &env.idgen)
         .await
         .unwrap();
     writer.set_error(EPIPE);
