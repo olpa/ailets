@@ -93,7 +93,6 @@ async fn run_reader_task(
 async fn run_writer_task(
     node_handle: Handle,
     fd: isize,
-    std_handle: actor_runtime::StdHandle,
     env: Arc<Environment>,
     attachment_manager: Arc<AttachmentManager>,
     notify: Arc<Notify>,
@@ -105,7 +104,7 @@ async fn run_writer_task(
             if is_new {
                 attachment_manager.on_writer_realized(
                     node_handle,
-                    std_handle,
+                    fd,
                     Arc::clone(&env.pipe_pool),
                     Arc::clone(&env.idgen),
                 );
@@ -303,9 +302,9 @@ impl IoBridge {
     fn ensure_writer_materialized(&self, node_handle: Handle, fd: isize) -> bool {
         let mut table = self.channel_table.lock();
 
-        // Check current state and get StdHandle for attachment manager
-        let std_handle = match table.get_state(node_handle, fd) {
-            Some(FdState::AllowedWriter(sh)) => *sh,
+        // Check current state
+        match table.get_state(node_handle, fd) {
+            Some(FdState::AllowedWriter(_)) => {}
             Some(FdState::MaterializedWriter { .. }) => return true,
             Some(FdState::AllowedReader(_) | FdState::MaterializedReader { .. }) | None => {
                 return false
@@ -321,7 +320,6 @@ impl IoBridge {
         tokio::spawn(run_writer_task(
             node_handle,
             fd,
-            std_handle,
             env,
             attachment_manager,
             notify,

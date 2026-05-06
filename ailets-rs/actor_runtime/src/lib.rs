@@ -14,6 +14,7 @@ pub use runtime_trait::ActorRuntime;
 
 /// Standard handles for I/O streams.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(isize)]
 pub enum StdHandle {
     Stdin = 0,
     Stdout = 1,
@@ -23,6 +24,19 @@ pub enum StdHandle {
     Trace = 5,
     /// Sentinel value for counting. Must always be last.
     _Count,
+}
+
+impl TryFrom<isize> for StdHandle {
+    type Error = ();
+
+    fn try_from(value: isize) -> Result<Self, Self::Error> {
+        if value >= 0 && value < StdHandle::_Count as isize {
+            // SAFETY: value is in valid range and repr(isize) guarantees layout
+            Ok(unsafe { std::mem::transmute(value) })
+        } else {
+            Err(())
+        }
+    }
 }
 
 /// Convert an error to a heap-allocated C-string.

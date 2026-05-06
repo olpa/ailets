@@ -82,10 +82,14 @@ impl AttachmentManager {
     pub fn on_writer_realized(
         &self,
         node_handle: Handle,
-        std_handle: StdHandle,
+        fd: isize,
         pipe_pool: Arc<PipePool>,
         id_gen: Arc<IdGen>,
     ) {
+        let Ok(std_handle) = StdHandle::try_from(fd) else {
+            return;
+        };
+
         // Determine if attachment is needed
         let should_attach = match std_handle {
             StdHandle::Stdout => self.config.should_attach_stdout(node_handle),
@@ -101,24 +105,24 @@ impl AttachmentManager {
         let target = match std_handle {
             StdHandle::Stdout => AttachmentTarget::Stdout,
             StdHandle::Log | StdHandle::Metrics | StdHandle::Trace => AttachmentTarget::Stderr,
-            _ => {
-                error!(node = ?node_handle, std = ?std_handle, "internal error: unexpected std_handle in attachment target");
+            StdHandle::Stdin | StdHandle::Env | StdHandle::_Count => {
+                error!(node = ?node_handle, fd = fd, "internal error: unexpected fd in attachment target");
                 return;
             }
         };
 
-        debug!(node = ?node_handle, std = ?std_handle, target = ?target, "spawning attachment for realized writer");
+        debug!(node = ?node_handle, fd = fd, target = ?target, "spawning attachment for realized writer");
 
         // Spawn attachment task
         let task = tokio::spawn(async move {
             // Get reader for the realized writer
             let reader = match pipe_pool
-                .get_or_await_reader((node_handle, std_handle as isize), false, &id_gen)
+                .get_or_await_reader((node_handle, fd), false, &id_gen)
                 .await
             {
                 Ok(reader) => reader,
                 Err(e) => {
-                    warn!(node = ?node_handle, std = ?std_handle, error = ?e, "failed to get reader for attachment");
+                    warn!(node = ?node_handle, fd = fd, error = ?e, "failed to get reader for attachment");
                     return;
                 }
             };
