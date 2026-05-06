@@ -49,17 +49,6 @@ use crate::errno::{EBADF, EIO, EPIPE};
 use crate::idgen::Handle;
 use crate::pipe::MergeReader;
 
-/// A channel endpoint - either a reader or writer
-pub(crate) enum Channel {
-    /// Reader channel - routes requests to a dedicated reader task
-    Reader {
-        request_tx: mpsc::UnboundedSender<ReadRequest>,
-    },
-    /// Writer channel - routes requests to a dedicated writer task
-    Writer {
-        request_tx: mpsc::UnboundedSender<WriteRequest>,
-    },
-}
 
 /// A read request forwarded from `IoBridge` to a reader task.
 pub(crate) struct ReadRequest {
@@ -154,11 +143,20 @@ async fn run_writer_task(
 }
 
 /// State of an fd for an actor
-enum FdState {
-    /// Fd is allowed but not yet materialized (lazy)
-    Allowed,
-    /// Fd has been materialized with a channel task
-    Materialized(Channel),
+pub(crate) enum FdState {
+    /// Reader fd allowed but not yet materialized (lazy)
+    AllowedReader(actor_runtime::StdHandle),
+    /// Writer fd allowed but not yet materialized
+    AllowedWriter(actor_runtime::StdHandle),
+    /// Reader has been materialized with a reader task
+    MaterializedReader {
+        request_tx: mpsc::UnboundedSender<ReadRequest>,
+    },
+    /// Writer has been materialized with a writer task
+    MaterializedWriter {
+        std_handle: actor_runtime::StdHandle,
+        request_tx: mpsc::UnboundedSender<WriteRequest>,
+    },
 }
 
 /// Global table of open channel endpoints, analogous to the kernel's open-file-descriptions table.
@@ -177,90 +175,54 @@ impl ChannelTable {
         }
     }
 
-    /// Mark an fd as allowed for an actor
-    fn allow_fd(&mut self, node_handle: Handle, fd: isize) {
-        // Check if already exists
-        if self.entries.iter().any(|(h, f, _)| (*h, *f) == (node_handle, fd)) {
-            return;
-        }
-        self.entries.push((node_handle, fd, FdState::Allowed));
-    }
-
-    /// Check if fd is allowed (either Allowed or Materialized)
-    fn is_allowed(&self, node_handle: Handle, fd: isize) -> bool {
-        self.entries.iter().any(|(h, f, _)| (*h, *f) == (node_handle, fd))
-    }
-
-    /// Materialize a reader channel for (node_handle, fd)
-    fn materialize_reader(
-        &mut self,
-        node_handle: Handle,
-        fd: isize,
-        request_tx: mpsc::UnboundedSender<ReadRequest>,
-    ) {
-        // Find and update existing entry
-        if let Some((_, _, state)) = self.entries.iter_mut().find(|(h, f, _)| (*h, *f) == (node_handle, fd)) {
-            *state = FdState::Materialized(Channel::Reader { request_tx });
-        } else {
-            // Shouldn't happen, but handle gracefully
-            self.entries.push((
-                node_handle,
-                fd,
-                FdState::Materialized(Channel::Reader { request_tx }),
-            ));
-        }
-    }
-
-    /// Materialize a writer channel for (node_handle, fd)
-    fn materialize_writer(
-        &mut self,
-        node_handle: Handle,
-        fd: isize,
-        request_tx: mpsc::UnboundedSender<WriteRequest>,
-    ) {
-        // Find and update existing entry
-        if let Some((_, _, state)) = self.entries.iter_mut().find(|(h, f, _)| (*h, *f) == (node_handle, fd)) {
-            *state = FdState::Materialized(Channel::Writer { request_tx });
-        } else {
-            // Shouldn't happen, but handle gracefully
-            self.entries.push((
-                node_handle,
-                fd,
-                FdState::Materialized(Channel::Writer { request_tx }),
-            ));
-        }
-    }
-
-    /// Get reader request sender for (node_handle, fd)
-    fn get_reader_tx(&self, node_handle: Handle, fd: isize) -> Option<&mpsc::UnboundedSender<ReadRequest>> {
+    /// Get the state of an fd for an actor
+    fn get_state(&self, node_handle: Handle, fd: isize) -> Option<&FdState> {
         self.entries
             .iter()
             .find(|(h, f, _)| (*h, *f) == (node_handle, fd))
-            .and_then(|(_, _, state)| match state {
-                FdState::Materialized(Channel::Reader { request_tx }) => Some(request_tx),
-                _ => None,
-            })
+            .map(|(_, _, state)| state)
     }
 
-    /// Get writer request sender for (node_handle, fd)
-    fn get_writer_tx(&self, node_handle: Handle, fd: isize) -> Option<&mpsc::UnboundedSender<WriteRequest>> {
+    /// Get mutable reference to the state of an fd for an actor
+    fn get_state_mut(&mut self, node_handle: Handle, fd: isize) -> Option<&mut FdState> {
         self.entries
-            .iter()
+            .iter_mut()
             .find(|(h, f, _)| (*h, *f) == (node_handle, fd))
-            .and_then(|(_, _, state)| match state {
-                FdState::Materialized(Channel::Writer { request_tx }) => Some(request_tx),
-                _ => None,
-            })
+            .map(|(_, _, state)| state)
     }
 
-    /// Remove channel for (node_handle, fd), returning the channel if materialized
-    fn remove(&mut self, node_handle: Handle, fd: isize) -> Option<Channel> {
-        let pos = self.entries.iter().position(|(h, f, _)| (*h, *f) == (node_handle, fd))?;
+    /// Get reader request sender for (node_handle, fd) if materialized
+    fn get_reader_tx(
+        &self,
+        node_handle: Handle,
+        fd: isize,
+    ) -> Option<&mpsc::UnboundedSender<ReadRequest>> {
+        match self.get_state(node_handle, fd)? {
+            FdState::MaterializedReader { request_tx } => Some(request_tx),
+            _ => None,
+        }
+    }
+
+    /// Get writer request sender for (node_handle, fd) if materialized
+    fn get_writer_tx(
+        &self,
+        node_handle: Handle,
+        fd: isize,
+    ) -> Option<&mpsc::UnboundedSender<WriteRequest>> {
+        match self.get_state(node_handle, fd)? {
+            FdState::MaterializedWriter { request_tx, .. } => Some(request_tx),
+            _ => None,
+        }
+    }
+
+    /// Remove entry for (node_handle, fd), returning the state
+    fn remove(&mut self, node_handle: Handle, fd: isize) -> Option<FdState> {
+        let pos = self
+            .entries
+            .iter()
+            .position(|(h, f, _)| (*h, *f) == (node_handle, fd))?;
         let (_, _, state) = self.entries.remove(pos);
-        match state {
-            FdState::Materialized(channel) => Some(channel),
-            FdState::Allowed => None,
-        }
+        Some(state)
     }
 
     /// Drop all entries for a given actor
@@ -297,10 +259,16 @@ impl IoBridge {
         }
     }
 
-    /// Register a file descriptor as "allowed" for an actor.
-    /// Actual reader/writer task is spawned lazily on first use.
-    pub fn register_std_fd(&self, node_handle: Handle, fd: isize) {
-        self.channel_table.lock().allow_fd(node_handle, fd);
+    /// Register an fd. Task is spawned lazily on first use. No duplicate check.
+    pub(crate) fn register_std_fd(&self, node_handle: Handle, state: FdState) {
+        let fd = match &state {
+            FdState::AllowedReader(sh) | FdState::AllowedWriter(sh) => *sh as isize,
+            _ => return, // Only Allowed* states should be registered
+        };
+        self.channel_table
+            .lock()
+            .entries
+            .push((node_handle, fd, state));
     }
 
     /// Materialize stdin: create a `MergeReader`, spawn its reader task (if not already spawned).
@@ -308,16 +276,17 @@ impl IoBridge {
     fn ensure_stdin_materialized(
         &self,
         node_handle: Handle,
+        fd: isize,
         dep_iterator: OwnedDependencyIterator,
     ) {
         let mut table = self.channel_table.lock();
 
         // Check if already materialized
-        if table.get_reader_tx(node_handle, 0).is_some() {
+        if table.get_reader_tx(node_handle, fd).is_some() {
             return;
         }
 
-        debug!(actor = ?node_handle, "materializing stdin reader");
+        debug!(actor = ?node_handle, fd = fd, "materializing stdin reader");
         let reader = MergeReader::new(
             dep_iterator,
             Arc::clone(&self.env.pipe_pool),
@@ -326,29 +295,30 @@ impl IoBridge {
         );
         let (request_tx, request_rx) = mpsc::unbounded_channel::<ReadRequest>();
         tokio::spawn(run_reader_task(node_handle, reader, request_rx));
-        table.materialize_reader(node_handle, 0, request_tx);
+
+        if let Some(state) = table.get_state_mut(node_handle, fd) {
+            *state = FdState::MaterializedReader { request_tx };
+        }
     }
 
     /// Ensure writer task is spawned for (node_handle, fd).
     /// Called lazily on the actor's first write to the fd.
-    fn ensure_writer_materialized(&self, node_handle: Handle, fd: isize) {
+    /// Returns the StdHandle if successful, None if fd is not an allowed writer.
+    fn ensure_writer_materialized(
+        &self,
+        node_handle: Handle,
+        fd: isize,
+    ) -> Option<actor_runtime::StdHandle> {
         let mut table = self.channel_table.lock();
 
-        // Check if already materialized
-        if table.get_writer_tx(node_handle, fd).is_some() {
-            return;
-        }
-
-        let std_handle = match fd {
-            1 => actor_runtime::StdHandle::Stdout,
-            2 => actor_runtime::StdHandle::Log,
-            _ => {
-                warn!(node = ?node_handle, fd = fd, "ensure_writer_materialized: invalid fd");
-                return;
-            }
+        // Check current state and get StdHandle
+        let std_handle = match table.get_state(node_handle, fd)? {
+            FdState::AllowedWriter(sh) => *sh,
+            FdState::MaterializedWriter { std_handle, .. } => return Some(*std_handle),
+            FdState::AllowedReader(_) | FdState::MaterializedReader { .. } => return None,
         };
 
-        debug!(actor = ?node_handle, fd = fd, "materializing writer");
+        debug!(actor = ?node_handle, fd = fd, std = ?std_handle, "materializing writer");
         let (request_tx, request_rx) = mpsc::unbounded_channel::<WriteRequest>();
 
         let env = Arc::clone(&self.env);
@@ -363,11 +333,18 @@ impl IoBridge {
             request_rx,
         ));
 
-        table.materialize_writer(node_handle, fd, request_tx);
+        if let Some(state) = table.get_state_mut(node_handle, fd) {
+            *state = FdState::MaterializedWriter {
+                std_handle,
+                request_tx,
+            };
+        }
+
+        Some(std_handle)
     }
 
     /// Route a read request to the channel's reader task and block for the result.
-    /// Materializes stdin lazily on first call.
+    /// Materializes stdin lazily on first call (only for stdin, fd=0).
     pub fn read(
         &self,
         node_handle: Handle,
@@ -375,18 +352,37 @@ impl IoBridge {
         buffer: SendableMutPtr,
         dep_iterator: Option<OwnedDependencyIterator>,
     ) -> (isize, i32) {
-        // Check if fd is allowed
-        if !self.channel_table.lock().is_allowed(node_handle, fd) {
-            warn!(node = ?node_handle, fd = fd, "read: fd not registered");
-            return (-1, EBADF);
+        // Check fd state and validate it's a reader
+        {
+            let table = self.channel_table.lock();
+            match table.get_state(node_handle, fd) {
+                Some(FdState::AllowedReader(_)) => {
+                    // Will be materialized below if dep_iterator provided
+                }
+                Some(FdState::MaterializedReader { .. }) => {
+                    // Already materialized, proceed to read
+                }
+                Some(FdState::AllowedWriter(_) | FdState::MaterializedWriter { .. }) => {
+                    warn!(node = ?node_handle, fd = fd, "read: cannot read from writer fd");
+                    return (-1, EBADF);
+                }
+                None => {
+                    warn!(node = ?node_handle, fd = fd, "read: fd not registered");
+                    return (-1, EBADF);
+                }
+            }
         }
 
-        // Lazy materialization of stdin
+        // Lazy materialization of stdin reader
         if let Some(deps) = dep_iterator {
-            self.ensure_stdin_materialized(node_handle, deps);
+            self.ensure_stdin_materialized(node_handle, fd, deps);
         }
 
-        let tx = self.channel_table.lock().get_reader_tx(node_handle, fd).cloned();
+        let tx = self
+            .channel_table
+            .lock()
+            .get_reader_tx(node_handle, fd)
+            .cloned();
         if let Some(tx) = tx {
             let (resp_tx, resp_rx) = oneshot::channel();
             if tx
@@ -408,22 +404,18 @@ impl IoBridge {
 
     /// Route a write request to the channel's writer task and block for the result.
     /// Materializes writer lazily on first call.
-    pub fn write(
-        &self,
-        node_handle: Handle,
-        fd: isize,
-        data: SendableConstPtr,
-    ) -> (isize, i32) {
-        // Check if fd is allowed
-        if !self.channel_table.lock().is_allowed(node_handle, fd) {
-            warn!(node = ?node_handle, fd = fd, "write: fd not registered");
+    pub fn write(&self, node_handle: Handle, fd: isize, data: SendableConstPtr) -> (isize, i32) {
+        // Lazy materialization of writer (also validates it's a writer fd)
+        if self.ensure_writer_materialized(node_handle, fd).is_none() {
+            warn!(node = ?node_handle, fd = fd, "write: fd not a writer or not registered");
             return (-1, EBADF);
         }
 
-        // Lazy materialization of writer
-        self.ensure_writer_materialized(node_handle, fd);
-
-        let tx = self.channel_table.lock().get_writer_tx(node_handle, fd).cloned();
+        let tx = self
+            .channel_table
+            .lock()
+            .get_writer_tx(node_handle, fd)
+            .cloned();
         if let Some(tx) = tx {
             let (resp_tx, resp_rx) = oneshot::channel();
             if tx
@@ -445,23 +437,22 @@ impl IoBridge {
 
     /// Close a specific fd for an actor. Drops the channel task and flushes writers.
     pub fn close(&self, node_handle: Handle, fd: isize) -> (isize, i32) {
-        let channel = self.channel_table.lock().remove(node_handle, fd);
-        match channel {
-            Some(Channel::Reader { .. }) => {
+        let state = self.channel_table.lock().remove(node_handle, fd);
+        match state {
+            Some(FdState::AllowedReader(_)) => {
+                debug!(node = ?node_handle, fd = fd, "closed allowed reader (never materialized)");
+                (0, 0)
+            }
+            Some(FdState::MaterializedReader { .. }) => {
                 debug!(node = ?node_handle, fd = fd, "closed reader channel");
                 (0, 0)
             }
-            Some(Channel::Writer { .. }) => {
-                let std_handle = match fd {
-                    1 => actor_runtime::StdHandle::Stdout,
-                    2 => actor_runtime::StdHandle::Log,
-                    _ => {
-                        warn!(node = ?node_handle, fd = fd, "close: invalid writer fd");
-                        return (-1, EBADF);
-                    }
-                };
-
-                debug!(node = ?node_handle, fd = fd, "closing writer channel");
+            Some(FdState::AllowedWriter(_)) => {
+                debug!(node = ?node_handle, fd = fd, "closed allowed writer (never materialized)");
+                (0, 0)
+            }
+            Some(FdState::MaterializedWriter { std_handle, .. }) => {
+                debug!(node = ?node_handle, fd = fd, std = ?std_handle, "closing writer channel");
                 if let Some(writer) = self
                     .env
                     .pipe_pool
@@ -496,7 +487,7 @@ impl IoBridge {
                 rx.blocking_recv().unwrap_or((-1, EIO))
             }
             None => {
-                warn!(node = ?node_handle, fd = fd, "close: channel not found");
+                warn!(node = ?node_handle, fd = fd, "close: fd not found");
                 (-1, EBADF)
             }
         }

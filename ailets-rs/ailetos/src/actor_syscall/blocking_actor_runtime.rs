@@ -138,16 +138,17 @@ impl BlockingActorRuntime {
     /// Marks standard fds as allowed in IoBridge; actual channels are materialized lazily.
     pub fn register_std_fds(&self) {
         use actor_runtime::StdHandle;
+        use super::io_bridge::FdState;
 
         // Readers
-        self.io_bridge.register_std_fd(self.node_handle, StdHandle::Stdin as isize);
-        self.io_bridge.register_std_fd(self.node_handle, StdHandle::Env as isize);
+        self.io_bridge.register_std_fd(self.node_handle, FdState::AllowedReader(StdHandle::Stdin));
+        self.io_bridge.register_std_fd(self.node_handle, FdState::AllowedReader(StdHandle::Env));
 
         // Writers
-        self.io_bridge.register_std_fd(self.node_handle, StdHandle::Stdout as isize);
-        self.io_bridge.register_std_fd(self.node_handle, StdHandle::Log as isize);
-        self.io_bridge.register_std_fd(self.node_handle, StdHandle::Metrics as isize);
-        self.io_bridge.register_std_fd(self.node_handle, StdHandle::Trace as isize);
+        self.io_bridge.register_std_fd(self.node_handle, FdState::AllowedWriter(StdHandle::Stdout));
+        self.io_bridge.register_std_fd(self.node_handle, FdState::AllowedWriter(StdHandle::Log));
+        self.io_bridge.register_std_fd(self.node_handle, FdState::AllowedWriter(StdHandle::Metrics));
+        self.io_bridge.register_std_fd(self.node_handle, FdState::AllowedWriter(StdHandle::Trace));
     }
 
     fn bridged_io(&self, f: impl FnOnce() -> (isize, i32)) -> isize {
@@ -181,12 +182,21 @@ impl ActorRuntime for BlockingActorRuntime {
     }
 
     fn aread(&self, fd: isize, buffer: &mut [u8]) -> isize {
-        // Take stdin dep iterator on first read
-        let dep_iterator = self.stdin_dep_iterator.lock().take();
+        use actor_runtime::StdHandle;
+
+        // Only pass dep_iterator for stdin (fd=0)
+        let dep_iterator = if fd == StdHandle::Stdin as isize {
+            self.stdin_dep_iterator.lock().take()
+        } else {
+            None
+        };
 
         // SAFETY: buffer is valid for the duration of blocking_recv inside bridge.read
         let buffer_ptr = unsafe { SendableMutPtr::new(buffer) };
-        self.bridged_io(|| self.io_bridge.read(self.node_handle, fd, buffer_ptr, dep_iterator))
+        self.bridged_io(|| {
+            self.io_bridge
+                .read(self.node_handle, fd, buffer_ptr, dep_iterator)
+        })
     }
 
     fn awrite(&self, fd: isize, buffer: &[u8]) -> isize {
