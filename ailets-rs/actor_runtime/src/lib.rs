@@ -26,13 +26,17 @@ pub enum StdHandle {
     _Count,
 }
 
+/// Convert file descriptor to `StdHandle`, enabling exhaustive match in consumer code.
+/// This ensures compiler errors when new variants are added.
 impl TryFrom<isize> for StdHandle {
     type Error = ();
 
+    /// Uses transmute rather than match: self-maintaining when new variants are added
+    /// before `_Count` - no code changes needed here.
     fn try_from(value: isize) -> Result<Self, Self::Error> {
         if value >= 0 && value < StdHandle::_Count as isize {
             // SAFETY: value is in valid range and repr(isize) guarantees layout
-            Ok(unsafe { std::mem::transmute(value) })
+            Ok(unsafe { std::mem::transmute::<isize, StdHandle>(value) })
         } else {
             Err(())
         }
