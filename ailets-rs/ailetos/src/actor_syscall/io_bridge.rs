@@ -141,9 +141,9 @@ async fn run_writer_task(
 /// State of an fd for an actor
 pub(crate) enum FdState {
     /// Reader fd allowed but not yet materialized (lazy)
-    AllowedReader(actor_runtime::StdHandle),
+    AllowedReader,
     /// Writer fd allowed but not yet materialized
-    AllowedWriter(actor_runtime::StdHandle),
+    AllowedWriter,
     /// Reader has been materialized with a reader task
     MaterializedReader {
         request_tx: mpsc::UnboundedSender<ReadRequest>,
@@ -254,16 +254,20 @@ impl IoBridge {
         }
     }
 
-    /// Register an fd. Task is spawned lazily on first use. No duplicate check.
-    pub(crate) fn register_std_fd(&self, node_handle: Handle, state: FdState) {
-        let fd = match &state {
-            FdState::AllowedReader(sh) | FdState::AllowedWriter(sh) => *sh as isize,
-            _ => return, // Only Allowed* states should be registered
-        };
+    /// Register a reader fd. Task is spawned lazily on first use. No duplicate check.
+    pub(crate) fn register_std_fd_reader(&self, node_handle: Handle, fd: isize) {
         self.channel_table
             .lock()
             .entries
-            .push((node_handle, fd, state));
+            .push((node_handle, fd, FdState::AllowedReader));
+    }
+
+    /// Register a writer fd. Task is spawned lazily on first use. No duplicate check.
+    pub(crate) fn register_std_fd_writer(&self, node_handle: Handle, fd: isize) {
+        self.channel_table
+            .lock()
+            .entries
+            .push((node_handle, fd, FdState::AllowedWriter));
     }
 
     /// Materialize stdin: create a `MergeReader`, spawn its reader task (if not already spawned).
@@ -304,9 +308,9 @@ impl IoBridge {
 
         // Check current state
         match table.get_state(node_handle, fd) {
-            Some(FdState::AllowedWriter(_)) => {}
+            Some(FdState::AllowedWriter) => {}
             Some(FdState::MaterializedWriter { .. }) => return true,
-            Some(FdState::AllowedReader(_) | FdState::MaterializedReader { .. }) | None => {
+            Some(FdState::AllowedReader | FdState::MaterializedReader { .. }) | None => {
                 return false
             }
         };
@@ -346,13 +350,13 @@ impl IoBridge {
         {
             let table = self.channel_table.lock();
             match table.get_state(node_handle, fd) {
-                Some(FdState::AllowedReader(_)) => {
+                Some(FdState::AllowedReader) => {
                     // Will be materialized below if dep_iterator provided
                 }
                 Some(FdState::MaterializedReader { .. }) => {
                     // Already materialized, proceed to read
                 }
-                Some(FdState::AllowedWriter(_) | FdState::MaterializedWriter { .. }) => {
+                Some(FdState::AllowedWriter | FdState::MaterializedWriter { .. }) => {
                     warn!(node = ?node_handle, fd = fd, "read: cannot read from writer fd");
                     return (-1, EBADF);
                 }
@@ -429,7 +433,7 @@ impl IoBridge {
     pub fn close(&self, node_handle: Handle, fd: isize) -> (isize, i32) {
         let state = self.channel_table.lock().remove(node_handle, fd);
         match state {
-            Some(FdState::AllowedReader(_)) => {
+            Some(FdState::AllowedReader) => {
                 debug!(node = ?node_handle, fd = fd, "closed allowed reader (never materialized)");
                 (0, 0)
             }
@@ -437,7 +441,7 @@ impl IoBridge {
                 debug!(node = ?node_handle, fd = fd, "closed reader channel");
                 (0, 0)
             }
-            Some(FdState::AllowedWriter(_)) => {
+            Some(FdState::AllowedWriter) => {
                 debug!(node = ?node_handle, fd = fd, "closed allowed writer (never materialized)");
                 (0, 0)
             }

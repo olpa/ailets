@@ -138,17 +138,16 @@ impl BlockingActorRuntime {
     /// Marks standard fds as allowed in IoBridge; actual channels are materialized lazily.
     pub fn register_std_fds(&self) {
         use actor_runtime::StdHandle;
-        use super::io_bridge::FdState;
 
         // Readers
-        self.io_bridge.register_std_fd(self.node_handle, FdState::AllowedReader(StdHandle::Stdin));
-        self.io_bridge.register_std_fd(self.node_handle, FdState::AllowedReader(StdHandle::Env));
+        self.io_bridge.register_std_fd_reader(self.node_handle, StdHandle::Stdin as isize);
+        self.io_bridge.register_std_fd_reader(self.node_handle, StdHandle::Env as isize);
 
         // Writers
-        self.io_bridge.register_std_fd(self.node_handle, FdState::AllowedWriter(StdHandle::Stdout));
-        self.io_bridge.register_std_fd(self.node_handle, FdState::AllowedWriter(StdHandle::Log));
-        self.io_bridge.register_std_fd(self.node_handle, FdState::AllowedWriter(StdHandle::Metrics));
-        self.io_bridge.register_std_fd(self.node_handle, FdState::AllowedWriter(StdHandle::Trace));
+        self.io_bridge.register_std_fd_writer(self.node_handle, StdHandle::Stdout as isize);
+        self.io_bridge.register_std_fd_writer(self.node_handle, StdHandle::Log as isize);
+        self.io_bridge.register_std_fd_writer(self.node_handle, StdHandle::Metrics as isize);
+        self.io_bridge.register_std_fd_writer(self.node_handle, StdHandle::Trace as isize);
     }
 
     fn bridged_io(&self, f: impl FnOnce() -> (isize, i32)) -> isize {
