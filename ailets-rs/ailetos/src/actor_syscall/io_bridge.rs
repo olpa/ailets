@@ -187,18 +187,6 @@ impl ChannelTable {
             .map(|(_, _, state)| state)
     }
 
-    /// Get writer request sender for (node_handle, fd) if materialized
-    fn get_writer_tx(
-        &self,
-        node_handle: Handle,
-        fd: isize,
-    ) -> Option<&mpsc::UnboundedSender<WriteRequest>> {
-        match self.get_state(node_handle, fd)? {
-            FdState::MaterializedWriter { request_tx, .. } => Some(request_tx),
-            _ => None,
-        }
-    }
-
     /// Remove entry for (node_handle, fd), returning the state
     fn remove(&mut self, node_handle: Handle, fd: isize) -> Option<FdState> {
         let pos = self
@@ -294,21 +282,14 @@ impl IoBridge {
         Some(tx)
     }
 
-    /// Ensure writer task is spawned for (node_handle, fd).
-    /// Called lazily on the actor's first write to the fd.
-    /// Returns true if successful, false if fd is not an allowed writer.
-    fn ensure_writer_materialized(&self, node_handle: Handle, fd: isize) -> bool {
-        let mut table = self.channel_table.lock();
-
-        // Check current state
-        match table.get_state(node_handle, fd) {
-            Some(FdState::AllowedWriter) => {}
-            Some(FdState::MaterializedWriter { .. }) => return true,
-            Some(FdState::AllowedReader | FdState::MaterializedReader { .. }) | None => {
-                return false;
-            }
-        }
-
+    /// Materialize a writer. Caller must have verified state is AllowedWriter.
+    /// Returns the request sender.
+    fn materialize_writer(
+        &self,
+        table_guard: &mut ChannelTable,
+        node_handle: Handle,
+        fd: isize,
+    ) -> mpsc::UnboundedSender<WriteRequest> {
         debug!(actor = ?node_handle, fd = fd, "materializing writer");
         let (request_tx, request_rx) = mpsc::unbounded_channel::<WriteRequest>();
 
@@ -324,11 +305,12 @@ impl IoBridge {
             request_rx,
         ));
 
-        if let Some(state) = table.get_state_mut(node_handle, fd) {
+        let tx = request_tx.clone();
+        if let Some(state) = table_guard.get_state_mut(node_handle, fd) {
             *state = FdState::MaterializedWriter { request_tx };
         }
 
-        true
+        tx
     }
 
     /// Route a read request to the channel's reader task and block for the result.
@@ -372,34 +354,36 @@ impl IoBridge {
     /// Route a write request to the channel's writer task and block for the result.
     /// Materializes writer lazily on first call.
     pub fn write(&self, node_handle: Handle, fd: isize, data: SendableConstPtr) -> (isize, i32) {
-        // Lazy materialization of writer (also validates it's a writer fd)
-        if !self.ensure_writer_materialized(node_handle, fd) {
-            warn!(node = ?node_handle, fd = fd, "write: fd not a writer or not registered");
-            return (-1, EBADF);
-        }
-
-        let tx = self
-            .channel_table
-            .lock()
-            .get_writer_tx(node_handle, fd)
-            .cloned();
-        if let Some(tx) = tx {
-            let (resp_tx, resp_rx) = oneshot::channel();
-            if tx
-                .send(WriteRequest {
-                    data,
-                    response: resp_tx,
-                })
-                .is_err()
-            {
-                warn!(node = ?node_handle, fd = fd, "writer task has exited");
-                return (-1, EPIPE);
+        let tx = {
+            let mut table_guard = self.channel_table.lock();
+            match table_guard.get_state(node_handle, fd) {
+                Some(FdState::MaterializedWriter { request_tx }) => request_tx.clone(),
+                Some(FdState::AllowedWriter) => {
+                    self.materialize_writer(&mut table_guard, node_handle, fd)
+                }
+                Some(FdState::AllowedReader | FdState::MaterializedReader { .. }) => {
+                    warn!(node = ?node_handle, fd = fd, "write: cannot write to reader fd");
+                    return (-1, EBADF);
+                }
+                None => {
+                    warn!(node = ?node_handle, fd = fd, "write: fd not registered");
+                    return (-1, EBADF);
+                }
             }
-            resp_rx.blocking_recv().unwrap_or((-1, EPIPE))
-        } else {
-            warn!(node = ?node_handle, fd = fd, "writer not materialized");
-            (-1, EBADF)
+        };
+
+        let (resp_tx, resp_rx) = oneshot::channel();
+        if tx
+            .send(WriteRequest {
+                data,
+                response: resp_tx,
+            })
+            .is_err()
+        {
+            warn!(node = ?node_handle, fd = fd, "writer task has exited");
+            return (-1, EPIPE);
         }
+        resp_rx.blocking_recv().unwrap_or((-1, EPIPE))
     }
 
     /// Close a specific fd for an actor. Drops the channel task and flushes writers.
