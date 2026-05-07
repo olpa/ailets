@@ -11,14 +11,13 @@ use std::sync::atomic::{AtomicI32, Ordering};
 use std::sync::Arc;
 
 use actor_runtime::ActorRuntime;
-use parking_lot::Mutex;
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, warn};
 
 use super::io_bridge::IoBridge;
 use super::lifecycle_event::ActorLifecycleEvent;
 use super::sendable_buffer::{SendableConstPtr, SendableMutPtr};
-use crate::dag::{NodeState, OwnedDependencyIterator};
+use crate::dag::NodeState;
 use crate::errno::EOWNERDEAD;
 use crate::idgen::Handle;
 use crate::suspension::SuspensionState;
@@ -37,8 +36,6 @@ pub struct BlockingActorRuntime {
     last_errno: AtomicI32,
     /// 0 = clean termination; non-zero = POSIX errno
     exit_code: AtomicI32,
-    /// Pre-built dependency iterator for stdin; consumed on first read
-    stdin_dep_iterator: Mutex<Option<OwnedDependencyIterator>>,
     /// Channel to notify executor of lifecycle events (Terminating/Terminated)
     actor_done_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
 }
@@ -55,7 +52,6 @@ impl BlockingActorRuntime {
         node_handle: Handle,
         io_bridge: Arc<IoBridge>,
         suspension: Arc<SuspensionState>,
-        stdin_dep_iterator: OwnedDependencyIterator,
         actor_done_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
     ) -> Self {
         Self {
@@ -64,7 +60,6 @@ impl BlockingActorRuntime {
             suspension,
             last_errno: AtomicI32::new(0),
             exit_code: AtomicI32::new(0),
-            stdin_dep_iterator: Mutex::new(Some(stdin_dep_iterator)),
             actor_done_tx,
         }
     }
@@ -140,14 +135,20 @@ impl BlockingActorRuntime {
         use actor_runtime::StdHandle;
 
         // Readers
-        self.io_bridge.register_std_fd_reader(self.node_handle, StdHandle::Stdin as isize);
-        self.io_bridge.register_std_fd_reader(self.node_handle, StdHandle::Env as isize);
+        self.io_bridge
+            .register_std_fd_reader(self.node_handle, StdHandle::Stdin as isize);
+        self.io_bridge
+            .register_std_fd_reader(self.node_handle, StdHandle::Env as isize);
 
         // Writers
-        self.io_bridge.register_std_fd_writer(self.node_handle, StdHandle::Stdout as isize);
-        self.io_bridge.register_std_fd_writer(self.node_handle, StdHandle::Log as isize);
-        self.io_bridge.register_std_fd_writer(self.node_handle, StdHandle::Metrics as isize);
-        self.io_bridge.register_std_fd_writer(self.node_handle, StdHandle::Trace as isize);
+        self.io_bridge
+            .register_std_fd_writer(self.node_handle, StdHandle::Stdout as isize);
+        self.io_bridge
+            .register_std_fd_writer(self.node_handle, StdHandle::Log as isize);
+        self.io_bridge
+            .register_std_fd_writer(self.node_handle, StdHandle::Metrics as isize);
+        self.io_bridge
+            .register_std_fd_writer(self.node_handle, StdHandle::Trace as isize);
     }
 
     fn bridged_io(&self, f: impl FnOnce() -> (isize, i32)) -> isize {
@@ -181,21 +182,9 @@ impl ActorRuntime for BlockingActorRuntime {
     }
 
     fn aread(&self, fd: isize, buffer: &mut [u8]) -> isize {
-        use actor_runtime::StdHandle;
-
-        // Only pass dep_iterator for stdin (fd=0)
-        let dep_iterator = if fd == StdHandle::Stdin as isize {
-            self.stdin_dep_iterator.lock().take()
-        } else {
-            None
-        };
-
         // SAFETY: buffer is valid for the duration of blocking_recv inside bridge.read
         let buffer_ptr = unsafe { SendableMutPtr::new(buffer) };
-        self.bridged_io(|| {
-            self.io_bridge
-                .read(self.node_handle, fd, buffer_ptr, dep_iterator)
-        })
+        self.bridged_io(|| self.io_bridge.read(self.node_handle, fd, buffer_ptr))
     }
 
     fn awrite(&self, fd: isize, buffer: &[u8]) -> isize {

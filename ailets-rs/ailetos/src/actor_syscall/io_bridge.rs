@@ -37,6 +37,7 @@
 
 use std::sync::Arc;
 
+use actor_runtime::StdHandle;
 use parking_lot::Mutex;
 use tokio::sync::{mpsc, oneshot, Notify};
 use tracing::{debug, warn};
@@ -140,7 +141,7 @@ async fn run_writer_task(
 
 /// State of an fd for an actor
 pub(crate) enum FdState {
-    /// Reader fd allowed but not yet materialized (lazy)
+    /// Reader fd allowed but not yet materialized
     AllowedReader,
     /// Writer fd allowed but not yet materialized
     AllowedWriter,
@@ -270,22 +271,30 @@ impl IoBridge {
             .push((node_handle, fd, FdState::AllowedWriter));
     }
 
-    /// Materialize stdin: create a `MergeReader`, spawn its reader task (if not already spawned).
-    /// Called lazily on the actor's first read from stdin (fd=0).
-    fn ensure_stdin_materialized(
-        &self,
-        node_handle: Handle,
-        fd: isize,
-        dep_iterator: OwnedDependencyIterator,
-    ) {
+    /// Materialize a reader: spawn its reader task if not already spawned.
+    /// For stdin, creates a MergeReader with dependencies from the DAG.
+    /// For other readers, currently unsupported.
+    /// Returns false if the fd cannot be materialized.
+    fn ensure_reader_materialized(&self, node_handle: Handle, fd: isize) -> bool {
         let mut table = self.channel_table.lock();
 
-        // Check if already materialized
-        if table.get_reader_tx(node_handle, fd).is_some() {
-            return;
+        match table.get_state(node_handle, fd) {
+            Some(FdState::MaterializedReader { .. }) => return true,
+            Some(FdState::AllowedReader) => {
+                // Remove entry, will re-add as MaterializedReader
+                table.remove(node_handle, fd);
+            }
+            _ => return false,
+        }
+
+        // Only stdin is supported for now
+        if fd != StdHandle::Stdin as isize {
+            warn!(actor = ?node_handle, fd = fd, "reader materialization only supported for stdin");
+            return false;
         }
 
         debug!(actor = ?node_handle, fd = fd, "materializing stdin reader");
+        let dep_iterator = OwnedDependencyIterator::new(Arc::clone(&self.env.dag), node_handle);
         let reader = MergeReader::new(
             dep_iterator,
             Arc::clone(&self.env.pipe_pool),
@@ -295,9 +304,10 @@ impl IoBridge {
         let (request_tx, request_rx) = mpsc::unbounded_channel::<ReadRequest>();
         tokio::spawn(run_reader_task(node_handle, reader, request_rx));
 
-        if let Some(state) = table.get_state_mut(node_handle, fd) {
-            *state = FdState::MaterializedReader { request_tx };
-        }
+        table
+            .entries
+            .push((node_handle, fd, FdState::MaterializedReader { request_tx }));
+        true
     }
 
     /// Ensure writer task is spawned for (node_handle, fd).
@@ -311,9 +321,9 @@ impl IoBridge {
             Some(FdState::AllowedWriter) => {}
             Some(FdState::MaterializedWriter { .. }) => return true,
             Some(FdState::AllowedReader | FdState::MaterializedReader { .. }) | None => {
-                return false
+                return false;
             }
-        };
+        }
 
         debug!(actor = ?node_handle, fd = fd, "materializing writer");
         let (request_tx, request_rx) = mpsc::unbounded_channel::<WriteRequest>();
@@ -338,24 +348,13 @@ impl IoBridge {
     }
 
     /// Route a read request to the channel's reader task and block for the result.
-    /// Materializes stdin lazily on first call (only for stdin, fd=0).
-    pub fn read(
-        &self,
-        node_handle: Handle,
-        fd: isize,
-        buffer: SendableMutPtr,
-        dep_iterator: Option<OwnedDependencyIterator>,
-    ) -> (isize, i32) {
+    /// Materializes reader lazily on first call.
+    pub fn read(&self, node_handle: Handle, fd: isize, buffer: SendableMutPtr) -> (isize, i32) {
         // Check fd state and validate it's a reader
         {
             let table = self.channel_table.lock();
             match table.get_state(node_handle, fd) {
-                Some(FdState::AllowedReader) => {
-                    // Will be materialized below if dep_iterator provided
-                }
-                Some(FdState::MaterializedReader { .. }) => {
-                    // Already materialized, proceed to read
-                }
+                Some(FdState::AllowedReader | FdState::MaterializedReader { .. }) => {}
                 Some(FdState::AllowedWriter | FdState::MaterializedWriter { .. }) => {
                     warn!(node = ?node_handle, fd = fd, "read: cannot read from writer fd");
                     return (-1, EBADF);
@@ -367,9 +366,9 @@ impl IoBridge {
             }
         }
 
-        // Lazy materialization of stdin reader
-        if let Some(deps) = dep_iterator {
-            self.ensure_stdin_materialized(node_handle, fd, deps);
+        // Lazy materialization of reader
+        if !self.ensure_reader_materialized(node_handle, fd) {
+            return (-1, EBADF);
         }
 
         let tx = self

@@ -2,13 +2,12 @@ use std::sync::Arc;
 
 use actor_runtime::StdHandle;
 use ailetos::actor_syscall::lifecycle_event::ActorLifecycleEvent;
-use ailetos::dag::{Dag, NodeKind, NodeState, OwnedDependencyIterator};
+use ailetos::dag::{DependsOn, For, NodeKind, NodeState};
 use ailetos::environment::Environment;
-use ailetos::idgen::{Handle, IdGen};
+use ailetos::idgen::Handle;
 use ailetos::storage::{KVBuffers, MemKV};
 use ailetos::suspension::SuspensionState;
 use ailetos::{BlockingActorRuntime, IoBridge, EOWNERDEAD, EPIPE};
-use parking_lot::RwLock;
 use tokio::sync::{mpsc, Notify};
 
 fn make_test_components() -> (
@@ -46,17 +45,15 @@ fn make_test_components() -> (
     (env, bridge, actor_done_tx, lifecycle_task)
 }
 
-fn make_dag_with_dep(id_gen: &Arc<IdGen>) -> (Arc<RwLock<Dag>>, Handle, Handle) {
-    let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(id_gen))));
-    let (dep_handle, actor_handle) = {
-        let mut d = dag.write();
-        let dep = d.add_node("dep".into(), NodeKind::Concrete);
-        let actor = d.add_node("actor".into(), NodeKind::Concrete);
-        d.add_dependency(ailetos::dag::For(actor), ailetos::dag::DependsOn(dep));
-        d.set_state(dep, NodeState::Running);
-        (dep, actor)
-    };
-    (dag, dep_handle, actor_handle)
+/// Add a dependency node and an actor node to the environment's DAG.
+/// Returns (dep_handle, actor_handle).
+fn add_dag_with_dep(env: &Environment) -> (Handle, Handle) {
+    let mut dag = env.dag.write();
+    let dep = dag.add_node("dep".into(), NodeKind::Concrete);
+    let actor = dag.add_node("actor".into(), NodeKind::Concrete);
+    dag.add_dependency(For(actor), DependsOn(dep));
+    dag.set_state(dep, NodeState::Running);
+    (dep, actor)
 }
 
 /// When aread() receives EPIPE from the bridge, get_errno() returns EPIPE
@@ -64,7 +61,7 @@ fn make_dag_with_dep(id_gen: &Arc<IdGen>) -> (Arc<RwLock<Dag>>, Handle, Handle) 
 #[tokio::test]
 async fn test_reader_to_actor_epipe_propagation() {
     let (env, bridge, actor_done_tx, lifecycle_task) = make_test_components();
-    let (dag, dep_handle, actor_handle) = make_dag_with_dep(&env.idgen);
+    let (dep_handle, actor_handle) = add_dag_with_dep(&env);
     let suspension = Arc::new(SuspensionState::new());
 
     // Realize dep's pipe and set EPIPE error so MergeReader sees it
@@ -76,13 +73,10 @@ async fn test_reader_to_actor_epipe_propagation() {
     writer.set_error(EPIPE);
     writer.close();
 
-    let dep_iterator = OwnedDependencyIterator::new(dag, actor_handle);
-
     let runtime = BlockingActorRuntime::new(
         actor_handle,
         Arc::clone(&bridge),
         Arc::clone(&suspension),
-        dep_iterator,
         actor_done_tx,
     );
     runtime.register_std_fds();
@@ -113,7 +107,7 @@ async fn test_reader_to_actor_epipe_propagation() {
 #[tokio::test]
 async fn test_mark_failed_uses_epipe_from_last_read() {
     let (env, bridge, actor_done_tx, lifecycle_task) = make_test_components();
-    let (dag, dep_handle, actor_handle) = make_dag_with_dep(&env.idgen);
+    let (dep_handle, actor_handle) = add_dag_with_dep(&env);
     let suspension = Arc::new(SuspensionState::new());
 
     let (writer, _) = env
@@ -124,13 +118,10 @@ async fn test_mark_failed_uses_epipe_from_last_read() {
     writer.set_error(EPIPE);
     writer.close();
 
-    let dep_iterator = OwnedDependencyIterator::new(dag, actor_handle);
-
     let runtime = BlockingActorRuntime::new(
         actor_handle,
         Arc::clone(&bridge),
         Arc::clone(&suspension),
-        dep_iterator,
         actor_done_tx,
     );
     runtime.register_std_fds();
@@ -157,14 +148,10 @@ async fn test_mark_failed_uses_eownerdead_without_read_error() {
     let actor_handle = Handle::new(env.idgen.get_next());
     let suspension = Arc::new(SuspensionState::new());
 
-    let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&env.idgen))));
-    let dep_iterator = OwnedDependencyIterator::new(dag, actor_handle);
-
     let runtime = BlockingActorRuntime::new(
         actor_handle,
         Arc::clone(&bridge),
         suspension,
-        dep_iterator,
         actor_done_tx,
     );
 

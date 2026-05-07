@@ -13,7 +13,7 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, warn};
 
 use crate::actor_syscall::ActorLifecycleEvent;
-use crate::dag::{Dag, NodeKind, NodeState, OwnedDependencyIterator};
+use crate::dag::{Dag, NodeKind, NodeState};
 use crate::environment::{ActorFn, Environment};
 use crate::idgen::Handle;
 use crate::pipe::PipePool;
@@ -236,12 +236,10 @@ async fn run_spawn_loop(
             }
             debug!(node = ?node_handle, name = %idname, "spawning actor task");
 
-            let dep_iterator = OwnedDependencyIterator::new(Arc::clone(&env.dag), *node_handle);
             let actor_runtime = BlockingActorRuntime::new(
                 *node_handle,
                 Arc::clone(bridge),
                 Arc::clone(&env.suspension),
-                dep_iterator,
                 actor_done_tx.clone(),
             );
             actor_tasks.push(spawn_actor_task(
