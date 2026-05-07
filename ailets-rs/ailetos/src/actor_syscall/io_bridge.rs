@@ -187,18 +187,6 @@ impl ChannelTable {
             .map(|(_, _, state)| state)
     }
 
-    /// Get reader request sender for (node_handle, fd) if materialized
-    fn get_reader_tx(
-        &self,
-        node_handle: Handle,
-        fd: isize,
-    ) -> Option<&mpsc::UnboundedSender<ReadRequest>> {
-        match self.get_state(node_handle, fd)? {
-            FdState::MaterializedReader { request_tx } => Some(request_tx),
-            _ => None,
-        }
-    }
-
     /// Get writer request sender for (node_handle, fd) if materialized
     fn get_writer_tx(
         &self,
@@ -271,27 +259,22 @@ impl IoBridge {
             .push((node_handle, fd, FdState::AllowedWriter));
     }
 
-    /// Materialize a reader: spawn its reader task if not already spawned.
+    /// Materialize a reader. Caller must have verified state is AllowedReader.
     /// For stdin, creates a MergeReader with dependencies from the DAG.
-    /// For other readers, currently unsupported.
-    /// Returns false if the fd cannot be materialized.
-    fn ensure_reader_materialized(&self, node_handle: Handle, fd: isize) -> bool {
-        let mut table = self.channel_table.lock();
-
-        match table.get_state(node_handle, fd) {
-            Some(FdState::MaterializedReader { .. }) => return true,
-            Some(FdState::AllowedReader) => {
-                // Remove entry, will re-add as MaterializedReader
-                table.remove(node_handle, fd);
-            }
-            _ => return false,
-        }
-
+    /// Returns the request sender, or None if materialization fails.
+    fn materialize_reader(
+        &self,
+        table_guard: &mut ChannelTable,
+        node_handle: Handle,
+        fd: isize,
+    ) -> Option<mpsc::UnboundedSender<ReadRequest>> {
         // Only stdin is supported for now
         if fd != StdHandle::Stdin as isize {
             warn!(actor = ?node_handle, fd = fd, "reader materialization only supported for stdin");
-            return false;
+            return None;
         }
+
+        table_guard.remove(node_handle, fd);
 
         debug!(actor = ?node_handle, fd = fd, "materializing stdin reader");
         let dep_iterator = OwnedDependencyIterator::new(Arc::clone(&self.env.dag), node_handle);
@@ -304,10 +287,11 @@ impl IoBridge {
         let (request_tx, request_rx) = mpsc::unbounded_channel::<ReadRequest>();
         tokio::spawn(run_reader_task(node_handle, reader, request_rx));
 
-        table
+        let tx = request_tx.clone();
+        table_guard
             .entries
             .push((node_handle, fd, FdState::MaterializedReader { request_tx }));
-        true
+        Some(tx)
     }
 
     /// Ensure writer task is spawned for (node_handle, fd).
@@ -350,11 +334,16 @@ impl IoBridge {
     /// Route a read request to the channel's reader task and block for the result.
     /// Materializes reader lazily on first call.
     pub fn read(&self, node_handle: Handle, fd: isize, buffer: SendableMutPtr) -> (isize, i32) {
-        // Check fd state and validate it's a reader
-        {
-            let table = self.channel_table.lock();
-            match table.get_state(node_handle, fd) {
-                Some(FdState::AllowedReader | FdState::MaterializedReader { .. }) => {}
+        let tx = {
+            let mut table_guard = self.channel_table.lock();
+            match table_guard.get_state(node_handle, fd) {
+                Some(FdState::MaterializedReader { request_tx }) => request_tx.clone(),
+                Some(FdState::AllowedReader) => {
+                    match self.materialize_reader(&mut table_guard, node_handle, fd) {
+                        Some(tx) => tx,
+                        None => return (-1, EBADF),
+                    }
+                }
                 Some(FdState::AllowedWriter | FdState::MaterializedWriter { .. }) => {
                     warn!(node = ?node_handle, fd = fd, "read: cannot read from writer fd");
                     return (-1, EBADF);
@@ -364,35 +353,20 @@ impl IoBridge {
                     return (-1, EBADF);
                 }
             }
-        }
+        };
 
-        // Lazy materialization of reader
-        if !self.ensure_reader_materialized(node_handle, fd) {
-            return (-1, EBADF);
+        let (resp_tx, resp_rx) = oneshot::channel();
+        if tx
+            .send(ReadRequest {
+                buffer,
+                response: resp_tx,
+            })
+            .is_err()
+        {
+            warn!(node = ?node_handle, fd = fd, "reader task has exited");
+            return (-1, EPIPE);
         }
-
-        let tx = self
-            .channel_table
-            .lock()
-            .get_reader_tx(node_handle, fd)
-            .cloned();
-        if let Some(tx) = tx {
-            let (resp_tx, resp_rx) = oneshot::channel();
-            if tx
-                .send(ReadRequest {
-                    buffer,
-                    response: resp_tx,
-                })
-                .is_err()
-            {
-                warn!(node = ?node_handle, fd = fd, "reader task has exited");
-                return (-1, EPIPE);
-            }
-            resp_rx.blocking_recv().unwrap_or((-1, EPIPE))
-        } else {
-            warn!(node = ?node_handle, fd = fd, "reader not materialized");
-            (-1, EBADF)
-        }
+        resp_rx.blocking_recv().unwrap_or((-1, EPIPE))
     }
 
     /// Route a write request to the channel's writer task and block for the result.
