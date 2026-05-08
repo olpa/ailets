@@ -172,12 +172,18 @@ async fn run_writer_task(
             }
             WriterCommand::Close { response } => {
                 debug!(node = ?node_handle, fd = fd, "writer task: received close command");
-                writer.close();
-                let result = match env.kv.flush_buffer(&writer.buffer()).await {
-                    Ok(()) => (0, 0),
-                    Err(e) => {
-                        warn!(node = ?node_handle, fd = fd, error = ?e, "writer task: flush failed");
-                        (-1, EIO)
+                let close_result = writer.close();
+                let result = if close_result.0 < 0 {
+                    // Close failed, propagate the error
+                    close_result
+                } else {
+                    // Close succeeded, now try to flush
+                    match env.kv.flush_buffer(&writer.buffer()).await {
+                        Ok(()) => (0, 0),
+                        Err(e) => {
+                            warn!(node = ?node_handle, fd = fd, error = ?e, "writer task: flush failed");
+                            (-1, EIO)
+                        }
                     }
                 };
                 notify.notify_one();

@@ -4,9 +4,9 @@ use parking_lot::Mutex;
 use std::cmp::Ordering;
 use std::fmt;
 use std::sync::Arc;
-use tracing::{error, trace};
+use tracing::{error, trace, warn};
 
-use crate::errno::EPIPE;
+use crate::errno::{EBADF, EPIPE};
 use crate::idgen::Handle;
 use crate::notification_queue::NotificationQueueArc;
 use crate::storage::Buffer;
@@ -158,18 +158,21 @@ impl Writer {
     }
 
     /// Close the writer and notify all readers
-    pub fn close(&self) {
+    ///
+    /// Returns `(0, 0)` on success, `(-1, EBADF)` if already closed.
+    pub fn close(&self) -> (isize, i32) {
         {
             let mut shared = self.shared.lock();
             if shared.closed {
-                log::warn!("Writer::close() called on already closed writer: {self:?}");
-                return;
+                warn!("Writer::close() called on already closed writer: {self:?}");
+                return (-1, EBADF);
             }
             shared.closed = true;
         }
         // Unregister handle from queue
         // This will notify with -1 and wake all waiters
         self.queue.unlist(self.handle);
+        (0, 0)
     }
 
     /// Get the handle for this writer
@@ -225,7 +228,10 @@ impl Drop for Writer {
     fn drop(&mut self) {
         trace!(handle = ?self.handle, "Writer: destroying (drop)");
         if !self.is_closed() {
-            self.close();
+            let (result, errno) = self.close();
+            if result < 0 {
+                warn!(handle = ?self.handle, errno, "Writer::drop: close failed");
+            }
         }
     }
 }
