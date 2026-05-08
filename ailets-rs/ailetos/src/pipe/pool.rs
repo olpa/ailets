@@ -21,7 +21,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use tracing::debug;
 
-use super::allocator::create_writer;
+use super::allocator::{create_writer, flush_and_close_writer};
 use super::pipe_path;
 use super::reader::Reader;
 use super::writer::Writer;
@@ -257,12 +257,12 @@ impl PipePool {
         Ok((writer_arc, true))
     }
 
-    /// Close all writers (realized and latent) for an actor.
+    /// Close all writers (realized and latent) for an actor, flushing buffers to storage.
     ///
     /// `exit_code`: 0 = clean termination, non-zero = POSIX errno.
     /// For realized writers with a non-zero exit code, sets the error before closing
     /// so readers see the error after consuming all written data.
-    pub fn close_actor_writers(&self, actor_handle: Handle, exit_code: i32) {
+    pub async fn flush_close_actor_writers(&self, actor_handle: Handle, exit_code: i32) {
         let (writers_to_close, notifies) = {
             let mut writers = self.writers.lock();
 
@@ -292,13 +292,17 @@ impl PipePool {
             (writers_to_close, notifies)
         }; // Lock released here
 
-        // Close writers outside lock
+        // Flush and close writers outside lock
         for (h, s, writer) in writers_to_close {
             if exit_code != 0 {
                 writer.set_error(exit_code);
             }
-            writer.close();
-            debug!(key = ?(h, s), exit_code, "closed realized writer on actor shutdown");
+            let (result, errno) = flush_and_close_writer(&*self.kv, &writer, "actor shutdown").await;
+            if result < 0 {
+                debug!(key = ?(h, s), exit_code, errno = errno, "flush/close failed on actor shutdown");
+            } else {
+                debug!(key = ?(h, s), exit_code, "flushed and closed realized writer on actor shutdown");
+            }
         }
 
         // Notify latent waiters outside lock

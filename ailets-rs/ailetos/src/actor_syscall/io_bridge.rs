@@ -48,7 +48,7 @@ use crate::dag::OwnedDependencyIterator;
 use crate::environment::Environment;
 use crate::errno::{EBADF, EIO, EPIPE};
 use crate::idgen::Handle;
-use crate::pipe::MergeReader;
+use crate::pipe::{flush_and_close_writer, MergeReader};
 
 
 /// A read request forwarded from `IoBridge` to a reader task.
@@ -172,20 +172,7 @@ async fn run_writer_task(
             }
             WriterCommand::Close { response } => {
                 debug!(node = ?node_handle, fd = fd, "writer task: received close command");
-                let close_result = writer.close();
-                let result = if close_result.0 < 0 {
-                    // Close failed, propagate the error
-                    close_result
-                } else {
-                    // Close succeeded, now try to flush
-                    match env.kv.flush_buffer(&writer.buffer()).await {
-                        Ok(()) => (0, 0),
-                        Err(e) => {
-                            warn!(node = ?node_handle, fd = fd, error = ?e, "writer task: flush failed");
-                            (-1, EIO)
-                        }
-                    }
-                };
+                let result = flush_and_close_writer(&*env.kv, &writer, "writer task").await;
                 notify.notify_one();
                 if response.send(result).is_err() {
                     warn!(node = ?node_handle, fd = fd, "writer task: close reply receiver dropped");
@@ -481,11 +468,14 @@ impl IoBridge {
         }
     }
 
-    pub fn cleanup_actor_io(&self, node_handle: Handle, exit_code: i32) {
-        debug!(node = ?node_handle, exit_code, "cleanup_actor_io: closing writers");
+    pub async fn cleanup_actor_io(&self, node_handle: Handle, exit_code: i32) {
+        debug!(node = ?node_handle, exit_code, "cleanup_actor_io: flushing and closing writers");
+
+        // Close writers at pipe layer (with flush)
         self.env
             .pipe_pool
-            .close_actor_writers(node_handle, exit_code);
+            .flush_close_actor_writers(node_handle, exit_code)
+            .await;
 
         debug!(node = ?node_handle, "cleanup_actor_io: dropping all entries");
         self.channel_table.lock().drop_actor_entries(node_handle);

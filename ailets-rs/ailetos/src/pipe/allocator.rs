@@ -4,7 +4,9 @@
 
 use parking_lot::Mutex;
 use std::sync::Arc;
+use tracing::warn;
 
+use crate::errno::EIO;
 use crate::idgen::Handle;
 use crate::notification_queue::NotificationQueueArc;
 use crate::storage::{KVBuffers, KVError, OpenMode};
@@ -55,6 +57,63 @@ pub async fn write_completed_buffer(
     buffer.append(data)?;
     kv.flush_buffer(&buffer).await?;
     Ok(())
+}
+
+/// Flush writer's buffer to storage and close the writer.
+///
+/// This function performs a two-step operation:
+/// 1. Close the writer (marks it closed, notifies readers)
+/// 2. Flush the buffer to persistent storage
+///
+/// # Why we force flush on close
+///
+/// The Writer's buffer lives in memory (`Arc<Mutex<Vec<u8>>>`). Without an explicit
+/// flush, written data is never persisted to the KV storage backend (e.g., SQLite).
+/// When using persistent storage, data would be lost without this flush.
+///
+/// The flush happens AFTER close because:
+/// - Writer::close() stops new writes and notifies readers (immediate effect)
+/// - flush_buffer() persists what was already written (can be slow, async)
+/// - If flush fails, readers are already notified (consistent state)
+///
+/// # Parameters
+/// - `kv`: Key-value store backend
+/// - `writer`: The writer to close
+/// - `log_context`: Context string for logging (e.g., "writer task", "actor shutdown")
+///
+/// # Returns
+/// POSIX-style result tuple:
+/// - `(0, 0)` on success
+/// - `(-1, EBADF)` if writer was already closed
+/// - `(-1, EIO)` if flush failed
+pub async fn flush_and_close_writer(
+    kv: &dyn KVBuffers,
+    writer: &Writer,
+    log_context: &str,
+) -> (isize, i32) {
+    // Step 1: Close the writer (marks closed, notifies readers)
+    let (result, errno) = writer.close();
+    if result < 0 {
+        warn!(
+            context = log_context,
+            errno = errno,
+            "writer already closed"
+        );
+        return (result, errno);
+    }
+
+    // Step 2: Flush buffer to persistent storage
+    match kv.flush_buffer(&writer.buffer()).await {
+        Ok(()) => (0, 0),
+        Err(e) => {
+            warn!(
+                context = log_context,
+                error = ?e,
+                "flush failed after close"
+            );
+            (-1, EIO)
+        }
+    }
 }
 
 /// Create a reader from completed KV storage (for terminated producers)

@@ -7,12 +7,12 @@
 //! Among the consumers of this type is the WASM interface: `BlockingActorRuntime`
 //! is threaded through FFI glue into `FfiActorRuntime`, which exposes it to WebAssembly actors.
 
-use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::Arc;
 
 use actor_runtime::ActorRuntime;
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, warn};
+use tracing::{debug, error, warn};
 
 use super::io_bridge::IoBridge;
 use super::lifecycle_event::ActorLifecycleEvent;
@@ -25,7 +25,9 @@ use crate::suspension::SuspensionState;
 /// Blocking `ActorRuntime` implementation.
 ///
 /// Thin stateless wrapper around `IoBridge`. All I/O state lives in `IoBridge`.
-/// Fires actor shutdown automatically on drop — including on panic or early return.
+///
+/// **Important:** `shutdown()` MUST be called explicitly before drop to ensure
+/// proper cleanup and data persistence. Drop will log an error if shutdown was not called.
 pub struct BlockingActorRuntime {
     /// This actor's node handle (used as actor identifier)
     node_handle: Handle,
@@ -38,11 +40,19 @@ pub struct BlockingActorRuntime {
     exit_code: AtomicI32,
     /// Channel to notify executor of lifecycle events (Terminating/Terminated)
     actor_done_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
+    /// True if shutdown() was called (to detect improper drop)
+    shutdown_called: AtomicBool,
 }
 
 impl Drop for BlockingActorRuntime {
     fn drop(&mut self) {
-        self.shutdown();
+        if !self.shutdown_called.load(Ordering::SeqCst) {
+            error!(
+                node = ?self.node_handle,
+                "BlockingActorRuntime dropped without calling shutdown() - \
+                 buffered data will be LOST! This is a bug in the executor."
+            );
+        }
     }
 }
 
@@ -61,10 +71,28 @@ impl BlockingActorRuntime {
             last_errno: AtomicI32::new(0),
             exit_code: AtomicI32::new(0),
             actor_done_tx,
+            shutdown_called: AtomicBool::new(false),
         }
     }
 
-    fn shutdown(&self) {
+    /// Shutdown the actor runtime, flushing all buffers to persistent storage.
+    ///
+    /// **MUST be called before drop** to ensure data persistence. The executor
+    /// is responsible for calling this method before dropping the runtime.
+    ///
+    /// This method is async because it flushes writer buffers to storage,
+    /// which may involve disk I/O for persistent backends like SQLite.
+    ///
+    /// Returns `Err` if:
+    /// - Shutdown was already called
+    /// - Executor is gone
+    /// - Actor was already terminating/terminated
+    pub async fn shutdown(&self) -> Result<(), String> {
+        // Mark shutdown as called
+        if self.shutdown_called.swap(true, Ordering::SeqCst) {
+            return Err("shutdown() already called".to_string());
+        }
+
         // Notify executor we're terminating
         let (tx, rx) = oneshot::channel::<NodeState>();
         if self
@@ -75,20 +103,19 @@ impl BlockingActorRuntime {
             })
             .is_err()
         {
-            warn!(node = ?self.node_handle, "shutdown: executor gone");
-            return;
+            return Err("executor gone".to_string());
         }
 
-        let prior = rx.blocking_recv().unwrap_or(NodeState::Terminating);
+        let prior = rx.await.map_err(|_| "Terminating reply dropped".to_string())?;
         if matches!(prior, NodeState::Terminating | NodeState::Terminated) {
             debug!(node = ?self.node_handle, "shutdown: already terminating/terminated");
-            return;
+            return Ok(());
         }
 
-        // Cleanup
+        // Async cleanup - flushes all writer buffers
         let exit_code = self.exit_code.load(Ordering::Relaxed);
         self.suspension.deregister(self.node_handle);
-        self.io_bridge.cleanup_actor_io(self.node_handle, exit_code);
+        self.io_bridge.cleanup_actor_io(self.node_handle, exit_code).await;
 
         // Notify executor we're terminated
         let (tx2, rx2) = oneshot::channel::<NodeState>();
@@ -101,12 +128,11 @@ impl BlockingActorRuntime {
             })
             .is_err()
         {
-            warn!(node = ?self.node_handle, "shutdown: executor gone before Terminated");
-            return;
+            return Err("executor gone before Terminated".to_string());
         }
-        if rx2.blocking_recv().is_err() {
-            warn!(node = ?self.node_handle, "shutdown: Terminated reply dropped");
-        }
+
+        rx2.await.map_err(|_| "Terminated reply dropped".to_string())?;
+        Ok(())
     }
 
     /// Mark the actor as failed.

@@ -118,23 +118,26 @@ async fn test_mark_failed_uses_epipe_from_last_read() {
     writer.set_error(EPIPE);
     writer.close();
 
-    let runtime = BlockingActorRuntime::new(
+    let runtime = Arc::new(BlockingActorRuntime::new(
         actor_handle,
         Arc::clone(&bridge),
         Arc::clone(&suspension),
         actor_done_tx,
-    );
+    ));
     runtime.register_std_fds();
 
+    let runtime_clone = Arc::clone(&runtime);
     tokio::task::spawn_blocking(move || {
         use actor_runtime::ActorRuntime;
         let mut buf = [0u8; 64];
-        runtime.aread(0, &mut buf);
-        runtime.mark_failed();
-        // runtime dropped here, fires actor_shutdown with EPIPE exit code
+        runtime_clone.aread(0, &mut buf);
+        runtime_clone.mark_failed();
     })
     .await
     .unwrap();
+
+    // Explicitly shutdown to flush buffers and notify executor
+    runtime.shutdown().await.unwrap();
 
     drop(bridge);
     let exit_code = lifecycle_task.await.unwrap();
@@ -148,19 +151,22 @@ async fn test_mark_failed_uses_eownerdead_without_read_error() {
     let actor_handle = Handle::new(env.idgen.get_next());
     let suspension = Arc::new(SuspensionState::new());
 
-    let runtime = BlockingActorRuntime::new(
+    let runtime = Arc::new(BlockingActorRuntime::new(
         actor_handle,
         Arc::clone(&bridge),
         suspension,
         actor_done_tx,
-    );
+    ));
 
+    let runtime_clone = Arc::clone(&runtime);
     tokio::task::spawn_blocking(move || {
-        runtime.mark_failed();
-        // runtime dropped here, fires actor_shutdown with EOWNERDEAD
+        runtime_clone.mark_failed();
     })
     .await
     .unwrap();
+
+    // Explicitly shutdown to flush buffers and notify executor
+    runtime.shutdown().await.unwrap();
 
     drop(bridge);
     let exit_code = lifecycle_task.await.unwrap();
