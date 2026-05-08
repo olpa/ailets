@@ -124,7 +124,7 @@ async fn run_writer_task(
     notify: Arc<Notify>,
     mut request_rx: mpsc::UnboundedReceiver<WriterCommand>,
 ) {
-    // Get/create writer once at task startup
+    // Create writer at task startup
     let writer = match env.pipe_pool.touch_writer(node_handle, fd, &env.idgen).await {
         Ok((writer, is_new)) => {
             if is_new {
@@ -139,8 +139,8 @@ async fn run_writer_task(
         }
         Err(e) => {
             warn!(node = ?node_handle, fd = fd, error = %e, "writer task: failed to create writer");
-            // Send EIO to all incoming requests
-            while let Some(cmd) = request_rx.recv().await {
+            // Send error to the first command, then exit
+            if let Some(cmd) = request_rx.recv().await {
                 let response = match cmd {
                     WriterCommand::Write(WriteRequest { response, .. }) => response,
                     WriterCommand::Close { response } => response,
