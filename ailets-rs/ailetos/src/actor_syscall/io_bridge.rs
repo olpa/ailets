@@ -53,8 +53,14 @@ use crate::pipe::MergeReader;
 
 /// A read request forwarded from `IoBridge` to a reader task.
 pub(crate) struct ReadRequest {
-    pub buffer: SendableMutPtr,
-    pub response: oneshot::Sender<(isize, i32)>,
+    buffer: SendableMutPtr,
+    response: oneshot::Sender<(isize, i32)>,
+}
+
+/// Command sent to a reader task.
+pub(crate) enum ReaderCommand {
+    Read(ReadRequest),
+    Close { response: oneshot::Sender<(isize, i32)> },
 }
 
 /// A write request forwarded from `IoBridge` to a writer task.
@@ -70,19 +76,32 @@ pub(crate) struct WriteRequest {
 async fn run_reader_task(
     node_handle: Handle,
     mut reader: MergeReader,
-    mut request_rx: mpsc::UnboundedReceiver<ReadRequest>,
+    mut request_rx: mpsc::UnboundedReceiver<ReaderCommand>,
 ) {
-    while let Some(ReadRequest { buffer, response }) = request_rx.recv().await {
-        // SAFETY: Buffer remains valid because aread() blocks until response is sent
-        let buf = unsafe { &mut *buffer.into_raw() };
-        let bytes_read = reader.read(buf).await;
-        let errno = if bytes_read < 0 {
-            reader.get_error()
-        } else {
-            0
-        };
-        if response.send((bytes_read, errno)).is_err() {
-            warn!(actor = ?node_handle, "reader task: reply receiver dropped, actor may have exited");
+    while let Some(cmd) = request_rx.recv().await {
+        match cmd {
+            ReaderCommand::Read(ReadRequest { buffer, response }) => {
+                // SAFETY: Buffer remains valid because aread() blocks until response is sent
+                let buf = unsafe { &mut *buffer.into_raw() };
+                let bytes_read = reader.read(buf).await;
+                let errno = if bytes_read < 0 {
+                    reader.get_error()
+                } else {
+                    0
+                };
+                if response.send((bytes_read, errno)).is_err() {
+                    warn!(actor = ?node_handle, "reader task: reply receiver dropped, actor may have exited");
+                }
+            }
+            ReaderCommand::Close { response } => {
+                debug!(actor = ?node_handle, "reader task: received close command");
+                let result = reader.close();
+                if response.send(result).is_err() {
+                    warn!(actor = ?node_handle, "reader task: close reply receiver dropped");
+                }
+                // No break: loop exits naturally when sender is dropped and recv() returns None.
+                // This keeps the bridge mechanical—it forwards commands without special control flow.
+            }
         }
     }
 }
@@ -147,7 +166,7 @@ pub(crate) enum FdState {
     AllowedWriter,
     /// Reader has been materialized with a reader task
     MaterializedReader {
-        request_tx: mpsc::UnboundedSender<ReadRequest>,
+        request_tx: mpsc::UnboundedSender<ReaderCommand>,
     },
     /// Writer has been materialized with a writer task
     MaterializedWriter {
@@ -255,7 +274,7 @@ impl IoBridge {
         table_guard: &mut ChannelTable,
         node_handle: Handle,
         fd: isize,
-    ) -> Option<mpsc::UnboundedSender<ReadRequest>> {
+    ) -> Option<mpsc::UnboundedSender<ReaderCommand>> {
         // Only stdin is supported for now
         if fd != StdHandle::Stdin as isize {
             warn!(actor = ?node_handle, fd = fd, "reader materialization only supported for stdin");
@@ -272,7 +291,7 @@ impl IoBridge {
             Arc::clone(&self.env.kv),
             Arc::clone(&self.env.idgen),
         );
-        let (request_tx, request_rx) = mpsc::unbounded_channel::<ReadRequest>();
+        let (request_tx, request_rx) = mpsc::unbounded_channel::<ReaderCommand>();
         tokio::spawn(run_reader_task(node_handle, reader, request_rx));
 
         let tx = request_tx.clone();
@@ -339,10 +358,10 @@ impl IoBridge {
 
         let (resp_tx, resp_rx) = oneshot::channel();
         if tx
-            .send(ReadRequest {
+            .send(ReaderCommand::Read(ReadRequest {
                 buffer,
                 response: resp_tx,
-            })
+            }))
             .is_err()
         {
             warn!(node = ?node_handle, fd = fd, "reader task has exited");
@@ -394,9 +413,14 @@ impl IoBridge {
                 debug!(node = ?node_handle, fd = fd, "closed allowed reader (never materialized)");
                 (0, 0)
             }
-            Some(FdState::MaterializedReader { .. }) => {
-                debug!(node = ?node_handle, fd = fd, "closed reader channel");
-                (0, 0)
+            Some(FdState::MaterializedReader { request_tx }) => {
+                debug!(node = ?node_handle, fd = fd, "closing reader channel");
+                let (resp_tx, resp_rx) = oneshot::channel();
+                if request_tx.send(ReaderCommand::Close { response: resp_tx }).is_err() {
+                    warn!(node = ?node_handle, fd = fd, "reader task has exited");
+                    return (0, 0);
+                }
+                resp_rx.blocking_recv().unwrap_or((0, 0))
             }
             Some(FdState::AllowedWriter) => {
                 debug!(node = ?node_handle, fd = fd, "closed allowed writer (never materialized)");
