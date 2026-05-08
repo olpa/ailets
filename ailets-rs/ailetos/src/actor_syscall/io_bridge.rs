@@ -65,8 +65,14 @@ pub(crate) enum ReaderCommand {
 
 /// A write request forwarded from `IoBridge` to a writer task.
 pub(crate) struct WriteRequest {
-    pub data: SendableConstPtr,
-    pub response: oneshot::Sender<(isize, i32)>,
+    data: SendableConstPtr,
+    response: oneshot::Sender<(isize, i32)>,
+}
+
+/// Command sent to a writer task.
+pub(crate) enum WriterCommand {
+    Write(WriteRequest),
+    Close { response: oneshot::Sender<(isize, i32)> },
 }
 
 /// Long-lived task that owns a `MergeReader` and services read requests for one channel.
@@ -116,7 +122,7 @@ async fn run_writer_task(
     env: Arc<Environment>,
     attachment_manager: Arc<AttachmentManager>,
     notify: Arc<Notify>,
-    mut request_rx: mpsc::UnboundedReceiver<WriteRequest>,
+    mut request_rx: mpsc::UnboundedReceiver<WriterCommand>,
 ) {
     // Get/create writer once at task startup
     let writer = match env.pipe_pool.touch_writer(node_handle, fd, &env.idgen).await {
@@ -134,26 +140,53 @@ async fn run_writer_task(
         Err(e) => {
             warn!(node = ?node_handle, fd = fd, error = %e, "writer task: failed to create writer");
             // Send EIO to all incoming requests
-            while let Some(WriteRequest { response, .. }) = request_rx.recv().await {
-                let _ = response.send((-1, EIO));
+            while let Some(cmd) = request_rx.recv().await {
+                let response = match cmd {
+                    WriterCommand::Write(WriteRequest { response, .. }) => response,
+                    WriterCommand::Close { response } => response,
+                };
+                if response.send((-1, EIO)).is_err() {
+                    warn!(node = ?node_handle, fd = fd, "writer task: reply receiver dropped");
+                }
             }
             return;
         }
     };
 
-    // Process write requests
-    while let Some(WriteRequest { data, response }) = request_rx.recv().await {
-        // SAFETY: Buffer remains valid because awrite() blocks until response is sent
-        let data_slice = unsafe { &*data.into_raw() };
-        let n = writer.write(data_slice);
-        let result = if n < 0 {
-            (-1, writer.get_error())
-        } else {
-            (n, 0)
-        };
-        notify.notify_one();
-        if response.send(result).is_err() {
-            warn!(node = ?node_handle, fd = fd, "writer task: reply receiver dropped, actor may have exited");
+    // Process commands
+    while let Some(cmd) = request_rx.recv().await {
+        match cmd {
+            WriterCommand::Write(WriteRequest { data, response }) => {
+                // SAFETY: Buffer remains valid because awrite() blocks until response is sent
+                let data_slice = unsafe { &*data.into_raw() };
+                let n = writer.write(data_slice);
+                let result = if n < 0 {
+                    (-1, writer.get_error())
+                } else {
+                    (n, 0)
+                };
+                notify.notify_one();
+                if response.send(result).is_err() {
+                    warn!(node = ?node_handle, fd = fd, "writer task: reply receiver dropped, actor may have exited");
+                }
+            }
+            WriterCommand::Close { response } => {
+                debug!(node = ?node_handle, fd = fd, "writer task: received close command");
+                writer.close();
+                let result = match env.kv.flush_buffer(&writer.buffer()).await {
+                    Ok(()) => (0, 0),
+                    Err(e) => {
+                        warn!(node = ?node_handle, fd = fd, error = ?e, "writer task: flush failed");
+                        (-1, EIO)
+                    }
+                };
+                notify.notify_one();
+                if response.send(result).is_err() {
+                    warn!(node = ?node_handle, fd = fd, "writer task: close reply receiver dropped");
+                }
+                // No break: loop exits naturally when sender is dropped and recv() returns None.
+                // This keeps the bridge mechanical—it forwards commands without special control flow.
+            }
         }
     }
 }
@@ -170,7 +203,7 @@ pub(crate) enum FdState {
     },
     /// Writer has been materialized with a writer task
     MaterializedWriter {
-        request_tx: mpsc::UnboundedSender<WriteRequest>,
+        request_tx: mpsc::UnboundedSender<WriterCommand>,
     },
 }
 
@@ -308,9 +341,9 @@ impl IoBridge {
         table_guard: &mut ChannelTable,
         node_handle: Handle,
         fd: isize,
-    ) -> mpsc::UnboundedSender<WriteRequest> {
+    ) -> mpsc::UnboundedSender<WriterCommand> {
         debug!(actor = ?node_handle, fd = fd, "materializing writer");
-        let (request_tx, request_rx) = mpsc::unbounded_channel::<WriteRequest>();
+        let (request_tx, request_rx) = mpsc::unbounded_channel::<WriterCommand>();
 
         let env = Arc::clone(&self.env);
         let attachment_manager = Arc::clone(&self.attachment_manager);
@@ -393,10 +426,10 @@ impl IoBridge {
 
         let (resp_tx, resp_rx) = oneshot::channel();
         if tx
-            .send(WriteRequest {
+            .send(WriterCommand::Write(WriteRequest {
                 data,
                 response: resp_tx,
-            })
+            }))
             .is_err()
         {
             warn!(node = ?node_handle, fd = fd, "writer task has exited");
@@ -418,47 +451,22 @@ impl IoBridge {
                 let (resp_tx, resp_rx) = oneshot::channel();
                 if request_tx.send(ReaderCommand::Close { response: resp_tx }).is_err() {
                     warn!(node = ?node_handle, fd = fd, "reader task has exited");
-                    return (0, 0);
+                    return (-1, EIO);
                 }
-                resp_rx.blocking_recv().unwrap_or((0, 0))
+                resp_rx.blocking_recv().unwrap_or((-1, EIO))
             }
             Some(FdState::AllowedWriter) => {
                 debug!(node = ?node_handle, fd = fd, "closed allowed writer (never materialized)");
                 (0, 0)
             }
-            Some(FdState::MaterializedWriter { .. }) => {
+            Some(FdState::MaterializedWriter { request_tx }) => {
                 debug!(node = ?node_handle, fd = fd, "closing writer channel");
-                if let Some(writer) = self
-                    .env
-                    .pipe_pool
-                    .get_already_realized_writer((node_handle, fd))
-                {
-                    writer.close();
+                let (resp_tx, resp_rx) = oneshot::channel();
+                if request_tx.send(WriterCommand::Close { response: resp_tx }).is_err() {
+                    warn!(node = ?node_handle, fd = fd, "writer task has exited");
+                    return (-1, EIO);
                 }
-                let (tx, rx) = oneshot::channel::<(isize, i32)>();
-                let env = Arc::clone(&self.env);
-                let notify = Arc::clone(&self.notify);
-                tokio::spawn(async move {
-                    let result: (isize, i32) = if let Some(writer) =
-                        env.pipe_pool.get_already_realized_writer((node_handle, fd))
-                    {
-                        match env.kv.flush_buffer(&writer.buffer()).await {
-                            Ok(()) => (0, 0),
-                            Err(e) => {
-                                warn!(error = ?e, "failed to flush buffer");
-                                (-1, EIO)
-                            }
-                        }
-                    } else {
-                        warn!(node = ?node_handle, fd = fd, "writer not found for flush");
-                        (-1, EIO)
-                    };
-                    notify.notify_one();
-                    if tx.send(result).is_err() {
-                        warn!(node = ?node_handle, fd = fd, "close: reply receiver dropped");
-                    }
-                });
-                rx.blocking_recv().unwrap_or((-1, EIO))
+                resp_rx.blocking_recv().unwrap_or((-1, EIO))
             }
             None => {
                 warn!(node = ?node_handle, fd = fd, "close: fd not found");
