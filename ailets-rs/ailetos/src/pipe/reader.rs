@@ -3,9 +3,9 @@
 use parking_lot::Mutex;
 use std::fmt;
 use std::sync::Arc;
-use tracing::{error, trace};
+use tracing::{error, trace, warn};
 
-use crate::errno::{EIO, EPIPE};
+use crate::errno::{EBADF, EIO, EPIPE};
 use crate::idgen::Handle;
 use crate::notification_queue::NotificationQueueArc;
 
@@ -75,19 +75,16 @@ impl Reader {
     }
 
     /// Close the reader
-    pub fn close(&mut self) {
+    ///
+    /// Returns `(0, 0)` on success, `(-1, EBADF)` if already closed.
+    pub fn close(&mut self) -> (isize, i32) {
         if self.own_closed {
             log::warn!("Reader::close() called on already closed reader: {self:?}");
-            return;
+            return (-1, EBADF);
         }
         self.own_closed = true;
         self.guard.take();
-    }
-
-    /// Check if reader is closed
-    #[must_use]
-    pub fn is_closed(&self) -> bool {
-        self.own_closed
+        (0, 0)
     }
 
     /// Get current error state (checks own error first, then writer error)
@@ -251,8 +248,11 @@ impl fmt::Debug for Reader {
 impl Drop for Reader {
     fn drop(&mut self) {
         trace!(handle = ?self.own_handle, "Reader: destroying (drop)");
-        if !self.is_closed() {
-            self.close();
+        if !self.own_closed {
+            let (result, errno) = self.close();
+            if result < 0 {
+                warn!(handle = ?self.own_handle, errno, "Reader::drop: close failed");
+            }
         }
     }
 }

@@ -14,7 +14,7 @@ use tracing::{trace, warn};
 use super::pool::PipePool;
 use super::reader::Reader;
 use crate::dag::{NodeState, OwnedDependencyIterator};
-use crate::errno::EIO;
+use crate::errno::{EBADF, EIO};
 use crate::idgen::IdGen;
 use crate::storage::KVBuffers;
 
@@ -50,6 +50,8 @@ pub struct MergeReader {
     id_gen: Arc<IdGen>,
     /// Error from dependency resolution (set when `create_next_reader` fails)
     own_errno: i32,
+    /// Whether this merge reader has been closed
+    own_closed: bool,
 }
 
 impl MergeReader {
@@ -75,6 +77,7 @@ impl MergeReader {
             kv,
             id_gen,
             own_errno: 0,
+            own_closed: false,
         }
     }
 
@@ -203,26 +206,24 @@ impl MergeReader {
     }
 
     /// Close the merge reader.
-    pub fn close(&mut self) {
-        if let Some(ref mut reader) = self.current_reader {
-            reader.close();
+    ///
+    /// Returns `(0, 0)` on success, `(-1, EBADF)` if already closed,
+    /// or propagates error from inner reader close.
+    pub fn close(&mut self) -> (isize, i32) {
+        if self.own_closed {
+            warn!("MergeReader::close() called on already closed reader");
+            return (-1, EBADF);
         }
+        self.own_closed = true;
+        let result = if let Some(ref mut reader) = self.current_reader {
+            reader.close()
+        } else {
+            (0, 0)
+        };
         self.current_reader = None;
+        result
     }
 
-    /// Check if the merge reader is closed (no active reader and iterator exhausted).
-    ///
-    /// Note: This is a heuristic check. The iterator may still have items,
-    /// but we can't peek without consuming. Returns true only when we know
-    /// for certain that we're done (no current reader and we've hit EOF).
-    #[must_use]
-    pub fn is_closed(&self) -> bool {
-        // We're closed if there's no current reader.
-        // The iterator state is opaque, so we can't check if it's exhausted
-        // without consuming it. The reader being None after read() returns 0
-        // indicates we've exhausted all dependencies.
-        self.current_reader.is_none()
-    }
 }
 
 impl std::fmt::Debug for MergeReader {
@@ -234,8 +235,11 @@ impl std::fmt::Debug for MergeReader {
 impl Drop for MergeReader {
     fn drop(&mut self) {
         trace!("MergeReader: destroying (drop)");
-        if self.current_reader.is_some() {
-            self.close();
+        if !self.own_closed {
+            let (result, errno) = self.close();
+            if result < 0 {
+                warn!(errno, "MergeReader::drop: close failed");
+            }
         }
     }
 }
