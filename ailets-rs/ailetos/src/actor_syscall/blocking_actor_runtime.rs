@@ -115,9 +115,10 @@ impl BlockingActorRuntime {
         // Async cleanup - flushes all writer buffers
         let exit_code = self.exit_code.load(Ordering::Relaxed);
         self.suspension.deregister(self.node_handle);
-        self.io_bridge.cleanup_actor_io(self.node_handle, exit_code).await;
+        let cleanup_result = self.io_bridge.cleanup_actor_io(self.node_handle, exit_code).await;
 
-        // Notify executor we're terminated
+        // Notify executor we're terminated — always send, even if cleanup failed,
+        // so the executor is never left waiting for an event that will never arrive.
         let (tx2, rx2) = oneshot::channel::<NodeState>();
         if self
             .actor_done_tx
@@ -132,7 +133,7 @@ impl BlockingActorRuntime {
         }
 
         rx2.await.map_err(|_| "Terminated reply dropped".to_string())?;
-        Ok(())
+        cleanup_result
     }
 
     /// Mark the actor as failed.

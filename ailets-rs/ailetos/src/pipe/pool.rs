@@ -262,7 +262,11 @@ impl PipePool {
     /// `exit_code`: 0 = clean termination, non-zero = POSIX errno.
     /// For realized writers with a non-zero exit code, sets the error before closing
     /// so readers see the error after consuming all written data.
-    pub async fn flush_close_actor_writers(&self, actor_handle: Handle, exit_code: i32) {
+    pub async fn flush_close_actor_writers(
+        &self,
+        actor_handle: Handle,
+        exit_code: i32,
+    ) -> Result<(), String> {
         let (writers_to_close, notifies) = {
             let mut writers = self.writers.lock();
 
@@ -293,13 +297,16 @@ impl PipePool {
         }; // Lock released here
 
         // Flush and close writers outside lock
+        let mut errors: Vec<String> = Vec::new();
         for (h, s, writer) in writers_to_close {
             if exit_code != 0 {
                 writer.set_error(exit_code);
             }
             let (result, errno) = flush_and_close_writer(&*self.kv, &writer, "actor shutdown").await;
             if result < 0 {
-                debug!(key = ?(h, s), exit_code, errno = errno, "flush/close failed on actor shutdown");
+                let msg = format!("flush/close failed on actor shutdown key={:?} exit_code={exit_code} errno={errno}", (h, s));
+                debug!("{msg}");
+                errors.push(msg);
             } else {
                 debug!(key = ?(h, s), exit_code, "flushed and closed realized writer on actor shutdown");
             }
@@ -308,6 +315,12 @@ impl PipePool {
         // Notify latent waiters outside lock
         for notify in notifies {
             notify.notify_waiters();
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors.join("; "))
         }
     }
 

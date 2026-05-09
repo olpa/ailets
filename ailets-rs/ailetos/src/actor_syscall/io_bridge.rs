@@ -468,17 +468,24 @@ impl IoBridge {
         }
     }
 
-    pub async fn cleanup_actor_io(&self, node_handle: Handle, exit_code: i32) {
+    pub async fn cleanup_actor_io(
+        &self,
+        node_handle: Handle,
+        exit_code: i32,
+    ) -> Result<(), String> {
         debug!(node = ?node_handle, exit_code, "cleanup_actor_io: flushing and closing writers");
 
         // Close writers at pipe layer (with flush)
-        self.env
+        let result = self
+            .env
             .pipe_pool
             .flush_close_actor_writers(node_handle, exit_code)
             .await;
 
         debug!(node = ?node_handle, "cleanup_actor_io: dropping all entries");
         self.channel_table.lock().drop_actor_entries(node_handle);
+
+        result
     }
 
     /// Wait for all attachment tasks to complete. Call after all actors have shut down.
