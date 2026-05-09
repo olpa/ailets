@@ -71,7 +71,7 @@ async fn test_reader_to_actor_epipe_propagation() {
         .await
         .unwrap();
     writer.set_error(EPIPE);
-    writer.close();
+    assert!(writer.close().0 >= 0);
 
     let runtime = Arc::new(BlockingActorRuntime::new(
         actor_handle,
@@ -118,7 +118,7 @@ async fn test_mark_failed_uses_epipe_from_last_read() {
         .await
         .unwrap();
     writer.set_error(EPIPE);
-    writer.close();
+    assert!(writer.close().0 >= 0);
 
     let runtime = Arc::new(BlockingActorRuntime::new(
         actor_handle,
