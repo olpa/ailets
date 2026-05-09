@@ -313,15 +313,22 @@ impl IoBridge {
     }
 
     /// Materialize a writer. Caller must have verified state is AllowedWriter.
-    /// Returns the request sender.
+    /// Returns the request sender, or None if the fd entry is missing (bug).
     fn materialize_writer(
         &self,
         table_guard: &mut ChannelTable,
         node_handle: Handle,
         fd: isize,
-    ) -> mpsc::UnboundedSender<WriterCommand> {
+    ) -> Option<mpsc::UnboundedSender<WriterCommand>> {
+        let Some(state) = table_guard.get_state_mut(node_handle, fd) else {
+            warn!(node = ?node_handle, fd, "materialize_writer: fd not in table (bug)");
+            return None;
+        };
+
         debug!(actor = ?node_handle, fd = fd, "materializing writer");
         let (request_tx, request_rx) = mpsc::unbounded_channel::<WriterCommand>();
+        let tx = request_tx.clone();
+        *state = FdState::MaterializedWriter { request_tx };
 
         let env = Arc::clone(&self.env);
         let attachment_manager = Arc::clone(&self.attachment_manager);
@@ -335,12 +342,7 @@ impl IoBridge {
             request_rx,
         ));
 
-        let tx = request_tx.clone();
-        if let Some(state) = table_guard.get_state_mut(node_handle, fd) {
-            *state = FdState::MaterializedWriter { request_tx };
-        }
-
-        tx
+        Some(tx)
     }
 
     /// Route a read request to the channel's reader task and block for the result.
@@ -389,7 +391,13 @@ impl IoBridge {
             match table_guard.get_state(node_handle, fd) {
                 Some(FdState::MaterializedWriter { request_tx }) => request_tx.clone(),
                 Some(FdState::AllowedWriter) => {
-                    self.materialize_writer(&mut table_guard, node_handle, fd)
+                    match self.materialize_writer(&mut table_guard, node_handle, fd) {
+                        Some(tx) => tx,
+                        None => {
+                            warn!(node = ?node_handle, fd = fd, "write: fd disappeared during materialization");
+                            return (-1, EBADF);
+                        }
+                    }
                 }
                 Some(FdState::AllowedReader | FdState::MaterializedReader { .. }) => {
                     warn!(node = ?node_handle, fd = fd, "write: cannot write to reader fd");
