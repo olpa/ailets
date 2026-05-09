@@ -23,6 +23,7 @@ struct BackgroundJob {
     thread: std::thread::JoinHandle<()>,
     abort_handle: futures::future::AbortHandle,
     bridge: std::sync::Arc<IoBridge>,
+    runtime_handle: tokio::runtime::Handle,
 }
 
 struct DagShell {
@@ -428,7 +429,8 @@ Variables:
 
         let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
         let (ctrlc_abort_handle, ctrlc_abort_reg) = futures::future::AbortHandle::new_pair();
-        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<Arc<IoBridge>, String>>();
+        let (ready_tx, ready_rx) =
+            std::sync::mpsc::channel::<Result<(Arc<IoBridge>, tokio::runtime::Handle), String>>();
 
         let thread = std::thread::spawn(move || {
             tracing::info!("Foreground thread starting");
@@ -438,11 +440,12 @@ Variables:
                     .ok();
                 return;
             };
+            let rt_handle = rt.handle().clone();
             rt.block_on(async move {
                 let (stx_tx, stx_rx) = tokio::sync::oneshot::channel::<Arc<IoBridge>>();
                 tokio::spawn(async move {
                     match stx_rx.await {
-                        Ok(bridge) => ready_tx.send(Ok(bridge)).ok(),
+                        Ok(bridge) => ready_tx.send(Ok((bridge, rt_handle))).ok(),
                         Err(_) => ready_tx
                             .send(Err("System runtime failed to start".to_string()))
                             .ok(),
@@ -460,8 +463,8 @@ Variables:
         });
 
         // Wait for system runtime to be ready before entering the Ctrl+C loop
-        let bridge = match ready_rx.recv() {
-            Ok(Ok(b)) => b,
+        let (bridge, runtime_handle) = match ready_rx.recv() {
+            Ok(Ok(pair)) => pair,
             Ok(Err(e)) => {
                 thread.join().ok();
                 return Err(e);
@@ -496,6 +499,7 @@ Variables:
             thread,
             abort_handle,
             bridge,
+            runtime_handle,
         });
 
         loop {
@@ -539,7 +543,8 @@ Variables:
         let env = Arc::clone(&self.env);
 
         let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
-        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<Arc<IoBridge>, String>>();
+        let (ready_tx, ready_rx) =
+            std::sync::mpsc::channel::<Result<(Arc<IoBridge>, tokio::runtime::Handle), String>>();
 
         let thread = std::thread::spawn(move || {
             tracing::info!("Background thread starting");
@@ -549,11 +554,12 @@ Variables:
                     .ok();
                 return;
             };
+            let rt_handle = rt.handle().clone();
             rt.block_on(async move {
                 let (stx_tx, stx_rx) = tokio::sync::oneshot::channel::<Arc<IoBridge>>();
                 tokio::spawn(async move {
                     match stx_rx.await {
-                        Ok(bridge) => ready_tx.send(Ok(bridge)).ok(),
+                        Ok(bridge) => ready_tx.send(Ok((bridge, rt_handle))).ok(),
                         Err(_) => ready_tx
                             .send(Err("System runtime failed to start".to_string()))
                             .ok(),
@@ -569,8 +575,8 @@ Variables:
             });
         });
 
-        let bridge = match ready_rx.recv() {
-            Ok(Ok(b)) => b,
+        let (bridge, runtime_handle) = match ready_rx.recv() {
+            Ok(Ok(pair)) => pair,
             Ok(Err(e)) => {
                 thread.join().ok();
                 return Err(e);
@@ -585,6 +591,7 @@ Variables:
             thread,
             abort_handle,
             bridge,
+            runtime_handle,
         });
 
         println!("Started background run (use 'fg' to wait, 'kill' to terminate)");
@@ -903,13 +910,14 @@ Variables:
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
-        let bridge = self
+        let job = self
             .bg_job
             .as_ref()
-            .map(|j| Arc::clone(&j.bridge))
             .ok_or("No background job running")?;
 
-        bridge.cleanup_actor_io(handle, exit_code);
+        job.runtime_handle
+            .block_on(job.bridge.cleanup_actor_io(handle, exit_code))
+            .map_err(|e| format!("kill failed: {e}"))?;
 
         println!("Killed node {} with exit code {}", handle.id(), exit_code);
         Ok(())
