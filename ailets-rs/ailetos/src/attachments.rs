@@ -62,7 +62,7 @@ impl AttachmentConfig {
 pub struct AttachmentManager {
     config: AttachmentConfig,
     /// Active attachment task handles
-    tasks: Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    tasks: Mutex<Vec<tokio::task::JoinHandle<Result<(), String>>>>,
 }
 
 impl AttachmentManager {
@@ -123,17 +123,17 @@ impl AttachmentManager {
                 Ok(reader) => reader,
                 Err(e) => {
                     warn!(node = ?node_handle, fd = fd, error = ?e, "failed to get reader for attachment");
-                    return;
+                    return Err(format!("failed to get reader for attachment: {e:?}"));
                 }
             };
 
             // Run attachment worker
             match target {
                 AttachmentTarget::Stdout => {
-                    attach_to_stream(node_handle, reader, std::io::stdout(), target).await;
+                    attach_to_stream(node_handle, reader, std::io::stdout(), target).await
                 }
                 AttachmentTarget::Stderr => {
-                    attach_to_stream(node_handle, reader, std::io::stderr(), target).await;
+                    attach_to_stream(node_handle, reader, std::io::stderr(), target).await
                 }
             }
         });
@@ -152,8 +152,10 @@ impl AttachmentManager {
             tasks.len()
         );
         for task in tasks {
-            if let Err(e) = task.await {
-                warn!(error = %e, "attachment task failed during shutdown");
+            match task.await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => warn!(error = %e, "attachment task error"),
+                Err(e) => warn!(error = %e, "attachment task panicked"),
             }
         }
         trace!("AttachmentManager::waiting_shutdown: exited loop");
@@ -176,7 +178,7 @@ async fn attach_to_stream<W: StdWrite>(
     mut reader: Reader,
     mut writer: W,
     target: AttachmentTarget,
-) {
+) -> Result<(), String> {
     debug!(node = ?node_handle, ?target, "attachment started");
 
     let mut buf = vec![0u8; 4096];
@@ -211,6 +213,11 @@ async fn attach_to_stream<W: StdWrite>(
         }
     }
 
-    reader.close();
+    let (result, errno) = reader.close();
+    if result < 0 {
+        warn!(node = ?node_handle, ?target, errno, "failed to close reader in attachment");
+        return Err(format!("failed to close reader in attachment: errno={errno}"));
+    }
     debug!(node = ?node_handle, ?target, "attachment finished");
+    Ok(())
 }
