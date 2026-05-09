@@ -23,7 +23,7 @@ use super::io_bridge::IoBridge;
 use super::lifecycle_event::ActorLifecycleEvent;
 use super::sendable_buffer::{SendableConstPtr, SendableMutPtr};
 use crate::dag::NodeState;
-use crate::errno::EOWNERDEAD;
+use crate::errno::{ENOSYS, EOWNERDEAD};
 use crate::idgen::Handle;
 use crate::suspension::SuspensionState;
 
@@ -200,16 +200,14 @@ impl ActorRuntime for BlockingActorRuntime {
     }
 
     fn open_read(&self, _name: &str) -> isize {
-        // Dynamic file opening not supported yet
-        // Standard fds (0, 1, 2) are pre-opened
         warn!(actor = ?self.node_handle, name = _name, "open_read: dynamic fd allocation not supported");
+        self.last_errno.store(ENOSYS, Ordering::Relaxed);
         -1
     }
 
     fn open_write(&self, _name: &str) -> isize {
-        // Dynamic file opening not supported yet
-        // Standard fds (0, 1, 2) are pre-opened
         warn!(actor = ?self.node_handle, name = _name, "open_write: dynamic fd allocation not supported");
+        self.last_errno.store(ENOSYS, Ordering::Relaxed);
         -1
     }
 
