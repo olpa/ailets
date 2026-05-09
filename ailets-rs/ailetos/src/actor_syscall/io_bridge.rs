@@ -5,35 +5,15 @@
 //! `blocking_actor_runtime`, which runs on each actor's blocking thread.
 //!
 //! Supporting types live in sibling modules:
-//! - [`super::sendable_buffer`] — zero-copy buffer pointer for read operations
+//! - [`super::sendable_buffer`] — zero-copy buffer pointers for read/write operations
 //! - [`super::lifecycle_event`] — two-phase shutdown handshake with the executor
 //!
 //! # Calling model
 //!
-//! All public methods are sync and callable from a blocking thread (spawned via
-//! `tokio::task::spawn_blocking`). Methods that need async work spawn a Tokio task
-//! and block the calling thread on a oneshot reply:
-//!
-//! ```text
-//! actor thread (blocking)       Tokio runtime
-//! ─────────────────────────     ─────────────────────────────
-//! bridge.write(data)
-//!   tokio::spawn ──────────→   async write task
-//!   blocking_recv() …           → sends oneshot reply
-//!   ← result                   task exits
-//! ```
-//!
-//! Read operations go through a long-lived reader task (one per stdin channel)
-//! that owns the [`MergeReader`]. The actor sends a [`ReadRequest`] and blocks:
-//!
-//! ```text
-//! actor thread                  reader task (Tokio)
-//! ─────────────────────────     ─────────────────────
-//! bridge.read(handle, buf)
-//!   → ReadRequest ──────────→  MergeReader::read(buf).await
-//!   blocking_recv() …          → oneshot reply
-//!   ← (bytes, errno)
-//! ```
+//! Both reads and writes go through a long-lived per-channel Tokio task spawned
+//! lazily on first use. The actor thread sends a command over an unbounded channel
+//! and blocks on a oneshot reply. Tasks live until the channel entry is removed
+//! from `ChannelTable` on close or actor shutdown.
 
 use std::sync::Arc;
 
@@ -165,6 +145,9 @@ async fn run_writer_task(
                 } else {
                     (n, 0)
                 };
+                // Wake the spawn loop: the first write realizes the writer in the
+                // pool, potentially unblocking downstream actors whose readiness
+                // check (is_ready_to_spawn) waits for this dep's pipe to appear.
                 notify.notify_one();
                 if response.send(result).is_err() {
                     warn!(node = ?node_handle, fd = fd, "writer task: reply receiver dropped, actor may have exited");
@@ -173,6 +156,8 @@ async fn run_writer_task(
             WriterCommand::Close { response } => {
                 debug!(node = ?node_handle, fd = fd, "writer task: received close command");
                 let result = flush_and_close_writer(&*env.kv, &writer, "writer task").await;
+                // Wake the spawn loop: a closed writer is a state change that
+                // may satisfy spawn readiness for downstream actors.
                 notify.notify_one();
                 if response.send(result).is_err() {
                     warn!(node = ?node_handle, fd = fd, "writer task: close reply receiver dropped");

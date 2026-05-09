@@ -1,8 +1,13 @@
 //! Blocking `ActorRuntime` implementation
 //!
 //! This module provides a blocking `ActorRuntime` implementation — the user-space
-//! side of the actor syscall layer. It is a thin stateless wrapper that passes
-//! all I/O operations to `IoBridge` with the actor's node handle and fd.
+//! side of the actor syscall layer. It routes all I/O operations to `IoBridge`
+//! with the actor's node handle and fd, and tracks per-actor state: the errno
+//! from the last failed syscall, the exit code, and whether `shutdown()` has
+//! been called.
+//!
+//! `shutdown()` must be called explicitly before drop. It flushes writer buffers
+//! and sends the two-phase Terminating/Terminated handshake to the executor.
 //!
 //! Among the consumers of this type is the WASM interface: `BlockingActorRuntime`
 //! is threaded through FFI glue into `FfiActorRuntime`, which exposes it to WebAssembly actors.
