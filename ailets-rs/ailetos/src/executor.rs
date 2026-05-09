@@ -100,24 +100,35 @@ fn spawn_actor_task(
     actor_fn: ActorFn,
     actor_runtime: BlockingActorRuntime,
 ) -> tokio::task::JoinHandle<()> {
-    tokio::task::spawn_blocking(move || {
-        debug!(node = ?node_handle, name = %idname, "task starting");
+    let actor_runtime = Arc::new(actor_runtime);
+    tokio::spawn(async move {
+        let runtime_ref = Arc::clone(&actor_runtime);
+        let blocking_result = tokio::task::spawn_blocking(move || {
+            debug!(node = ?node_handle, name = %idname, "task starting");
 
-        actor_runtime.register_std_fds();
+            runtime_ref.register_std_fds();
 
-        let result = actor_fn(&actor_runtime);
+            let result = actor_fn(&*runtime_ref);
 
-        match result {
-            Ok(()) => {
-                debug!(node = ?node_handle, name = %idname, "task completed");
+            match result {
+                Ok(()) => {
+                    debug!(node = ?node_handle, name = %idname, "task completed");
+                }
+                Err(e) => {
+                    warn!(node = ?node_handle, name = %idname, error = %e, "task error");
+                    runtime_ref.mark_failed();
+                }
             }
-            Err(e) => {
-                warn!(node = ?node_handle, name = %idname, error = %e, "task error");
-                actor_runtime.mark_failed();
-            }
+        })
+        .await;
+
+        if let Err(e) = blocking_result {
+            warn!(node = ?node_handle, error = %e, "actor blocking task panicked");
         }
 
-        debug!(node = ?node_handle, name = %idname, "task done, shutdown via Drop");
+        if let Err(e) = actor_runtime.shutdown().await {
+            warn!(node = ?node_handle, error = %e, "actor shutdown error");
+        }
     })
 }
 
