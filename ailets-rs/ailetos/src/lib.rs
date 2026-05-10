@@ -28,10 +28,7 @@ pub use storage::{KVBuffers, KVError, MemKV, OpenMode};
 pub use pipe::PipePool;
 
 // Re-export actor syscall layer types for convenience
-pub use actor_syscall::{
-    ActorLifecycleEvent, BlockingActorRuntime, IoBridge,
-    SendableMutPtr,
-};
+pub use actor_syscall::{ActorLifecycleEvent, BlockingActorRuntime, IoBridge, SendableMutPtr};
 
 // Re-export attachment types
 pub use attachments::AttachmentConfig;

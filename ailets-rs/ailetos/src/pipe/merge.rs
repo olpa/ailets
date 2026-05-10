@@ -223,7 +223,6 @@ impl MergeReader {
         self.current_reader = None;
         result
     }
-
 }
 
 impl std::fmt::Debug for MergeReader {

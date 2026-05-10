@@ -249,7 +249,9 @@ async fn test_reader_on_latent_pipe_closed_without_realizing() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Close the latent writer without realizing it
-    pool.flush_close_actor_writers(actor_handle, 0).await.unwrap();
+    pool.flush_close_actor_writers(actor_handle, 0)
+        .await
+        .unwrap();
 
     // Reader should unblock and get an error
     let result = tokio::time::timeout(Duration::from_secs(1), reader_task)
@@ -337,7 +339,9 @@ async fn test_latent_to_closed_transition() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Close without realizing
-    pool.flush_close_actor_writers(actor_handle, 0).await.unwrap();
+    pool.flush_close_actor_writers(actor_handle, 0)
+        .await
+        .unwrap();
 
     // New reader request should get error (closed state)
     let result = pool
@@ -463,7 +467,9 @@ async fn test_close_latent_writer_without_realizing() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Close latent writer (abnormal case - should log warning)
-    pool.flush_close_actor_writers(actor_handle, 0).await.unwrap();
+    pool.flush_close_actor_writers(actor_handle, 0)
+        .await
+        .unwrap();
 
     // Writer still doesn't exist (latent was closed)
     assert!(pool
@@ -478,7 +484,9 @@ async fn test_close_nonexistent_pipe() {
     let std_handle = StdHandle::Stdout;
 
     // Close non-existent pipe - should be no-op
-    pool.flush_close_actor_writers(actor_handle, 0).await.unwrap();
+    pool.flush_close_actor_writers(actor_handle, 0)
+        .await
+        .unwrap();
 
     // Writer still doesn't exist
     assert!(pool
@@ -645,7 +653,9 @@ async fn test_realize_already_realized_is_noop() {
         .expect("Failed to realize pipe first time");
 
     // Realize again - should be no-op
-    let result = pool.touch_writer(actor_handle, std_handle as isize, &id_gen).await;
+    let result = pool
+        .touch_writer(actor_handle, std_handle as isize, &id_gen)
+        .await;
     assert!(result.is_ok(), "Second realize should succeed (no-op)");
 }
 
@@ -820,7 +830,11 @@ async fn test_mixed_latent_and_realized_pipes() {
     let id_gen_clone = Arc::clone(&id_gen);
     let _reader_task = tokio::spawn(async move {
         pool_clone
-            .get_or_await_reader((Handle::new(2), StdHandle::Stdout as isize), true, &id_gen_clone)
+            .get_or_await_reader(
+                (Handle::new(2), StdHandle::Stdout as isize),
+                true,
+                &id_gen_clone,
+            )
             .await
     });
 
@@ -1052,7 +1066,9 @@ async fn test_race_consumer_opens_during_shutdown() {
     tokio::time::sleep(Duration::from_millis(10)).await;
 
     // Now close the actor's writers (simulating shutdown)
-    pool.flush_close_actor_writers(actor_handle, 0).await.unwrap();
+    pool.flush_close_actor_writers(actor_handle, 0)
+        .await
+        .unwrap();
 
     // Reader task should complete (not hang forever)
     let reader_result = tokio::time::timeout(Duration::from_secs(1), reader_task)
@@ -1118,7 +1134,9 @@ async fn test_race_concurrent_consumers_during_shutdown() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Shutdown the producer
-    pool.flush_close_actor_writers(actor_handle, 0).await.unwrap();
+    pool.flush_close_actor_writers(actor_handle, 0)
+        .await
+        .unwrap();
 
     // All consumers should complete within reasonable time
     let timeout_result = tokio::time::timeout(Duration::from_secs(2), async move {
@@ -1187,7 +1205,9 @@ async fn test_race_latent_waiters_notified_on_close() {
 
     // Producer "crashes" without ever creating the writer
     // Just close all its pipes
-    pool.flush_close_actor_writers(actor_handle, 0).await.unwrap();
+    pool.flush_close_actor_writers(actor_handle, 0)
+        .await
+        .unwrap();
 
     // All waiters should be notified and complete
     let timeout_result = tokio::time::timeout(Duration::from_secs(1), async move {
@@ -1253,7 +1273,10 @@ async fn test_race_touch_writer_vs_close() {
     let pool_clone = Arc::clone(&pool);
     let close_handle = tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(20)).await;
-        pool_clone.flush_close_actor_writers(actor_handle, 0).await.unwrap();
+        pool_clone
+            .flush_close_actor_writers(actor_handle, 0)
+            .await
+            .unwrap();
     });
 
     // Wait for all tasks
@@ -1479,7 +1502,9 @@ async fn test_close_actor_writers_with_error_reader_sees_epipe() {
         .expect("Failed to create reader");
 
     // Actor fails: close_actor_writers propagates EOWNERDEAD to the writer
-    pool.flush_close_actor_writers(actor_handle, EOWNERDEAD).await.unwrap();
+    pool.flush_close_actor_writers(actor_handle, EOWNERDEAD)
+        .await
+        .unwrap();
 
     // Reader drains the buffered data first
     let mut buf = [0u8; 64];

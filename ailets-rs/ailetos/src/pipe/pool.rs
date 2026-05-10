@@ -302,7 +302,8 @@ impl PipePool {
             if exit_code != 0 {
                 writer.set_error(exit_code);
             }
-            let (result, errno) = flush_and_close_writer(&*self.kv, &writer, "actor shutdown").await;
+            let (result, errno) =
+                flush_and_close_writer(&*self.kv, &writer, "actor shutdown").await;
             if result < 0 {
                 let msg = format!("flush/close failed on actor shutdown key={:?} exit_code={exit_code} errno={errno}", (h, s));
                 debug!("{msg}");

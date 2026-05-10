@@ -111,7 +111,9 @@ impl BlockingActorRuntime {
             return Err("executor gone".to_string());
         }
 
-        let prior = rx.await.map_err(|_| "Terminating reply dropped".to_string())?;
+        let prior = rx
+            .await
+            .map_err(|_| "Terminating reply dropped".to_string())?;
         if matches!(prior, NodeState::Terminating | NodeState::Terminated) {
             debug!(node = ?self.node_handle, "shutdown: already terminating/terminated");
             return Ok(());
@@ -120,7 +122,10 @@ impl BlockingActorRuntime {
         // Async cleanup - flushes all writer buffers
         let exit_code = self.exit_code.load(Ordering::Relaxed);
         self.suspension.deregister(self.node_handle);
-        let cleanup_result = self.io_bridge.cleanup_actor_io(self.node_handle, exit_code).await;
+        let cleanup_result = self
+            .io_bridge
+            .cleanup_actor_io(self.node_handle, exit_code)
+            .await;
 
         // Notify executor we're terminated — always send, even if cleanup failed,
         // so the executor is never left waiting for an event that will never arrive.
@@ -137,7 +142,8 @@ impl BlockingActorRuntime {
             return Err("executor gone before Terminated".to_string());
         }
 
-        rx2.await.map_err(|_| "Terminated reply dropped".to_string())?;
+        rx2.await
+            .map_err(|_| "Terminated reply dropped".to_string())?;
         cleanup_result
     }
 

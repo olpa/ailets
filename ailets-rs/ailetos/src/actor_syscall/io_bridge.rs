@@ -30,7 +30,6 @@ use crate::errno::{EBADF, EIO, EPIPE};
 use crate::idgen::Handle;
 use crate::pipe::{flush_and_close_writer, MergeReader};
 
-
 /// A read request forwarded from `IoBridge` to a reader task.
 pub(crate) struct ReadRequest {
     buffer: SendableMutPtr,
@@ -40,7 +39,9 @@ pub(crate) struct ReadRequest {
 /// Command sent to a reader task.
 pub(crate) enum ReaderCommand {
     Read(ReadRequest),
-    Close { response: oneshot::Sender<(isize, i32)> },
+    Close {
+        response: oneshot::Sender<(isize, i32)>,
+    },
 }
 
 /// A write request forwarded from `IoBridge` to a writer task.
@@ -52,7 +53,9 @@ pub(crate) struct WriteRequest {
 /// Command sent to a writer task.
 pub(crate) enum WriterCommand {
     Write(WriteRequest),
-    Close { response: oneshot::Sender<(isize, i32)> },
+    Close {
+        response: oneshot::Sender<(isize, i32)>,
+    },
 }
 
 /// Long-lived task that owns a `MergeReader` and services read requests for one channel.
@@ -105,7 +108,11 @@ async fn run_writer_task(
     mut request_rx: mpsc::UnboundedReceiver<WriterCommand>,
 ) {
     // Create writer at task startup
-    let writer = match env.pipe_pool.touch_writer(node_handle, fd, &env.idgen).await {
+    let writer = match env
+        .pipe_pool
+        .touch_writer(node_handle, fd, &env.idgen)
+        .await
+    {
         Ok((writer, is_new)) => {
             if is_new {
                 attachment_manager.on_writer_realized(
@@ -435,7 +442,10 @@ impl IoBridge {
             Some(FdState::MaterializedReader { request_tx }) => {
                 debug!(node = ?node_handle, fd = fd, "closing reader channel");
                 let (resp_tx, resp_rx) = oneshot::channel();
-                if request_tx.send(ReaderCommand::Close { response: resp_tx }).is_err() {
+                if request_tx
+                    .send(ReaderCommand::Close { response: resp_tx })
+                    .is_err()
+                {
                     warn!(node = ?node_handle, fd = fd, "reader task has exited");
                     return (-1, EIO);
                 }
@@ -448,7 +458,10 @@ impl IoBridge {
             Some(FdState::MaterializedWriter { request_tx }) => {
                 debug!(node = ?node_handle, fd = fd, "closing writer channel");
                 let (resp_tx, resp_rx) = oneshot::channel();
-                if request_tx.send(WriterCommand::Close { response: resp_tx }).is_err() {
+                if request_tx
+                    .send(WriterCommand::Close { response: resp_tx })
+                    .is_err()
+                {
                     warn!(node = ?node_handle, fd = fd, "writer task has exited");
                     return (-1, EIO);
                 }
