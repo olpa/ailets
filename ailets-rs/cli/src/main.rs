@@ -910,10 +910,7 @@ Variables:
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
-        let job = self
-            .bg_job
-            .as_ref()
-            .ok_or("No background job running")?;
+        let job = self.bg_job.as_ref().ok_or("No background job running")?;
 
         job.runtime_handle
             .block_on(job.bridge.cleanup_actor_io(handle, exit_code))

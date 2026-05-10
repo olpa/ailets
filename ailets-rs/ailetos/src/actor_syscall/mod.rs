@@ -13,7 +13,7 @@
 //!
 //! **Actor side** — runs on the actor's blocking thread:
 //! - [`blocking_actor_runtime`] — implements `ActorRuntime`; thin stateless wrapper that
-//!   passes (node_handle, fd) to `IoBridge` for all I/O operations.
+//!   passes (`node_handle`, fd) to `IoBridge` for all I/O operations.
 //!
 //! **Bridge** — shared object callable from any blocking thread:
 //! - [`io_bridge`] — directly-callable I/O bridge; methods spawn Tokio tasks for async work

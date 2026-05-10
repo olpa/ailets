@@ -45,7 +45,7 @@ pub struct BlockingActorRuntime {
     exit_code: AtomicI32,
     /// Channel to notify executor of lifecycle events (Terminating/Terminated)
     actor_done_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
-    /// True if shutdown() was called (to detect improper drop)
+    /// True if `shutdown()` was called (to detect improper drop)
     shutdown_called: AtomicBool,
 }
 
@@ -86,7 +86,9 @@ impl BlockingActorRuntime {
     /// is responsible for calling this method before dropping the runtime.
     ///
     /// This method is async because it flushes writer buffers to storage,
-    /// which may involve disk I/O for persistent backends like SQLite.
+    /// which may involve disk I/O for persistent backends like `SQLite`.
+    ///
+    /// # Errors
     ///
     /// Returns `Err` if:
     /// - Shutdown was already called
@@ -168,7 +170,7 @@ impl BlockingActorRuntime {
     }
 
     /// Register all standard file descriptors for this actor.
-    /// Marks standard fds as allowed in IoBridge; actual channels are materialized lazily.
+    /// Marks standard fds as allowed in `IoBridge`; actual channels are materialized lazily.
     pub fn register_std_fds(&self) {
         use actor_runtime::StdHandle;
 
@@ -205,14 +207,14 @@ impl ActorRuntime for BlockingActorRuntime {
         self.last_errno.load(Ordering::Relaxed) as isize
     }
 
-    fn open_read(&self, _name: &str) -> isize {
-        warn!(actor = ?self.node_handle, name = _name, "open_read: dynamic fd allocation not supported");
+    fn open_read(&self, name: &str) -> isize {
+        warn!(actor = ?self.node_handle, name = name, "open_read: dynamic fd allocation not supported");
         self.last_errno.store(ENOSYS, Ordering::Relaxed);
         -1
     }
 
-    fn open_write(&self, _name: &str) -> isize {
-        warn!(actor = ?self.node_handle, name = _name, "open_write: dynamic fd allocation not supported");
+    fn open_write(&self, name: &str) -> isize {
+        warn!(actor = ?self.node_handle, name = name, "open_write: dynamic fd allocation not supported");
         self.last_errno.store(ENOSYS, Ordering::Relaxed);
         -1
     }

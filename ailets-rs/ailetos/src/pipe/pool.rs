@@ -262,6 +262,10 @@ impl PipePool {
     /// `exit_code`: 0 = clean termination, non-zero = POSIX errno.
     /// For realized writers with a non-zero exit code, sets the error before closing
     /// so readers see the error after consuming all written data.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if flushing a realized writer's buffer to storage fails.
     pub async fn flush_close_actor_writers(
         &self,
         actor_handle: Handle,

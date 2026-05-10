@@ -129,8 +129,8 @@ async fn run_writer_task(
             // Send error to the first command, then exit
             if let Some(cmd) = request_rx.recv().await {
                 let response = match cmd {
-                    WriterCommand::Write(WriteRequest { response, .. }) => response,
-                    WriterCommand::Close { response } => response,
+                    WriterCommand::Write(WriteRequest { response, .. })
+                    | WriterCommand::Close { response } => response,
                 };
                 if response.send((-1, EIO)).is_err() {
                     warn!(node = ?node_handle, fd = fd, "writer task: reply receiver dropped");
@@ -194,10 +194,10 @@ pub(crate) enum FdState {
 
 /// Global table of open channel endpoints, analogous to the kernel's open-file-descriptions table.
 ///
-/// Maps (node_handle, fd) → FdState using a Vec with linear search.
+/// Maps (`node_handle`, fd) → `FdState` using a Vec with linear search.
 /// Efficient for small N (few fds per actor) with excellent cache locality.
 struct ChannelTable {
-    /// Vector of (node_handle, fd, state) tuples
+    /// Vector of (`node_handle`, fd, state) tuples
     entries: Vec<(Handle, isize, FdState)>,
 }
 
@@ -224,7 +224,7 @@ impl ChannelTable {
             .map(|(_, _, state)| state)
     }
 
-    /// Remove entry for (node_handle, fd), returning the state
+    /// Remove entry for (`node_handle`, fd), returning the state
     fn remove(&mut self, node_handle: Handle, fd: isize) -> Option<FdState> {
         let pos = self
             .entries
@@ -284,8 +284,8 @@ impl IoBridge {
             .push((node_handle, fd, FdState::AllowedWriter));
     }
 
-    /// Materialize a reader. Caller must have verified state is AllowedReader.
-    /// For stdin, creates a MergeReader with dependencies from the DAG.
+    /// Materialize a reader. Caller must have verified state is `AllowedReader`.
+    /// For stdin, creates a `MergeReader` with dependencies from the DAG.
     /// Returns the request sender, or None if materialization fails.
     fn materialize_reader(
         &self,
@@ -319,7 +319,7 @@ impl IoBridge {
         Some(tx)
     }
 
-    /// Materialize a writer. Caller must have verified state is AllowedWriter.
+    /// Materialize a writer. Caller must have verified state is `AllowedWriter`.
     /// Returns the request sender, or None if the fd entry is missing (bug).
     fn materialize_writer(
         &self,
@@ -398,12 +398,11 @@ impl IoBridge {
             match table_guard.get_state(node_handle, fd) {
                 Some(FdState::MaterializedWriter { request_tx }) => request_tx.clone(),
                 Some(FdState::AllowedWriter) => {
-                    match self.materialize_writer(&mut table_guard, node_handle, fd) {
-                        Some(tx) => tx,
-                        None => {
-                            warn!(node = ?node_handle, fd = fd, "write: fd disappeared during materialization");
-                            return (-1, EBADF);
-                        }
+                    if let Some(tx) = self.materialize_writer(&mut table_guard, node_handle, fd) {
+                        tx
+                    } else {
+                        warn!(node = ?node_handle, fd = fd, "write: fd disappeared during materialization");
+                        return (-1, EBADF);
                     }
                 }
                 Some(FdState::AllowedReader | FdState::MaterializedReader { .. }) => {
@@ -474,6 +473,11 @@ impl IoBridge {
         }
     }
 
+    /// Flush and close all I/O for an actor on shutdown.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if flushing writer buffers to storage fails.
     pub async fn cleanup_actor_io(
         &self,
         node_handle: Handle,

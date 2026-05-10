@@ -68,12 +68,12 @@ pub async fn write_completed_buffer(
 /// # Why we force flush on close
 ///
 /// The Writer's buffer lives in memory (`Arc<Mutex<Vec<u8>>>`). Without an explicit
-/// flush, written data is never persisted to the KV storage backend (e.g., SQLite).
+/// flush, written data is never persisted to the KV storage backend (e.g., `SQLite`).
 /// When using persistent storage, data would be lost without this flush.
 ///
 /// The flush happens AFTER close because:
-/// - Writer::close() stops new writes and notifies readers (immediate effect)
-/// - flush_buffer() persists what was already written (can be slow, async)
+/// - `Writer::close()` stops new writes and notifies readers (immediate effect)
+/// - `flush_buffer()` persists what was already written (can be slow, async)
 /// - If flush fails, readers are already notified (consistent state)
 ///
 /// # Parameters
