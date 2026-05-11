@@ -15,6 +15,7 @@ use tracing::{debug, warn};
 use crate::actor_syscall::ActorLifecycleEvent;
 use crate::dag::{Dag, NodeKind, NodeState};
 use crate::environment::{ActorFn, Environment};
+use crate::errno::EOWNERDEAD;
 use crate::idgen::Handle;
 use crate::pipe::PipePool;
 use crate::{BlockingActorRuntime, IoBridge};
@@ -115,7 +116,7 @@ fn spawn_actor_task(
                 }
                 Err(e) => {
                     warn!(node = ?node_handle, name = %idname, error = %e, "task error");
-                    runtime.mark_failed(None);
+                    runtime.latch_errno(EOWNERDEAD);
                 }
             }
             runtime

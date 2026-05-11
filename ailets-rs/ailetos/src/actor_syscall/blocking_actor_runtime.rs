@@ -21,7 +21,7 @@ use super::io_bridge::IoBridge;
 use super::lifecycle_event::ActorLifecycleEvent;
 use super::sendable_buffer::{SendableConstPtr, SendableMutPtr};
 use crate::dag::NodeState;
-use crate::errno::{ENOSYS, EOWNERDEAD};
+use crate::errno::ENOSYS;
 use crate::idgen::Handle;
 use crate::suspension::SuspensionState;
 
@@ -145,11 +145,11 @@ impl BlockingActorRuntime {
         cleanup_result
     }
 
-    /// Mark the actor as failed with the given errno.
-    ///
-    /// If `errno` is `None`, falls back to `EOWNERDEAD`.
-    pub fn mark_failed(&mut self, errno: Option<i32>) {
-        self.exit_code = errno.unwrap_or(EOWNERDEAD);
+    /// Set the exit code if not already set. First error wins.
+    pub fn latch_errno(&mut self, errno: i32) {
+        if self.exit_code == 0 {
+            self.exit_code = errno;
+        }
     }
 
     /// Yield cooperatively if this actor has been suspended; blocks until resumed.

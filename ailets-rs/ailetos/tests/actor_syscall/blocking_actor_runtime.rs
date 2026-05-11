@@ -97,10 +97,10 @@ async fn test_reader_to_actor_epipe_propagation() {
     lifecycle_task.await.unwrap();
 }
 
-/// When mark_failed() is called with an errno, the shutdown carries that errno
+/// When latch_errno() is called with an errno, the shutdown carries that errno
 /// as the exit code.
 #[tokio::test]
-async fn test_mark_failed_with_errno() {
+async fn test_latch_errno_with_errno() {
     let (env, bridge, actor_done_tx, lifecycle_task) = make_test_components();
     let (dep_handle, actor_handle) = add_dag_with_dep(&env);
     let suspension = Arc::new(SuspensionState::new());
@@ -127,7 +127,7 @@ async fn test_mark_failed_with_errno() {
         let mut runtime = runtime;
         let mut buf = [0u8; 64];
         if let Err(errno) = runtime.aread(0, &mut buf) {
-            runtime.mark_failed(Some(errno));
+            runtime.latch_errno(errno);
         }
         let _ = tx.send(runtime);
     });
@@ -141,9 +141,9 @@ async fn test_mark_failed_with_errno() {
     assert_eq!(exit_code, Some(EPIPE), "exit code should be EPIPE");
 }
 
-/// When mark_failed() is called with None, exit code is EOWNERDEAD.
+/// When latch_errno() is called with EOWNERDEAD, exit code is EOWNERDEAD.
 #[tokio::test]
-async fn test_mark_failed_with_none_uses_eownerdead() {
+async fn test_latch_errno_with_eownerdead() {
     let (env, bridge, actor_done_tx, lifecycle_task) = make_test_components();
     let actor_handle = Handle::new(env.idgen.get_next());
     let suspension = Arc::new(SuspensionState::new());
@@ -158,7 +158,7 @@ async fn test_mark_failed_with_none_uses_eownerdead() {
     let (tx, rx) = oneshot::channel();
     tokio::task::spawn_blocking(move || {
         let mut runtime = runtime;
-        runtime.mark_failed(None);
+        runtime.latch_errno(EOWNERDEAD);
         let _ = tx.send(runtime);
     });
     let mut runtime = rx.await.expect("channel closed");
