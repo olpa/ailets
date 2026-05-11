@@ -335,28 +335,51 @@ impl Default for VfsActorRuntime {
 }
 
 impl actor_runtime::ActorRuntime for VfsActorRuntime {
-    fn get_errno(&self) -> isize {
-        self.vfs.get_errno()
+    fn open_read(&self, name: &str) -> Result<isize, i32> {
+        let fd = self.vfs.open_read(name);
+        if fd < 0 {
+            Err(self.vfs.get_errno() as i32)
+        } else {
+            Ok(fd)
+        }
     }
 
-    fn open_read(&self, name: &str) -> isize {
-        self.vfs.open_read(name)
+    fn open_write(&self, name: &str) -> Result<isize, i32> {
+        let fd = self.vfs.open_write(name);
+        if fd < 0 {
+            Err(self.vfs.get_errno() as i32)
+        } else {
+            Ok(fd)
+        }
     }
 
-    fn open_write(&self, name: &str) -> isize {
-        self.vfs.open_write(name)
+    fn aread(&self, fd: isize, buffer: &mut [u8]) -> Result<usize, i32> {
+        let result = self.vfs.aread(fd, buffer);
+        if result < 0 {
+            Err(self.vfs.get_errno() as i32)
+        } else {
+            #[allow(clippy::cast_sign_loss)]
+            Ok(result as usize)
+        }
     }
 
-    fn aread(&self, fd: isize, buffer: &mut [u8]) -> isize {
-        self.vfs.aread(fd, buffer)
+    fn awrite(&self, fd: isize, buffer: &[u8]) -> Result<usize, i32> {
+        let result = self.vfs.awrite(fd, buffer);
+        if result < 0 {
+            Err(self.vfs.get_errno() as i32)
+        } else {
+            #[allow(clippy::cast_sign_loss)]
+            Ok(result as usize)
+        }
     }
 
-    fn awrite(&self, fd: isize, buffer: &[u8]) -> isize {
-        self.vfs.awrite(fd, buffer)
-    }
-
-    fn aclose(&self, fd: isize) -> isize {
-        self.vfs.aclose(fd)
+    fn aclose(&self, fd: isize) -> Result<(), i32> {
+        let result = self.vfs.aclose(fd);
+        if result < 0 {
+            Err(self.vfs.get_errno() as i32)
+        } else {
+            Ok(())
+        }
     }
 
     fn node_handle(&self) -> i64 {

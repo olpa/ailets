@@ -45,16 +45,13 @@ impl<'a> AWriter<'a> {
         runtime: &'a dyn ActorRuntime,
         filename: &str,
     ) -> Result<Self, embedded_io::ErrorKind> {
-        let fd = runtime.open_write(filename);
-        if fd < 0 {
-            let errno = runtime.get_errno();
-            Err(errno_to_error_kind(errno))
-        } else {
-            Ok(AWriter {
+        match runtime.open_write(filename) {
+            Ok(fd) => Ok(AWriter {
                 fd: Some(fd),
                 runtime,
                 owns_fd: true,
-            })
+            }),
+            Err(errno) => Err(errno_to_error_kind(errno)),
         }
     }
 
@@ -98,9 +95,7 @@ impl<'a> AWriter<'a> {
     /// Returns an error if closing fails.
     pub fn close(&mut self) -> Result<(), embedded_io::ErrorKind> {
         if let Some(fd) = self.fd {
-            let result = self.runtime.aclose(fd);
-            if result < 0 {
-                let errno = self.runtime.get_errno();
+            if let Err(errno) = self.runtime.aclose(fd) {
                 return Err(errno_to_error_kind(errno));
             }
             self.fd = None;
@@ -130,14 +125,9 @@ impl embedded_io::Write for AWriter<'_> {
             return Err(embedded_io::ErrorKind::BrokenPipe);
         };
 
-        let n = self.runtime.awrite(fd, buf);
-
-        if n < 0 {
-            let errno = self.runtime.get_errno();
-            return Err(errno_to_error_kind(errno));
-        }
-        #[allow(clippy::cast_sign_loss)]
-        Ok(n as usize)
+        self.runtime
+            .awrite(fd, buf)
+            .map_err(errno_to_error_kind)
     }
 
     fn flush(&mut self) -> core::result::Result<(), Self::Error> {

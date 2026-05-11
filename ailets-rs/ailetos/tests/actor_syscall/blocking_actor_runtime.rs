@@ -8,7 +8,7 @@ use ailetos::idgen::Handle;
 use ailetos::storage::{KVBuffers, MemKV};
 use ailetos::suspension::SuspensionState;
 use ailetos::{BlockingActorRuntime, IoBridge, EOWNERDEAD, EPIPE};
-use tokio::sync::{mpsc, Notify};
+use tokio::sync::{mpsc, oneshot, Notify};
 
 fn make_test_components() -> (
     Arc<Environment>,
@@ -56,8 +56,7 @@ fn add_dag_with_dep(env: &Environment) -> (Handle, Handle) {
     (dep, actor)
 }
 
-/// When aread() receives EPIPE from the bridge, get_errno() returns EPIPE
-/// and mark_failed() uses EPIPE as the exit code (spec://errors#reader-to-actor).
+/// When aread() receives EPIPE from the bridge, it returns Err(EPIPE).
 #[tokio::test]
 async fn test_reader_to_actor_epipe_propagation() {
     let (env, bridge, actor_done_tx, lifecycle_task) = make_test_components();
@@ -73,30 +72,24 @@ async fn test_reader_to_actor_epipe_propagation() {
     writer.set_error(EPIPE);
     assert!(writer.close().0 >= 0);
 
-    let runtime = Arc::new(BlockingActorRuntime::new(
+    let runtime = BlockingActorRuntime::new(
         actor_handle,
         Arc::clone(&bridge),
         Arc::clone(&suspension),
         actor_done_tx,
-    ));
+    );
     runtime.register_std_fds();
 
-    let runtime_clone = Arc::clone(&runtime);
-    let (read_result, errno_after_read) = tokio::task::spawn_blocking(move || {
+    let (tx, rx) = oneshot::channel();
+    tokio::task::spawn_blocking(move || {
         use actor_runtime::ActorRuntime;
         let mut buf = [0u8; 64];
-        let n = runtime_clone.aread(0, &mut buf);
-        let errno = runtime_clone.get_errno();
-        (n, errno)
-    })
-    .await
-    .unwrap();
+        let result = runtime.aread(0, &mut buf);
+        let _ = tx.send((result, runtime));
+    });
+    let (read_result, mut runtime) = rx.await.expect("channel closed");
 
-    assert_eq!(read_result, -1, "aread should return -1 on error");
-    assert_eq!(
-        errno_after_read, EPIPE as isize,
-        "get_errno should return EPIPE"
-    );
+    assert_eq!(read_result, Err(EPIPE), "aread should return Err(EPIPE)");
 
     runtime.shutdown().await.unwrap();
     drop(runtime);
@@ -104,10 +97,10 @@ async fn test_reader_to_actor_epipe_propagation() {
     lifecycle_task.await.unwrap();
 }
 
-/// When mark_failed() is called after a read that returned EPIPE, the shutdown
-/// carries EPIPE as the exit code.
+/// When mark_failed() is called with an errno, the shutdown carries that errno
+/// as the exit code.
 #[tokio::test]
-async fn test_mark_failed_uses_epipe_from_last_read() {
+async fn test_mark_failed_with_errno() {
     let (env, bridge, actor_done_tx, lifecycle_task) = make_test_components();
     let (dep_handle, actor_handle) = add_dag_with_dep(&env);
     let suspension = Arc::new(SuspensionState::new());
@@ -120,23 +113,25 @@ async fn test_mark_failed_uses_epipe_from_last_read() {
     writer.set_error(EPIPE);
     assert!(writer.close().0 >= 0);
 
-    let runtime = Arc::new(BlockingActorRuntime::new(
+    let runtime = BlockingActorRuntime::new(
         actor_handle,
         Arc::clone(&bridge),
         Arc::clone(&suspension),
         actor_done_tx,
-    ));
+    );
     runtime.register_std_fds();
 
-    let runtime_clone = Arc::clone(&runtime);
+    let (tx, rx) = oneshot::channel();
     tokio::task::spawn_blocking(move || {
         use actor_runtime::ActorRuntime;
+        let mut runtime = runtime;
         let mut buf = [0u8; 64];
-        runtime_clone.aread(0, &mut buf);
-        runtime_clone.mark_failed();
-    })
-    .await
-    .unwrap();
+        if let Err(errno) = runtime.aread(0, &mut buf) {
+            runtime.mark_failed(Some(errno));
+        }
+        let _ = tx.send(runtime);
+    });
+    let mut runtime = rx.await.expect("channel closed");
 
     // Explicitly shutdown to flush buffers and notify executor
     runtime.shutdown().await.unwrap();
@@ -146,26 +141,27 @@ async fn test_mark_failed_uses_epipe_from_last_read() {
     assert_eq!(exit_code, Some(EPIPE), "exit code should be EPIPE");
 }
 
-/// When mark_failed() is called with no prior read error, exit code is EOWNERDEAD.
+/// When mark_failed() is called with None, exit code is EOWNERDEAD.
 #[tokio::test]
-async fn test_mark_failed_uses_eownerdead_without_read_error() {
+async fn test_mark_failed_with_none_uses_eownerdead() {
     let (env, bridge, actor_done_tx, lifecycle_task) = make_test_components();
     let actor_handle = Handle::new(env.idgen.get_next());
     let suspension = Arc::new(SuspensionState::new());
 
-    let runtime = Arc::new(BlockingActorRuntime::new(
+    let runtime = BlockingActorRuntime::new(
         actor_handle,
         Arc::clone(&bridge),
         suspension,
         actor_done_tx,
-    ));
+    );
 
-    let runtime_clone = Arc::clone(&runtime);
+    let (tx, rx) = oneshot::channel();
     tokio::task::spawn_blocking(move || {
-        runtime_clone.mark_failed();
-    })
-    .await
-    .unwrap();
+        let mut runtime = runtime;
+        runtime.mark_failed(None);
+        let _ = tx.send(runtime);
+    });
+    let mut runtime = rx.await.expect("channel closed");
 
     // Explicitly shutdown to flush buffers and notify executor
     runtime.shutdown().await.unwrap();

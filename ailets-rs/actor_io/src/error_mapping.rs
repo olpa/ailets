@@ -6,7 +6,7 @@
 /// Convert errno to `embedded_io::ErrorKind`
 #[must_use]
 #[allow(clippy::match_same_arms)] // We explicitly list common errno values for documentation
-pub fn errno_to_error_kind(errno: isize) -> embedded_io::ErrorKind {
+pub fn errno_to_error_kind(errno: i32) -> embedded_io::ErrorKind {
     match errno {
         1 | 13 => embedded_io::ErrorKind::PermissionDenied, // EPERM, EACCES
         2 => embedded_io::ErrorKind::NotFound,              // ENOENT

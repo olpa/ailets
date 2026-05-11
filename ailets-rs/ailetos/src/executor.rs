@@ -100,15 +100,14 @@ fn spawn_actor_task(
     actor_fn: ActorFn,
     actor_runtime: BlockingActorRuntime,
 ) -> tokio::task::JoinHandle<()> {
-    let actor_runtime = Arc::new(actor_runtime);
     tokio::spawn(async move {
-        let runtime_ref = Arc::clone(&actor_runtime);
         let blocking_result = tokio::task::spawn_blocking(move || {
             debug!(node = ?node_handle, name = %idname, "task starting");
 
-            runtime_ref.register_std_fds();
+            let mut runtime = actor_runtime;
+            runtime.register_std_fds();
 
-            let result = actor_fn(&*runtime_ref);
+            let result = actor_fn(&runtime);
 
             match result {
                 Ok(()) => {
@@ -116,18 +115,22 @@ fn spawn_actor_task(
                 }
                 Err(e) => {
                     warn!(node = ?node_handle, name = %idname, error = %e, "task error");
-                    runtime_ref.mark_failed();
+                    runtime.mark_failed(None);
                 }
             }
+            runtime
         })
         .await;
 
-        if let Err(e) = blocking_result {
-            warn!(node = ?node_handle, error = %e, "actor blocking task panicked");
-        }
-
-        if let Err(e) = actor_runtime.shutdown().await {
-            warn!(node = ?node_handle, error = %e, "actor shutdown error");
+        match blocking_result {
+            Ok(mut runtime) => {
+                if let Err(e) = runtime.shutdown().await {
+                    warn!(node = ?node_handle, error = %e, "actor shutdown error");
+                }
+            }
+            Err(e) => {
+                warn!(node = ?node_handle, error = %e, "actor blocking task panicked");
+            }
         }
     })
 }

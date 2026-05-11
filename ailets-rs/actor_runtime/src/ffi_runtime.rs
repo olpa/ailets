@@ -16,6 +16,16 @@ impl FfiActorRuntime {
     pub fn new() -> Self {
         Self
     }
+
+    /// Convert FFI result to `Result`, fetching errno on failure.
+    fn to_result(result: isize) -> Result<usize, i32> {
+        if result < 0 {
+            Err(unsafe { get_errno() } as i32)
+        } else {
+            #[allow(clippy::cast_sign_loss)]
+            Ok(result as usize)
+        }
+    }
 }
 
 impl Default for FfiActorRuntime {
@@ -25,36 +35,51 @@ impl Default for FfiActorRuntime {
 }
 
 impl ActorRuntime for FfiActorRuntime {
-    fn get_errno(&self) -> isize {
-        unsafe { get_errno() }
-    }
-
-    fn open_read(&self, name: &str) -> isize {
+    fn open_read(&self, name: &str) -> Result<isize, i32> {
+        const EINVAL: i32 = 22;
         let Ok(c_name) = CString::new(name) else {
-            return -1; // Invalid name (contains null byte)
+            return Err(EINVAL);
         };
-        unsafe { open_read(c_name.as_ptr()) }
+        let fd = unsafe { open_read(c_name.as_ptr()) };
+        if fd < 0 {
+            Err(unsafe { get_errno() } as i32)
+        } else {
+            Ok(fd)
+        }
     }
 
-    fn open_write(&self, name: &str) -> isize {
+    fn open_write(&self, name: &str) -> Result<isize, i32> {
+        const EINVAL: i32 = 22;
         let Ok(c_name) = CString::new(name) else {
-            return -1; // Invalid name (contains null byte)
+            return Err(EINVAL);
         };
-        unsafe { open_write(c_name.as_ptr()) }
+        let fd = unsafe { open_write(c_name.as_ptr()) };
+        if fd < 0 {
+            Err(unsafe { get_errno() } as i32)
+        } else {
+            Ok(fd)
+        }
     }
 
-    fn aread(&self, fd: isize, buffer: &mut [u8]) -> isize {
+    fn aread(&self, fd: isize, buffer: &mut [u8]) -> Result<usize, i32> {
         let count = u32::try_from(buffer.len()).unwrap_or(u32::MAX - 1);
-        unsafe { aread(fd, buffer.as_mut_ptr(), count) }
+        let result = unsafe { aread(fd, buffer.as_mut_ptr(), count) };
+        Self::to_result(result)
     }
 
-    fn awrite(&self, fd: isize, buffer: &[u8]) -> isize {
+    fn awrite(&self, fd: isize, buffer: &[u8]) -> Result<usize, i32> {
         let count = u32::try_from(buffer.len()).unwrap_or(u32::MAX - 1);
-        unsafe { awrite(fd, buffer.as_ptr(), count) }
+        let result = unsafe { awrite(fd, buffer.as_ptr(), count) };
+        Self::to_result(result)
     }
 
-    fn aclose(&self, fd: isize) -> isize {
-        unsafe { aclose(fd) }
+    fn aclose(&self, fd: isize) -> Result<(), i32> {
+        let result = unsafe { aclose(fd) };
+        if result < 0 {
+            Err(unsafe { get_errno() } as i32)
+        } else {
+            Ok(())
+        }
     }
 
     fn node_handle(&self) -> i64 {

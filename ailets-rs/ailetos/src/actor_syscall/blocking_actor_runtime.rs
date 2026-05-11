@@ -2,9 +2,8 @@
 //!
 //! This module provides a blocking `ActorRuntime` implementation — the user-space
 //! side of the actor syscall layer. It routes all I/O operations to `IoBridge`
-//! with the actor's node handle and fd, and tracks per-actor state: the errno
-//! from the last failed syscall, the exit code, and whether `shutdown()` has
-//! been called.
+//! with the actor's node handle and fd, and tracks per-actor state: the exit code
+//! and whether `shutdown()` has been called.
 //!
 //! `shutdown()` must be called explicitly before drop. It flushes writer buffers
 //! and sends the two-phase Terminating/Terminated handshake to the executor.
@@ -12,7 +11,6 @@
 //! Among the consumers of this type is the WASM interface: `BlockingActorRuntime`
 //! is threaded through FFI glue into `FfiActorRuntime`, which exposes it to WebAssembly actors.
 
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::Arc;
 
 use actor_runtime::ActorRuntime;
@@ -39,19 +37,17 @@ pub struct BlockingActorRuntime {
     io_bridge: Arc<IoBridge>,
     /// Shared suspension state (owned by Environment)
     suspension: Arc<SuspensionState>,
-    /// errno from the last failed syscall (0 = no error)
-    last_errno: AtomicI32,
     /// 0 = clean termination; non-zero = POSIX errno
-    exit_code: AtomicI32,
+    exit_code: i32,
     /// Channel to notify executor of lifecycle events (Terminating/Terminated)
     actor_done_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
     /// True if `shutdown()` was called (to detect improper drop)
-    shutdown_called: AtomicBool,
+    shutdown_called: bool,
 }
 
 impl Drop for BlockingActorRuntime {
     fn drop(&mut self) {
-        if !self.shutdown_called.load(Ordering::SeqCst) {
+        if !self.shutdown_called {
             error!(
                 node = ?self.node_handle,
                 "BlockingActorRuntime dropped without calling shutdown() - \
@@ -73,10 +69,9 @@ impl BlockingActorRuntime {
             node_handle,
             io_bridge,
             suspension,
-            last_errno: AtomicI32::new(0),
-            exit_code: AtomicI32::new(0),
+            exit_code: 0,
             actor_done_tx,
-            shutdown_called: AtomicBool::new(false),
+            shutdown_called: false,
         }
     }
 
@@ -94,11 +89,12 @@ impl BlockingActorRuntime {
     /// - Shutdown was already called
     /// - Executor is gone
     /// - Actor was already terminating/terminated
-    pub async fn shutdown(&self) -> Result<(), String> {
+    pub async fn shutdown(&mut self) -> Result<(), String> {
         // Mark shutdown as called
-        if self.shutdown_called.swap(true, Ordering::SeqCst) {
+        if self.shutdown_called {
             return Err("shutdown() already called".to_string());
         }
+        self.shutdown_called = true;
 
         // Notify executor we're terminating
         let (tx, rx) = oneshot::channel::<NodeState>();
@@ -122,7 +118,7 @@ impl BlockingActorRuntime {
         }
 
         // Async cleanup - flushes all writer buffers
-        let exit_code = self.exit_code.load(Ordering::Relaxed);
+        let exit_code = self.exit_code;
         self.suspension.deregister(self.node_handle);
         let cleanup_result = self
             .io_bridge
@@ -149,13 +145,11 @@ impl BlockingActorRuntime {
         cleanup_result
     }
 
-    /// Mark the actor as failed.
+    /// Mark the actor as failed with the given errno.
     ///
-    /// Uses the errno from the last failed syscall if set, otherwise falls back to EOWNERDEAD.
-    pub fn mark_failed(&self) {
-        let errno = self.last_errno.load(Ordering::Relaxed);
-        let code = if errno != 0 { errno } else { EOWNERDEAD };
-        self.exit_code.store(code, Ordering::Relaxed);
+    /// If `errno` is `None`, falls back to `EOWNERDEAD`.
+    pub fn mark_failed(&mut self, errno: Option<i32>) {
+        self.exit_code = errno.unwrap_or(EOWNERDEAD);
     }
 
     /// Yield cooperatively if this actor has been suspended; blocks until resumed.
@@ -191,48 +185,55 @@ impl BlockingActorRuntime {
             .register_std_fd_writer(self.node_handle, StdHandle::Trace as isize);
     }
 
-    fn bridged_io(&self, f: impl FnOnce() -> (isize, i32)) -> isize {
-        self.yield_if_suspended();
-        let (result, errno) = f();
-        if result < 0 && errno != 0 {
-            self.last_errno.store(errno, Ordering::Relaxed);
+    /// Convert `(result, errno)` from IoBridge to `Result<usize, i32>`.
+    fn to_result(result: isize, errno: i32) -> Result<usize, i32> {
+        if result < 0 {
+            Err(errno)
+        } else {
+            #[allow(clippy::cast_sign_loss)]
+            Ok(result as usize)
         }
-        self.yield_if_suspended();
-        result
     }
 }
 
 impl ActorRuntime for BlockingActorRuntime {
-    fn get_errno(&self) -> isize {
-        self.last_errno.load(Ordering::Relaxed) as isize
-    }
-
-    fn open_read(&self, name: &str) -> isize {
+    fn open_read(&self, name: &str) -> Result<isize, i32> {
         warn!(actor = ?self.node_handle, name = name, "open_read: dynamic fd allocation not supported");
-        self.last_errno.store(ENOSYS, Ordering::Relaxed);
-        -1
+        Err(ENOSYS)
     }
 
-    fn open_write(&self, name: &str) -> isize {
+    fn open_write(&self, name: &str) -> Result<isize, i32> {
         warn!(actor = ?self.node_handle, name = name, "open_write: dynamic fd allocation not supported");
-        self.last_errno.store(ENOSYS, Ordering::Relaxed);
-        -1
+        Err(ENOSYS)
     }
 
-    fn aread(&self, fd: isize, buffer: &mut [u8]) -> isize {
+    fn aread(&self, fd: isize, buffer: &mut [u8]) -> Result<usize, i32> {
+        self.yield_if_suspended();
         // SAFETY: buffer is valid for the duration of blocking_recv inside bridge.read
         let buffer_ptr = unsafe { SendableMutPtr::new(buffer) };
-        self.bridged_io(|| self.io_bridge.read(self.node_handle, fd, buffer_ptr))
+        let (result, errno) = self.io_bridge.read(self.node_handle, fd, buffer_ptr);
+        self.yield_if_suspended();
+        Self::to_result(result, errno)
     }
 
-    fn awrite(&self, fd: isize, buffer: &[u8]) -> isize {
+    fn awrite(&self, fd: isize, buffer: &[u8]) -> Result<usize, i32> {
+        self.yield_if_suspended();
         // SAFETY: buffer is valid for the duration of blocking_recv inside bridge.write
         let buffer_ptr = unsafe { SendableConstPtr::new(buffer) };
-        self.bridged_io(|| self.io_bridge.write(self.node_handle, fd, buffer_ptr))
+        let (result, errno) = self.io_bridge.write(self.node_handle, fd, buffer_ptr);
+        self.yield_if_suspended();
+        Self::to_result(result, errno)
     }
 
-    fn aclose(&self, fd: isize) -> isize {
-        self.bridged_io(|| self.io_bridge.close(self.node_handle, fd))
+    fn aclose(&self, fd: isize) -> Result<(), i32> {
+        self.yield_if_suspended();
+        let (result, errno) = self.io_bridge.close(self.node_handle, fd);
+        self.yield_if_suspended();
+        if result < 0 {
+            Err(errno)
+        } else {
+            Ok(())
+        }
     }
 
     fn node_handle(&self) -> i64 {

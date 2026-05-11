@@ -46,16 +46,13 @@ impl<'a> AReader<'a> {
         runtime: &'a dyn ActorRuntime,
         filename: &str,
     ) -> Result<Self, embedded_io::ErrorKind> {
-        let fd = runtime.open_read(filename);
-        if fd < 0 {
-            let errno = runtime.get_errno();
-            Err(errno_to_error_kind(errno))
-        } else {
-            Ok(AReader {
+        match runtime.open_read(filename) {
+            Ok(fd) => Ok(AReader {
                 fd: Some(fd),
                 runtime,
                 owns_fd: true,
-            })
+            }),
+            Err(errno) => Err(errno_to_error_kind(errno)),
         }
     }
 
@@ -80,9 +77,7 @@ impl<'a> AReader<'a> {
     /// Returns an error if closing fails.
     pub fn close(&mut self) -> Result<(), embedded_io::ErrorKind> {
         if let Some(fd) = self.fd {
-            let result = self.runtime.aclose(fd);
-            if result < 0 {
-                let errno = self.runtime.get_errno();
+            if let Err(errno) = self.runtime.aclose(fd) {
                 return Err(errno_to_error_kind(errno));
             }
             self.fd = None;
@@ -112,15 +107,9 @@ impl embedded_io::Read for AReader<'_> {
             return Ok(0);
         };
 
-        let bytes_read = self.runtime.aread(fd, buf);
-
-        if bytes_read < 0 {
-            let errno = self.runtime.get_errno();
-            return Err(errno_to_error_kind(errno));
-        }
-
-        #[allow(clippy::cast_sign_loss)]
-        Ok(bytes_read as usize)
+        self.runtime
+            .aread(fd, buf)
+            .map_err(errno_to_error_kind)
     }
 }
 
