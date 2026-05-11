@@ -184,12 +184,13 @@ async fn attach_to_stream<W: StdWrite>(
     let mut buf = vec![0u8; 4096];
 
     loop {
-        let n = reader.read(&mut buf).await;
-
-        match n.cmp(&0) {
-            std::cmp::Ordering::Greater => {
-                let bytes_written = n.cast_unsigned();
-                let Some(slice) = buf.get(..bytes_written) else {
+        match reader.read(&mut buf).await {
+            Ok(0) => {
+                debug!(node = ?node_handle, ?target, "attachment EOF");
+                break;
+            }
+            Ok(n) => {
+                let Some(slice) = buf.get(..n) else {
                     warn!(node = ?node_handle, ?target, "buffer slice out of bounds");
                     break;
                 };
@@ -202,12 +203,8 @@ async fn attach_to_stream<W: StdWrite>(
                     break;
                 }
             }
-            std::cmp::Ordering::Equal => {
-                debug!(node = ?node_handle, ?target, "attachment EOF");
-                break;
-            }
-            std::cmp::Ordering::Less => {
-                warn!(node = ?node_handle, ?target, "read error in attachment");
+            Err(errno) => {
+                warn!(node = ?node_handle, ?target, errno, "read error in attachment");
                 break;
             }
         }

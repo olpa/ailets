@@ -315,7 +315,7 @@ async fn test_latent_to_realized_transition() {
         .get_already_realized_writer((actor_handle, std_handle as isize))
         .unwrap();
     let result = writer.write(b"test data");
-    assert_eq!(result, 9);
+    assert_eq!(result, Ok(9));
 }
 
 #[tokio::test]
@@ -376,11 +376,11 @@ async fn test_write_to_realized_writer() {
 
     // Write data
     let result = writer.write(b"Hello World");
-    assert_eq!(result, 11);
+    assert_eq!(result, Ok(11));
 
     // Write more data
     let result = writer.write(b"123");
-    assert_eq!(result, 3);
+    assert_eq!(result, Ok(3));
 }
 
 #[tokio::test]
@@ -416,7 +416,7 @@ async fn test_multiple_writes_to_same_pipe() {
     for i in 0..10 {
         let data = format!("data{}", i);
         let result = writer.write(data.as_bytes());
-        assert_eq!(result, data.len() as isize);
+        assert_eq!(result, Ok(data.len()));
     }
 }
 
@@ -879,10 +879,10 @@ async fn test_attachment_workflow_simulation() {
         let mut total_read = 0;
         loop {
             let n = reader.read(&mut buf).await;
-            if n > 0 {
-                total_read += n;
-            } else {
-                break;
+            match n {
+                Ok(0) => break,
+                Ok(n) => total_read += n,
+                Err(_) => break,
             }
         }
         total_read
@@ -955,7 +955,7 @@ async fn test_dependency_reading_simulation() {
     // Read the data
     let mut buf = vec![0u8; 100];
     let n = reader.read(&mut buf).await;
-    assert_eq!(n, 16);
+    assert_eq!(n, Ok(16));
     assert_eq!(&buf[..16], b"data from actor1");
 }
 
@@ -984,10 +984,10 @@ async fn test_end_to_end_data_flow() {
 
         loop {
             let n = reader.read(&mut buf).await;
-            if n > 0 {
-                all_data.extend_from_slice(&buf[..n as usize]);
-            } else {
-                break;
+            match n {
+                Ok(0) => break,
+                Ok(n) => all_data.extend_from_slice(&buf[..n]),
+                Err(_) => break,
             }
         }
         all_data
@@ -1085,7 +1085,7 @@ async fn test_race_consumer_opens_during_shutdown() {
             // If we got a reader, we should be able to read the data
             let mut buf = vec![0u8; 100];
             let n = reader.read(&mut buf).await;
-            assert!(n >= 0, "Read should succeed or return EOF");
+            assert!(n.is_ok(), "Read should succeed or return EOF");
         }
         Err(_) => {
             // Reader saw the pipe was closed - this is also valid
@@ -1335,7 +1335,7 @@ async fn test_race_reader_loop_and_recheck() {
     let mut reader = reader_result;
     let mut buf = vec![0u8; 100];
     let n = reader.read(&mut buf).await;
-    assert!(n > 0, "Should be able to read data from the pipe");
+    assert!(matches!(n, Ok(n) if n > 0), "Should be able to read data from the pipe");
 }
 
 // reader-to-writer: reader fails and closes, writer closes without another write — writer is successful
@@ -1386,14 +1386,14 @@ async fn test_backward_propagation_last_reader_closed() {
         .expect("Failed to create reader");
 
     // Writer can write while reader is open
-    assert_eq!(writer.write(b"hello"), 5);
+    assert_eq!(writer.write(b"hello"), Ok(5));
 
     // Close the only reader
     reader.close();
     drop(reader);
 
     // Next write must fail with EPIPE (spec://errors#backward-propagation)
-    assert_eq!(writer.write(b"after"), -1);
+    assert!(writer.write(b"after").is_err());
     assert_eq!(writer.get_error(), EPIPE);
 }
 
@@ -1410,7 +1410,7 @@ async fn test_backward_propagation_no_readers_no_epipe() {
         .expect("Failed to create writer");
 
     // No readers were ever created — writes should succeed
-    assert_eq!(writer.write(b"hello"), 5);
+    assert_eq!(writer.write(b"hello"), Ok(5));
     assert_eq!(writer.get_error(), 0);
 }
 
@@ -1438,13 +1438,13 @@ async fn test_backward_propagation_multiple_readers_last_close_triggers_epipe() 
     // Close first reader — writer still has one open reader, no EPIPE
     reader1.close();
     drop(reader1);
-    assert_eq!(writer.write(b"still ok"), 8);
+    assert_eq!(writer.write(b"still ok"), Ok(8));
     assert_eq!(writer.get_error(), 0);
 
     // Close last reader — writer should now receive EPIPE
     reader2.close();
     drop(reader2);
-    assert_eq!(writer.write(b"now fails"), -1);
+    assert!(writer.write(b"now fails").is_err());
     assert_eq!(writer.get_error(), EPIPE);
 }
 
@@ -1472,13 +1472,13 @@ async fn test_backward_propagation_abrupt_drop_of_one_reader_no_epipe_until_last
     // Drop reader1 without explicit close (simulates a failed/panicked consumer).
     // reader2 is still alive — spec says EPIPE fires only when ALL readers are gone.
     drop(reader1);
-    assert_eq!(writer.write(b"still ok"), 8);
+    assert_eq!(writer.write(b"still ok"), Ok(8));
     assert_eq!(writer.get_error(), 0);
 
     // Now the last reader closes — writer must see EPIPE on next write.
     reader2.close();
     drop(reader2);
-    assert_eq!(writer.write(b"now fails"), -1);
+    assert!(writer.write(b"now fails").is_err());
     assert_eq!(writer.get_error(), EPIPE);
 }
 
@@ -1494,7 +1494,7 @@ async fn test_close_actor_writers_with_error_reader_sees_epipe() {
         .await
         .expect("Failed to create writer");
 
-    assert!(writer.write(b"buffered") > 0);
+    assert!(writer.write(b"buffered").is_ok());
 
     let mut reader = pool
         .get_or_await_reader((actor_handle, std_handle as isize), false, &id_gen)
@@ -1509,11 +1509,11 @@ async fn test_close_actor_writers_with_error_reader_sees_epipe() {
     // Reader drains the buffered data first
     let mut buf = [0u8; 64];
     let n = reader.read(&mut buf).await;
-    assert_eq!(n, 8);
+    assert_eq!(n, Ok(8));
     assert_eq!(&buf[..8], b"buffered");
 
     // After drain, reader receives EPIPE (not EOWNERDEAD)
     let n = reader.read(&mut buf).await;
-    assert_eq!(n, -1);
+    assert!(n.is_err());
     assert_eq!(reader.get_error(), EPIPE);
 }

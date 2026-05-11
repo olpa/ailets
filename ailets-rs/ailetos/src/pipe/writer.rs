@@ -1,7 +1,6 @@
 //! Writer side of the memory pipe
 
 use parking_lot::Mutex;
-use std::cmp::Ordering;
 use std::fmt;
 use std::sync::Arc;
 use tracing::{error, trace, warn};
@@ -88,29 +87,29 @@ impl Writer {
         self.shared.lock().buffer.clone()
     }
 
-    /// Write data to the pipe (POSIX-style)
+    /// Write data to the pipe
     ///
-    /// Returns:
-    /// - Positive value: number of bytes written
-    /// - 0: empty write (no notification sent)
-    /// - -1: error (writer closed, errno is set, or buffer write failed)
+    /// # Returns
+    ///
+    /// - `Ok(n)`: n bytes written (0 for empty writes - no notification sent)
+    /// - `Err(errno)`: error code
     ///
     /// # Important behavior
     ///
-    /// - If the writer is closed, returns -1
-    /// - If errno is set, returns -1
-    /// - If data is empty, returns 0 WITHOUT notifying observers
+    /// - If the writer is closed, returns `Err(EBADF)`
+    /// - If errno is already set, returns that error
+    /// - If data is empty, returns `Ok(0)` WITHOUT notifying observers
     ///   (this avoids unnecessary wakeups of waiting readers)
     /// - If data is non-empty, appends to buffer and:
     ///   - If successful: notifies observers and returns the count
-    ///   - If failed: sets errno and returns -1
+    ///   - If failed: sets errno and returns error
     #[must_use]
-    pub fn write(&self, data: &[u8]) -> isize {
-        let notification = {
+    pub fn write(&self, data: &[u8]) -> Result<usize, i32> {
+        let (notification, result) = {
             let mut shared = self.shared.lock();
 
             if shared.closed {
-                return -1;
+                return Err(EBADF);
             }
 
             if shared.had_readers && shared.reader_count == 0 && shared.errno == 0 {
@@ -118,43 +117,42 @@ impl Writer {
             }
 
             if shared.errno != 0 {
-                return -1;
+                return Err(shared.errno);
             }
 
             if data.is_empty() {
                 // IMPORTANT: Return early without notifying observers.
                 // Empty writes should not wake up waiting readers.
-                return 0;
+                return Ok(0);
             }
 
             if shared.buffer.append(data).is_ok() {
-                // Safe conversion from usize to isize
-                // On 64-bit platforms, check if length exceeds isize::MAX
-                if let Ok(n) = isize::try_from(data.len()) {
+                let len = data.len();
+                // Safe conversion from usize to i64 for notification
+                // On 64-bit platforms, check if length exceeds i64::MAX
+                let notification = if let Ok(n) = i64::try_from(len) {
                     n
                 } else {
-                    // Write succeeded but length exceeds isize::MAX
+                    // Write succeeded but length exceeds i64::MAX
                     // This should never happen in practice with realistic I/O sizes
                     error!(
-                        data_len = data.len(),
-                        isize_max = isize::MAX,
-                        "CRITICAL: write length exceeds isize::MAX"
+                        data_len = len,
+                        i64_max = i64::MAX,
+                        "CRITICAL: write length exceeds i64::MAX"
                     );
-                    isize::MAX
-                }
+                    i64::MAX
+                };
+                (notification, Ok(len))
             } else {
                 // Buffer append failed - treat as ENOSPC
                 shared.errno = 28; // ENOSPC
-                -28
+                (-28, Err(28))
             }
         };
 
         // Notify outside lock
-        self.queue.notify(self.handle, notification as i64);
-        match notification.cmp(&0) {
-            Ordering::Greater => notification,
-            Ordering::Equal | Ordering::Less => -1,
-        }
+        self.queue.notify(self.handle, notification);
+        result
     }
 
     /// Close the writer and notify all readers

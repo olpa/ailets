@@ -147,11 +147,10 @@ impl MergeReader {
     ///
     /// # Returns
     ///
-    /// - Positive value: number of bytes read
-    /// - 0: EOF (all dependencies exhausted)
-    /// - -1: error (check underlying reader's error)
+    /// - `Ok(n)`: n bytes read (0 means EOF - all dependencies exhausted)
+    /// - `Err(errno)`: error code
     ///
-    pub async fn read(&mut self, buf: &mut [u8]) -> isize {
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, i32> {
         loop {
             // Ensure we have a reader for the current dependency
             if self.current_reader.is_none() {
@@ -161,48 +160,39 @@ impl MergeReader {
                     }
                     Ok(None) => {
                         // No more dependencies available
-                        return 0;
+                        return Ok(0);
                     }
                     Err(e) => {
                         warn!(error = ?e, "MergeReader: failed to get reader for dependency");
                         self.own_errno = EIO;
-                        return -1;
+                        return Err(EIO);
                     }
                 }
             }
 
             // Read from current reader
             if let Some(reader) = self.current_reader.as_mut() {
-                let n = reader.read(buf).await;
-
-                match n.cmp(&0) {
-                    std::cmp::Ordering::Equal => {
+                match reader.read(buf).await {
+                    Ok(0) => {
                         // EOF from current reader, move to next dependency
                         self.current_reader = None;
                         // Loop continues to try the next dependency
                     }
-                    std::cmp::Ordering::Greater | std::cmp::Ordering::Less => {
-                        // Successfully read data (positive) or error (negative)
-                        return n;
+                    Ok(n) => {
+                        // Successfully read data
+                        return Ok(n);
+                    }
+                    Err(errno) => {
+                        // Error from reader
+                        return Err(errno);
                     }
                 }
             } else {
                 // Should not happen: we checked is_none() above
                 warn!("MergeReader: current_reader is None unexpectedly");
-                return 0;
+                return Ok(0);
             }
         }
-    }
-
-    /// Get the error code from the current reader (0 if none or no error).
-    #[must_use]
-    pub fn get_error(&self) -> i32 {
-        if self.own_errno != 0 {
-            return self.own_errno;
-        }
-        self.current_reader
-            .as_ref()
-            .map_or(0, super::reader::Reader::get_error)
     }
 
     /// Close the merge reader.
