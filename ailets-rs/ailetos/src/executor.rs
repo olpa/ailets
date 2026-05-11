@@ -364,8 +364,8 @@ pub struct JobSender {
 }
 
 impl JobSender {
-    pub fn submit(&self, _target: Handle) {
-        todo!("JobSender::submit")
+    pub fn submit(&self, target: Handle) -> Result<(), mpsc::error::SendError<Handle>> {
+        self.tx.send(target)
     }
 }
 
@@ -376,7 +376,8 @@ pub struct JobQueue {
 
 /// Create a linked (`JobSender`, `JobQueue`) pair.
 pub fn job_queue() -> (JobSender, JobQueue) {
-    todo!("job_queue")
+    let (tx, rx) = mpsc::unbounded_channel();
+    (JobSender { tx }, JobQueue { rx })
 }
 
 /// Iterator that yields DAG nodes in topological order (dependencies before dependents).
