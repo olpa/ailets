@@ -41,7 +41,7 @@ pub use suspension::SuspensionState;
 
 // Re-export executor
 pub use executor::{
-    is_ready_to_spawn, job_queue, run, run_with_tx, JobQueue, JobSender, StopConditions,
+    is_ready_to_spawn, job_queue, run, run_jobs, run_with_tx, JobQueue, JobSender, StopConditions,
     TopologicalOrderIter,
 };
 

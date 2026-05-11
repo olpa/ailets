@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ailetos::dag::{Dag, DependsOn, For, NodeKind, NodeState};
 use ailetos::executor::{StopConditions, TopologicalOrderIter};
 use ailetos::storage::MemKV;
-use ailetos::{Environment, IdGen};
+use ailetos::{job_queue, run_jobs, Environment, IdGen};
 
 fn create_linear_dag() -> (Dag, Vec<ailetos::Handle>) {
     // Create a linear DAG: node1 -> node2 -> node3 -> node4
@@ -185,5 +185,25 @@ async fn test_transitive_block_terminates_and_leaves_nodes_not_started() {
         dag.get_node(a).unwrap().state,
         NodeState::NotStarted,
         "a should remain NotStarted (eligible for incremental re-run)"
+    );
+}
+
+#[tokio::test]
+async fn run_jobs_finite_single_job() {
+    let kv = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+    env.actor_registry.write().register("noop", |_| Ok(()));
+
+    let target = env.add_node("noop".into(), &[], None);
+
+    let (tx, jobs) = job_queue();
+    tx.submit(target).expect("submit failed");
+    drop(tx);
+
+    run_jobs(Arc::clone(&env), jobs, StopConditions::default()).await;
+
+    assert_eq!(
+        env.dag.read().get_node(target).unwrap().state,
+        NodeState::Terminated,
     );
 }

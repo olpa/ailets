@@ -142,6 +142,19 @@ pub async fn run(env: Arc<Environment>, target: Handle, stop_conditions: StopCon
     run_with_tx(env, target, stop_conditions, None).await;
 }
 
+/// Run the system consuming jobs from a `JobQueue`.
+///
+/// Exits when the channel closes (all `JobSender` clones dropped) and all
+/// in-progress work finishes. Supports both finite and infinite execution
+/// depending on the lifetime of the senders.
+pub async fn run_jobs(
+    _env: Arc<Environment>,
+    _jobs: JobQueue,
+    _stop_conditions: StopConditions,
+) {
+    todo!("run_jobs")
+}
+
 /// Receives actor lifecycle events from the IO bridge, updates DAG state,
 /// replies to unblock the IO bridge, and fires notify so the spawn loop can react.
 fn spawn_lifecycle_event_task(
