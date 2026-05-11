@@ -40,7 +40,10 @@ pub use environment::{ActorFn, ActorRegistry, Environment};
 pub use suspension::SuspensionState;
 
 // Re-export executor
-pub use executor::{is_ready_to_spawn, run, run_with_tx, StopConditions, TopologicalOrderIter};
+pub use executor::{
+    is_ready_to_spawn, job_queue, run, run_with_tx, JobQueue, JobSender, StopConditions,
+    TopologicalOrderIter,
+};
 
 // Re-export errno constants
 pub use errno::{EBADF, EOWNERDEAD, EPIPE};

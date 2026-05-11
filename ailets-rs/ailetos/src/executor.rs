@@ -353,6 +353,32 @@ pub async fn run_with_tx(
     }
 }
 
+/// Handle for submitting new jobs to a running executor.
+///
+/// Cloneable and `Send + Sync` — distribute copies to any system component
+/// that needs to submit work. The channel closes when all clones are dropped,
+/// which signals the executor to exit after finishing current work.
+#[derive(Clone)]
+pub struct JobSender {
+    tx: mpsc::UnboundedSender<Handle>,
+}
+
+impl JobSender {
+    pub fn submit(&self, _target: Handle) {
+        todo!("JobSender::submit")
+    }
+}
+
+/// Receiving end of the job channel, consumed by `run_jobs`.
+pub struct JobQueue {
+    pub rx: mpsc::UnboundedReceiver<Handle>,
+}
+
+/// Create a linked (`JobSender`, `JobQueue`) pair.
+pub fn job_queue() -> (JobSender, JobQueue) {
+    todo!("job_queue")
+}
+
 /// Iterator that yields DAG nodes in topological order (dependencies before dependents).
 ///
 /// On first `next()`, computes the full order into `result`. Then yields nodes
