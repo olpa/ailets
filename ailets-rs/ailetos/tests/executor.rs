@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ailetos::dag::{Dag, DependsOn, For, NodeKind, NodeState};
 use ailetos::executor::{StopConditions, TopologicalOrderIter};
 use ailetos::storage::MemKV;
-use ailetos::{job_queue, run_jobs, ExecutorEvent, Environment, Handle, IdGen};
+use ailetos::{job_queue, run_jobs, ExecutorEvent, Environment, IdGen};
 use tokio::sync::mpsc;
 
 fn create_linear_dag() -> (Dag, Vec<ailetos::Handle>) {
@@ -197,15 +197,57 @@ async fn run_jobs_finite_single_job() {
 
     let target = env.add_node("noop".into(), &[], None);
 
-    let (tx, jobs) = job_queue();
-    tx.submit(target).expect("submit failed");
-    drop(tx);
+    let (tx_jobs, rx_jobs) = job_queue();
+    tx_jobs.submit(target).unwrap();
+    drop(tx_jobs);
 
     let (ev_tx, _ev_rx) = mpsc::unbounded_channel::<ExecutorEvent>();
-    run_jobs(Arc::clone(&env), jobs, StopConditions::default(), ev_tx).await;
+    run_jobs(Arc::clone(&env), rx_jobs, StopConditions::default(), ev_tx).await;
 
     assert_eq!(
         env.dag.read().get_node(target).unwrap().state,
+        NodeState::Terminated,
+    );
+}
+
+#[tokio::test]
+async fn run_jobs_infinite_processes_job_submitted_after_quiescence() {
+    let kv = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+    env.actor_registry.write().register("noop", |_| Ok(()));
+
+    let n1 = env.add_node("noop".into(), &[], None);
+    let n2 = env.add_node("noop".into(), &[], None);
+
+    let (tx_jobs, rx_jobs) = job_queue();
+    tx_jobs.submit(n1).unwrap();
+    // tx_jobs kept alive — channel stays open
+
+    let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<ExecutorEvent>();
+    let env2 = Arc::clone(&env);
+    let handle = tokio::spawn(run_jobs(env2, rx_jobs, StopConditions::default(), ev_tx));
+
+    // Wait for n1's termination event — guaranteed once n1 finishes
+    loop {
+        match ev_rx.recv().await {
+            Some(ExecutorEvent::NodeTerminated(h)) if h == n1 => break,
+            Some(_) => continue,
+            None => panic!("events channel closed before n1 terminated"),
+        }
+    }
+
+    // Submit n2 and close the channel.
+    // In the red state the executor already exited at quiescence, so submit
+    // returns Err — n2 stays NotStarted and the assertion below will fail.
+    let _ = tx_jobs.submit(n2);
+    drop(tx_jobs);
+
+    handle.await.unwrap();
+
+    // If run_jobs exited at quiescence, n2 was never picked up → NotStarted.
+    // If run_jobs waited on the channel, n2 was processed → Terminated.
+    assert_eq!(
+        env.dag.read().get_node(n2).unwrap().state,
         NodeState::Terminated,
     );
 }
