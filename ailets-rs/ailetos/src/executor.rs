@@ -21,6 +21,13 @@ use crate::idgen::Handle;
 use crate::pipe::PipePool;
 use crate::{BlockingActorRuntime, IoBridge};
 
+/// Events emitted by the executor to report progress to the caller.
+#[derive(Debug, Clone)]
+pub enum ExecutorEvent {
+    /// A node has finished executing (successfully or not).
+    NodeTerminated(Handle),
+}
+
 /// Conditions for stopping DAG iteration
 #[derive(Debug, Clone, Default)]
 pub struct StopConditions {
@@ -151,8 +158,9 @@ pub async fn run_jobs(
     env: Arc<Environment>,
     mut jobs: JobQueue,
     stop_conditions: StopConditions,
+    events_tx: mpsc::UnboundedSender<ExecutorEvent>,
 ) {
-    let infra = Executor::new(&env);
+    let infra = Executor::new(&env, Some(events_tx));
 
     let mut pending: Vec<Handle> = Vec::new();
     while let Ok(target) = jobs.rx.try_recv() {
@@ -177,10 +185,12 @@ pub async fn run_jobs(
 
 /// Receives actor lifecycle events from the IO bridge, updates DAG state,
 /// replies to unblock the IO bridge, and fires notify so the spawn loop can react.
+/// Emits `ExecutorEvent::NodeTerminated` to `events_tx` on each termination.
 fn spawn_lifecycle_event_task(
     dag: Arc<parking_lot::RwLock<Dag>>,
     notify: Arc<tokio::sync::Notify>,
     mut rx: mpsc::UnboundedReceiver<ActorLifecycleEvent>,
+    events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
@@ -227,6 +237,11 @@ fn spawn_lifecycle_event_task(
                     };
                     if reply.send(prior).is_err() {
                         warn!(node = ?node_handle, "actor_done: Terminated reply receiver dropped");
+                    }
+                    if let Some(ref tx) = events_tx {
+                        if tx.send(ExecutorEvent::NodeTerminated(node_handle)).is_err() {
+                            warn!(node = ?node_handle, "executor events receiver dropped");
+                        }
                     }
                     notify.notify_one();
                 }
@@ -345,7 +360,10 @@ struct Executor {
 }
 
 impl Executor {
-    fn new(env: &Arc<Environment>) -> Self {
+    fn new(
+        env: &Arc<Environment>,
+        events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
+    ) -> Self {
         let notify = Arc::new(tokio::sync::Notify::new());
         let (actor_done_tx, actor_done_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
         let attachment_manager =
@@ -359,6 +377,7 @@ impl Executor {
             Arc::clone(&env.dag),
             Arc::clone(&notify),
             actor_done_rx,
+            events_tx,
         );
         Self {
             notify,
@@ -402,7 +421,7 @@ pub async fn run_with_tx(
     stop_conditions: StopConditions,
     tx_out: Option<oneshot::Sender<Arc<IoBridge>>>,
 ) {
-    let infra = Executor::new(&env);
+    let infra = Executor::new(&env, None);
 
     if let Some(sender) = tx_out {
         sender.send(Arc::clone(&infra.bridge)).ok();

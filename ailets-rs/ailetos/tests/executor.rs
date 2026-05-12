@@ -3,7 +3,8 @@ use std::sync::Arc;
 use ailetos::dag::{Dag, DependsOn, For, NodeKind, NodeState};
 use ailetos::executor::{StopConditions, TopologicalOrderIter};
 use ailetos::storage::MemKV;
-use ailetos::{job_queue, run_jobs, Environment, IdGen};
+use ailetos::{job_queue, run_jobs, ExecutorEvent, Environment, Handle, IdGen};
+use tokio::sync::mpsc;
 
 fn create_linear_dag() -> (Dag, Vec<ailetos::Handle>) {
     // Create a linear DAG: node1 -> node2 -> node3 -> node4
@@ -200,7 +201,8 @@ async fn run_jobs_finite_single_job() {
     tx.submit(target).expect("submit failed");
     drop(tx);
 
-    run_jobs(Arc::clone(&env), jobs, StopConditions::default()).await;
+    let (ev_tx, _ev_rx) = mpsc::unbounded_channel::<ExecutorEvent>();
+    run_jobs(Arc::clone(&env), jobs, StopConditions::default(), ev_tx).await;
 
     assert_eq!(
         env.dag.read().get_node(target).unwrap().state,
