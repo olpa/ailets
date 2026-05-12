@@ -121,8 +121,8 @@ async fn run_writer_task(
         }
         Err(e) => {
             warn!(node = ?node_handle, fd = fd, error = %e, "writer task: failed to create writer");
-            // Send error to the first command, then exit
-            if let Some(cmd) = request_rx.recv().await {
+            // Return error on each command until channel closes
+            while let Some(cmd) = request_rx.recv().await {
                 let send_failed = match cmd {
                     WriterCommand::Write(WriteRequest { response, .. }) => {
                         response.send(Err(EIO)).is_err()
