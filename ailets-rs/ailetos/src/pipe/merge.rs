@@ -48,8 +48,6 @@ pub struct MergeReader {
     kv: Arc<dyn KVBuffers>,
     /// ID generator for creating reader handles
     id_gen: Arc<IdGen>,
-    /// Error from dependency resolution (set when `create_next_reader` fails)
-    own_errno: i32,
     /// Whether this merge reader has been closed
     own_closed: bool,
 }
@@ -76,7 +74,6 @@ impl MergeReader {
             pipe_pool,
             kv,
             id_gen,
-            own_errno: 0,
             own_closed: false,
         }
     }
@@ -164,7 +161,6 @@ impl MergeReader {
                     }
                     Err(e) => {
                         warn!(error = ?e, "MergeReader: failed to get reader for dependency");
-                        self.own_errno = EIO;
                         return Err(EIO);
                     }
                 }
@@ -191,17 +187,6 @@ impl MergeReader {
                 return Ok(0);
             }
         }
-    }
-
-    /// Get the error code from the current reader (0 if none or no error).
-    #[must_use]
-    pub fn get_error(&self) -> i32 {
-        if self.own_errno != 0 {
-            return self.own_errno;
-        }
-        self.current_reader
-            .as_ref()
-            .map_or(0, super::reader::Reader::get_error)
     }
 
     /// Close the merge reader.
