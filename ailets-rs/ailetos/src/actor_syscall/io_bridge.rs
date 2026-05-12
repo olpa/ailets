@@ -184,51 +184,8 @@ pub(crate) enum FdState {
     },
 }
 
-/// Global table of open channel endpoints, analogous to the kernel's open-file-descriptions table.
-///
-/// Maps (`node_handle`, fd) → `FdState` using a Vec with linear search.
-/// Efficient for small N (few fds per actor) with excellent cache locality.
-struct ChannelTable {
-    /// Vector of (`node_handle`, fd, state) tuples
-    entries: Vec<(Handle, isize, FdState)>,
-}
-
-impl ChannelTable {
-    fn new() -> Self {
-        Self {
-            entries: Vec::new(),
-        }
-    }
-
-    /// Find entry for (`node_handle`, fd)
-    fn find(&self, node_handle: Handle, fd: isize) -> Option<&(Handle, isize, FdState)> {
-        self.entries
-            .iter()
-            .find(|(h, f, _)| (*h, *f) == (node_handle, fd))
-    }
-
-    /// Find entry for (`node_handle`, fd) mutably
-    fn find_mut(&mut self, node_handle: Handle, fd: isize) -> Option<&mut (Handle, isize, FdState)> {
-        self.entries
-            .iter_mut()
-            .find(|(h, f, _)| (*h, *f) == (node_handle, fd))
-    }
-
-    /// Remove entry for (`node_handle`, fd), returning the state
-    fn remove(&mut self, node_handle: Handle, fd: isize) -> Option<FdState> {
-        let pos = self
-            .entries
-            .iter()
-            .position(|(h, f, _)| (*h, *f) == (node_handle, fd))?;
-        let (_, _, state) = self.entries.remove(pos);
-        Some(state)
-    }
-
-    /// Drop all entries for a given actor
-    fn drop_actor_entries(&mut self, node_handle: Handle) {
-        self.entries.retain(|(h, _, _)| *h != node_handle);
-    }
-}
+/// Channel table entry type: (node_handle, fd, state)
+type ChannelEntry = (Handle, isize, FdState);
 
 /// Directly-callable I/O bridge between actor threads and the async runtime.
 ///
@@ -236,7 +193,8 @@ impl ChannelTable {
 /// All methods are safe to call from a blocking thread.
 pub struct IoBridge {
     env: Arc<Environment>,
-    channel_table: Mutex<ChannelTable>,
+    /// Open channel endpoints: (node_handle, fd, state). Linear search, efficient for small N.
+    channel_table: Mutex<Vec<ChannelEntry>>,
     attachment_manager: Arc<AttachmentManager>,
     /// Notifies the spawn loop when I/O state changes that may affect node readiness.
     /// Use cases:
@@ -252,7 +210,7 @@ impl IoBridge {
             Arc::new(AttachmentManager::new(env.attachment_config.read().clone()));
         Self {
             env,
-            channel_table: Mutex::new(ChannelTable::new()),
+            channel_table: Mutex::new(Vec::new()),
             attachment_manager,
             notify,
         }
@@ -262,7 +220,6 @@ impl IoBridge {
     pub(crate) fn register_std_fd_reader(&self, node_handle: Handle, fd: isize) {
         self.channel_table
             .lock()
-            .entries
             .push((node_handle, fd, FdState::AllowedReader));
     }
 
@@ -270,7 +227,6 @@ impl IoBridge {
     pub(crate) fn register_std_fd_writer(&self, node_handle: Handle, fd: isize) {
         self.channel_table
             .lock()
-            .entries
             .push((node_handle, fd, FdState::AllowedWriter));
     }
 
@@ -279,7 +235,7 @@ impl IoBridge {
     /// Returns the request sender, or None if materialization fails.
     fn materialize_reader(
         &self,
-        table_guard: &mut ChannelTable,
+        table: &mut Vec<ChannelEntry>,
         node_handle: Handle,
         fd: isize,
     ) -> Option<mpsc::UnboundedSender<ReaderCommand>> {
@@ -289,7 +245,7 @@ impl IoBridge {
             return None;
         }
 
-        table_guard.remove(node_handle, fd);
+        table.retain(|(h, f, _)| (*h, *f) != (node_handle, fd));
 
         debug!(actor = ?node_handle, fd = fd, "materializing stdin reader");
         let dep_iterator = OwnedDependencyIterator::new(Arc::clone(&self.env.dag), node_handle);
@@ -303,9 +259,7 @@ impl IoBridge {
         tokio::spawn(run_reader_task(node_handle, reader, request_rx));
 
         let tx = request_tx.clone();
-        table_guard
-            .entries
-            .push((node_handle, fd, FdState::MaterializedReader { request_tx }));
+        table.push((node_handle, fd, FdState::MaterializedReader { request_tx }));
         Some(tx)
     }
 
@@ -313,11 +267,11 @@ impl IoBridge {
     /// Returns the request sender, or None if the fd entry is missing (bug).
     fn materialize_writer(
         &self,
-        table_guard: &mut ChannelTable,
+        table: &mut Vec<ChannelEntry>,
         node_handle: Handle,
         fd: isize,
     ) -> Option<mpsc::UnboundedSender<WriterCommand>> {
-        let Some((_, _, state)) = table_guard.find_mut(node_handle, fd) else {
+        let Some((_, _, state)) = table.iter_mut().find(|(h, f, _)| (*h, *f) == (node_handle, fd)) else {
             warn!(node = ?node_handle, fd, "materialize_writer: fd not in table (bug)");
             return None;
         };
@@ -347,7 +301,7 @@ impl IoBridge {
     pub fn read(&self, node_handle: Handle, fd: isize, buffer: SendableMutPtr) -> Result<usize, i32> {
         let tx = {
             let mut table_guard = self.channel_table.lock();
-            match table_guard.find(node_handle, fd) {
+            match table_guard.iter().find(|(h, f, _)| (*h, *f) == (node_handle, fd)) {
                 Some((_, _, FdState::MaterializedReader { request_tx })) => request_tx.clone(),
                 Some((_, _, FdState::AllowedReader)) => {
                     match self.materialize_reader(&mut table_guard, node_handle, fd) {
@@ -385,7 +339,7 @@ impl IoBridge {
     pub fn write(&self, node_handle: Handle, fd: isize, data: SendableConstPtr) -> Result<usize, i32> {
         let tx = {
             let mut table_guard = self.channel_table.lock();
-            match table_guard.find(node_handle, fd) {
+            match table_guard.iter().find(|(h, f, _)| (*h, *f) == (node_handle, fd)) {
                 Some((_, _, FdState::MaterializedWriter { request_tx })) => request_tx.clone(),
                 Some((_, _, FdState::AllowedWriter)) => {
                     if let Some(tx) = self.materialize_writer(&mut table_guard, node_handle, fd) {
@@ -422,7 +376,13 @@ impl IoBridge {
 
     /// Close a specific fd for an actor. Drops the channel task and flushes writers.
     pub fn close(&self, node_handle: Handle, fd: isize) -> Result<(), i32> {
-        let state = self.channel_table.lock().remove(node_handle, fd);
+        let mut table = self.channel_table.lock();
+        let state = if let Some(pos) = table.iter().position(|(h, f, _)| (*h, *f) == (node_handle, fd)) {
+            let (_, _, state) = table.remove(pos);
+            Some(state)
+        } else {
+            None
+        };
         match state {
             Some(FdState::AllowedReader) => {
                 debug!(node = ?node_handle, fd = fd, "closed allowed reader (never materialized)");
@@ -483,7 +443,7 @@ impl IoBridge {
             .await;
 
         debug!(node = ?node_handle, "cleanup_actor_io: dropping all entries");
-        self.channel_table.lock().drop_actor_entries(node_handle);
+        self.channel_table.lock().retain(|(h, _, _)| *h != node_handle);
 
         result
     }
