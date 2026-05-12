@@ -144,23 +144,23 @@ async fn run_writer_task(
                 // SAFETY: Buffer remains valid because awrite() blocks until response is sent
                 let data_slice = unsafe { &*data.into_raw() };
                 let result = writer.write(data_slice);
+                if response.send(result).is_err() {
+                    warn!(node = ?node_handle, fd = fd, "writer task: reply receiver dropped, actor may have exited");
+                }
                 // Wake the spawn loop: the first write realizes the writer in the
                 // pool, potentially unblocking downstream actors whose readiness
                 // check (is_ready_to_spawn) waits for this dep's pipe to appear.
                 notify.notify_one();
-                if response.send(result).is_err() {
-                    warn!(node = ?node_handle, fd = fd, "writer task: reply receiver dropped, actor may have exited");
-                }
             }
             WriterCommand::Close { response } => {
                 debug!(node = ?node_handle, fd = fd, "writer task: received close command");
                 let result = flush_and_close_writer(&*env.kv, &writer, "writer task").await;
-                // Wake the spawn loop: a closed writer is a state change that
-                // may satisfy spawn readiness for downstream actors.
-                notify.notify_one();
                 if response.send(result).is_err() {
                     warn!(node = ?node_handle, fd = fd, "writer task: close reply receiver dropped");
                 }
+                // Wake the spawn loop: a closed writer is a state change that
+                // may satisfy spawn readiness for downstream actors.
+                notify.notify_one();
                 // No break: loop exits naturally when sender is dropped and recv() returns None.
                 // This keeps the bridge mechanical—it forwards commands without special control flow.
             }
