@@ -33,28 +33,28 @@ use crate::pipe::{flush_and_close_writer, MergeReader};
 /// A read request forwarded from `IoBridge` to a reader task.
 pub(crate) struct ReadRequest {
     buffer: SendableMutPtr,
-    response: oneshot::Sender<(isize, i32)>,
+    response: oneshot::Sender<Result<usize, i32>>,
 }
 
 /// Command sent to a reader task.
 pub(crate) enum ReaderCommand {
     Read(ReadRequest),
     Close {
-        response: oneshot::Sender<(isize, i32)>,
+        response: oneshot::Sender<Result<(), i32>>,
     },
 }
 
 /// A write request forwarded from `IoBridge` to a writer task.
 pub(crate) struct WriteRequest {
     data: SendableConstPtr,
-    response: oneshot::Sender<(isize, i32)>,
+    response: oneshot::Sender<Result<usize, i32>>,
 }
 
 /// Command sent to a writer task.
 pub(crate) enum WriterCommand {
     Write(WriteRequest),
     Close {
-        response: oneshot::Sender<(isize, i32)>,
+        response: oneshot::Sender<Result<(), i32>>,
     },
 }
 
@@ -72,20 +72,14 @@ async fn run_reader_task(
             ReaderCommand::Read(ReadRequest { buffer, response }) => {
                 // SAFETY: Buffer remains valid because aread() blocks until response is sent
                 let buf = unsafe { &mut *buffer.into_raw() };
-                let (bytes_read, errno) = match reader.read(buf).await {
-                    Ok(n) => (n as isize, 0),
-                    Err(e) => (-1, e),
-                };
-                if response.send((bytes_read, errno)).is_err() {
+                let result = reader.read(buf).await;
+                if response.send(result).is_err() {
                     warn!(actor = ?node_handle, "reader task: reply receiver dropped, actor may have exited");
                 }
             }
             ReaderCommand::Close { response } => {
                 debug!(actor = ?node_handle, "reader task: received close command");
-                let result = match reader.close() {
-                    Ok(()) => (0, 0),
-                    Err(e) => (-1, e),
-                };
+                let result = reader.close();
                 if response.send(result).is_err() {
                     warn!(actor = ?node_handle, "reader task: close reply receiver dropped");
                 }
@@ -129,11 +123,13 @@ async fn run_writer_task(
             warn!(node = ?node_handle, fd = fd, error = %e, "writer task: failed to create writer");
             // Send error to the first command, then exit
             if let Some(cmd) = request_rx.recv().await {
-                let response = match cmd {
-                    WriterCommand::Write(WriteRequest { response, .. })
-                    | WriterCommand::Close { response } => response,
+                let send_failed = match cmd {
+                    WriterCommand::Write(WriteRequest { response, .. }) => {
+                        response.send(Err(EIO)).is_err()
+                    }
+                    WriterCommand::Close { response } => response.send(Err(EIO)).is_err(),
                 };
-                if response.send((-1, EIO)).is_err() {
+                if send_failed {
                     warn!(node = ?node_handle, fd = fd, "writer task: reply receiver dropped");
                 }
             }
@@ -147,10 +143,7 @@ async fn run_writer_task(
             WriterCommand::Write(WriteRequest { data, response }) => {
                 // SAFETY: Buffer remains valid because awrite() blocks until response is sent
                 let data_slice = unsafe { &*data.into_raw() };
-                let result = match writer.write(data_slice) {
-                    Ok(n) => (n as isize, 0),
-                    Err(e) => (-1, e),
-                };
+                let result = writer.write(data_slice);
                 // Wake the spawn loop: the first write realizes the writer in the
                 // pool, potentially unblocking downstream actors whose readiness
                 // check (is_ready_to_spawn) waits for this dep's pipe to appear.
@@ -161,10 +154,7 @@ async fn run_writer_task(
             }
             WriterCommand::Close { response } => {
                 debug!(node = ?node_handle, fd = fd, "writer task: received close command");
-                let result = match flush_and_close_writer(&*env.kv, &writer, "writer task").await {
-                    Ok(()) => (0, 0),
-                    Err(e) => (-1, e),
-                };
+                let result = flush_and_close_writer(&*env.kv, &writer, "writer task").await;
                 // Wake the spawn loop: a closed writer is a state change that
                 // may satisfy spawn readiness for downstream actors.
                 notify.notify_one();
@@ -356,7 +346,7 @@ impl IoBridge {
 
     /// Route a read request to the channel's reader task and block for the result.
     /// Materializes reader lazily on first call.
-    pub fn read(&self, node_handle: Handle, fd: isize, buffer: SendableMutPtr) -> (isize, i32) {
+    pub fn read(&self, node_handle: Handle, fd: isize, buffer: SendableMutPtr) -> Result<usize, i32> {
         let tx = {
             let mut table_guard = self.channel_table.lock();
             match table_guard.get_state(node_handle, fd) {
@@ -364,16 +354,16 @@ impl IoBridge {
                 Some(FdState::AllowedReader) => {
                     match self.materialize_reader(&mut table_guard, node_handle, fd) {
                         Some(tx) => tx,
-                        None => return (-1, EBADF),
+                        None => return Err(EBADF),
                     }
                 }
                 Some(FdState::AllowedWriter | FdState::MaterializedWriter { .. }) => {
                     warn!(node = ?node_handle, fd = fd, "read: cannot read from writer fd");
-                    return (-1, EBADF);
+                    return Err(EBADF);
                 }
                 None => {
                     warn!(node = ?node_handle, fd = fd, "read: fd not registered");
-                    return (-1, EBADF);
+                    return Err(EBADF);
                 }
             }
         };
@@ -387,14 +377,14 @@ impl IoBridge {
             .is_err()
         {
             warn!(node = ?node_handle, fd = fd, "reader task has exited");
-            return (-1, EPIPE);
+            return Err(EPIPE);
         }
-        resp_rx.blocking_recv().unwrap_or((-1, EPIPE))
+        resp_rx.blocking_recv().unwrap_or(Err(EPIPE))
     }
 
     /// Route a write request to the channel's writer task and block for the result.
     /// Materializes writer lazily on first call.
-    pub fn write(&self, node_handle: Handle, fd: isize, data: SendableConstPtr) -> (isize, i32) {
+    pub fn write(&self, node_handle: Handle, fd: isize, data: SendableConstPtr) -> Result<usize, i32> {
         let tx = {
             let mut table_guard = self.channel_table.lock();
             match table_guard.get_state(node_handle, fd) {
@@ -404,16 +394,16 @@ impl IoBridge {
                         tx
                     } else {
                         warn!(node = ?node_handle, fd = fd, "write: fd disappeared during materialization");
-                        return (-1, EBADF);
+                        return Err(EBADF);
                     }
                 }
                 Some(FdState::AllowedReader | FdState::MaterializedReader { .. }) => {
                     warn!(node = ?node_handle, fd = fd, "write: cannot write to reader fd");
-                    return (-1, EBADF);
+                    return Err(EBADF);
                 }
                 None => {
                     warn!(node = ?node_handle, fd = fd, "write: fd not registered");
-                    return (-1, EBADF);
+                    return Err(EBADF);
                 }
             }
         };
@@ -427,18 +417,18 @@ impl IoBridge {
             .is_err()
         {
             warn!(node = ?node_handle, fd = fd, "writer task has exited");
-            return (-1, EPIPE);
+            return Err(EPIPE);
         }
-        resp_rx.blocking_recv().unwrap_or((-1, EPIPE))
+        resp_rx.blocking_recv().unwrap_or(Err(EPIPE))
     }
 
     /// Close a specific fd for an actor. Drops the channel task and flushes writers.
-    pub fn close(&self, node_handle: Handle, fd: isize) -> (isize, i32) {
+    pub fn close(&self, node_handle: Handle, fd: isize) -> Result<(), i32> {
         let state = self.channel_table.lock().remove(node_handle, fd);
         match state {
             Some(FdState::AllowedReader) => {
                 debug!(node = ?node_handle, fd = fd, "closed allowed reader (never materialized)");
-                (0, 0)
+                Ok(())
             }
             Some(FdState::MaterializedReader { request_tx }) => {
                 debug!(node = ?node_handle, fd = fd, "closing reader channel");
@@ -448,13 +438,13 @@ impl IoBridge {
                     .is_err()
                 {
                     warn!(node = ?node_handle, fd = fd, "reader task has exited");
-                    return (-1, EIO);
+                    return Err(EIO);
                 }
-                resp_rx.blocking_recv().unwrap_or((-1, EIO))
+                resp_rx.blocking_recv().unwrap_or(Err(EIO))
             }
             Some(FdState::AllowedWriter) => {
                 debug!(node = ?node_handle, fd = fd, "closed allowed writer (never materialized)");
-                (0, 0)
+                Ok(())
             }
             Some(FdState::MaterializedWriter { request_tx }) => {
                 debug!(node = ?node_handle, fd = fd, "closing writer channel");
@@ -464,13 +454,13 @@ impl IoBridge {
                     .is_err()
                 {
                     warn!(node = ?node_handle, fd = fd, "writer task has exited");
-                    return (-1, EIO);
+                    return Err(EIO);
                 }
-                resp_rx.blocking_recv().unwrap_or((-1, EIO))
+                resp_rx.blocking_recv().unwrap_or(Err(EIO))
             }
             None => {
                 warn!(node = ?node_handle, fd = fd, "close: fd not found");
-                (-1, EBADF)
+                Err(EBADF)
             }
         }
     }

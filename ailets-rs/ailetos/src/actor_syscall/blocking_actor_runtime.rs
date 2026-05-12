@@ -185,15 +185,6 @@ impl BlockingActorRuntime {
             .register_std_fd_writer(self.node_handle, StdHandle::Trace as isize);
     }
 
-    /// Convert `(result, errno)` from IoBridge to `Result<usize, i32>`.
-    fn to_result(result: isize, errno: i32) -> Result<usize, i32> {
-        if result < 0 {
-            Err(errno)
-        } else {
-            #[allow(clippy::cast_sign_loss)]
-            Ok(result as usize)
-        }
-    }
 }
 
 impl ActorRuntime for BlockingActorRuntime {
@@ -211,29 +202,25 @@ impl ActorRuntime for BlockingActorRuntime {
         self.yield_if_suspended();
         // SAFETY: buffer is valid for the duration of blocking_recv inside bridge.read
         let buffer_ptr = unsafe { SendableMutPtr::new(buffer) };
-        let (result, errno) = self.io_bridge.read(self.node_handle, fd, buffer_ptr);
+        let result = self.io_bridge.read(self.node_handle, fd, buffer_ptr);
         self.yield_if_suspended();
-        Self::to_result(result, errno)
+        result
     }
 
     fn awrite(&self, fd: isize, buffer: &[u8]) -> Result<usize, i32> {
         self.yield_if_suspended();
         // SAFETY: buffer is valid for the duration of blocking_recv inside bridge.write
         let buffer_ptr = unsafe { SendableConstPtr::new(buffer) };
-        let (result, errno) = self.io_bridge.write(self.node_handle, fd, buffer_ptr);
+        let result = self.io_bridge.write(self.node_handle, fd, buffer_ptr);
         self.yield_if_suspended();
-        Self::to_result(result, errno)
+        result
     }
 
     fn aclose(&self, fd: isize) -> Result<(), i32> {
         self.yield_if_suspended();
-        let (result, errno) = self.io_bridge.close(self.node_handle, fd);
+        let result = self.io_bridge.close(self.node_handle, fd);
         self.yield_if_suspended();
-        if result < 0 {
-            Err(errno)
-        } else {
-            Ok(())
-        }
+        result
     }
 
     fn node_handle(&self) -> i64 {
