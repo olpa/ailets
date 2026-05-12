@@ -200,20 +200,18 @@ impl ChannelTable {
         }
     }
 
-    /// Get the state of an fd for an actor
-    fn get_state(&self, node_handle: Handle, fd: isize) -> Option<&FdState> {
+    /// Find entry for (`node_handle`, fd)
+    fn find(&self, node_handle: Handle, fd: isize) -> Option<&(Handle, isize, FdState)> {
         self.entries
             .iter()
             .find(|(h, f, _)| (*h, *f) == (node_handle, fd))
-            .map(|(_, _, state)| state)
     }
 
-    /// Get mutable reference to the state of an fd for an actor
-    fn get_state_mut(&mut self, node_handle: Handle, fd: isize) -> Option<&mut FdState> {
+    /// Find entry for (`node_handle`, fd) mutably
+    fn find_mut(&mut self, node_handle: Handle, fd: isize) -> Option<&mut (Handle, isize, FdState)> {
         self.entries
             .iter_mut()
             .find(|(h, f, _)| (*h, *f) == (node_handle, fd))
-            .map(|(_, _, state)| state)
     }
 
     /// Remove entry for (`node_handle`, fd), returning the state
@@ -319,7 +317,7 @@ impl IoBridge {
         node_handle: Handle,
         fd: isize,
     ) -> Option<mpsc::UnboundedSender<WriterCommand>> {
-        let Some(state) = table_guard.get_state_mut(node_handle, fd) else {
+        let Some((_, _, state)) = table_guard.find_mut(node_handle, fd) else {
             warn!(node = ?node_handle, fd, "materialize_writer: fd not in table (bug)");
             return None;
         };
@@ -349,15 +347,15 @@ impl IoBridge {
     pub fn read(&self, node_handle: Handle, fd: isize, buffer: SendableMutPtr) -> Result<usize, i32> {
         let tx = {
             let mut table_guard = self.channel_table.lock();
-            match table_guard.get_state(node_handle, fd) {
-                Some(FdState::MaterializedReader { request_tx }) => request_tx.clone(),
-                Some(FdState::AllowedReader) => {
+            match table_guard.find(node_handle, fd) {
+                Some((_, _, FdState::MaterializedReader { request_tx })) => request_tx.clone(),
+                Some((_, _, FdState::AllowedReader)) => {
                     match self.materialize_reader(&mut table_guard, node_handle, fd) {
                         Some(tx) => tx,
                         None => return Err(EBADF),
                     }
                 }
-                Some(FdState::AllowedWriter | FdState::MaterializedWriter { .. }) => {
+                Some((_, _, FdState::AllowedWriter | FdState::MaterializedWriter { .. })) => {
                     warn!(node = ?node_handle, fd = fd, "read: cannot read from writer fd");
                     return Err(EBADF);
                 }
@@ -387,9 +385,9 @@ impl IoBridge {
     pub fn write(&self, node_handle: Handle, fd: isize, data: SendableConstPtr) -> Result<usize, i32> {
         let tx = {
             let mut table_guard = self.channel_table.lock();
-            match table_guard.get_state(node_handle, fd) {
-                Some(FdState::MaterializedWriter { request_tx }) => request_tx.clone(),
-                Some(FdState::AllowedWriter) => {
+            match table_guard.find(node_handle, fd) {
+                Some((_, _, FdState::MaterializedWriter { request_tx })) => request_tx.clone(),
+                Some((_, _, FdState::AllowedWriter)) => {
                     if let Some(tx) = self.materialize_writer(&mut table_guard, node_handle, fd) {
                         tx
                     } else {
@@ -397,7 +395,7 @@ impl IoBridge {
                         return Err(EBADF);
                     }
                 }
-                Some(FdState::AllowedReader | FdState::MaterializedReader { .. }) => {
+                Some((_, _, FdState::AllowedReader | FdState::MaterializedReader { .. })) => {
                     warn!(node = ?node_handle, fd = fd, "write: cannot write to reader fd");
                     return Err(EBADF);
                 }
