@@ -70,7 +70,7 @@ async fn test_reader_to_actor_epipe_propagation() {
         .await
         .unwrap();
     writer.set_error(EPIPE);
-    assert!(writer.close().0 >= 0);
+    assert!(writer.close().is_ok());
 
     let runtime = BlockingActorRuntime::new(
         actor_handle,
@@ -111,7 +111,7 @@ async fn test_latch_errno_with_errno() {
         .await
         .unwrap();
     writer.set_error(EPIPE);
-    assert!(writer.close().0 >= 0);
+    assert!(writer.close().is_ok());
 
     let runtime = BlockingActorRuntime::new(
         actor_handle,

@@ -121,7 +121,7 @@ async fn test_close_sends_notification() {
         .expect("Failed to subscribe");
 
     // Close the writer
-    writer.close();
+    writer.close().unwrap();
 
     // Verify notification was sent with -1
     let notification = subscriber
@@ -139,7 +139,7 @@ async fn test_close_unlists_handle() {
     let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     // Close the writer
-    writer.close();
+    writer.close().unwrap();
 
     // Try to subscribe to the handle - should return None because it's unlisted
     let result = queue.subscribe(writer_handle, 10, "test_subscriber");
@@ -275,7 +275,7 @@ async fn test_empty_write_on_closed_writer() {
     let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     // Close the writer
-    writer.close();
+    writer.close().unwrap();
 
     // Empty write on closed writer should return Err(EBADF)
     let result = writer.write(b"");
@@ -470,7 +470,7 @@ async fn test_writer_error_transformed_to_epipe() {
     assert_eq!(writer.write(b"data"), Ok(4));
     // Writer closes with EOWNERDEAD — typical actor failure code
     writer.set_error(EOWNERDEAD);
-    writer.close();
+    writer.close().unwrap();
 
     // Reader drains buffered data first
     let mut buf = [0u8; 10];

@@ -82,7 +82,10 @@ async fn run_reader_task(
             }
             ReaderCommand::Close { response } => {
                 debug!(actor = ?node_handle, "reader task: received close command");
-                let result = reader.close();
+                let result = match reader.close() {
+                    Ok(()) => (0, 0),
+                    Err(e) => (-1, e),
+                };
                 if response.send(result).is_err() {
                     warn!(actor = ?node_handle, "reader task: close reply receiver dropped");
                 }
@@ -158,7 +161,10 @@ async fn run_writer_task(
             }
             WriterCommand::Close { response } => {
                 debug!(node = ?node_handle, fd = fd, "writer task: received close command");
-                let result = flush_and_close_writer(&*env.kv, &writer, "writer task").await;
+                let result = match flush_and_close_writer(&*env.kv, &writer, "writer task").await {
+                    Ok(()) => (0, 0),
+                    Err(e) => (-1, e),
+                };
                 // Wake the spawn loop: a closed writer is a state change that
                 // may satisfy spawn readiness for downstream actors.
                 notify.notify_one();

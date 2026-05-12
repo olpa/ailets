@@ -76,15 +76,15 @@ impl Reader {
 
     /// Close the reader
     ///
-    /// Returns `(0, 0)` on success, `(-1, EBADF)` if already closed.
-    pub fn close(&mut self) -> (isize, i32) {
+    /// Returns `Ok(())` on success, `Err(EBADF)` if already closed.
+    pub fn close(&mut self) -> Result<(), i32> {
         if self.own_closed {
             log::warn!("Reader::close() called on already closed reader: {self:?}");
-            return (-1, EBADF);
+            return Err(EBADF);
         }
         self.own_closed = true;
         self.guard.take();
-        (0, 0)
+        Ok(())
     }
 
     /// Get current error state (checks own error first, then writer error)
@@ -250,8 +250,7 @@ impl Drop for Reader {
     fn drop(&mut self) {
         trace!(handle = ?self.own_handle, "Reader: destroying (drop)");
         if !self.own_closed {
-            let (result, errno) = self.close();
-            if result < 0 {
+            if let Err(errno) = self.close() {
                 warn!(handle = ?self.own_handle, errno, "Reader::drop: close failed");
             }
         }

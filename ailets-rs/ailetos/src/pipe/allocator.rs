@@ -82,36 +82,34 @@ pub async fn write_completed_buffer(
 /// - `log_context`: Context string for logging (e.g., "writer task", "actor shutdown")
 ///
 /// # Returns
-/// POSIX-style result tuple:
-/// - `(0, 0)` on success
-/// - `(-1, EBADF)` if writer was already closed
-/// - `(-1, EIO)` if flush failed
+/// - `Ok(())` on success
+/// - `Err(EBADF)` if writer was already closed
+/// - `Err(EIO)` if flush failed
 pub async fn flush_and_close_writer(
     kv: &dyn KVBuffers,
     writer: &Writer,
     log_context: &str,
-) -> (isize, i32) {
+) -> Result<(), i32> {
     // Step 1: Close the writer (marks closed, notifies readers)
-    let (result, errno) = writer.close();
-    if result < 0 {
+    if let Err(errno) = writer.close() {
         warn!(
             context = log_context,
             errno = errno,
             "writer already closed"
         );
-        return (result, errno);
+        return Err(errno);
     }
 
     // Step 2: Flush buffer to persistent storage
     match kv.flush_buffer(&writer.buffer()).await {
-        Ok(()) => (0, 0),
+        Ok(()) => Ok(()),
         Err(e) => {
             warn!(
                 context = log_context,
                 error = ?e,
                 "flush failed after close"
             );
-            (-1, EIO)
+            Err(EIO)
         }
     }
 }

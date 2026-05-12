@@ -306,14 +306,15 @@ impl PipePool {
             if exit_code != 0 {
                 writer.set_error(exit_code);
             }
-            let (result, errno) =
-                flush_and_close_writer(&*self.kv, &writer, "actor shutdown").await;
-            if result < 0 {
-                let msg = format!("flush/close failed on actor shutdown key={:?} exit_code={exit_code} errno={errno}", (h, s));
-                debug!("{msg}");
-                errors.push(msg);
-            } else {
-                debug!(key = ?(h, s), exit_code, "flushed and closed realized writer on actor shutdown");
+            match flush_and_close_writer(&*self.kv, &writer, "actor shutdown").await {
+                Ok(()) => {
+                    debug!(key = ?(h, s), exit_code, "flushed and closed realized writer on actor shutdown");
+                }
+                Err(errno) => {
+                    let msg = format!("flush/close failed on actor shutdown key={:?} exit_code={exit_code} errno={errno}", (h, s));
+                    debug!("{msg}");
+                    errors.push(msg);
+                }
             }
         }
 

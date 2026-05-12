@@ -438,7 +438,7 @@ async fn test_close_realized_writer() {
     let writer = pool
         .get_already_realized_writer((actor_handle, std_handle as isize))
         .unwrap();
-    writer.close();
+    writer.close().unwrap();
 
     // Writer should still exist (close doesn't remove it)
     assert!(pool
@@ -504,13 +504,13 @@ async fn test_multiple_close_calls() {
         .await
         .expect("Failed to create output pipe");
 
-    // Close multiple times - should be idempotent
+    // Close multiple times - first succeeds, subsequent return EBADF
     let writer = pool
         .get_already_realized_writer((actor_handle, std_handle as isize))
         .unwrap();
-    writer.close();
-    writer.close();
-    writer.close();
+    writer.close().unwrap();
+    assert!(writer.close().is_err());
+    assert!(writer.close().is_err());
 
     // Writer should still exist (close doesn't remove it)
     assert!(pool
@@ -901,7 +901,7 @@ async fn test_attachment_workflow_simulation() {
     let _ = writer.write(b"Hello from actor!");
 
     // Actor closes
-    writer.close();
+    writer.close().unwrap();
 
     // Attachment should complete
     let bytes_read = tokio::time::timeout(Duration::from_secs(1), attachment_task)
@@ -1007,7 +1007,7 @@ async fn test_end_to_end_data_flow() {
     let _ = writer.write(b"Third");
 
     // Close writer
-    writer.close();
+    writer.close().unwrap();
 
     // Reader should get all data
     let data = tokio::time::timeout(Duration::from_secs(1), reader_task)
@@ -1357,12 +1357,12 @@ async fn test_reader_to_writer_writer_closes_without_write_after_reader_fails_is
 
     // Reader fails and closes — all readers are now gone
     reader.set_error(EPIPE);
-    reader.close();
+    reader.close().unwrap();
     drop(reader);
 
     // Writer closes without writing again — error is only triggered on next write,
     // so writer must be successful
-    writer.close();
+    writer.close().unwrap();
     assert_eq!(writer.get_error(), 0);
 }
 
@@ -1387,7 +1387,7 @@ async fn test_backward_propagation_last_reader_closed() {
     assert_eq!(writer.write(b"hello"), Ok(5));
 
     // Close the only reader
-    reader.close();
+    reader.close().unwrap();
     drop(reader);
 
     // Next write must fail with EPIPE (spec://errors#backward-propagation)
@@ -1434,13 +1434,13 @@ async fn test_backward_propagation_multiple_readers_last_close_triggers_epipe() 
         .expect("Failed to create reader2");
 
     // Close first reader — writer still has one open reader, no EPIPE
-    reader1.close();
+    reader1.close().unwrap();
     drop(reader1);
     assert_eq!(writer.write(b"still ok"), Ok(8));
     assert_eq!(writer.get_error(), 0);
 
     // Close last reader — writer should now receive EPIPE
-    reader2.close();
+    reader2.close().unwrap();
     drop(reader2);
     assert_eq!(writer.write(b"now fails"), Err(EPIPE));
     assert_eq!(writer.get_error(), EPIPE);
@@ -1474,7 +1474,7 @@ async fn test_backward_propagation_abrupt_drop_of_one_reader_no_epipe_until_last
     assert_eq!(writer.get_error(), 0);
 
     // Now the last reader closes — writer must see EPIPE on next write.
-    reader2.close();
+    reader2.close().unwrap();
     drop(reader2);
     assert_eq!(writer.write(b"now fails"), Err(EPIPE));
     assert_eq!(writer.get_error(), EPIPE);

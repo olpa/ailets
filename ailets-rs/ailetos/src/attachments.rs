@@ -210,8 +210,7 @@ async fn attach_to_stream<W: StdWrite>(
         }
     }
 
-    let (result, errno) = reader.close();
-    if result < 0 {
+    if let Err(errno) = reader.close() {
         warn!(node = ?node_handle, ?target, errno, "failed to close reader in attachment");
         return Err(format!(
             "failed to close reader in attachment: errno={errno}"

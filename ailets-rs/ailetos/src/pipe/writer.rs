@@ -149,20 +149,20 @@ impl Writer {
 
     /// Close the writer and notify all readers
     ///
-    /// Returns `(0, 0)` on success, `(-1, EBADF)` if already closed.
-    pub fn close(&self) -> (isize, i32) {
+    /// Returns `Ok(())` on success, `Err(EBADF)` if already closed.
+    pub fn close(&self) -> Result<(), i32> {
         {
             let mut shared = self.shared.lock();
             if shared.closed {
                 warn!("Writer::close() called on already closed writer: {self:?}");
-                return (-1, EBADF);
+                return Err(EBADF);
             }
             shared.closed = true;
         }
         // Unregister handle from queue
         // This will notify with -1 and wake all waiters
         self.queue.unlist(self.handle);
-        (0, 0)
+        Ok(())
     }
 
     /// Get the handle for this writer
@@ -218,8 +218,7 @@ impl Drop for Writer {
     fn drop(&mut self) {
         trace!(handle = ?self.handle, "Writer: destroying (drop)");
         if !self.is_closed() {
-            let (result, errno) = self.close();
-            if result < 0 {
+            if let Err(errno) = self.close() {
                 warn!(handle = ?self.handle, errno, "Writer::drop: close failed");
             }
         }

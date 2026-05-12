@@ -191,18 +191,18 @@ impl MergeReader {
 
     /// Close the merge reader.
     ///
-    /// Returns `(0, 0)` on success, `(-1, EBADF)` if already closed,
+    /// Returns `Ok(())` on success, `Err(EBADF)` if already closed,
     /// or propagates error from inner reader close.
-    pub fn close(&mut self) -> (isize, i32) {
+    pub fn close(&mut self) -> Result<(), i32> {
         if self.own_closed {
             warn!("MergeReader::close() called on already closed reader");
-            return (-1, EBADF);
+            return Err(EBADF);
         }
         self.own_closed = true;
         let result = if let Some(ref mut reader) = self.current_reader {
             reader.close()
         } else {
-            (0, 0)
+            Ok(())
         };
         self.current_reader = None;
         result
@@ -219,8 +219,7 @@ impl Drop for MergeReader {
     fn drop(&mut self) {
         trace!("MergeReader: destroying (drop)");
         if !self.own_closed {
-            let (result, errno) = self.close();
-            if result < 0 {
+            if let Err(errno) = self.close() {
                 warn!(errno, "MergeReader::drop: close failed");
             }
         }
