@@ -230,8 +230,8 @@ impl IoBridge {
             .push((node_handle, fd, FdState::AllowedWriter));
     }
 
-    /// Create a reader task for stdin. Returns (sender for table, sender for caller).
-    fn spawn_reader(&self, node_handle: Handle) -> (mpsc::UnboundedSender<ReaderCommand>, mpsc::UnboundedSender<ReaderCommand>) {
+    /// Create a reader task for stdin.
+    fn spawn_reader(&self, node_handle: Handle) -> mpsc::UnboundedSender<ReaderCommand> {
         debug!(actor = ?node_handle, "spawning stdin reader");
         let dep_iterator = OwnedDependencyIterator::new(Arc::clone(&self.env.dag), node_handle);
         let reader = MergeReader::new(
@@ -242,11 +242,11 @@ impl IoBridge {
         );
         let (request_tx, request_rx) = mpsc::unbounded_channel::<ReaderCommand>();
         tokio::spawn(run_reader_task(node_handle, reader, request_rx));
-        (request_tx.clone(), request_tx)
+        request_tx
     }
 
-    /// Create a writer task. Returns (sender for table, sender for caller).
-    fn spawn_writer(&self, node_handle: Handle, fd: isize) -> (mpsc::UnboundedSender<WriterCommand>, mpsc::UnboundedSender<WriterCommand>) {
+    /// Create a writer task.
+    fn spawn_writer(&self, node_handle: Handle, fd: isize) -> mpsc::UnboundedSender<WriterCommand> {
         debug!(actor = ?node_handle, fd = fd, "spawning writer");
         let (request_tx, request_rx) = mpsc::unbounded_channel::<WriterCommand>();
         let env = Arc::clone(&self.env);
@@ -260,7 +260,7 @@ impl IoBridge {
             notify,
             request_rx,
         ));
-        (request_tx.clone(), request_tx)
+        request_tx
     }
 
     /// Route a read request to the channel's reader task and block for the result.
@@ -280,9 +280,9 @@ impl IoBridge {
                         warn!(actor = ?node_handle, fd = fd, "reader materialization only supported for stdin");
                         return Err(EBADF);
                     }
-                    let (for_table, for_caller) = self.spawn_reader(node_handle);
-                    *state = FdState::MaterializedReader { request_tx: for_table };
-                    for_caller
+                    let request_tx = self.spawn_reader(node_handle);
+                    *state = FdState::MaterializedReader { request_tx: request_tx.clone() };
+                    request_tx
                 }
                 FdState::AllowedWriter | FdState::MaterializedWriter { .. } => {
                     warn!(node = ?node_handle, fd = fd, "read: cannot read from writer fd");
@@ -317,9 +317,9 @@ impl IoBridge {
             match state {
                 FdState::MaterializedWriter { request_tx } => request_tx.clone(),
                 FdState::AllowedWriter => {
-                    let (for_table, for_caller) = self.spawn_writer(node_handle, fd);
-                    *state = FdState::MaterializedWriter { request_tx: for_table };
-                    for_caller
+                    let request_tx = self.spawn_writer(node_handle, fd);
+                    *state = FdState::MaterializedWriter { request_tx: request_tx.clone() };
+                    request_tx
                 }
                 FdState::AllowedReader | FdState::MaterializedReader { .. } => {
                     warn!(node = ?node_handle, fd = fd, "write: cannot write to reader fd");
