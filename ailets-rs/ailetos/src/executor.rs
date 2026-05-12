@@ -162,7 +162,7 @@ pub async fn run_jobs(
 ) {
     let infra = Executor::new(&env, Some(events_tx));
 
-    let mut pending: Vec<Handle> = Vec::new();
+    let mut pending: HashSet<Handle> = HashSet::new();
     while let Ok(target) = jobs.rx.try_recv() {
         let dag_guard = env.dag.read();
         let new_nodes = TopologicalOrderIter::with_stop_conditions(
@@ -254,7 +254,7 @@ fn spawn_lifecycle_event_task(
 async fn run_spawn_loop(
     env: &Arc<Environment>,
     bridge: &Arc<IoBridge>,
-    mut pending: Vec<Handle>,
+    mut pending: HashSet<Handle>,
     notify: &Arc<tokio::sync::Notify>,
     actor_done_tx: &mpsc::UnboundedSender<ActorLifecycleEvent>,
 ) -> Vec<tokio::task::JoinHandle<()>> {
@@ -271,7 +271,7 @@ async fn run_spawn_loop(
         };
 
         for (node_handle, idname) in &to_spawn {
-            pending.retain(|&h| h != *node_handle);
+            pending.remove(node_handle);
 
             let Some(actor_fn) = env.actor_registry.read().get(idname) else {
                 warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
@@ -427,7 +427,7 @@ pub async fn run_with_tx(
         sender.send(Arc::clone(&infra.bridge)).ok();
     }
 
-    let pending: Vec<Handle> = {
+    let pending: HashSet<Handle> = {
         let dag_guard = env.dag.read();
         TopologicalOrderIter::with_stop_conditions(&dag_guard, target, stop_conditions)
             .filter(|&n| {
@@ -474,6 +474,11 @@ pub fn job_queue() -> (JobSender, JobQueue) {
 ///
 /// On first `next()`, computes the full order into `result`. Then yields nodes
 /// one by one via `result_index`. The `stopped` flag allows early termination.
+///
+/// The topological ordering is no longer relied upon by the spawn loop (which uses
+/// `is_ready_to_spawn` to enforce dependency order dynamically). This iterator is
+/// still used for two things: DAG traversal (discovering all nodes reachable from a
+/// target) and honouring `StopConditions` (`one_step`, `stop_before`, `stop_after`).
 pub struct TopologicalOrderIter<'a> {
     dag: &'a Dag,
     // (node, deps_pushed): when false, push deps then re-push with true;
