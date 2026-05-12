@@ -148,11 +148,31 @@ pub async fn run(env: Arc<Environment>, target: Handle, stop_conditions: StopCon
 /// in-progress work finishes. Supports both finite and infinite execution
 /// depending on the lifetime of the senders.
 pub async fn run_jobs(
-    _env: Arc<Environment>,
-    _jobs: JobQueue,
-    _stop_conditions: StopConditions,
+    env: Arc<Environment>,
+    mut jobs: JobQueue,
+    stop_conditions: StopConditions,
 ) {
-    todo!("run_jobs")
+    let infra = Executor::new(&env);
+
+    let mut pending: Vec<Handle> = Vec::new();
+    while let Ok(target) = jobs.rx.try_recv() {
+        let dag_guard = env.dag.read();
+        let new_nodes = TopologicalOrderIter::with_stop_conditions(
+            &dag_guard,
+            target,
+            stop_conditions.clone(),
+        )
+        .filter(|&n| {
+            dag_guard
+                .get_node(n)
+                .is_some_and(|node| node.state == NodeState::NotStarted)
+        });
+        pending.extend(new_nodes);
+    }
+
+    let actor_tasks =
+        run_spawn_loop(&env, &infra.bridge, pending, &infra.notify, &infra.actor_done_tx).await;
+    infra.shutdown(actor_tasks).await;
 }
 
 /// Receives actor lifecycle events from the IO bridge, updates DAG state,
@@ -305,6 +325,76 @@ async fn run_spawn_loop(
     actor_tasks
 }
 
+/// Shared infrastructure for an executor run.
+///
+/// Teardown order is critical:
+/// 1. Join actor tasks — `BlockingActorRuntime::drop` sends lifecycle events
+///    and blocks on `actor_done_task` replies, so `actor_done_task` must still
+///    be running at this point.
+/// 2. `bridge.shutdown()` — flush I/O channels.
+/// 3. `attachment_manager.shutdown()` — wait for attachment tasks.
+/// 4. Drop `actor_done_tx` — signals `actor_done_task` to exit.
+/// 5. Drop `bridge` — releases the last Arc so `actor_done_task` can finish.
+/// 6. Join `actor_done_task`.
+struct Executor {
+    notify: Arc<tokio::sync::Notify>,
+    bridge: Arc<IoBridge>,
+    actor_done_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
+    actor_done_task: tokio::task::JoinHandle<()>,
+    attachment_manager: Arc<AttachmentManager>,
+}
+
+impl Executor {
+    fn new(env: &Arc<Environment>) -> Self {
+        let notify = Arc::new(tokio::sync::Notify::new());
+        let (actor_done_tx, actor_done_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
+        let attachment_manager =
+            Arc::new(AttachmentManager::new(env.attachment_config.read().clone()));
+        let bridge = Arc::new(IoBridge::new(
+            Arc::clone(env),
+            Arc::clone(&attachment_manager),
+            Arc::clone(&notify),
+        ));
+        let actor_done_task = spawn_lifecycle_event_task(
+            Arc::clone(&env.dag),
+            Arc::clone(&notify),
+            actor_done_rx,
+        );
+        Self {
+            notify,
+            bridge,
+            actor_done_tx,
+            actor_done_task,
+            attachment_manager,
+        }
+    }
+
+    async fn shutdown(self, actor_tasks: Vec<tokio::task::JoinHandle<()>>) {
+        let Self {
+            notify: _,
+            bridge,
+            actor_done_tx,
+            actor_done_task,
+            attachment_manager,
+        } = self;
+
+        for task in actor_tasks {
+            if let Err(e) = task.await {
+                warn!(error = %e, "actor task failed");
+            }
+        }
+        if let Err(e) = bridge.shutdown().await {
+            warn!(error = %e, "io_bridge shutdown error");
+        }
+        attachment_manager.shutdown().await;
+        drop(actor_done_tx);
+        drop(bridge);
+        if let Err(e) = actor_done_task.await {
+            warn!(error = %e, "actor_done task failed");
+        }
+    }
+}
+
 /// Like `run`, but sends the `IoBridge` back via `tx_out` once ready.
 pub async fn run_with_tx(
     env: Arc<Environment>,
@@ -312,22 +402,11 @@ pub async fn run_with_tx(
     stop_conditions: StopConditions,
     tx_out: Option<oneshot::Sender<Arc<IoBridge>>>,
 ) {
-    let notify = Arc::new(tokio::sync::Notify::new());
-    let (actor_done_tx, actor_done_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
-
-    let attachment_manager = Arc::new(AttachmentManager::new(env.attachment_config.read().clone()));
-    let io_bridge = Arc::new(IoBridge::new(
-        Arc::clone(&env),
-        Arc::clone(&attachment_manager),
-        Arc::clone(&notify),
-    ));
+    let infra = Executor::new(&env);
 
     if let Some(sender) = tx_out {
-        sender.send(Arc::clone(&io_bridge)).ok();
+        sender.send(Arc::clone(&infra.bridge)).ok();
     }
-
-    let actor_done_task =
-        spawn_lifecycle_event_task(Arc::clone(&env.dag), Arc::clone(&notify), actor_done_rx);
 
     let pending: Vec<Handle> = {
         let dag_guard = env.dag.read();
@@ -340,30 +419,9 @@ pub async fn run_with_tx(
             .collect()
     };
 
-    let actor_tasks = run_spawn_loop(&env, &io_bridge, pending, &notify, &actor_done_tx).await;
-
-    // Join actor tasks first: BlockingActorRuntime::drop sends lifecycle events
-    // and blocks on actor_done_task replies — so actor_done_task must still be
-    // running here.
-    for task in actor_tasks {
-        if let Err(e) = task.await {
-            warn!(error = %e, "actor task failed");
-        }
-    }
-
-    // All actors done; shutdown IO bridge and wait for attachment tasks.
-    if let Err(e) = io_bridge.shutdown().await {
-        warn!(error = %e, "io_bridge shutdown error");
-    }
-    attachment_manager.shutdown().await;
-
-    // Dropping actor_done_tx signals actor_done_task to exit.
-    drop(actor_done_tx);
-    drop(io_bridge);
-
-    if let Err(e) = actor_done_task.await {
-        warn!(error = %e, "actor_done task failed");
-    }
+    let actor_tasks =
+        run_spawn_loop(&env, &infra.bridge, pending, &infra.notify, &infra.actor_done_tx).await;
+    infra.shutdown(actor_tasks).await;
 }
 
 /// Handle for submitting new jobs to a running executor.
