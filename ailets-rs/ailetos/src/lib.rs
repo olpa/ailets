@@ -43,4 +43,4 @@ pub use suspension::SuspensionState;
 pub use executor::{is_ready_to_spawn, run, run_with_tx, StopConditions, TopologicalOrderIter};
 
 // Re-export errno constants
-pub use errno::{EOWNERDEAD, EPIPE};
+pub use errno::{EBADF, EOWNERDEAD, EPIPE};

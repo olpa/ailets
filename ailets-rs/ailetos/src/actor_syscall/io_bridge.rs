@@ -72,11 +72,9 @@ async fn run_reader_task(
             ReaderCommand::Read(ReadRequest { buffer, response }) => {
                 // SAFETY: Buffer remains valid because aread() blocks until response is sent
                 let buf = unsafe { &mut *buffer.into_raw() };
-                let bytes_read = reader.read(buf).await;
-                let errno = if bytes_read < 0 {
-                    reader.get_error()
-                } else {
-                    0
+                let (bytes_read, errno) = match reader.read(buf).await {
+                    Ok(n) => (n as isize, 0),
+                    Err(e) => (-1, e),
                 };
                 if response.send((bytes_read, errno)).is_err() {
                     warn!(actor = ?node_handle, "reader task: reply receiver dropped, actor may have exited");
@@ -146,11 +144,9 @@ async fn run_writer_task(
             WriterCommand::Write(WriteRequest { data, response }) => {
                 // SAFETY: Buffer remains valid because awrite() blocks until response is sent
                 let data_slice = unsafe { &*data.into_raw() };
-                let n = writer.write(data_slice);
-                let result = if n < 0 {
-                    (-1, writer.get_error())
-                } else {
-                    (n, 0)
+                let result = match writer.write(data_slice) {
+                    Ok(n) => (n as isize, 0),
+                    Err(e) => (-1, e),
                 };
                 // Wake the spawn loop: the first write realizes the writer in the
                 // pool, potentially unblocking downstream actors whose readiness

@@ -1,7 +1,7 @@
 use ailetos::idgen::Handle;
 use ailetos::notification_queue::NotificationQueueArc;
 use ailetos::pipe::{Reader, Writer};
-use ailetos::{Buffer, EOWNERDEAD, EPIPE};
+use ailetos::{Buffer, EBADF, EOWNERDEAD, EPIPE};
 
 #[tokio::test]
 async fn test_write_read() {
@@ -15,13 +15,13 @@ async fn test_write_read() {
 
     // Write some data
     let n = writer.write(b"Hello");
-    assert_eq!(n, 5);
+    assert_eq!(n, Ok(5));
 
     // Read it back
     let mut buf = [0u8; 10];
     let n = reader.read(&mut buf).await;
-    assert_eq!(n, 5);
-    assert_eq!(&buf[..n as usize], b"Hello");
+    assert_eq!(n, Ok(5));
+    assert_eq!(&buf[..n.unwrap()], b"Hello");
 
     // Writer unregisters its handle on drop
 }
@@ -36,43 +36,43 @@ async fn test_multiple_write_read_cycles() {
     let mut reader = Reader::new(Handle::new(2), shared_data, guard);
 
     // Cycle 1: write-write-read
-    assert_eq!(writer.write(b"Hello"), 5);
-    assert_eq!(writer.write(b" "), 1);
-    assert_eq!(writer.write(b"World"), 5);
+    assert_eq!(writer.write(b"Hello"), Ok(5));
+    assert_eq!(writer.write(b" "), Ok(1));
+    assert_eq!(writer.write(b"World"), Ok(5));
 
     let mut buf = [0u8; 20];
     let n = reader.read(&mut buf).await;
-    assert_eq!(n, 11);
-    assert_eq!(&buf[..n as usize], b"Hello World");
+    assert_eq!(n, Ok(11));
+    assert_eq!(&buf[..n.unwrap()], b"Hello World");
 
     // Cycle 2: write-write-read
-    assert_eq!(writer.write(b"Foo"), 3);
-    assert_eq!(writer.write(b"Bar"), 3);
+    assert_eq!(writer.write(b"Foo"), Ok(3));
+    assert_eq!(writer.write(b"Bar"), Ok(3));
 
     let n = reader.read(&mut buf).await;
-    assert_eq!(n, 6);
-    assert_eq!(&buf[..n as usize], b"FooBar");
+    assert_eq!(n, Ok(6));
+    assert_eq!(&buf[..n.unwrap()], b"FooBar");
 
     // Cycle 3: write-write-read
-    assert_eq!(writer.write(b"Test"), 4);
-    assert_eq!(writer.write(b"123"), 3);
+    assert_eq!(writer.write(b"Test"), Ok(4));
+    assert_eq!(writer.write(b"123"), Ok(3));
 
     let n = reader.read(&mut buf).await;
-    assert_eq!(n, 7);
-    assert_eq!(&buf[..n as usize], b"Test123");
+    assert_eq!(n, Ok(7));
+    assert_eq!(&buf[..n.unwrap()], b"Test123");
 
     // Cycle 4: single write, partial read
-    assert_eq!(writer.write(b"LongMessage"), 11);
+    assert_eq!(writer.write(b"LongMessage"), Ok(11));
 
     let mut small_buf = [0u8; 5];
     let n = reader.read(&mut small_buf).await;
-    assert_eq!(n, 5);
+    assert_eq!(n, Ok(5));
     assert_eq!(&small_buf[..], b"LongM");
 
     // Read remainder
     let n = reader.read(&mut buf).await;
-    assert_eq!(n, 6);
-    assert_eq!(&buf[..n as usize], b"essage");
+    assert_eq!(n, Ok(6));
+    assert_eq!(&buf[..n.unwrap()], b"essage");
 }
 
 #[tokio::test]
@@ -91,7 +91,7 @@ async fn test_multiple_readers() {
 
     // Write data
     let n = writer.write(b"Broadcast");
-    assert_eq!(n, 9);
+    assert_eq!(n, Ok(9));
 
     // Both readers should get the same data
     let mut buf1 = [0u8; 20];
@@ -100,10 +100,10 @@ async fn test_multiple_readers() {
     let n1 = reader1.read(&mut buf1).await;
     let n2 = reader2.read(&mut buf2).await;
 
-    assert_eq!(n1, 9);
-    assert_eq!(n2, 9);
-    assert_eq!(&buf1[..n1 as usize], b"Broadcast");
-    assert_eq!(&buf2[..n2 as usize], b"Broadcast");
+    assert_eq!(n1, Ok(9));
+    assert_eq!(n2, Ok(9));
+    assert_eq!(&buf1[..n1.unwrap()], b"Broadcast");
+    assert_eq!(&buf2[..n2.unwrap()], b"Broadcast");
 
     // Writer unregisters its handle on drop
 }
@@ -160,7 +160,7 @@ async fn test_write_notifies_observers() {
 
     // Write non-empty data - this should notify observers
     let n = writer.write(b"Hello");
-    assert_eq!(n, 5);
+    assert_eq!(n, Ok(5));
 
     // Verify notification was sent
     let notification = subscriber
@@ -184,7 +184,7 @@ async fn test_empty_write_does_not_notify() {
 
     // Empty write should succeed and return 0
     let n = writer.write(b"");
-    assert_eq!(n, 0);
+    assert_eq!(n, Ok(0));
 
     // Verify NO notification was sent for empty write
     // Use try_recv which doesn't block - should return Err(Empty)
@@ -193,7 +193,7 @@ async fn test_empty_write_does_not_notify() {
 
     // Now write actual data
     let n = writer.write(b"Hello");
-    assert_eq!(n, 5);
+    assert_eq!(n, Ok(5));
 
     // Verify notification WAS sent for non-empty write
     let notification = subscriber
@@ -204,7 +204,7 @@ async fn test_empty_write_does_not_notify() {
 
     // Another empty write after real data
     let n = writer.write(b"");
-    assert_eq!(n, 0);
+    assert_eq!(n, Ok(0));
 
     // Again, verify NO notification for empty write
     let result = subscriber.try_recv();
@@ -237,7 +237,7 @@ async fn test_empty_write_does_not_wake_waiting_reader() {
 
     // Empty write should NOT wake the reader
     let n = writer.write(b"");
-    assert_eq!(n, 0);
+    assert_eq!(n, Ok(0));
 
     // Verify NO notification was sent
     let result = subscriber.try_recv();
@@ -252,7 +252,7 @@ async fn test_empty_write_does_not_wake_waiting_reader() {
 
     // Now write actual data - this SHOULD wake the reader
     let n = writer.write(b"Hello");
-    assert_eq!(n, 5);
+    assert_eq!(n, Ok(5));
 
     // Verify notification was sent
     let notification = subscriber
@@ -263,7 +263,7 @@ async fn test_empty_write_does_not_wake_waiting_reader() {
 
     // Reader should wake up and send data
     let (n, buf) = rx.recv().await.expect("Should receive data from reader");
-    assert_eq!(n, 5);
+    assert_eq!(n, Ok(5));
     assert_eq!(&buf[..5], b"Hello");
 }
 
@@ -277,9 +277,9 @@ async fn test_empty_write_on_closed_writer() {
     // Close the writer
     writer.close();
 
-    // Empty write on closed writer should return -1 (error)
+    // Empty write on closed writer should return Err(EBADF)
     let result = writer.write(b"");
-    assert_eq!(result, -1);
+    assert_eq!(result, Err(EBADF));
 }
 
 #[tokio::test]
@@ -292,9 +292,9 @@ async fn test_empty_write_with_errno() {
     // Set error
     writer.set_error(42);
 
-    // Empty write should return -1 (error), not 0
+    // Empty write should return Err (error), not Ok(0)
     let result = writer.write(b"");
-    assert_eq!(result, -1);
+    assert_eq!(result, Err(42));
     assert_eq!(writer.get_error(), 42);
 }
 
@@ -308,21 +308,21 @@ async fn test_reader_dont_read_when_error() {
     let mut reader = Reader::new(Handle::new(2), shared_data, guard);
 
     // Write some data
-    assert_eq!(writer.write(b"hello"), 5);
+    assert_eq!(writer.write(b"hello"), Ok(5));
 
     // Set reader's own error
     reader.set_error(42);
 
-    // Try to read - should return -1 (error) without reading data
+    // Try to read - should return Err(42) without reading data
     let mut buf = [0u8; 10];
     let result = reader.read(&mut buf).await;
-    assert_eq!(result, -1);
+    assert_eq!(result, Err(42));
     assert_eq!(reader.get_error(), 42);
 
     // Verify data was not read by clearing error and reading
     reader.set_error(0);
     let result = reader.read(&mut buf).await;
-    assert_eq!(result, 5);
+    assert_eq!(result, Ok(5));
     assert_eq!(&buf[..5], b"hello");
 }
 
@@ -352,20 +352,20 @@ async fn test_reader_read_with_writer_error() {
     let mut reader = Reader::new(Handle::new(2), shared_data, guard);
 
     // Write some data
-    assert_eq!(writer.write(b"test"), 4);
+    assert_eq!(writer.write(b"test"), Ok(4));
 
     // Reader reads the data successfully
     let mut buf = [0u8; 10];
     let result = reader.read(&mut buf).await;
-    assert_eq!(result, 4);
+    assert_eq!(result, Ok(4));
     assert_eq!(&buf[..4], b"test");
 
     // Writer sets error
     writer.set_error(88);
 
-    // Next read should return -1 (error) with EPIPE, not the writer's raw errno
+    // Next read should return Err(EPIPE), not the writer's raw errno
     let result = reader.read(&mut buf).await;
-    assert_eq!(result, -1);
+    assert_eq!(result, Err(EPIPE));
     assert_eq!(reader.get_error(), EPIPE);
 }
 
@@ -376,7 +376,7 @@ async fn test_reader_drains_buffer_before_error() {
     let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
 
     // Write some data
-    assert_eq!(writer.write(b"buffered"), 8);
+    assert_eq!(writer.write(b"buffered"), Ok(8));
 
     // Writer sets error while data is still unread
     writer.set_error(77);
@@ -388,12 +388,12 @@ async fn test_reader_drains_buffer_before_error() {
     // Reader should still be able to read the buffered data
     let mut buf = [0u8; 10];
     let result = reader.read(&mut buf).await;
-    assert_eq!(result, 8);
+    assert_eq!(result, Ok(8));
     assert_eq!(&buf[..8], b"buffered");
 
-    // Now that buffer is drained, next read should return EPIPE
+    // Now that buffer is drained, next read should return Err(EPIPE)
     let result = reader.read(&mut buf).await;
-    assert_eq!(result, -1);
+    assert_eq!(result, Err(EPIPE));
     assert_eq!(reader.get_error(), EPIPE);
 }
 
@@ -427,9 +427,9 @@ async fn test_writer_error_notifies_reader() {
         .expect("Should receive notification");
     assert_eq!(notification, -55);
 
-    // Reader should wake up with error (-1)
+    // Reader should wake up with error (Err(EPIPE))
     let result = reader_task.await.unwrap();
-    assert_eq!(result, -1);
+    assert_eq!(result, Err(EPIPE));
 }
 
 #[tokio::test]
@@ -450,10 +450,10 @@ async fn test_reader_own_error_takes_precedence() {
     // get_error() should return reader's own error
     assert_eq!(reader.get_error(), 10);
 
-    // read() should return -1 with reader's error
+    // read() should return Err with reader's error
     let mut buf = [0u8; 10];
     let result = reader.read(&mut buf).await;
-    assert_eq!(result, -1);
+    assert_eq!(result, Err(10));
     assert_eq!(reader.get_error(), 10);
 }
 
@@ -467,7 +467,7 @@ async fn test_writer_error_transformed_to_epipe() {
     let (shared_data, guard) = writer.share_with_reader();
     let mut reader = Reader::new(Handle::new(2), shared_data, guard);
 
-    assert_eq!(writer.write(b"data"), 4);
+    assert_eq!(writer.write(b"data"), Ok(4));
     // Writer closes with EOWNERDEAD — typical actor failure code
     writer.set_error(EOWNERDEAD);
     writer.close();
@@ -475,11 +475,11 @@ async fn test_writer_error_transformed_to_epipe() {
     // Reader drains buffered data first
     let mut buf = [0u8; 10];
     let result = reader.read(&mut buf).await;
-    assert_eq!(result, 4);
+    assert_eq!(result, Ok(4));
 
     // After drain, reader sees EPIPE, not EOWNERDEAD
     let result = reader.read(&mut buf).await;
-    assert_eq!(result, -1);
+    assert_eq!(result, Err(EPIPE));
     assert_eq!(reader.get_error(), EPIPE);
 }
 
@@ -493,7 +493,7 @@ async fn test_reader_error_checked_before_writer() {
     let mut reader = Reader::new(Handle::new(2), shared_data, guard);
 
     // Write some data
-    assert_eq!(writer.write(b"data"), 4);
+    assert_eq!(writer.write(b"data"), Ok(4));
 
     // Reader sets own error first
     reader.set_error(15);
@@ -504,10 +504,10 @@ async fn test_reader_error_checked_before_writer() {
     // Reader should see its own error
     assert_eq!(reader.get_error(), 15);
 
-    // read() should return -1 with reader's error
+    // read() should return Err with reader's error
     let mut buf = [0u8; 10];
     let result = reader.read(&mut buf).await;
-    assert_eq!(result, -1);
+    assert_eq!(result, Err(15));
 }
 
 #[tokio::test]
@@ -529,10 +529,10 @@ async fn test_multiple_readers_independent_errors() {
     assert_eq!(reader1.get_error(), 100);
     assert_eq!(reader2.get_error(), 200);
 
-    // Both return -1 on read with their own errors
+    // Both return Err on read with their own errors
     let mut buf = [0u8; 10];
-    assert_eq!(reader1.read(&mut buf).await, -1);
-    assert_eq!(reader2.read(&mut buf).await, -1);
+    assert_eq!(reader1.read(&mut buf).await, Err(100));
+    assert_eq!(reader2.read(&mut buf).await, Err(200));
 }
 
 #[tokio::test]
