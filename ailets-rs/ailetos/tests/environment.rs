@@ -7,8 +7,8 @@ use ailetos::Environment;
 
 #[tokio::test]
 async fn test_value_node_is_built_at_creation() {
-    let kv = Arc::new(MemKV::new());
-    let mut env = Environment::new(kv);
+    let kv: Arc<dyn KVBuffers> = Arc::new(MemKV::new());
+    let env = Environment::new(kv);
 
     let handle = env
         .add_value_node(b"test data".to_vec(), Some("Test value".to_string()))
@@ -26,8 +26,8 @@ async fn test_value_node_is_built_at_creation() {
 
 #[tokio::test]
 async fn test_value_node_writes_data_to_kv() {
-    let kv = Arc::new(MemKV::new());
-    let mut env = Environment::new(Arc::clone(&kv));
+    let kv: Arc<dyn KVBuffers> = Arc::new(MemKV::new());
+    let env = Environment::new(Arc::clone(&kv));
 
     let test_data = b"immediate value data";
     let handle = env
@@ -36,7 +36,7 @@ async fn test_value_node_writes_data_to_kv() {
         .expect("Failed to add value node");
 
     // Verify data was written to KV storage
-    let path = pipe_path(handle, actor_runtime::StdHandle::Stdout);
+    let path = pipe_path(handle, actor_runtime::StdHandle::Stdout as isize);
     let buffer = kv
         .open(&path, OpenMode::Read)
         .await

@@ -1,16 +1,8 @@
 //! Environment - high-level orchestration for the actor system
 //!
-//! This module provides two structs with distinct responsibilities:
-//!
-//! - `Environment` — build phase. Owns all mutable state. Use `&mut self` methods
-//!   to construct the DAG, register actors, and configure attachments. Nothing here
-//!   is safe to share across threads.
-//!
-//! - `RunHandle` — run phase. Created from `Environment::make_run_handle()`. All
-//!   fields are either `Arc`-wrapped or value-snapshotted, so it is cheap to wrap
-//!   in `Arc` for background or concurrent execution. The `dag` and `suspension`
-//!   fields are shared with the originating `Environment`, allowing the build-phase
-//!   owner to observe and control running actors.
+//! `Environment` is the single handle for both the build phase and run phase.
+//! All fields are `Arc`-wrapped, so `clone()` is a pure reference-count increment.
+//! Wrap in `Arc<Environment>` for background or concurrent execution.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -19,6 +11,7 @@ use parking_lot::RwLock;
 
 use crate::dag::{Dag, DependsOn, For, NodeKind, NodeState};
 use crate::executor::StopConditions;
+use crate::pipe::PipePool;
 
 /// Type for actor functions
 pub type ActorFn = fn(&dyn actor_runtime::ActorRuntime) -> Result<(), String>;
@@ -58,32 +51,34 @@ impl Default for ActorRegistry {
     }
 }
 
-/// Build-phase owner of the actor system.
-///
-/// Construct the DAG and configure the system here, then call
-/// `make_run_handle()` to obtain a `RunHandle` for execution.
-pub struct Environment<K: KVBuffers> {
+#[derive(Clone)]
+pub struct Environment {
     pub dag: Arc<RwLock<Dag>>,
     pub idgen: Arc<IdGen>,
-    pub kv: Arc<K>,
-    pub actor_registry: ActorRegistry,
+    pub kv: Arc<dyn KVBuffers>,
+    pub pipe_pool: Arc<PipePool>,
+    pub actor_registry: Arc<RwLock<ActorRegistry>>,
     pub suspension: Arc<SuspensionState>,
-    attachment_config: crate::attachments::AttachmentConfig,
+    pub(crate) attachment_config: Arc<RwLock<crate::attachments::AttachmentConfig>>,
 }
 
-impl<K: KVBuffers> Environment<K> {
+impl Environment {
     /// Create a new environment
-    pub fn new(kv: Arc<K>) -> Self {
+    pub fn new(kv: Arc<dyn KVBuffers>) -> Self {
         let idgen = Arc::new(IdGen::new());
         let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&idgen))));
 
+        let pipe_pool = Arc::new(PipePool::new(Arc::clone(&kv)));
         Self {
             dag,
             idgen,
             kv,
-            actor_registry: ActorRegistry::new(),
+            pipe_pool,
+            actor_registry: Arc::new(RwLock::new(ActorRegistry::new())),
             suspension: Arc::new(SuspensionState::new()),
-            attachment_config: crate::attachments::AttachmentConfig::default(),
+            attachment_config: Arc::new(RwLock::new(
+                crate::attachments::AttachmentConfig::default(),
+            )),
         }
     }
 
@@ -97,8 +92,8 @@ impl<K: KVBuffers> Environment<K> {
     ///
     /// # Arguments
     /// * `actor_handle` - The handle of the actor whose stdout should be attached
-    pub fn attach_stdout(&mut self, actor_handle: Handle) {
-        self.attachment_config.attach_stdout(actor_handle);
+    pub fn attach_stdout(&self, actor_handle: Handle) {
+        self.attachment_config.write().attach_stdout(actor_handle);
     }
 
     /// Add a value node - a node that outputs a constant value
@@ -110,7 +105,7 @@ impl<K: KVBuffers> Environment<K> {
     /// # Errors
     /// Returns `KVError` if writing the data to KV storage fails
     pub async fn add_value_node(
-        &mut self,
+        &self,
         data: Vec<u8>,
         explain: Option<String>,
     ) -> Result<Handle, KVError> {
@@ -127,7 +122,7 @@ impl<K: KVBuffers> Environment<K> {
         };
 
         // Write data to KV storage immediately (spec://executor.md#immediate-values)
-        let path = pipe_path(handle, StdHandle::Stdout);
+        let path = pipe_path(handle, StdHandle::Stdout as isize);
         write_completed_buffer(self.kv.as_ref(), &path, &data).await?;
 
         Ok(handle)
@@ -139,7 +134,8 @@ impl<K: KVBuffers> Environment<K> {
     /// * `idname` - Name/type of the actor (e.g., "stdin", "cat")
     /// * `deps` - List of dependency node handles
     /// * `explain` - Optional explanation
-    pub fn add_node(&mut self, idname: String, deps: &[Handle], explain: Option<String>) -> Handle {
+    #[must_use]
+    pub fn add_node(&self, idname: String, deps: &[Handle], explain: Option<String>) -> Handle {
         let mut dag = self.dag.write();
         let handle = dag.add_node_with_explain(idname, NodeKind::Concrete, explain);
 
@@ -151,7 +147,8 @@ impl<K: KVBuffers> Environment<K> {
     }
 
     /// Add an alias node
-    pub fn add_alias(&mut self, alias_name: String, target: Handle) -> Handle {
+    #[must_use]
+    pub fn add_alias(&self, alias_name: String, target: Handle) -> Handle {
         let mut dag = self.dag.write();
         let handle = dag.add_node(alias_name, NodeKind::Alias);
         dag.add_dependency(For(handle), DependsOn(target));
@@ -179,51 +176,11 @@ impl<K: KVBuffers> Environment<K> {
         target.map_or(handle, |t| self.resolve(t))
     }
 
-    /// Create a `RunHandle` from this environment.
+    /// Run the environment.
     ///
-    /// Clones the `Arc`-based shared fields and snapshots `attachment_config`
-    /// and `actor_registry` at this point in time. The returned handle can be
-    /// wrapped in `Arc` for concurrent or background execution.
-    ///
-    /// Actors registered or attachments configured after this call will not be
-    /// visible to the returned handle.
-    #[must_use]
-    pub fn make_run_handle(&self) -> RunHandle<K> {
-        RunHandle {
-            dag: Arc::clone(&self.dag),
-            kv: Arc::clone(&self.kv),
-            idgen: Arc::clone(&self.idgen),
-            attachment_config: self.attachment_config.clone(),
-            actor_registry: self.actor_registry.clone(),
-            suspension: Arc::clone(&self.suspension),
-        }
+    /// For background execution, wrap a clone in `Arc`:
+    /// `executor::run(Arc::new(env.clone()), target, conditions)`
+    pub async fn run(&self, target: Handle, stop_conditions: StopConditions) {
+        crate::executor::run(Arc::new(self.clone()), target, stop_conditions).await;
     }
-
-    /// Convenience: run the environment directly without managing a `RunHandle`.
-    ///
-    /// For background execution, use `make_run_handle()` and wrap the result in
-    /// `Arc` instead.
-    pub async fn run(&self, target: Handle, stop_conditions: StopConditions)
-    where
-        K: 'static,
-    {
-        crate::executor::run(&self.make_run_handle(), target, stop_conditions).await;
-    }
-}
-
-/// Run-phase handle for an actor system.
-///
-/// Obtained from `Environment::make_run_handle()`. All fields are either
-/// `Arc`-wrapped or snapshotted values, so this struct is cheap to wrap in
-/// `Arc` for background or concurrent execution.
-///
-/// `dag` and `suspension` are shared with the originating `Environment`,
-/// allowing the build-phase owner to observe and resume running actors.
-pub struct RunHandle<K: KVBuffers> {
-    pub dag: Arc<RwLock<Dag>>,
-    pub suspension: Arc<SuspensionState>,
-    pub actor_registry: ActorRegistry,
-    pub(crate) kv: Arc<K>,
-    pub(crate) idgen: Arc<IdGen>,
-    pub(crate) attachment_config: crate::attachments::AttachmentConfig,
 }

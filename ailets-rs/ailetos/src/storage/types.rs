@@ -1,7 +1,7 @@
 //! Key-value storage types and traits
 
 use super::buffer::Buffer;
-use std::future::Future;
+use async_trait::async_trait;
 
 /// Mode for opening a buffer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,29 +47,26 @@ impl From<super::buffer::BufferError> for KVError {
 ///
 /// Provides async operations for storing and retrieving buffers.
 /// Each buffer is identified by a string path.
+#[async_trait]
 pub trait KVBuffers: Send + Sync {
     /// Open a buffer at path with given mode.
     ///
     /// - Read: returns existing buffer, error if not found
     /// - Write: creates new empty buffer (overwrites if exists)
     /// - Append: gets existing or creates new buffer
-    fn open(
-        &self,
-        path: &str,
-        mode: OpenMode,
-    ) -> impl Future<Output = Result<Buffer, KVError>> + Send;
+    async fn open(&self, path: &str, mode: OpenMode) -> Result<Buffer, KVError>;
 
     /// List paths with given prefix.
     ///
     /// If the prefix does not end with '/', one is added for matching.
-    fn listdir(&self, dir_name: &str) -> impl Future<Output = Result<Vec<String>, KVError>> + Send;
+    async fn listdir(&self, dir_name: &str) -> Result<Vec<String>, KVError>;
 
     /// Clear all buffers.
-    fn destroy(&self) -> impl Future<Output = Result<(), KVError>> + Send;
+    async fn destroy(&self) -> Result<(), KVError>;
 
     /// Flush a buffer to persistent storage (if applicable).
     ///
     /// For in-memory implementations, this is a no-op.
     /// For persistent implementations (e.g., `SQLite`), this writes the buffer to storage.
-    fn flush_buffer(&self, buffer: &Buffer) -> impl Future<Output = Result<(), KVError>> + Send;
+    async fn flush_buffer(&self, buffer: &Buffer) -> Result<(), KVError>;
 }

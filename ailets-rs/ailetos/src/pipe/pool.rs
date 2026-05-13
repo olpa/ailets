@@ -1,6 +1,6 @@
 //! `PipePool` - manages output pipes for actors
 //!
-//! Each (actor, `StdHandle`) pair can have its own output pipe. Readers are created on-demand
+//! Each (actor, fd) pair can have its own output pipe. Readers are created on-demand
 //! when consuming actors need to read from dependencies.
 //!
 //! ## Latent Pipes
@@ -18,11 +18,10 @@
 
 use std::sync::Arc;
 
-use actor_runtime::StdHandle;
 use parking_lot::Mutex;
-use tracing::debug;
+use tracing::{debug, warn};
 
-use super::allocator::create_writer;
+use super::allocator::{create_writer, flush_and_close_writer};
 use super::pipe_path;
 use super::reader::Reader;
 use super::writer::Writer;
@@ -71,25 +70,25 @@ enum WriterState {
     },
 }
 
-/// Pool of output pipes, indexed by (actor handle, `StdHandle`) pair
+/// Pool of output pipes, indexed by (actor handle, fd) pair
 ///
 /// Uses interior mutability via `Mutex` to allow shared access through `Arc<PipePool>`.
-pub struct PipePool<K: KVBuffers> {
+pub struct PipePool {
     /// Writers in various states (Realized or Latent)
-    writers: Mutex<Vec<(Handle, StdHandle, WriterState)>>,
+    writers: Mutex<Vec<(Handle, isize, WriterState)>>,
     /// Key-value store for pipe buffers
-    kv: Arc<K>,
+    kv: Arc<dyn KVBuffers>,
     /// Notification queue for pipe data events
     notification_queue: NotificationQueueArc,
 }
 
-impl<K: KVBuffers> PipePool<K> {
+impl PipePool {
     /// Create a new empty pipe pool
     ///
     /// # Parameters
     /// - `kv`: Key-value store for pipe buffers
     #[must_use]
-    pub fn new(kv: Arc<K>) -> Self {
+    pub fn new(kv: Arc<dyn KVBuffers>) -> Self {
         Self {
             writers: Mutex::new(Vec::new()),
             kv,
@@ -111,7 +110,7 @@ impl<K: KVBuffers> PipePool<K> {
     /// - `WouldBlock`: Pipe doesn't exist yet but `allow_latent=false`
     pub async fn get_or_await_reader(
         &self,
-        key: (Handle, StdHandle),
+        key: (Handle, isize),
         allow_latent: bool,
         id_gen: &IdGen,
     ) -> Result<Reader, PipeError> {
@@ -194,10 +193,10 @@ impl<K: KVBuffers> PipePool<K> {
     pub async fn touch_writer(
         &self,
         actor_handle: Handle,
-        std_handle: StdHandle,
+        fd: isize,
         id_gen: &IdGen,
     ) -> Result<(Arc<Writer>, bool), crate::storage::KVError> {
-        let key = (actor_handle, std_handle);
+        let key = (actor_handle, fd);
 
         // Fast path: writer already realized
         {
@@ -214,7 +213,7 @@ impl<K: KVBuffers> PipePool<K> {
 
         // Slow path: create writer
         let writer_handle = Handle::new(id_gen.get_next());
-        let path = pipe_path(actor_handle, std_handle);
+        let path = pipe_path(actor_handle, fd);
 
         // Create writer with buffer from KV storage
         let writer = create_writer(
@@ -258,12 +257,20 @@ impl<K: KVBuffers> PipePool<K> {
         Ok((writer_arc, true))
     }
 
-    /// Close all writers (realized and latent) for an actor.
+    /// Close all writers (realized and latent) for an actor, flushing buffers to storage.
     ///
     /// `exit_code`: 0 = clean termination, non-zero = POSIX errno.
     /// For realized writers with a non-zero exit code, sets the error before closing
     /// so readers see the error after consuming all written data.
-    pub fn close_actor_writers(&self, actor_handle: Handle, exit_code: i32) {
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if flushing a realized writer's buffer to storage fails.
+    pub async fn flush_close_actor_writers(
+        &self,
+        actor_handle: Handle,
+        exit_code: i32,
+    ) -> Result<(), String> {
         let (writers_to_close, notifies) = {
             let mut writers = self.writers.lock();
 
@@ -293,18 +300,32 @@ impl<K: KVBuffers> PipePool<K> {
             (writers_to_close, notifies)
         }; // Lock released here
 
-        // Close writers outside lock
+        // Flush and close writers outside lock
+        let mut error_count = 0;
         for (h, s, writer) in writers_to_close {
             if exit_code != 0 {
                 writer.set_error(exit_code);
             }
-            writer.close();
-            debug!(key = ?(h, s), exit_code, "closed realized writer on actor shutdown");
+            match flush_and_close_writer(&*self.kv, &writer, "actor shutdown").await {
+                Ok(()) => {
+                    debug!(key = ?(h, s), exit_code, "flushed and closed realized writer on actor shutdown");
+                }
+                Err(errno) => {
+                    warn!(key = ?(h, s), exit_code, errno, "flush/close failed on actor shutdown");
+                    error_count += 1;
+                }
+            }
         }
 
         // Notify latent waiters outside lock
         for notify in notifies {
             notify.notify_waiters();
+        }
+
+        if error_count == 0 {
+            Ok(())
+        } else {
+            Err(format!("flush/close failed for {error_count} writers"))
         }
     }
 
@@ -314,7 +335,7 @@ impl<K: KVBuffers> PipePool<K> {
     /// Returns None if the pipe doesn't exist or is still latent.
     ///
     /// The returned Arc shares ownership of the writer, preventing premature closure.
-    pub fn get_already_realized_writer(&self, key: (Handle, StdHandle)) -> Option<Arc<Writer>> {
+    pub fn get_already_realized_writer(&self, key: (Handle, isize)) -> Option<Arc<Writer>> {
         let writers = self.writers.lock();
         let existing_state = writers
             .iter()

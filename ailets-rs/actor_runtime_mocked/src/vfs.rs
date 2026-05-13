@@ -16,7 +16,6 @@
 /// `aread`, `awrite`:
 /// - stops on `IO_INTERRUPT` or `WANT_ERROR`.
 /// - return an error if `WANT_ERROR` is encountered.
-use std::sync::atomic::{AtomicIsize, Ordering};
 use std::sync::Mutex;
 
 struct VfsFile {
@@ -32,7 +31,6 @@ struct FileHandle {
 pub struct Vfs {
     files: Mutex<Vec<VfsFile>>,
     handles: Mutex<Vec<FileHandle>>,
-    io_errno: AtomicIsize,
     /// Track which fds have been closed (for testing)
     close_calls: Mutex<Vec<isize>>,
 }
@@ -52,7 +50,6 @@ impl Vfs {
         Self {
             files: Mutex::new(Vec::new()),
             handles: Mutex::new(Vec::new()),
-            io_errno: AtomicIsize::new(0),
             close_calls: Mutex::new(Vec::new()),
         }
     }
@@ -60,7 +57,6 @@ impl Vfs {
     #[allow(clippy::missing_panics_doc)]
     #[allow(clippy::unwrap_used)]
     pub fn clear_mocks(&self) {
-        self.io_errno.store(0, Ordering::Relaxed);
         let mut files = self.files.lock().unwrap();
         files.clear();
         let mut handles = self.handles.lock().unwrap();
@@ -94,22 +90,19 @@ impl Vfs {
     #[allow(clippy::missing_errors_doc)]
     #[allow(clippy::unwrap_used)]
     pub fn get_file(&self, name: &str) -> Result<Vec<u8>, Box<dyn std::error::Error + '_>> {
-        self.io_errno.store(0, Ordering::Relaxed);
         let files = self.files.lock()?;
         files
             .iter()
             .find(|f| f.name == name)
             .map(|f| f.buffer.clone())
-            .ok_or_else(|| {
-                self.io_errno.store(-1, Ordering::Relaxed);
-                format!("File not found: {name}").into()
-            })
+            .ok_or_else(|| format!("File not found: {name}").into())
     }
 
+    /// # Errors
+    /// Returns `ENOENT` (2) if file not found.
     #[allow(clippy::missing_panics_doc)]
     #[allow(clippy::unwrap_used)]
-    pub fn open_read(&self, name: &str) -> isize {
-        self.io_errno.store(0, Ordering::Relaxed);
+    pub fn open_read(&self, name: &str) -> Result<isize, i32> {
         let files = self.files.lock().unwrap();
         let mut handles = self.handles.lock().unwrap();
 
@@ -117,23 +110,22 @@ impl Vfs {
             let handle = FileHandle { vfs_index, pos: 0 };
             handles.push(handle);
             let handle_index = handles.len() - 1;
-            return isize::try_from(handle_index).unwrap_or(-1);
+            return Ok(isize::try_from(handle_index).unwrap());
         }
 
-        self.io_errno.store(2, Ordering::Relaxed); // ENOENT - No such file or directory
-        -1
+        Err(2) // ENOENT - No such file or directory
     }
 
+    /// # Errors
+    /// Returns `EINVAL` (22) if name contains `WANT_ERROR`.
     #[allow(clippy::missing_panics_doc)]
     #[allow(clippy::unwrap_used)]
-    pub fn open_write(&self, name: &str) -> isize {
-        self.io_errno.store(0, Ordering::Relaxed);
+    pub fn open_write(&self, name: &str) -> Result<isize, i32> {
         let mut files = self.files.lock().unwrap();
         let mut handles = self.handles.lock().unwrap();
 
         if name.contains(WANT_ERROR) {
-            self.io_errno.store(22, Ordering::Relaxed); // EINVAL - Invalid argument
-            return -1;
+            return Err(22); // EINVAL - Invalid argument
         }
 
         files.push(VfsFile {
@@ -146,30 +138,25 @@ impl Vfs {
         handles.push(handle);
         let handle_index = handles.len() - 1;
 
-        isize::try_from(handle_index).unwrap_or_else(|_| {
-            self.io_errno.store(-1, Ordering::Relaxed);
-            -1
-        })
+        Ok(isize::try_from(handle_index).unwrap())
     }
 
+    /// # Errors
+    /// Returns `EBADF` (9) for invalid fd, `EIO` (5) if `WANT_ERROR` encountered.
     #[allow(clippy::missing_panics_doc)]
     #[allow(clippy::unwrap_used)]
-    pub fn aread(&self, fd: isize, buffer: &mut [u8]) -> isize {
-        self.io_errno.store(0, Ordering::Relaxed);
+    pub fn aread(&self, fd: isize, buffer: &mut [u8]) -> Result<usize, i32> {
         let files = self.files.lock().unwrap();
         let mut handles = self.handles.lock().unwrap();
 
         let Ok(fd) = usize::try_from(fd) else {
-            self.io_errno.store(9, Ordering::Relaxed); // EBADF - Bad file descriptor
-            return -1;
+            return Err(9); // EBADF - Bad file descriptor
         };
         let Some(handle) = handles.get_mut(fd) else {
-            self.io_errno.store(9, Ordering::Relaxed); // EBADF - Bad file descriptor
-            return -1;
+            return Err(9); // EBADF - Bad file descriptor
         };
         let Some(file) = files.get(handle.vfs_index) else {
-            self.io_errno.store(9, Ordering::Relaxed); // EBADF - Bad file descriptor
-            return -1;
+            return Err(9); // EBADF - Bad file descriptor
         };
 
         let pos_before = handle.pos;
@@ -180,8 +167,7 @@ impl Vfs {
             #[allow(clippy::indexing_slicing)]
             let ch = file.buffer[handle.pos];
             if ch == WANT_ERROR as u8 {
-                self.io_errno.store(5, Ordering::Relaxed); // EIO - I/O error
-                return -1;
+                return Err(5); // EIO - I/O error
             }
             *b = ch;
             handle.pos += 1;
@@ -190,35 +176,32 @@ impl Vfs {
             }
         }
 
-        (handle.pos - pos_before).try_into().unwrap()
+        Ok(handle.pos - pos_before)
     }
 
+    /// # Errors
+    /// Returns `EBADF` (9) for invalid fd, `EIO` (5) if `WANT_ERROR` encountered.
     #[allow(clippy::missing_panics_doc)]
     #[allow(clippy::unwrap_used)]
-    pub fn awrite(&self, fd: isize, buffer: &[u8]) -> isize {
-        self.io_errno.store(0, Ordering::Relaxed);
+    pub fn awrite(&self, fd: isize, buffer: &[u8]) -> Result<usize, i32> {
         let mut files = self.files.lock().unwrap();
         let handles = self.handles.lock().unwrap();
 
         let Ok(fd) = usize::try_from(fd) else {
-            self.io_errno.store(9, Ordering::Relaxed); // EBADF - Bad file descriptor
-            return -1;
+            return Err(9); // EBADF - Bad file descriptor
         };
         let Some(handle) = handles.get(fd) else {
-            self.io_errno.store(9, Ordering::Relaxed); // EBADF - Bad file descriptor
-            return -1;
+            return Err(9); // EBADF - Bad file descriptor
         };
         let Some(file) = files.get_mut(handle.vfs_index) else {
-            self.io_errno.store(9, Ordering::Relaxed); // EBADF - Bad file descriptor
-            return -1;
+            return Err(9); // EBADF - Bad file descriptor
         };
 
         let len_before = file.buffer.len();
 
         for &ch in buffer {
             if ch == WANT_ERROR as u8 {
-                self.io_errno.store(5, Ordering::Relaxed); // EIO - I/O error
-                return -1;
+                return Err(5); // EIO - I/O error
             }
             file.buffer.push(ch);
             if ch == IO_INTERRUPT as u8 {
@@ -227,16 +210,14 @@ impl Vfs {
         }
 
         let len_after = file.buffer.len();
-        let bytes_written = len_after - len_before;
-
-        bytes_written.try_into().unwrap()
+        Ok(len_after - len_before)
     }
 
+    /// # Errors
+    /// Returns `EBADF` (9) for invalid fd.
     #[allow(clippy::missing_panics_doc)]
     #[allow(clippy::unwrap_used)]
-    pub fn aclose(&self, fd: isize) -> isize {
-        self.io_errno.store(0, Ordering::Relaxed);
-
+    pub fn aclose(&self, fd: isize) -> Result<(), i32> {
         // Track the close call regardless of whether it succeeds
         {
             let mut close_calls = self.close_calls.lock().unwrap();
@@ -246,15 +227,13 @@ impl Vfs {
         let mut handles = self.handles.lock().unwrap();
 
         let Ok(fd_usize) = usize::try_from(fd) else {
-            self.io_errno.store(9, Ordering::Relaxed); // EBADF - Bad file descriptor
-            return -1;
+            return Err(9); // EBADF - Bad file descriptor
         };
         let Some(handle) = handles.get_mut(fd_usize) else {
-            self.io_errno.store(9, Ordering::Relaxed); // EBADF - Bad file descriptor
-            return -1;
+            return Err(9); // EBADF - Bad file descriptor
         };
         handle.vfs_index = usize::MAX;
-        0
+        Ok(())
     }
 
     /// Check if a specific fd was closed (for testing)
@@ -273,11 +252,6 @@ impl Vfs {
     pub fn close_call_count(&self) -> usize {
         let close_calls = self.close_calls.lock().unwrap();
         close_calls.len()
-    }
-
-    #[must_use]
-    pub fn get_errno(&self) -> isize {
-        self.io_errno.load(Ordering::Relaxed)
     }
 }
 
@@ -335,27 +309,23 @@ impl Default for VfsActorRuntime {
 }
 
 impl actor_runtime::ActorRuntime for VfsActorRuntime {
-    fn get_errno(&self) -> isize {
-        self.vfs.get_errno()
-    }
-
-    fn open_read(&self, name: &str) -> isize {
+    fn open_read(&self, name: &str) -> Result<isize, i32> {
         self.vfs.open_read(name)
     }
 
-    fn open_write(&self, name: &str) -> isize {
+    fn open_write(&self, name: &str) -> Result<isize, i32> {
         self.vfs.open_write(name)
     }
 
-    fn aread(&self, fd: isize, buffer: &mut [u8]) -> isize {
+    fn aread(&self, fd: isize, buffer: &mut [u8]) -> Result<usize, i32> {
         self.vfs.aread(fd, buffer)
     }
 
-    fn awrite(&self, fd: isize, buffer: &[u8]) -> isize {
+    fn awrite(&self, fd: isize, buffer: &[u8]) -> Result<usize, i32> {
         self.vfs.awrite(fd, buffer)
     }
 
-    fn aclose(&self, fd: isize) -> isize {
+    fn aclose(&self, fd: isize) -> Result<(), i32> {
         self.vfs.aclose(fd)
     }
 

@@ -6,14 +6,14 @@
 /// Convert errno to `embedded_io::ErrorKind`
 #[must_use]
 #[allow(clippy::match_same_arms)] // We explicitly list common errno values for documentation
-pub fn errno_to_error_kind(errno: isize) -> embedded_io::ErrorKind {
+pub fn errno_to_error_kind(errno: i32) -> embedded_io::ErrorKind {
     match errno {
         1 | 13 => embedded_io::ErrorKind::PermissionDenied, // EPERM, EACCES
         2 => embedded_io::ErrorKind::NotFound,              // ENOENT
         9 | 22 => embedded_io::ErrorKind::InvalidInput,     // EBADF, EINVAL
         12 | 28 => embedded_io::ErrorKind::OutOfMemory,     // ENOMEM, ENOSPC (no space left)
         24 => embedded_io::ErrorKind::Unsupported,          // EMFILE (too many open files)
-        32 => embedded_io::ErrorKind::BrokenPipe,              // EPIPE
+        32 => embedded_io::ErrorKind::BrokenPipe,           // EPIPE
         // EIO, EAGAIN/EWOULDBLOCK, ECONNRESET, ETIMEDOUT, ECONNREFUSED
         5 | 11 | 104 | 110 | 111 => embedded_io::ErrorKind::Other,
         _ => embedded_io::ErrorKind::Other,

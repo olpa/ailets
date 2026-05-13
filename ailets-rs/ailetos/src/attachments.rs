@@ -13,7 +13,6 @@ use tracing::{debug, error, trace, warn};
 
 use crate::idgen::{Handle, IdGen};
 use crate::pipe::{PipePool, Reader};
-use crate::storage::KVBuffers;
 
 /// Configuration for attachment behavior
 #[derive(Debug, Clone)]
@@ -63,7 +62,7 @@ impl AttachmentConfig {
 pub struct AttachmentManager {
     config: AttachmentConfig,
     /// Active attachment task handles
-    tasks: Mutex<Vec<tokio::task::JoinHandle<()>>>,
+    tasks: Mutex<Vec<tokio::task::JoinHandle<Result<(), String>>>>,
 }
 
 impl AttachmentManager {
@@ -80,13 +79,17 @@ impl AttachmentManager {
     ///
     /// This is called synchronously when a writer is created.
     /// Determines if attachment is needed and spawns the task.
-    pub fn on_writer_realized<K: KVBuffers + 'static>(
+    pub fn on_writer_realized(
         &self,
         node_handle: Handle,
-        std_handle: StdHandle,
-        pipe_pool: Arc<PipePool<K>>,
+        fd: isize,
+        pipe_pool: Arc<PipePool>,
         id_gen: Arc<IdGen>,
     ) {
+        let Ok(std_handle) = StdHandle::try_from(fd) else {
+            return;
+        };
+
         // Determine if attachment is needed
         let should_attach = match std_handle {
             StdHandle::Stdout => self.config.should_attach_stdout(node_handle),
@@ -102,35 +105,35 @@ impl AttachmentManager {
         let target = match std_handle {
             StdHandle::Stdout => AttachmentTarget::Stdout,
             StdHandle::Log | StdHandle::Metrics | StdHandle::Trace => AttachmentTarget::Stderr,
-            _ => {
-                error!(node = ?node_handle, std = ?std_handle, "internal error: unexpected std_handle in attachment target");
+            StdHandle::Stdin | StdHandle::Env | StdHandle::_Count => {
+                error!(node = ?node_handle, fd = fd, "internal error: unexpected fd in attachment target");
                 return;
             }
         };
 
-        debug!(node = ?node_handle, std = ?std_handle, target = ?target, "spawning attachment for realized writer");
+        debug!(node = ?node_handle, fd = fd, target = ?target, "spawning attachment for realized writer");
 
         // Spawn attachment task
         let task = tokio::spawn(async move {
             // Get reader for the realized writer
             let reader = match pipe_pool
-                .get_or_await_reader((node_handle, std_handle), false, &id_gen)
+                .get_or_await_reader((node_handle, fd), false, &id_gen)
                 .await
             {
                 Ok(reader) => reader,
                 Err(e) => {
-                    warn!(node = ?node_handle, std = ?std_handle, error = ?e, "failed to get reader for attachment");
-                    return;
+                    warn!(node = ?node_handle, fd = fd, error = ?e, "failed to get reader for attachment");
+                    return Err(format!("failed to get reader for attachment: {e:?}"));
                 }
             };
 
             // Run attachment worker
             match target {
                 AttachmentTarget::Stdout => {
-                    attach_to_stream(node_handle, reader, std::io::stdout(), target).await;
+                    attach_to_stream(node_handle, reader, std::io::stdout(), target).await
                 }
                 AttachmentTarget::Stderr => {
-                    attach_to_stream(node_handle, reader, std::io::stderr(), target).await;
+                    attach_to_stream(node_handle, reader, std::io::stderr(), target).await
                 }
             }
         });
@@ -142,15 +145,17 @@ impl AttachmentManager {
     /// Wait for all attachment tasks to complete
     ///
     /// This should be called during environment shutdown.
-    pub async fn waiting_shutdown(&self) {
+    pub async fn shutdown(&self) {
         let tasks = std::mem::take(&mut *self.tasks.lock());
         trace!(
             "AttachmentManager::waiting_shutdown: entering loop, tasks count = {}",
             tasks.len()
         );
         for task in tasks {
-            if let Err(e) = task.await {
-                warn!(error = %e, "attachment task failed during shutdown");
+            match task.await {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => warn!(error = %e, "attachment task error"),
+                Err(e) => warn!(error = %e, "attachment task panicked"),
             }
         }
         trace!("AttachmentManager::waiting_shutdown: exited loop");
@@ -173,18 +178,19 @@ async fn attach_to_stream<W: StdWrite>(
     mut reader: Reader,
     mut writer: W,
     target: AttachmentTarget,
-) {
+) -> Result<(), String> {
     debug!(node = ?node_handle, ?target, "attachment started");
 
     let mut buf = vec![0u8; 4096];
 
     loop {
-        let n = reader.read(&mut buf).await;
-
-        match n.cmp(&0) {
-            std::cmp::Ordering::Greater => {
-                let bytes_written = n.cast_unsigned();
-                let Some(slice) = buf.get(..bytes_written) else {
+        match reader.read(&mut buf).await {
+            Ok(0) => {
+                debug!(node = ?node_handle, ?target, "attachment EOF");
+                break;
+            }
+            Ok(n) => {
+                let Some(slice) = buf.get(..n) else {
                     warn!(node = ?node_handle, ?target, "buffer slice out of bounds");
                     break;
                 };
@@ -197,17 +203,19 @@ async fn attach_to_stream<W: StdWrite>(
                     break;
                 }
             }
-            std::cmp::Ordering::Equal => {
-                debug!(node = ?node_handle, ?target, "attachment EOF");
-                break;
-            }
-            std::cmp::Ordering::Less => {
-                warn!(node = ?node_handle, ?target, "read error in attachment");
+            Err(errno) => {
+                warn!(node = ?node_handle, ?target, errno, "read error in attachment");
                 break;
             }
         }
     }
 
-    reader.close();
+    if let Err(errno) = reader.close() {
+        warn!(node = ?node_handle, ?target, errno, "failed to close reader in attachment");
+        return Err(format!(
+            "failed to close reader in attachment: errno={errno}"
+        ));
+    }
     debug!(node = ?node_handle, ?target, "attachment finished");
+    Ok(())
 }

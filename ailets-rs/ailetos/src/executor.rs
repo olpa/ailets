@@ -10,14 +10,16 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use tokio::sync::{mpsc, oneshot};
-use tracing::{debug, error, warn};
+use tracing::{debug, warn};
 
+use crate::actor_syscall::ActorLifecycleEvent;
+use crate::attachments::AttachmentManager;
 use crate::dag::{Dag, NodeKind, NodeState};
-use crate::environment::{ActorFn, RunHandle};
+use crate::environment::{ActorFn, Environment};
+use crate::errno::EOWNERDEAD;
 use crate::idgen::Handle;
 use crate::pipe::PipePool;
-use crate::system_runtime::IoRequest;
-use crate::{BlockingActorRuntime, KVBuffers, ShutdownHandle, SystemRuntime};
+use crate::{BlockingActorRuntime, IoBridge};
 
 /// Conditions for stopping DAG iteration
 #[derive(Debug, Clone, Default)]
@@ -50,11 +52,7 @@ pub struct StopConditions {
 /// Note: Suspension state does not affect spawn readiness. If a dependency
 /// has produced output, downstream actors can start consuming it regardless
 /// of whether the dependency is suspended.
-pub fn is_ready_to_spawn<K: KVBuffers>(
-    node_handle: Handle,
-    dag: &Dag,
-    pipe_pool: &PipePool<K>,
-) -> bool {
+pub fn is_ready_to_spawn(node_handle: Handle, dag: &Dag, pipe_pool: &PipePool) -> bool {
     use actor_runtime::StdHandle;
 
     for dep in dag.resolve_dependencies(node_handle) {
@@ -66,7 +64,7 @@ pub fn is_ready_to_spawn<K: KVBuffers>(
             NodeState::NotStarted => return false,
             NodeState::Running | NodeState::Terminating => {
                 return pipe_pool
-                    .get_already_realized_writer((dep, StdHandle::Stdout))
+                    .get_already_realized_writer((dep, StdHandle::Stdout as isize))
                     .is_some();
             }
             NodeState::Terminated => {
@@ -74,7 +72,7 @@ pub fn is_ready_to_spawn<K: KVBuffers>(
                     return false;
                 }
                 if pipe_pool
-                    .get_already_realized_writer((dep, StdHandle::Stdout))
+                    .get_already_realized_writer((dep, StdHandle::Stdout as isize))
                     .is_some()
                 {
                     return true;
@@ -88,7 +86,8 @@ pub fn is_ready_to_spawn<K: KVBuffers>(
 }
 
 /// True if any node is Running or Terminating (i.e. an actor task is still alive).
-/// Used by the spawn loop to decide whether `spawn_notify` can ever fire again.
+/// When false and no nodes were spawned this iteration, no further I/O events
+/// can occur, so remaining pending nodes will never become ready.
 fn has_active_actors(dag: &Dag) -> bool {
     dag.nodes().any(|n| match n.state {
         NodeState::Running | NodeState::Terminating => true,
@@ -102,91 +101,123 @@ fn spawn_actor_task(
     idname: String,
     actor_fn: ActorFn,
     actor_runtime: BlockingActorRuntime,
-    shutdown: ShutdownHandle,
 ) -> tokio::task::JoinHandle<()> {
-    tokio::task::spawn_blocking(move || {
-        debug!(node = ?node_handle, name = %idname, "task starting");
+    tokio::spawn(async move {
+        let blocking_result = tokio::task::spawn_blocking(move || {
+            debug!(node = ?node_handle, name = %idname, "task starting");
 
-        actor_runtime.register_std_fds();
+            let mut runtime = actor_runtime;
+            runtime.register_std_fds();
 
-        let result = actor_fn(&actor_runtime);
+            let result = actor_fn(&runtime);
 
-        match result {
-            Ok(()) => {
-                debug!(node = ?node_handle, name = %idname, "task completed");
+            match result {
+                Ok(()) => {
+                    debug!(node = ?node_handle, name = %idname, "task completed");
+                }
+                Err(e) => {
+                    warn!(node = ?node_handle, name = %idname, error = %e, "task error");
+                    runtime.latch_errno(EOWNERDEAD);
+                }
+            }
+            runtime
+        })
+        .await;
+
+        match blocking_result {
+            Ok(mut runtime) => {
+                if let Err(e) = runtime.shutdown().await {
+                    warn!(node = ?node_handle, error = %e, "actor shutdown error");
+                }
             }
             Err(e) => {
-                warn!(node = ?node_handle, name = %idname, error = %e, "task error");
-                shutdown.mark_failed();
+                warn!(node = ?node_handle, error = %e, "actor blocking task panicked");
             }
         }
-
-        debug!(node = ?node_handle, name = %idname, "task done, shutdown via Drop");
-        drop(shutdown);
     })
 }
 
 /// Run the system: spawn system runtime and actor tasks, wait for completion
-pub async fn run<K: KVBuffers + 'static>(
-    run_handle: &RunHandle<K>,
-    target: Handle,
-    stop_conditions: StopConditions,
-) {
-    run_with_tx(run_handle, target, stop_conditions, None).await;
+pub async fn run(env: Arc<Environment>, target: Handle, stop_conditions: StopConditions) {
+    run_with_tx(env, target, stop_conditions, None).await;
 }
 
-/// Like `run`, but sends `system_tx` back via `tx_out` once the system runtime is ready.
-pub async fn run_with_tx<K: KVBuffers + 'static>(
-    run_handle: &RunHandle<K>,
-    target: Handle,
-    stop_conditions: StopConditions,
-    tx_out: Option<oneshot::Sender<mpsc::UnboundedSender<IoRequest>>>,
-) {
-    let pipe_pool = Arc::new(PipePool::new(Arc::clone(&run_handle.kv)));
+/// Receives actor lifecycle events from the IO bridge, updates DAG state,
+/// replies to unblock the IO bridge, and fires notify so the spawn loop can react.
+fn spawn_lifecycle_event_task(
+    dag: Arc<parking_lot::RwLock<Dag>>,
+    notify: Arc<tokio::sync::Notify>,
+    mut rx: mpsc::UnboundedReceiver<ActorLifecycleEvent>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        while let Some(event) = rx.recv().await {
+            match event {
+                ActorLifecycleEvent::Terminating { node_handle, reply } => {
+                    let prior = {
+                        let mut dag = dag.write();
+                        let prior = dag
+                            .get_node(node_handle)
+                            .map_or(NodeState::Terminating, |n| n.state);
+                        match prior {
+                            NodeState::Terminating | NodeState::Terminated => {}
+                            NodeState::Running => {
+                                dag.set_state(node_handle, NodeState::Terminating);
+                            }
+                            NodeState::NotStarted => {
+                                warn!(node = ?node_handle, "actor shutdown received but node was never started");
+                                dag.set_state(node_handle, NodeState::Terminating);
+                            }
+                        }
+                        prior
+                    };
+                    if reply.send(prior).is_err() {
+                        warn!(node = ?node_handle, "actor_done: Terminating reply receiver dropped");
+                    }
+                    notify.notify_one();
+                }
+                ActorLifecycleEvent::Terminated {
+                    node_handle,
+                    exit_code,
+                    reply,
+                } => {
+                    let prior = {
+                        let mut dag = dag.write();
+                        let prior = dag
+                            .get_node(node_handle)
+                            .map_or(NodeState::Terminated, |n| n.state);
+                        if prior != NodeState::Terminating {
+                            warn!(node = ?node_handle, ?prior, "actor Terminated but prior state was not Terminating");
+                        }
+                        dag.set_state(node_handle, NodeState::Terminated);
+                        dag.set_exit_code(node_handle, exit_code);
+                        prior
+                    };
+                    if reply.send(prior).is_err() {
+                        warn!(node = ?node_handle, "actor_done: Terminated reply receiver dropped");
+                    }
+                    notify.notify_one();
+                }
+            }
+        }
+    })
+}
 
-    let system_runtime = SystemRuntime::new(
-        Arc::clone(&run_handle.dag),
-        Arc::clone(&run_handle.kv),
-        Arc::clone(&run_handle.idgen),
-        run_handle.attachment_config.clone(),
-        Arc::clone(&pipe_pool),
-    );
-
-    let spawn_notify = system_runtime.get_spawn_notify();
-
-    let Some(system_tx) = system_runtime.get_system_tx() else {
-        error!("Failed to get system_tx - system runtime already started");
-        return;
-    };
-
-    if let Some(sender) = tx_out {
-        sender.send(system_tx.clone()).ok();
-    }
-
-    let system_task = tokio::spawn(async move {
-        system_runtime.run().await;
-    });
-
-    // Build initial pending list: NotStarted nodes in topological order
-    let mut pending: Vec<Handle> = {
-        let dag_guard = run_handle.dag.read();
-        TopologicalOrderIter::with_stop_conditions(&dag_guard, target, stop_conditions)
-            .filter(|&n| {
-                dag_guard
-                    .get_node(n)
-                    .is_some_and(|node| node.state == NodeState::NotStarted)
-            })
-            .collect()
-    };
-
+/// Spawn actors for all pending nodes that are ready, looping until all are done or quiescent.
+async fn run_spawn_loop(
+    env: &Arc<Environment>,
+    bridge: &Arc<IoBridge>,
+    mut pending: Vec<Handle>,
+    notify: &Arc<tokio::sync::Notify>,
+    actor_done_tx: &mpsc::UnboundedSender<ActorLifecycleEvent>,
+) -> Vec<tokio::task::JoinHandle<()>> {
     let mut actor_tasks = Vec::new();
 
     loop {
         let to_spawn: Vec<(Handle, String)> = {
-            let dag_guard = run_handle.dag.read();
+            let dag_guard = env.dag.read();
             pending
                 .iter()
-                .filter(|&&n| is_ready_to_spawn(n, &dag_guard, &pipe_pool))
+                .filter(|&&n| is_ready_to_spawn(n, &dag_guard, &env.pipe_pool))
                 .filter_map(|&n| dag_guard.get_node(n).map(|node| (n, node.idname.clone())))
                 .collect()
         };
@@ -194,18 +225,21 @@ pub async fn run_with_tx<K: KVBuffers + 'static>(
         for (node_handle, idname) in &to_spawn {
             pending.retain(|&h| h != *node_handle);
 
-            let Some(actor_fn) = run_handle.actor_registry.get(idname) else {
+            let Some(actor_fn) = env.actor_registry.read().get(idname) else {
                 warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
-                // Terminate the node explicitly so dependents are not blocked.
-                let _ = system_tx.send(IoRequest::ActorShutdown {
-                    node_handle: *node_handle,
-                    exit_code: 0,
-                });
+                // Mark as terminated so dependents are not blocked.
+                // No lifecycle events needed since the actor was never started.
+                {
+                    let mut dag = env.dag.write();
+                    dag.set_exit_code(*node_handle, crate::errno::ENOENT);
+                    dag.set_state(*node_handle, NodeState::Terminated);
+                }
+                notify.notify_one();
                 continue;
             };
 
             {
-                let mut dag = run_handle.dag.write();
+                let mut dag = env.dag.write();
                 // Re-check state under the write lock: an actor task running
                 // concurrently may have already advanced this node past NotStarted.
                 if dag
@@ -218,18 +252,17 @@ pub async fn run_with_tx<K: KVBuffers + 'static>(
             }
             debug!(node = ?node_handle, name = %idname, "spawning actor task");
 
-            let (actor_runtime, shutdown) = BlockingActorRuntime::new(
+            let actor_runtime = BlockingActorRuntime::new(
                 *node_handle,
-                system_tx.clone(),
-                Arc::clone(&run_handle.suspension),
+                Arc::clone(bridge),
+                Arc::clone(&env.suspension),
+                actor_done_tx.clone(),
             );
-
             actor_tasks.push(spawn_actor_task(
                 *node_handle,
                 idname.clone(),
                 actor_fn,
                 actor_runtime,
-                shutdown,
             ));
         }
 
@@ -240,12 +273,12 @@ pub async fn run_with_tx<K: KVBuffers + 'static>(
         // Quiescence check: nothing changed this iteration (no node was ready
         // to spawn) AND no actor is Running or Terminating.
         //
-        // When both hold, spawn_notify can never fire again — nothing changed,
+        // When both hold, notify can never fire again — nothing changed,
         // and nothing will change. Remaining pending nodes are blocked by a
         // failed dependency and will never run in this execution. Break instead
         // of waiting forever; those nodes stay NotStarted and are eligible for
         // an incremental re-run once the failure is resolved.
-        if to_spawn.is_empty() && !has_active_actors(&run_handle.dag.read()) {
+        if to_spawn.is_empty() && !has_active_actors(&env.dag.read()) {
             debug!("quiescent: pending nodes remain but no actors are active — stopping");
             break;
         }
@@ -253,19 +286,70 @@ pub async fn run_with_tx<K: KVBuffers + 'static>(
         // Something is running or was just spawned. Wait for a state change:
         // either an actor terminates (possibly unblocking a dependent) or a
         // pipe is realized (making a dep's output available).
-        spawn_notify.notified().await;
+        notify.notified().await;
     }
 
-    drop(system_tx);
+    actor_tasks
+}
 
-    if let Err(e) = system_task.await {
-        warn!(error = %e, "SystemRuntime task failed");
+/// Like `run`, but sends the `IoBridge` back via `tx_out` once ready.
+pub async fn run_with_tx(
+    env: Arc<Environment>,
+    target: Handle,
+    stop_conditions: StopConditions,
+    tx_out: Option<oneshot::Sender<Arc<IoBridge>>>,
+) {
+    let notify = Arc::new(tokio::sync::Notify::new());
+    let (actor_done_tx, actor_done_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
+
+    let attachment_manager = Arc::new(AttachmentManager::new(env.attachment_config.read().clone()));
+    let io_bridge = Arc::new(IoBridge::new(
+        Arc::clone(&env),
+        Arc::clone(&attachment_manager),
+        Arc::clone(&notify),
+    ));
+
+    if let Some(sender) = tx_out {
+        sender.send(Arc::clone(&io_bridge)).ok();
     }
 
+    let actor_done_task =
+        spawn_lifecycle_event_task(Arc::clone(&env.dag), Arc::clone(&notify), actor_done_rx);
+
+    let pending: Vec<Handle> = {
+        let dag_guard = env.dag.read();
+        TopologicalOrderIter::with_stop_conditions(&dag_guard, target, stop_conditions)
+            .filter(|&n| {
+                dag_guard
+                    .get_node(n)
+                    .is_some_and(|node| node.state == NodeState::NotStarted)
+            })
+            .collect()
+    };
+
+    let actor_tasks = run_spawn_loop(&env, &io_bridge, pending, &notify, &actor_done_tx).await;
+
+    // Join actor tasks first: BlockingActorRuntime::drop sends lifecycle events
+    // and blocks on actor_done_task replies — so actor_done_task must still be
+    // running here.
     for task in actor_tasks {
         if let Err(e) = task.await {
             warn!(error = %e, "actor task failed");
         }
+    }
+
+    // All actors done; shutdown IO bridge and wait for attachment tasks.
+    if let Err(e) = io_bridge.shutdown().await {
+        warn!(error = %e, "io_bridge shutdown error");
+    }
+    attachment_manager.shutdown().await;
+
+    // Dropping actor_done_tx signals actor_done_task to exit.
+    drop(actor_done_tx);
+    drop(io_bridge);
+
+    if let Err(e) = actor_done_task.await {
+        warn!(error = %e, "actor_done task failed");
     }
 }
 

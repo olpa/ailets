@@ -1,12 +1,11 @@
 //! Writer side of the memory pipe
 
 use parking_lot::Mutex;
-use std::cmp::Ordering;
 use std::fmt;
 use std::sync::Arc;
-use tracing::{error, trace};
+use tracing::{trace, warn};
 
-use crate::errno::EPIPE;
+use crate::errno::{EBADF, ENOSPC, EPIPE};
 use crate::idgen::Handle;
 use crate::notification_queue::NotificationQueueArc;
 use crate::storage::Buffer;
@@ -88,29 +87,32 @@ impl Writer {
         self.shared.lock().buffer.clone()
     }
 
-    /// Write data to the pipe (POSIX-style)
+    /// Write data to the pipe.
     ///
-    /// Returns:
-    /// - Positive value: number of bytes written
-    /// - 0: empty write (no notification sent)
-    /// - -1: error (writer closed, errno is set, or buffer write failed)
+    /// # Returns
+    ///
+    /// - `Ok(n)` where `n > 0`: number of bytes written
+    /// - `Ok(0)`: empty write (no notification sent)
+    /// - `Err(errno)`: error (writer closed, errno is set, or buffer write failed)
     ///
     /// # Important behavior
     ///
-    /// - If the writer is closed, returns -1
-    /// - If errno is set, returns -1
-    /// - If data is empty, returns 0 WITHOUT notifying observers
+    /// - If the writer is closed, returns `Err(EBADF)`
+    /// - If errno is set, returns `Err(errno)`
+    /// - If data is empty, returns `Ok(0)` WITHOUT notifying observers
     ///   (this avoids unnecessary wakeups of waiting readers)
     /// - If data is non-empty, appends to buffer and:
     ///   - If successful: notifies observers and returns the count
-    ///   - If failed: sets errno and returns -1
-    #[must_use]
-    pub fn write(&self, data: &[u8]) -> isize {
-        let notification = {
+    ///   - If failed: sets errno and returns `Err(ENOSPC)`
+    ///
+    /// # Errors
+    /// Returns `EBADF` if closed, current errno if set, or `ENOSPC` if buffer write fails.
+    pub fn write(&self, data: &[u8]) -> Result<usize, i32> {
+        let result: Result<usize, i32> = {
             let mut shared = self.shared.lock();
 
             if shared.closed {
-                return -1;
+                return Err(EBADF);
             }
 
             if shared.had_readers && shared.reader_count == 0 && shared.errno == 0 {
@@ -118,58 +120,54 @@ impl Writer {
             }
 
             if shared.errno != 0 {
-                return -1;
+                return Err(shared.errno);
             }
 
             if data.is_empty() {
                 // IMPORTANT: Return early without notifying observers.
                 // Empty writes should not wake up waiting readers.
-                return 0;
+                return Ok(0);
             }
 
             if shared.buffer.append(data).is_ok() {
-                // Safe conversion from usize to isize
-                // On 64-bit platforms, check if length exceeds isize::MAX
-                if let Ok(n) = isize::try_from(data.len()) {
-                    n
-                } else {
-                    // Write succeeded but length exceeds isize::MAX
-                    // This should never happen in practice with realistic I/O sizes
-                    error!(
-                        data_len = data.len(),
-                        isize_max = isize::MAX,
-                        "CRITICAL: write length exceeds isize::MAX"
-                    );
-                    isize::MAX
-                }
+                Ok(data.len())
             } else {
                 // Buffer append failed - treat as ENOSPC
-                shared.errno = 28; // ENOSPC
-                -28
+                shared.errno = ENOSPC;
+                Err(ENOSPC)
             }
         };
 
         // Notify outside lock
-        self.queue.notify(self.handle, notification as i64);
-        match notification.cmp(&0) {
-            Ordering::Greater => notification,
-            Ordering::Equal | Ordering::Less => -1,
+        match &result {
+            Ok(n) => {
+                #[allow(clippy::cast_possible_wrap)] // byte counts won't exceed i64::MAX
+                self.queue.notify(self.handle, *n as i64);
+            }
+            Err(errno) => {
+                self.queue.notify(self.handle, -i64::from(*errno));
+            }
         }
+        result
     }
 
-    /// Close the writer and notify all readers
-    pub fn close(&self) {
+    /// Close the writer and notify all readers.
+    ///
+    /// # Errors
+    /// Returns `EBADF` if already closed.
+    pub fn close(&self) -> Result<(), i32> {
         {
             let mut shared = self.shared.lock();
             if shared.closed {
-                log::warn!("Writer::close() called on already closed writer: {self:?}");
-                return;
+                warn!("Writer::close() called on already closed writer: {self:?}");
+                return Err(EBADF);
             }
             shared.closed = true;
         }
         // Unregister handle from queue
         // This will notify with -1 and wake all waiters
         self.queue.unlist(self.handle);
+        Ok(())
     }
 
     /// Get the handle for this writer
@@ -225,7 +223,9 @@ impl Drop for Writer {
     fn drop(&mut self) {
         trace!(handle = ?self.handle, "Writer: destroying (drop)");
         if !self.is_closed() {
-            self.close();
+            if let Err(errno) = self.close() {
+                warn!(handle = ?self.handle, errno, "Writer::drop: close failed");
+            }
         }
     }
 }

@@ -1,0 +1,49 @@
+//! Actor syscall layer — the boundary between actor user space and system internals.
+//!
+//! Actors are synchronous: they call blocking functions (`aread`, `awrite`, `aclose`)
+//! and expect results before continuing. The system is async: pipes, storage, and
+//! lifecycle management all run on a Tokio runtime. This module bridges the two.
+//!
+//! The design mirrors the Unix syscall interface:
+//! - Actors (user space) call into this layer the way a process calls into the kernel.
+//! - The layer translates blocking calls into async operations and returns results.
+//! - System internals (`pipe`, `dag`, `storage`) are never touched directly by actors.
+//!
+//! # Components
+//!
+//! **Actor side** — runs on the actor's blocking thread:
+//! - [`blocking_actor_runtime`] — implements `ActorRuntime`; thin stateless wrapper that
+//!   passes (`node_handle`, fd) to `IoBridge` for all I/O operations.
+//!
+//! **Bridge** — shared object callable from any blocking thread:
+//! - [`io_bridge`] — directly-callable I/O bridge; methods spawn Tokio tasks for async work
+//!   and block the caller on a oneshot reply. See its module doc for the full architecture.
+//!
+//! **Supporting types:**
+//! - [`sendable_buffer`] — wraps a raw pointer to an actor's stack buffer so it can
+//!   cross the thread boundary safely; valid only while the actor is blocked on the reply.
+//! - [`lifecycle_event`] — signals sent from `IoBridge` to the executor when an actor's
+//!   I/O teardown progresses; the executor replies to synchronise DAG state updates.
+//!
+//! # Data flow (read example)
+//!
+//! ```text
+//! actor thread (blocking)           Tokio runtime
+//! ────────────────────────────────  ──────────────────────────────
+//! aread(fd)
+//!   bridge.read(handle, buf)
+//!   → ReadRequest ──────────────→  reader task (long-lived)
+//!   blocking_recv() …               MergeReader::read().await
+//!   ← (bytes, errno) ←───────────  oneshot reply
+//! returns to actor
+//! ```
+
+pub mod blocking_actor_runtime;
+pub mod io_bridge;
+pub mod lifecycle_event;
+pub mod sendable_buffer;
+
+pub use blocking_actor_runtime::BlockingActorRuntime;
+pub use io_bridge::IoBridge;
+pub use lifecycle_event::ActorLifecycleEvent;
+pub use sendable_buffer::SendableMutPtr;

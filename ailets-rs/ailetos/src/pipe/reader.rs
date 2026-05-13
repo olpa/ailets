@@ -3,9 +3,9 @@
 use parking_lot::Mutex;
 use std::fmt;
 use std::sync::Arc;
-use tracing::{error, trace};
+use tracing::{error, trace, warn};
 
-use crate::errno::EPIPE;
+use crate::errno::{EBADF, EIO, EPIPE};
 use crate::idgen::Handle;
 use crate::notification_queue::NotificationQueueArc;
 
@@ -74,20 +74,18 @@ impl Reader {
         &self.own_handle
     }
 
-    /// Close the reader
-    pub fn close(&mut self) {
+    /// Close the reader.
+    ///
+    /// # Errors
+    /// Returns `EBADF` if already closed.
+    pub fn close(&mut self) -> Result<(), i32> {
         if self.own_closed {
             log::warn!("Reader::close() called on already closed reader: {self:?}");
-            return;
+            return Err(EBADF);
         }
         self.own_closed = true;
         self.guard.take();
-    }
-
-    /// Check if reader is closed
-    #[must_use]
-    pub fn is_closed(&self) -> bool {
-        self.own_closed
+        Ok(())
     }
 
     /// Get current error state (checks own error first, then writer error)
@@ -167,16 +165,19 @@ impl Reader {
         }
     }
 
-    /// Read data from the pipe (POSIX-style)
+    /// Read data from the pipe.
     ///
     /// Reads available data from the buffer. If no data is available,
     /// waits for the writer to provide more data or close.
     ///
-    /// Returns:
-    /// - Positive value: number of bytes read
-    /// - 0: EOF (writer is closed and all data has been read)
-    /// - -1: error (check `get_error()` for error code)
-    pub async fn read(&mut self, buf: &mut [u8]) -> isize {
+    /// # Returns
+    ///
+    /// - `Ok(n)` where `n > 0`: number of bytes read
+    /// - `Ok(0)`: EOF (writer is closed and all data has been read)
+    ///
+    /// # Errors
+    /// Returns errno if error occurred (latched for subsequent calls).
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, i32> {
         while !self.own_closed {
             match self.should_wait_for_writer() {
                 WaitAction::Wait => {
@@ -184,10 +185,10 @@ impl Reader {
                     continue; // restart the loop. A case of errors will be reported by "should_wait_for_writer"
                 }
                 WaitAction::Closed => {
-                    return 0;
+                    return Ok(0);
                 }
                 WaitAction::Error => {
-                    return -1;
+                    return Err(self.get_error());
                 }
                 WaitAction::DontWait => {
                     // Proceed to read
@@ -209,7 +210,11 @@ impl Reader {
                     to_read = to_read,
                     "CRITICAL: destination buffer slice out of bounds"
                 );
-                return -1;
+                // Explicit drops: shared borrows self.buffer, set_error needs &mut self
+                drop(bufferguard);
+                drop(shared);
+                self.set_error(EIO);
+                return Err(EIO);
             };
             let Some(src_slice) = bufferguard.get(self.pos..end_pos) else {
                 error!(
@@ -218,17 +223,18 @@ impl Reader {
                     end_pos = end_pos,
                     "CRITICAL: source buffer slice out of bounds"
                 );
-                return -1;
+                drop(bufferguard);
+                drop(shared);
+                self.set_error(EIO);
+                return Err(EIO);
             };
             dest_slice.copy_from_slice(src_slice);
             self.pos = end_pos;
 
-            drop(bufferguard);
-            drop(shared);
-            return to_read.cast_signed();
+            return Ok(to_read);
         }
 
-        0
+        Ok(0)
     }
 }
 
@@ -245,8 +251,10 @@ impl fmt::Debug for Reader {
 impl Drop for Reader {
     fn drop(&mut self) {
         trace!(handle = ?self.own_handle, "Reader: destroying (drop)");
-        if !self.is_closed() {
-            self.close();
+        if !self.own_closed {
+            if let Err(errno) = self.close() {
+                warn!(handle = ?self.own_handle, errno, "Reader::drop: close failed");
+            }
         }
     }
 }

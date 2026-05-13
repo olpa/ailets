@@ -14,8 +14,8 @@ fn make_dag() -> (Dag, Arc<IdGen>) {
     (dag, id_gen)
 }
 
-fn make_pool(id_gen: &Arc<IdGen>) -> (PipePool<MemKV>, Arc<IdGen>) {
-    let kv = Arc::new(MemKV::new());
+fn make_pool(id_gen: &Arc<IdGen>) -> (PipePool, Arc<IdGen>) {
+    let kv: Arc<dyn ailetos::KVBuffers> = Arc::new(MemKV::new());
     let pool = PipePool::new(Arc::clone(&kv));
     (pool, Arc::clone(id_gen))
 }
@@ -55,7 +55,7 @@ async fn running_dep_with_output_is_ready() {
     let node = dag.add_node("node".into(), NodeKind::Concrete);
     dag.add_dependency(For(node), DependsOn(dep));
     dag.set_state(dep, NodeState::Running);
-    pool.touch_writer(dep, StdHandle::Stdout, &pool_id_gen)
+    pool.touch_writer(dep, StdHandle::Stdout as isize, &pool_id_gen)
         .await
         .unwrap();
 
@@ -118,7 +118,7 @@ async fn terminated_dep_with_error_and_output_blocks() {
     dag.add_dependency(For(node), DependsOn(dep));
     dag.set_state(dep, NodeState::Terminated);
     dag.set_exit_code(dep, EOWNERDEAD);
-    pool.touch_writer(dep, StdHandle::Stdout, &pool_id_gen)
+    pool.touch_writer(dep, StdHandle::Stdout as isize, &pool_id_gen)
         .await
         .unwrap();
 

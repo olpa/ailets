@@ -19,6 +19,7 @@
 
 use super::flush_coordinator::FlushCoordinator;
 use crate::{Buffer, KVBuffers, KVError, OpenMode};
+use async_trait::async_trait;
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use std::collections::HashMap;
@@ -103,6 +104,7 @@ impl SqliteKV {
     }
 }
 
+#[async_trait]
 impl KVBuffers for SqliteKV {
     async fn open(&self, path: &str, mode: OpenMode) -> Result<Buffer, KVError> {
         let mut buffers = self.buffers.lock();

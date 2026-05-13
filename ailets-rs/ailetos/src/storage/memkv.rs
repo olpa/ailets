@@ -2,6 +2,7 @@
 
 use super::buffer::Buffer;
 use super::types::{KVBuffers, KVError, OpenMode};
+use async_trait::async_trait;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 
@@ -28,6 +29,7 @@ impl Default for MemKV {
     }
 }
 
+#[async_trait]
 impl KVBuffers for MemKV {
     async fn open(&self, path: &str, mode: OpenMode) -> Result<Buffer, KVError> {
         let mut buffers = self.buffers.lock();

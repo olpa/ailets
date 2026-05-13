@@ -157,15 +157,16 @@ fn test_diamond_dag_valid_topological_order() {
 #[tokio::test]
 async fn test_transitive_block_terminates_and_leaves_nodes_not_started() {
     let kv = Arc::new(MemKV::new());
-    let mut env = Environment::new(kv);
+    let env = Environment::new(kv);
 
     let c = env.add_node("failing".into(), &[], None);
     let b = env.add_node("noop".into(), &[c], None);
     let a = env.add_node("noop".into(), &[b], None);
 
     env.actor_registry
+        .write()
         .register("failing", |_| Err("intentional failure".into()));
-    env.actor_registry.register("noop", |_| Ok(()));
+    env.actor_registry.write().register("noop", |_| Ok(()));
 
     tokio::time::timeout(
         std::time::Duration::from_secs(5),

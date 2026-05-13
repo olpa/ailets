@@ -14,6 +14,7 @@ use tracing::{trace, warn};
 use super::pool::PipePool;
 use super::reader::Reader;
 use crate::dag::{NodeState, OwnedDependencyIterator};
+use crate::errno::{EBADF, EIO};
 use crate::idgen::IdGen;
 use crate::storage::KVBuffers;
 
@@ -36,20 +37,22 @@ use crate::storage::KVBuffers;
 /// - 0 dependencies: immediately returns EOF
 /// - 1 dependency: reads from that single dependency
 /// - N dependencies: reads from each in sequence
-pub struct MergeReader<K: KVBuffers> {
+pub struct MergeReader {
     /// The currently active reader (None before first read or between deps)
     current_reader: Option<Reader>,
     /// Iterator over dependency handles (resolves aliases)
     dep_iterator: OwnedDependencyIterator,
     /// Pool of pipes to get `ReaderSharedData` from dependency handles
-    pipe_pool: Arc<PipePool<K>>,
+    pipe_pool: Arc<PipePool>,
     /// Key-value storage for completed actor output
-    kv: Arc<K>,
+    kv: Arc<dyn KVBuffers>,
     /// ID generator for creating reader handles
     id_gen: Arc<IdGen>,
+    /// Whether this merge reader has been closed
+    own_closed: bool,
 }
 
-impl<K: KVBuffers> MergeReader<K> {
+impl MergeReader {
     /// Create a new `MergeReader` with a dependency iterator, pipe pool, and KV storage.
     ///
     /// # Arguments
@@ -61,8 +64,8 @@ impl<K: KVBuffers> MergeReader<K> {
     #[must_use]
     pub fn new(
         dep_iterator: OwnedDependencyIterator,
-        pipe_pool: Arc<PipePool<K>>,
-        kv: Arc<K>,
+        pipe_pool: Arc<PipePool>,
+        kv: Arc<dyn KVBuffers>,
         id_gen: Arc<IdGen>,
     ) -> Self {
         Self {
@@ -71,6 +74,7 @@ impl<K: KVBuffers> MergeReader<K> {
             pipe_pool,
             kv,
             id_gen,
+            own_closed: false,
         }
     }
 
@@ -92,11 +96,11 @@ impl<K: KVBuffers> MergeReader<K> {
         // (close_actor_writers has already run, so latent would wait forever)
         let allow_latent = dep_state != NodeState::Terminated;
 
-        // Try pipe pool first (dependencies always output to stdout)
+        // Try pipe pool first (dependencies always output to stdout, fd=1)
         match self
             .pipe_pool
             .get_or_await_reader(
-                (dep_handle, actor_runtime::StdHandle::Stdout),
+                (dep_handle, actor_runtime::StdHandle::Stdout as isize),
                 allow_latent,
                 &self.id_gen,
             )
@@ -126,7 +130,8 @@ impl<K: KVBuffers> MergeReader<K> {
         use super::allocator::create_reader_from_completed;
         use super::pipe_path;
 
-        let path = pipe_path(actor_handle, actor_runtime::StdHandle::Stdout);
+        // Dependencies always output to stdout (fd=1)
+        let path = pipe_path(actor_handle, actor_runtime::StdHandle::Stdout as isize);
         let reader_handle = crate::idgen::Handle::new(self.id_gen.get_next());
 
         create_reader_from_completed(self.kv.as_ref(), reader_handle, &path).await
@@ -139,11 +144,12 @@ impl<K: KVBuffers> MergeReader<K> {
     ///
     /// # Returns
     ///
-    /// - Positive value: number of bytes read
-    /// - 0: EOF (all dependencies exhausted)
-    /// - -1: error (check underlying reader's error)
+    /// - `Ok(n)` where `n > 0`: number of bytes read
+    /// - `Ok(0)`: EOF (all dependencies exhausted)
     ///
-    pub async fn read(&mut self, buf: &mut [u8]) -> isize {
+    /// # Errors
+    /// Returns `EIO` if failed to get reader for dependency.
+    pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, i32> {
         loop {
             // Ensure we have a reader for the current dependency
             if self.current_reader.is_none() {
@@ -153,79 +159,71 @@ impl<K: KVBuffers> MergeReader<K> {
                     }
                     Ok(None) => {
                         // No more dependencies available
-                        return 0;
+                        return Ok(0);
                     }
                     Err(e) => {
-                        // Error getting reader from dependency
                         warn!(error = ?e, "MergeReader: failed to get reader for dependency");
-                        return -1;
+                        return Err(EIO);
                     }
                 }
             }
 
             // Read from current reader
             if let Some(reader) = self.current_reader.as_mut() {
-                let n = reader.read(buf).await;
-
-                match n.cmp(&0) {
-                    std::cmp::Ordering::Equal => {
+                match reader.read(buf).await {
+                    Ok(0) => {
                         // EOF from current reader, move to next dependency
                         self.current_reader = None;
                         // Loop continues to try the next dependency
                     }
-                    std::cmp::Ordering::Greater | std::cmp::Ordering::Less => {
-                        // Successfully read data (positive) or error (negative)
-                        return n;
+                    Ok(n) => {
+                        return Ok(n);
+                    }
+                    Err(e) => {
+                        return Err(e);
                     }
                 }
             } else {
                 // Should not happen: we checked is_none() above
                 warn!("MergeReader: current_reader is None unexpectedly");
-                return 0;
+                return Ok(0);
             }
         }
     }
 
-    /// Get the error code from the current reader (0 if none or no error).
-    #[must_use]
-    pub fn get_error(&self) -> i32 {
-        self.current_reader.as_ref().map_or(0, super::reader::Reader::get_error)
-    }
-
     /// Close the merge reader.
-    pub fn close(&mut self) {
-        if let Some(ref mut reader) = self.current_reader {
-            reader.close();
-        }
-        self.current_reader = None;
-    }
-
-    /// Check if the merge reader is closed (no active reader and iterator exhausted).
     ///
-    /// Note: This is a heuristic check. The iterator may still have items,
-    /// but we can't peek without consuming. Returns true only when we know
-    /// for certain that we're done (no current reader and we've hit EOF).
-    #[must_use]
-    pub fn is_closed(&self) -> bool {
-        // We're closed if there's no current reader.
-        // The iterator state is opaque, so we can't check if it's exhausted
-        // without consuming it. The reader being None after read() returns 0
-        // indicates we've exhausted all dependencies.
-        self.current_reader.is_none()
+    /// # Errors
+    /// Returns `EBADF` if already closed, or propagates error from inner reader close.
+    pub fn close(&mut self) -> Result<(), i32> {
+        if self.own_closed {
+            warn!("MergeReader::close() called on already closed reader");
+            return Err(EBADF);
+        }
+        self.own_closed = true;
+        let result = if let Some(ref mut reader) = self.current_reader {
+            reader.close()
+        } else {
+            Ok(())
+        };
+        self.current_reader = None;
+        result
     }
 }
 
-impl<K: KVBuffers> std::fmt::Debug for MergeReader<K> {
+impl std::fmt::Debug for MergeReader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "MergeReader(current_reader={:?})", self.current_reader)
     }
 }
 
-impl<K: KVBuffers> Drop for MergeReader<K> {
+impl Drop for MergeReader {
     fn drop(&mut self) {
         trace!("MergeReader: destroying (drop)");
-        if self.current_reader.is_some() {
-            self.close();
+        if !self.own_closed {
+            if let Err(errno) = self.close() {
+                warn!(errno, "MergeReader::drop: close failed");
+            }
         }
     }
 }

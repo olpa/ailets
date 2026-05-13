@@ -28,6 +28,14 @@ use tracing::warn;
 
 use crate::idgen::Handle;
 
+/// Per-actor suspension handle for cross-thread blocking.
+///
+/// # Why interior mutability (`Mutex` + `Condvar`)?
+///
+/// This is a classic condvar pattern: one thread calls `wait()` and blocks,
+/// another thread calls `signal_resume()` to wake it. The waiter holds `&self`
+/// while blocked, so the signaler cannot obtain `&mut self`. Interior mutability
+/// is the only correct approach for this cross-thread coordination.
 struct SuspensionControl {
     /// True while the actor should remain suspended
     suspended: Mutex<bool>,
@@ -71,9 +79,17 @@ impl Registry {
 }
 
 /// Shared suspension state owned by `Environment`.
+///
+/// # Why interior mutability (`Mutex`, `AtomicBool`)?
+///
+/// This is shared ownership by design: `Environment` and every `BlockingActorRuntime`
+/// hold `Arc<SuspensionState>`. With multiple owners, no single owner can provide
+/// `&mut self`. Interior mutability is required for shared concurrent access.
+///
+/// The `AtomicBool` provides a fast path: actors check it with Relaxed ordering
+/// to skip lock acquisition when no suspensions are active.
 pub struct SuspensionState {
     /// Global hint: true if any actor is currently suspended or pre-resumed.
-    /// Actors check this with Relaxed ordering for a fast no-cost path in production.
     any_suspended: Arc<AtomicBool>,
     registry: Mutex<Registry>,
 }
