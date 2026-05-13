@@ -4,7 +4,7 @@ use ailetos::dag::{Dag, DependsOn, For, NodeKind, NodeState};
 use ailetos::executor::{StopConditions, TopologicalOrderIter};
 use ailetos::storage::MemKV;
 use ailetos::{job_queue, run_jobs, ExecutorEvent, Environment, IdGen};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 fn create_linear_dag() -> (Dag, Vec<ailetos::Handle>) {
     // Create a linear DAG: node1 -> node2 -> node3 -> node4
@@ -237,9 +237,7 @@ async fn run_jobs_infinite_processes_job_submitted_after_quiescence() {
     }
 
     // Submit n2 and close the channel.
-    // In the red state the executor already exited at quiescence, so submit
-    // returns Err — n2 stays NotStarted and the assertion below will fail.
-    let _ = tx_jobs.submit(n2);
+    tx_jobs.submit(n2).expect("channel open — tx_jobs not yet dropped");
     drop(tx_jobs);
 
     handle.await.unwrap();
@@ -250,4 +248,72 @@ async fn run_jobs_infinite_processes_job_submitted_after_quiescence() {
         env.dag.read().get_node(n2).unwrap().state,
         NodeState::Terminated,
     );
+}
+
+// n2 submitted while n1 is still running must be picked up without waiting for quiescence.
+//
+// ActorFn is a bare fn pointer (no closure captures). State is shared through
+// local statics, which inner functions can access without capturing.
+#[tokio::test]
+async fn run_jobs_processes_job_submitted_while_actor_running() {
+    use std::sync::Mutex;
+
+    static SLOW_STARTED: Mutex<Option<oneshot::Sender<()>>> = Mutex::new(None);
+    static SLOW_RELEASE: Mutex<Option<oneshot::Receiver<()>>> = Mutex::new(None);
+
+    fn slow(_: &dyn actor_runtime::ActorRuntime) -> Result<(), String> {
+        SLOW_STARTED.lock().unwrap().take().unwrap().send(()).ok();
+        let rx = SLOW_RELEASE.lock().unwrap().take().unwrap();
+        rx.blocking_recv().ok();
+        Ok(())
+    }
+
+    let kv = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+
+    let (started_tx, started_rx) = oneshot::channel::<()>();
+    let (release_tx, release_rx) = oneshot::channel::<()>();
+    *SLOW_STARTED.lock().unwrap() = Some(started_tx);
+    *SLOW_RELEASE.lock().unwrap() = Some(release_rx);
+
+    env.actor_registry.write().register("step4_slow", slow);
+    env.actor_registry.write().register("noop", |_| Ok(()));
+
+    let n1 = env.add_node("step4_slow".into(), &[], None);
+    let n2 = env.add_node("noop".into(), &[], None);
+
+    let (tx_jobs, rx_jobs) = job_queue();
+    let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<ExecutorEvent>();
+
+    tx_jobs.submit(n1).expect("channel open");
+
+    let env2 = Arc::clone(&env);
+    let executor = tokio::spawn(run_jobs(env2, rx_jobs, StopConditions::default(), ev_tx));
+
+    // Block until n1 is running
+    started_rx.await.unwrap();
+
+    // n1 is Running; submit n2 then close the channel
+    tx_jobs.submit(n2).expect("channel open");
+    drop(tx_jobs);
+
+    // Drain events until n2 terminates — must happen while n1 is still blocked
+    loop {
+        match ev_rx.recv().await {
+            Some(ExecutorEvent::NodeTerminated(h)) if h == n2 => break,
+            Some(_) => continue,
+            None => panic!("events channel closed before n2 terminated"),
+        }
+    }
+
+    // n1 must still be Running — we haven't released it yet
+    assert_eq!(
+        env.dag.read().get_node(n1).unwrap().state,
+        NodeState::Running,
+        "n1 must still be running when n2 terminates",
+    );
+
+    // Release n1 and wait for the executor to finish
+    release_tx.send(()).unwrap();
+    executor.await.unwrap();
 }
