@@ -29,7 +29,7 @@ impl Default for TrackedDagOps {
 impl DagOpsTrait for TrackedDagOps {
     type Writer = VfsWriter;
 
-    fn value_node(&mut self, value: &[u8], explain: &str) -> Result<i32, String> {
+    fn value_node(&mut self, value: &[u8], explain: &str) -> Result<isize, String> {
         let handle = self.value_nodes.borrow().len();
         self.value_nodes
             .borrow_mut()
@@ -39,24 +39,24 @@ impl DagOpsTrait for TrackedDagOps {
         let filename = format!("value.{handle}");
         self.vfs.borrow_mut().add_file(filename, value.to_vec());
 
-        Ok(handle as i32)
+        Ok(handle as isize)
     }
 
-    fn alias(&mut self, alias: &str, node_handle: i32) -> Result<i32, String> {
+    fn alias(&mut self, alias: &str, node_handle: isize) -> Result<isize, String> {
         let handle = self.aliases.borrow().len()
             + self.value_nodes.borrow().len()
             + self.workflows.borrow().len();
         self.aliases
             .borrow_mut()
             .push(format!("{handle}:{alias}:{node_handle}"));
-        Ok(handle as i32)
+        Ok(handle as isize)
     }
 
     fn instantiate_with_deps(
         &mut self,
         workflow_name: &str,
-        deps: impl Iterator<Item = (String, i32)>,
-    ) -> Result<i32, String> {
+        deps: impl Iterator<Item = (String, isize)>,
+    ) -> Result<isize, String> {
         let mut deps_str = String::new();
         for (key, value) in deps {
             deps_str.push_str(key.as_str());
@@ -70,7 +70,7 @@ impl DagOpsTrait for TrackedDagOps {
         self.workflows
             .borrow_mut()
             .push(format!("{handle}:{workflow_name}:{deps_str}"));
-        Ok(handle as i32)
+        Ok(handle as isize)
     }
 
     fn detach_from_alias(&mut self, alias: &str) -> Result<(), String> {
@@ -78,7 +78,7 @@ impl DagOpsTrait for TrackedDagOps {
         Ok(())
     }
 
-    fn open_write_pipe(&mut self, explain: Option<&str>) -> Result<i32, String> {
+    fn open_write_pipe(&mut self, explain: Option<&str>) -> Result<isize, String> {
         let handle = self.value_nodes.borrow().len();
         let explain_str = explain.unwrap_or("pipe");
         self.value_nodes
@@ -90,10 +90,10 @@ impl DagOpsTrait for TrackedDagOps {
         self.vfs.borrow_mut().add_file(filename, Vec::new());
 
         // Return the handle as fd for simplicity in mock
-        Ok(handle as i32)
+        Ok(handle as isize)
     }
 
-    fn alias_fd(&mut self, alias: &str, fd: i32) -> Result<i32, String> {
+    fn alias_fd(&mut self, alias: &str, fd: isize) -> Result<isize, String> {
         // For mock implementation, create alias directly without generating new handle
         // The format is "{alias_handle}:{alias_name}:{node_handle}"
         // Since we're aliasing an fd (which maps to a value node), use fd as the node_handle
@@ -107,7 +107,7 @@ impl DagOpsTrait for TrackedDagOps {
         Ok(fd)
     }
 
-    fn open_writer_to_pipe(&mut self, fd: i32) -> Result<Self::Writer, String> {
+    fn open_writer_to_pipe(&mut self, fd: isize) -> Result<Self::Writer, String> {
         // In mock, fd is the handle
         let filename = format!("value.{fd}");
         Ok(VfsWriter::new(self.vfs.clone(), filename))
@@ -131,10 +131,10 @@ impl TrackedDagOps {
         self.workflows.borrow()
     }
 
-    pub fn parse_value_node(&self, value_node: &str) -> (i32, String, String) {
+    pub fn parse_value_node(&self, value_node: &str) -> (isize, String, String) {
         let parts = value_node.split(':').collect::<Vec<&str>>();
         assert_eq!(parts.len(), 2);
-        let handle = parts[0].parse::<i32>().unwrap();
+        let handle = parts[0].parse::<isize>().unwrap();
         let explain = parts[1].to_string();
 
         // Get content from value.N file in VFS
@@ -149,17 +149,17 @@ impl TrackedDagOps {
         (handle, explain, value)
     }
 
-    pub fn parse_workflow(&self, workflow: &str) -> (i32, String, HashMap<String, i32>) {
+    pub fn parse_workflow(&self, workflow: &str) -> (isize, String, HashMap<String, isize>) {
         let parts = workflow.split(':').collect::<Vec<&str>>();
         assert_eq!(parts.len(), 3);
-        let handle = parts[0].parse::<i32>().unwrap();
+        let handle = parts[0].parse::<isize>().unwrap();
         let explain = parts[1].to_string();
 
         let mut deps = HashMap::new();
         let deps_parts: Vec<&str> = parts[2].split(',').filter(|s| !s.is_empty()).collect();
         for chunk in deps_parts.chunks(2) {
             if chunk.len() == 2 {
-                if let Ok(value) = chunk[1].parse::<i32>() {
+                if let Ok(value) = chunk[1].parse::<isize>() {
                     deps.insert(chunk[0].to_string(), value);
                 }
             }
@@ -168,12 +168,12 @@ impl TrackedDagOps {
         (handle, explain, deps)
     }
 
-    pub fn parse_alias(&self, alias: &str) -> (i32, String, i32) {
+    pub fn parse_alias(&self, alias: &str) -> (isize, String, isize) {
         let parts = alias.split(':').collect::<Vec<&str>>();
         assert_eq!(parts.len(), 3);
-        let node_handle = parts[0].parse::<i32>().unwrap();
+        let node_handle = parts[0].parse::<isize>().unwrap();
         let alias_name = parts[1].to_string();
-        let alias_handle = parts[2].parse::<i32>().unwrap();
+        let alias_handle = parts[2].parse::<isize>().unwrap();
 
         (node_handle, alias_name, alias_handle)
     }
@@ -186,11 +186,11 @@ pub struct DummyDagOps;
 impl DagOpsTrait for DummyDagOps {
     type Writer = actor_runtime_mocked::RcWriter;
 
-    fn value_node(&mut self, _value: &[u8], _explain: &str) -> Result<i32, String> {
+    fn value_node(&mut self, _value: &[u8], _explain: &str) -> Result<isize, String> {
         unimplemented!("Not used in tests that use DummyDagOps")
     }
 
-    fn alias(&mut self, _alias: &str, _node_handle: i32) -> Result<i32, String> {
+    fn alias(&mut self, _alias: &str, _node_handle: isize) -> Result<isize, String> {
         unimplemented!("Not used in tests that use DummyDagOps")
     }
 
@@ -201,20 +201,20 @@ impl DagOpsTrait for DummyDagOps {
     fn instantiate_with_deps(
         &mut self,
         _workflow_name: &str,
-        _deps: impl Iterator<Item = (String, i32)>,
-    ) -> Result<i32, String> {
+        _deps: impl Iterator<Item = (String, isize)>,
+    ) -> Result<isize, String> {
         unimplemented!("Not used in tests that use DummyDagOps")
     }
 
-    fn open_write_pipe(&mut self, _explain: Option<&str>) -> Result<i32, String> {
+    fn open_write_pipe(&mut self, _explain: Option<&str>) -> Result<isize, String> {
         unimplemented!("Not used in tests that use DummyDagOps")
     }
 
-    fn alias_fd(&mut self, _alias: &str, _fd: i32) -> Result<i32, String> {
+    fn alias_fd(&mut self, _alias: &str, _fd: isize) -> Result<isize, String> {
         unimplemented!("Not used in tests that use DummyDagOps")
     }
 
-    fn open_writer_to_pipe(&mut self, _fd: i32) -> Result<Self::Writer, String> {
+    fn open_writer_to_pipe(&mut self, _fd: isize) -> Result<Self::Writer, String> {
         unimplemented!("Not used in tests that use DummyDagOps")
     }
 }
