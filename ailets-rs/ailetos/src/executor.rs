@@ -161,25 +161,8 @@ pub async fn run_jobs(
     events_tx: mpsc::UnboundedSender<ExecutorEvent>,
 ) {
     let infra = Executor::new(&env, Some(events_tx));
-
-    let mut pending: HashSet<Handle> = HashSet::new();
-    while let Ok(target) = jobs.rx.try_recv() {
-        let dag_guard = env.dag.read();
-        let new_nodes = TopologicalOrderIter::with_stop_conditions(
-            &dag_guard,
-            target,
-            stop_conditions.clone(),
-        )
-        .filter(|&n| {
-            dag_guard
-                .get_node(n)
-                .is_some_and(|node| node.state == NodeState::NotStarted)
-        });
-        pending.extend(new_nodes);
-    }
-
     let actor_tasks =
-        run_spawn_loop(&env, &infra.bridge, pending, &infra.notify, &infra.actor_done_tx).await;
+        run_spawn_loop_jobs(&env, &infra, &mut jobs.rx, &stop_conditions).await;
     infra.shutdown(actor_tasks).await;
 }
 
@@ -250,91 +233,144 @@ fn spawn_lifecycle_event_task(
     })
 }
 
-/// Spawn actors for all pending nodes that are ready, looping until all are done or quiescent.
+/// Spawn one batch of ready nodes from `pending`.
+///
+/// Returns `(remaining_pending, new_actor_tasks, had_ready)` where `had_ready`
+/// is true when at least one node was found ready this pass — used by
+/// `run_spawn_loop` to detect quiescence.
+fn spawn_ready_actors(
+    pending: HashSet<Handle>,
+    env: &Arc<Environment>,
+    infra: &Executor,
+) -> (HashSet<Handle>, Vec<tokio::task::JoinHandle<()>>, bool) {
+    let to_spawn: Vec<(Handle, String)> = {
+        let dag_guard = env.dag.read();
+        pending
+            .iter()
+            .filter(|&&n| is_ready_to_spawn(n, &dag_guard, &env.pipe_pool))
+            .filter_map(|&n| dag_guard.get_node(n).map(|node| (n, node.idname.clone())))
+            .collect()
+    };
+
+    let had_ready = !to_spawn.is_empty();
+    let mut remaining = pending;
+    let mut actor_tasks = Vec::new();
+
+    for (node_handle, idname) in &to_spawn {
+        remaining.remove(node_handle);
+
+        let Some(actor_fn) = env.actor_registry.read().get(idname) else {
+            warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
+            // Mark as terminated so dependents are not blocked.
+            // No lifecycle events needed since the actor was never started.
+            {
+                let mut dag = env.dag.write();
+                dag.set_exit_code(*node_handle, crate::errno::ENOENT);
+                dag.set_state(*node_handle, NodeState::Terminated);
+            }
+            infra.notify.notify_one();
+            continue;
+        };
+
+        {
+            let mut dag = env.dag.write();
+            // Re-check state under the write lock: an actor task running
+            // concurrently may have already advanced this node past NotStarted.
+            if dag
+                .get_node(*node_handle)
+                .is_none_or(|n| n.state != NodeState::NotStarted)
+            {
+                continue;
+            }
+            dag.set_state(*node_handle, NodeState::Running);
+        }
+        debug!(node = ?node_handle, name = %idname, "spawning actor task");
+
+        let actor_runtime = BlockingActorRuntime::new(
+            *node_handle,
+            Arc::clone(&infra.bridge),
+            Arc::clone(&env.suspension),
+            infra.actor_done_tx.clone(),
+        );
+        actor_tasks.push(spawn_actor_task(*node_handle, idname.clone(), actor_fn, actor_runtime));
+    }
+
+    (remaining, actor_tasks, had_ready)
+}
+
+/// Spawn loop for `run_with_tx`: runs until all nodes in `pending` are done or quiescent.
 async fn run_spawn_loop(
     env: &Arc<Environment>,
-    bridge: &Arc<IoBridge>,
+    infra: &Executor,
     mut pending: HashSet<Handle>,
-    notify: &Arc<tokio::sync::Notify>,
-    actor_done_tx: &mpsc::UnboundedSender<ActorLifecycleEvent>,
 ) -> Vec<tokio::task::JoinHandle<()>> {
     let mut actor_tasks = Vec::new();
 
     loop {
-        let to_spawn: Vec<(Handle, String)> = {
-            let dag_guard = env.dag.read();
-            pending
-                .iter()
-                .filter(|&&n| is_ready_to_spawn(n, &dag_guard, &env.pipe_pool))
-                .filter_map(|&n| dag_guard.get_node(n).map(|node| (n, node.idname.clone())))
-                .collect()
-        };
-
-        for (node_handle, idname) in &to_spawn {
-            pending.remove(node_handle);
-
-            let Some(actor_fn) = env.actor_registry.read().get(idname) else {
-                warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
-                // Mark as terminated so dependents are not blocked.
-                // No lifecycle events needed since the actor was never started.
-                {
-                    let mut dag = env.dag.write();
-                    dag.set_exit_code(*node_handle, crate::errno::ENOENT);
-                    dag.set_state(*node_handle, NodeState::Terminated);
-                }
-                notify.notify_one();
-                continue;
-            };
-
-            {
-                let mut dag = env.dag.write();
-                // Re-check state under the write lock: an actor task running
-                // concurrently may have already advanced this node past NotStarted.
-                if dag
-                    .get_node(*node_handle)
-                    .is_none_or(|n| n.state != NodeState::NotStarted)
-                {
-                    continue;
-                }
-                dag.set_state(*node_handle, NodeState::Running);
-            }
-            debug!(node = ?node_handle, name = %idname, "spawning actor task");
-
-            let actor_runtime = BlockingActorRuntime::new(
-                *node_handle,
-                Arc::clone(bridge),
-                Arc::clone(&env.suspension),
-                actor_done_tx.clone(),
-            );
-            actor_tasks.push(spawn_actor_task(
-                *node_handle,
-                idname.clone(),
-                actor_fn,
-                actor_runtime,
-            ));
-        }
+        let (new_pending, new_tasks, had_ready) = spawn_ready_actors(pending, env, infra);
+        pending = new_pending;
+        actor_tasks.extend(new_tasks);
 
         if pending.is_empty() {
             break;
         }
 
-        // Quiescence check: nothing changed this iteration (no node was ready
-        // to spawn) AND no actor is Running or Terminating.
-        //
-        // When both hold, notify can never fire again — nothing changed,
-        // and nothing will change. Remaining pending nodes are blocked by a
-        // failed dependency and will never run in this execution. Break instead
-        // of waiting forever; those nodes stay NotStarted and are eligible for
-        // an incremental re-run once the failure is resolved.
-        if to_spawn.is_empty() && !has_active_actors(&env.dag.read()) {
+        // Quiescence: nothing was ready to spawn AND no actor is running.
+        // Remaining nodes are blocked by a failed dependency; they stay
+        // NotStarted and are eligible for an incremental re-run.
+        if !had_ready && !has_active_actors(&env.dag.read()) {
             debug!("quiescent: pending nodes remain but no actors are active — stopping");
             break;
         }
 
-        // Something is running or was just spawned. Wait for a state change:
-        // either an actor terminates (possibly unblocking a dependent) or a
-        // pipe is realized (making a dep's output available).
-        notify.notified().await;
+        infra.notify.notified().await;
+    }
+
+    actor_tasks
+}
+
+/// Spawn loop for `run_jobs`: waits on both the job channel and state-change
+/// notifications simultaneously, exiting only when the channel is closed and
+/// no actors are running.
+async fn run_spawn_loop_jobs(
+    env: &Arc<Environment>,
+    infra: &Executor,
+    job_rx: &mut mpsc::UnboundedReceiver<Handle>,
+    stop_conditions: &StopConditions,
+) -> Vec<tokio::task::JoinHandle<()>> {
+    let mut actor_tasks = Vec::new();
+    let mut pending: HashSet<Handle> = HashSet::new();
+    let mut channel_closed = false;
+
+    loop {
+        let (new_pending, new_tasks, _) = spawn_ready_actors(pending, env, infra);
+        pending = new_pending;
+        actor_tasks.extend(new_tasks);
+
+        if channel_closed && !has_active_actors(&env.dag.read()) {
+            break;
+        }
+
+        tokio::select! {
+            result = job_rx.recv(), if !channel_closed => {
+                match result {
+                    Some(target) => {
+                        let dag = env.dag.read();
+                        pending.extend(
+                            TopologicalOrderIter::with_stop_conditions(
+                                &dag, target, stop_conditions.clone(),
+                            )
+                            .filter(|&n| {
+                                dag.get_node(n)
+                                    .is_some_and(|node| node.state == NodeState::NotStarted)
+                            }),
+                        );
+                    }
+                    None => { channel_closed = true; }
+                }
+            }
+            _ = infra.notify.notified() => {}
+        }
     }
 
     actor_tasks
@@ -438,8 +474,7 @@ pub async fn run_with_tx(
             .collect()
     };
 
-    let actor_tasks =
-        run_spawn_loop(&env, &infra.bridge, pending, &infra.notify, &infra.actor_done_tx).await;
+    let actor_tasks = run_spawn_loop(&env, &infra, pending).await;
     infra.shutdown(actor_tasks).await;
 }
 
