@@ -19,7 +19,7 @@
 use std::sync::Arc;
 
 use parking_lot::Mutex;
-use tracing::debug;
+use tracing::{debug, warn};
 
 use super::allocator::{create_writer, flush_and_close_writer};
 use super::pipe_path;
@@ -301,7 +301,7 @@ impl PipePool {
         }; // Lock released here
 
         // Flush and close writers outside lock
-        let mut errors: Vec<String> = Vec::new();
+        let mut error_count = 0;
         for (h, s, writer) in writers_to_close {
             if exit_code != 0 {
                 writer.set_error(exit_code);
@@ -311,9 +311,8 @@ impl PipePool {
                     debug!(key = ?(h, s), exit_code, "flushed and closed realized writer on actor shutdown");
                 }
                 Err(errno) => {
-                    let msg = format!("flush/close failed on actor shutdown key={:?} exit_code={exit_code} errno={errno}", (h, s));
-                    debug!("{msg}");
-                    errors.push(msg);
+                    warn!(key = ?(h, s), exit_code, errno, "flush/close failed on actor shutdown");
+                    error_count += 1;
                 }
             }
         }
@@ -323,10 +322,10 @@ impl PipePool {
             notify.notify_waiters();
         }
 
-        if errors.is_empty() {
+        if error_count == 0 {
             Ok(())
         } else {
-            Err(errors.join("; "))
+            Err(format!("flush/close failed for {error_count} writers"))
         }
     }
 
