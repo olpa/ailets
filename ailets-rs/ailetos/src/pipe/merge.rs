@@ -146,7 +146,9 @@ impl MergeReader {
     ///
     /// - `Ok(n)` where `n > 0`: number of bytes read
     /// - `Ok(0)`: EOF (all dependencies exhausted)
-    /// - `Err(errno)`: error occurred
+    ///
+    /// # Errors
+    /// Returns `EIO` if failed to get reader for dependency.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, i32> {
         loop {
             // Ensure we have a reader for the current dependency
@@ -191,8 +193,8 @@ impl MergeReader {
 
     /// Close the merge reader.
     ///
-    /// Returns `Ok(())` on success, `Err(EBADF)` if already closed,
-    /// or propagates error from inner reader close.
+    /// # Errors
+    /// Returns `EBADF` if already closed, or propagates error from inner reader close.
     pub fn close(&mut self) -> Result<(), i32> {
         if self.own_closed {
             warn!("MergeReader::close() called on already closed reader");

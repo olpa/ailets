@@ -184,7 +184,7 @@ pub(crate) enum FdState {
     },
 }
 
-/// Channel table entry type: (node_handle, fd, state)
+/// Channel table entry type: (`node_handle`, fd, state)
 type ChannelEntry = (Handle, isize, FdState);
 
 /// Directly-callable I/O bridge between actor threads and the async runtime.
@@ -193,7 +193,7 @@ type ChannelEntry = (Handle, isize, FdState);
 /// All methods are safe to call from a blocking thread.
 pub struct IoBridge {
     env: Arc<Environment>,
-    /// Open channel endpoints: (node_handle, fd, state). Linear search, efficient for small N.
+    /// Open channel endpoints: (`node_handle`, fd, state). Linear search, efficient for small N.
     channel_table: Mutex<Vec<ChannelEntry>>,
     attachment_manager: Arc<AttachmentManager>,
     /// Notifies the spawn loop when I/O state changes that may affect node readiness.
@@ -267,10 +267,21 @@ impl IoBridge {
 
     /// Route a read request to the channel's reader task and block for the result.
     /// Materializes reader lazily on first call.
-    pub fn read(&self, node_handle: Handle, fd: isize, buffer: SendableMutPtr) -> Result<usize, i32> {
+    ///
+    /// # Errors
+    /// Returns `EBADF` if fd not registered or wrong type, `EPIPE` if task exited.
+    pub fn read(
+        &self,
+        node_handle: Handle,
+        fd: isize,
+        buffer: SendableMutPtr,
+    ) -> Result<usize, i32> {
         let tx = {
             let mut table = self.channel_table.lock();
-            let Some((_, _, state)) = table.iter_mut().find(|(h, f, _)| (*h, *f) == (node_handle, fd)) else {
+            let Some((_, _, state)) = table
+                .iter_mut()
+                .find(|(h, f, _)| (*h, *f) == (node_handle, fd))
+            else {
                 warn!(node = ?node_handle, fd = fd, "read: fd not registered");
                 return Err(EBADF);
             };
@@ -283,7 +294,9 @@ impl IoBridge {
                         return Err(EBADF);
                     }
                     let request_tx = self.spawn_reader(node_handle);
-                    *state = FdState::MaterializedReader { request_tx: request_tx.clone() };
+                    *state = FdState::MaterializedReader {
+                        request_tx: request_tx.clone(),
+                    };
                     request_tx
                 }
                 FdState::AllowedWriter | FdState::MaterializedWriter { .. } => {
@@ -309,10 +322,21 @@ impl IoBridge {
 
     /// Route a write request to the channel's writer task and block for the result.
     /// Materializes writer lazily on first call.
-    pub fn write(&self, node_handle: Handle, fd: isize, data: SendableConstPtr) -> Result<usize, i32> {
+    ///
+    /// # Errors
+    /// Returns `EBADF` if fd not registered or wrong type, `EPIPE` if task exited.
+    pub fn write(
+        &self,
+        node_handle: Handle,
+        fd: isize,
+        data: SendableConstPtr,
+    ) -> Result<usize, i32> {
         let tx = {
             let mut table = self.channel_table.lock();
-            let Some((_, _, state)) = table.iter_mut().find(|(h, f, _)| (*h, *f) == (node_handle, fd)) else {
+            let Some((_, _, state)) = table
+                .iter_mut()
+                .find(|(h, f, _)| (*h, *f) == (node_handle, fd))
+            else {
                 warn!(node = ?node_handle, fd = fd, "write: fd not registered");
                 return Err(EBADF);
             };
@@ -320,7 +344,9 @@ impl IoBridge {
                 FdState::MaterializedWriter { request_tx } => request_tx.clone(),
                 FdState::AllowedWriter => {
                     let request_tx = self.spawn_writer(node_handle, fd);
-                    *state = FdState::MaterializedWriter { request_tx: request_tx.clone() };
+                    *state = FdState::MaterializedWriter {
+                        request_tx: request_tx.clone(),
+                    };
                     request_tx
                 }
                 FdState::AllowedReader | FdState::MaterializedReader { .. } => {
@@ -345,9 +371,15 @@ impl IoBridge {
     }
 
     /// Close a specific fd for an actor. Drops the channel task and flushes writers.
+    ///
+    /// # Errors
+    /// Returns `EBADF` if fd not found, `EIO` if task exited or close failed.
     pub fn close(&self, node_handle: Handle, fd: isize) -> Result<(), i32> {
         let mut table = self.channel_table.lock();
-        let state = if let Some(pos) = table.iter().position(|(h, f, _)| (*h, *f) == (node_handle, fd)) {
+        let state = if let Some(pos) = table
+            .iter()
+            .position(|(h, f, _)| (*h, *f) == (node_handle, fd))
+        {
             let (_, _, state) = table.remove(pos);
             Some(state)
         } else {
@@ -413,7 +445,9 @@ impl IoBridge {
             .await;
 
         debug!(node = ?node_handle, "cleanup_actor_io: dropping all entries");
-        self.channel_table.lock().retain(|(h, _, _)| *h != node_handle);
+        self.channel_table
+            .lock()
+            .retain(|(h, _, _)| *h != node_handle);
 
         result
     }
@@ -426,7 +460,11 @@ impl IoBridge {
     /// Returns `Err` if flushing any writer buffers to storage fails.
     pub async fn shutdown(&self) -> Result<(), String> {
         let mut failed_count = 0;
-        while let Some(node_handle) = self.channel_table.lock().first().map(|(h, _, _)| *h) {
+        loop {
+            let node_handle = self.channel_table.lock().first().map(|(h, _, _)| *h);
+            let Some(node_handle) = node_handle else {
+                break;
+            };
             if let Err(e) = self.cleanup_actor_io(node_handle, 0).await {
                 warn!(node = ?node_handle, error = %e, "shutdown: failed to cleanup actor io");
                 failed_count += 1;

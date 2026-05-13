@@ -184,7 +184,6 @@ impl BlockingActorRuntime {
         self.io_bridge
             .register_std_fd_writer(self.node_handle, StdHandle::Trace as isize);
     }
-
 }
 
 impl ActorRuntime for BlockingActorRuntime {

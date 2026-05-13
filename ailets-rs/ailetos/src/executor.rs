@@ -302,9 +302,7 @@ pub async fn run_with_tx(
     let notify = Arc::new(tokio::sync::Notify::new());
     let (actor_done_tx, actor_done_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
 
-    let attachment_manager = Arc::new(AttachmentManager::new(
-        env.attachment_config.read().clone(),
-    ));
+    let attachment_manager = Arc::new(AttachmentManager::new(env.attachment_config.read().clone()));
     let io_bridge = Arc::new(IoBridge::new(
         Arc::clone(&env),
         Arc::clone(&attachment_manager),

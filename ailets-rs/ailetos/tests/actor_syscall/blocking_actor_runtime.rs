@@ -151,12 +151,8 @@ async fn test_latch_errno_with_eownerdead() {
     let actor_handle = Handle::new(env.idgen.get_next());
     let suspension = Arc::new(SuspensionState::new());
 
-    let runtime = BlockingActorRuntime::new(
-        actor_handle,
-        Arc::clone(&bridge),
-        suspension,
-        actor_done_tx,
-    );
+    let runtime =
+        BlockingActorRuntime::new(actor_handle, Arc::clone(&bridge), suspension, actor_done_tx);
 
     let (tx, rx) = oneshot::channel();
     tokio::task::spawn_blocking(move || {

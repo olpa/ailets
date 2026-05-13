@@ -1333,7 +1333,10 @@ async fn test_race_reader_loop_and_recheck() {
     let mut reader = reader_result;
     let mut buf = vec![0u8; 100];
     let n = reader.read(&mut buf).await;
-    assert!(matches!(n, Ok(x) if x > 0), "Should be able to read data from the pipe");
+    assert!(
+        matches!(n, Ok(x) if x > 0),
+        "Should be able to read data from the pipe"
+    );
 }
 
 // reader-to-writer: reader fails and closes, writer closes without another write — writer is successful

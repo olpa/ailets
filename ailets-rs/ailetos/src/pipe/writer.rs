@@ -104,6 +104,9 @@ impl Writer {
     /// - If data is non-empty, appends to buffer and:
     ///   - If successful: notifies observers and returns the count
     ///   - If failed: sets errno and returns `Err(ENOSPC)`
+    ///
+    /// # Errors
+    /// Returns `EBADF` if closed, current errno if set, or `ENOSPC` if buffer write fails.
     pub fn write(&self, data: &[u8]) -> Result<usize, i32> {
         let result: Result<usize, i32> = {
             let mut shared = self.shared.lock();
@@ -138,6 +141,7 @@ impl Writer {
         // Notify outside lock
         match &result {
             Ok(n) => {
+                #[allow(clippy::cast_possible_wrap)] // byte counts won't exceed i64::MAX
                 self.queue.notify(self.handle, *n as i64);
             }
             Err(errno) => {
@@ -147,9 +151,10 @@ impl Writer {
         result
     }
 
-    /// Close the writer and notify all readers
+    /// Close the writer and notify all readers.
     ///
-    /// Returns `Ok(())` on success, `Err(EBADF)` if already closed.
+    /// # Errors
+    /// Returns `EBADF` if already closed.
     pub fn close(&self) -> Result<(), i32> {
         {
             let mut shared = self.shared.lock();

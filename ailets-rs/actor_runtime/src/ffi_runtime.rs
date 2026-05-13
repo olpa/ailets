@@ -18,6 +18,7 @@ impl FfiActorRuntime {
     }
 
     /// Convert FFI result to `Result`, fetching errno on failure.
+    #[allow(clippy::cast_possible_truncation)] // errno values are small
     fn to_result(result: isize) -> Result<usize, i32> {
         if result < 0 {
             Err(unsafe { get_errno() } as i32)
@@ -35,6 +36,7 @@ impl Default for FfiActorRuntime {
 }
 
 impl ActorRuntime for FfiActorRuntime {
+    #[allow(clippy::cast_possible_truncation)] // errno values are small
     fn open_read(&self, name: &str) -> Result<isize, i32> {
         const EINVAL: i32 = 22;
         let Ok(c_name) = CString::new(name) else {
@@ -48,6 +50,7 @@ impl ActorRuntime for FfiActorRuntime {
         }
     }
 
+    #[allow(clippy::cast_possible_truncation)] // errno values are small
     fn open_write(&self, name: &str) -> Result<isize, i32> {
         const EINVAL: i32 = 22;
         let Ok(c_name) = CString::new(name) else {
@@ -73,6 +76,7 @@ impl ActorRuntime for FfiActorRuntime {
         Self::to_result(result)
     }
 
+    #[allow(clippy::cast_possible_truncation)] // errno values are small
     fn aclose(&self, fd: isize) -> Result<(), i32> {
         let result = unsafe { aclose(fd) };
         if result < 0 {

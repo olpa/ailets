@@ -74,9 +74,10 @@ impl Reader {
         &self.own_handle
     }
 
-    /// Close the reader
+    /// Close the reader.
     ///
-    /// Returns `Ok(())` on success, `Err(EBADF)` if already closed.
+    /// # Errors
+    /// Returns `EBADF` if already closed.
     pub fn close(&mut self) -> Result<(), i32> {
         if self.own_closed {
             log::warn!("Reader::close() called on already closed reader: {self:?}");
@@ -173,7 +174,9 @@ impl Reader {
     ///
     /// - `Ok(n)` where `n > 0`: number of bytes read
     /// - `Ok(0)`: EOF (writer is closed and all data has been read)
-    /// - `Err(errno)`: error occurred (errno is latched for subsequent calls)
+    ///
+    /// # Errors
+    /// Returns errno if error occurred (latched for subsequent calls).
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, i32> {
         while !self.own_closed {
             match self.should_wait_for_writer() {

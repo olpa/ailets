@@ -81,10 +81,8 @@ pub async fn write_completed_buffer(
 /// - `writer`: The writer to close
 /// - `log_context`: Context string for logging (e.g., "writer task", "actor shutdown")
 ///
-/// # Returns
-/// - `Ok(())` on success
-/// - `Err(EBADF)` if writer was already closed
-/// - `Err(EIO)` if flush failed
+/// # Errors
+/// Returns `EBADF` if writer was already closed, `EIO` if flush failed.
 pub async fn flush_and_close_writer(
     kv: &dyn KVBuffers,
     writer: &Writer,
