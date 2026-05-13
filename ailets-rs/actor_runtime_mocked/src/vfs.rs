@@ -98,6 +98,8 @@ impl Vfs {
             .ok_or_else(|| format!("File not found: {name}").into())
     }
 
+    /// # Errors
+    /// Returns `ENOENT` (2) if file not found.
     #[allow(clippy::missing_panics_doc)]
     #[allow(clippy::unwrap_used)]
     pub fn open_read(&self, name: &str) -> Result<isize, i32> {
@@ -114,6 +116,8 @@ impl Vfs {
         Err(2) // ENOENT - No such file or directory
     }
 
+    /// # Errors
+    /// Returns `EINVAL` (22) if name contains `WANT_ERROR`.
     #[allow(clippy::missing_panics_doc)]
     #[allow(clippy::unwrap_used)]
     pub fn open_write(&self, name: &str) -> Result<isize, i32> {
@@ -137,6 +141,8 @@ impl Vfs {
         Ok(isize::try_from(handle_index).unwrap())
     }
 
+    /// # Errors
+    /// Returns `EBADF` (9) for invalid fd, `EIO` (5) if `WANT_ERROR` encountered.
     #[allow(clippy::missing_panics_doc)]
     #[allow(clippy::unwrap_used)]
     pub fn aread(&self, fd: isize, buffer: &mut [u8]) -> Result<usize, i32> {
@@ -173,6 +179,8 @@ impl Vfs {
         Ok(handle.pos - pos_before)
     }
 
+    /// # Errors
+    /// Returns `EBADF` (9) for invalid fd, `EIO` (5) if `WANT_ERROR` encountered.
     #[allow(clippy::missing_panics_doc)]
     #[allow(clippy::unwrap_used)]
     pub fn awrite(&self, fd: isize, buffer: &[u8]) -> Result<usize, i32> {
@@ -205,6 +213,8 @@ impl Vfs {
         Ok(len_after - len_before)
     }
 
+    /// # Errors
+    /// Returns `EBADF` (9) for invalid fd.
     #[allow(clippy::missing_panics_doc)]
     #[allow(clippy::unwrap_used)]
     pub fn aclose(&self, fd: isize) -> Result<(), i32> {
@@ -243,7 +253,6 @@ impl Vfs {
         let close_calls = self.close_calls.lock().unwrap();
         close_calls.len()
     }
-
 }
 
 /// Wrapper around Vfs that implements the `ActorRuntime` trait

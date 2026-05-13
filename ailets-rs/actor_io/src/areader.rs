@@ -25,9 +25,9 @@
 
 use actor_runtime::{ActorRuntime, StdHandle};
 
-use crate::error_mapping::errno_to_error_kind;
 #[cfg(feature = "std")]
 use crate::error_mapping::embedded_io_to_std_error;
+use crate::error_mapping::errno_to_error_kind;
 
 pub struct AReader<'a> {
     fd: Option<isize>,
@@ -107,9 +107,7 @@ impl embedded_io::Read for AReader<'_> {
             return Ok(0);
         };
 
-        self.runtime
-            .aread(fd, buf)
-            .map_err(errno_to_error_kind)
+        self.runtime.aread(fd, buf).map_err(errno_to_error_kind)
     }
 }
 

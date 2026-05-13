@@ -24,9 +24,9 @@
 
 use actor_runtime::{ActorRuntime, StdHandle};
 
-use crate::error_mapping::errno_to_error_kind;
 #[cfg(feature = "std")]
 use crate::error_mapping::embedded_io_to_std_error;
+use crate::error_mapping::errno_to_error_kind;
 
 pub struct AWriter<'a> {
     fd: Option<isize>,
@@ -125,9 +125,7 @@ impl embedded_io::Write for AWriter<'_> {
             return Err(embedded_io::ErrorKind::BrokenPipe);
         };
 
-        self.runtime
-            .awrite(fd, buf)
-            .map_err(errno_to_error_kind)
+        self.runtime.awrite(fd, buf).map_err(errno_to_error_kind)
     }
 
     fn flush(&mut self) -> core::result::Result<(), Self::Error> {

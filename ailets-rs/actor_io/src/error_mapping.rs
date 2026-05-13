@@ -13,7 +13,7 @@ pub fn errno_to_error_kind(errno: i32) -> embedded_io::ErrorKind {
         9 | 22 => embedded_io::ErrorKind::InvalidInput,     // EBADF, EINVAL
         12 | 28 => embedded_io::ErrorKind::OutOfMemory,     // ENOMEM, ENOSPC (no space left)
         24 => embedded_io::ErrorKind::Unsupported,          // EMFILE (too many open files)
-        32 => embedded_io::ErrorKind::BrokenPipe,              // EPIPE
+        32 => embedded_io::ErrorKind::BrokenPipe,           // EPIPE
         // EIO, EAGAIN/EWOULDBLOCK, ECONNRESET, ETIMEDOUT, ECONNREFUSED
         5 | 11 | 104 | 110 | 111 => embedded_io::ErrorKind::Other,
         _ => embedded_io::ErrorKind::Other,
