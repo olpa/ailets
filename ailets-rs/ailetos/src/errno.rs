@@ -12,6 +12,9 @@ pub const EBADF: i32 = 9;
 /// Too many open files: returned when the fd table overflows.
 pub const EMFILE: i32 = 24;
 
+/// No space left on device: returned when a buffer is full.
+pub const ENOSPC: i32 = 28;
+
 /// Broken pipe: a reader receives this when the writer closed with any error.
 pub const EPIPE: i32 = 32;
 

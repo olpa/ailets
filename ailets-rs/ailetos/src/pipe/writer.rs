@@ -5,7 +5,7 @@ use std::fmt;
 use std::sync::Arc;
 use tracing::{trace, warn};
 
-use crate::errno::{EBADF, EPIPE};
+use crate::errno::{EBADF, ENOSPC, EPIPE};
 use crate::idgen::Handle;
 use crate::notification_queue::NotificationQueueArc;
 use crate::storage::Buffer;
@@ -130,8 +130,8 @@ impl Writer {
                 Ok(data.len())
             } else {
                 // Buffer append failed - treat as ENOSPC
-                shared.errno = 28; // ENOSPC
-                Err(28)
+                shared.errno = ENOSPC;
+                Err(ENOSPC)
             }
         };
 
