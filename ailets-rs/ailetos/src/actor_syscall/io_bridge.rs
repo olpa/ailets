@@ -418,10 +418,24 @@ impl IoBridge {
         result
     }
 
-    /// Shutdown the IO bridge, clearing all channel state.
+    /// Shutdown the IO bridge, flushing and closing any remaining actor I/O.
     /// Call after all actors have completed.
-    pub fn shutdown(&self) {
-        debug!("IoBridge::shutdown: clearing channel table");
-        self.channel_table.lock().clear();
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err` if flushing any writer buffers to storage fails.
+    pub async fn shutdown(&self) -> Result<(), String> {
+        let mut failed_count = 0;
+        while let Some(node_handle) = self.channel_table.lock().first().map(|(h, _, _)| *h) {
+            if let Err(e) = self.cleanup_actor_io(node_handle, 0).await {
+                warn!(node = ?node_handle, error = %e, "shutdown: failed to cleanup actor io");
+                failed_count += 1;
+            }
+        }
+        if failed_count > 0 {
+            Err(format!("io cleanup failed for {failed_count} actors"))
+        } else {
+            Ok(())
+        }
     }
 }

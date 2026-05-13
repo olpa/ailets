@@ -341,7 +341,9 @@ pub async fn run_with_tx(
     }
 
     // All actors done; shutdown IO bridge and wait for attachment tasks.
-    io_bridge.shutdown();
+    if let Err(e) = io_bridge.shutdown().await {
+        warn!(error = %e, "io_bridge shutdown error");
+    }
     attachment_manager.shutdown().await;
 
     // Dropping actor_done_tx signals actor_done_task to exit.
