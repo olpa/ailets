@@ -543,7 +543,7 @@ impl JobSender {
 
 /// Receiving end of the job channel, consumed by `run_jobs`.
 pub struct JobQueue {
-    pub rx: mpsc::UnboundedReceiver<Handle>,
+    rx: mpsc::UnboundedReceiver<Handle>,
 }
 
 /// Create a linked (`JobSender`, `JobQueue`) pair.
