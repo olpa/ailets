@@ -207,6 +207,7 @@ impl Reader {
                     to_read = to_read,
                     "CRITICAL: destination buffer slice out of bounds"
                 );
+                // Explicit drops: shared borrows self.buffer, set_error needs &mut self
                 drop(bufferguard);
                 drop(shared);
                 self.set_error(EIO);
@@ -227,8 +228,6 @@ impl Reader {
             dest_slice.copy_from_slice(src_slice);
             self.pos = end_pos;
 
-            drop(bufferguard);
-            drop(shared);
             return Ok(to_read);
         }
 
