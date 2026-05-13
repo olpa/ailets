@@ -145,7 +145,7 @@ impl AttachmentManager {
     /// Wait for all attachment tasks to complete
     ///
     /// This should be called during environment shutdown.
-    pub async fn waiting_shutdown(&self) {
+    pub async fn shutdown(&self) {
         let tasks = std::mem::take(&mut *self.tasks.lock());
         trace!(
             "AttachmentManager::waiting_shutdown: entering loop, tasks count = {}",

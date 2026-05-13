@@ -205,9 +205,11 @@ pub struct IoBridge {
 
 impl IoBridge {
     #[must_use]
-    pub fn new(env: Arc<Environment>, notify: Arc<Notify>) -> Self {
-        let attachment_manager =
-            Arc::new(AttachmentManager::new(env.attachment_config.read().clone()));
+    pub fn new(
+        env: Arc<Environment>,
+        attachment_manager: Arc<AttachmentManager>,
+        notify: Arc<Notify>,
+    ) -> Self {
         Self {
             env,
             channel_table: Mutex::new(Vec::new()),
@@ -416,8 +418,10 @@ impl IoBridge {
         result
     }
 
-    /// Wait for all attachment tasks to complete. Call after all actors have shut down.
-    pub async fn shutdown(&self) {
-        self.attachment_manager.waiting_shutdown().await;
+    /// Shutdown the IO bridge, clearing all channel state.
+    /// Call after all actors have completed.
+    pub fn shutdown(&self) {
+        debug!("IoBridge::shutdown: clearing channel table");
+        self.channel_table.lock().clear();
     }
 }

@@ -31,7 +31,7 @@ pub use pipe::PipePool;
 pub use actor_syscall::{ActorLifecycleEvent, BlockingActorRuntime, IoBridge, SendableMutPtr};
 
 // Re-export attachment types
-pub use attachments::AttachmentConfig;
+pub use attachments::{AttachmentConfig, AttachmentManager};
 
 // Re-export environment types
 pub use environment::{ActorFn, ActorRegistry, Environment};

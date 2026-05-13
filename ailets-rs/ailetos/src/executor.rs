@@ -13,6 +13,7 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, warn};
 
 use crate::actor_syscall::ActorLifecycleEvent;
+use crate::attachments::AttachmentManager;
 use crate::dag::{Dag, NodeKind, NodeState};
 use crate::environment::{ActorFn, Environment};
 use crate::errno::EOWNERDEAD;
@@ -301,10 +302,17 @@ pub async fn run_with_tx(
     let notify = Arc::new(tokio::sync::Notify::new());
     let (actor_done_tx, actor_done_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
 
-    let bridge = Arc::new(IoBridge::new(Arc::clone(&env), Arc::clone(&notify)));
+    let attachment_manager = Arc::new(AttachmentManager::new(
+        env.attachment_config.read().clone(),
+    ));
+    let io_bridge = Arc::new(IoBridge::new(
+        Arc::clone(&env),
+        Arc::clone(&attachment_manager),
+        Arc::clone(&notify),
+    ));
 
     if let Some(sender) = tx_out {
-        sender.send(Arc::clone(&bridge)).ok();
+        sender.send(Arc::clone(&io_bridge)).ok();
     }
 
     let actor_done_task =
@@ -321,7 +329,7 @@ pub async fn run_with_tx(
             .collect()
     };
 
-    let actor_tasks = run_spawn_loop(&env, &bridge, pending, &notify, &actor_done_tx).await;
+    let actor_tasks = run_spawn_loop(&env, &io_bridge, pending, &notify, &actor_done_tx).await;
 
     // Join actor tasks first: BlockingActorRuntime::drop sends lifecycle events
     // and blocks on actor_done_task replies — so actor_done_task must still be
@@ -332,12 +340,13 @@ pub async fn run_with_tx(
         }
     }
 
-    // All actors done; wait for attachment tasks.
-    bridge.shutdown().await;
+    // All actors done; shutdown IO bridge and wait for attachment tasks.
+    io_bridge.shutdown();
+    attachment_manager.shutdown().await;
 
     // Dropping actor_done_tx signals actor_done_task to exit.
     drop(actor_done_tx);
-    drop(bridge);
+    drop(io_bridge);
 
     if let Err(e) = actor_done_task.await {
         warn!(error = %e, "actor_done task failed");

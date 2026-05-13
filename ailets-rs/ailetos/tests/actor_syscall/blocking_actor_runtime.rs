@@ -7,7 +7,9 @@ use ailetos::environment::Environment;
 use ailetos::idgen::Handle;
 use ailetos::storage::{KVBuffers, MemKV};
 use ailetos::suspension::SuspensionState;
-use ailetos::{BlockingActorRuntime, IoBridge, EOWNERDEAD, EPIPE};
+use ailetos::{
+    AttachmentConfig, AttachmentManager, BlockingActorRuntime, IoBridge, EOWNERDEAD, EPIPE,
+};
 use tokio::sync::{mpsc, oneshot, Notify};
 
 fn make_test_components() -> (
@@ -21,7 +23,8 @@ fn make_test_components() -> (
     let notify = Arc::new(Notify::new());
     let (actor_done_tx, mut actor_done_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
 
-    let bridge = Arc::new(IoBridge::new(Arc::clone(&env), notify));
+    let attachment_manager = Arc::new(AttachmentManager::new(AttachmentConfig::new()));
+    let bridge = Arc::new(IoBridge::new(Arc::clone(&env), attachment_manager, notify));
 
     // Lifecycle handler: replies to Terminating/Terminated, captures exit_code
     let lifecycle_task = tokio::spawn(async move {
