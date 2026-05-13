@@ -172,9 +172,9 @@ pub async fn run_jobs(
     env: Arc<Environment>,
     mut jobs: JobQueue,
     stop_conditions: StopConditions,
-    events_tx: mpsc::UnboundedSender<ExecutorEvent>,
+    events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
 ) {
-    let infra = Executor::new(&env, Some(events_tx));
+    let infra = Executor::new(&env, events_tx);
     let actor_tasks =
         run_spawn_loop_jobs(&env, &infra, &mut jobs.rx, &stop_conditions).await;
     infra.shutdown(actor_tasks).await;

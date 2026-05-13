@@ -201,8 +201,7 @@ async fn run_jobs_finite_single_job() {
     tx_jobs.submit(target).unwrap();
     drop(tx_jobs);
 
-    let (ev_tx, _ev_rx) = mpsc::unbounded_channel::<ExecutorEvent>();
-    run_jobs(Arc::clone(&env), rx_jobs, StopConditions::default(), ev_tx).await;
+    run_jobs(Arc::clone(&env), rx_jobs, StopConditions::default(), None).await;
 
     assert_eq!(
         env.dag.read().get_node(target).unwrap().state,
@@ -225,7 +224,7 @@ async fn run_jobs_infinite_processes_job_submitted_after_quiescence() {
 
     let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<ExecutorEvent>();
     let env2 = Arc::clone(&env);
-    let handle = tokio::spawn(run_jobs(env2, rx_jobs, StopConditions::default(), ev_tx));
+    let handle = tokio::spawn(run_jobs(env2, rx_jobs, StopConditions::default(), Some(ev_tx)));
 
     // Wait for n1's termination event — guaranteed once n1 finishes
     loop {
@@ -288,7 +287,7 @@ async fn run_jobs_processes_job_submitted_while_actor_running() {
     tx_jobs.submit(n1).expect("channel open");
 
     let env2 = Arc::clone(&env);
-    let executor = tokio::spawn(run_jobs(env2, rx_jobs, StopConditions::default(), ev_tx));
+    let executor = tokio::spawn(run_jobs(env2, rx_jobs, StopConditions::default(), Some(ev_tx)));
 
     // Block until n1 is running
     started_rx.await.unwrap();
