@@ -268,7 +268,7 @@ fn spawn_ready_actors(
                 dag.set_exit_code(*node_handle, crate::errno::ENOENT);
                 dag.set_state(*node_handle, NodeState::Terminated);
             }
-            infra.notify.notify_one();
+            infra.spawn_wakeup.notify_one();
             continue;
         };
 
@@ -288,9 +288,9 @@ fn spawn_ready_actors(
 
         let actor_runtime = BlockingActorRuntime::new(
             *node_handle,
-            Arc::clone(&infra.bridge),
+            Arc::clone(&infra.io_bridge),
             Arc::clone(&env.suspension),
-            infra.actor_done_tx.clone(),
+            infra.lifecycle_tx.clone(),
         );
         actor_tasks.push(spawn_actor_task(*node_handle, idname.clone(), actor_fn, actor_runtime));
     }
@@ -323,7 +323,7 @@ async fn run_spawn_loop(
             break;
         }
 
-        infra.notify.notified().await;
+        infra.spawn_wakeup.notified().await;
     }
 
     actor_tasks
@@ -369,7 +369,7 @@ async fn run_spawn_loop_jobs(
                     None => { channel_closed = true; }
                 }
             }
-            _ = infra.notify.notified() => {}
+            _ = infra.spawn_wakeup.notified() => {}
         }
     }
 
@@ -378,20 +378,42 @@ async fn run_spawn_loop_jobs(
 
 /// Shared infrastructure for an executor run.
 ///
-/// Teardown order is critical:
+/// # Fields
+///
+/// - `spawn_wakeup`: Signals the spawn loop when DAG state changes occur. The
+///   lifecycle handler calls `notify_one()` after updating node states, causing
+///   the spawn loop to wake up and check for newly ready nodes.
+///
+/// - `io_bridge`: Handles all I/O operations for actors (stdin/stdout/stderr/files).
+///   Cloned into each `BlockingActorRuntime` so actors can perform I/O. Also
+///   passed to `attachment_manager` for coordinating attachment I/O.
+///
+/// - `lifecycle_tx`: Channel sender for actor lifecycle events (Terminating/Terminated).
+///   Cloned into each `BlockingActorRuntime`; when an actor shuts down, it sends
+///   events via this channel to notify the executor of state transitions.
+///
+/// - `lifecycle_handler`: Background task that receives lifecycle events from
+///   `lifecycle_tx`, updates the DAG state accordingly, and triggers `spawn_wakeup`.
+///   Also emits `ExecutorEvent::NodeTerminated` to external listeners if configured.
+///
+/// - `attachment_manager`: Manages attachment I/O tasks (e.g., network connections,
+///   file attachments). Provides attachment handles to actors via the io_bridge.
+///
+/// # Teardown order is critical:
+///
 /// 1. Join actor tasks — `BlockingActorRuntime::drop` sends lifecycle events
-///    and blocks on `actor_done_task` replies, so `actor_done_task` must still
+///    and blocks on `lifecycle_handler` replies, so `lifecycle_handler` must still
 ///    be running at this point.
-/// 2. `bridge.shutdown()` — flush I/O channels.
+/// 2. `io_bridge.shutdown()` — flush I/O channels.
 /// 3. `attachment_manager.shutdown()` — wait for attachment tasks.
-/// 4. Drop `actor_done_tx` — signals `actor_done_task` to exit.
-/// 5. Drop `bridge` — releases the last Arc so `actor_done_task` can finish.
-/// 6. Join `actor_done_task`.
+/// 4. Drop `lifecycle_tx` — signals `lifecycle_handler` to exit.
+/// 5. Drop `io_bridge` — releases the last Arc so `lifecycle_handler` can finish.
+/// 6. Join `lifecycle_handler`.
 struct Executor {
-    notify: Arc<tokio::sync::Notify>,
-    bridge: Arc<IoBridge>,
-    actor_done_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
-    actor_done_task: tokio::task::JoinHandle<()>,
+    spawn_wakeup: Arc<tokio::sync::Notify>,
+    io_bridge: Arc<IoBridge>,
+    lifecycle_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
+    lifecycle_handler: tokio::task::JoinHandle<()>,
     attachment_manager: Arc<AttachmentManager>,
 }
 
@@ -400,36 +422,36 @@ impl Executor {
         env: &Arc<Environment>,
         events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
     ) -> Self {
-        let notify = Arc::new(tokio::sync::Notify::new());
-        let (actor_done_tx, actor_done_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
+        let spawn_wakeup = Arc::new(tokio::sync::Notify::new());
+        let (lifecycle_tx, lifecycle_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
         let attachment_manager =
             Arc::new(AttachmentManager::new(env.attachment_config.read().clone()));
-        let bridge = Arc::new(IoBridge::new(
+        let io_bridge = Arc::new(IoBridge::new(
             Arc::clone(env),
             Arc::clone(&attachment_manager),
-            Arc::clone(&notify),
+            Arc::clone(&spawn_wakeup),
         ));
-        let actor_done_task = spawn_lifecycle_event_task(
+        let lifecycle_handler = spawn_lifecycle_event_task(
             Arc::clone(&env.dag),
-            Arc::clone(&notify),
-            actor_done_rx,
+            Arc::clone(&spawn_wakeup),
+            lifecycle_rx,
             events_tx,
         );
         Self {
-            notify,
-            bridge,
-            actor_done_tx,
-            actor_done_task,
+            spawn_wakeup,
+            io_bridge,
+            lifecycle_tx,
+            lifecycle_handler,
             attachment_manager,
         }
     }
 
     async fn shutdown(self, actor_tasks: Vec<tokio::task::JoinHandle<()>>) {
         let Self {
-            notify: _,
-            bridge,
-            actor_done_tx,
-            actor_done_task,
+            spawn_wakeup: _,
+            io_bridge,
+            lifecycle_tx,
+            lifecycle_handler,
             attachment_manager,
         } = self;
 
@@ -438,14 +460,14 @@ impl Executor {
                 warn!(error = %e, "actor task failed");
             }
         }
-        if let Err(e) = bridge.shutdown().await {
+        if let Err(e) = io_bridge.shutdown().await {
             warn!(error = %e, "io_bridge shutdown error");
         }
         attachment_manager.shutdown().await;
-        drop(actor_done_tx);
-        drop(bridge);
-        if let Err(e) = actor_done_task.await {
-            warn!(error = %e, "actor_done task failed");
+        drop(lifecycle_tx);
+        drop(io_bridge);
+        if let Err(e) = lifecycle_handler.await {
+            warn!(error = %e, "lifecycle handler task failed");
         }
     }
 }
@@ -460,7 +482,7 @@ pub async fn run_with_tx(
     let infra = Executor::new(&env, None);
 
     if let Some(sender) = tx_out {
-        sender.send(Arc::clone(&infra.bridge)).ok();
+        sender.send(Arc::clone(&infra.io_bridge)).ok();
     }
 
     let pending: HashSet<Handle> = {
