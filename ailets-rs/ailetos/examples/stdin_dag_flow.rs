@@ -105,8 +105,10 @@ async fn main() {
     env.attach_stdout(resolved);
 
     // Run the system
-    use ailetos::executor::StopConditions;
-    env.run(end_node, StopConditions::default()).await;
+    use ailetos::{Executor, StopConditions};
+    let executor = Executor::start(Arc::new(env.clone()), None);
+    executor.submit(end_node, StopConditions::default()).expect("executor just started");
+    executor.shutdown().await;
 
     // Drop environment to release KV reference
     drop(env);

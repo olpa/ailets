@@ -10,7 +10,6 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 
 use crate::dag::{Dag, DependsOn, For, NodeKind, NodeState};
-use crate::executor::StopConditions;
 use crate::pipe::PipePool;
 
 /// Type for actor functions
@@ -176,13 +175,4 @@ impl Environment {
         target.map_or(handle, |t| self.resolve(t))
     }
 
-    /// Run the environment.
-    ///
-    /// For background execution, wrap a clone in `Arc`:
-    /// `Executor::start(Arc::new(env.clone()), None)`
-    pub async fn run(&self, target: Handle, stop_conditions: StopConditions) {
-        let executor = crate::executor::Executor::start(Arc::new(self.clone()), None);
-        executor.submit(target, stop_conditions).expect("executor just started");
-        executor.shutdown().await;
-    }
 }

@@ -158,7 +158,7 @@ fn test_diamond_dag_valid_topological_order() {
 #[tokio::test]
 async fn test_transitive_block_terminates_and_leaves_nodes_not_started() {
     let kv = Arc::new(MemKV::new());
-    let env = Environment::new(kv);
+    let env = Arc::new(Environment::new(kv));
 
     let c = env.add_node("failing".into(), &[], None);
     let b = env.add_node("noop".into(), &[c], None);
@@ -169,12 +169,11 @@ async fn test_transitive_block_terminates_and_leaves_nodes_not_started() {
         .register("failing", |_| Err("intentional failure".into()));
     env.actor_registry.write().register("noop", |_| Ok(()));
 
-    tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        env.run(a, StopConditions::default()),
-    )
-    .await
-    .expect("executor hung — transitive block not handled");
+    let executor = Executor::start(Arc::clone(&env), None);
+    executor.submit(a, StopConditions::default()).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), executor.shutdown())
+        .await
+        .expect("executor hung — transitive block not handled");
 
     let dag = env.dag.read();
     assert_eq!(
