@@ -875,7 +875,7 @@ Variables:
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
-        if dbg_control::get_bytes_before_pause(handle).is_none() {
+        if !dbg_control::is_dbg_node(handle) {
             return Err(format!("kill is only supported for dbg nodes"));
         }
 

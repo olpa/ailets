@@ -22,6 +22,11 @@ pub fn register_dbg_actor(handle: Handle, bytes_before_pause: Option<usize>) {
     REGISTRY.lock().insert(handle, bytes_before_pause);
 }
 
+/// Returns true if the handle belongs to a registered dbg actor.
+pub fn is_dbg_node(handle: Handle) -> bool {
+    REGISTRY.lock().contains_key(&handle)
+}
+
 /// Get the `bytes_before_pause` config for a registered dbg actor.
 ///
 /// Returns `None` if the handle is not registered.
