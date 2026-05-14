@@ -9,6 +9,7 @@ pub mod notification_queue;
 pub mod pipe;
 pub mod storage;
 pub mod suspension;
+pub mod traversal;
 
 // Re-export DAG types for convenience
 pub use dag::{Dag, DependsOn, For, Node, NodeKind, NodeState, OwnedDependencyIterator};
@@ -40,7 +41,10 @@ pub use environment::{ActorFn, ActorRegistry, Environment};
 pub use suspension::SuspensionState;
 
 // Re-export executor
-pub use executor::{Executor, ExecutorEvent, StopConditions, TopologicalOrderIter, is_ready_to_spawn};
+pub use executor::{Executor, ExecutorEvent, is_ready_to_spawn};
+
+// Re-export traversal types
+pub use traversal::{StopConditions, TopologicalOrderIter};
 
 // Re-export errno constants
 pub use errno::{EBADF, EOWNERDEAD, EPIPE};

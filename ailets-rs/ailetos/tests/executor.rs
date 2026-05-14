@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use ailetos::dag::{Dag, DependsOn, For, NodeKind, NodeState};
-use ailetos::executor::{StopConditions, TopologicalOrderIter};
 use ailetos::storage::MemKV;
+use ailetos::traversal::{StopConditions, TopologicalOrderIter};
 use ailetos::{Executor, ExecutorEvent, Environment, IdGen};
 use tokio::sync::{mpsc, oneshot};
 
