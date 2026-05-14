@@ -179,8 +179,10 @@ impl Environment {
     /// Run the environment.
     ///
     /// For background execution, wrap a clone in `Arc`:
-    /// `executor::run(Arc::new(env.clone()), target, conditions)`
+    /// `Executor::start(Arc::new(env.clone()), None)`
     pub async fn run(&self, target: Handle, stop_conditions: StopConditions) {
-        crate::executor::run(Arc::new(self.clone()), target, stop_conditions).await;
+        let executor = crate::executor::Executor::start(Arc::new(self.clone()), None);
+        executor.submit(target, stop_conditions).expect("executor just started");
+        executor.shutdown().await;
     }
 }

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ailetos::dag::{Dag, DependsOn, For, NodeKind, NodeState};
 use ailetos::executor::{StopConditions, TopologicalOrderIter};
 use ailetos::storage::MemKV;
-use ailetos::{job_queue, run_jobs, ExecutorEvent, Environment, IdGen};
+use ailetos::{Executor, ExecutorEvent, Environment, IdGen};
 use tokio::sync::{mpsc, oneshot};
 
 fn create_linear_dag() -> (Dag, Vec<ailetos::Handle>) {
@@ -197,11 +197,9 @@ async fn run_jobs_finite_single_job() {
 
     let target = env.add_node("noop".into(), &[], None);
 
-    let (tx_jobs, rx_jobs) = job_queue();
-    tx_jobs.submit(target).unwrap();
-    drop(tx_jobs);
-
-    run_jobs(Arc::clone(&env), rx_jobs, StopConditions::default(), None).await;
+    let executor = Executor::start(Arc::clone(&env), None);
+    executor.submit(target, StopConditions::default()).unwrap();
+    executor.shutdown().await;
 
     assert_eq!(
         env.dag.read().get_node(target).unwrap().state,
@@ -218,13 +216,9 @@ async fn run_jobs_infinite_processes_job_submitted_after_quiescence() {
     let n1 = env.add_node("noop".into(), &[], None);
     let n2 = env.add_node("noop".into(), &[], None);
 
-    let (tx_jobs, rx_jobs) = job_queue();
-    tx_jobs.submit(n1).unwrap();
-    // tx_jobs kept alive — channel stays open
-
     let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<ExecutorEvent>();
-    let env2 = Arc::clone(&env);
-    let handle = tokio::spawn(run_jobs(env2, rx_jobs, StopConditions::default(), Some(ev_tx)));
+    let executor = Executor::start(Arc::clone(&env), Some(ev_tx));
+    executor.submit(n1, StopConditions::default()).unwrap();
 
     // Wait for n1's termination event — guaranteed once n1 finishes
     loop {
@@ -235,14 +229,12 @@ async fn run_jobs_infinite_processes_job_submitted_after_quiescence() {
         }
     }
 
-    // Submit n2 and close the channel.
-    tx_jobs.submit(n2).expect("channel open — tx_jobs not yet dropped");
-    drop(tx_jobs);
+    // Submit n2 then shut down — executor processes n2 before exiting.
+    executor.submit(n2, StopConditions::default()).expect("channel open — executor not yet shut down");
+    executor.shutdown().await;
 
-    handle.await.unwrap();
-
-    // If run_jobs exited at quiescence, n2 was never picked up → NotStarted.
-    // If run_jobs waited on the channel, n2 was processed → Terminated.
+    // If executor exited at quiescence, n2 was never picked up → NotStarted.
+    // If executor waited on the channel, n2 was processed → Terminated.
     assert_eq!(
         env.dag.read().get_node(n2).unwrap().state,
         NodeState::Terminated,
@@ -281,20 +273,16 @@ async fn run_jobs_processes_job_submitted_while_actor_running() {
     let n1 = env.add_node("step4_slow".into(), &[], None);
     let n2 = env.add_node("noop".into(), &[], None);
 
-    let (tx_jobs, rx_jobs) = job_queue();
     let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<ExecutorEvent>();
+    let executor = Executor::start(Arc::clone(&env), Some(ev_tx));
 
-    tx_jobs.submit(n1).expect("channel open");
-
-    let env2 = Arc::clone(&env);
-    let executor = tokio::spawn(run_jobs(env2, rx_jobs, StopConditions::default(), Some(ev_tx)));
+    executor.submit(n1, StopConditions::default()).expect("channel open");
 
     // Block until n1 is running
     started_rx.await.unwrap();
 
-    // n1 is Running; submit n2 then close the channel
-    tx_jobs.submit(n2).expect("channel open");
-    drop(tx_jobs);
+    // n1 is Running; submit n2
+    executor.submit(n2, StopConditions::default()).expect("channel open");
 
     // Drain events until n2 terminates — must happen while n1 is still blocked
     loop {
@@ -314,5 +302,5 @@ async fn run_jobs_processes_job_submitted_while_actor_running() {
 
     // Release n1 and wait for the executor to finish
     release_tx.send(()).unwrap();
-    executor.await.unwrap();
+    executor.shutdown().await;
 }

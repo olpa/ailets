@@ -9,7 +9,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use tokio::sync::{mpsc, oneshot};
+use tokio::sync::mpsc;
 use tracing::{debug, warn};
 
 use crate::actor_syscall::ActorLifecycleEvent;
@@ -144,42 +144,6 @@ fn spawn_actor_task(
     })
 }
 
-/// Run the system: spawn system runtime and actor tasks, wait for completion
-pub async fn run(env: Arc<Environment>, target: Handle, stop_conditions: StopConditions) {
-    let infra = Executor::new(&env, None);
-
-    let pending: HashSet<Handle> = {
-        let dag_guard = env.dag.read();
-        TopologicalOrderIter::with_stop_conditions(&dag_guard, target, stop_conditions)
-            .filter(|&n| {
-                dag_guard
-                    .get_node(n)
-                    .is_some_and(|node| node.state == NodeState::NotStarted)
-            })
-            .collect()
-    };
-
-    let actor_tasks = run_spawn_loop(&env, &infra, pending).await;
-    infra.shutdown(actor_tasks).await;
-}
-
-/// Run the system consuming jobs from a `JobQueue`.
-///
-/// Exits when the channel closes (all `JobSender` clones dropped) and all
-/// in-progress work finishes. Supports both finite and infinite execution
-/// depending on the lifetime of the senders.
-pub async fn run_jobs(
-    env: Arc<Environment>,
-    mut jobs: JobQueue,
-    stop_conditions: StopConditions,
-    events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
-) {
-    let infra = Executor::new(&env, events_tx);
-    let actor_tasks =
-        run_spawn_loop_jobs(&env, &infra, &mut jobs.rx, &stop_conditions).await;
-    infra.shutdown(actor_tasks).await;
-}
-
 /// Receives actor lifecycle events from the IO bridge, updates DAG state,
 /// replies to unblock the IO bridge, and fires notify so the spawn loop can react.
 /// Emits `ExecutorEvent::NodeTerminated` to `events_tx` on each termination.
@@ -255,7 +219,7 @@ fn spawn_lifecycle_event_task(
 fn spawn_ready_actors(
     pending: HashSet<Handle>,
     env: &Arc<Environment>,
-    infra: &Executor,
+    infra: &ExecutorInfra,
 ) -> (HashSet<Handle>, Vec<tokio::task::JoinHandle<()>>, bool) {
     let to_spawn: Vec<(Handle, String)> = {
         let dag_guard = env.dag.read();
@@ -312,45 +276,19 @@ fn spawn_ready_actors(
     (remaining, actor_tasks, had_ready)
 }
 
-/// Spawn loop for `run_with_tx`: runs until all nodes in `pending` are done or quiescent.
-async fn run_spawn_loop(
-    env: &Arc<Environment>,
-    infra: &Executor,
-    mut pending: HashSet<Handle>,
-) -> Vec<tokio::task::JoinHandle<()>> {
-    let mut actor_tasks = Vec::new();
-
-    loop {
-        let (new_pending, new_tasks, had_ready) = spawn_ready_actors(pending, env, infra);
-        pending = new_pending;
-        actor_tasks.extend(new_tasks);
-
-        if pending.is_empty() {
-            break;
-        }
-
-        // Quiescence: nothing was ready to spawn AND no actor is running.
-        // Remaining nodes are blocked by a failed dependency; they stay
-        // NotStarted and are eligible for an incremental re-run.
-        if !had_ready && !has_active_actors(&env.dag.read()) {
-            debug!("quiescent: pending nodes remain but no actors are active — stopping");
-            break;
-        }
-
-        infra.spawn_wakeup.notified().await;
-    }
-
-    actor_tasks
+/// A job submitted to the executor, pairing a target node with its stop conditions.
+struct JobItem {
+    target: Handle,
+    stop_conditions: StopConditions,
 }
 
-/// Spawn loop for `run_jobs`: waits on both the job channel and state-change
+/// Spawn loop for `Executor`: waits on both the job channel and state-change
 /// notifications simultaneously, exiting only when the channel is closed and
 /// no actors are running.
 async fn run_spawn_loop_jobs(
     env: &Arc<Environment>,
-    infra: &Executor,
-    job_rx: &mut mpsc::UnboundedReceiver<Handle>,
-    stop_conditions: &StopConditions,
+    infra: &ExecutorInfra,
+    job_rx: &mut mpsc::UnboundedReceiver<JobItem>,
 ) -> Vec<tokio::task::JoinHandle<()>> {
     let mut actor_tasks = Vec::new();
     let mut pending: HashSet<Handle> = HashSet::new();
@@ -368,11 +306,11 @@ async fn run_spawn_loop_jobs(
         tokio::select! {
             result = job_rx.recv(), if !channel_closed => {
                 match result {
-                    Some(target) => {
+                    Some(item) => {
                         let dag = env.dag.read();
                         pending.extend(
                             TopologicalOrderIter::with_stop_conditions(
-                                &dag, target, stop_conditions.clone(),
+                                &dag, item.target, item.stop_conditions,
                             )
                             .filter(|&n| {
                                 dag.get_node(n)
@@ -423,7 +361,7 @@ async fn run_spawn_loop_jobs(
 /// 4. Drop `lifecycle_tx` — signals `lifecycle_handler` to exit.
 /// 5. Drop `io_bridge` — releases the last Arc so `lifecycle_handler` can finish.
 /// 6. Join `lifecycle_handler`.
-struct Executor {
+struct ExecutorInfra {
     spawn_wakeup: Arc<tokio::sync::Notify>,
     io_bridge: Arc<IoBridge>,
     lifecycle_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
@@ -431,7 +369,7 @@ struct Executor {
     attachment_manager: Arc<AttachmentManager>,
 }
 
-impl Executor {
+impl ExecutorInfra {
     fn new(
         env: &Arc<Environment>,
         events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
@@ -486,70 +424,103 @@ impl Executor {
     }
 }
 
-/// Like `run`, but sends the `IoBridge` back via `tx_out` once ready.
+/// Handle for interacting with a running executor.
 ///
-/// # WARNING: This function exists to support a broken implementation
-///
-/// The CLI's `kill` command requires direct access to `IoBridge` to call
-/// `cleanup_actor_io()`. However, this is fundamentally broken:
-/// - It only cleans up I/O channels, it doesn't actually stop the actor task
-/// - It doesn't update DAG state or send lifecycle events
-/// - It breaks encapsulation by exposing internal infrastructure
-///
-/// This function should be removed once the kill command is properly implemented.
-/// See: `doc/in_progress/fix-kill-command.md` for the planned fix.
-pub async fn run_with_tx(
-    env: Arc<Environment>,
-    target: Handle,
-    stop_conditions: StopConditions,
-    tx_out: Option<oneshot::Sender<Arc<IoBridge>>>,
-) {
-    let infra = Executor::new(&env, None);
+/// Created by [`Executor::start()`], consumed by [`Executor::shutdown()`].
+/// Use [`Executor::submit()`] to queue jobs while the executor is running.
+pub struct Executor {
+    job_tx: mpsc::UnboundedSender<JobItem>,
+    executor_task: tokio::task::JoinHandle<()>,
+    /// Kept to expose io_bridge() for callers that need direct I/O access.
+    /// todo: remove once kill_actor() is properly implemented (fix-kill-command.md)
+    infra: Arc<ExecutorInfra>,
+}
 
-    if let Some(sender) = tx_out {
-        sender.send(Arc::clone(&infra.io_bridge)).ok();
+impl Executor {
+    /// Start a new executor for the given environment.
+    ///
+    /// # Parameters
+    /// - `env`: The actor environment (DAG, pipe pool, etc.)
+    /// - `events_tx`: Optional channel for receiving `ExecutorEvent` notifications
+    ///
+    /// # Returns
+    /// An `Executor` handle for submitting jobs and controlling execution.
+    pub fn start(
+        env: Arc<Environment>,
+        events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
+    ) -> Self {
+        let (job_tx, mut job_rx) = mpsc::unbounded_channel::<JobItem>();
+        let infra = Arc::new(ExecutorInfra::new(&env, events_tx));
+        let infra_task = Arc::clone(&infra);
+
+        let executor_task = tokio::spawn(async move {
+            let actor_tasks = run_spawn_loop_jobs(&env, &infra_task, &mut job_rx).await;
+            // By the time run_spawn_loop_jobs returns, Executor::shutdown() has already
+            // dropped its infra Arc, so infra_task is the sole owner here.
+            let infra = Arc::try_unwrap(infra_task)
+                .unwrap_or_else(|_| panic!("executor: expected sole infra ownership at shutdown"));
+            infra.shutdown(actor_tasks).await;
+        });
+
+        Self {
+            job_tx,
+            executor_task,
+            infra,
+        }
     }
 
-    let pending: HashSet<Handle> = {
-        let dag_guard = env.dag.read();
-        TopologicalOrderIter::with_stop_conditions(&dag_guard, target, stop_conditions)
-            .filter(|&n| {
-                dag_guard
-                    .get_node(n)
-                    .is_some_and(|node| node.state == NodeState::NotStarted)
-            })
-            .collect()
-    };
-
-    let actor_tasks = run_spawn_loop(&env, &infra, pending).await;
-    infra.shutdown(actor_tasks).await;
-}
-
-/// Handle for submitting new jobs to a running executor.
-///
-/// Cloneable and `Send + Sync` — distribute copies to any system component
-/// that needs to submit work. The channel closes when all clones are dropped,
-/// which signals the executor to exit after finishing current work.
-#[derive(Clone)]
-pub struct JobSender {
-    tx: mpsc::UnboundedSender<Handle>,
-}
-
-impl JobSender {
-    pub fn submit(&self, target: Handle) -> Result<(), mpsc::error::SendError<Handle>> {
-        self.tx.send(target)
+    /// Submit a job (target node) to the executor.
+    ///
+    /// Returns immediately without blocking — the job runs asynchronously.
+    /// Returns `Err` if the executor has already shut down.
+    ///
+    /// `stop_conditions` controls which nodes in the target's dependency graph
+    /// are included in this job's execution.
+    pub fn submit(
+        &self,
+        target: Handle,
+        stop_conditions: StopConditions,
+    ) -> Result<(), mpsc::error::SendError<Handle>> {
+        self.job_tx
+            .send(JobItem { target, stop_conditions })
+            .map_err(|e| mpsc::error::SendError(e.0.target))
     }
-}
 
-/// Receiving end of the job channel, consumed by `run_jobs`.
-pub struct JobQueue {
-    rx: mpsc::UnboundedReceiver<Handle>,
-}
+    /// Return a reference to the I/O bridge for this executor run.
+    ///
+    /// # WARNING
+    /// This is a temporary escape hatch for CLI code that needs direct I/O bridge
+    /// access. It will be removed once `kill_actor()` is properly implemented.
+    /// See: `doc/in_progress/fix-kill-command.md`
+    pub fn io_bridge(&self) -> Arc<IoBridge> {
+        Arc::clone(&self.infra.io_bridge)
+    }
 
-/// Create a linked (`JobSender`, `JobQueue`) pair.
-pub fn job_queue() -> (JobSender, JobQueue) {
-    let (tx, rx) = mpsc::unbounded_channel();
-    (JobSender { tx }, JobQueue { rx })
+    /// Kill a running actor with the specified exit code.
+    ///
+    /// # NOTE
+    /// Not yet implemented. See `doc/in_progress/fix-kill-command.md`.
+    pub async fn kill_actor(&self, _handle: Handle, _exit_code: i32) -> Result<(), String> {
+        // todo: implement as part of fix-kill-command.md
+        Err("kill_actor not yet implemented".to_string())
+    }
+
+    /// Wait for all submitted jobs to complete and clean up executor resources.
+    ///
+    /// Closes the job submission channel, waits for all in-flight work to finish,
+    /// then tears down internal infrastructure in the correct order.
+    pub async fn shutdown(self) {
+        let Self {
+            job_tx,
+            executor_task,
+            infra,
+        } = self;
+        drop(job_tx); // close the channel → signals executor loop to exit
+        drop(infra); // release our Arc → executor task becomes sole owner
+        if let Err(e) = executor_task.await {
+            warn!(error = %e, "executor task panicked");
+        }
+    }
 }
 
 /// Iterator that yields DAG nodes in topological order (dependencies before dependents).

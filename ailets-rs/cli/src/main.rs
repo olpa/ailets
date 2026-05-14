@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ailetos::{
-    run_with_tx, DependsOn, Environment, For, Handle, IoBridge, KVBuffers, MemKV, NodeState,
+    Executor, DependsOn, Environment, For, Handle, IoBridge, KVBuffers, MemKV, NodeState,
     OpenMode, StopConditions, TopologicalOrderIter, EOWNERDEAD,
 };
 use futures::future::Abortable;
@@ -442,18 +442,13 @@ Variables:
             };
             let rt_handle = rt.handle().clone();
             rt.block_on(async move {
-                let (stx_tx, stx_rx) = tokio::sync::oneshot::channel::<Arc<IoBridge>>();
-                tokio::spawn(async move {
-                    match stx_rx.await {
-                        Ok(bridge) => ready_tx.send(Ok((bridge, rt_handle))).ok(),
-                        Err(_) => ready_tx
-                            .send(Err("System runtime failed to start".to_string()))
-                            .ok(),
-                    };
-                });
-                let future = run_with_tx(env, handle, stop_conditions, Some(stx_tx));
+                // todo: kill command is broken — fix as part of fix-kill-command.md
+                let executor = Executor::start(Arc::clone(&env), None);
+                let bridge = executor.io_bridge();
+                ready_tx.send(Ok((bridge, rt_handle))).ok();
+                executor.submit(handle, stop_conditions).ok();
                 tracing::info!("About to run environment");
-                let result = Abortable::new(future, abort_registration).await;
+                let result = Abortable::new(executor.shutdown(), abort_registration).await;
                 if let Ok(()) = result {
                     tracing::info!("Run completed");
                 } else {
@@ -556,17 +551,12 @@ Variables:
             };
             let rt_handle = rt.handle().clone();
             rt.block_on(async move {
-                let (stx_tx, stx_rx) = tokio::sync::oneshot::channel::<Arc<IoBridge>>();
-                tokio::spawn(async move {
-                    match stx_rx.await {
-                        Ok(bridge) => ready_tx.send(Ok((bridge, rt_handle))).ok(),
-                        Err(_) => ready_tx
-                            .send(Err("System runtime failed to start".to_string()))
-                            .ok(),
-                    };
-                });
-                let future = run_with_tx(env, handle, stop_conditions, Some(stx_tx));
-                let result = Abortable::new(future, abort_registration).await;
+                // todo: kill command is broken — fix as part of fix-kill-command.md
+                let executor = Executor::start(Arc::clone(&env), None);
+                let bridge = executor.io_bridge();
+                ready_tx.send(Ok((bridge, rt_handle))).ok();
+                executor.submit(handle, stop_conditions).ok();
+                let result = Abortable::new(executor.shutdown(), abort_registration).await;
                 if let Ok(()) = result {
                     tracing::info!("Background job completed");
                 } else {
