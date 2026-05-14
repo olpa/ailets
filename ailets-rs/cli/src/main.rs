@@ -11,7 +11,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ailetos::{
-    Executor, DependsOn, Environment, For, Handle, IoBridge, KVBuffers, MemKV, NodeState,
+    Executor, DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState,
     OpenMode, StopConditions, TopologicalOrderIter, EOWNERDEAD,
 };
 use futures::future::Abortable;
@@ -22,8 +22,6 @@ use rustyline::Editor;
 struct BackgroundJob {
     thread: std::thread::JoinHandle<()>,
     abort_handle: futures::future::AbortHandle,
-    bridge: std::sync::Arc<IoBridge>,
-    runtime_handle: tokio::runtime::Handle,
 }
 
 struct DagShell {
@@ -429,8 +427,7 @@ Variables:
 
         let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
         let (ctrlc_abort_handle, ctrlc_abort_reg) = futures::future::AbortHandle::new_pair();
-        let (ready_tx, ready_rx) =
-            std::sync::mpsc::channel::<Result<(Arc<IoBridge>, tokio::runtime::Handle), String>>();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
 
         let thread = std::thread::spawn(move || {
             tracing::info!("Foreground thread starting");
@@ -440,12 +437,9 @@ Variables:
                     .ok();
                 return;
             };
-            let rt_handle = rt.handle().clone();
             rt.block_on(async move {
-                // todo: kill command is broken — fix as part of fix-kill-command.md
                 let executor = Executor::start(Arc::clone(&env), None);
-                let bridge = executor.io_bridge();
-                ready_tx.send(Ok((bridge, rt_handle))).ok();
+                ready_tx.send(Ok(())).ok();
                 executor.submit(handle, stop_conditions).ok();
                 tracing::info!("About to run environment");
                 let result = Abortable::new(executor.shutdown(), abort_registration).await;
@@ -457,15 +451,15 @@ Variables:
             });
         });
 
-        // Wait for system runtime to be ready before entering the Ctrl+C loop
-        let (bridge, runtime_handle) = match ready_rx.recv() {
-            Ok(Ok(pair)) => pair,
+        // Wait for executor to be ready before entering the Ctrl+C loop
+        match ready_rx.recv() {
+            Ok(Ok(())) => {}
             Ok(Err(e)) => {
                 thread.join().ok();
                 return Err(e);
             }
             Err(_) => {
-                // Thread finished before relaying bridge (instant job)
+                // Thread finished before signalling ready (instant job)
                 thread.join().ok();
                 return Ok(());
             }
@@ -490,12 +484,7 @@ Variables:
         });
 
         // Wait for either the job to complete or Ctrl+C
-        let mut job = Some(BackgroundJob {
-            thread,
-            abort_handle,
-            bridge,
-            runtime_handle,
-        });
+        let mut job = Some(BackgroundJob { thread, abort_handle });
 
         loop {
             match rx.recv_timeout(std::time::Duration::from_millis(100)) {
@@ -538,8 +527,7 @@ Variables:
         let env = Arc::clone(&self.env);
 
         let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
-        let (ready_tx, ready_rx) =
-            std::sync::mpsc::channel::<Result<(Arc<IoBridge>, tokio::runtime::Handle), String>>();
+        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
 
         let thread = std::thread::spawn(move || {
             tracing::info!("Background thread starting");
@@ -549,12 +537,9 @@ Variables:
                     .ok();
                 return;
             };
-            let rt_handle = rt.handle().clone();
             rt.block_on(async move {
-                // todo: kill command is broken — fix as part of fix-kill-command.md
                 let executor = Executor::start(Arc::clone(&env), None);
-                let bridge = executor.io_bridge();
-                ready_tx.send(Ok((bridge, rt_handle))).ok();
+                ready_tx.send(Ok(())).ok();
                 executor.submit(handle, stop_conditions).ok();
                 let result = Abortable::new(executor.shutdown(), abort_registration).await;
                 if let Ok(()) = result {
@@ -565,8 +550,8 @@ Variables:
             });
         });
 
-        let (bridge, runtime_handle) = match ready_rx.recv() {
-            Ok(Ok(pair)) => pair,
+        match ready_rx.recv() {
+            Ok(Ok(())) => {}
             Ok(Err(e)) => {
                 thread.join().ok();
                 return Err(e);
@@ -575,14 +560,9 @@ Variables:
                 thread.join().ok();
                 return Err("Background thread exited before signalling ready".to_string());
             }
-        };
+        }
 
-        self.bg_job = Some(BackgroundJob {
-            thread,
-            abort_handle,
-            bridge,
-            runtime_handle,
-        });
+        self.bg_job = Some(BackgroundJob { thread, abort_handle });
 
         println!("Started background run (use 'fg' to wait, 'kill' to terminate)");
 
@@ -885,14 +865,9 @@ Variables:
     }
 
     fn cmd_kill(&mut self, args: &[&str]) -> Result<(), String> {
-        let (exit_code, handle_str) = match args {
-            [flag, node] if flag.starts_with('-') => {
-                let code: i32 = flag[1..]
-                    .parse()
-                    .map_err(|_| format!("Invalid exit code: {flag}"))?;
-                (code, *node)
-            }
-            [node] => (EOWNERDEAD, *node),
+        let handle_str = match args {
+            [_flag, node] if args[0].starts_with('-') => *node,
+            [node] => *node,
             _ => return Err("Usage: kill [-N] <node>".to_string()),
         };
 
@@ -900,13 +875,14 @@ Variables:
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
-        let job = self.bg_job.as_ref().ok_or("No background job running")?;
+        if dbg_control::get_bytes_before_pause(handle).is_none() {
+            return Err(format!("kill is only supported for dbg nodes"));
+        }
 
-        job.runtime_handle
-            .block_on(job.bridge.cleanup_actor_io(handle, exit_code))
-            .map_err(|e| format!("kill failed: {e}"))?;
+        dbg_control::kill_dbg_actor(handle);
+        self.env.suspension.resume(handle);
 
-        println!("Killed node {} with exit code {}", handle.id(), exit_code);
+        println!("Killed node {}", handle.id());
         Ok(())
     }
 
@@ -922,7 +898,6 @@ impl Drop for DagShell {
     fn drop(&mut self) {
         if let Some(job) = self.bg_job.take() {
             self.release_background_job();
-            drop(job.bridge);
             let _ = job.thread.join();
         }
     }

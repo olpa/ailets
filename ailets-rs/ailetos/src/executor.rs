@@ -422,9 +422,6 @@ impl ExecutorInfra {
 pub struct Executor {
     job_tx: mpsc::UnboundedSender<JobItem>,
     executor_task: tokio::task::JoinHandle<()>,
-    /// Kept to expose io_bridge() for callers that need direct I/O access.
-    /// todo: remove once kill_actor() is properly implemented (fix-kill-command.md)
-    infra: Arc<ExecutorInfra>,
 }
 
 impl Executor {
@@ -441,23 +438,14 @@ impl Executor {
         events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
     ) -> Self {
         let (job_tx, mut job_rx) = mpsc::unbounded_channel::<JobItem>();
-        let infra = Arc::new(ExecutorInfra::new(&env, events_tx));
-        let infra_task = Arc::clone(&infra);
+        let infra = ExecutorInfra::new(&env, events_tx);
 
         let executor_task = tokio::spawn(async move {
-            run_spawn_loop_jobs(&env, &infra_task, &mut job_rx).await;
-            // By the time run_spawn_loop_jobs returns, Executor::shutdown() has already
-            // dropped its infra Arc, so infra_task is the sole owner here.
-            let infra = Arc::try_unwrap(infra_task)
-                .unwrap_or_else(|_| panic!("executor: expected sole infra ownership at shutdown"));
+            run_spawn_loop_jobs(&env, &infra, &mut job_rx).await;
             infra.shutdown().await;
         });
 
-        Self {
-            job_tx,
-            executor_task,
-            infra,
-        }
+        Self { job_tx, executor_task }
     }
 
     /// Submit a job (target node) to the executor.
@@ -477,38 +465,13 @@ impl Executor {
             .map_err(|e| mpsc::error::SendError(e.0.target))
     }
 
-    /// Return a reference to the I/O bridge for this executor run.
-    ///
-    /// # WARNING
-    /// This is a temporary escape hatch for CLI code that needs direct I/O bridge
-    /// access. It will be removed once `kill_actor()` is properly implemented.
-    /// See: `doc/in_progress/fix-kill-command.md`
-    pub fn io_bridge(&self) -> Arc<IoBridge> {
-        Arc::clone(&self.infra.io_bridge)
-    }
-
-    /// Kill a running actor with the specified exit code.
-    ///
-    /// # NOTE
-    /// Not yet implemented. See `doc/in_progress/fix-kill-command.md`.
-    pub async fn kill_actor(&self, _handle: Handle, _exit_code: i32) -> Result<(), String> {
-        // todo: implement as part of fix-kill-command.md
-        Err("kill_actor not yet implemented".to_string())
-    }
-
     /// Wait for all submitted jobs to complete and clean up executor resources.
     ///
     /// Closes the job submission channel, waits for all in-flight work to finish,
     /// then tears down internal infrastructure in the correct order.
     pub async fn shutdown(self) {
-        let Self {
-            job_tx,
-            executor_task,
-            infra,
-        } = self;
-        drop(job_tx); // close the channel → signals executor loop to exit
-        drop(infra); // release our Arc → executor task becomes sole owner
-        if let Err(e) = executor_task.await {
+        drop(self.job_tx); // close the channel → signals executor loop to exit
+        if let Err(e) = self.executor_task.await {
             warn!(error = %e, "executor task panicked");
         }
     }
