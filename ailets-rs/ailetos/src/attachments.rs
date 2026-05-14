@@ -142,23 +142,35 @@ impl AttachmentManager {
         self.tasks.lock().push(task);
     }
 
-    /// Wait for all attachment tasks to complete
+    /// Wait for all attachment tasks to complete.
     ///
-    /// This should be called during environment shutdown.
-    pub async fn shutdown(&self) {
+    /// Returns `Err` with a summary if any task failed or panicked.
+    pub async fn shutdown(&self) -> Result<(), String> {
         let tasks = std::mem::take(&mut *self.tasks.lock());
         trace!(
             "AttachmentManager::waiting_shutdown: entering loop, tasks count = {}",
             tasks.len()
         );
+        let mut failed_count = 0;
         for task in tasks {
             match task.await {
                 Ok(Ok(())) => {}
-                Ok(Err(e)) => warn!(error = %e, "attachment task error"),
-                Err(e) => warn!(error = %e, "attachment task panicked"),
+                Ok(Err(e)) => {
+                    warn!(error = %e, "attachment task error");
+                    failed_count += 1;
+                }
+                Err(e) => {
+                    warn!(error = %e, "attachment task panicked");
+                    failed_count += 1;
+                }
             }
         }
         trace!("AttachmentManager::waiting_shutdown: exited loop");
+        if failed_count > 0 {
+            Err(format!("attachment shutdown failed for {failed_count} tasks"))
+        } else {
+            Ok(())
+        }
     }
 }
 

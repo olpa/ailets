@@ -404,7 +404,9 @@ impl ExecutorInfra {
         if let Err(e) = io_bridge.shutdown().await {
             warn!(error = %e, "io_bridge shutdown error");
         }
-        attachment_manager.shutdown().await;
+        if let Err(e) = attachment_manager.shutdown().await {
+            warn!(error = %e, "attachment manager shutdown error");
+        }
         drop(lifecycle_tx);
         drop(io_bridge);
         if let Err(e) = lifecycle_handler.await {
