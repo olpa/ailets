@@ -146,7 +146,21 @@ fn spawn_actor_task(
 
 /// Run the system: spawn system runtime and actor tasks, wait for completion
 pub async fn run(env: Arc<Environment>, target: Handle, stop_conditions: StopConditions) {
-    run_with_tx(env, target, stop_conditions, None).await;
+    let infra = Executor::new(&env, None);
+
+    let pending: HashSet<Handle> = {
+        let dag_guard = env.dag.read();
+        TopologicalOrderIter::with_stop_conditions(&dag_guard, target, stop_conditions)
+            .filter(|&n| {
+                dag_guard
+                    .get_node(n)
+                    .is_some_and(|node| node.state == NodeState::NotStarted)
+            })
+            .collect()
+    };
+
+    let actor_tasks = run_spawn_loop(&env, &infra, pending).await;
+    infra.shutdown(actor_tasks).await;
 }
 
 /// Run the system consuming jobs from a `JobQueue`.
@@ -473,6 +487,17 @@ impl Executor {
 }
 
 /// Like `run`, but sends the `IoBridge` back via `tx_out` once ready.
+///
+/// # WARNING: This function exists to support a broken implementation
+///
+/// The CLI's `kill` command requires direct access to `IoBridge` to call
+/// `cleanup_actor_io()`. However, this is fundamentally broken:
+/// - It only cleans up I/O channels, it doesn't actually stop the actor task
+/// - It doesn't update DAG state or send lifecycle events
+/// - It breaks encapsulation by exposing internal infrastructure
+///
+/// This function should be removed once the kill command is properly implemented.
+/// See: `doc/in_progress/fix-kill-command.md` for the planned fix.
 pub async fn run_with_tx(
     env: Arc<Environment>,
     target: Handle,
