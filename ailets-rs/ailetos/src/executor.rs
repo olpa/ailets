@@ -274,12 +274,12 @@ struct JobItem {
 
 /// Spawn loop for `Executor`: waits on both the job channel and state-change
 /// notifications simultaneously, exiting only when the channel is closed and
-/// no actors are running.
+/// no actors are running. Joins all actor tasks before returning.
 async fn run_spawn_loop_jobs(
     env: &Arc<Environment>,
     infra: &ExecutorInfra,
     job_rx: &mut mpsc::UnboundedReceiver<JobItem>,
-) -> Vec<tokio::task::JoinHandle<()>> {
+) {
     let mut actor_tasks = Vec::new();
     let mut pending: HashSet<Handle> = HashSet::new();
     let mut channel_closed = false;
@@ -315,7 +315,11 @@ async fn run_spawn_loop_jobs(
         }
     }
 
-    actor_tasks
+    for task in actor_tasks {
+        if let Err(e) = task.await {
+            warn!(error = %e, "actor task failed");
+        }
+    }
 }
 
 /// Shared infrastructure for an executor run.
@@ -343,9 +347,9 @@ async fn run_spawn_loop_jobs(
 ///
 /// # Teardown order is critical:
 ///
-/// 1. Join actor tasks — `BlockingActorRuntime::drop` sends lifecycle events
-///    and blocks on `lifecycle_handler` replies, so `lifecycle_handler` must still
-///    be running at this point.
+/// 1. Join actor tasks (done by `run_spawn_loop_jobs` before calling `shutdown`) —
+///    `BlockingActorRuntime::drop` sends lifecycle events and blocks on
+///    `lifecycle_handler` replies, so `lifecycle_handler` must still be running.
 /// 2. `io_bridge.shutdown()` — flush I/O channels.
 /// 3. `attachment_manager.shutdown()` — wait for attachment tasks.
 /// 4. Drop `lifecycle_tx` — signals `lifecycle_handler` to exit.
@@ -388,7 +392,7 @@ impl ExecutorInfra {
         }
     }
 
-    async fn shutdown(self, actor_tasks: Vec<tokio::task::JoinHandle<()>>) {
+    async fn shutdown(self) {
         let Self {
             spawn_wakeup: _,
             io_bridge,
@@ -397,11 +401,6 @@ impl ExecutorInfra {
             attachment_manager,
         } = self;
 
-        for task in actor_tasks {
-            if let Err(e) = task.await {
-                warn!(error = %e, "actor task failed");
-            }
-        }
         if let Err(e) = io_bridge.shutdown().await {
             warn!(error = %e, "io_bridge shutdown error");
         }
@@ -444,12 +443,12 @@ impl Executor {
         let infra_task = Arc::clone(&infra);
 
         let executor_task = tokio::spawn(async move {
-            let actor_tasks = run_spawn_loop_jobs(&env, &infra_task, &mut job_rx).await;
+            run_spawn_loop_jobs(&env, &infra_task, &mut job_rx).await;
             // By the time run_spawn_loop_jobs returns, Executor::shutdown() has already
             // dropped its infra Arc, so infra_task is the sole owner here.
             let infra = Arc::try_unwrap(infra_task)
                 .unwrap_or_else(|_| panic!("executor: expected sole infra ownership at shutdown"));
-            infra.shutdown(actor_tasks).await;
+            infra.shutdown().await;
         });
 
         Self {
