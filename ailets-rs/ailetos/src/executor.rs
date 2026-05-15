@@ -10,6 +10,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
+use tokio::task::JoinSet;
 use tracing::{debug, warn};
 
 use crate::actor_syscall::ActorLifecycleEvent;
@@ -82,15 +83,6 @@ pub fn is_ready_to_spawn(node_handle: Handle, dag: &Dag, pipe_pool: &PipePool) -
     true
 }
 
-/// True if any node is Running or Terminating (i.e. an actor task is still alive).
-/// When false and no nodes were spawned this iteration, no further I/O events
-/// can occur, so remaining pending nodes will never become ready.
-fn has_active_actors(dag: &Dag) -> bool {
-    dag.nodes().any(|n| match n.state {
-        NodeState::Running | NodeState::Terminating => true,
-        NodeState::NotStarted | NodeState::Terminated => false,
-    })
-}
 
 /// Spawn a task for an actor node
 fn spawn_actor_task(
@@ -203,14 +195,16 @@ fn spawn_lifecycle_event_task(
 
 /// Spawn one batch of ready nodes from `pending`.
 ///
-/// Returns `(remaining_pending, new_actor_tasks, had_ready)` where `had_ready`
+/// Spawns actor tasks directly into `actor_tasks` JoinSet.
+/// Returns `(remaining_pending, had_ready)` where `had_ready`
 /// is true when at least one node was found ready this pass — used by
 /// `run_spawn_loop` to detect quiescence.
 fn spawn_ready_actors(
     pending: HashSet<Handle>,
     env: &Arc<Environment>,
     infra: &ExecutorInfra,
-) -> (HashSet<Handle>, Vec<tokio::task::JoinHandle<()>>, bool) {
+    actor_tasks: &mut JoinSet<()>,
+) -> (HashSet<Handle>, bool) {
     let to_spawn: Vec<(Handle, String)> = {
         let dag_guard = env.dag.read();
         pending
@@ -222,10 +216,10 @@ fn spawn_ready_actors(
 
     let had_ready = !to_spawn.is_empty();
     let mut remaining = pending;
-    let mut actor_tasks = Vec::new();
 
     for (node_handle, idname) in &to_spawn {
-        remaining.remove(node_handle);
+        let node_handle = *node_handle; // Copy the handle for use in the async block
+        remaining.remove(&node_handle);
 
         let Some(actor_fn) = env.actor_registry.read().get(idname) else {
             warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
@@ -233,8 +227,8 @@ fn spawn_ready_actors(
             // No lifecycle events needed since the actor was never started.
             {
                 let mut dag = env.dag.write();
-                dag.set_exit_code(*node_handle, crate::errno::ENOENT);
-                dag.set_state(*node_handle, NodeState::Terminated);
+                dag.set_exit_code(node_handle, crate::errno::ENOENT);
+                dag.set_state(node_handle, NodeState::Terminated);
             }
             infra.spawn_wakeup.notify_one();
             continue;
@@ -245,25 +239,35 @@ fn spawn_ready_actors(
             // Re-check state under the write lock: an actor task running
             // concurrently may have already advanced this node past NotStarted.
             if dag
-                .get_node(*node_handle)
+                .get_node(node_handle)
                 .is_none_or(|n| n.state != NodeState::NotStarted)
             {
                 continue;
             }
-            dag.set_state(*node_handle, NodeState::Running);
+            dag.set_state(node_handle, NodeState::Running);
         }
         debug!(node = ?node_handle, name = %idname, "spawning actor task");
 
         let actor_runtime = BlockingActorRuntime::new(
-            *node_handle,
+            node_handle,
             Arc::clone(&infra.io_bridge),
             Arc::clone(&env.suspension),
             infra.lifecycle_tx.clone(),
         );
-        actor_tasks.push(spawn_actor_task(*node_handle, idname.clone(), actor_fn, actor_runtime));
+        let task_handle = spawn_actor_task(node_handle, idname.clone(), actor_fn, actor_runtime);
+
+        // Spawn into JoinSet with error handling wrapper.
+        // We handle panics here (rather than in run_spawn_loop_jobs) to preserve
+        // node_handle context for debugging. JoinError doesn't contain the handle,
+        // so moving this to the loop would lose critical diagnostic information.
+        actor_tasks.spawn(async move {
+            if let Err(e) = task_handle.await {
+                warn!(error = %e, node = ?node_handle, "actor task panicked");
+            }
+        });
     }
 
-    (remaining, actor_tasks, had_ready)
+    (remaining, had_ready)
 }
 
 /// A job submitted to the executor, pairing a target node with its stop conditions.
@@ -272,24 +276,24 @@ struct JobItem {
     stop_conditions: StopConditions,
 }
 
-/// Spawn loop for `Executor`: waits on both the job channel and state-change
-/// notifications simultaneously, exiting only when the channel is closed and
-/// no actors are running. Joins all actor tasks before returning.
+/// Spawn loop for `Executor`: waits on job submissions, state-change notifications,
+/// and actor task completions simultaneously. Exits when the job channel is closed
+/// and all spawned actor tasks have completed. Actor tasks are joined incrementally
+/// as they complete to maintain bounded memory usage.
 async fn run_spawn_loop_jobs(
     env: &Arc<Environment>,
     infra: &ExecutorInfra,
     job_rx: &mut mpsc::UnboundedReceiver<JobItem>,
 ) {
-    let mut actor_tasks = Vec::new();
+    let mut actor_tasks = JoinSet::new();
     let mut pending: HashSet<Handle> = HashSet::new();
     let mut channel_closed = false;
 
     loop {
-        let (new_pending, new_tasks, _) = spawn_ready_actors(pending, env, infra);
+        let (new_pending, _) = spawn_ready_actors(pending, env, infra, &mut actor_tasks);
         pending = new_pending;
-        actor_tasks.extend(new_tasks);
 
-        if channel_closed && !has_active_actors(&env.dag.read()) {
+        if channel_closed && actor_tasks.is_empty() {
             break;
         }
 
@@ -312,12 +316,14 @@ async fn run_spawn_loop_jobs(
                 }
             }
             _ = infra.spawn_wakeup.notified() => {}
-        }
-    }
 
-    for task in actor_tasks {
-        if let Err(e) = task.await {
-            warn!(error = %e, "actor task failed");
+            // Join completed actor tasks to reclaim memory and maintain bounded growth.
+            // This branch completes whenever any task finishes, removing it from the set.
+            // No guard needed: when empty, join_next() returns None and doesn't match.
+            // Errors are handled in spawn_ready_actors wrapper to preserve node_handle context.
+            Some(_) = actor_tasks.join_next() => {
+                // Task completed and removed from the set - nothing to do here.
+            }
         }
     }
 }
