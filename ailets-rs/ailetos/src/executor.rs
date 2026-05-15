@@ -196,15 +196,13 @@ fn spawn_lifecycle_event_task(
 /// Spawn one batch of ready nodes from `pending`.
 ///
 /// Spawns actor tasks directly into `actor_tasks` JoinSet.
-/// Returns `(remaining_pending, had_ready)` where `had_ready`
-/// is true when at least one node was found ready this pass — used by
-/// `run_spawn_loop` to detect quiescence.
+/// Returns the set of nodes that were not ready to spawn (still pending).
 fn spawn_ready_actors(
     pending: HashSet<Handle>,
     env: &Arc<Environment>,
     infra: &ExecutorInfra,
     actor_tasks: &mut JoinSet<()>,
-) -> (HashSet<Handle>, bool) {
+) -> HashSet<Handle> {
     let to_spawn: Vec<(Handle, String)> = {
         let dag_guard = env.dag.read();
         pending
@@ -214,7 +212,6 @@ fn spawn_ready_actors(
             .collect()
     };
 
-    let had_ready = !to_spawn.is_empty();
     let mut remaining = pending;
 
     for (node_handle, idname) in &to_spawn {
@@ -267,7 +264,7 @@ fn spawn_ready_actors(
         });
     }
 
-    (remaining, had_ready)
+    remaining
 }
 
 /// A job submitted to the executor, pairing a target node with its stop conditions.
@@ -290,8 +287,7 @@ async fn run_spawn_loop_jobs(
     let mut channel_closed = false;
 
     loop {
-        let (new_pending, _) = spawn_ready_actors(pending, env, infra, &mut actor_tasks);
-        pending = new_pending;
+        pending = spawn_ready_actors(pending, env, infra, &mut actor_tasks);
 
         if channel_closed && actor_tasks.is_empty() {
             break;
