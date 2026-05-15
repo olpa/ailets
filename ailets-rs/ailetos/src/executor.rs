@@ -298,6 +298,8 @@ async fn run_spawn_loop_jobs(
         }
 
         tokio::select! {
+            // Receive new job submissions from the executor's job channel.
+            // Guard ensures we only listen while the channel is open.
             result = job_rx.recv(), if !channel_closed => {
                 match result {
                     Some(item) => {
@@ -315,6 +317,10 @@ async fn run_spawn_loop_jobs(
                     None => { channel_closed = true; }
                 }
             }
+            // Wake up when DAG state changes (actor termination, state transitions).
+            // This signals that previously blocked actors may now be ready to spawn.
+            // We ignore the notification value itself - we just need to wake up and
+            // re-check readiness in spawn_ready_actors at the top of the loop.
             _ = infra.spawn_wakeup.notified() => {}
 
             // Join completed actor tasks to reclaim memory and maintain bounded growth.
