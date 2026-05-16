@@ -158,7 +158,9 @@ async fn lifecycle_event_task(
                 if reply.send(prior).is_err() {
                     warn!(node = ?node_handle, "actor_done: Terminating reply receiver dropped");
                 }
-                executor_wakeup.notify_one();
+                // Don't wake executor: is_ready_to_spawn treats Terminating the same
+                // as Running, so no spawn decisions change until Terminated.
+                // Terminated follows shortly after Terminating, once cleanup completes.
             }
             ActorLifecycleEvent::Terminated {
                 node_handle,
