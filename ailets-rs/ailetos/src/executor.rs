@@ -15,7 +15,7 @@
 //! Shutdown via [`Executor::shutdown()`] closes the job channel, waits for all work to
 //! complete, and cleans up resources.
 //!
-//! ### ExecutorInfra
+//! ### `ExecutorInfra`
 //!
 //! Internal infrastructure shared across all spawned actors (I/O bridge, lifecycle
 //! handlers, wakeup notifications). See the struct documentation for details.
@@ -41,12 +41,12 @@
 //! an mpsc channel to the executor's main loop. Each job specifies:
 //!
 //! - **target**: The DAG node to execute
-//! - **stop_conditions**: Controls which dependencies to include (one_step, stop_before, etc.)
+//! - **`stop_conditions`**: Controls which dependencies to include (`one_step`, `stop_before`, etc.)
 //!
 //! The executor expands each target into a set of `NotStarted` nodes using topological
 //! ordering, then attempts to spawn them based on readiness.
 //!
-//! ### Main Loop (run_spawn_loop_jobs)
+//! ### Main Loop (`run_spawn_loop_jobs`)
 //!
 //! The executor's core loop simultaneously:
 //!
@@ -73,7 +73,7 @@
 //!   Two-phase protocol with reply channels for synchronization
 //! - Executor events (Executor → External observers):
 //!   `NodeTerminated(Handle)` fired when actors finish
-//! - I/O requests (Actors → IoBridge → Pipe/Attachment tasks):
+//! - I/O requests (Actors → `IoBridge` → Pipe/Attachment tasks):
 //!   Per-fd commands with oneshot replies
 
 use std::collections::HashSet;
@@ -152,7 +152,6 @@ pub fn is_ready_to_spawn(node_handle: Handle, dag: &Dag, pipe_pool: &PipePool) -
 
     true
 }
-
 
 /// Spawn a task for an actor node
 fn spawn_actor_task(
@@ -265,7 +264,7 @@ async fn lifecycle_event_task(
 
 /// Spawn one batch of ready nodes from `pending`.
 ///
-/// Spawns actor tasks directly into `actor_tasks` JoinSet.
+/// Spawns actor tasks directly into `actor_tasks` `JoinSet`.
 /// Returns the set of nodes that were not ready to spawn (still pending).
 fn spawn_ready_actors(
     pending: HashSet<Handle>,
@@ -392,7 +391,7 @@ async fn run_spawn_loop_jobs(
             // This signals that previously blocked actors may now be ready to spawn.
             // We ignore the notification value itself - we just need to wake up and
             // re-check readiness in spawn_ready_actors at the top of the loop.
-            _ = infra.executor_wakeup.notified() => {}
+            () = infra.executor_wakeup.notified() => {}
 
             // Join completed actor tasks to reclaim memory and maintain bounded growth.
             // This branch completes whenever any task finishes, removing it from the set.
@@ -426,7 +425,7 @@ async fn run_spawn_loop_jobs(
 ///   Also emits `ExecutorEvent::NodeTerminated` to external listeners if configured.
 ///
 /// - `attachment_manager`: Manages attachment I/O tasks (e.g., network connections,
-///   file attachments). Provides attachment handles to actors via the io_bridge.
+///   file attachments). Provides attachment handles to actors via the `io_bridge`.
 ///
 /// # Teardown order is critical:
 ///
@@ -516,6 +515,7 @@ impl Executor {
     ///
     /// # Returns
     /// An `Executor` handle for submitting jobs and controlling execution.
+    #[must_use]
     pub fn start(
         env: Arc<Environment>,
         events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
@@ -528,12 +528,17 @@ impl Executor {
             infra.shutdown().await;
         });
 
-        Self { job_tx, executor_task }
+        Self {
+            job_tx,
+            executor_task,
+        }
     }
 
     /// Submit a job (target node) to the executor.
     ///
     /// Returns immediately without blocking — the job runs asynchronously.
+    ///
+    /// # Errors
     /// Returns `Err` if the executor has already shut down.
     ///
     /// `stop_conditions` controls which nodes in the target's dependency graph
@@ -544,7 +549,10 @@ impl Executor {
         stop_conditions: StopConditions,
     ) -> Result<(), mpsc::error::SendError<Handle>> {
         self.job_tx
-            .send(JobItem { target, stop_conditions })
+            .send(JobItem {
+                target,
+                stop_conditions,
+            })
             .map_err(|e| mpsc::error::SendError(e.0.target))
     }
 
@@ -559,4 +567,3 @@ impl Executor {
         }
     }
 }
-

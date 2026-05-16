@@ -54,7 +54,7 @@ pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
             runtime.suspend_and_wait();
             if dbg_control::is_killed(my_handle) {
                 tracing::info!(node = ?my_handle, "dbg actor killed");
-                return Err(format!("killed"));
+                return Err("killed".to_string());
             }
             tracing::info!(node = ?my_handle, "dbg actor resumed, outputting collected data");
 

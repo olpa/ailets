@@ -144,6 +144,7 @@ impl AttachmentManager {
 
     /// Wait for all attachment tasks to complete.
     ///
+    /// # Errors
     /// Returns `Err` with a summary if any task failed or panicked.
     pub async fn shutdown(&self) -> Result<(), String> {
         let tasks = std::mem::take(&mut *self.tasks.lock());
@@ -167,7 +168,9 @@ impl AttachmentManager {
         }
         trace!("AttachmentManager::waiting_shutdown: exited loop");
         if failed_count > 0 {
-            Err(format!("attachment shutdown failed for {failed_count} tasks"))
+            Err(format!(
+                "attachment shutdown failed for {failed_count} tasks"
+            ))
         } else {
             Ok(())
         }

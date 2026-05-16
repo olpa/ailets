@@ -3,7 +3,7 @@ use std::sync::Arc;
 use ailetos::dag::{Dag, DependsOn, For, NodeKind, NodeState};
 use ailetos::storage::MemKV;
 use ailetos::traversal::{StopConditions, TopologicalOrderIter};
-use ailetos::{Executor, ExecutorEvent, Environment, IdGen};
+use ailetos::{Environment, Executor, ExecutorEvent, IdGen};
 use tokio::sync::{mpsc, oneshot};
 
 fn create_linear_dag() -> (Dag, Vec<ailetos::Handle>) {
@@ -229,7 +229,9 @@ async fn run_jobs_infinite_processes_job_submitted_after_quiescence() {
     }
 
     // Submit n2 then shut down — executor processes n2 before exiting.
-    executor.submit(n2, StopConditions::default()).expect("channel open — executor not yet shut down");
+    executor
+        .submit(n2, StopConditions::default())
+        .expect("channel open — executor not yet shut down");
     executor.shutdown().await;
 
     // If executor exited at quiescence, n2 was never picked up → NotStarted.
@@ -275,13 +277,17 @@ async fn run_jobs_processes_job_submitted_while_actor_running() {
     let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<ExecutorEvent>();
     let executor = Executor::start(Arc::clone(&env), Some(ev_tx));
 
-    executor.submit(n1, StopConditions::default()).expect("channel open");
+    executor
+        .submit(n1, StopConditions::default())
+        .expect("channel open");
 
     // Block until n1 is running
     started_rx.await.unwrap();
 
     // n1 is Running; submit n2
-    executor.submit(n2, StopConditions::default()).expect("channel open");
+    executor
+        .submit(n2, StopConditions::default())
+        .expect("channel open");
 
     // Drain events until n2 terminates — must happen while n1 is still blocked
     loop {

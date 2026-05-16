@@ -174,5 +174,4 @@ impl Environment {
         // Recursively resolve in case the target is also an alias
         target.map_or(handle, |t| self.resolve(t))
     }
-
 }

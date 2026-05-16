@@ -14,8 +14,7 @@ static REGISTRY: LazyLock<Mutex<HashMap<Handle, Option<usize>>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Set of handles that have been killed.
-static KILLED: LazyLock<Mutex<HashSet<Handle>>> =
-    LazyLock::new(|| Mutex::new(HashSet::new()));
+static KILLED: LazyLock<Mutex<HashSet<Handle>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
 
 /// Register a dbg actor with its configuration.
 pub fn register_dbg_actor(handle: Handle, bytes_before_pause: Option<usize>) {

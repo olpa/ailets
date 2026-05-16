@@ -11,8 +11,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ailetos::{
-    Executor, DependsOn, Environment, For, Handle, KVBuffers, MemKV, NodeState,
-    OpenMode, StopConditions, TopologicalOrderIter, EOWNERDEAD,
+    DependsOn, Environment, Executor, For, Handle, KVBuffers, MemKV, NodeState, OpenMode,
+    StopConditions, TopologicalOrderIter,
 };
 use futures::future::Abortable;
 use rustyline::config::Configurer;
@@ -463,7 +463,7 @@ Variables:
                 thread.join().ok();
                 return Ok(());
             }
-        };
+        }
 
         // Create a channel to signal when Ctrl+C is pressed
         let (tx, rx) = std::sync::mpsc::channel();
@@ -484,7 +484,10 @@ Variables:
         });
 
         // Wait for either the job to complete or Ctrl+C
-        let mut job = Some(BackgroundJob { thread, abort_handle });
+        let mut job = Some(BackgroundJob {
+            thread,
+            abort_handle,
+        });
 
         loop {
             match rx.recv_timeout(std::time::Duration::from_millis(100)) {
@@ -562,7 +565,10 @@ Variables:
             }
         }
 
-        self.bg_job = Some(BackgroundJob { thread, abort_handle });
+        self.bg_job = Some(BackgroundJob {
+            thread,
+            abort_handle,
+        });
 
         println!("Started background run (use 'fg' to wait, 'kill' to terminate)");
 
@@ -866,7 +872,7 @@ Variables:
 
     fn cmd_kill(&mut self, args: &[&str]) -> Result<(), String> {
         let handle_str = match args {
-            [_flag, node] if args[0].starts_with('-') => *node,
+            [flag, node] if flag.starts_with('-') => *node,
             [node] => *node,
             _ => return Err("Usage: kill [-N] <node>".to_string()),
         };
@@ -876,7 +882,7 @@ Variables:
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
         if !dbg_control::is_dbg_node(handle) {
-            return Err(format!("kill is only supported for dbg nodes"));
+            return Err("kill is only supported for dbg nodes".to_string());
         }
 
         dbg_control::kill_dbg_actor(handle);
