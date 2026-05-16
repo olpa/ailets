@@ -127,70 +127,68 @@ fn spawn_actor_task(
 }
 
 /// Receives actor lifecycle events from the IO bridge, updates DAG state,
-/// replies to unblock the IO bridge, and fires notify so the spawn loop can react.
+/// replies to unblock the IO bridge, and wakes the executor so it can react.
 /// Emits `ExecutorEvent::NodeTerminated` to `events_tx` on each termination.
-fn spawn_lifecycle_event_task(
+async fn lifecycle_event_task(
     dag: Arc<parking_lot::RwLock<Dag>>,
-    notify: Arc<tokio::sync::Notify>,
+    executor_wakeup: Arc<tokio::sync::Notify>,
     mut rx: mpsc::UnboundedReceiver<ActorLifecycleEvent>,
     events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        while let Some(event) = rx.recv().await {
-            match event {
-                ActorLifecycleEvent::Terminating { node_handle, reply } => {
-                    let prior = {
-                        let mut dag = dag.write();
-                        let prior = dag
-                            .get_node(node_handle)
-                            .map_or(NodeState::Terminating, |n| n.state);
-                        match prior {
-                            NodeState::Terminating | NodeState::Terminated => {}
-                            NodeState::Running => {
-                                dag.set_state(node_handle, NodeState::Terminating);
-                            }
-                            NodeState::NotStarted => {
-                                warn!(node = ?node_handle, "actor shutdown received but node was never started");
-                                dag.set_state(node_handle, NodeState::Terminating);
-                            }
+) {
+    while let Some(event) = rx.recv().await {
+        match event {
+            ActorLifecycleEvent::Terminating { node_handle, reply } => {
+                let prior = {
+                    let mut dag = dag.write();
+                    let prior = dag
+                        .get_node(node_handle)
+                        .map_or(NodeState::Terminating, |n| n.state);
+                    match prior {
+                        NodeState::Terminating | NodeState::Terminated => {}
+                        NodeState::Running => {
+                            dag.set_state(node_handle, NodeState::Terminating);
                         }
-                        prior
-                    };
-                    if reply.send(prior).is_err() {
-                        warn!(node = ?node_handle, "actor_done: Terminating reply receiver dropped");
+                        NodeState::NotStarted => {
+                            warn!(node = ?node_handle, "actor shutdown received but node was never started");
+                            dag.set_state(node_handle, NodeState::Terminating);
+                        }
                     }
-                    notify.notify_one();
+                    prior
+                };
+                if reply.send(prior).is_err() {
+                    warn!(node = ?node_handle, "actor_done: Terminating reply receiver dropped");
                 }
-                ActorLifecycleEvent::Terminated {
-                    node_handle,
-                    exit_code,
-                    reply,
-                } => {
-                    let prior = {
-                        let mut dag = dag.write();
-                        let prior = dag
-                            .get_node(node_handle)
-                            .map_or(NodeState::Terminated, |n| n.state);
-                        if prior != NodeState::Terminating {
-                            warn!(node = ?node_handle, ?prior, "actor Terminated but prior state was not Terminating");
-                        }
-                        dag.set_state(node_handle, NodeState::Terminated);
-                        dag.set_exit_code(node_handle, exit_code);
-                        prior
-                    };
-                    if reply.send(prior).is_err() {
-                        warn!(node = ?node_handle, "actor_done: Terminated reply receiver dropped");
+                executor_wakeup.notify_one();
+            }
+            ActorLifecycleEvent::Terminated {
+                node_handle,
+                exit_code,
+                reply,
+            } => {
+                let prior = {
+                    let mut dag = dag.write();
+                    let prior = dag
+                        .get_node(node_handle)
+                        .map_or(NodeState::Terminated, |n| n.state);
+                    if prior != NodeState::Terminating {
+                        warn!(node = ?node_handle, ?prior, "actor Terminated but prior state was not Terminating");
                     }
-                    if let Some(ref tx) = events_tx {
-                        if tx.send(ExecutorEvent::NodeTerminated(node_handle)).is_err() {
-                            warn!(node = ?node_handle, "executor events receiver dropped");
-                        }
-                    }
-                    notify.notify_one();
+                    dag.set_state(node_handle, NodeState::Terminated);
+                    dag.set_exit_code(node_handle, exit_code);
+                    prior
+                };
+                if reply.send(prior).is_err() {
+                    warn!(node = ?node_handle, "actor_done: Terminated reply receiver dropped");
                 }
+                if let Some(ref tx) = events_tx {
+                    if tx.send(ExecutorEvent::NodeTerminated(node_handle)).is_err() {
+                        warn!(node = ?node_handle, "executor events receiver dropped");
+                    }
+                }
+                executor_wakeup.notify_one();
             }
         }
-    })
+    }
 }
 
 /// Spawn one batch of ready nodes from `pending`.
@@ -232,7 +230,7 @@ fn spawn_ready_actors(
                 dag.set_exit_code(node_handle, crate::errno::ENOENT);
                 dag.set_state(node_handle, NodeState::Terminated);
             }
-            infra.spawn_wakeup.notify_one();
+            infra.executor_wakeup.notify_one();
             continue;
         };
 
@@ -322,7 +320,7 @@ async fn run_spawn_loop_jobs(
             // This signals that previously blocked actors may now be ready to spawn.
             // We ignore the notification value itself - we just need to wake up and
             // re-check readiness in spawn_ready_actors at the top of the loop.
-            _ = infra.spawn_wakeup.notified() => {}
+            _ = infra.executor_wakeup.notified() => {}
 
             // Join completed actor tasks to reclaim memory and maintain bounded growth.
             // This branch completes whenever any task finishes, removing it from the set.
@@ -339,9 +337,9 @@ async fn run_spawn_loop_jobs(
 ///
 /// # Fields
 ///
-/// - `spawn_wakeup`: Signals the spawn loop when DAG state changes occur. The
+/// - `executor_wakeup`: Signals the executor when DAG state changes occur. The
 ///   lifecycle handler calls `notify_one()` after updating node states, causing
-///   the spawn loop to wake up and check for newly ready nodes.
+///   the executor to wake up and check for newly ready nodes.
 ///
 /// - `io_bridge`: Handles all I/O operations for actors (stdin/stdout/stderr/files).
 ///   Cloned into each `BlockingActorRuntime` so actors can perform I/O. Also
@@ -352,7 +350,7 @@ async fn run_spawn_loop_jobs(
 ///   events via this channel to notify the executor of state transitions.
 ///
 /// - `lifecycle_handler`: Background task that receives lifecycle events from
-///   `lifecycle_tx`, updates the DAG state accordingly, and triggers `spawn_wakeup`.
+///   `lifecycle_tx`, updates the DAG state accordingly, and triggers `executor_wakeup`.
 ///   Also emits `ExecutorEvent::NodeTerminated` to external listeners if configured.
 ///
 /// - `attachment_manager`: Manages attachment I/O tasks (e.g., network connections,
@@ -369,7 +367,7 @@ async fn run_spawn_loop_jobs(
 /// 5. Drop `io_bridge` — releases the last Arc so `lifecycle_handler` can finish.
 /// 6. Join `lifecycle_handler`.
 struct ExecutorInfra {
-    spawn_wakeup: Arc<tokio::sync::Notify>,
+    executor_wakeup: Arc<tokio::sync::Notify>,
     io_bridge: Arc<IoBridge>,
     lifecycle_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
     lifecycle_handler: tokio::task::JoinHandle<()>,
@@ -381,23 +379,23 @@ impl ExecutorInfra {
         env: &Arc<Environment>,
         events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
     ) -> Self {
-        let spawn_wakeup = Arc::new(tokio::sync::Notify::new());
+        let executor_wakeup = Arc::new(tokio::sync::Notify::new());
         let (lifecycle_tx, lifecycle_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
         let attachment_manager =
             Arc::new(AttachmentManager::new(env.attachment_config.read().clone()));
         let io_bridge = Arc::new(IoBridge::new(
             Arc::clone(env),
             Arc::clone(&attachment_manager),
-            Arc::clone(&spawn_wakeup),
+            Arc::clone(&executor_wakeup),
         ));
-        let lifecycle_handler = spawn_lifecycle_event_task(
+        let lifecycle_handler = tokio::spawn(lifecycle_event_task(
             Arc::clone(&env.dag),
-            Arc::clone(&spawn_wakeup),
+            Arc::clone(&executor_wakeup),
             lifecycle_rx,
             events_tx,
-        );
+        ));
         Self {
-            spawn_wakeup,
+            executor_wakeup,
             io_bridge,
             lifecycle_tx,
             lifecycle_handler,
@@ -407,7 +405,7 @@ impl ExecutorInfra {
 
     async fn shutdown(self) {
         let Self {
-            spawn_wakeup: _,
+            executor_wakeup: _,
             io_bridge,
             lifecycle_tx,
             lifecycle_handler,
