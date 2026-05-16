@@ -207,8 +207,13 @@ fn spawn_ready_actors(
         let dag_guard = env.dag.read();
         pending
             .iter()
-            .filter(|&&n| is_ready_to_spawn(n, &dag_guard, &env.pipe_pool))
-            .filter_map(|&n| dag_guard.get_node(n).map(|node| (n, node.idname.clone())))
+            .filter_map(|&n| {
+                if is_ready_to_spawn(n, &dag_guard, &env.pipe_pool) {
+                    dag_guard.get_node(n).map(|node| (n, node.idname.clone()))
+                } else {
+                    None
+                }
+            })
             .collect()
     };
 
