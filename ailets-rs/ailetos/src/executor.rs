@@ -95,10 +95,10 @@ fn spawn_actor_task(
         let blocking_result = tokio::task::spawn_blocking(move || {
             debug!(node = ?node_handle, name = %idname, "task starting");
 
-            let mut runtime = actor_runtime;
-            runtime.register_std_fds();
+            let mut actor_runtime = actor_runtime;
+            actor_runtime.register_std_fds();
 
-            let result = actor_fn(&runtime);
+            let result = actor_fn(&actor_runtime);
 
             match result {
                 Ok(()) => {
@@ -106,16 +106,16 @@ fn spawn_actor_task(
                 }
                 Err(e) => {
                     warn!(node = ?node_handle, name = %idname, error = %e, "task error");
-                    runtime.latch_errno(EOWNERDEAD);
+                    actor_runtime.latch_errno(EOWNERDEAD);
                 }
             }
-            runtime
+            actor_runtime
         })
         .await;
 
         match blocking_result {
-            Ok(mut runtime) => {
-                if let Err(e) = runtime.shutdown().await {
+            Ok(mut actor_runtime) => {
+                if let Err(e) = actor_runtime.shutdown().await {
                     warn!(node = ?node_handle, error = %e, "actor shutdown error");
                 }
             }
