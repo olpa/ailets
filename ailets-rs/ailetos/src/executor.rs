@@ -1,10 +1,80 @@
-//! Executor - actor execution for the actor system
+//! Executor - DAG-based actor scheduling and execution
 //!
-//! This module handles:
-//! - Topological ordering of DAG nodes
-//! - Readiness checking for node spawning
-//! - The spawn loop that runs actors
-//! - Top-level execution of a DAG run
+//! # Architecture
+//!
+//! The executor orchestrates concurrent actor execution based on a DAG of dependencies.
+//! It implements **on-demand spawning** (actors start only when their inputs are available)
+//! and **maximum concurrency** (runs as many actors in parallel as dependencies allow).
+//!
+//! ## Core Components
+//!
+//! ### Executor
+//!
+//! The main entry point for running actors. Created via [`Executor::start()`], it runs
+//! indefinitely in the background, processing jobs submitted via [`Executor::submit()`].
+//! Shutdown via [`Executor::shutdown()`] closes the job channel, waits for all work to
+//! complete, and cleans up resources.
+//!
+//! ### ExecutorInfra
+//!
+//! Internal infrastructure shared across all spawned actors (I/O bridge, lifecycle
+//! handlers, wakeup notifications). See the struct documentation for details.
+//!
+//! ### Actor Tasks
+//!
+//! Each actor runs in a two-layer task structure via [`spawn_actor_task()`]:
+//!
+//! 1. An async tokio task (`tokio::spawn`) for lifecycle management
+//! 2. A blocking task (`tokio::task::spawn_blocking`) that runs the actor function
+//!
+//! Actors use synchronous I/O, so they must run in blocking tasks. The outer async
+//! task provides a `BlockingActorRuntime` for actor syscalls, handles errors by
+//! latching errno, and calls shutdown after completion.
+//!
+//! Actor tasks are tracked in a `JoinSet` for incremental cleanup as they complete.
+//!
+//! ## Execution Flow
+//!
+//! ### Job Submission
+//!
+//! Jobs (target nodes) are submitted via [`Executor::submit()`], which sends them through
+//! an mpsc channel to the executor's main loop. Each job specifies:
+//!
+//! - **target**: The DAG node to execute
+//! - **stop_conditions**: Controls which dependencies to include (one_step, stop_before, etc.)
+//!
+//! The executor expands each target into a set of `NotStarted` nodes using topological
+//! ordering, then attempts to spawn them based on readiness.
+//!
+//! ### Main Loop (run_spawn_loop_jobs)
+//!
+//! The executor's core loop simultaneously:
+//!
+//! 1. **Receives new jobs** from the job channel (via `select!` on `job_rx.recv()`)
+//! 2. **Reacts to state changes** via `executor_wakeup.notified()` when:
+//!    - An actor terminates (changes spawn readiness for dependents)
+//!    - A pipe is realized (first write unblocks downstream readers)
+//!    - A writer closes (may trigger cleanup or error propagation)
+//! 3. **Joins completed actor tasks** incrementally to maintain bounded memory
+//!
+//! On each iteration, the loop calls [`spawn_ready_actors()`] to check which pending
+//! nodes are now ready to spawn based on dependency state and output availability
+//! (see [`is_ready_to_spawn()`] for the complete readiness algorithm).
+//!
+//! The lifecycle handler ([`lifecycle_event_task()`]) receives events from actors,
+//! updates the DAG state, and wakes the executor. Only the `Terminated` transition
+//! triggers a wakeup (Terminating doesn't change spawn readiness).
+//!
+//! ## Communication Channels
+//!
+//! - Job submission (User → Executor):
+//!   Jobs sent via mpsc channel; closes when all handles dropped
+//! - Lifecycle events (Actors → Executor):
+//!   Two-phase protocol with reply channels for synchronization
+//! - Executor events (Executor → External observers):
+//!   `NodeTerminated(Handle)` fired when actors finish
+//! - I/O requests (Actors → IoBridge → Pipe/Attachment tasks):
+//!   Per-fd commands with oneshot replies
 
 use std::collections::HashSet;
 use std::sync::Arc;
