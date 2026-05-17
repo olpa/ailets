@@ -5,6 +5,10 @@ edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
+[lib]
+name = "dagsh"
+path = "src/lib.rs"
+
 [[bin]]
 name = "dagsh"
 path = "src/main.rs"
