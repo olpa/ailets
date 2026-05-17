@@ -6,214 +6,184 @@ Previously dagsh was job-oriented: the user would start a job and wait for its c
 
 Now dagsh adopts a live core model, similar to the Erlang shell or Smalltalk: the execution environment is persistent and the user interface works directly with a running world. Runs are incremental — each run sees all state changes from previous runs.
 
-## Architecture
+## Architecture (as implemented)
 
-**ailetos runtime**: a dedicated `tokio::runtime::Runtime` created at shell startup and owned by `DagShell` for the duration of the session. The `Environment` (DAG, KV storage, node states, pipe pool) lives inside this runtime and persists across runs.
+```
+main thread (sync)
+  │
+  │  rustyline REPL
+  │  DagShell::execute(cmd)
+  │      │
+  │      ├─ executor.submit(handle, stop_conds)   ← non-blocking
+  │      │
+  │      └─ join_handle(handle)                   ← polls, Ctrl+C escapes
+  │              │  pending_join: Arc<Mutex<Option<JoinWaiter>>>
+  │              │
+  ╔══════════════╪════════════════════════════════════╗
+  ║  ailetos_rt  │  (dedicated tokio Runtime)         ║
+  ║              │                                    ║
+  ║   Executor task ──► actor tasks (spawn_blocking)  ║
+  ║        │                                          ║
+  ║   lifecycle_event_task                            ║
+  ║        │ NodeTerminated(h) via tokio mpsc          ║
+  ║   Bridge task ──► sync mpsc (events_rx)           ║
+  ╚══════════════╪════════════════════════════════════╝
+                 │
+          Notification watcher thread (OS thread, always running)
+                 │
+                 ├─ if pending_join.target == h  → signal JoinWaiter
+                 └─ else                         → notification_sink.println("[name] done")
+                                                          │
+                                          ExternalPrinter (via ChannelSink)
+                                          or StdoutSink fallback
+```
 
-**CLI**: the `rustyline` REPL remains synchronous. It communicates with the ailetos runtime via blocking channels. A CLI-side Tokio runtime is only introduced if async CLI work is needed.
+**ailetos runtime** (`ailetos_rt: tokio::runtime::Runtime`): created once in `DagShell::new`, lives for the session. Owns the persistent `Executor` and all actor tasks. The `Environment` (DAG, KV storage, pipe pool) also lives on this runtime.
 
-**Executor lifecycle**: the executor exits when all actors in a run are done, but the environment persists. The next `run` is incremental and sees all prior node states and data. A "run forever until explicitly stopped" mode will be requested from the ailetos developers for future use.
+**Persistent Executor**: started once via `Executor::start(env, Some(events_tx))`. Jobs are submitted with `executor.submit(handle, stop_conditions)` (non-blocking). Multiple concurrent background runs are allowed — there is no single-job slot.
 
-## Commands
+**Event bridge**: a tokio task on `ailetos_rt` forwards `ExecutorEvent` from a tokio channel to a `std::sync::mpsc` channel (`events_rx`). This decouples the async executor from the synchronous CLI.
 
-See [docs/commands.md](../commands.md).
+**Notification watcher thread**: a permanent OS thread (not a tokio task) that owns `events_rx`. On each `NodeTerminated` event it either signals the active `join_handle` (if `pending_join` matches) or prints `[name#id] done` via the notification sink.
 
-## Implementation plan
+**CLI thread**: stays synchronous throughout. `join_handle` registers a `JoinWaiter` in a shared `Arc<Mutex>` and polls a one-shot `SyncSender<()>` with 50ms timeout, checking Ctrl+C between polls.
 
-### Approach
+**ExternalPrinter**: `main()` creates a rustyline `ExternalPrinter` before building `DagShell`, wraps it in a `ChannelSink` (channel + background thread), and passes it as the notification sink. This ensures background `[name] done` lines are printed through the terminal's line-rewrite mechanism without corrupting in-progress user input.
 
-Red-green TDD throughout. Each step begins with a failing test that specifies the intended behaviour. Only the minimum code needed to pass the test is written; cleanup follows. No step is declared done until `cargo test` and `cargo clippy --deny warnings` both pass.
+## Key divergence from the original plan
 
-### Workflow per step
+The original plan was written against a `run_with_tx` API that was removed in master commit `9e491fa` (A253). That API was replaced by `Executor::start / submit / shutdown`. The branch was rebased to master HEAD before implementation started.
 
-1. Write the tests in red state (failing, not yet passing).
-2. Stop and let the developer review the tests. Commit after approval.
-3. Before writing any implementation code, explain the planned approach and wait for the developer to confirm.
-4. Implement the step.
-5. Stop and let the developer review the implementation. Commit after approval.
+The original Step 2 planned to use `notification_queue` (an ailetos-internal subscription mechanism). The new API exposes events only via `events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>`. The watcher thread + `pending_join` mechanism replaces the planned `notification_queue` subscription approach.
 
-### Step 0: Test harness
+## What was implemented (commits on this branch)
 
-**Prerequisite for everything below.** `DagShell::execute` currently prints directly via `println!`, making output impossible to capture in unit tests.
+| Commit | Step | Summary |
+|--------|------|---------|
+| `001b4eb` | 0 | `lib.rs` split + `OutputSink` trait + test harness |
+| `dce74af` | 1–4 | Persistent `ailetos_rt` + `Executor`; `join`/`await` command; `fg` removed; multiple concurrent bg runs |
+| `98ae79d` | 6–7 | Notification watcher thread; `OutputSink: Send + Sync`; `new_with_sinks` |
+| `70763b8` | 6 | `ExternalPrinter` wired in `main.rs` via `ChannelSink` |
 
-Red: write a test that calls `shell.execute("help")` and asserts the returned value contains known text — it will not compile because `execute` returns `Result<bool, String>`, not output.
+### What each commit delivers
 
-Green: introduce an `OutputSink` trait with a single method `println(&self, line: &str)`. Give `DagShell` a generic or boxed `OutputSink`. Production code passes a `StdoutSink`; tests pass a `CapturingSink` that collects lines into a `Vec<String>`. Thread the sink through all `cmd_*` methods that currently call `println!`.
+**Step 0** (`lib.rs` split): Moves all `DagShell` implementation from `main.rs` into `lib.rs`. Adds `OutputSink` trait (`fn println(&self, line: &str)`). `StdoutSink` for production; `CapturingSink` (wraps `Arc<Mutex<Vec<String>>>`) in tests. All `println!` inside `DagShell` replaced with `self.sink.println(...)`. Adds `Cargo.toml` `[lib]` section; `tests/shell.rs` with first integration test.
 
-This refactor is a prerequisite for every subsequent test.
+**Steps 1–4**: Replaces `bg_job: Option<BackgroundJob>` and per-run `tokio::runtime::Runtime` with:
+- `ailetos_rt: tokio::runtime::Runtime` — session-lifetime runtime
+- `executor: Executor` — persistent, receives jobs via `submit`
+- `events_rx: Receiver<ExecutorEvent>` — sync side of the bridge (later moved to watcher)
+- `join_handle(target)` — polls with 50ms timeout; Ctrl+C detaches
+- `cmd_join` / `cmd_await` commands
+- `run --bg` submits and returns immediately; no single-slot constraint
+- `cmd_reset` creates new env + executor on the same `ailetos_rt`; sends `WatcherUpdate`
+- `node value` and `cat` reuse `ailetos_rt.block_on` instead of throwaway runtimes
 
-### Step 1: Persistent ailetos runtime
+**Steps 6–7**: Adds the notification watcher thread. `OutputSink` gains `Send + Sync` supertraits. `DagShell::new_with_sinks(command_sink, notification_sink)` separates the two sinks. `join_handle` registers a `JoinWaiter` in `pending_join` instead of reading `events_rx` directly.
 
-Red:
+## Known bug found during testing
+
+**`run <alias>` hangs in foreground mode.**
+
+When the target node is an alias (e.g. `set end = node alias .end $baz`), `cmd_run` calls `join_handle(alias_handle)`. The watcher registers `pending_join.target = alias_handle`. But the executor resolves the alias and emits `NodeTerminated(baz_handle)`. Since `baz_handle ≠ alias_handle`, the watcher prints it as a notification rather than signalling `join_handle`. The join waits forever.
+
+**Fix**: resolve the alias before calling `join_handle`:
+
 ```rust
-#[test]
-fn runtime_persists_across_commands() {
-    let shell = DagShell::new_for_test();
-    let h = shell.ailetos_rt.handle().clone();
-    let (tx, rx) = std::sync::mpsc::channel();
-    h.spawn(async move { tx.send(42u32).ok(); });
-    assert_eq!(rx.recv().unwrap(), 42);
-    // second use — same runtime, not a new one
-    h.spawn(async move {});
+// in cmd_run, after executor.submit:
+if !bg_flag {
+    let join_target = self.env.resolve(handle);  // follow alias chain
+    self.join_handle(join_target)?;
 }
 ```
 
-Green: add `ailetos_rt: tokio::runtime::Runtime` to `DagShell`, initialised in `new()` with `tokio::runtime::Runtime::new().unwrap()`. `new_for_test()` is an alias for `new()` that also registers the test actors.
+`env.resolve(h)` is already used in `attach_stdout_for_run` for the same reason. The fix is a one-liner in `cmd_run`.
 
-### Step 2: Run executor on the persistent runtime
+## What still needs to be done
 
-Currently `run_foreground` and `run_background` each spawn a `std::thread` that creates its own `Runtime`. Replace both with a single helper that spawns `run_with_tx` as a task on `ailetos_rt`.
+### Alias bug fix (required before merge)
 
-Red:
+Apply the one-liner fix above. Add a test:
+
 ```rust
 #[test]
-fn run_completes_on_persistent_runtime() {
-    let mut shell = DagShell::new_for_test();
-    // simple value → cat pipeline
-    shell.execute("node value hello").unwrap();
-    shell.execute("node add cat").unwrap();
-    shell.execute("dep $1 $0").unwrap();
-    shell.execute("run $1").unwrap();
-    let out = shell.execute("status $1").unwrap();
-    assert!(out.contains("Terminated"));
-}
-```
-
-Green: implement `spawn_run(handle, stop_conditions) -> RunHandle` that calls `ailetos_rt.spawn(run_with_tx(...))`. `run` (foreground) calls `spawn_run` then immediately calls the join logic (Step 4). `run --bg` calls `spawn_run` and stores the handle. Remove the per-run `std::thread::spawn` and per-run `Runtime::new`.
-
-Verify: check that `executor.rs` calls `notification_queue.notify(handle, ...)` when a node transitions to `Terminated`. If it does not, add that call now — it is required by Steps 4 and 7.
-
-### Step 3: Multiple concurrent background runs
-
-Red:
-```rust
-#[test]
-fn two_bg_runs_are_allowed() {
-    let mut shell = DagShell::new_for_test();
-    // two independent single-node pipelines
-    // ...
-    assert!(shell.execute("run $node_a --bg").is_ok());
-    assert!(shell.execute("run $node_b --bg").is_ok());
-}
-```
-
-Green: replace `bg_job: Option<BackgroundJob>` with `run_handles: Vec<RunHandle>` where `RunHandle` holds a `tokio::task::JoinHandle<()>` and a `CancellationToken` (from `tokio-util`). Remove the "background job already running" guard. `cmd_reset` drains `run_handles`, cancelling each token before reinitialising the environment.
-
-### Step 4: `join` / `await` — wait for termination with output streaming
-
-Red:
-```rust
-#[test]
-fn join_blocks_until_terminated_and_streams_output() {
+fn run_alias_completes() {
     let sink = CapturingSink::new();
-    let mut shell = DagShell::new_with_sink(sink.clone());
-    // value "hello" → cat
-    // ...
-    shell.execute("run $cat --bg").unwrap();
-    shell.execute("join $cat").unwrap();
-    let status = shell.execute("status $cat").unwrap();
-    assert!(status.contains("Terminated"));
-    assert!(sink.lines().iter().any(|l| l.contains("[") && l.contains("] hello")));
-}
-```
-
-Green:
-- `cmd_join(handle)`: open a read stream on the node's stdout pipe; spawn a reader task on `ailetos_rt` that forwards lines to `OutputSink` formatted as `[nodename] <line>`; subscribe to `NotificationQueueArc` for the handle; `block_on` the termination notification. On Ctrl+C, drop the subscription and return to the prompt — the node keeps running.
-- Add `await` as a command alias that dispatches to `cmd_join`.
-
-### Step 5: `follow` — stream output without waiting for termination
-
-Red:
-```rust
-#[test]
-fn follow_streams_without_blocking_on_termination() {
-    let sink = CapturingSink::new();
-    let mut shell = DagShell::new_with_sink(sink.clone());
-    // shell_input node: stays running until explicitly closed
-    // write "line1", follow, check sink contains "[nodename] line1"
-    // node is NOT terminated after follow returns
-    // ...
-    let status = shell.execute("status $inp").unwrap();
-    assert!(!status.contains("Terminated"));
-}
-```
-
-Green: `cmd_follow(handle)`: same output reader as `cmd_join`, but the blocking wait is only on Ctrl+C or natural stream close — not on `Terminated`. On Ctrl+C, close the reader and return to the prompt.
-
-### Step 6: `ExternalPrinter` for background output (non-blocking lines)
-
-Steps 4 and 5 above use `OutputSink` while the REPL is blocked. This step wires `OutputSink` to rustyline's `ExternalPrinter` so that output can also arrive while the user is typing.
-
-Red:
-```rust
-// integration-style: start a bg run, then call readline once;
-// the CapturingExternalPrinter must have received the output line
-// before readline returns.
-```
-
-Green:
-- In `main()`, call `rl.create_external_printer()` and pass it to `DagShell::new`.
-- `ExternalPrinterSink` wraps `rustyline::ExternalPrinter` and implements `OutputSink`.
-- Replace `StdoutSink` with `ExternalPrinterSink` in the production path.
-- The `CapturingSink` used in earlier tests is unchanged.
-
-### Step 7: Background termination notifications
-
-Red:
-```rust
-#[test]
-fn background_node_termination_prints_notification() {
-    let sink = CapturingSink::new();
-    let mut shell = DagShell::new_with_sink(sink.clone());
-    shell.execute("run $fast_node --bg").unwrap();
-    // wait briefly for completion
-    std::thread::sleep(std::time::Duration::from_millis(200));
+    let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
+    shell.execute("set v = node value hello").unwrap();
+    shell.execute("set c = node add cat").unwrap();
+    shell.execute("dep $c $v").unwrap();
+    shell.execute("set end = node alias .end $c").unwrap();
+    shell.execute("run $end").unwrap(); // must not hang
     let lines = sink.lines();
-    assert!(lines.iter().any(|l| l.contains("done") || l.contains("FAILED")));
+    assert!(lines.iter().any(|l| l.contains("built") || l.contains("Terminated")));
 }
 ```
 
-Green: in `DagShell::new`, spawn a watcher task on `ailetos_rt`. The watcher holds a `Vec<broadcast::Receiver<_>>`, one per registered handle (populated via `notification_queue.subscribe`). When a `Terminated` event fires, it calls `sink.println("[nodename] done")` or `"[nodename] FAILED (exit N)"`. New handles are subscribed in `cmd_node_inner` when they are created.
+### Step 5: `follow` — stream live output
 
-### Step 8: Remove `fg`, update `kill`
+Stream actor output without waiting for termination. Requires a way to read from a node's stdout pipe incrementally (currently `cat` reads the whole KV buffer at once post-termination). This needs ailetos API support for streaming reads.
 
-Red:
+### Step 9: `wait` — event-based instead of polling
+
+Replace the 10ms poll loop in `wait terminated` with an event-based wait:
+
 ```rust
-#[test]
-fn fg_is_removed() {
-    let mut shell = DagShell::new_for_test();
-    let err = shell.execute("fg").unwrap_err();
-    assert!(err.contains("removed") || err.contains("unknown command"));
-}
-
-#[test]
-fn kill_works_on_any_node() {
-    let mut shell = DagShell::new_for_test();
-    // run two independent nodes --bg; kill one; other continues
-    // ...
+// instead of thread::sleep loop:
+loop {
+    match self.events_rx.recv_timeout(poll_interval) {
+        Ok(ExecutorEvent::NodeTerminated(h)) if h == handle => return Ok(()),
+        Ok(_) => {}  // other node terminated, keep waiting
+        Err(Timeout) => {}
+        Err(Disconnected) => return Ok(()),
+    }
+    if Instant::now() >= deadline { return Err("Timeout..."); }
 }
 ```
 
-Green: delete `cmd_fg`. Rewrite `cmd_kill`: look up the node state in `env.dag` directly; if running, call `IoBridge::cleanup_actor_io` via `ailetos_rt.block_on`. Remove all references to `bg_job` in `cmd_kill` and `cmd_reset`.
+Note: `events_rx` is now owned by the watcher thread. To use it in `cmd_wait`, either:
+a. Use `wait terminated` via `join_handle` (register a `JoinWaiter` + timeout wrapper), or
+b. Add a separate subscription mechanism.
 
-### Step 9: `wait` — replace poll loop with subscription
+Option (a) is simpler: `cmd_wait "terminated"` can call `join_handle` with a deadline.
 
-Red: existing `wait suspended` and `wait terminated` behaviour must be preserved. Add a test if none exists.
+### Step 10: `kill` generalization
 
-Green: replace the 10ms poll loop with `ailetos_rt.block_on(notification_queue.wait_async(handle, ...))`. Wrap in an `Abortable` future so Ctrl+C can interrupt the wait.
+Currently `kill` only works for `dbg` nodes (uses `dbg_control::kill_dbg_actor`). Generalizing requires access to `IoBridge::cleanup_actor_io`, which is internal to the executor. Either expose it via a new `ExecutorEvent`/method on `Executor`, or accept the limitation for now.
 
-### Step 10: Delete dead code
+### `fg` is removed — update scripts
 
-Red: `cargo test && cargo clippy --deny warnings` must pass with zero warnings.
+Any scripts using `fg` should replace it with `join <node>`.
 
-Green: delete `BackgroundJob`, `run_foreground`, `run_background`, and any remaining references to `bg_job`. Verify `cmd_reset` correctly cancels all `RunHandle` tokens and awaits their tasks before reinitialising the environment.
+## How to run tests
 
----
+```
+cargo test                         # run integration tests in cli/tests/shell.rs
+cargo clippy -- -D warnings        # must be clean
+```
 
-### ailetos dependency
+Four integration tests currently pass:
+- `execute_routes_output_through_sink` — help output goes through sink
+- `run_completes_on_persistent_executor` — foreground value→cat pipeline terminates
+- `multiple_bg_runs_are_allowed` — two simultaneous background runs succeed
+- `background_termination_is_notified` — bg cat run prints `[cat#N] done` to notification sink
 
-Before starting Step 2, confirm that `executor.rs` calls `notification_queue.notify(handle, exit_code)` in the `ActorLifecycleEvent::Terminated` branch. If it does not, add that call as a prerequisite change to the ailetos crate. All subsequent steps that block on termination depend on this.
+## File map
 
-## Output handling and session exit
-
-See [docs/dagsh.md](../dagsh.md) for user-facing behaviour. Implementation note: rustyline's `ExternalPrinter` is used for all node output so that notifications and streamed lines never corrupt the user's current input line.
+```
+cli/
+  src/
+    lib.rs              ← DagShell, OutputSink, StdoutSink, all commands
+    main.rs             ← main(), ExternalPrinter wiring, ChannelSink
+    dbg_actor.rs        ← unchanged
+    dbg_control.rs      ← unchanged
+    shell_input_actor.rs ← unchanged
+    shell_input_control.rs ← unchanged
+  tests/
+    shell.rs            ← CapturingSink + integration tests
+  docs/
+    commands.md         ← user-facing command reference
+    dagsh.md            ← user-facing live core overview
+    in_progress/
+      a245-dagsh-two-executors.md  ← this file
+```
