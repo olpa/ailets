@@ -16,9 +16,10 @@ pub(crate) mod shell_input_control;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use actor_runtime::StdHandle;
 use ailetos::{
-    DependsOn, Environment, Executor, ExecutorEvent, For, Handle, KVBuffers, MemKV, NodeState,
-    OpenMode, StopConditions, TopologicalOrderIter,
+    pipe::pipe_path, DependsOn, Environment, Executor, ExecutorEvent, For, Handle, KVBuffers,
+    MemKV, NodeState, OpenMode, StopConditions, TopologicalOrderIter,
 };
 use futures::future::Abortable;
 
@@ -722,16 +723,15 @@ Variables:
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
-        let hid = handle.id();
         let kv = Arc::clone(&self.kv);
         let output = self.ailetos_rt.block_on(async move {
-            let path = format!("{hid}/stdout");
+            let path = pipe_path(handle, StdHandle::Stdout as isize);
             match kv.open(&path, OpenMode::Read).await {
                 Ok(buffer) => {
                     let guard = buffer.lock();
                     Ok(String::from_utf8_lossy(&guard).into_owned())
                 }
-                Err(e) => Err(format!("No output available for node {hid}: {e:?}")),
+                Err(e) => Err(format!("No output available for node {}: {e:?}", handle.id())),
             }
         });
         match output {
