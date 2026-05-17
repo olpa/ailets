@@ -14,13 +14,13 @@ use std::sync::Arc;
 use actor_io::{error_kind_to_str, AWriter};
 use actor_runtime::StdHandle;
 use ailetos::idgen::Handle;
-use ailetos::{BlockingActorRuntime, Environment, SqliteKV};
+use ailetos::{Environment, KVBuffers, SqliteKV};
 use embedded_io::Write;
 use std::io::Read;
 
 /// Stdin source actor: reads from OS stdin and writes to actor stdout
-fn stdin_actor(runtime: &BlockingActorRuntime) -> Result<(), String> {
-    let mut writer = AWriter::new_from_std(&runtime, StdHandle::Stdout);
+fn stdin_actor(runtime: &dyn actor_runtime::ActorRuntime) -> Result<(), String> {
+    let mut writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
     let mut stdin = std::io::stdin();
     let mut buffer = [0u8; 8192];
 
@@ -45,7 +45,7 @@ fn stdin_actor(runtime: &BlockingActorRuntime) -> Result<(), String> {
     Ok(())
 }
 
-async fn build_flow(env: &mut Environment<SqliteKV>) -> Result<Handle, ailetos::KVError> {
+async fn build_flow(env: &Environment) -> Result<Handle, ailetos::KVError> {
     let val = env
         .add_value_node(
             "(mee too)".as_bytes().to_vec(),
@@ -82,7 +82,7 @@ async fn main() {
     let kv = Arc::new(SqliteKV::new("example.db").expect("Failed to create SqliteKV"));
 
     // Create environment
-    let mut env = Environment::new(Arc::clone(&kv));
+    let env = Environment::new(Arc::clone(&kv) as Arc<dyn KVBuffers>);
 
     // Register actors in the environment
     // Note: "value" nodes are handled specially by the Environment, no actor needed
@@ -90,7 +90,7 @@ async fn main() {
     env.actor_registry.write().register("cat", cat::execute);
 
     // Build the flow
-    let end_node = build_flow(&mut env).await.expect("Failed to build flow");
+    let end_node = build_flow(&env).await.expect("Failed to build flow");
 
     // Print dependency tree (with colors if stdout is a terminal)
     let tree = if std::io::stdout().is_terminal() {
@@ -106,7 +106,8 @@ async fn main() {
 
     // Run the system
     use ailetos::{Executor, StopConditions};
-    let executor = Executor::start(Arc::new(env.clone()), None);
+    let env = Arc::new(env);
+    let executor = Executor::start(Arc::clone(&env), None);
     executor
         .submit(end_node, StopConditions::default())
         .expect("executor just started");
