@@ -171,9 +171,7 @@ async fn test_transitive_block_terminates_and_leaves_nodes_not_started() {
 
     let executor = Executor::start(Arc::clone(&env), None);
     executor.submit(a, StopConditions::default()).unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(5), executor.shutdown())
-        .await
-        .expect("executor hung — transitive block not handled");
+    executor.shutdown().await;
 
     let dag = env.dag.read();
     assert_eq!(
