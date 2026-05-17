@@ -73,6 +73,20 @@ fn multiple_bg_runs_are_allowed() {
 }
 
 #[test]
+fn run_alias_completes() {
+    let sink = CapturingSink::new();
+    let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
+    shell.execute("set v = node value hello").unwrap();
+    shell.execute("set c = node add cat").unwrap();
+    shell.execute("dep $c $v").unwrap();
+    shell.execute("set end = node alias .end $c").unwrap();
+    shell.execute("run $end").unwrap(); // must not hang
+    shell.execute("status $c").unwrap();
+    let lines = sink.lines();
+    assert!(lines.iter().any(|l| l.contains("built")));
+}
+
+#[test]
 fn background_termination_is_notified() {
     // Value nodes are pre-terminated (no actor runs), so use value → cat so
     // that cat actually spawns and produces a NodeTerminated event.

@@ -580,7 +580,7 @@ Variables:
         if bg_flag {
             self.sink.println("Started background run");
         } else {
-            self.join_handle(handle)?;
+            self.join_handle(self.env.resolve(handle))?;
         }
 
         self.sink.println("");
