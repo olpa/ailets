@@ -130,7 +130,7 @@ fn start_notification_watcher(
                         if let Some(waiter) = pending.take() {
                             let _ = waiter.ready_tx.send(());
                         }
-                    } else {
+                    } else if pending.is_none() {
                         let name = {
                             let dag = env.dag.read();
                             dag.get_node(h)
@@ -139,6 +139,7 @@ fn start_notification_watcher(
                         };
                         notification_sink.println(&format!("[{name}] done"));
                     }
+                    // else: foreground join active but not our target — suppress
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {

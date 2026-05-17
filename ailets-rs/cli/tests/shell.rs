@@ -113,3 +113,24 @@ fn background_termination_is_notified() {
         );
     }
 }
+
+#[test]
+fn foreground_run_suppresses_intermediate_notifications() {
+    // Intermediate nodes in a foreground pipeline must not emit notifications.
+    let notification_sink = Arc::new(CapturingSink::new());
+    let mut shell = DagShell::new_with_sinks(
+        Box::new(CapturingSink::new()),
+        Arc::clone(&notification_sink) as Arc<dyn OutputSink>,
+    );
+    shell.execute("set v = node value hello").unwrap();
+    shell.execute("set c = node add cat").unwrap();
+    shell.execute("dep $c $v").unwrap();
+    shell.execute("run $c").unwrap(); // foreground
+    // Give the watcher a moment to flush any stray events.
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert!(
+        notification_sink.lines().is_empty(),
+        "unexpected notifications during foreground run: {:?}",
+        notification_sink.lines()
+    );
+}
