@@ -2,10 +2,11 @@
 //!
 //! The ailetos executor runs on a dedicated `tokio::runtime::Runtime` owned by
 //! `DagShell` for the session lifetime. The CLI thread stays synchronous.
-//! Events from ailetos reach the CLI via a `std::sync::mpsc` bridge channel,
-//! so `join_handle` can poll for termination without blocking the CLI on the
-//! ailetos runtime. If ailetos is stuck, Ctrl+C in `join_handle` detaches
-//! and returns control to the prompt while ailetos keeps running.
+//!
+//! A permanent notification watcher thread consumes executor events and either
+//! signals the active `join_handle` call or prints a background notification.
+//! This means node terminations are always reported, even while the user is at
+//! the prompt.
 
 pub(crate) mod dbg_actor;
 pub(crate) mod dbg_control;
@@ -13,7 +14,7 @@ pub(crate) mod shell_input_actor;
 pub(crate) mod shell_input_control;
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use ailetos::{
     DependsOn, Environment, Executor, ExecutorEvent, For, Handle, KVBuffers, MemKV, NodeState,
@@ -25,9 +26,9 @@ use futures::future::Abortable;
 // OutputSink
 // ---------------------------------------------------------------------------
 
-/// Where DagShell command output is written.
-/// Production code uses [`StdoutSink`]; tests use a capturing sink.
-pub trait OutputSink {
+/// Where DagShell output is written. `Send + Sync` so the notification
+/// watcher thread can hold an `Arc<dyn OutputSink>`.
+pub trait OutputSink: Send + Sync {
     fn println(&self, line: &str);
 }
 
@@ -40,14 +41,25 @@ impl OutputSink for StdoutSink {
 }
 
 // ---------------------------------------------------------------------------
-// Internal helpers
+// Internal types
 // ---------------------------------------------------------------------------
 
-/// Start a persistent executor on `rt` and bridge its events to a sync channel.
-///
-/// `Executor::start` internally calls `tokio::spawn`; entering the runtime
-/// context first ensures those tasks land on `rt`, not on whatever runtime
-/// (if any) owns the calling thread.
+/// State set by `join_handle` so the watcher thread knows what to signal.
+struct JoinWaiter {
+    target: Handle,
+    ready_tx: std::sync::mpsc::SyncSender<()>,
+}
+
+/// Sent to the watcher thread when the executor is replaced (on `reset`).
+struct WatcherUpdate {
+    events_rx: std::sync::mpsc::Receiver<ExecutorEvent>,
+    env: Arc<Environment>,
+}
+
+// ---------------------------------------------------------------------------
+// Executor startup helpers
+// ---------------------------------------------------------------------------
+
 fn start_executor_with_bridge(
     rt: &tokio::runtime::Runtime,
     env: Arc<Environment>,
@@ -82,47 +94,133 @@ fn make_env(kv: &Arc<MemKV>) -> Arc<Environment> {
     env
 }
 
+/// Spawn the watcher thread.
+///
+/// The watcher owns `events_rx` for the current executor. On each event:
+/// - if `pending_join` targets this handle → signal the waiter
+/// - otherwise → print a notification via `notification_sink`
+///
+/// When the executor is replaced (`reset`), `DagShell` sends a `WatcherUpdate`
+/// so the watcher switches to the new receiver. When `update_rx` closes (on
+/// `DagShell` drop), the watcher exits.
+fn start_notification_watcher(
+    initial: WatcherUpdate,
+    update_rx: std::sync::mpsc::Receiver<WatcherUpdate>,
+    pending_join: Arc<Mutex<Option<JoinWaiter>>>,
+    notification_sink: Arc<dyn OutputSink>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let mut env = initial.env;
+        let mut events_rx = initial.events_rx;
+
+        loop {
+            match update_rx.try_recv() {
+                Ok(upd) => {
+                    env = upd.env;
+                    events_rx = upd.events_rx;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => break,
+            }
+
+            match events_rx.recv_timeout(std::time::Duration::from_millis(50)) {
+                Ok(ExecutorEvent::NodeTerminated(h)) => {
+                    let mut pending = pending_join.lock().unwrap();
+                    if pending.as_ref().map(|j| j.target == h).unwrap_or(false) {
+                        if let Some(waiter) = pending.take() {
+                            let _ = waiter.ready_tx.send(());
+                        }
+                    } else {
+                        let name = {
+                            let dag = env.dag.read();
+                            dag.get_node(h)
+                                .map(|n| format!("{}#{}", n.idname, h.id()))
+                                .unwrap_or_else(|| format!("node#{}", h.id()))
+                        };
+                        notification_sink.println(&format!("[{name}] done"));
+                    }
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    // Old executor done; wait for the next executor (or drop).
+                    match update_rx.recv() {
+                        Ok(upd) => {
+                            env = upd.env;
+                            events_rx = upd.events_rx;
+                        }
+                        Err(_) => break,
+                    }
+                }
+            }
+        }
+    })
+}
+
 // ---------------------------------------------------------------------------
 // DagShell
 // ---------------------------------------------------------------------------
 
-/// Interactive DAG shell.
-///
-/// The ailetos `Executor` lives on a dedicated `tokio::runtime::Runtime` for
-/// the session. The REPL stays synchronous. Running `run <node>` submits a
-/// job to ailetos and optionally waits for termination; Ctrl+C always returns
-/// control to the prompt while ailetos keeps running.
 pub struct DagShell {
     env: Arc<Environment>,
     kv: Arc<MemKV>,
     handles: Vec<Handle>,
     vars: HashMap<String, Handle>,
     sink: Box<dyn OutputSink>,
+    pending_join: Arc<Mutex<Option<JoinWaiter>>>,
+    watcher_update_tx: std::sync::mpsc::SyncSender<WatcherUpdate>,
+    // Kept alive until DagShell drops; the drop closes watcher_update_tx
+    // which causes the watcher to exit.
+    _watcher: std::thread::JoinHandle<()>,
     // executor drops before ailetos_rt (declaration order = drop order).
     executor: Executor,
-    events_rx: std::sync::mpsc::Receiver<ExecutorEvent>,
     ailetos_rt: tokio::runtime::Runtime,
 }
 
 impl DagShell {
     pub fn new() -> Self {
-        Self::new_with_sink(Box::new(StdoutSink))
+        Self::new_with_sinks(Box::new(StdoutSink), Arc::new(StdoutSink))
     }
 
     pub fn new_with_sink(sink: Box<dyn OutputSink>) -> Self {
+        Self::new_with_sinks(sink, Arc::new(StdoutSink))
+    }
+
+    /// Create a shell with separate sinks for synchronous command output and
+    /// background notifications (node terminations while at the prompt).
+    pub fn new_with_sinks(
+        command_sink: Box<dyn OutputSink>,
+        notification_sink: Arc<dyn OutputSink>,
+    ) -> Self {
         let kv = Arc::new(MemKV::new());
         let env = make_env(&kv);
         let ailetos_rt =
             tokio::runtime::Runtime::new().expect("failed to create ailetos runtime");
         let (executor, events_rx) = start_executor_with_bridge(&ailetos_rt, Arc::clone(&env));
+
+        let pending_join: Arc<Mutex<Option<JoinWaiter>>> = Arc::new(Mutex::new(None));
+        let (watcher_update_tx, update_rx) =
+            std::sync::mpsc::sync_channel::<WatcherUpdate>(4);
+
+        let watcher = start_notification_watcher(
+            WatcherUpdate {
+                events_rx,
+                env: Arc::clone(&env),
+            },
+            update_rx,
+            Arc::clone(&pending_join),
+            notification_sink,
+        );
+
         Self {
             env,
             kv,
             handles: Vec::new(),
             vars: HashMap::new(),
-            sink,
+            sink: command_sink,
+            pending_join,
+            watcher_update_tx,
+            _watcher: watcher,
             executor,
-            events_rx,
             ailetos_rt,
         }
     }
@@ -132,13 +230,6 @@ impl DagShell {
             return self.vars.get(var_name).copied();
         }
         s.parse::<i64>().ok().map(Handle::new)
-    }
-
-    fn node_display_name(&self, handle: Handle) -> String {
-        let dag = self.env.dag.read();
-        dag.get_node(handle)
-            .map(|n| format!("{}#{}", n.idname, handle.id()))
-            .unwrap_or_else(|| format!("node#{}", handle.id()))
     }
 
     pub fn execute(&mut self, line: &str) -> Result<bool, String> {
@@ -498,13 +589,23 @@ Variables:
 
     /// Wait for `target` to terminate. Ctrl+C detaches; the node keeps running.
     ///
-    /// While waiting, `NodeTerminated` events for other nodes are printed as
-    /// background notifications so nothing is silently dropped.
+    /// Registers a `JoinWaiter` so the notification watcher signals us instead
+    /// of printing a background notification for this particular node.
     fn join_handle(&mut self, target: Handle) -> Result<(), String> {
+        // Bail early if already terminated.
+        if matches!(
+            self.env.dag.read().get_node(target).map(|n| n.state),
+            Some(NodeState::Terminated)
+        ) {
+            return Ok(());
+        }
+
+        let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<()>(1);
+        *self.pending_join.lock().unwrap() = Some(JoinWaiter { target, ready_tx });
+
         let (abort_handle, abort_reg) = futures::future::AbortHandle::new_pair();
         let (ctrlc_tx, ctrlc_rx) = std::sync::mpsc::channel::<()>();
 
-        // Minimal single-thread runtime just for Ctrl+C signal detection.
         std::thread::spawn(move || {
             let Ok(rt) = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -522,33 +623,29 @@ Variables:
             });
         });
 
-        loop {
+        let result = loop {
             if ctrlc_rx.try_recv().is_ok() {
+                *self.pending_join.lock().unwrap() = None;
                 abort_handle.abort();
                 self.sink
                     .println("\n^C - Detached (node continues running in ailetos)");
-                return Ok(());
+                break Ok(());
             }
 
-            match self
-                .events_rx
-                .recv_timeout(std::time::Duration::from_millis(50))
-            {
-                Ok(ExecutorEvent::NodeTerminated(h)) => {
-                    if h == target {
-                        abort_handle.abort();
-                        return Ok(());
-                    }
-                    let name = self.node_display_name(h);
-                    self.sink.println(&format!("[{name}] done"));
+            match ready_rx.recv_timeout(std::time::Duration::from_millis(50)) {
+                Ok(()) => {
+                    abort_handle.abort();
+                    break Ok(());
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     abort_handle.abort();
-                    return Ok(());
+                    break Ok(());
                 }
             }
-        }
+        };
+
+        result
     }
 
     fn cmd_join(&mut self, args: &[&str]) -> Result<(), String> {
@@ -673,11 +770,15 @@ Variables:
         let (new_executor, new_events_rx) =
             start_executor_with_bridge(&self.ailetos_rt, Arc::clone(&new_env));
 
-        // Dropping old executor closes its job channel; old actor tasks continue
-        // to completion then exit. Dropping old events_rx closes the sync side;
-        // the bridge task exits on its next send attempt.
+        // Tell the watcher to switch to the new executor's event stream.
+        self.watcher_update_tx
+            .send(WatcherUpdate {
+                events_rx: new_events_rx,
+                env: Arc::clone(&new_env),
+            })
+            .ok();
+
         self.executor = new_executor;
-        self.events_rx = new_events_rx;
         self.env = new_env;
         self.kv = new_kv;
         self.handles.clear();
@@ -875,8 +976,9 @@ impl Default for DagShell {
 impl Drop for DagShell {
     fn drop(&mut self) {
         self.prepare_exit();
-        // executor and ailetos_rt are dropped in declaration order:
-        // executor first (closes job channel), then ailetos_rt (cancels remaining tasks).
+        // Dropping watcher_update_tx closes the update channel, causing the
+        // watcher thread to exit its loop. executor and ailetos_rt then drop
+        // in declaration order, closing the job channel and cancelling tasks.
     }
 }
 

@@ -2,6 +2,10 @@ use std::sync::{Arc, Mutex};
 
 use dagsh::{DagShell, OutputSink};
 
+// shared helper so we can re-use CapturingSink for both command and notification sinks
+
+
+
 struct CapturingSink {
     lines: Arc<Mutex<Vec<String>>>,
 }
@@ -66,4 +70,32 @@ fn multiple_bg_runs_are_allowed() {
     shell.execute("run $b --bg").unwrap();
     let lines = sink.lines();
     assert_eq!(lines.iter().filter(|l| l.contains("background run")).count(), 2);
+}
+
+#[test]
+fn background_termination_is_notified() {
+    // Value nodes are pre-terminated (no actor runs), so use value → cat so
+    // that cat actually spawns and produces a NodeTerminated event.
+    let notification_sink = Arc::new(CapturingSink::new());
+    let mut shell = DagShell::new_with_sinks(
+        Box::new(CapturingSink::new()),
+        Arc::clone(&notification_sink) as Arc<dyn OutputSink>,
+    );
+    shell.execute("set v = node value hello").unwrap();
+    shell.execute("set c = node add cat").unwrap();
+    shell.execute("dep $c $v").unwrap();
+    shell.execute("run $c --bg").unwrap();
+    // Poll until the notification arrives (up to 5 s).
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        if notification_sink.lines().iter().any(|l| l.contains("done")) {
+            return;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "timeout: no 'done' notification; lines: {:?}",
+            notification_sink.lines()
+        );
+    }
 }
