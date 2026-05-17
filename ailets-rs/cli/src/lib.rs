@@ -1,4 +1,11 @@
 //! DAG Shell library - DagShell and OutputSink.
+//!
+//! The ailetos executor runs on a dedicated `tokio::runtime::Runtime` owned by
+//! `DagShell` for the session lifetime. The CLI thread stays synchronous.
+//! Events from ailetos reach the CLI via a `std::sync::mpsc` bridge channel,
+//! so `join_handle` can poll for termination without blocking the CLI on the
+//! ailetos runtime. If ailetos is stuck, Ctrl+C in `join_handle` detaches
+//! and returns control to the prompt while ailetos keeps running.
 
 pub(crate) mod dbg_actor;
 pub(crate) mod dbg_control;
@@ -9,8 +16,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ailetos::{
-    DependsOn, Environment, Executor, For, Handle, KVBuffers, MemKV, NodeState, OpenMode,
-    StopConditions, TopologicalOrderIter,
+    DependsOn, Environment, Executor, ExecutorEvent, For, Handle, KVBuffers, MemKV, NodeState,
+    OpenMode, StopConditions, TopologicalOrderIter,
 };
 use futures::future::Abortable;
 
@@ -33,21 +40,68 @@ impl OutputSink for StdoutSink {
 }
 
 // ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/// Start a persistent executor on `rt` and bridge its events to a sync channel.
+///
+/// `Executor::start` internally calls `tokio::spawn`; entering the runtime
+/// context first ensures those tasks land on `rt`, not on whatever runtime
+/// (if any) owns the calling thread.
+fn start_executor_with_bridge(
+    rt: &tokio::runtime::Runtime,
+    env: Arc<Environment>,
+) -> (Executor, std::sync::mpsc::Receiver<ExecutorEvent>) {
+    let (tokio_tx, mut tokio_rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorEvent>();
+    let (sync_tx, sync_rx) = std::sync::mpsc::channel::<ExecutorEvent>();
+
+    let executor = {
+        let _guard = rt.enter();
+        Executor::start(env, Some(tokio_tx))
+    };
+
+    rt.spawn(async move {
+        while let Some(event) = tokio_rx.recv().await {
+            if sync_tx.send(event).is_err() {
+                break;
+            }
+        }
+    });
+
+    (executor, sync_rx)
+}
+
+fn make_env(kv: &Arc<MemKV>) -> Arc<Environment> {
+    let env = Arc::new(Environment::new(Arc::clone(kv) as Arc<dyn KVBuffers>));
+    {
+        let mut reg = env.actor_registry.write();
+        reg.register("cat", cat::execute);
+        reg.register("dbg", dbg_actor::execute);
+        reg.register("shell_input", shell_input_actor::execute);
+    }
+    env
+}
+
+// ---------------------------------------------------------------------------
 // DagShell
 // ---------------------------------------------------------------------------
 
-struct BackgroundJob {
-    thread: std::thread::JoinHandle<()>,
-    abort_handle: futures::future::AbortHandle,
-}
-
+/// Interactive DAG shell.
+///
+/// The ailetos `Executor` lives on a dedicated `tokio::runtime::Runtime` for
+/// the session. The REPL stays synchronous. Running `run <node>` submits a
+/// job to ailetos and optionally waits for termination; Ctrl+C always returns
+/// control to the prompt while ailetos keeps running.
 pub struct DagShell {
-    env: std::sync::Arc<Environment>,
+    env: Arc<Environment>,
     kv: Arc<MemKV>,
     handles: Vec<Handle>,
     vars: HashMap<String, Handle>,
-    bg_job: Option<BackgroundJob>,
     sink: Box<dyn OutputSink>,
+    // executor drops before ailetos_rt (declaration order = drop order).
+    executor: Executor,
+    events_rx: std::sync::mpsc::Receiver<ExecutorEvent>,
+    ailetos_rt: tokio::runtime::Runtime,
 }
 
 impl DagShell {
@@ -57,21 +111,19 @@ impl DagShell {
 
     pub fn new_with_sink(sink: Box<dyn OutputSink>) -> Self {
         let kv = Arc::new(MemKV::new());
-        let env = Arc::new(Environment::new(Arc::clone(&kv) as Arc<dyn KVBuffers>));
-        env.actor_registry.write().register("cat", cat::execute);
-        env.actor_registry
-            .write()
-            .register("dbg", dbg_actor::execute);
-        env.actor_registry
-            .write()
-            .register("shell_input", shell_input_actor::execute);
+        let env = make_env(&kv);
+        let ailetos_rt =
+            tokio::runtime::Runtime::new().expect("failed to create ailetos runtime");
+        let (executor, events_rx) = start_executor_with_bridge(&ailetos_rt, Arc::clone(&env));
         Self {
             env,
             kv,
             handles: Vec::new(),
             vars: HashMap::new(),
-            bg_job: None,
             sink,
+            executor,
+            events_rx,
+            ailetos_rt,
         }
     }
 
@@ -80,6 +132,13 @@ impl DagShell {
             return self.vars.get(var_name).copied();
         }
         s.parse::<i64>().ok().map(Handle::new)
+    }
+
+    fn node_display_name(&self, handle: Handle) -> String {
+        let dag = self.env.dag.read();
+        dag.get_node(handle)
+            .map(|n| format!("{}#{}", n.idname, handle.id()))
+            .unwrap_or_else(|| format!("node#{}", handle.id()))
     }
 
     pub fn execute(&mut self, line: &str) -> Result<bool, String> {
@@ -91,7 +150,7 @@ impl DagShell {
 
         match cmd {
             "quit" | "exit" | "q" => {
-                self.release_background_job();
+                self.prepare_exit();
                 return Ok(false);
             }
             "help" | "?" => self.cmd_help(),
@@ -103,6 +162,7 @@ impl DagShell {
             "deps" => self.cmd_deps(rest)?,
             "show" => self.cmd_show(rest)?,
             "run" => self.cmd_run(rest)?,
+            "join" | "await" => self.cmd_join(rest)?,
             "cat" => self.cmd_cat(rest)?,
             "status" => self.cmd_status(rest)?,
             "source" | "load" => self.cmd_source(rest)?,
@@ -112,8 +172,11 @@ impl DagShell {
             "wait" => self.cmd_wait(rest)?,
             "write" => self.cmd_write(rest)?,
             "close" => self.cmd_close(rest)?,
-            "fg" => self.cmd_fg(rest)?,
             "kill" => self.cmd_kill(rest)?,
+            "fg" => {
+                self.sink
+                    .println("'fg' has been removed. Use 'join <node>' instead.");
+            }
             _ => {
                 self.sink
                     .println(&format!("Unknown command: {cmd}. Type 'help' for usage."));
@@ -141,14 +204,15 @@ Visualization:
   show [node]                         Tree view (default: whole DAG)
 
 Execution:
-  run [node] [options]                Run the DAG (default: last node)
+  run [node] [options]                Submit run to ailetos; waits by default
     --one-step                        Execute only the first ready node
     --stop-before <node>              Stop before executing this node
     --stop-after <node>               Stop after executing this node
-    --bg                              Run in background
+    --bg                              Submit and return immediately (background)
 
 Job Control:
-  fg                                  Wait for background job to complete
+  join <node>                         Wait for node to terminate; Ctrl+C to detach
+  await <node>                        Synonym for join
   kill [-N] <node>                    Kill actor with exit code N (default 130)
 
 I/O:
@@ -161,8 +225,8 @@ Status:
 Debug:
   suspend <node>                      Suspend a running actor
   resume <node>                       Resume a suspended actor (dbg or general)
-  wait suspended <node>               Block until node is suspended (polls with 10 ms interval, 5 s timeout)
-  wait terminated <node>              Block until node is terminated (polls with 10 ms interval, 5 s timeout)
+  wait suspended <node>               Block until node is suspended (polls 10 ms, 5 s timeout)
+  wait terminated <node>              Block until node is terminated (polls 10 ms, 5 s timeout)
 
 Shell Input:
   write <node> <data>                 Write data to a shell_input actor
@@ -245,12 +309,12 @@ Variables:
             ["value", rest @ ..] if !rest.is_empty() => {
                 let data = parse_quoted_string(rest);
                 let explain = parse_explain(rest);
-                let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-                let handle = rt
-                    .block_on(
-                        self.env
-                            .add_value_node(data.as_bytes().to_vec(), explain.clone()),
-                    )
+                let env = Arc::clone(&self.env);
+                let data_bytes = data.as_bytes().to_vec();
+                let explain_clone = explain.clone();
+                let handle = self
+                    .ailetos_rt
+                    .block_on(async move { env.add_value_node(data_bytes, explain_clone).await })
                     .map_err(|e| format!("Failed to add value node: {e}"))?;
                 self.handles.push(handle);
                 let id = handle.id();
@@ -339,19 +403,15 @@ Variables:
                 .collect();
 
             let suspension = Some(&*self.env.suspension);
-            if terminals.is_empty() {
-                for handle in &self.handles {
-                    let tree = dag.dump_colored(*handle, suspension);
-                    for line in tree.lines() {
-                        self.sink.println(line);
-                    }
-                }
+            let roots = if terminals.is_empty() {
+                self.handles.clone()
             } else {
-                for handle in terminals {
-                    let tree = dag.dump_colored(handle, suspension);
-                    for line in tree.lines() {
-                        self.sink.println(line);
-                    }
+                terminals
+            };
+            for handle in roots {
+                let tree = dag.dump_colored(handle, suspension);
+                for line in tree.lines() {
+                    self.sink.println(line);
                 }
             }
             return Ok(());
@@ -422,168 +482,81 @@ Variables:
             stop_after,
         };
 
+        self.executor
+            .submit(handle, stop_conditions)
+            .map_err(|_| "Executor has shut down".to_string())?;
+
         if bg_flag {
-            self.run_background(handle, stop_conditions)?;
+            self.sink.println("Started background run");
         } else {
-            self.run_foreground(handle, stop_conditions)?;
+            self.join_handle(handle)?;
         }
 
         self.sink.println("");
         Ok(())
     }
 
-    fn run_foreground(
-        &mut self,
-        handle: Handle,
-        stop_conditions: StopConditions,
-    ) -> Result<(), String> {
-        if self.bg_job.is_some() {
-            return Err("Background job already running. Use 'fg' or 'kill' first.".to_string());
-        }
+    /// Wait for `target` to terminate. Ctrl+C detaches; the node keeps running.
+    ///
+    /// While waiting, `NodeTerminated` events for other nodes are printed as
+    /// background notifications so nothing is silently dropped.
+    fn join_handle(&mut self, target: Handle) -> Result<(), String> {
+        let (abort_handle, abort_reg) = futures::future::AbortHandle::new_pair();
+        let (ctrlc_tx, ctrlc_rx) = std::sync::mpsc::channel::<()>();
 
-        let env = Arc::clone(&self.env);
-
-        let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
-        let (ctrlc_abort_handle, ctrlc_abort_reg) = futures::future::AbortHandle::new_pair();
-        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
-
-        let thread = std::thread::spawn(move || {
-            tracing::info!("Foreground thread starting");
-            let Ok(rt) = tokio::runtime::Runtime::new() else {
-                ready_tx
-                    .send(Err("Failed to create tokio runtime".to_string()))
-                    .ok();
-                return;
-            };
-            rt.block_on(async move {
-                let executor = Executor::start(Arc::clone(&env), None);
-                ready_tx.send(Ok(())).ok();
-                executor.submit(handle, stop_conditions).ok();
-                tracing::info!("About to run environment");
-                let result = Abortable::new(executor.shutdown(), abort_registration).await;
-                if let Ok(()) = result {
-                    tracing::info!("Run completed");
-                } else {
-                    tracing::info!("Run aborted");
-                }
-            });
-        });
-
-        match ready_rx.recv() {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => {
-                thread.join().ok();
-                return Err(e);
-            }
-            Err(_) => {
-                thread.join().ok();
-                return Ok(());
-            }
-        }
-
-        let (tx, rx) = std::sync::mpsc::channel();
-
+        // Minimal single-thread runtime just for Ctrl+C signal detection.
         std::thread::spawn(move || {
-            let Ok(rt) = tokio::runtime::Runtime::new() else {
+            let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            else {
                 return;
             };
             rt.block_on(async {
-                if Abortable::new(tokio::signal::ctrl_c(), ctrlc_abort_reg)
+                if Abortable::new(tokio::signal::ctrl_c(), abort_reg)
                     .await
                     .is_ok_and(|r| r.is_ok())
                 {
-                    let _ = tx.send(());
+                    let _ = ctrlc_tx.send(());
                 }
             });
         });
 
-        let mut job = Some(BackgroundJob {
-            thread,
-            abort_handle,
-        });
-
         loop {
-            match rx.recv_timeout(std::time::Duration::from_millis(100)) {
-                Ok(()) => {
-                    println!("\n^C - Moved to background (use 'fg' to wait, 'kill' to terminate)");
-                    self.bg_job = job.take();
-                    return Ok(());
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                    if job.as_ref().is_some_and(|j| j.thread.is_finished()) {
-                        ctrlc_abort_handle.abort();
-                        if let Some(j) = job.take() {
-                            j.thread.join().ok();
-                        }
+            if ctrlc_rx.try_recv().is_ok() {
+                abort_handle.abort();
+                self.sink
+                    .println("\n^C - Detached (node continues running in ailetos)");
+                return Ok(());
+            }
+
+            match self
+                .events_rx
+                .recv_timeout(std::time::Duration::from_millis(50))
+            {
+                Ok(ExecutorEvent::NodeTerminated(h)) => {
+                    if h == target {
+                        abort_handle.abort();
                         return Ok(());
                     }
+                    let name = self.node_display_name(h);
+                    self.sink.println(&format!("[{name}] done"));
                 }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    if let Some(j) = job.take() {
-                        j.thread.join().ok();
-                    }
+                    abort_handle.abort();
                     return Ok(());
                 }
             }
         }
     }
 
-    fn run_background(
-        &mut self,
-        handle: Handle,
-        stop_conditions: StopConditions,
-    ) -> Result<(), String> {
-        if self.bg_job.is_some() {
-            return Err("Background job already running. Use 'fg' or 'kill' first.".to_string());
-        }
-
-        let env = Arc::clone(&self.env);
-
-        let (abort_handle, abort_registration) = futures::future::AbortHandle::new_pair();
-        let (ready_tx, ready_rx) = std::sync::mpsc::channel::<Result<(), String>>();
-
-        let thread = std::thread::spawn(move || {
-            tracing::info!("Background thread starting");
-            let Ok(rt) = tokio::runtime::Runtime::new() else {
-                ready_tx
-                    .send(Err("Failed to create tokio runtime".to_string()))
-                    .ok();
-                return;
-            };
-            rt.block_on(async move {
-                let executor = Executor::start(Arc::clone(&env), None);
-                ready_tx.send(Ok(())).ok();
-                executor.submit(handle, stop_conditions).ok();
-                let result = Abortable::new(executor.shutdown(), abort_registration).await;
-                if let Ok(()) = result {
-                    tracing::info!("Background job completed");
-                } else {
-                    tracing::info!("Background job aborted");
-                }
-            });
-        });
-
-        match ready_rx.recv() {
-            Ok(Ok(())) => {}
-            Ok(Err(e)) => {
-                thread.join().ok();
-                return Err(e);
-            }
-            Err(_) => {
-                thread.join().ok();
-                return Err("Background thread exited before signalling ready".to_string());
-            }
-        }
-
-        self.bg_job = Some(BackgroundJob {
-            thread,
-            abort_handle,
-        });
-
-        self.sink
-            .println("Started background run (use 'fg' to wait, 'kill' to terminate)");
-
-        Ok(())
+    fn cmd_join(&mut self, args: &[&str]) -> Result<(), String> {
+        let handle_str = args.first().ok_or("Usage: join <node>")?;
+        let handle = self
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+        self.join_handle(handle)
     }
 
     fn attach_stdout_for_run(
@@ -651,9 +624,8 @@ Variables:
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
         let hid = handle.id();
-        let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
         let kv = Arc::clone(&self.kv);
-        let output = rt.block_on(async move {
+        let output = self.ailetos_rt.block_on(async move {
             let path = format!("{hid}/stdout");
             match kv.open(&path, OpenMode::Read).await {
                 Ok(buffer) => {
@@ -691,23 +663,26 @@ Variables:
     }
 
     fn cmd_reset(&mut self) {
-        if let Some(job) = self.bg_job.take() {
-            self.sink.println("Killing background job...");
-            job.abort_handle.abort();
-            job.thread.join().ok();
+        shell_input_control::close_all_shell_inputs();
+        for &handle in &self.handles {
+            self.env.suspension.resume(handle);
         }
 
+        let new_kv = Arc::new(MemKV::new());
+        let new_env = make_env(&new_kv);
+        let (new_executor, new_events_rx) =
+            start_executor_with_bridge(&self.ailetos_rt, Arc::clone(&new_env));
+
+        // Dropping old executor closes its job channel; old actor tasks continue
+        // to completion then exit. Dropping old events_rx closes the sync side;
+        // the bridge task exits on its next send attempt.
+        self.executor = new_executor;
+        self.events_rx = new_events_rx;
+        self.env = new_env;
+        self.kv = new_kv;
         self.handles.clear();
         self.vars.clear();
-        let env = Arc::new(Environment::new(Arc::clone(&self.kv) as Arc<dyn KVBuffers>));
-        env.actor_registry.write().register("cat", cat::execute);
-        env.actor_registry
-            .write()
-            .register("dbg", dbg_actor::execute);
-        env.actor_registry
-            .write()
-            .register("shell_input", shell_input_actor::execute);
-        self.env = env;
+
         self.sink.println("DAG cleared.");
     }
 
@@ -861,19 +836,6 @@ Variables:
         }
     }
 
-    fn cmd_fg(&mut self, _args: &[&str]) -> Result<(), String> {
-        if let Some(job) = self.bg_job.take() {
-            self.sink.println("Waiting for background job to complete...");
-            job.thread
-                .join()
-                .map_err(|_| "Background job panicked".to_string())?;
-            self.sink.println("Job completed");
-            Ok(())
-        } else {
-            Err("No background job running".to_string())
-        }
-    }
-
     fn cmd_kill(&mut self, args: &[&str]) -> Result<(), String> {
         let handle_str = match args {
             [flag, node] if flag.starts_with('-') => *node,
@@ -896,7 +858,7 @@ Variables:
         Ok(())
     }
 
-    fn release_background_job(&mut self) {
+    fn prepare_exit(&mut self) {
         shell_input_control::close_all_shell_inputs();
         for &handle in &self.handles {
             self.env.suspension.resume(handle);
@@ -912,10 +874,9 @@ impl Default for DagShell {
 
 impl Drop for DagShell {
     fn drop(&mut self) {
-        if let Some(job) = self.bg_job.take() {
-            self.release_background_job();
-            let _ = job.thread.join();
-        }
+        self.prepare_exit();
+        // executor and ailetos_rt are dropped in declaration order:
+        // executor first (closes job channel), then ailetos_rt (cancels remaining tasks).
     }
 }
 
