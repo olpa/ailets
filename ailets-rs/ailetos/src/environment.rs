@@ -10,7 +10,6 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 
 use crate::dag::{Dag, DependsOn, For, NodeKind, NodeState};
-use crate::executor::StopConditions;
 use crate::pipe::PipePool;
 
 /// Type for actor functions
@@ -174,13 +173,5 @@ impl Environment {
         drop(dag);
         // Recursively resolve in case the target is also an alias
         target.map_or(handle, |t| self.resolve(t))
-    }
-
-    /// Run the environment.
-    ///
-    /// For background execution, wrap a clone in `Arc`:
-    /// `executor::run(Arc::new(env.clone()), target, conditions)`
-    pub async fn run(&self, target: Handle, stop_conditions: StopConditions) {
-        crate::executor::run(Arc::new(self.clone()), target, stop_conditions).await;
     }
 }

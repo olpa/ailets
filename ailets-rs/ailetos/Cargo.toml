@@ -30,6 +30,7 @@ name = "stdin_dag_flow"
 required-features = ["sqlitekv"]
 
 [dev-dependencies]
+actor_runtime.workspace = true
 cat = { path = "../cat" }
 tokio = { version = "1", features = ["rt", "macros"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

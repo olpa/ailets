@@ -99,7 +99,7 @@ async fn run_writer_task(
     fd: isize,
     env: Arc<Environment>,
     attachment_manager: Arc<AttachmentManager>,
-    notify: Arc<Notify>,
+    executor_wakeup: Arc<Notify>,
     mut request_rx: mpsc::UnboundedReceiver<WriterCommand>,
 ) {
     // Create writer at task startup
@@ -147,10 +147,10 @@ async fn run_writer_task(
                 if response.send(result).is_err() {
                     warn!(node = ?node_handle, fd = fd, "writer task: reply receiver dropped, actor may have exited");
                 }
-                // Wake the spawn loop: the first write realizes the writer in the
+                // Wake the executor: the first write realizes the writer in the
                 // pool, potentially unblocking downstream actors whose readiness
                 // check (is_ready_to_spawn) waits for this dep's pipe to appear.
-                notify.notify_one();
+                executor_wakeup.notify_one();
             }
             WriterCommand::Close { response } => {
                 debug!(node = ?node_handle, fd = fd, "writer task: received close command");
@@ -158,9 +158,9 @@ async fn run_writer_task(
                 if response.send(result).is_err() {
                     warn!(node = ?node_handle, fd = fd, "writer task: close reply receiver dropped");
                 }
-                // Wake the spawn loop: a closed writer is a state change that
+                // Wake the executor: a closed writer is a state change that
                 // may satisfy spawn readiness for downstream actors.
-                notify.notify_one();
+                executor_wakeup.notify_one();
                 // No break: loop exits naturally when sender is dropped and recv() returns None.
                 // This keeps the bridge mechanical—it forwards commands without special control flow.
             }
@@ -196,11 +196,11 @@ pub struct IoBridge {
     /// Open channel endpoints: (`node_handle`, fd, state). Linear search, efficient for small N.
     channel_table: Mutex<Vec<ChannelEntry>>,
     attachment_manager: Arc<AttachmentManager>,
-    /// Notifies the spawn loop when I/O state changes that may affect node readiness.
+    /// Notifies the executor when I/O state changes that may affect node readiness.
     /// Use cases:
     /// - a pipe is realized
     /// - a writer is closed
-    notify: Arc<Notify>,
+    executor_wakeup: Arc<Notify>,
 }
 
 impl IoBridge {
@@ -208,13 +208,13 @@ impl IoBridge {
     pub fn new(
         env: Arc<Environment>,
         attachment_manager: Arc<AttachmentManager>,
-        notify: Arc<Notify>,
+        executor_wakeup: Arc<Notify>,
     ) -> Self {
         Self {
             env,
             channel_table: Mutex::new(Vec::new()),
             attachment_manager,
-            notify,
+            executor_wakeup,
         }
     }
 
@@ -253,13 +253,13 @@ impl IoBridge {
         let (request_tx, request_rx) = mpsc::unbounded_channel::<WriterCommand>();
         let env = Arc::clone(&self.env);
         let attachment_manager = Arc::clone(&self.attachment_manager);
-        let notify = Arc::clone(&self.notify);
+        let executor_wakeup = Arc::clone(&self.executor_wakeup);
         tokio::spawn(run_writer_task(
             node_handle,
             fd,
             env,
             attachment_manager,
-            notify,
+            executor_wakeup,
             request_rx,
         ));
         request_tx

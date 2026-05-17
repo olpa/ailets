@@ -52,6 +52,10 @@ pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
             tracing::info!(node = ?my_handle, bytes_collected = collected.len(), "dbg actor reached pause threshold, pausing");
 
             runtime.suspend_and_wait();
+            if dbg_control::is_killed(my_handle) {
+                tracing::info!(node = ?my_handle, "dbg actor killed");
+                return Err("killed".to_string());
+            }
             tracing::info!(node = ?my_handle, "dbg actor resumed, outputting collected data");
 
             writer

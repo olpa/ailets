@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use ailetos::dag::{Dag, DependsOn, For, NodeKind, NodeState};
-use ailetos::executor::{StopConditions, TopologicalOrderIter};
 use ailetos::storage::MemKV;
-use ailetos::{Environment, IdGen};
+use ailetos::traversal::{StopConditions, TopologicalOrderIter};
+use ailetos::{Environment, Executor, ExecutorEvent, IdGen};
+use tokio::sync::{mpsc, oneshot};
 
 fn create_linear_dag() -> (Dag, Vec<ailetos::Handle>) {
     // Create a linear DAG: node1 -> node2 -> node3 -> node4
@@ -157,7 +158,7 @@ fn test_diamond_dag_valid_topological_order() {
 #[tokio::test]
 async fn test_transitive_block_terminates_and_leaves_nodes_not_started() {
     let kv = Arc::new(MemKV::new());
-    let env = Environment::new(kv);
+    let env = Arc::new(Environment::new(kv));
 
     let c = env.add_node("failing".into(), &[], None);
     let b = env.add_node("noop".into(), &[c], None);
@@ -168,12 +169,9 @@ async fn test_transitive_block_terminates_and_leaves_nodes_not_started() {
         .register("failing", |_| Err("intentional failure".into()));
     env.actor_registry.write().register("noop", |_| Ok(()));
 
-    tokio::time::timeout(
-        std::time::Duration::from_secs(5),
-        env.run(a, StopConditions::default()),
-    )
-    .await
-    .expect("executor hung — transitive block not handled");
+    let executor = Executor::start(Arc::clone(&env), None);
+    executor.submit(a, StopConditions::default()).unwrap();
+    executor.shutdown().await;
 
     let dag = env.dag.read();
     assert_eq!(
@@ -186,4 +184,126 @@ async fn test_transitive_block_terminates_and_leaves_nodes_not_started() {
         NodeState::NotStarted,
         "a should remain NotStarted (eligible for incremental re-run)"
     );
+}
+
+#[tokio::test]
+async fn run_jobs_finite_single_job() {
+    let kv = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+    env.actor_registry.write().register("noop", |_| Ok(()));
+
+    let target = env.add_node("noop".into(), &[], None);
+
+    let executor = Executor::start(Arc::clone(&env), None);
+    executor.submit(target, StopConditions::default()).unwrap();
+    executor.shutdown().await;
+
+    assert_eq!(
+        env.dag.read().get_node(target).unwrap().state,
+        NodeState::Terminated,
+    );
+}
+
+#[tokio::test]
+async fn run_jobs_infinite_processes_job_submitted_after_quiescence() {
+    let kv = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+    env.actor_registry.write().register("noop", |_| Ok(()));
+
+    let n1 = env.add_node("noop".into(), &[], None);
+    let n2 = env.add_node("noop".into(), &[], None);
+
+    let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<ExecutorEvent>();
+    let executor = Executor::start(Arc::clone(&env), Some(ev_tx));
+    executor.submit(n1, StopConditions::default()).unwrap();
+
+    // Wait for n1's termination event — guaranteed once n1 finishes
+    loop {
+        match ev_rx.recv().await {
+            Some(ExecutorEvent::NodeTerminated(h)) if h == n1 => break,
+            Some(_) => continue,
+            None => panic!("events channel closed before n1 terminated"),
+        }
+    }
+
+    // Submit n2 then shut down — executor processes n2 before exiting.
+    executor
+        .submit(n2, StopConditions::default())
+        .expect("channel open — executor not yet shut down");
+    executor.shutdown().await;
+
+    // If executor exited at quiescence, n2 was never picked up → NotStarted.
+    // If executor waited on the channel, n2 was processed → Terminated.
+    assert_eq!(
+        env.dag.read().get_node(n2).unwrap().state,
+        NodeState::Terminated,
+    );
+}
+
+// n2 submitted while n1 is still running must be picked up without waiting for quiescence.
+//
+// ActorFn is a bare fn pointer (no closure captures). State is shared through
+// local statics, which inner functions can access without capturing.
+#[tokio::test]
+async fn run_jobs_processes_job_submitted_while_actor_running() {
+    use std::sync::Mutex;
+
+    static SLOW_STARTED: Mutex<Option<oneshot::Sender<()>>> = Mutex::new(None);
+    static SLOW_RELEASE: Mutex<Option<oneshot::Receiver<()>>> = Mutex::new(None);
+
+    fn slow(_: &dyn actor_runtime::ActorRuntime) -> Result<(), String> {
+        SLOW_STARTED.lock().unwrap().take().unwrap().send(()).ok();
+        let rx = SLOW_RELEASE.lock().unwrap().take().unwrap();
+        rx.blocking_recv().ok();
+        Ok(())
+    }
+
+    let kv = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+
+    let (started_tx, started_rx) = oneshot::channel::<()>();
+    let (release_tx, release_rx) = oneshot::channel::<()>();
+    *SLOW_STARTED.lock().unwrap() = Some(started_tx);
+    *SLOW_RELEASE.lock().unwrap() = Some(release_rx);
+
+    env.actor_registry.write().register("step4_slow", slow);
+    env.actor_registry.write().register("noop", |_| Ok(()));
+
+    let n1 = env.add_node("step4_slow".into(), &[], None);
+    let n2 = env.add_node("noop".into(), &[], None);
+
+    let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<ExecutorEvent>();
+    let executor = Executor::start(Arc::clone(&env), Some(ev_tx));
+
+    executor
+        .submit(n1, StopConditions::default())
+        .expect("channel open");
+
+    // Block until n1 is running
+    started_rx.await.unwrap();
+
+    // n1 is Running; submit n2
+    executor
+        .submit(n2, StopConditions::default())
+        .expect("channel open");
+
+    // Drain events until n2 terminates — must happen while n1 is still blocked
+    loop {
+        match ev_rx.recv().await {
+            Some(ExecutorEvent::NodeTerminated(h)) if h == n2 => break,
+            Some(_) => continue,
+            None => panic!("events channel closed before n2 terminated"),
+        }
+    }
+
+    // n1 must still be Running — we haven't released it yet
+    assert_eq!(
+        env.dag.read().get_node(n1).unwrap().state,
+        NodeState::Running,
+        "n1 must still be running when n2 terminates",
+    );
+
+    // Release n1 and wait for the executor to finish
+    release_tx.send(()).unwrap();
+    executor.shutdown().await;
 }
