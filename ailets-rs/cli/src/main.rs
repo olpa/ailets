@@ -1,9 +1,25 @@
 //! DAG Shell binary entry point.
 
-use dagsh::DagShell;
+use std::sync::Arc;
+
+use dagsh::{DagShell, OutputSink};
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
+use rustyline::ExternalPrinter as _;
 use rustyline::Editor;
+
+/// Sends background notifications through a channel consumed by a thread that
+/// holds the rustyline ExternalPrinter. Printing via ExternalPrinter ensures
+/// notifications never corrupt the current input line.
+struct ChannelSink {
+    tx: std::sync::mpsc::Sender<String>,
+}
+
+impl OutputSink for ChannelSink {
+    fn println(&self, line: &str) {
+        let _ = self.tx.send(format!("{line}\n"));
+    }
+}
 
 fn print_usage() {
     println!("Usage: dagsh [OPTIONS]");
@@ -53,12 +69,29 @@ fn main() {
         }
     }
 
-    let mut shell = DagShell::new();
     let Ok(mut rl) = Editor::<(), rustyline::history::DefaultHistory>::new() else {
         eprintln!("Failed to create editor");
         std::process::exit(1);
     };
     let _ = rl.set_max_history_size(1000);
+
+    // Wire background notifications through rustyline's ExternalPrinter so
+    // they never corrupt the current input line. Fall back to plain println!
+    // if the printer can't be created.
+    let notification_sink: Arc<dyn OutputSink> = match rl.create_external_printer() {
+        Ok(mut printer) => {
+            let (tx, rx) = std::sync::mpsc::channel::<String>();
+            std::thread::spawn(move || {
+                while let Ok(msg) = rx.recv() {
+                    let _ = printer.print(msg);
+                }
+            });
+            Arc::new(ChannelSink { tx })
+        }
+        Err(_) => Arc::new(dagsh::StdoutSink),
+    };
+
+    let mut shell = DagShell::new_with_sinks(Box::new(dagsh::StdoutSink), notification_sink);
 
     println!("DAG Shell v0.1");
     println!("Type 'help' for available commands.\n");
