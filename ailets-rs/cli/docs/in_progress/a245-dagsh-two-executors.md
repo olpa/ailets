@@ -58,98 +58,32 @@ The original Step 2 planned to use `notification_queue` (an ailetos-internal sub
 
 ## What was implemented (commits on this branch)
 
-| Commit | Step | Summary |
-|--------|------|---------|
-| `001b4eb` | 0 | `lib.rs` split + `OutputSink` trait + test harness |
-| `dce74af` | 1–4 | Persistent `ailetos_rt` + `Executor`; `join`/`await` command; `fg` removed; multiple concurrent bg runs |
-| `98ae79d` | 6–7 | Notification watcher thread; `OutputSink: Send + Sync`; `new_with_sinks` |
-| `70763b8` | 6 | `ExternalPrinter` wired in `main.rs` via `ChannelSink` |
-
-### What each commit delivers
-
-**Step 0** (`lib.rs` split): Moves all `DagShell` implementation from `main.rs` into `lib.rs`. Adds `OutputSink` trait (`fn println(&self, line: &str)`). `StdoutSink` for production; `CapturingSink` (wraps `Arc<Mutex<Vec<String>>>`) in tests. All `println!` inside `DagShell` replaced with `self.sink.println(...)`. Adds `Cargo.toml` `[lib]` section; `tests/shell.rs` with first integration test.
-
-**Steps 1–4**: Replaces `bg_job: Option<BackgroundJob>` and per-run `tokio::runtime::Runtime` with:
-- `ailetos_rt: tokio::runtime::Runtime` — session-lifetime runtime
-- `executor: Executor` — persistent, receives jobs via `submit`
-- `events_rx: Receiver<ExecutorEvent>` — sync side of the bridge (later moved to watcher)
-- `join_handle(target)` — polls with 50ms timeout; Ctrl+C detaches
-- `cmd_join` / `cmd_await` commands
-- `run --bg` submits and returns immediately; no single-slot constraint
-- `cmd_reset` creates new env + executor on the same `ailetos_rt`; sends `WatcherUpdate`
-- `node value` and `cat` reuse `ailetos_rt.block_on` instead of throwaway runtimes
-
-**Steps 6–7**: Adds the notification watcher thread. `OutputSink` gains `Send + Sync` supertraits. `DagShell::new_with_sinks(command_sink, notification_sink)` separates the two sinks. `join_handle` registers a `JoinWaiter` in `pending_join` instead of reading `events_rx` directly.
-
-## Known bug found during testing
-
-**`run <alias>` hangs in foreground mode.**
-
-When the target node is an alias (e.g. `set end = node alias .end $baz`), `cmd_run` calls `join_handle(alias_handle)`. The watcher registers `pending_join.target = alias_handle`. But the executor resolves the alias and emits `NodeTerminated(baz_handle)`. Since `baz_handle ≠ alias_handle`, the watcher prints it as a notification rather than signalling `join_handle`. The join waits forever.
-
-**Fix**: resolve the alias before calling `join_handle`:
-
-```rust
-// in cmd_run, after executor.submit:
-if !bg_flag {
-    let join_target = self.env.resolve(handle);  // follow alias chain
-    self.join_handle(join_target)?;
-}
-```
-
-`env.resolve(h)` is already used in `attach_stdout_for_run` for the same reason. The fix is a one-liner in `cmd_run`.
+| Commit | Summary |
+|--------|---------|
+| `001b4eb` | `lib.rs` split + `OutputSink` trait + test harness |
+| `dce74af` | Persistent `ailetos_rt` + `Executor`; `join`/`await` command; `fg` removed; multiple concurrent bg runs |
+| `98ae79d` | Notification watcher thread; `OutputSink: Send + Sync`; `new_with_sinks` |
+| `70763b8` | `ExternalPrinter` wired in `main.rs` via `ChannelSink` |
+| `2069131` | Fix: resolve alias before `join_handle` so `run <alias>` doesn't hang |
+| `8ae198e` | Fix: suppress intermediate notifications during foreground runs |
+| `28bfbb9` | Fix: share `AttachmentConfig` live so `attach_stdout` works on persistent executor |
+| `2605a4f` | Fix: use `pipe_path()` for `cmd_cat` so actor stdout is found in KV |
 
 ## What still needs to be done
 
-### Alias bug fix (required before merge)
+### Next: Step 5 — `follow` (stream live output)
 
-Apply the one-liner fix above. Add a test:
+Stream a running node's stdout to the terminal without waiting for termination. `cat` only reads the completed KV buffer; `follow` must read incrementally while the actor is still running.
 
-```rust
-#[test]
-fn run_alias_completes() {
-    let sink = CapturingSink::new();
-    let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
-    shell.execute("set v = node value hello").unwrap();
-    shell.execute("set c = node add cat").unwrap();
-    shell.execute("dep $c $v").unwrap();
-    shell.execute("set end = node alias .end $c").unwrap();
-    shell.execute("run $end").unwrap(); // must not hang
-    let lines = sink.lines();
-    assert!(lines.iter().any(|l| l.contains("built") || l.contains("Terminated")));
-}
-```
+**Approach**: Open the pipe via `pipe_path(handle, StdHandle::Stdout)` and read in a loop, yielding to the tokio runtime between reads, until EOF. Run in a background task on `ailetos_rt`; cancel it on Ctrl+C. Add `follow <node>` command and document in help.
 
-### Step 5: `follow` — stream live output
+### After that: Step 9 — `wait terminated` event-based
 
-Stream actor output without waiting for termination. Requires a way to read from a node's stdout pipe incrementally (currently `cat` reads the whole KV buffer at once post-termination). This needs ailetos API support for streaming reads.
+Replace the 10ms poll loop in `wait terminated` with `join_handle` plus a deadline. The watcher already owns the termination signal; `cmd_wait "terminated"` should register a `JoinWaiter` with a timeout instead of spinning on the DAG state.
 
-### Step 9: `wait` — event-based instead of polling
+### `kill` — no generalization
 
-Replace the 10ms poll loop in `wait terminated` with an event-based wait:
-
-```rust
-// instead of thread::sleep loop:
-loop {
-    match self.events_rx.recv_timeout(poll_interval) {
-        Ok(ExecutorEvent::NodeTerminated(h)) if h == handle => return Ok(()),
-        Ok(_) => {}  // other node terminated, keep waiting
-        Err(Timeout) => {}
-        Err(Disconnected) => return Ok(()),
-    }
-    if Instant::now() >= deadline { return Err("Timeout..."); }
-}
-```
-
-Note: `events_rx` is now owned by the watcher thread. To use it in `cmd_wait`, either:
-a. Use `wait terminated` via `join_handle` (register a `JoinWaiter` + timeout wrapper), or
-b. Add a separate subscription mechanism.
-
-Option (a) is simpler: `cmd_wait "terminated"` can call `join_handle` with a deadline.
-
-### Step 10: `kill` generalization
-
-Currently `kill` only works for `dbg` nodes (uses `dbg_control::kill_dbg_actor`). Generalizing requires access to `IoBridge::cleanup_actor_io`, which is internal to the executor. Either expose it via a new `ExecutorEvent`/method on `Executor`, or accept the limitation for now.
+`kill` stays `dbg`-only. The limitation is documented; no further work planned.
 
 ### `fg` is removed — update scripts
 
@@ -162,11 +96,13 @@ cargo test                         # run integration tests in cli/tests/shell.rs
 cargo clippy -- -D warnings        # must be clean
 ```
 
-Four integration tests currently pass:
+Six integration tests currently pass:
 - `execute_routes_output_through_sink` — help output goes through sink
 - `run_completes_on_persistent_executor` — foreground value→cat pipeline terminates
 - `multiple_bg_runs_are_allowed` — two simultaneous background runs succeed
 - `background_termination_is_notified` — bg cat run prints `[cat#N] done` to notification sink
+- `run_alias_completes` — `run <alias>` resolves and completes without hanging
+- `foreground_run_suppresses_intermediate_notifications` — no noise during foreground run
 
 ## File map
 
