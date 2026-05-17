@@ -453,7 +453,7 @@ impl ExecutorInfra {
         let executor_wakeup = Arc::new(tokio::sync::Notify::new());
         let (lifecycle_tx, lifecycle_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
         let attachment_manager =
-            Arc::new(AttachmentManager::new(env.attachment_config.read().clone()));
+            Arc::new(AttachmentManager::new(Arc::clone(&env.attachment_config)));
         let io_bridge = Arc::new(IoBridge::new(
             Arc::clone(env),
             Arc::clone(&attachment_manager),

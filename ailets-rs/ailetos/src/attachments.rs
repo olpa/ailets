@@ -8,7 +8,7 @@ use std::io::Write as StdWrite;
 use std::sync::Arc;
 
 use actor_runtime::StdHandle;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use tracing::{debug, error, trace, warn};
 
 use crate::idgen::{Handle, IdGen};
@@ -60,15 +60,15 @@ impl AttachmentConfig {
 /// - Log, Metrics, Trace: always attach to host stderr for all actors
 /// - Stdin, Env: never attach
 pub struct AttachmentManager {
-    config: AttachmentConfig,
+    config: Arc<RwLock<AttachmentConfig>>,
     /// Active attachment task handles
     tasks: Mutex<Vec<tokio::task::JoinHandle<Result<(), String>>>>,
 }
 
 impl AttachmentManager {
-    /// Create a new attachment manager with the given configuration
+    /// Create a new attachment manager sharing the given live config.
     #[must_use]
-    pub fn new(config: AttachmentConfig) -> Self {
+    pub fn new(config: Arc<RwLock<AttachmentConfig>>) -> Self {
         Self {
             config,
             tasks: Mutex::new(Vec::new()),
@@ -92,7 +92,7 @@ impl AttachmentManager {
 
         // Determine if attachment is needed
         let should_attach = match std_handle {
-            StdHandle::Stdout => self.config.should_attach_stdout(node_handle),
+            StdHandle::Stdout => self.config.read().should_attach_stdout(node_handle),
             StdHandle::Log | StdHandle::Metrics | StdHandle::Trace => true,
             StdHandle::Stdin | StdHandle::Env | StdHandle::_Count => false,
         };

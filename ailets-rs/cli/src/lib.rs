@@ -565,6 +565,7 @@ Variables:
         } else {
             self.find_default_target()?
         };
+        let handle = self.env.resolve(handle);
 
         self.attach_stdout_for_run(handle, one_step, stop_before, stop_after);
 
@@ -581,7 +582,7 @@ Variables:
         if bg_flag {
             self.sink.println("Started background run");
         } else {
-            self.join_handle(self.env.resolve(handle))?;
+            self.join_handle(handle)?;
         }
 
         self.sink.println("");
