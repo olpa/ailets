@@ -42,6 +42,44 @@ impl OutputSink for StdoutSink {
 }
 
 // ---------------------------------------------------------------------------
+// OutputSinkWriter — adapts OutputSink as std::io::Write for attach_stdout_to
+// ---------------------------------------------------------------------------
+
+/// Line-buffers bytes and forwards complete lines through an `OutputSink`.
+/// Partial lines are flushed on `flush()`.
+struct OutputSinkWriter {
+    sink: Arc<dyn OutputSink>,
+    buf: Vec<u8>,
+}
+
+impl OutputSinkWriter {
+    fn new(sink: Arc<dyn OutputSink>) -> Self {
+        Self { sink, buf: Vec::new() }
+    }
+}
+
+impl std::io::Write for OutputSinkWriter {
+    fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
+        self.buf.extend_from_slice(data);
+        while let Some(pos) = self.buf.iter().position(|&b| b == b'\n') {
+            let line = String::from_utf8_lossy(&self.buf[..pos]).into_owned();
+            self.buf.drain(..=pos);
+            self.sink.println(&line);
+        }
+        Ok(data.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        if !self.buf.is_empty() {
+            let line = String::from_utf8_lossy(&self.buf).into_owned();
+            self.buf.clear();
+            self.sink.println(&line);
+        }
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Internal types
 // ---------------------------------------------------------------------------
 
@@ -168,6 +206,7 @@ pub struct DagShell {
     handles: Vec<Handle>,
     vars: HashMap<String, Handle>,
     sink: Box<dyn OutputSink>,
+    notification_sink: Arc<dyn OutputSink>,
     pending_join: Arc<Mutex<Option<JoinWaiter>>>,
     watcher_update_tx: std::sync::mpsc::SyncSender<WatcherUpdate>,
     // Kept alive until DagShell drops; the drop closes watcher_update_tx
@@ -203,6 +242,7 @@ impl DagShell {
         let (watcher_update_tx, update_rx) =
             std::sync::mpsc::sync_channel::<WatcherUpdate>(4);
 
+        let notification_sink_clone = Arc::clone(&notification_sink);
         let watcher = start_notification_watcher(
             WatcherUpdate {
                 events_rx,
@@ -219,6 +259,7 @@ impl DagShell {
             handles: Vec::new(),
             vars: HashMap::new(),
             sink: command_sink,
+            notification_sink: notification_sink_clone,
             pending_join,
             watcher_update_tx,
             _watcher: watcher,
@@ -256,6 +297,7 @@ impl DagShell {
             "show" => self.cmd_show(rest)?,
             "run" => self.cmd_run(rest)?,
             "join" | "await" => self.cmd_join(rest)?,
+            "follow" => self.cmd_follow(rest)?,
             "cat" => self.cmd_cat(rest)?,
             "status" => self.cmd_status(rest)?,
             "source" | "load" => self.cmd_source(rest)?,
@@ -306,6 +348,7 @@ Execution:
 Job Control:
   join <node>                         Wait for node to terminate; Ctrl+C to detach
   await <node>                        Synonym for join
+  follow <node>                       Attach node stdout to terminal (starts streaming)
   kill [-N] <node>                    Kill actor with exit code N (default 130)
 
 I/O:
@@ -568,8 +611,6 @@ Variables:
         };
         let handle = self.env.resolve(handle);
 
-        self.attach_stdout_for_run(handle, one_step, stop_before, stop_after);
-
         let stop_conditions = StopConditions {
             one_step,
             stop_before,
@@ -583,6 +624,7 @@ Variables:
         if bg_flag {
             self.sink.println("Started background run");
         } else {
+            self.attach_stdout_for_run(handle, one_step, stop_before, stop_after);
             self.join_handle(handle)?;
         }
 
@@ -657,6 +699,18 @@ Variables:
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
         self.join_handle(handle)
+    }
+
+    fn cmd_follow(&mut self, args: &[&str]) -> Result<(), String> {
+        let handle_str = args.first().ok_or("Usage: follow <node>")?;
+        let handle = self
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+        let handle = self.env.resolve(handle);
+        let writer: Box<dyn std::io::Write + Send + Sync> =
+            Box::new(OutputSinkWriter::new(Arc::clone(&self.notification_sink)));
+        self.env.attach_stdout_to(handle, writer);
+        Ok(())
     }
 
     fn attach_stdout_for_run(

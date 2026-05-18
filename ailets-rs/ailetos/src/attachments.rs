@@ -15,10 +15,20 @@ use crate::idgen::{Handle, IdGen};
 use crate::pipe::{PipePool, Reader};
 
 /// Configuration for attachment behavior
-#[derive(Debug, Clone)]
 pub struct AttachmentConfig {
     /// Actors whose stdout should be attached to host stdout
     stdout_actors: Vec<Handle>,
+    /// Actors whose stdout should be routed to a custom writer (consumed on first realization)
+    custom_sinks: Vec<(Handle, Box<dyn StdWrite + Send + Sync>)>,
+}
+
+impl std::fmt::Debug for AttachmentConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AttachmentConfig")
+            .field("stdout_actors", &self.stdout_actors)
+            .field("custom_sinks_count", &self.custom_sinks.len())
+            .finish()
+    }
 }
 
 impl Default for AttachmentConfig {
@@ -33,6 +43,7 @@ impl AttachmentConfig {
     pub fn new() -> Self {
         Self {
             stdout_actors: Vec::with_capacity(1),
+            custom_sinks: Vec::new(),
         }
     }
 
@@ -43,10 +54,28 @@ impl AttachmentConfig {
         }
     }
 
-    /// Check if an actor's stdout should be attached
+    /// Add an actor whose stdout should be routed to a custom writer.
+    /// The writer is consumed the first time the actor's stdout is realized.
+    pub fn attach_to_sink(&mut self, actor_handle: Handle, sink: Box<dyn StdWrite + Send + Sync>) {
+        if !self.custom_sinks.iter().any(|(h, _)| *h == actor_handle) {
+            self.custom_sinks.push((actor_handle, sink));
+        }
+    }
+
+    /// Check if an actor's stdout should be attached (either way)
     #[must_use]
     pub fn should_attach_stdout(&self, actor_handle: Handle) -> bool {
         self.stdout_actors.contains(&actor_handle)
+            || self.custom_sinks.iter().any(|(h, _)| *h == actor_handle)
+    }
+
+    /// Take the custom sink for this actor, removing it from the config.
+    pub fn take_custom_sink(
+        &mut self,
+        actor_handle: Handle,
+    ) -> Option<Box<dyn StdWrite + Send + Sync>> {
+        let pos = self.custom_sinks.iter().position(|(h, _)| *h == actor_handle)?;
+        Some(self.custom_sinks.remove(pos).1)
     }
 }
 
@@ -90,11 +119,16 @@ impl AttachmentManager {
             return;
         };
 
-        // Determine if attachment is needed
-        let should_attach = match std_handle {
-            StdHandle::Stdout => self.config.read().should_attach_stdout(node_handle),
-            StdHandle::Log | StdHandle::Metrics | StdHandle::Trace => true,
-            StdHandle::Stdin | StdHandle::Env | StdHandle::_Count => false,
+        // Determine if attachment is needed; for stdout also take any custom sink
+        let (should_attach, custom_sink) = match std_handle {
+            StdHandle::Stdout => {
+                let mut config = self.config.write();
+                let sink = config.take_custom_sink(node_handle);
+                let attach = sink.is_some() || config.should_attach_stdout(node_handle);
+                (attach, sink)
+            }
+            StdHandle::Log | StdHandle::Metrics | StdHandle::Trace => (true, None),
+            StdHandle::Stdin | StdHandle::Env | StdHandle::_Count => (false, None),
         };
 
         if !should_attach {
@@ -127,12 +161,13 @@ impl AttachmentManager {
                 }
             };
 
-            // Run attachment worker
-            match target {
-                AttachmentTarget::Stdout => {
+            // Run attachment worker — custom sink takes priority over default stdout
+            match (target, custom_sink) {
+                (_, Some(sink)) => attach_to_stream(node_handle, reader, sink, target).await,
+                (AttachmentTarget::Stdout, None) => {
                     attach_to_stream(node_handle, reader, std::io::stdout(), target).await
                 }
-                AttachmentTarget::Stderr => {
+                (AttachmentTarget::Stderr, None) => {
                     attach_to_stream(node_handle, reader, std::io::stderr(), target).await
                 }
             }

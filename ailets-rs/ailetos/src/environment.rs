@@ -95,6 +95,16 @@ impl Environment {
         self.attachment_config.write().attach_stdout(actor_handle);
     }
 
+    /// Attach an actor's stdout to a custom writer (e.g. a terminal-aware sink).
+    /// The writer is consumed the first time the actor's stdout is realized.
+    pub fn attach_stdout_to(
+        &self,
+        actor_handle: Handle,
+        sink: Box<dyn std::io::Write + Send + Sync>,
+    ) {
+        self.attachment_config.write().attach_to_sink(actor_handle, sink);
+    }
+
     /// Add a value node - a node that outputs a constant value
     ///
     /// # Arguments
