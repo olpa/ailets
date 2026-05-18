@@ -622,9 +622,10 @@ Variables:
             .map_err(|_| "Executor has shut down".to_string())?;
 
         if bg_flag {
+            self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, true);
             self.sink.println("Started background run");
         } else {
-            self.attach_stdout_for_run(handle, one_step, stop_before, stop_after);
+            self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, false);
             self.join_handle(handle)?;
         }
 
@@ -713,24 +714,34 @@ Variables:
         Ok(())
     }
 
+    fn attach_one_node(&mut self, handle: Handle, bg: bool) {
+        let resolved = self.env.resolve(handle);
+        if bg {
+            let writer: Box<dyn std::io::Write + Send + Sync> =
+                Box::new(OutputSinkWriter::new(Arc::clone(&self.notification_sink)));
+            self.env.attach_stdout_to(resolved, writer);
+        } else {
+            self.env.attach_stdout(resolved);
+        }
+    }
+
     fn attach_stdout_for_run(
         &mut self,
         target: Handle,
         one_step: bool,
         stop_before: Option<Handle>,
         stop_after: Option<Handle>,
+        bg: bool,
     ) {
         if let Some(stop_after_handle) = stop_after {
-            let resolved = self.env.resolve(stop_after_handle);
-            self.env.attach_stdout(resolved);
+            self.attach_one_node(stop_after_handle, bg);
         } else if let Some(stop_before_handle) = stop_before {
             let deps: Vec<Handle> = {
                 let dag = self.env.dag.read();
                 dag.get_direct_dependencies(stop_before_handle).collect()
             };
             for dep in deps {
-                let resolved = self.env.resolve(dep);
-                self.env.attach_stdout(resolved);
+                self.attach_one_node(dep, bg);
             }
         } else if one_step {
             let ready_node = {
@@ -738,12 +749,10 @@ Variables:
                 TopologicalOrderIter::new(&dag, target).next()
             };
             if let Some(ready_node) = ready_node {
-                let resolved = self.env.resolve(ready_node);
-                self.env.attach_stdout(resolved);
+                self.attach_one_node(ready_node, bg);
             }
         } else {
-            let resolved = self.env.resolve(target);
-            self.env.attach_stdout(resolved);
+            self.attach_one_node(target, bg);
         }
     }
 
