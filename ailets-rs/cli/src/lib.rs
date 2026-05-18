@@ -42,19 +42,191 @@ impl OutputSink for StdoutSink {
 }
 
 // ---------------------------------------------------------------------------
+// Color support
+// ---------------------------------------------------------------------------
+
+fn parse_color(s: &str) -> Result<u8, String> {
+    if let Ok(n) = s.parse::<u8>() {
+        return Ok(n);
+    }
+    let key = s.to_ascii_lowercase().replace(['-', '_', ' '], "");
+    named_color(&key).ok_or_else(|| format!("unknown color '{s}'; use a CSS/X11 name or 0-255"))
+}
+
+#[allow(clippy::too_many_lines)]
+fn named_color(name: &str) -> Option<u8> {
+    Some(match name {
+        // Standard 16 terminal colors
+        "black"                             =>   0,
+        "maroon"                            =>   1,
+        "darkgreen"                         =>   2,
+        "olive" | "darkyellow"              =>   3,
+        "navy"                              =>   4,
+        "purple" | "darkmagenta"            =>   5,
+        "teal" | "darkcyan"                 =>   6,
+        "silver" | "lightgray" | "lightgrey"=>   7,
+        "darkgray" | "darkgrey"
+        | "grey" | "gray"                   =>   8,
+        "red"                               =>   9,
+        "green" | "lime"                    =>  10,
+        "yellow"                            =>  11,
+        "blue"                              =>  12,
+        "fuchsia" | "magenta"               =>  13,
+        "aqua" | "cyan"                     =>  14,
+        "white"                             =>  15,
+        // 256-color extended names
+        "darkred"                           =>  88,
+        "darkblue"                          =>  18,
+        "deepskyblue"                       =>  39,
+        "dodgerblue"                        =>  33,
+        "royalblue"                         =>  62,
+        "steelblue"                         =>  67,
+        "cornflowerblue"                    =>  69,
+        "skyblue"                           => 117,
+        "lightskyblue"                      => 117,
+        "lightblue"                         => 152,
+        "powderblue"                        => 153,
+        "lightsteelblue"                    => 147,
+        "cadetblue"                         =>  73,
+        "mediumblue"                        =>  20,
+        "midnightblue"                      =>  18,
+        "indigo"                            =>  54,
+        "darkslateblue"                     =>  60,
+        "slateblue"                         =>  62,
+        "mediumslateblue"                   => 105,
+        "mediumpurple"                      => 141,
+        "blueviolet"                        =>  57,
+        "darkviolet"                        =>  92,
+        "darkorchid"                        =>  98,
+        "orchid"                            => 170,
+        "violet"                            => 213,
+        "plum"                              => 183,
+        "lavender"                          => 189,
+        "thistle"                           => 182,
+        "mediumorchid"                      => 134,
+        "darkmagentaext"                    =>  90,
+        "mediumvioletred"                   => 162,
+        "palevioletred"                     => 168,
+        "hotpink"                           => 205,
+        "deeppink"                          => 197,
+        "pink"                              => 218,
+        "lightpink"                         => 217,
+        "crimson"                           => 160,
+        "firebrick"                         => 124,
+        "darkred2"                          =>  52,
+        "indianred"                         => 131,
+        "lightcoral"                        => 210,
+        "salmon"                            => 209,
+        "darksalmon"                        => 173,
+        "lightsalmon"                       => 216,
+        "tomato"                            => 202,
+        "orangered"                         => 202,
+        "darkorange"                        => 208,
+        "orange"                            => 214,
+        "coral"                             => 209,
+        "gold"                              => 220,
+        "goldenrod"                         => 178,
+        "darkgoldenrod"                     => 136,
+        "yellow2"                           => 226,
+        "lightyellow"                       => 230,
+        "lemonchiffon"                      => 230,
+        "khaki"                             => 185,
+        "darkkhaki"                         => 143,
+        "palegoldenrod"                     => 229,
+        "chartreuse"                        => 118,
+        "lawngreen"                         => 118,
+        "greenyellow"                       => 154,
+        "yellowgreen"                       => 148,
+        "limegreen"                         =>  40,
+        "mediumspringgreen"                 =>  48,
+        "springgreen"                       =>  48,
+        "green2"                            =>  46,
+        "forestgreen"                       =>  28,
+        "seagreen"                          =>  29,
+        "mediumseagreen"                    =>  35,
+        "darkseagreen"                      => 108,
+        "palegreen"                         => 120,
+        "lightgreen"                        => 120,
+        "darkolivegreen"                    =>  58,
+        "olivedrab"                         =>  64,
+        "darkturquoise"                     =>  44,
+        "mediumturquoise"                   =>  80,
+        "turquoise"                         =>  80,
+        "aquamarine"                        => 122,
+        "mediumaquamarine"                  =>  79,
+        "paleturquoise"                     => 159,
+        "lightcyan"                         => 195,
+        "lightseagreen"                     =>  37,
+        "cyan2"                             =>  51,
+        "rosybrown"                         => 138,
+        "sienna"                            => 130,
+        "saddlebrown"                       =>  94,
+        "chocolate"                         => 166,
+        "peru"                              => 136,
+        "sandybrown"                        => 215,
+        "tan"                               => 180,
+        "burlywood"                         => 180,
+        "wheat"                             => 229,
+        "moccasin" | "peachpuff"            => 223,
+        "navajowhite"                       => 223,
+        "brown"                             => 124,
+        "slategray" | "slategrey"           => 103,
+        "lightslategray" | "lightslategrey" => 103,
+        "darkslategray" | "darkslategrey"   =>  23,
+        "dimgray" | "dimgrey"               => 241,
+        "gainsboro"                         => 253,
+        "whitesmoke"                        => 255,
+        // Grayscale ramp (grey0-grey23 → indices 232-255)
+        "grey0"  | "gray0"                  => 232,
+        "grey1"  | "gray1"                  => 233,
+        "grey2"  | "gray2"                  => 234,
+        "grey3"  | "gray3"                  => 235,
+        "grey4"  | "gray4"                  => 236,
+        "grey5"  | "gray5"                  => 237,
+        "grey6"  | "gray6"                  => 238,
+        "grey7"  | "gray7"                  => 239,
+        "grey8"  | "gray8"                  => 240,
+        "grey9"  | "gray9"                  => 241,
+        "grey10" | "gray10"                 => 242,
+        "grey11" | "gray11"                 => 243,
+        "grey12" | "gray12"                 => 244,
+        "grey13" | "gray13"                 => 245,
+        "grey14" | "gray14"                 => 246,
+        "grey15" | "gray15"                 => 247,
+        "grey16" | "gray16"                 => 248,
+        "grey17" | "gray17"                 => 249,
+        "grey18" | "gray18"                 => 250,
+        "grey19" | "gray19"                 => 251,
+        "grey20" | "gray20"                 => 252,
+        "grey21" | "gray21"                 => 253,
+        "grey22" | "gray22"                 => 254,
+        "grey23" | "gray23"                 => 255,
+        _                                   => return None,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // OutputSinkWriter — adapts OutputSink as std::io::Write for attach_stdout_to
 // ---------------------------------------------------------------------------
 
-/// Line-buffers bytes and forwards complete lines through an `OutputSink`.
-/// Partial lines are flushed on `flush()`.
+/// Line-buffers bytes and forwards complete lines through an `OutputSink`,
+/// optionally colorizing each line with a 256-color ANSI code.
 struct OutputSinkWriter {
     sink: Arc<dyn OutputSink>,
     buf: Vec<u8>,
+    color: Option<u8>,
 }
 
 impl OutputSinkWriter {
-    fn new(sink: Arc<dyn OutputSink>) -> Self {
-        Self { sink, buf: Vec::new() }
+    fn new(sink: Arc<dyn OutputSink>, color: Option<u8>) -> Self {
+        Self { sink, buf: Vec::new(), color }
+    }
+
+    fn emit(&self, line: &str) {
+        match self.color {
+            Some(c) => self.sink.println(&format!("\x1b[38;5;{c}m{line}\x1b[0m")),
+            None    => self.sink.println(line),
+        }
     }
 }
 
@@ -64,7 +236,7 @@ impl std::io::Write for OutputSinkWriter {
         while let Some(pos) = self.buf.iter().position(|&b| b == b'\n') {
             let line = String::from_utf8_lossy(&self.buf[..pos]).into_owned();
             self.buf.drain(..=pos);
-            self.sink.println(&line);
+            self.emit(&line);
         }
         Ok(data.len())
     }
@@ -73,7 +245,7 @@ impl std::io::Write for OutputSinkWriter {
         if !self.buf.is_empty() {
             let line = String::from_utf8_lossy(&self.buf).into_owned();
             self.buf.clear();
-            self.sink.println(&line);
+            self.emit(&line);
         }
         Ok(())
     }
@@ -344,11 +516,12 @@ Execution:
     --stop-before <node>              Stop before executing this node
     --stop-after <node>               Stop after executing this node
     --bg                              Submit and return immediately (background)
+    --color <name>                    Colorize output (CSS/X11 name or 0-255; --bg only)
 
 Job Control:
   join <node>                         Wait for node to terminate; Ctrl+C to detach
   await <node>                        Synonym for join
-  follow <node>                       Attach node stdout to terminal (starts streaming)
+  follow <node> [--color <name>]      Attach node stdout; optional 256-color name or 0-255
   kill [-N] <node>                    Kill actor with exit code N (default 130)
 
 I/O:
@@ -570,6 +743,7 @@ Variables:
         let mut stop_after: Option<Handle> = None;
         let mut target_arg: Option<&str> = None;
         let mut bg_flag = false;
+        let mut color: Option<u8> = None;
 
         let mut i = 0;
         while i < args.len() {
@@ -577,6 +751,11 @@ Variables:
             match arg {
                 &"--one-step" => one_step = true,
                 &"--bg" => bg_flag = true,
+                &"--color" => {
+                    i += 1;
+                    let name = args.get(i).ok_or("--color requires a color name")?;
+                    color = Some(parse_color(name)?);
+                }
                 &"--stop-before" => {
                     i += 1;
                     let h = args.get(i).ok_or("--stop-before requires a node")?;
@@ -622,10 +801,10 @@ Variables:
             .map_err(|_| "Executor has shut down".to_string())?;
 
         if bg_flag {
-            self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, true);
+            self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, true, color);
             self.sink.println("Started background run");
         } else {
-            self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, false);
+            self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, false, color);
             self.join_handle(handle)?;
         }
 
@@ -703,22 +882,42 @@ Variables:
     }
 
     fn cmd_follow(&mut self, args: &[&str]) -> Result<(), String> {
-        let handle_str = args.first().ok_or("Usage: follow <node>")?;
+        let mut handle_str: Option<&str> = None;
+        let mut color: Option<u8> = None;
+
+        let mut i = 0;
+        while i < args.len() {
+            let arg = args[i];
+            if arg == "--color" {
+                i += 1;
+                let name = args.get(i).ok_or("--color requires a color name")?;
+                color = Some(parse_color(name)?);
+            } else if arg.starts_with("--") {
+                return Err(format!("Unknown option: {arg}"));
+            } else if handle_str.is_none() {
+                handle_str = Some(arg);
+            } else {
+                color = Some(parse_color(arg)?);
+            }
+            i += 1;
+        }
+
+        let handle_str = handle_str.ok_or("Usage: follow <node> [--color <name>]")?;
         let handle = self
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
         let handle = self.env.resolve(handle);
         let writer: Box<dyn std::io::Write + Send + Sync> =
-            Box::new(OutputSinkWriter::new(Arc::clone(&self.notification_sink)));
+            Box::new(OutputSinkWriter::new(Arc::clone(&self.notification_sink), color));
         self.env.attach_stdout_to(handle, writer);
         Ok(())
     }
 
-    fn attach_one_node(&mut self, handle: Handle, bg: bool) {
+    fn attach_one_node(&mut self, handle: Handle, bg: bool, color: Option<u8>) {
         let resolved = self.env.resolve(handle);
         if bg {
             let writer: Box<dyn std::io::Write + Send + Sync> =
-                Box::new(OutputSinkWriter::new(Arc::clone(&self.notification_sink)));
+                Box::new(OutputSinkWriter::new(Arc::clone(&self.notification_sink), color));
             self.env.attach_stdout_to(resolved, writer);
         } else {
             self.env.attach_stdout(resolved);
@@ -732,16 +931,17 @@ Variables:
         stop_before: Option<Handle>,
         stop_after: Option<Handle>,
         bg: bool,
+        color: Option<u8>,
     ) {
         if let Some(stop_after_handle) = stop_after {
-            self.attach_one_node(stop_after_handle, bg);
+            self.attach_one_node(stop_after_handle, bg, color);
         } else if let Some(stop_before_handle) = stop_before {
             let deps: Vec<Handle> = {
                 let dag = self.env.dag.read();
                 dag.get_direct_dependencies(stop_before_handle).collect()
             };
             for dep in deps {
-                self.attach_one_node(dep, bg);
+                self.attach_one_node(dep, bg, color);
             }
         } else if one_step {
             let ready_node = {
@@ -749,10 +949,10 @@ Variables:
                 TopologicalOrderIter::new(&dag, target).next()
             };
             if let Some(ready_node) = ready_node {
-                self.attach_one_node(ready_node, bg);
+                self.attach_one_node(ready_node, bg, color);
             }
         } else {
-            self.attach_one_node(target, bg);
+            self.attach_one_node(target, bg, color);
         }
     }
 
