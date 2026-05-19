@@ -46,7 +46,9 @@ main thread (sync)
 
 **Notification watcher thread**: a permanent OS thread (not a tokio task) that owns `events_rx`. On each `NodeTerminated` event it either signals the active `join_handle` (if `pending_join` matches) or prints `[name#id] done` via the notification sink.
 
-**CLI thread**: stays synchronous throughout. `join_handle` registers a `JoinWaiter` in a shared `Arc<Mutex>` and polls a one-shot `SyncSender<()>` with 50ms timeout, checking Ctrl+C between polls.
+**CLI thread**: stays synchronous throughout. `join_handle(target, timeout)` registers a `JoinWaiter` in a shared `Arc<Mutex>` and polls a one-shot `SyncSender<()>` with 50ms timeout, checking Ctrl+C between polls. An optional deadline causes it to return `Err` instead of waiting indefinitely.
+
+**Attachments / fan-out**: `AttachmentConfig` holds an unbounded list of custom sinks per node. When a writer is realized, `AttachmentManager::on_writer_realized` drains all sinks for that node and spawns one independent reader task per sink. Each task calls `pipe_pool.get_or_await_reader` independently, so multiple `follow` invocations (or colorized outputs) each receive a full copy of the data.
 
 **ExternalPrinter**: `main()` creates a rustyline `ExternalPrinter` before building `DagShell`, wraps it in a `ChannelSink` (channel + background thread), and passes it as the notification sink. This ensures background `[name] done` lines are printed through the terminal's line-rewrite mechanism without corrupting in-progress user input.
 
@@ -68,18 +70,13 @@ The original Step 2 planned to use `notification_queue` (an ailetos-internal sub
 | `8ae198e` | Fix: suppress intermediate notifications during foreground runs |
 | `28bfbb9` | Fix: share `AttachmentConfig` live so `attach_stdout` works on persistent executor |
 | `2605a4f` | Fix: use `pipe_path()` for `cmd_cat` so actor stdout is found in KV |
+| `86c24ec` | Step 5: `follow` command — stream background node output via `ExternalPrinter` |
+| `af58715` | Fix: `run --bg` attaches target stdout through `ExternalPrinter` |
+| `64b3b6c` | Color support for `follow` and `run --bg` (256 named colors, ANSI 256-color) |
+| `fc15e1c` | Fix: fan-out attachments — each `attach_stdout_to` gets its own reader |
+| `4525094` | Step 9: event-based `wait terminated` via `join_handle` |
 
-## What still needs to be done
-
-### Next: Step 5 — `follow` (stream live output)
-
-Stream a running node's stdout to the terminal without waiting for termination. `cat` only reads the completed KV buffer; `follow` must read incrementally while the actor is still running.
-
-**Approach**: Open the pipe via `pipe_path(handle, StdHandle::Stdout)` and read in a loop, yielding to the tokio runtime between reads, until EOF. Run in a background task on `ailetos_rt`; cancel it on Ctrl+C. Add `follow <node>` command and document in help.
-
-### After that: Step 9 — `wait terminated` event-based
-
-Replace the 10ms poll loop in `wait terminated` with `join_handle` plus a deadline. The watcher already owns the termination signal; `cmd_wait "terminated"` should register a `JoinWaiter` with a timeout instead of spinning on the DAG state.
+## Notes on completed work
 
 ### `kill` — no generalization
 
@@ -88,6 +85,10 @@ Replace the 10ms poll loop in `wait terminated` with `join_handle` plus a deadli
 ### `fg` is removed — update scripts
 
 Any scripts using `fg` should replace it with `join <node>`.
+
+## What still needs to be done
+
+Nothing — all planned work is complete.
 
 ## How to run tests
 
