@@ -23,7 +23,7 @@ fn make_test_components() -> (
     let notify = Arc::new(Notify::new());
     let (actor_done_tx, mut actor_done_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
 
-    let attachment_manager = Arc::new(AttachmentManager::new(AttachmentConfig::new()));
+    let attachment_manager = Arc::new(AttachmentManager::standalone(AttachmentConfig::new()));
     let bridge = Arc::new(IoBridge::new(Arc::clone(&env), attachment_manager, notify));
 
     // Lifecycle handler: replies to Terminating/Terminated, captures exit_code

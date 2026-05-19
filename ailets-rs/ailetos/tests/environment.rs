@@ -1,9 +1,54 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use ailetos::dag::NodeState;
 use ailetos::pipe::pipe_path;
 use ailetos::storage::{KVBuffers, MemKV, OpenMode};
-use ailetos::Environment;
+use ailetos::{Environment, Executor};
+use ailetos::traversal::StopConditions;
+
+// ---------------------------------------------------------------------------
+// Collecting sink for testing custom attachments
+// ---------------------------------------------------------------------------
+
+struct CollectingSink(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for CollectingSink {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn two_follows_both_receive_output() {
+    let received1: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+    let received2: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::new()));
+
+    let kv: Arc<dyn KVBuffers> = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+    env.actor_registry.write().register("cat", cat::execute);
+
+    let val = env
+        .add_value_node(b"hello".to_vec(), None)
+        .await
+        .unwrap();
+    let cat_node = env.add_node("cat".to_string(), &[val], None);
+
+    env.attach_stdout_to(cat_node, Box::new(CollectingSink(Arc::clone(&received1))));
+    env.attach_stdout_to(cat_node, Box::new(CollectingSink(Arc::clone(&received2))));
+
+    let executor = Executor::start(Arc::clone(&env), None);
+    executor.submit(cat_node, StopConditions::default()).unwrap();
+    executor.shutdown().await;
+
+    assert_eq!(received1.lock().unwrap().as_slice(), b"hello");
+    assert_eq!(received2.lock().unwrap().as_slice(), b"hello");
+}
 
 #[tokio::test]
 async fn test_value_node_is_built_at_creation() {

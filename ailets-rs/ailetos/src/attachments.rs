@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use actor_runtime::StdHandle;
 use parking_lot::{Mutex, RwLock};
-use tracing::{debug, error, trace, warn};
+use tracing::{debug, trace, warn};
 
 use crate::idgen::{Handle, IdGen};
 use crate::pipe::{PipePool, Reader};
@@ -55,11 +55,9 @@ impl AttachmentConfig {
     }
 
     /// Add an actor whose stdout should be routed to a custom writer.
-    /// The writer is consumed the first time the actor's stdout is realized.
+    /// Multiple sinks per actor are allowed; each gets its own independent reader.
     pub fn attach_to_sink(&mut self, actor_handle: Handle, sink: Box<dyn StdWrite + Send + Sync>) {
-        if !self.custom_sinks.iter().any(|(h, _)| *h == actor_handle) {
-            self.custom_sinks.push((actor_handle, sink));
-        }
+        self.custom_sinks.push((actor_handle, sink));
     }
 
     /// Check if an actor's stdout should be attached (either way)
@@ -69,13 +67,21 @@ impl AttachmentConfig {
             || self.custom_sinks.iter().any(|(h, _)| *h == actor_handle)
     }
 
-    /// Take the custom sink for this actor, removing it from the config.
-    pub fn take_custom_sink(
+    /// Take all custom sinks for this actor, removing them from the config.
+    pub fn take_custom_sinks(
         &mut self,
         actor_handle: Handle,
-    ) -> Option<Box<dyn StdWrite + Send + Sync>> {
-        let pos = self.custom_sinks.iter().position(|(h, _)| *h == actor_handle)?;
-        Some(self.custom_sinks.remove(pos).1)
+    ) -> Vec<Box<dyn StdWrite + Send + Sync>> {
+        let mut sinks = Vec::new();
+        let mut i = 0;
+        while i < self.custom_sinks.len() {
+            if self.custom_sinks[i].0 == actor_handle {
+                sinks.push(self.custom_sinks.remove(i).1);
+            } else {
+                i += 1;
+            }
+        }
+        sinks
     }
 }
 
@@ -104,6 +110,12 @@ impl AttachmentManager {
         }
     }
 
+    /// Create a standalone attachment manager owning its own config (useful in tests).
+    #[must_use]
+    pub fn standalone(config: AttachmentConfig) -> Self {
+        Self::new(Arc::new(RwLock::new(config)))
+    }
+
     /// Handle a writer realization event from `PipePool`
     ///
     /// This is called synchronously when a writer is created.
@@ -119,62 +131,54 @@ impl AttachmentManager {
             return;
         };
 
-        // Determine if attachment is needed; for stdout also take any custom sink
-        let (should_attach, custom_sink) = match std_handle {
+        match std_handle {
             StdHandle::Stdout => {
-                let mut config = self.config.write();
-                let sink = config.take_custom_sink(node_handle);
-                let attach = sink.is_some() || config.should_attach_stdout(node_handle);
-                (attach, sink)
-            }
-            StdHandle::Log | StdHandle::Metrics | StdHandle::Trace => (true, None),
-            StdHandle::Stdin | StdHandle::Env | StdHandle::_Count => (false, None),
-        };
+                // Take all custom sinks; check if host stdout is also requested.
+                let (custom_sinks, attach_host_stdout) = {
+                    let mut config = self.config.write();
+                    let sinks = config.take_custom_sinks(node_handle);
+                    // After draining custom sinks, should_attach_stdout is true only
+                    // when the actor is also in stdout_actors.
+                    let host = config.should_attach_stdout(node_handle);
+                    (sinks, host)
+                };
 
-        if !should_attach {
-            return;
+                if custom_sinks.is_empty() && !attach_host_stdout {
+                    return;
+                }
+
+                let mut tasks = self.tasks.lock();
+
+                // One independent task per custom sink (fan-out)
+                for sink in custom_sinks {
+                    let pool = Arc::clone(&pipe_pool);
+                    let gen = Arc::clone(&id_gen);
+                    debug!(node = ?node_handle, fd = fd, "spawning custom-sink attachment");
+                    tasks.push(tokio::spawn(async move {
+                        spawn_attachment(node_handle, fd, pool, gen, AttachmentTarget::Stdout, Some(sink)).await
+                    }));
+                }
+
+                // Optional host-stdout task
+                if attach_host_stdout {
+                    let pool = Arc::clone(&pipe_pool);
+                    let gen = Arc::clone(&id_gen);
+                    debug!(node = ?node_handle, fd = fd, "spawning host-stdout attachment");
+                    tasks.push(tokio::spawn(async move {
+                        spawn_attachment(node_handle, fd, pool, gen, AttachmentTarget::Stdout, None).await
+                    }));
+                }
+            }
+            StdHandle::Log | StdHandle::Metrics | StdHandle::Trace => {
+                debug!(node = ?node_handle, fd = fd, "spawning stderr attachment");
+                let pool = Arc::clone(&pipe_pool);
+                let gen = Arc::clone(&id_gen);
+                self.tasks.lock().push(tokio::spawn(async move {
+                    spawn_attachment(node_handle, fd, pool, gen, AttachmentTarget::Stderr, None).await
+                }));
+            }
+            StdHandle::Stdin | StdHandle::Env | StdHandle::_Count => {}
         }
-
-        // Determine attachment target
-        let target = match std_handle {
-            StdHandle::Stdout => AttachmentTarget::Stdout,
-            StdHandle::Log | StdHandle::Metrics | StdHandle::Trace => AttachmentTarget::Stderr,
-            StdHandle::Stdin | StdHandle::Env | StdHandle::_Count => {
-                error!(node = ?node_handle, fd = fd, "internal error: unexpected fd in attachment target");
-                return;
-            }
-        };
-
-        debug!(node = ?node_handle, fd = fd, target = ?target, "spawning attachment for realized writer");
-
-        // Spawn attachment task
-        let task = tokio::spawn(async move {
-            // Get reader for the realized writer
-            let reader = match pipe_pool
-                .get_or_await_reader((node_handle, fd), false, &id_gen)
-                .await
-            {
-                Ok(reader) => reader,
-                Err(e) => {
-                    warn!(node = ?node_handle, fd = fd, error = ?e, "failed to get reader for attachment");
-                    return Err(format!("failed to get reader for attachment: {e:?}"));
-                }
-            };
-
-            // Run attachment worker — custom sink takes priority over default stdout
-            match (target, custom_sink) {
-                (_, Some(sink)) => attach_to_stream(node_handle, reader, sink, target).await,
-                (AttachmentTarget::Stdout, None) => {
-                    attach_to_stream(node_handle, reader, std::io::stdout(), target).await
-                }
-                (AttachmentTarget::Stderr, None) => {
-                    attach_to_stream(node_handle, reader, std::io::stderr(), target).await
-                }
-            }
-        });
-
-        // Store task handle
-        self.tasks.lock().push(task);
     }
 
     /// Wait for all attachment tasks to complete.
@@ -217,6 +221,37 @@ impl AttachmentManager {
 enum AttachmentTarget {
     Stdout,
     Stderr,
+}
+
+/// Get a reader and run `attach_to_stream`. Called from each spawned task.
+async fn spawn_attachment(
+    node_handle: Handle,
+    fd: isize,
+    pipe_pool: Arc<PipePool>,
+    id_gen: Arc<IdGen>,
+    target: AttachmentTarget,
+    custom_sink: Option<Box<dyn StdWrite + Send + Sync>>,
+) -> Result<(), String> {
+    let reader = match pipe_pool
+        .get_or_await_reader((node_handle, fd), false, &id_gen)
+        .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(node = ?node_handle, fd = fd, error = ?e, "failed to get reader for attachment");
+            return Err(format!("failed to get reader for attachment: {e:?}"));
+        }
+    };
+
+    match (target, custom_sink) {
+        (_, Some(sink)) => attach_to_stream(node_handle, reader, sink, target).await,
+        (AttachmentTarget::Stdout, None) => {
+            attach_to_stream(node_handle, reader, std::io::stdout(), target).await
+        }
+        (AttachmentTarget::Stderr, None) => {
+            attach_to_stream(node_handle, reader, std::io::stderr(), target).await
+        }
+    }
 }
 
 /// Attach a pipe reader to a host output stream
