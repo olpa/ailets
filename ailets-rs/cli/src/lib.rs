@@ -21,7 +21,6 @@ use ailetos::{
     pipe::pipe_path, DependsOn, Environment, Executor, ExecutorEvent, For, Handle, KVBuffers,
     MemKV, NodeState, OpenMode, StopConditions, TopologicalOrderIter,
 };
-use futures::future::Abortable;
 
 // ---------------------------------------------------------------------------
 // OutputSink
@@ -259,6 +258,7 @@ impl std::io::Write for OutputSinkWriter {
 struct JoinWaiter {
     target: Handle,
     ready_tx: std::sync::mpsc::SyncSender<()>,
+    ctrlc_tx: std::sync::mpsc::Sender<()>,
 }
 
 /// Sent to the watcher thread when the executor is replaced (on `reset`).
@@ -303,6 +303,36 @@ fn make_env(kv: &Arc<MemKV>) -> Arc<Environment> {
         reg.register("shell_input", shell_input_actor::execute);
     }
     env
+}
+
+/// Spawn the global Ctrl+C handler thread.
+///
+/// Listens for Ctrl+C once at process startup. When Ctrl+C is received,
+/// checks if there's a pending join and notifies it via its ctrlc_tx channel.
+/// This avoids spawning per-join threads and ensures POSIX-compliant signal handling.
+fn start_ctrlc_handler(
+    pending_join: Arc<Mutex<Option<JoinWaiter>>>,
+) -> std::thread::JoinHandle<()> {
+    std::thread::spawn(move || {
+        let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        else {
+            return;
+        };
+        rt.block_on(async {
+            loop {
+                if tokio::signal::ctrl_c().await.is_err() {
+                    break;
+                }
+                // Ctrl+C received; notify the current waiter if one exists
+                let mut pending = pending_join.lock().unwrap();
+                if let Some(waiter) = pending.take() {
+                    let _ = waiter.ctrlc_tx.send(());
+                }
+            }
+        });
+    })
 }
 
 /// Spawn the watcher thread.
@@ -384,6 +414,8 @@ pub struct DagShell {
     // Kept alive until DagShell drops; the drop closes watcher_update_tx
     // which causes the watcher to exit.
     _watcher: std::thread::JoinHandle<()>,
+    // Global Ctrl+C handler thread; kept alive until DagShell drops.
+    _ctrlc_handler: std::thread::JoinHandle<()>,
     // executor drops before ailetos_rt (declaration order = drop order).
     executor: Executor,
     ailetos_rt: tokio::runtime::Runtime,
@@ -425,6 +457,8 @@ impl DagShell {
             notification_sink,
         );
 
+        let ctrlc_handler = start_ctrlc_handler(Arc::clone(&pending_join));
+
         Self {
             env,
             kv,
@@ -435,6 +469,7 @@ impl DagShell {
             pending_join,
             watcher_update_tx,
             _watcher: watcher,
+            _ctrlc_handler: ctrlc_handler,
             executor,
             ailetos_rt,
         }
@@ -815,7 +850,8 @@ Variables:
     /// Wait for `target` to terminate. Ctrl+C detaches; the node keeps running.
     ///
     /// Registers a `JoinWaiter` so the notification watcher signals us instead
-    /// of printing a background notification for this particular node.
+    /// of printing a background notification for this particular node. The global
+    /// Ctrl+C handler will notify us via ctrlc_rx if Ctrl+C is pressed.
     fn join_handle(
         &mut self,
         target: Handle,
@@ -830,34 +866,17 @@ Variables:
         }
 
         let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<()>(1);
-        *self.pending_join.lock().unwrap() = Some(JoinWaiter { target, ready_tx });
-
-        let (abort_handle, abort_reg) = futures::future::AbortHandle::new_pair();
         let (ctrlc_tx, ctrlc_rx) = std::sync::mpsc::channel::<()>();
-
-        std::thread::spawn(move || {
-            let Ok(rt) = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-            else {
-                return;
-            };
-            rt.block_on(async {
-                if Abortable::new(tokio::signal::ctrl_c(), abort_reg)
-                    .await
-                    .is_ok_and(|r| r.is_ok())
-                {
-                    let _ = ctrlc_tx.send(());
-                }
-            });
+        *self.pending_join.lock().unwrap() = Some(JoinWaiter {
+            target,
+            ready_tx,
+            ctrlc_tx,
         });
 
         let deadline = timeout.map(|d| std::time::Instant::now() + d);
 
         let result = loop {
             if ctrlc_rx.try_recv().is_ok() {
-                *self.pending_join.lock().unwrap() = None;
-                abort_handle.abort();
                 self.sink
                     .println("\n^C - Detached (node continues running in ailetos)");
                 break Ok(());
@@ -866,7 +885,6 @@ Variables:
             if let Some(dl) = deadline {
                 if std::time::Instant::now() >= dl {
                     *self.pending_join.lock().unwrap() = None;
-                    abort_handle.abort();
                     break Err(format!(
                         "Timeout: node {} not terminated after {}s",
                         target.id(),
@@ -877,12 +895,12 @@ Variables:
 
             match ready_rx.recv_timeout(std::time::Duration::from_millis(50)) {
                 Ok(()) => {
-                    abort_handle.abort();
+                    *self.pending_join.lock().unwrap() = None;
                     break Ok(());
                 }
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    abort_handle.abort();
+                    *self.pending_join.lock().unwrap() = None;
                     break Ok(());
                 }
             }
