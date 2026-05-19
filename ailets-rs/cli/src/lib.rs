@@ -805,7 +805,7 @@ Variables:
             self.sink.println("Started background run");
         } else {
             self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, false, color);
-            self.join_handle(handle)?;
+            self.join_handle(handle, None)?;
         }
 
         self.sink.println("");
@@ -816,7 +816,11 @@ Variables:
     ///
     /// Registers a `JoinWaiter` so the notification watcher signals us instead
     /// of printing a background notification for this particular node.
-    fn join_handle(&mut self, target: Handle) -> Result<(), String> {
+    fn join_handle(
+        &mut self,
+        target: Handle,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<(), String> {
         // Bail early if already terminated.
         if matches!(
             self.env.dag.read().get_node(target).map(|n| n.state),
@@ -848,6 +852,8 @@ Variables:
             });
         });
 
+        let deadline = timeout.map(|d| std::time::Instant::now() + d);
+
         let result = loop {
             if ctrlc_rx.try_recv().is_ok() {
                 *self.pending_join.lock().unwrap() = None;
@@ -855,6 +861,18 @@ Variables:
                 self.sink
                     .println("\n^C - Detached (node continues running in ailetos)");
                 break Ok(());
+            }
+
+            if let Some(dl) = deadline {
+                if std::time::Instant::now() >= dl {
+                    *self.pending_join.lock().unwrap() = None;
+                    abort_handle.abort();
+                    break Err(format!(
+                        "Timeout: node {} not terminated after {}s",
+                        target.id(),
+                        timeout.unwrap().as_secs()
+                    ));
+                }
             }
 
             match ready_rx.recv_timeout(std::time::Duration::from_millis(50)) {
@@ -878,7 +896,7 @@ Variables:
         let handle = self
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
-        self.join_handle(handle)
+        self.join_handle(handle, None)
     }
 
     fn cmd_follow(&mut self, args: &[&str]) -> Result<(), String> {
@@ -1112,7 +1130,7 @@ Variables:
         Ok(())
     }
 
-    fn cmd_wait(&self, args: &[&str]) -> Result<(), String> {
+    fn cmd_wait(&mut self, args: &[&str]) -> Result<(), String> {
         let condition = args.first().ok_or("Usage: wait <condition> [args]")?;
         match *condition {
             "suspended" => {
@@ -1144,25 +1162,7 @@ Variables:
                 let handle = self
                     .parse_handle(handle_str)
                     .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
-
-                let timeout = std::time::Duration::from_secs(5);
-                let poll_interval = std::time::Duration::from_millis(10);
-                let deadline = std::time::Instant::now() + timeout;
-
-                loop {
-                    let state = self.env.dag.read().get_node(handle).map(|n| n.state);
-                    if matches!(state, Some(NodeState::Terminated)) {
-                        return Ok(());
-                    }
-                    if std::time::Instant::now() >= deadline {
-                        return Err(format!(
-                            "Timeout: node {} not terminated after {}s",
-                            handle.id(),
-                            timeout.as_secs()
-                        ));
-                    }
-                    std::thread::sleep(poll_interval);
-                }
+                self.join_handle(handle, Some(std::time::Duration::from_secs(5)))
             }
             other => Err(format!("Unknown wait condition: {other}")),
         }
