@@ -35,7 +35,6 @@ show
 close $src
 status
 show
-fg
 
 status
 show

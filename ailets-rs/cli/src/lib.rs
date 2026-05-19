@@ -148,10 +148,6 @@ impl DagShell {
             "write" => self.cmd_write(rest)?,
             "close" => self.cmd_close(rest)?,
             "kill" => self.cmd_kill(rest)?,
-            "fg" => {
-                self.sink
-                    .println("'fg' has been removed. Use 'join <node>' instead.");
-            }
             _ => {
                 self.sink
                     .println(&format!("Unknown command: {cmd}. Type 'help' for usage."));
