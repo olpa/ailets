@@ -1,4 +1,19 @@
-//! Output subsystem - OutputSink trait, color support, and line-buffering.
+//! Output subsystem - OutputSink trait, color support
+//!
+//! This module provides two related but separate abstractions:
+//!
+//! 1. **`OutputSink` trait** - High-level text output interface
+//!    - Simple `println(&str)` method for line-oriented output
+//!    - Easy to implement for testing (see `CapturingSink` in tests)
+//!    - Used for command output and notifications
+//!
+//! 2. **`OutputSinkWriter` struct** - Adapter for byte-stream APIs
+//!    - Wraps an `OutputSink` to implement `std::io::Write`
+//!    - Needed when interfacing with APIs that require `Write` trait
+//!    - Adds optional ANSI color support
+//!
+//! The separation exists to keep `OutputSink` simple and testable while
+//! still allowing integration with `std::io::Write`-based APIs.
 
 use std::sync::Arc;
 
@@ -8,15 +23,23 @@ use std::sync::Arc;
 
 /// Where DagShell output is written. `Send + Sync` so the notification
 /// watcher thread can hold an `Arc<dyn OutputSink>`.
+///
+/// This trait is intentionally simple to make it easy to implement custom
+/// sinks for testing and alternative output destinations.
 pub trait OutputSink: Send + Sync {
-    fn println(&self, line: &str);
+    fn print(&self, text: &str);
+
+    fn println(&self, line: &str) {
+        self.print(line);
+        self.print("\n");
+    }
 }
 
 pub struct StdoutSink;
 
 impl OutputSink for StdoutSink {
-    fn println(&self, line: &str) {
-        println!("{line}");
+    fn print(&self, text: &str) {
+        print!("{text}");
     }
 }
 
@@ -188,44 +211,36 @@ fn named_color(name: &str) -> Option<u8> {
 // OutputSinkWriter — adapts OutputSink as std::io::Write for attach_stdout_to
 // ---------------------------------------------------------------------------
 
-/// Line-buffers bytes and forwards complete lines through an `OutputSink`,
-/// optionally colorizing each line with a 256-color ANSI code.
+/// Adapter that wraps an `OutputSink` to implement `std::io::Write`.
+///
+/// This is needed when interfacing with APIs that require `std::io::Write`,
+/// such as `attach_stdout_to()` which captures process output as a byte stream.
+///
+/// Writes bytes immediately (no buffering) and optionally colorizes output
+/// with a 256-color ANSI code.
 pub struct OutputSinkWriter {
     sink: Arc<dyn OutputSink>,
-    buf: Vec<u8>,
     color: Option<u8>,
 }
 
 impl OutputSinkWriter {
     pub fn new(sink: Arc<dyn OutputSink>, color: Option<u8>) -> Self {
-        Self { sink, buf: Vec::new(), color }
-    }
-
-    fn emit(&self, line: &str) {
-        match self.color {
-            Some(c) => self.sink.println(&format!("\x1b[38;5;{c}m{line}\x1b[0m")),
-            None    => self.sink.println(line),
-        }
+        Self { sink, color }
     }
 }
 
 impl std::io::Write for OutputSinkWriter {
     fn write(&mut self, data: &[u8]) -> std::io::Result<usize> {
-        self.buf.extend_from_slice(data);
-        while let Some(pos) = self.buf.iter().position(|&b| b == b'\n') {
-            let line = String::from_utf8_lossy(&self.buf[..pos]).into_owned();
-            self.buf.drain(..=pos);
-            self.emit(&line);
-        }
+        let text = String::from_utf8_lossy(data);
+        let output = match self.color {
+            Some(c) => format!("\x1b[38;5;{c}m{text}\x1b[0m"),
+            None    => text.into_owned(),
+        };
+        self.sink.print(&output);
         Ok(data.len())
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
-        if !self.buf.is_empty() {
-            let line = String::from_utf8_lossy(&self.buf).into_owned();
-            self.buf.clear();
-            self.emit(&line);
-        }
         Ok(())
     }
 }

@@ -31,6 +31,15 @@ impl Clone for CapturingSink {
 }
 
 impl OutputSink for CapturingSink {
+    fn print(&self, text: &str) {
+        let mut lines = self.lines.lock().unwrap();
+        if let Some(last) = lines.last_mut() {
+            last.push_str(text);
+        } else {
+            lines.push(text.to_string());
+        }
+    }
+
     fn println(&self, line: &str) {
         self.lines.lock().unwrap().push(line.to_string());
     }

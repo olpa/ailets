@@ -25,8 +25,8 @@ impl ChannelSink {
 }
 
 impl OutputSink for ChannelSink {
-    fn println(&self, line: &str) {
-        let _ = self.tx.send(format!("{line}\n"));
+    fn print(&self, text: &str) {
+        let _ = self.tx.send(text.to_string());
     }
 }
 
