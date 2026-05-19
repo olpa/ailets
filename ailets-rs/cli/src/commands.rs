@@ -1,0 +1,673 @@
+//! Command implementations for DagShell.
+
+use std::sync::Arc;
+
+use actor_runtime::StdHandle;
+use ailetos::{
+    pipe::pipe_path, DependsOn, For, Handle, KVBuffers, MemKV, NodeState, OpenMode,
+    StopConditions, TopologicalOrderIter,
+};
+
+use crate::output::{parse_color, OutputSinkWriter};
+use crate::shell_ui::{format_state, parse_bytes_before_pause, parse_explain, parse_quoted_string, truncate, HELP_TEXT};
+use crate::{dbg_control, shell_input_control, DagShell, JoinWaiter, WatcherUpdate, make_env, start_executor_with_bridge};
+
+impl DagShell {
+    pub(crate) fn cmd_help(&self) {
+        self.sink.println(HELP_TEXT);
+    }
+
+    pub(crate) fn cmd_set(&mut self, args: &[&str]) -> Result<(), String> {
+        match args {
+            [var_name, "=", "node", rest @ ..] => {
+                let handle = self.cmd_node_inner(rest)?;
+                self.vars.insert((*var_name).to_string(), handle);
+                Ok(())
+            }
+            _ => Err("Usage: set <var> = node ...".to_string()),
+        }
+    }
+
+    pub(crate) fn cmd_node(&mut self, args: &[&str]) -> Result<(), String> {
+        if args.first() == Some(&"list") {
+            self.cmd_node_list();
+        } else {
+            self.cmd_node_inner(args)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn cmd_node_list(&self) {
+        if self.handles.is_empty() {
+            self.sink.println("No nodes");
+        } else {
+            let dag = self.env.dag.read();
+            for &handle in &self.handles {
+                if let Some(node) = dag.get_node(handle) {
+                    let state_str = format_state(node.state);
+                    let explain = node
+                        .explain
+                        .as_ref()
+                        .map_or_else(String::new, |e| format!(" # {e}"));
+                    let pid = node.pid.id();
+                    self.sink
+                        .println(&format!("  {pid} {} [{state_str}]{explain}", node.idname));
+                }
+            }
+        }
+    }
+
+    pub(crate) fn cmd_node_inner(&mut self, args: &[&str]) -> Result<Handle, String> {
+        match args {
+            ["add", actor, rest @ ..] => {
+                let actor = (*actor).to_string();
+                let explain = parse_explain(rest);
+                let handle = self.env.add_node(actor.clone(), &[], explain.clone());
+                self.handles.push(handle);
+
+                if actor == "dbg" {
+                    let bytes_before_pause = parse_bytes_before_pause(rest);
+                    dbg_control::register_dbg_actor(handle, bytes_before_pause);
+                }
+                if actor == "shell_input" {
+                    shell_input_control::register_shell_input_actor(handle);
+                }
+
+                let id = handle.id();
+                let expl = explain.map_or_else(String::new, |e| format!("({e})"));
+                self.sink.println(&format!("Added node {id}: {actor} {expl}"));
+                Ok(handle)
+            }
+            ["add"] => Err("Usage: node add <actor> [--explain=text]".to_string()),
+            ["value", rest @ ..] if !rest.is_empty() => {
+                let data = parse_quoted_string(rest);
+                let explain = parse_explain(rest);
+                let env = Arc::clone(&self.env);
+                let data_bytes = data.as_bytes().to_vec();
+                let explain_clone = explain.clone();
+                let handle = self
+                    .ailetos_rt
+                    .block_on(async move { env.add_value_node(data_bytes, explain_clone).await })
+                    .map_err(|e| format!("Failed to add value node: {e}"))?;
+                self.handles.push(handle);
+                let id = handle.id();
+                let truncated = truncate(&data, 30);
+                let expl = explain.map_or_else(String::new, |e| format!("({e})"));
+                self.sink
+                    .println(&format!("Added value node {id}: \"{truncated}\" {expl}"));
+                Ok(handle)
+            }
+            ["value"] => Err("Usage: node value <data> [--explain=text]".to_string()),
+            ["alias", name, target_str, ..] => {
+                let name = (*name).to_string();
+                let target = self
+                    .parse_handle(target_str)
+                    .ok_or_else(|| format!("Invalid handle: {target_str}"))?;
+                let handle = self.env.add_alias(name.clone(), target);
+                self.handles.push(handle);
+                let id = handle.id();
+                let tid = target.id();
+                self.sink
+                    .println(&format!("Added alias {id}: {name} -> {tid}"));
+                Ok(handle)
+            }
+            ["alias", ..] => Err("Usage: node alias <name> <target>".to_string()),
+            [cmd, ..] => Err(format!("Unknown node subcommand: {cmd}")),
+            [] => Err("Usage: node <add|value|alias|list> ...".to_string()),
+        }
+    }
+
+    pub(crate) fn cmd_dep(&mut self, args: &[&str]) -> Result<(), String> {
+        let (node_str, dep_str) = match args {
+            [n, d, ..] => (*n, *d),
+            _ => return Err("Usage: dep <node> <dependency>".to_string()),
+        };
+        let node = self
+            .parse_handle(node_str)
+            .ok_or_else(|| format!("Invalid handle: {node_str}"))?;
+        let dep = self
+            .parse_handle(dep_str)
+            .ok_or_else(|| format!("Invalid handle: {dep_str}"))?;
+        self.env
+            .dag
+            .write()
+            .add_dependency(For(node), DependsOn(dep));
+        let nid = node.id();
+        let did = dep.id();
+        self.sink
+            .println(&format!("Added dependency: {nid} depends on {did}"));
+        Ok(())
+    }
+
+    pub(crate) fn cmd_deps(&self, args: &[&str]) -> Result<(), String> {
+        let handle_str = args.first().ok_or("Usage: deps <node>")?;
+        let handle = self
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+        let dag = self.env.dag.read();
+        let deps: Vec<_> = dag.get_direct_dependencies(handle).collect();
+        let hid = handle.id();
+        if deps.is_empty() {
+            self.sink.println(&format!("Node {hid} has no dependencies"));
+        } else {
+            self.sink.println(&format!("Node {hid} depends on:"));
+            for dep in deps {
+                let node = dag.get_node(dep);
+                let name = node.map_or("?", |n| n.idname.as_str());
+                let did = dep.id();
+                self.sink.println(&format!("  {did} ({name})"));
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn cmd_show(&self, args: &[&str]) -> Result<(), String> {
+        let dag = self.env.dag.read();
+        if args.is_empty() {
+            if self.handles.is_empty() {
+                self.sink.println("No nodes");
+                return Ok(());
+            }
+            let terminals: Vec<Handle> = self
+                .handles
+                .iter()
+                .filter(|&&h| dag.get_direct_dependents(h).next().is_none())
+                .copied()
+                .collect();
+
+            let suspension = Some(&*self.env.suspension);
+            let roots = if terminals.is_empty() {
+                self.handles.clone()
+            } else {
+                terminals
+            };
+            for handle in roots {
+                let tree = dag.dump_colored(handle, suspension);
+                for line in tree.lines() {
+                    self.sink.println(line);
+                }
+            }
+            return Ok(());
+        }
+        let handle_str = args.first().ok_or("Usage: show <node>")?;
+        let handle = self
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+        let suspension = Some(&*self.env.suspension);
+        let tree = dag.dump_colored(handle, suspension);
+        for line in tree.lines() {
+            self.sink.println(line);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn cmd_run(&mut self, args: &[&str]) -> Result<(), String> {
+        let mut one_step = false;
+        let mut stop_before: Option<Handle> = None;
+        let mut stop_after: Option<Handle> = None;
+        let mut target_arg: Option<&str> = None;
+        let mut bg_flag = false;
+        let mut color: Option<u8> = None;
+
+        let mut i = 0;
+        while i < args.len() {
+            let arg = args.get(i).ok_or("Internal error: index out of bounds")?;
+            match arg {
+                &"--one-step" => one_step = true,
+                &"--bg" => bg_flag = true,
+                &"--color" => {
+                    i += 1;
+                    let name = args.get(i).ok_or("--color requires a color name")?;
+                    color = Some(parse_color(name)?);
+                }
+                &"--stop-before" => {
+                    i += 1;
+                    let h = args.get(i).ok_or("--stop-before requires a node")?;
+                    stop_before = Some(
+                        self.parse_handle(h)
+                            .ok_or_else(|| format!("Invalid handle: {h}"))?,
+                    );
+                }
+                &"--stop-after" => {
+                    i += 1;
+                    let h = args.get(i).ok_or("--stop-after requires a node")?;
+                    stop_after = Some(
+                        self.parse_handle(h)
+                            .ok_or_else(|| format!("Invalid handle: {h}"))?,
+                    );
+                }
+                arg if !arg.starts_with("--") => {
+                    target_arg = Some(arg);
+                }
+                other => return Err(format!("Unknown option: {other}")),
+            }
+            i += 1;
+        }
+
+        let handle = if let Some(h) = target_arg {
+            self.parse_handle(h)
+                .ok_or_else(|| format!("Invalid handle: {h}"))?
+        } else if let Some(sb) = stop_before {
+            sb
+        } else {
+            self.find_default_target()?
+        };
+        let handle = self.env.resolve(handle);
+
+        let stop_conditions = StopConditions {
+            one_step,
+            stop_before,
+            stop_after,
+        };
+
+        self.executor
+            .submit(handle, stop_conditions)
+            .map_err(|_| "Executor has shut down".to_string())?;
+
+        if bg_flag {
+            self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, true, color);
+            self.sink.println("Started background run");
+        } else {
+            self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, false, color);
+            self.join_handle(handle, None)?;
+        }
+
+        self.sink.println("");
+        Ok(())
+    }
+
+    /// Wait for `target` to terminate. Ctrl+C detaches; the node keeps running.
+    ///
+    /// Registers a `JoinWaiter` so the notification watcher signals us instead
+    /// of printing a background notification for this particular node. The global
+    /// Ctrl+C handler will notify us via ctrlc_rx if Ctrl+C is pressed.
+    fn join_handle(
+        &mut self,
+        target: Handle,
+        timeout: Option<std::time::Duration>,
+    ) -> Result<(), String> {
+        // Bail early if already terminated.
+        if matches!(
+            self.env.dag.read().get_node(target).map(|n| n.state),
+            Some(NodeState::Terminated)
+        ) {
+            return Ok(());
+        }
+
+        let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<()>(1);
+        let (ctrlc_tx, ctrlc_rx) = std::sync::mpsc::channel::<()>();
+        *self.pending_join.lock().unwrap() = Some(JoinWaiter {
+            target,
+            ready_tx,
+            ctrlc_tx,
+        });
+
+        let deadline = timeout.map(|d| std::time::Instant::now() + d);
+
+        let result = loop {
+            if ctrlc_rx.try_recv().is_ok() {
+                self.sink
+                    .println("\n^C - Detached (node continues running in ailetos)");
+                break Ok(());
+            }
+
+            if let Some(dl) = deadline {
+                if std::time::Instant::now() >= dl {
+                    *self.pending_join.lock().unwrap() = None;
+                    break Err(format!(
+                        "Timeout: node {} not terminated after {}s",
+                        target.id(),
+                        timeout.unwrap().as_secs()
+                    ));
+                }
+            }
+
+            match ready_rx.recv_timeout(std::time::Duration::from_millis(50)) {
+                Ok(()) => {
+                    *self.pending_join.lock().unwrap() = None;
+                    break Ok(());
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    *self.pending_join.lock().unwrap() = None;
+                    break Ok(());
+                }
+            }
+        };
+
+        result
+    }
+
+    pub(crate) fn cmd_join(&mut self, args: &[&str]) -> Result<(), String> {
+        let handle_str = args.first().ok_or("Usage: join <node>")?;
+        let handle = self
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+        self.join_handle(handle, None)
+    }
+
+    pub(crate) fn cmd_follow(&mut self, args: &[&str]) -> Result<(), String> {
+        let mut handle_str: Option<&str> = None;
+        let mut color: Option<u8> = None;
+
+        let mut i = 0;
+        while i < args.len() {
+            let arg = args[i];
+            if arg == "--color" {
+                i += 1;
+                let name = args.get(i).ok_or("--color requires a color name")?;
+                color = Some(parse_color(name)?);
+            } else if arg.starts_with("--") {
+                return Err(format!("Unknown option: {arg}"));
+            } else if handle_str.is_none() {
+                handle_str = Some(arg);
+            } else {
+                color = Some(parse_color(arg)?);
+            }
+            i += 1;
+        }
+
+        let handle_str = handle_str.ok_or("Usage: follow <node> [--color <name>]")?;
+        let handle = self
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+        let handle = self.env.resolve(handle);
+        let writer: Box<dyn std::io::Write + Send + Sync> =
+            Box::new(OutputSinkWriter::new(Arc::clone(&self.notification_sink), color));
+        self.env.attach_stdout_to(handle, writer);
+        Ok(())
+    }
+
+    pub(crate) fn attach_one_node(&mut self, handle: Handle, bg: bool, color: Option<u8>) {
+        let resolved = self.env.resolve(handle);
+        if bg {
+            let writer: Box<dyn std::io::Write + Send + Sync> =
+                Box::new(OutputSinkWriter::new(Arc::clone(&self.notification_sink), color));
+            self.env.attach_stdout_to(resolved, writer);
+        } else {
+            self.env.attach_stdout(resolved);
+        }
+    }
+
+    pub(crate) fn attach_stdout_for_run(
+        &mut self,
+        target: Handle,
+        one_step: bool,
+        stop_before: Option<Handle>,
+        stop_after: Option<Handle>,
+        bg: bool,
+        color: Option<u8>,
+    ) {
+        if let Some(stop_after_handle) = stop_after {
+            self.attach_one_node(stop_after_handle, bg, color);
+        } else if let Some(stop_before_handle) = stop_before {
+            let deps: Vec<Handle> = {
+                let dag = self.env.dag.read();
+                dag.get_direct_dependencies(stop_before_handle).collect()
+            };
+            for dep in deps {
+                self.attach_one_node(dep, bg, color);
+            }
+        } else if one_step {
+            let ready_node = {
+                let dag = self.env.dag.read();
+                TopologicalOrderIter::new(&dag, target).next()
+            };
+            if let Some(ready_node) = ready_node {
+                self.attach_one_node(ready_node, bg, color);
+            }
+        } else {
+            self.attach_one_node(target, bg, color);
+        }
+    }
+
+    pub(crate) fn find_default_target(&self) -> Result<Handle, String> {
+        if self.handles.is_empty() {
+            return Err("No nodes to run".to_string());
+        }
+        let dag = self.env.dag.read();
+        let terminals: Vec<Handle> = self
+            .handles
+            .iter()
+            .filter(|&&h| dag.get_direct_dependents(h).next().is_none())
+            .copied()
+            .collect();
+        match terminals.as_slice() {
+            [] => Err("No terminal nodes found (circular dependencies?)".to_string()),
+            [single] => Ok(*single),
+            _ => {
+                let ids: Vec<_> = terminals.iter().map(|h| h.id().to_string()).collect();
+                Err(format!(
+                    "Multiple terminal nodes: {}. Specify target explicitly.",
+                    ids.join(", ")
+                ))
+            }
+        }
+    }
+
+    pub(crate) fn cmd_cat(&self, args: &[&str]) -> Result<(), String> {
+        let handle_str = args.first().ok_or("Usage: cat <node>")?;
+        let handle = self
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+
+        let kv = Arc::clone(&self.kv);
+        let output = self.ailetos_rt.block_on(async move {
+            let path = pipe_path(handle, StdHandle::Stdout as isize);
+            match kv.open(&path, OpenMode::Read).await {
+                Ok(buffer) => {
+                    let guard = buffer.lock();
+                    Ok(String::from_utf8_lossy(&guard).into_owned())
+                }
+                Err(e) => Err(format!("No output available for node {}: {e:?}", handle.id())),
+            }
+        });
+        match output {
+            Ok(text) => self.sink.println(&text),
+            Err(e) => self.sink.println(&e),
+        }
+        Ok(())
+    }
+
+    pub fn cmd_source(&mut self, args: &[&str]) -> Result<(), String> {
+        let path = args.first().ok_or("Usage: source <file>")?;
+        let content =
+            std::fs::read_to_string(path).map_err(|e| format!("Failed to read {path}: {e}"))?;
+
+        for line in content.lines() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            self.sink.println(&format!("dagsh> {line}"));
+            match self.execute(line) {
+                Ok(true) => {}
+                Ok(false) => return Ok(()),
+                Err(e) => self.sink.println(&format!("Error: {e}")),
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn cmd_reset(&mut self) {
+        shell_input_control::close_all_shell_inputs();
+        for &handle in &self.handles {
+            self.env.suspension.resume(handle);
+        }
+
+        let new_kv = Arc::new(MemKV::new());
+        let new_env = make_env(&new_kv);
+        let (new_executor, new_events_rx) =
+            start_executor_with_bridge(&self.ailetos_rt, Arc::clone(&new_env));
+
+        // Tell the watcher to switch to the new executor's event stream.
+        self.watcher_update_tx
+            .send(WatcherUpdate {
+                events_rx: new_events_rx,
+                env: Arc::clone(&new_env),
+            })
+            .ok();
+
+        self.executor = new_executor;
+        self.env = new_env;
+        self.kv = new_kv;
+        self.handles.clear();
+        self.vars.clear();
+
+        self.sink.println("DAG cleared.");
+    }
+
+    pub(crate) fn cmd_status(&self, args: &[&str]) -> Result<(), String> {
+        let dag = self.env.dag.read();
+        if args.is_empty() {
+            let mut total = 0;
+            let mut running = 0;
+            let mut terminated = 0;
+            let mut not_started = 0;
+            let mut suspended = 0;
+
+            for &handle in &self.handles {
+                if let Some(node) = dag.get_node(handle) {
+                    total += 1;
+                    match node.state {
+                        NodeState::Running => running += 1,
+                        NodeState::Terminated => terminated += 1,
+                        NodeState::NotStarted => not_started += 1,
+                        NodeState::Terminating => {}
+                    }
+                    if self.env.suspension.is_suspended(handle) {
+                        suspended += 1;
+                    }
+                }
+            }
+            self.sink.println(&format!("Nodes: {total} total, {not_started} pending, {running} running, {suspended} suspended, {terminated} terminated"));
+        } else if let Some(handle_str) = args.first() {
+            let handle = self
+                .parse_handle(handle_str)
+                .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+            let hid = handle.id();
+            if let Some(node) = dag.get_node(handle) {
+                let state = format_state(node.state);
+                self.sink
+                    .println(&format!("Node {hid}: {} [{state}]", node.idname));
+            } else {
+                self.sink.println(&format!("Node {hid} not found"));
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn cmd_suspend(&self, args: &[&str]) -> Result<(), String> {
+        let handle_str = args.first().ok_or("Usage: suspend <node>")?;
+        let handle = self
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+        self.env.suspension.suspend(handle);
+        self.sink.println(&format!("Suspended node {}", handle.id()));
+        Ok(())
+    }
+
+    pub(crate) fn cmd_resume(&self, args: &[&str]) -> Result<(), String> {
+        let handle_str = args.first().ok_or("Usage: resume <node>")?;
+        let handle = self
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+        self.env.suspension.resume(handle);
+        self.sink.println(&format!("Resumed node {}", handle.id()));
+        Ok(())
+    }
+
+    pub(crate) fn cmd_wait(&mut self, args: &[&str]) -> Result<(), String> {
+        let condition = args.first().ok_or("Usage: wait <condition> [args]")?;
+        match *condition {
+            "suspended" => {
+                let handle_str = args.get(1).ok_or("Usage: wait suspended <node>")?;
+                let handle = self
+                    .parse_handle(handle_str)
+                    .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+
+                let timeout = std::time::Duration::from_secs(5);
+                let poll_interval = std::time::Duration::from_millis(10);
+                let deadline = std::time::Instant::now() + timeout;
+
+                loop {
+                    if self.env.suspension.is_suspended(handle) {
+                        return Ok(());
+                    }
+                    if std::time::Instant::now() >= deadline {
+                        return Err(format!(
+                            "Timeout: node {} not suspended after {}s",
+                            handle.id(),
+                            timeout.as_secs()
+                        ));
+                    }
+                    std::thread::sleep(poll_interval);
+                }
+            }
+            "terminated" => {
+                let handle_str = args.get(1).ok_or("Usage: wait terminated <node>")?;
+                let handle = self
+                    .parse_handle(handle_str)
+                    .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+                self.join_handle(handle, Some(std::time::Duration::from_secs(5)))
+            }
+            other => Err(format!("Unknown wait condition: {other}")),
+        }
+    }
+
+    pub(crate) fn cmd_write(&self, args: &[&str]) -> Result<(), String> {
+        let handle_str = args.first().ok_or("Usage: write <node> <data>")?;
+        let handle = self
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+
+        let data = parse_quoted_string(args.get(1..).unwrap_or(&[]));
+
+        match shell_input_control::write_to_shell_input(handle, data.into_bytes()) {
+            Ok(()) => {
+                let hid = handle.id();
+                self.sink.println(&format!("Wrote data to node {hid}"));
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to write: {e}")),
+        }
+    }
+
+    pub(crate) fn cmd_close(&self, args: &[&str]) -> Result<(), String> {
+        let handle_str = args.first().ok_or("Usage: close <node>")?;
+        let handle = self
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+
+        match shell_input_control::close_shell_input(handle) {
+            Ok(()) => {
+                let hid = handle.id();
+                self.sink.println(&format!("Closed node {hid}"));
+                Ok(())
+            }
+            Err(e) => Err(format!("Failed to close: {e}")),
+        }
+    }
+
+    pub(crate) fn cmd_kill(&mut self, args: &[&str]) -> Result<(), String> {
+        let handle_str = match args {
+            [flag, node] if flag.starts_with('-') => *node,
+            [node] => *node,
+            _ => return Err("Usage: kill [-N] <node>".to_string()),
+        };
+
+        let handle = self
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+
+        if !dbg_control::is_dbg_node(handle) {
+            return Err("kill is only supported for dbg nodes".to_string());
+        }
+
+        dbg_control::kill_dbg_actor(handle);
+        self.env.suspension.resume(handle);
+
+        self.sink.println(&format!("Killed node {}", handle.id()));
+        Ok(())
+    }
+}
