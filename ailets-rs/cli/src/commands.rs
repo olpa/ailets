@@ -260,6 +260,15 @@ impl DagShell {
             stop_after,
         };
 
+        // Determine the node to join on: the last node the executor will actually run,
+        // which may differ from `handle` when stop conditions truncate the traversal.
+        let wait_handle = {
+            let dag = self.env.dag.read();
+            TopologicalOrderIter::with_stop_conditions(&dag, handle, stop_conditions.clone())
+                .last()
+                .unwrap_or(handle)
+        };
+
         self.executor
             .submit(handle, stop_conditions)
             .map_err(|_| "Executor has shut down".to_string())?;
@@ -269,7 +278,7 @@ impl DagShell {
             self.sink.println("Started background run");
         } else {
             self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, false, color);
-            self.join_handle(handle, None)?;
+            self.join_handle(wait_handle, None)?;
         }
 
         self.sink.println("");
