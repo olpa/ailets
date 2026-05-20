@@ -274,23 +274,27 @@ impl Dag {
 
         let suspended_suffix = if is_suspended { " ⏸ suspended" } else { "" };
 
+        let shared_marker = if is_circular {
+            " [circular reference]"
+        } else if already_printed {
+            if ctx.use_colors {
+                " \x1b[36m[↩ shared]\x1b[0m"  // Cyan
+            } else {
+                " [↩ shared]"
+            }
+        } else {
+            ""
+        };
+
         let explain_suffix = node
             .explain
             .as_ref()
             .map(|e| format!(" # {e}"))
             .unwrap_or_default();
 
-        let circular_suffix = if is_circular {
-            " [circular reference]"
-        } else if already_printed {
-            " [see above]"
-        } else {
-            ""
-        };
-
         let _ = writeln!(
             ctx.output,
-            "{prefix}{connector}{}.{} [{state_symbol}{suspended_suffix}]{explain_suffix}{circular_suffix}",
+            "{prefix}{connector}{}.{} [{state_symbol}{suspended_suffix}]{shared_marker}{explain_suffix}",
             node.idname,
             node.pid.id()
         );
