@@ -123,8 +123,8 @@ impl AttachmentManager {
                 // allowing multiple destinations to receive the same data.
                 //
                 // Note: We pass pipe_pool/id_gen to each task instead of getting readers here
-                // because on_writer_realized is synchronous but get_or_await_reader is async.
-                // Each spawned task will call get_or_await_reader independently.
+                // because on_writer_realized is synchronous but get_or_await_new_reader is async.
+                // Each spawned task will call get_or_await_new_reader independently.
                 for sink in custom_sinks {
                     let pool = Arc::clone(&pipe_pool);
                     let gen = Arc::clone(&id_gen);
@@ -136,7 +136,7 @@ impl AttachmentManager {
             }
             StdHandle::Log | StdHandle::Metrics | StdHandle::Trace => {
                 // Note: We pass pipe_pool/id_gen instead of getting reader here
-                // because on_writer_realized is synchronous but get_or_await_reader is async.
+                // because on_writer_realized is synchronous but get_or_await_new_reader is async.
                 debug!(node = ?node_handle, fd = fd, "spawning stderr attachment");
                 let pool = Arc::clone(&pipe_pool);
                 let gen = Arc::clone(&id_gen);
@@ -207,7 +207,7 @@ async fn spawn_attachment<W: StdWrite>(
     // Multiple calls with the same (node_handle, fd) create independent readers
     // that all read from the same pipe (fan-out).
     let reader = match pipe_pool
-        .get_or_await_reader((node_handle, fd), false, &id_gen)
+        .get_or_await_new_reader((node_handle, fd), false, &id_gen)
         .await
     {
         Ok(r) => r,

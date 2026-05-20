@@ -96,19 +96,20 @@ impl PipePool {
         }
     }
 
-    /// Get or create a reader for a pipe
+    /// Get or await a pipe, then create a new independent reader for it
     ///
-    /// This method handles pipes in various states:
-    /// - **Realized**: Returns reader immediately
-    /// - **Latent (Waiting)**: Waits for pipe creation if `allow_latent=true`
+    /// This method **always creates a new Reader**, allowing multiple independent readers
+    /// from the same pipe (fan-out). It handles pipes in various states:
+    /// - **Realized**: Creates new reader immediately
+    /// - **Latent (Waiting)**: Waits for pipe creation if `allow_latent=true`, then creates reader
     /// - **Latent (Closed)**: Returns `PipeClosed` error
-    /// - **No entry**: Creates latent pipe if `allow_latent=true`, otherwise returns `WouldBlock`
+    /// - **No entry**: Creates latent pipe if `allow_latent=true`, waits, then creates reader
     ///
     /// # Errors
     ///
     /// - `PipeClosed`: Producer closed latent pipe without creating it
     /// - `WouldBlock`: Pipe doesn't exist yet but `allow_latent=false`
-    pub async fn get_or_await_reader(
+    pub async fn get_or_await_new_reader(
         &self,
         key: (Handle, isize),
         allow_latent: bool,
