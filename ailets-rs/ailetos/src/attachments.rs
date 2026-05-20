@@ -119,21 +119,29 @@ impl AttachmentManager {
                 let mut tasks = self.tasks.lock();
 
                 // One independent task per custom sink (fan-out)
+                // Each task gets its own independent Reader from the same pipe,
+                // allowing multiple destinations to receive the same data.
+                //
+                // Note: We pass pipe_pool/id_gen to each task instead of getting readers here
+                // because on_writer_realized is synchronous but get_or_await_reader is async.
+                // Each spawned task will call get_or_await_reader independently.
                 for sink in custom_sinks {
                     let pool = Arc::clone(&pipe_pool);
                     let gen = Arc::clone(&id_gen);
                     debug!(node = ?node_handle, fd = fd, "spawning custom-sink attachment");
                     tasks.push(tokio::spawn(async move {
-                        spawn_attachment(node_handle, fd, pool, gen, AttachmentTarget::Stdout, Some(sink)).await
+                        spawn_attachment(node_handle, fd, pool, gen, sink).await
                     }));
                 }
             }
             StdHandle::Log | StdHandle::Metrics | StdHandle::Trace => {
+                // Note: We pass pipe_pool/id_gen instead of getting reader here
+                // because on_writer_realized is synchronous but get_or_await_reader is async.
                 debug!(node = ?node_handle, fd = fd, "spawning stderr attachment");
                 let pool = Arc::clone(&pipe_pool);
                 let gen = Arc::clone(&id_gen);
                 self.tasks.lock().push(tokio::spawn(async move {
-                    spawn_attachment(node_handle, fd, pool, gen, AttachmentTarget::Stderr, None).await
+                    spawn_attachment(node_handle, fd, pool, gen, std::io::stderr()).await
                 }));
             }
             StdHandle::Stdin | StdHandle::Env | StdHandle::_Count => {}
@@ -175,22 +183,29 @@ impl AttachmentManager {
     }
 }
 
-/// Target for attachment
-#[derive(Debug, Clone, Copy)]
-enum AttachmentTarget {
-    Stdout,
-    Stderr,
-}
-
-/// Get a reader and run `attach_to_stream`. Called from each spawned task.
-async fn spawn_attachment(
+/// Spawn an attachment task that copies data from a pipe to a writer.
+///
+/// This function is called once per attachment (one per sink for fan-out).
+/// It gets an independent Reader from the pipe pool, then copies all data
+/// to the writer. Multiple calls with the same (node_handle, fd) create
+/// independent readers that all read from the same pipe (fan-out).
+///
+/// # Arguments
+/// * `node_handle` - Handle of the actor whose output is being attached
+/// * `fd` - File descriptor of the pipe (stdout, stderr, etc.)
+/// * `pipe_pool` - Pool to get readers from
+/// * `id_gen` - ID generator for creating readers
+/// * `writer` - Destination writer (custom sink, host stdout, or host stderr)
+async fn spawn_attachment<W: StdWrite>(
     node_handle: Handle,
     fd: isize,
     pipe_pool: Arc<PipePool>,
     id_gen: Arc<IdGen>,
-    target: AttachmentTarget,
-    custom_sink: Option<Box<dyn StdWrite + Send + Sync>>,
+    writer: W,
 ) -> Result<(), String> {
+    // Get an independent reader for this attachment.
+    // Multiple calls with the same (node_handle, fd) create independent readers
+    // that all read from the same pipe (fan-out).
     let reader = match pipe_pool
         .get_or_await_reader((node_handle, fd), false, &id_gen)
         .await
@@ -202,22 +217,13 @@ async fn spawn_attachment(
         }
     };
 
-    debug!(node = ?node_handle, fd = fd, ?target, "attachment started");
-
-    let result = match (target, custom_sink) {
-        (_, Some(sink)) => copy_to_writer(reader, sink, FlushMode::AfterEachWrite).await,
-        (AttachmentTarget::Stdout, None) => {
-            copy_to_writer(reader, std::io::stdout(), FlushMode::AfterEachWrite).await
-        }
-        (AttachmentTarget::Stderr, None) => {
-            copy_to_writer(reader, std::io::stderr(), FlushMode::AfterEachWrite).await
-        }
-    };
+    debug!(node = ?node_handle, fd = fd, "attachment started");
+    let result = copy_to_writer(reader, writer, FlushMode::AfterEachWrite).await;
 
     if let Err(ref e) = result {
-        warn!(node = ?node_handle, fd = fd, ?target, error = %e, "attachment failed");
+        warn!(node = ?node_handle, fd = fd, error = %e, "attachment failed");
     } else {
-        debug!(node = ?node_handle, fd = fd, ?target, "attachment finished");
+        debug!(node = ?node_handle, fd = fd, "attachment finished");
     }
 
     result
