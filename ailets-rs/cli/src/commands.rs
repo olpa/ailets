@@ -395,13 +395,12 @@ impl DagShell {
 
     pub(crate) fn attach_one_node(&mut self, handle: Handle, bg: bool, color: Option<u8>) {
         let resolved = self.env.resolve(handle);
-        if bg {
-            let writer: Box<dyn std::io::Write + Send + Sync> =
-                Box::new(OutputSinkWriter::new(Arc::clone(&self.notification_sink), color));
-            self.env.attach_stdout_to(resolved, writer);
+        let writer: Box<dyn std::io::Write + Send + Sync> = if bg {
+            Box::new(OutputSinkWriter::new(Arc::clone(&self.notification_sink), color))
         } else {
-            self.env.attach_stdout(resolved);
-        }
+            Box::new(std::io::stdout())
+        };
+        self.env.attach_stdout_to(resolved, writer);
     }
 
     pub(crate) fn attach_stdout_for_run(

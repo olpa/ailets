@@ -10,7 +10,13 @@ use ailetos::suspension::SuspensionState;
 use ailetos::{
     AttachmentConfig, AttachmentManager, BlockingActorRuntime, IoBridge, EOWNERDEAD, EPIPE,
 };
+use parking_lot::RwLock;
 use tokio::sync::{mpsc, oneshot, Notify};
+
+/// Create a standalone attachment manager for testing
+fn standalone_attachment_manager(config: AttachmentConfig) -> AttachmentManager {
+    AttachmentManager::new(Arc::new(RwLock::new(config)))
+}
 
 fn make_test_components() -> (
     Arc<Environment>,
@@ -23,7 +29,7 @@ fn make_test_components() -> (
     let notify = Arc::new(Notify::new());
     let (actor_done_tx, mut actor_done_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
 
-    let attachment_manager = Arc::new(AttachmentManager::standalone(AttachmentConfig::new()));
+    let attachment_manager = Arc::new(standalone_attachment_manager(AttachmentConfig::new()));
     let bridge = Arc::new(IoBridge::new(Arc::clone(&env), attachment_manager, notify));
 
     // Lifecycle handler: replies to Terminating/Terminated, captures exit_code

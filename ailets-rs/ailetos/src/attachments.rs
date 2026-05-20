@@ -16,17 +16,15 @@ use crate::pipe::{PipePool, Reader};
 
 /// Configuration for attachment behavior
 pub struct AttachmentConfig {
-    /// Actors whose stdout should be attached to host stdout
-    stdout_actors: Vec<Handle>,
     /// Actors whose stdout should be routed to a custom writer (consumed on first realization)
     custom_sinks: Vec<(Handle, Box<dyn StdWrite + Send + Sync>)>,
 }
 
 impl std::fmt::Debug for AttachmentConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let handles: Vec<Handle> = self.custom_sinks.iter().map(|(h, _)| *h).collect();
         f.debug_struct("AttachmentConfig")
-            .field("stdout_actors", &self.stdout_actors)
-            .field("custom_sinks_count", &self.custom_sinks.len())
+            .field("custom_sinks", &handles)
             .finish()
     }
 }
@@ -42,15 +40,7 @@ impl AttachmentConfig {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            stdout_actors: Vec::with_capacity(1),
             custom_sinks: Vec::new(),
-        }
-    }
-
-    /// Add an actor whose stdout should be attached to host stdout
-    pub fn attach_stdout(&mut self, actor_handle: Handle) {
-        if !self.stdout_actors.contains(&actor_handle) {
-            self.stdout_actors.push(actor_handle);
         }
     }
 
@@ -60,28 +50,17 @@ impl AttachmentConfig {
         self.custom_sinks.push((actor_handle, sink));
     }
 
-    /// Check if an actor's stdout should be attached (either way)
-    #[must_use]
-    pub fn should_attach_stdout(&self, actor_handle: Handle) -> bool {
-        self.stdout_actors.contains(&actor_handle)
-            || self.custom_sinks.iter().any(|(h, _)| *h == actor_handle)
-    }
-
     /// Take all custom sinks for this actor, removing them from the config.
     pub fn take_custom_sinks(
         &mut self,
         actor_handle: Handle,
     ) -> Vec<Box<dyn StdWrite + Send + Sync>> {
-        let mut sinks = Vec::new();
-        let mut i = 0;
-        while i < self.custom_sinks.len() {
-            if self.custom_sinks[i].0 == actor_handle {
-                sinks.push(self.custom_sinks.remove(i).1);
-            } else {
-                i += 1;
-            }
-        }
-        sinks
+        let original = std::mem::take(&mut self.custom_sinks);
+        let (matching, remaining): (Vec<_>, Vec<_>) = original
+            .into_iter()
+            .partition(|(h, _)| *h == actor_handle);
+        self.custom_sinks = remaining;
+        matching.into_iter().map(|(_, sink)| sink).collect()
     }
 }
 
@@ -110,12 +89,6 @@ impl AttachmentManager {
         }
     }
 
-    /// Create a standalone attachment manager owning its own config (useful in tests).
-    #[must_use]
-    pub fn standalone(config: AttachmentConfig) -> Self {
-        Self::new(Arc::new(RwLock::new(config)))
-    }
-
     /// Handle a writer realization event from `PipePool`
     ///
     /// This is called synchronously when a writer is created.
@@ -133,17 +106,13 @@ impl AttachmentManager {
 
         match std_handle {
             StdHandle::Stdout => {
-                // Take all custom sinks; check if host stdout is also requested.
-                let (custom_sinks, attach_host_stdout) = {
+                // Take all custom sinks for this actor
+                let custom_sinks = {
                     let mut config = self.config.write();
-                    let sinks = config.take_custom_sinks(node_handle);
-                    // After draining custom sinks, should_attach_stdout is true only
-                    // when the actor is also in stdout_actors.
-                    let host = config.should_attach_stdout(node_handle);
-                    (sinks, host)
+                    config.take_custom_sinks(node_handle)
                 };
 
-                if custom_sinks.is_empty() && !attach_host_stdout {
+                if custom_sinks.is_empty() {
                     return;
                 }
 
@@ -156,16 +125,6 @@ impl AttachmentManager {
                     debug!(node = ?node_handle, fd = fd, "spawning custom-sink attachment");
                     tasks.push(tokio::spawn(async move {
                         spawn_attachment(node_handle, fd, pool, gen, AttachmentTarget::Stdout, Some(sink)).await
-                    }));
-                }
-
-                // Optional host-stdout task
-                if attach_host_stdout {
-                    let pool = Arc::clone(&pipe_pool);
-                    let gen = Arc::clone(&id_gen);
-                    debug!(node = ?node_handle, fd = fd, "spawning host-stdout attachment");
-                    tasks.push(tokio::spawn(async move {
-                        spawn_attachment(node_handle, fd, pool, gen, AttachmentTarget::Stdout, None).await
                     }));
                 }
             }

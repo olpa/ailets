@@ -102,7 +102,7 @@ async fn main() {
 
     // Attach the last actor's stdout to host stdout
     let resolved = env.resolve(end_node);
-    env.attach_stdout(resolved);
+    env.attach_stdout_to(resolved, Box::new(std::io::stdout()));
 
     // Run the system
     use ailetos::{Executor, StopConditions};

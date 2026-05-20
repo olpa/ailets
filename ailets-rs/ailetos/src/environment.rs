@@ -81,21 +81,7 @@ impl Environment {
         }
     }
 
-    /// Attach a specific actor's stdout to host stdout
-    ///
-    /// The actor's stdout will be automatically attached to host stdout
-    /// when it writes for the first time.
-    ///
-    /// Note: Actor stderr (Log handle), metrics, and tracing are always attached to
-    /// host stderr for all actors.
-    ///
-    /// # Arguments
-    /// * `actor_handle` - The handle of the actor whose stdout should be attached
-    pub fn attach_stdout(&self, actor_handle: Handle) {
-        self.attachment_config.write().attach_stdout(actor_handle);
-    }
-
-    /// Attach an actor's stdout to a custom writer (e.g. a terminal-aware sink).
+    /// Attach an actor's stdout to a custom writer (e.g. a terminal-aware sink, or host stdout).
     /// The writer is consumed the first time the actor's stdout is realized.
     pub fn attach_stdout_to(
         &self,
