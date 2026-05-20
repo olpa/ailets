@@ -12,7 +12,7 @@ use parking_lot::{Mutex, RwLock};
 use tracing::{debug, trace, warn};
 
 use crate::idgen::{Handle, IdGen};
-use crate::pipe::{PipePool, Reader};
+use crate::pipe::{copy_to_writer, FlushMode, PipePool};
 
 /// Configuration for attachment behavior
 pub struct AttachmentConfig {
@@ -202,64 +202,23 @@ async fn spawn_attachment(
         }
     };
 
-    match (target, custom_sink) {
-        (_, Some(sink)) => attach_to_stream(node_handle, reader, sink, target).await,
+    debug!(node = ?node_handle, fd = fd, ?target, "attachment started");
+
+    let result = match (target, custom_sink) {
+        (_, Some(sink)) => copy_to_writer(reader, sink, FlushMode::AfterEachWrite).await,
         (AttachmentTarget::Stdout, None) => {
-            attach_to_stream(node_handle, reader, std::io::stdout(), target).await
+            copy_to_writer(reader, std::io::stdout(), FlushMode::AfterEachWrite).await
         }
         (AttachmentTarget::Stderr, None) => {
-            attach_to_stream(node_handle, reader, std::io::stderr(), target).await
+            copy_to_writer(reader, std::io::stderr(), FlushMode::AfterEachWrite).await
         }
-    }
-}
+    };
 
-/// Attach a pipe reader to a host output stream
-///
-/// Continuously reads from the pipe and forwards data to the target stream.
-/// Exits when EOF is reached or an error occurs.
-async fn attach_to_stream<W: StdWrite>(
-    node_handle: Handle,
-    mut reader: Reader,
-    mut writer: W,
-    target: AttachmentTarget,
-) -> Result<(), String> {
-    debug!(node = ?node_handle, ?target, "attachment started");
-
-    let mut buf = vec![0u8; 4096];
-
-    loop {
-        match reader.read(&mut buf).await {
-            Ok(0) => {
-                debug!(node = ?node_handle, ?target, "attachment EOF");
-                break;
-            }
-            Ok(n) => {
-                let Some(slice) = buf.get(..n) else {
-                    warn!(node = ?node_handle, ?target, "buffer slice out of bounds");
-                    break;
-                };
-                if let Err(e) = writer.write_all(slice) {
-                    warn!(node = ?node_handle, ?target, error = %e, "failed to write");
-                    break;
-                }
-                if let Err(e) = writer.flush() {
-                    warn!(node = ?node_handle, ?target, error = %e, "failed to flush");
-                    break;
-                }
-            }
-            Err(errno) => {
-                warn!(node = ?node_handle, ?target, errno, "read error in attachment");
-                break;
-            }
-        }
+    if let Err(ref e) = result {
+        warn!(node = ?node_handle, fd = fd, ?target, error = %e, "attachment failed");
+    } else {
+        debug!(node = ?node_handle, fd = fd, ?target, "attachment finished");
     }
 
-    if let Err(errno) = reader.close() {
-        warn!(node = ?node_handle, ?target, errno, "failed to close reader in attachment");
-        return Err(format!(
-            "failed to close reader in attachment: errno={errno}"
-        ));
-    }
-    debug!(node = ?node_handle, ?target, "attachment finished");
-    Ok(())
+    result
 }

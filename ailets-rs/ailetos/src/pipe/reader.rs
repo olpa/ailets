@@ -258,3 +258,58 @@ impl Drop for Reader {
         }
     }
 }
+
+/// Flush behavior for copy_to_writer
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FlushMode {
+    /// Flush after each write (needed for interactive output like terminals)
+    AfterEachWrite,
+    /// Let the writer buffer data (better performance for files)
+    Buffered,
+}
+
+/// Copy all data from a Reader to a std::io::Write writer.
+///
+/// Generic utility for forwarding pipe data to any writer (stdout, files, custom sinks, etc.).
+/// Continuously reads from the reader and writes to the writer until EOF.
+///
+/// # Arguments
+/// * `reader` - The pipe reader to read from
+/// * `writer` - The destination writer
+/// * `flush_mode` - When to flush the writer
+///
+/// # Errors
+/// Returns an error if reading, writing, flushing, or closing fails.
+pub async fn copy_to_writer<W: std::io::Write>(
+    mut reader: Reader,
+    mut writer: W,
+    flush_mode: FlushMode,
+) -> Result<(), String> {
+    let mut buf = vec![0u8; 4096];
+
+    loop {
+        match reader.read(&mut buf).await {
+            Ok(0) => break, // EOF
+            Ok(n) => {
+                let Some(slice) = buf.get(..n) else {
+                    return Err("buffer slice out of bounds".to_string());
+                };
+                writer
+                    .write_all(slice)
+                    .map_err(|e| format!("failed to write: {e}"))?;
+                if flush_mode == FlushMode::AfterEachWrite {
+                    writer
+                        .flush()
+                        .map_err(|e| format!("failed to flush: {e}"))?;
+                }
+            }
+            Err(errno) => {
+                return Err(format!("read error: errno={errno}"));
+            }
+        }
+    }
+
+    reader
+        .close()
+        .map_err(|errno| format!("failed to close reader: errno={errno}"))
+}
