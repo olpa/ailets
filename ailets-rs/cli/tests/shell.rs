@@ -124,6 +124,47 @@ fn background_termination_is_notified() {
 }
 
 #[test]
+fn one_step_runs_first_pending_actor() {
+    // v1 → cat2 → cat3: `run --one-step` must return (not hang) and run exactly cat2.
+    let sink = CapturingSink::new();
+    let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
+    shell.execute("set v1 = node value hello").unwrap();
+    shell.execute("set cat2 = node add cat").unwrap();
+    shell.execute("dep $cat2 $v1").unwrap();
+    shell.execute("set cat3 = node add cat").unwrap();
+    shell.execute("dep $cat3 $cat2").unwrap();
+    shell.execute("run --one-step").unwrap(); // must not hang
+    shell.execute("status").unwrap();
+    let lines = sink.lines();
+    // v1 pre-terminated + cat2 just ran = 2 terminated; cat3 still pending.
+    assert!(
+        lines.iter().any(|l| l.contains("1 pending") && l.contains("2 terminated")),
+        "expected 1 pending, 2 terminated after one step; lines: {lines:?}"
+    );
+}
+
+#[test]
+fn one_step_advances_past_terminated_nodes() {
+    // Second `run --one-step` must skip already-terminated nodes and run cat3.
+    let sink = CapturingSink::new();
+    let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
+    shell.execute("set v1 = node value hello").unwrap();
+    shell.execute("set cat2 = node add cat").unwrap();
+    shell.execute("dep $cat2 $v1").unwrap();
+    shell.execute("set cat3 = node add cat").unwrap();
+    shell.execute("dep $cat3 $cat2").unwrap();
+    shell.execute("run --one-step").unwrap(); // runs cat2
+    shell.execute("run --one-step").unwrap(); // must not hang; runs cat3
+    shell.execute("status").unwrap();
+    let lines = sink.lines();
+    // All three nodes terminated after two steps.
+    assert!(
+        lines.iter().any(|l| l.contains("0 pending") && l.contains("3 terminated")),
+        "expected 0 pending, 3 terminated after two steps; lines: {lines:?}"
+    );
+}
+
+#[test]
 fn foreground_run_suppresses_intermediate_notifications() {
     // Intermediate nodes in a foreground pipeline must not emit notifications.
     let notification_sink = Arc::new(CapturingSink::new());

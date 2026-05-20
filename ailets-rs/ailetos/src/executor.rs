@@ -374,15 +374,24 @@ async fn run_spawn_loop_jobs(
                 match result {
                     Some(item) => {
                         let dag = env.dag.read();
-                        pending.extend(
-                            TopologicalOrderIter::with_stop_conditions(
-                                &dag, item.target, item.stop_conditions,
-                            )
-                            .filter(|&n| {
-                                dag.get_node(n)
-                                    .is_some_and(|node| node.state == NodeState::NotStarted)
-                            }),
-                        );
+                        let one_step = item.stop_conditions.one_step;
+                        // Strip one_step from the iterator conditions: the traversal must
+                        // reach all nodes so the NotStarted filter below can skip already-
+                        // terminated ones. The one_step limit is applied via .take(1) after
+                        // filtering, so a second `run --one-step` advances past done nodes.
+                        let topo_conditions = StopConditions { one_step: false, ..item.stop_conditions };
+                        let not_started = TopologicalOrderIter::with_stop_conditions(
+                            &dag, item.target, topo_conditions,
+                        )
+                        .filter(|&n| {
+                            dag.get_node(n)
+                                .is_some_and(|node| node.state == NodeState::NotStarted)
+                        });
+                        if one_step {
+                            pending.extend(not_started.take(1));
+                        } else {
+                            pending.extend(not_started);
+                        }
                     }
                     None => { channel_closed = true; }
                 }

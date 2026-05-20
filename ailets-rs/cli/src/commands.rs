@@ -262,7 +262,13 @@ impl DagShell {
 
         // Determine the node to join on: the last node the executor will actually run,
         // which may differ from `handle` when stop conditions truncate the traversal.
-        let wait_handle = {
+        // For one_step, skip already-terminated nodes to match the executor's behaviour.
+        let wait_handle = if one_step {
+            let dag = self.env.dag.read();
+            TopologicalOrderIter::new(&dag, handle)
+                .find(|&n| dag.get_node(n).is_some_and(|node| node.state == NodeState::NotStarted))
+                .unwrap_or(handle)
+        } else {
             let dag = self.env.dag.read();
             TopologicalOrderIter::with_stop_conditions(&dag, handle, stop_conditions.clone())
                 .last()
@@ -420,7 +426,8 @@ impl DagShell {
         } else if one_step {
             let ready_node = {
                 let dag = self.env.dag.read();
-                TopologicalOrderIter::new(&dag, target).next()
+                TopologicalOrderIter::new(&dag, target)
+                    .find(|&n| dag.get_node(n).is_some_and(|node| node.state == NodeState::NotStarted))
             };
             if let Some(ready_node) = ready_node {
                 self.attach_one_node(ready_node, bg, color);
