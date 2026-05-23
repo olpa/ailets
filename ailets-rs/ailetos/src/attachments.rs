@@ -74,6 +74,7 @@ impl AttachmentConfig {
 /// - Log, Metrics, Trace: always attach to host stderr for all actors
 /// - Stdin, Env: never attach
 pub struct AttachmentManager {
+    async_runtime: tokio::runtime::Handle,
     config: Arc<RwLock<AttachmentConfig>>,
     /// Active attachment task handles
     tasks: Mutex<Vec<tokio::task::JoinHandle<Result<(), String>>>>,
@@ -82,8 +83,9 @@ pub struct AttachmentManager {
 impl AttachmentManager {
     /// Create a new attachment manager sharing the given live config.
     #[must_use]
-    pub fn new(config: Arc<RwLock<AttachmentConfig>>) -> Self {
+    pub fn new(async_runtime: tokio::runtime::Handle, config: Arc<RwLock<AttachmentConfig>>) -> Self {
         Self {
+            async_runtime,
             config,
             tasks: Mutex::new(Vec::new()),
         }
@@ -129,7 +131,7 @@ impl AttachmentManager {
                     let pool = Arc::clone(&pipe_pool);
                     let gen = Arc::clone(&id_gen);
                     debug!(node = ?node_handle, fd = fd, "spawning custom-sink attachment");
-                    tasks.push(tokio::spawn(async move {
+                    tasks.push(self.async_runtime.spawn(async move {
                         spawn_attachment(node_handle, fd, pool, gen, sink).await
                     }));
                 }
@@ -140,7 +142,7 @@ impl AttachmentManager {
                 debug!(node = ?node_handle, fd = fd, "spawning stderr attachment");
                 let pool = Arc::clone(&pipe_pool);
                 let gen = Arc::clone(&id_gen);
-                self.tasks.lock().push(tokio::spawn(async move {
+                self.tasks.lock().push(self.async_runtime.spawn(async move {
                     spawn_attachment(node_handle, fd, pool, gen, std::io::stderr()).await
                 }));
             }

@@ -155,13 +155,17 @@ pub fn is_ready_to_spawn(node_handle: Handle, dag: &Dag, pipe_pool: &PipePool) -
 
 /// Spawn a task for an actor node
 fn spawn_actor_task(
+    async_runtime: &tokio::runtime::Handle,
     node_handle: Handle,
     idname: String,
     actor_fn: ActorFn,
     actor_runtime: BlockingActorRuntime,
 ) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        let blocking_result = tokio::task::spawn_blocking(move || {
+    let async_runtime = async_runtime.clone();
+    async_runtime.spawn({
+        let async_runtime = async_runtime.clone();
+        async move {
+        let blocking_result = async_runtime.spawn_blocking(move || {
             debug!(node = ?node_handle, name = %idname, "task starting");
 
             let mut actor_runtime = actor_runtime;
@@ -192,7 +196,7 @@ fn spawn_actor_task(
                 warn!(node = ?node_handle, error = %e, "actor blocking task panicked");
             }
         }
-    })
+    }})
 }
 
 /// Receives actor lifecycle events from the IO bridge, updates DAG state,
@@ -325,17 +329,17 @@ fn spawn_ready_actors(
             Arc::clone(&env.suspension),
             infra.lifecycle_tx.clone(),
         );
-        let task_handle = spawn_actor_task(node_handle, idname.clone(), actor_fn, actor_runtime);
+        let task_handle = spawn_actor_task(&infra.async_runtime, node_handle, idname.clone(), actor_fn, actor_runtime);
 
         // Spawn into JoinSet with error handling wrapper.
         // We handle panics here (rather than in run_spawn_loop_jobs) to preserve
         // node_handle context for debugging. JoinError doesn't contain the handle,
         // so moving this to the loop would lose critical diagnostic information.
-        actor_tasks.spawn(async move {
+        actor_tasks.spawn_on(async move {
             if let Err(e) = task_handle.await {
                 warn!(error = %e, node = ?node_handle, "actor task panicked");
             }
-        });
+        }, &infra.async_runtime);
     }
 
     remaining
@@ -447,6 +451,7 @@ async fn run_spawn_loop_jobs(
 /// 5. Drop `io_bridge` — releases the last Arc so `lifecycle_handler` can finish.
 /// 6. Join `lifecycle_handler`.
 struct ExecutorInfra {
+    async_runtime: tokio::runtime::Handle,
     executor_wakeup: Arc<tokio::sync::Notify>,
     io_bridge: Arc<IoBridge>,
     lifecycle_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
@@ -456,25 +461,28 @@ struct ExecutorInfra {
 
 impl ExecutorInfra {
     fn new(
+        async_runtime: tokio::runtime::Handle,
         env: &Arc<Environment>,
         events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
     ) -> Self {
         let executor_wakeup = Arc::new(tokio::sync::Notify::new());
         let (lifecycle_tx, lifecycle_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
         let attachment_manager =
-            Arc::new(AttachmentManager::new(Arc::clone(&env.attachment_config)));
+            Arc::new(AttachmentManager::new(async_runtime.clone(), Arc::clone(&env.attachment_config)));
         let io_bridge = Arc::new(IoBridge::new(
+            async_runtime.clone(),
             Arc::clone(env),
             Arc::clone(&attachment_manager),
             Arc::clone(&executor_wakeup),
         ));
-        let lifecycle_handler = tokio::spawn(lifecycle_event_task(
+        let lifecycle_handler = async_runtime.spawn(lifecycle_event_task(
             Arc::clone(&env.dag),
             Arc::clone(&executor_wakeup),
             lifecycle_rx,
             events_tx,
         ));
         Self {
+            async_runtime,
             executor_wakeup,
             io_bridge,
             lifecycle_tx,
@@ -485,6 +493,7 @@ impl ExecutorInfra {
 
     async fn shutdown(self) {
         let Self {
+            async_runtime: _,
             executor_wakeup: _,
             io_bridge,
             lifecycle_tx,
@@ -526,13 +535,14 @@ impl Executor {
     /// An `Executor` handle for submitting jobs and controlling execution.
     #[must_use]
     pub fn start(
+        async_runtime: tokio::runtime::Handle,
         env: Arc<Environment>,
         events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
     ) -> Self {
         let (job_tx, mut job_rx) = mpsc::unbounded_channel::<JobItem>();
-        let infra = ExecutorInfra::new(&env, events_tx);
+        let infra = ExecutorInfra::new(async_runtime.clone(), &env, events_tx);
 
-        let executor_task = tokio::spawn(async move {
+        let executor_task = async_runtime.spawn(async move {
             run_spawn_loop_jobs(&env, &infra, &mut job_rx).await;
             infra.shutdown().await;
         });

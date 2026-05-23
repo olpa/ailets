@@ -72,7 +72,7 @@ async fn test_fanout_independent_readers() {
     env.attach_stdout_to(node, Box::new(sink3));
 
     // Run the executor
-    let executor = Executor::start(Arc::clone(&env), None);
+    let executor = Executor::start(tokio::runtime::Handle::current(), Arc::clone(&env), None);
     executor
         .submit(node, Default::default())
         .expect("submit failed");

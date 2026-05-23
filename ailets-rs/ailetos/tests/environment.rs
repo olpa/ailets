@@ -42,7 +42,7 @@ async fn two_follows_both_receive_output() {
     env.attach_stdout_to(cat_node, Box::new(CollectingSink(Arc::clone(&received1))));
     env.attach_stdout_to(cat_node, Box::new(CollectingSink(Arc::clone(&received2))));
 
-    let executor = Executor::start(Arc::clone(&env), None);
+    let executor = Executor::start(tokio::runtime::Handle::current(), Arc::clone(&env), None);
     executor.submit(cat_node, StopConditions::default()).unwrap();
     executor.shutdown().await;
 

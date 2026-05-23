@@ -169,7 +169,7 @@ async fn test_transitive_block_terminates_and_leaves_nodes_not_started() {
         .register("failing", |_| Err("intentional failure".into()));
     env.actor_registry.write().register("noop", |_| Ok(()));
 
-    let executor = Executor::start(Arc::clone(&env), None);
+    let executor = Executor::start(tokio::runtime::Handle::current(), Arc::clone(&env), None);
     executor.submit(a, StopConditions::default()).unwrap();
     executor.shutdown().await;
 
@@ -194,7 +194,7 @@ async fn run_jobs_finite_single_job() {
 
     let target = env.add_node("noop".into(), &[], None);
 
-    let executor = Executor::start(Arc::clone(&env), None);
+    let executor = Executor::start(tokio::runtime::Handle::current(), Arc::clone(&env), None);
     executor.submit(target, StopConditions::default()).unwrap();
     executor.shutdown().await;
 
@@ -214,7 +214,7 @@ async fn run_jobs_infinite_processes_job_submitted_after_quiescence() {
     let n2 = env.add_node("noop".into(), &[], None);
 
     let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<ExecutorEvent>();
-    let executor = Executor::start(Arc::clone(&env), Some(ev_tx));
+    let executor = Executor::start(tokio::runtime::Handle::current(), Arc::clone(&env), Some(ev_tx));
     executor.submit(n1, StopConditions::default()).unwrap();
 
     // Wait for n1's termination event — guaranteed once n1 finishes
@@ -273,7 +273,7 @@ async fn run_jobs_processes_job_submitted_while_actor_running() {
     let n2 = env.add_node("noop".into(), &[], None);
 
     let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<ExecutorEvent>();
-    let executor = Executor::start(Arc::clone(&env), Some(ev_tx));
+    let executor = Executor::start(tokio::runtime::Handle::current(), Arc::clone(&env), Some(ev_tx));
 
     executor
         .submit(n1, StopConditions::default())

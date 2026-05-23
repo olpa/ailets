@@ -192,6 +192,7 @@ type ChannelEntry = (Handle, isize, FdState);
 /// Held as `Arc<IoBridge>` by each actor's `BlockingActorRuntime` and `ShutdownHandle`.
 /// All methods are safe to call from a blocking thread.
 pub struct IoBridge {
+    async_runtime: tokio::runtime::Handle,
     env: Arc<Environment>,
     /// Open channel endpoints: (`node_handle`, fd, state). Linear search, efficient for small N.
     channel_table: Mutex<Vec<ChannelEntry>>,
@@ -206,11 +207,13 @@ pub struct IoBridge {
 impl IoBridge {
     #[must_use]
     pub fn new(
+        async_runtime: tokio::runtime::Handle,
         env: Arc<Environment>,
         attachment_manager: Arc<AttachmentManager>,
         executor_wakeup: Arc<Notify>,
     ) -> Self {
         Self {
+            async_runtime,
             env,
             channel_table: Mutex::new(Vec::new()),
             attachment_manager,
@@ -243,7 +246,7 @@ impl IoBridge {
             Arc::clone(&self.env.idgen),
         );
         let (request_tx, request_rx) = mpsc::unbounded_channel::<ReaderCommand>();
-        tokio::spawn(run_reader_task(node_handle, reader, request_rx));
+        self.async_runtime.spawn(run_reader_task(node_handle, reader, request_rx));
         request_tx
     }
 
@@ -254,7 +257,7 @@ impl IoBridge {
         let env = Arc::clone(&self.env);
         let attachment_manager = Arc::clone(&self.attachment_manager);
         let executor_wakeup = Arc::clone(&self.executor_wakeup);
-        tokio::spawn(run_writer_task(
+        self.async_runtime.spawn(run_writer_task(
             node_handle,
             fd,
             env,

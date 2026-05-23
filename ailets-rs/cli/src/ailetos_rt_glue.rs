@@ -41,10 +41,7 @@ pub fn start_executor_with_bridge(
     let (tokio_tx, mut tokio_rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorEvent>();
     let (sync_tx, sync_rx) = std::sync::mpsc::channel::<ExecutorEvent>();
 
-    let executor = {
-        let _guard = rt.enter();
-        Executor::start(env, Some(tokio_tx))
-    };
+    let executor = Executor::start(rt.handle().clone(), env, Some(tokio_tx));
 
     rt.spawn(async move {
         while let Some(event) = tokio_rx.recv().await {
