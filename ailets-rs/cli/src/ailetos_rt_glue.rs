@@ -35,15 +35,15 @@ pub struct WatcherUpdate {
 // ---------------------------------------------------------------------------
 
 pub fn start_executor_with_bridge(
-    rt: &tokio::runtime::Runtime,
+    ailetos_async_rt: tokio::runtime::Handle,
     env: Arc<Environment>,
 ) -> (Executor, std::sync::mpsc::Receiver<ExecutorEvent>) {
     let (tokio_tx, mut tokio_rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorEvent>();
     let (sync_tx, sync_rx) = std::sync::mpsc::channel::<ExecutorEvent>();
 
-    let executor = Executor::start(rt.handle().clone(), env, Some(tokio_tx));
+    let executor = Executor::start(ailetos_async_rt.clone(), env, Some(tokio_tx));
 
-    rt.spawn(async move {
+    ailetos_async_rt.spawn(async move {
         while let Some(event) = tokio_rx.recv().await {
             if sync_tx.send(event).is_err() {
                 break;

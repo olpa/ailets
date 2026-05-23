@@ -86,7 +86,7 @@ impl DagShell {
                 let data_bytes = data.as_bytes().to_vec();
                 let explain_clone = explain.clone();
                 let handle = self
-                    .ailetos_rt
+                    .ailetos_async_rt
                     .block_on(async move { env.add_value_node(data_bytes, explain_clone).await })
                     .map_err(|e| format!("Failed to add value node: {e}"))?;
                 self.handles.push(handle);
@@ -467,7 +467,7 @@ impl DagShell {
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
         let kv = Arc::clone(&self.kv);
-        let output = self.ailetos_rt.block_on(async move {
+        let output = self.ailetos_async_rt.block_on(async move {
             let path = pipe_path(handle, StdHandle::Stdout as isize);
             match kv.open(&path, OpenMode::Read).await {
                 Ok(buffer) => {
@@ -513,7 +513,7 @@ impl DagShell {
         let new_kv = Arc::new(MemKV::new());
         let new_env = make_env(&new_kv);
         let (new_executor, new_events_rx) =
-            start_executor_with_bridge(&self.ailetos_rt, Arc::clone(&new_env));
+            start_executor_with_bridge(self.ailetos_async_rt.handle().clone(), Arc::clone(&new_env));
 
         // Tell the watcher to switch to the new executor's event stream.
         self.watcher_update_tx

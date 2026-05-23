@@ -49,9 +49,9 @@ pub struct DagShell {
     _watcher: std::thread::JoinHandle<()>,
     // Global Ctrl+C handler thread; kept alive until DagShell drops.
     _ctrlc_handler: std::thread::JoinHandle<()>,
-    // executor drops before ailetos_rt (declaration order = drop order).
+    // executor drops before ailetos_async_rt (declaration order = drop order).
     executor: Executor,
-    ailetos_rt: tokio::runtime::Runtime,
+    ailetos_async_rt: tokio::runtime::Runtime,
 }
 
 impl DagShell {
@@ -71,9 +71,9 @@ impl DagShell {
     ) -> Self {
         let kv = Arc::new(MemKV::new());
         let env = make_env(&kv);
-        let ailetos_rt =
+        let ailetos_async_rt =
             tokio::runtime::Runtime::new().expect("failed to create ailetos runtime");
-        let (executor, events_rx) = start_executor_with_bridge(&ailetos_rt, Arc::clone(&env));
+        let (executor, events_rx) = start_executor_with_bridge(ailetos_async_rt.handle().clone(), Arc::clone(&env));
 
         let pending_join: Arc<Mutex<Option<JoinWaiter>>> = Arc::new(Mutex::new(None));
         let (watcher_update_tx, update_rx) =
@@ -104,7 +104,7 @@ impl DagShell {
             _watcher: watcher,
             _ctrlc_handler: ctrlc_handler,
             executor,
-            ailetos_rt,
+            ailetos_async_rt,
         }
     }
 
@@ -175,7 +175,7 @@ impl Drop for DagShell {
     fn drop(&mut self) {
         self.prepare_exit();
         // Dropping watcher_update_tx closes the update channel, causing the
-        // watcher thread to exit its loop. executor and ailetos_rt then drop
+        // watcher thread to exit its loop. executor and ailetos_async_rt then drop
         // in declaration order, closing the job channel and cancelling tasks.
     }
 }
