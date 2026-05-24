@@ -412,12 +412,27 @@ impl DagShell {
 
     pub(crate) fn attach_one_node(&mut self, handle: Handle, bg: bool, color: Option<u8>) {
         let resolved = self.env.resolve(handle);
+        let pipe_pool = Arc::clone(&self.env.pipe_pool);
+        let idgen = Arc::clone(&self.env.idgen);
         let writer: Box<dyn std::io::Write + Send + Sync> = if bg {
             Box::new(OutputSinkWriter::new(Arc::clone(&self.notification_sink), color))
         } else {
             Box::new(std::io::stdout())
         };
-        self.env.attach_stdout_to(resolved, writer);
+        let notification_sink = Arc::clone(&self.notification_sink);
+
+        self.ailetos_async_rt.handle().clone().spawn(async move {
+            let fd = StdHandle::Stdout as isize;
+            match pipe_pool.get_or_await_new_reader((resolved, fd), true, &idgen).await {
+                Ok(reader) => {
+                    if let Err(e) = copy_to_writer(reader, writer, FlushMode::AfterEachWrite).await {
+                        notification_sink.println(&format!("[output] error: {e}"));
+                    }
+                }
+                Err(PipeError::PipeClosed) => {}
+                Err(e) => notification_sink.println(&format!("[output] {e}")),
+            }
+        });
     }
 
     pub(crate) fn attach_stdout_for_run(
