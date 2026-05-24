@@ -23,12 +23,11 @@ use tokio::sync::{mpsc, oneshot, Notify};
 use tracing::{debug, warn};
 
 use super::sendable_buffer::{SendableConstPtr, SendableMutPtr};
-use crate::attachments::AttachmentManager;
 use crate::dag::OwnedDependencyIterator;
 use crate::environment::Environment;
 use crate::errno::{EBADF, EIO, EPIPE};
 use crate::idgen::Handle;
-use crate::pipe::{flush_and_close_writer, MergeReader};
+use crate::pipe::{copy_to_writer, flush_and_close_writer, FlushMode, MergeReader, PipeError};
 
 /// A read request forwarded from `IoBridge` to a reader task.
 pub(crate) struct ReadRequest {
@@ -97,8 +96,8 @@ async fn run_reader_task(
 async fn run_writer_task(
     node_handle: Handle,
     fd: isize,
+    async_runtime: tokio::runtime::Handle,
     env: Arc<Environment>,
-    attachment_manager: Arc<AttachmentManager>,
     executor_wakeup: Arc<Notify>,
     mut request_rx: mpsc::UnboundedReceiver<WriterCommand>,
 ) {
@@ -110,12 +109,26 @@ async fn run_writer_task(
     {
         Ok((writer, is_new)) => {
             if is_new {
-                attachment_manager.on_writer_realized(
-                    node_handle,
-                    fd,
-                    Arc::clone(&env.pipe_pool),
-                    Arc::clone(&env.idgen),
-                );
+                if let Ok(std_handle) = StdHandle::try_from(fd) {
+                    match std_handle {
+                        StdHandle::Log | StdHandle::Metrics | StdHandle::Trace => {
+                            let pool = Arc::clone(&env.pipe_pool);
+                            let gen = Arc::clone(&env.idgen);
+                            async_runtime.spawn(async move {
+                                match pool.get_or_await_new_reader((node_handle, fd), true, &gen).await {
+                                    Ok(reader) => {
+                                        if let Err(e) = copy_to_writer(reader, std::io::stderr(), FlushMode::AfterEachWrite).await {
+                                            warn!(node = ?node_handle, fd = fd, error = %e, "stderr forward failed");
+                                        }
+                                    }
+                                    Err(PipeError::PipeClosed) => {}
+                                    Err(e) => warn!(node = ?node_handle, fd = fd, error = %e, "stderr attach error"),
+                                }
+                            });
+                        }
+                        _ => {}
+                    }
+                }
             }
             writer
         }
@@ -196,7 +209,6 @@ pub struct IoBridge {
     env: Arc<Environment>,
     /// Open channel endpoints: (`node_handle`, fd, state). Linear search, efficient for small N.
     channel_table: Mutex<Vec<ChannelEntry>>,
-    attachment_manager: Arc<AttachmentManager>,
     /// Notifies the executor when I/O state changes that may affect node readiness.
     /// Use cases:
     /// - a pipe is realized
@@ -209,14 +221,12 @@ impl IoBridge {
     pub fn new(
         async_runtime: tokio::runtime::Handle,
         env: Arc<Environment>,
-        attachment_manager: Arc<AttachmentManager>,
         executor_wakeup: Arc<Notify>,
     ) -> Self {
         Self {
             async_runtime,
             env,
             channel_table: Mutex::new(Vec::new()),
-            attachment_manager,
             executor_wakeup,
         }
     }
@@ -254,14 +264,14 @@ impl IoBridge {
     fn spawn_writer(&self, node_handle: Handle, fd: isize) -> mpsc::UnboundedSender<WriterCommand> {
         debug!(actor = ?node_handle, fd = fd, "spawning writer");
         let (request_tx, request_rx) = mpsc::unbounded_channel::<WriterCommand>();
+        let async_runtime = self.async_runtime.clone();
         let env = Arc::clone(&self.env);
-        let attachment_manager = Arc::clone(&self.attachment_manager);
         let executor_wakeup = Arc::clone(&self.executor_wakeup);
         self.async_runtime.spawn(run_writer_task(
             node_handle,
             fd,
+            async_runtime,
             env,
-            attachment_manager,
             executor_wakeup,
             request_rx,
         ));

@@ -1,5 +1,4 @@
 pub mod actor_syscall;
-pub mod attachments;
 pub mod dag;
 pub mod environment;
 pub mod errno;
@@ -30,9 +29,6 @@ pub use pipe::PipePool;
 
 // Re-export actor syscall layer types for convenience
 pub use actor_syscall::{ActorLifecycleEvent, BlockingActorRuntime, IoBridge, SendableMutPtr};
-
-// Re-export attachment types
-pub use attachments::{AttachmentConfig, AttachmentManager};
 
 // Re-export environment types
 pub use environment::{ActorFn, ActorRegistry, Environment};

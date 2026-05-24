@@ -7,16 +7,8 @@ use ailetos::environment::Environment;
 use ailetos::idgen::Handle;
 use ailetos::storage::{KVBuffers, MemKV};
 use ailetos::suspension::SuspensionState;
-use ailetos::{
-    AttachmentConfig, AttachmentManager, BlockingActorRuntime, IoBridge, EOWNERDEAD, EPIPE,
-};
-use parking_lot::RwLock;
+use ailetos::{BlockingActorRuntime, IoBridge, EOWNERDEAD, EPIPE};
 use tokio::sync::{mpsc, oneshot, Notify};
-
-/// Create a standalone attachment manager for testing
-fn standalone_attachment_manager(async_runtime: tokio::runtime::Handle, config: AttachmentConfig) -> AttachmentManager {
-    AttachmentManager::new(async_runtime, Arc::new(RwLock::new(config)))
-}
 
 fn make_test_components() -> (
     Arc<Environment>,
@@ -30,8 +22,7 @@ fn make_test_components() -> (
     let (actor_done_tx, mut actor_done_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
 
     let async_runtime = tokio::runtime::Handle::current();
-    let attachment_manager = Arc::new(standalone_attachment_manager(async_runtime.clone(), AttachmentConfig::new()));
-    let bridge = Arc::new(IoBridge::new(async_runtime, Arc::clone(&env), attachment_manager, notify));
+    let bridge = Arc::new(IoBridge::new(async_runtime, Arc::clone(&env), notify));
 
     // Lifecycle handler: replies to Terminating/Terminated, captures exit_code
     let lifecycle_task = tokio::spawn(async move {

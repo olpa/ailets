@@ -1,7 +1,9 @@
-//! Tests for attachment fan-out behavior
+//! Tests for pipe fan-out behavior
 
 use std::sync::{Arc, Mutex};
 
+use actor_runtime::StdHandle;
+use ailetos::pipe::{copy_to_writer, FlushMode};
 use ailetos::{Environment, Executor, KVBuffers, MemKV};
 
 /// Simple writer that captures all writes to a Vec<u8>
@@ -32,16 +34,14 @@ impl std::io::Write for CaptureWriter {
     }
 }
 
-/// Test that each sink gets its own independent reader that can read at its own pace.
-/// This verifies the fan-out behavior where multiple attachments read from the same
+/// Test that each reader gets its own independent reader that can read at its own pace.
+/// This verifies the fan-out behavior where multiple PipePool readers read from the same
 /// pipe independently without interfering with each other.
 #[tokio::test]
 async fn test_fanout_independent_readers() {
-    // Setup environment and executor
     let kv: Arc<dyn KVBuffers> = Arc::new(MemKV::new());
     let env = Arc::new(Environment::new(kv));
 
-    // Register an actor that writes multiple chunks
     env.actor_registry.write().register("chunked_writer", |rt| {
         use actor_io::AWriter;
         use actor_runtime::StdHandle;
@@ -62,28 +62,48 @@ async fn test_fanout_independent_readers() {
 
     let node = env.add_node("chunked_writer".to_string(), &[], Some("test".to_string()));
 
-    // Attach THREE independent sinks to the same node to test fan-out
+    let fd = StdHandle::Stdout as isize;
     let (sink1, buffer1) = CaptureWriter::new();
     let (sink2, buffer2) = CaptureWriter::new();
     let (sink3, buffer3) = CaptureWriter::new();
 
-    env.attach_stdout_to(node, Box::new(sink1));
-    env.attach_stdout_to(node, Box::new(sink2));
-    env.attach_stdout_to(node, Box::new(sink3));
+    let task1 = {
+        let pool = Arc::clone(&env.pipe_pool);
+        let gen = Arc::clone(&env.idgen);
+        tokio::spawn(async move {
+            if let Ok(reader) = pool.get_or_await_new_reader((node, fd), true, &gen).await {
+                let _ = copy_to_writer(reader, sink1, FlushMode::AfterEachWrite).await;
+            }
+        })
+    };
+    let task2 = {
+        let pool = Arc::clone(&env.pipe_pool);
+        let gen = Arc::clone(&env.idgen);
+        tokio::spawn(async move {
+            if let Ok(reader) = pool.get_or_await_new_reader((node, fd), true, &gen).await {
+                let _ = copy_to_writer(reader, sink2, FlushMode::AfterEachWrite).await;
+            }
+        })
+    };
+    let task3 = {
+        let pool = Arc::clone(&env.pipe_pool);
+        let gen = Arc::clone(&env.idgen);
+        tokio::spawn(async move {
+            if let Ok(reader) = pool.get_or_await_new_reader((node, fd), true, &gen).await {
+                let _ = copy_to_writer(reader, sink3, FlushMode::AfterEachWrite).await;
+            }
+        })
+    };
 
-    // Run the executor
     let executor = Executor::start(tokio::runtime::Handle::current(), Arc::clone(&env), None);
-    executor
-        .submit(node, Default::default())
-        .expect("submit failed");
+    executor.submit(node, Default::default()).expect("submit failed");
     executor.shutdown().await;
 
-    // All three readers should have independently received all chunks
-    let data1 = buffer1.lock().unwrap().clone();
-    let data2 = buffer2.lock().unwrap().clone();
-    let data3 = buffer3.lock().unwrap().clone();
+    task1.await.unwrap();
+    task2.await.unwrap();
+    task3.await.unwrap();
 
-    assert_eq!(data1, b"chunk1chunk2chunk3");
-    assert_eq!(data2, b"chunk1chunk2chunk3");
-    assert_eq!(data3, b"chunk1chunk2chunk3");
+    assert_eq!(*buffer1.lock().unwrap(), b"chunk1chunk2chunk3");
+    assert_eq!(*buffer2.lock().unwrap(), b"chunk1chunk2chunk3");
+    assert_eq!(*buffer3.lock().unwrap(), b"chunk1chunk2chunk3");
 }

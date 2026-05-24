@@ -84,7 +84,6 @@ use tokio::task::JoinSet;
 use tracing::{debug, warn};
 
 use crate::actor_syscall::ActorLifecycleEvent;
-use crate::attachments::AttachmentManager;
 use crate::dag::{Dag, NodeState};
 use crate::environment::{ActorFn, Environment};
 use crate::errno::EOWNERDEAD;
@@ -456,7 +455,6 @@ struct ExecutorInfra {
     io_bridge: Arc<IoBridge>,
     lifecycle_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
     lifecycle_handler: tokio::task::JoinHandle<()>,
-    attachment_manager: Arc<AttachmentManager>,
 }
 
 impl ExecutorInfra {
@@ -467,12 +465,9 @@ impl ExecutorInfra {
     ) -> Self {
         let executor_wakeup = Arc::new(tokio::sync::Notify::new());
         let (lifecycle_tx, lifecycle_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
-        let attachment_manager =
-            Arc::new(AttachmentManager::new(async_runtime.clone(), Arc::clone(&env.attachment_config)));
         let io_bridge = Arc::new(IoBridge::new(
             async_runtime.clone(),
             Arc::clone(env),
-            Arc::clone(&attachment_manager),
             Arc::clone(&executor_wakeup),
         ));
         let lifecycle_handler = async_runtime.spawn(lifecycle_event_task(
@@ -487,7 +482,6 @@ impl ExecutorInfra {
             io_bridge,
             lifecycle_tx,
             lifecycle_handler,
-            attachment_manager,
         }
     }
 
@@ -498,14 +492,10 @@ impl ExecutorInfra {
             io_bridge,
             lifecycle_tx,
             lifecycle_handler,
-            attachment_manager,
         } = self;
 
         if let Err(e) = io_bridge.shutdown().await {
             warn!(error = %e, "io_bridge shutdown error");
-        }
-        if let Err(e) = attachment_manager.shutdown().await {
-            warn!(error = %e, "attachment manager shutdown error");
         }
         drop(lifecycle_tx);
         drop(io_bridge);

@@ -58,7 +58,6 @@ pub struct Environment {
     pub pipe_pool: Arc<PipePool>,
     pub actor_registry: Arc<RwLock<ActorRegistry>>,
     pub suspension: Arc<SuspensionState>,
-    pub(crate) attachment_config: Arc<RwLock<crate::attachments::AttachmentConfig>>,
 }
 
 impl Environment {
@@ -75,20 +74,7 @@ impl Environment {
             pipe_pool,
             actor_registry: Arc::new(RwLock::new(ActorRegistry::new())),
             suspension: Arc::new(SuspensionState::new()),
-            attachment_config: Arc::new(RwLock::new(
-                crate::attachments::AttachmentConfig::default(),
-            )),
         }
-    }
-
-    /// Attach an actor's stdout to a custom writer (e.g. a terminal-aware sink, or host stdout).
-    /// The writer is consumed the first time the actor's stdout is realized.
-    pub fn attach_stdout_to(
-        &self,
-        actor_handle: Handle,
-        sink: Box<dyn std::io::Write + Send + Sync>,
-    ) {
-        self.attachment_config.write().attach_to_sink(actor_handle, sink);
     }
 
     /// Add a value node - a node that outputs a constant value
