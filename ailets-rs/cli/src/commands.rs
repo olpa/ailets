@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use actor_runtime::StdHandle;
 use ailetos::{
-    pipe::pipe_path, DependsOn, For, Handle, KVBuffers, MemKV, NodeState, OpenMode,
+    pipe::{copy_to_writer, pipe_path, FlushMode, PipeError},
+    DependsOn, For, Handle, KVBuffers, MemKV, NodeState, OpenMode,
     StopConditions, TopologicalOrderIter,
 };
 
@@ -387,9 +388,25 @@ impl DagShell {
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
         let handle = self.env.resolve(handle);
-        let writer: Box<dyn std::io::Write + Send + Sync> =
-            Box::new(OutputSinkWriter::new(Arc::clone(&self.notification_sink), color));
-        self.env.attach_stdout_to(handle, writer);
+
+        let pipe_pool = Arc::clone(&self.env.pipe_pool);
+        let idgen = Arc::clone(&self.env.idgen);
+        let writer = OutputSinkWriter::new(Arc::clone(&self.notification_sink), color);
+        let notification_sink = Arc::clone(&self.notification_sink);
+
+        self.ailetos_async_rt.handle().clone().spawn(async move {
+            let fd = StdHandle::Stdout as isize;
+            match pipe_pool.get_or_await_new_reader((handle, fd), true, &idgen).await {
+                Ok(reader) => {
+                    if let Err(e) = copy_to_writer(reader, writer, FlushMode::AfterEachWrite).await {
+                        notification_sink.println(&format!("[follow] error: {e}"));
+                    }
+                }
+                Err(PipeError::PipeClosed) => {}
+                Err(e) => notification_sink.println(&format!("[follow] {e}")),
+            }
+        });
+
         Ok(())
     }
 
