@@ -119,7 +119,7 @@ async fn run_writer_task(
                                 std::io::stderr(),
                             );
                         }
-                        _ => {}
+                        StdHandle::Stdin | StdHandle::Stdout | StdHandle::Env | StdHandle::_Count => {}
                     }
                 }
             }
