@@ -102,22 +102,17 @@ async fn main() {
     print!("{tree}");
 
     // Run the system
-    use ailetos::pipe::{copy_to_writer, FlushMode};
     use ailetos::{Executor, StopConditions};
     let resolved = env.resolve(end_node);
     let env = Arc::new(env);
     let executor = Executor::start(async_runtime.clone(), Arc::clone(&env), None);
 
-    let stdout_task = {
-        let pool = Arc::clone(&env.pipe_pool);
-        let gen = Arc::clone(&env.idgen);
-        let fd = StdHandle::Stdout as isize;
-        async_runtime.spawn(async move {
-            if let Ok(reader) = pool.get_or_await_new_reader((resolved, fd), true, &gen).await {
-                let _ = copy_to_writer(reader, std::io::stdout(), FlushMode::AfterEachWrite).await;
-            }
-        })
-    };
+    let stdout_task = env.pipe_pool.spawn_reader_to(
+        &async_runtime,
+        &env.idgen,
+        (resolved, StdHandle::Stdout as isize),
+        std::io::stdout(),
+    );
 
     executor
         .submit(end_node, StopConditions::default())

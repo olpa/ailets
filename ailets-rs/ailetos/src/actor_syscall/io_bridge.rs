@@ -27,7 +27,7 @@ use crate::dag::OwnedDependencyIterator;
 use crate::environment::Environment;
 use crate::errno::{EBADF, EIO, EPIPE};
 use crate::idgen::Handle;
-use crate::pipe::{copy_to_writer, flush_and_close_writer, FlushMode, MergeReader, PipeError};
+use crate::pipe::{flush_and_close_writer, MergeReader};
 
 /// A read request forwarded from `IoBridge` to a reader task.
 pub(crate) struct ReadRequest {
@@ -112,19 +112,12 @@ async fn run_writer_task(
                 if let Ok(std_handle) = StdHandle::try_from(fd) {
                     match std_handle {
                         StdHandle::Log | StdHandle::Metrics | StdHandle::Trace => {
-                            let pool = Arc::clone(&env.pipe_pool);
-                            let gen = Arc::clone(&env.idgen);
-                            async_runtime.spawn(async move {
-                                match pool.get_or_await_new_reader((node_handle, fd), true, &gen).await {
-                                    Ok(reader) => {
-                                        if let Err(e) = copy_to_writer(reader, std::io::stderr(), FlushMode::AfterEachWrite).await {
-                                            warn!(node = ?node_handle, fd = fd, error = %e, "stderr forward failed");
-                                        }
-                                    }
-                                    Err(PipeError::PipeClosed) => {}
-                                    Err(e) => warn!(node = ?node_handle, fd = fd, error = %e, "stderr attach error"),
-                                }
-                            });
+                            env.pipe_pool.spawn_reader_to(
+                                &async_runtime,
+                                &env.idgen,
+                                (node_handle, fd),
+                                std::io::stderr(),
+                            );
                         }
                         _ => {}
                     }

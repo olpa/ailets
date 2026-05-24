@@ -330,6 +330,36 @@ impl PipePool {
         }
     }
 
+    /// Spawn a task that copies the pipe at `key` to `writer`.
+    ///
+    /// Returns a `JoinHandle` the caller should `.await` after the executor shuts down
+    /// to drain the last bytes.
+    pub fn spawn_reader_to<W>(
+        self: &Arc<Self>,
+        async_runtime: &tokio::runtime::Handle,
+        idgen: &Arc<IdGen>,
+        key: (Handle, isize),
+        writer: W,
+    ) -> tokio::task::JoinHandle<()>
+    where
+        W: std::io::Write + Send + 'static,
+    {
+        let pool = Arc::clone(self);
+        let idgen = Arc::clone(idgen);
+        let (node, fd) = key;
+        async_runtime.spawn(async move {
+            match pool.get_or_await_new_reader(key, true, &idgen).await {
+                Ok(reader) => {
+                    if let Err(e) = super::reader::copy_to_writer(reader, writer, super::reader::FlushMode::AfterEachWrite).await {
+                        warn!(node = ?node, fd = fd, error = %e, "spawn_reader_to: copy failed");
+                    }
+                }
+                Err(PipeError::PipeClosed) => {}
+                Err(e) => warn!(node = ?node, fd = fd, error = %e, "spawn_reader_to: attach failed"),
+            }
+        })
+    }
+
     /// Get a writer by key (only if already realized)
     ///
     /// Returns an Arc to the writer if it exists and has been realized.
