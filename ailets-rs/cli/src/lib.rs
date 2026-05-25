@@ -1,8 +1,8 @@
 //! DAG Shell library - DagShell and OutputSink.
 //!
 //! Two dedicated tokio runtimes are owned by `DagShell`:
-//! - `ailetos_async_rt`: runs the ailetos executor, notification watcher, and Ctrl+C handler.
-//! - `cli_rt`: runs CLI-side async operations (join waits, sleeps).
+//! - `ailetos_async_rt`: runs the ailetos executor exclusively.
+//! - `cli_rt`: runs all CLI-side async work: notification watcher, Ctrl+C handler, join waits, sleeps.
 //! The CLI thread itself stays synchronous and drives async work via `block_on`.
 
 pub(crate) mod dbg_actor;
@@ -95,7 +95,7 @@ impl DagShell {
 
         let notification_sink_clone = Arc::clone(&notification_sink);
         let watcher = start_notification_watcher(
-            ailetos_async_rt.handle(),
+            cli_rt.handle(),
             WatcherUpdate {
                 events_rx,
                 env: Arc::clone(&env),
@@ -105,7 +105,7 @@ impl DagShell {
             notification_sink,
         );
 
-        let ctrlc_handler = start_ctrlc_handler(ailetos_async_rt.handle(), Arc::clone(&pending_join));
+        let ctrlc_handler = start_ctrlc_handler(cli_rt.handle(), Arc::clone(&pending_join));
 
         Self {
             env,
