@@ -2,6 +2,7 @@
 
 use dagsh::shell_ui::{create_notification_sink, parse_args, print_usage};
 use dagsh::DagShell;
+use tokio::runtime::Runtime;
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
@@ -31,8 +32,12 @@ fn main() {
     };
     let _ = rl.set_max_history_size(1000);
 
-    let notification_sink = create_notification_sink(&mut rl);
-    let mut shell = DagShell::new_with_sinks(Box::new(dagsh::StdoutSink), notification_sink);
+    let printer_rt = Runtime::new().expect("failed to create printer runtime");
+    let notification_sink = create_notification_sink(&mut rl, printer_rt.handle());
+    let ailetos_rt = Runtime::new().expect("failed to create ailetos runtime");
+    let mut shell = DagShell::new_with_sinks_and_rt(Box::new(dagsh::StdoutSink), notification_sink, ailetos_rt);
+    // Keep printer_rt alive for the process lifetime.
+    let _printer_rt = printer_rt;
 
     println!("DAG Shell v0.1");
     println!("Type 'help' for available commands.\n");

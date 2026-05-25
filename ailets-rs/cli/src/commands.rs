@@ -310,48 +310,46 @@ impl DagShell {
             return Ok(());
         }
 
-        let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel::<()>(1);
-        let (ctrlc_tx, ctrlc_rx) = std::sync::mpsc::channel::<()>();
+        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
+        let (ctrlc_tx, ctrlc_rx) = tokio::sync::oneshot::channel::<()>();
         *self.pending_join.lock().unwrap() = Some(JoinWaiter {
             target,
             ready_tx,
             ctrlc_tx,
         });
 
-        let deadline = timeout.map(|d| std::time::Instant::now() + d);
-
-        let result = loop {
-            if ctrlc_rx.try_recv().is_ok() {
-                self.sink
-                    .println("\n^C - Detached (node continues running in ailetos)");
-                break Ok(());
-            }
-
-            if let Some(dl) = deadline {
-                if std::time::Instant::now() >= dl {
-                    *self.pending_join.lock().unwrap() = None;
-                    break Err(format!(
-                        "Timeout: node {} not terminated after {}s",
-                        target.id(),
-                        timeout.unwrap().as_secs()
-                    ));
+        let sink = &self.sink;
+        let pending_join = &self.pending_join;
+        self.cli_rt.block_on(async move {
+            let wait = async move {
+                tokio::select! {
+                    _ = ctrlc_rx => {
+                        sink.println("\n^C - Detached (node continues running in ailetos)");
+                        Ok(())
+                    }
+                    result = ready_rx => {
+                        let _ = result; // oneshot never errors unless sender dropped
+                        *pending_join.lock().unwrap() = None;
+                        Ok(())
+                    }
                 }
-            }
+            };
 
-            match ready_rx.recv_timeout(std::time::Duration::from_millis(50)) {
-                Ok(()) => {
-                    *self.pending_join.lock().unwrap() = None;
-                    break Ok(());
-                }
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                    *self.pending_join.lock().unwrap() = None;
-                    break Ok(());
-                }
+            match timeout {
+                None => wait.await,
+                Some(d) => match tokio::time::timeout(d, wait).await {
+                    Ok(r) => r,
+                    Err(_) => {
+                        *pending_join.lock().unwrap() = None;
+                        Err(format!(
+                            "Timeout: node {} not terminated after {}s",
+                            target.id(),
+                            d.as_secs()
+                        ))
+                    }
+                },
             }
-        };
-
-        result
+        })
     }
 
     pub(crate) fn cmd_join(&mut self, args: &[&str]) -> Result<(), String> {
@@ -529,7 +527,7 @@ impl DagShell {
 
         // Tell the watcher to switch to the new executor's event stream.
         self.watcher_update_tx
-            .send(WatcherUpdate {
+            .blocking_send(WatcherUpdate {
                 events_rx: new_events_rx,
                 env: Arc::clone(&new_env),
             })
@@ -628,7 +626,8 @@ impl DagShell {
                             timeout.as_secs()
                         ));
                     }
-                    std::thread::sleep(poll_interval);
+                    self.cli_rt
+                        .block_on(async move { tokio::time::sleep(poll_interval).await });
                 }
             }
             "terminated" => {

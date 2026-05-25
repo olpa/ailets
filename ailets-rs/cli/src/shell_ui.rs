@@ -199,6 +199,7 @@ pub fn truncate(s: &str, max_len: usize) -> String {
 /// or falls back to StdoutSink if the printer can't be created.
 pub fn create_notification_sink<H>(
     rl: &mut rustyline::Editor<(), H>,
+    rt: &tokio::runtime::Handle,
 ) -> Arc<dyn OutputSink>
 where
     H: rustyline::history::History,
@@ -206,7 +207,7 @@ where
     match rl.create_external_printer() {
         Ok(mut printer) => {
             let (tx, rx) = std::sync::mpsc::channel::<String>();
-            std::thread::spawn(move || {
+            rt.spawn_blocking(move || {
                 while let Ok(msg) = rx.recv() {
                     let _ = printer.print(msg);
                 }

@@ -131,7 +131,7 @@ fn background_termination_is_notified() {
     // Poll until the notification arrives (up to 5 s).
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     loop {
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        shell.sleep(std::time::Duration::from_millis(50));
         if notification_sink.lines().iter().any(|l| l.contains("done")) {
             return;
         }
@@ -197,7 +197,7 @@ fn foreground_run_suppresses_intermediate_notifications() {
     shell.execute("dep $c $v").unwrap();
     shell.execute("run $c").unwrap(); // foreground
     // Give the watcher a moment to flush any stray events.
-    std::thread::sleep(std::time::Duration::from_millis(100));
+    shell.sleep(std::time::Duration::from_millis(100));
     assert!(
         notification_sink.lines().is_empty(),
         "unexpected notifications during foreground run: {:?}",

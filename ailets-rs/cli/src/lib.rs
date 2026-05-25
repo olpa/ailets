@@ -1,12 +1,9 @@
 //! DAG Shell library - DagShell and OutputSink.
 //!
-//! The ailetos executor runs on a dedicated `tokio::runtime::Runtime` owned by
-//! `DagShell` for the session lifetime. The CLI thread stays synchronous.
-//!
-//! A permanent notification watcher thread consumes executor events and either
-//! signals the active `join_handle` call or prints a background notification.
-//! This means node terminations are always reported, even while the user is at
-//! the prompt.
+//! Two dedicated tokio runtimes are owned by `DagShell`:
+//! - `ailetos_async_rt`: runs the ailetos executor, notification watcher, and Ctrl+C handler.
+//! - `cli_rt`: runs CLI-side async operations (join waits, sleeps).
+//! The CLI thread itself stays synchronous and drives async work via `block_on`.
 
 pub(crate) mod dbg_actor;
 pub(crate) mod dbg_control;
@@ -43,15 +40,17 @@ pub struct DagShell {
     sink: Box<dyn OutputSink>,
     notification_sink: Arc<dyn OutputSink>,
     pending_join: Arc<Mutex<Option<JoinWaiter>>>,
-    watcher_update_tx: std::sync::mpsc::SyncSender<WatcherUpdate>,
+    watcher_update_tx: tokio::sync::mpsc::Sender<WatcherUpdate>,
     // Kept alive until DagShell drops; the drop closes watcher_update_tx
     // which causes the watcher to exit.
-    _watcher: std::thread::JoinHandle<()>,
-    // Global Ctrl+C handler thread; kept alive until DagShell drops.
-    _ctrlc_handler: std::thread::JoinHandle<()>,
+    _watcher: tokio::task::JoinHandle<()>,
+    // Global Ctrl+C handler task; kept alive until DagShell drops.
+    _ctrlc_handler: tokio::task::JoinHandle<()>,
     // executor drops before ailetos_async_rt (declaration order = drop order).
     executor: Executor,
     ailetos_async_rt: tokio::runtime::Runtime,
+    // CLI-side async runtime: join waits, sleeps. Independent from ailetos.
+    cli_rt: tokio::runtime::Runtime,
 }
 
 impl DagShell {
@@ -69,18 +68,34 @@ impl DagShell {
         command_sink: Box<dyn OutputSink>,
         notification_sink: Arc<dyn OutputSink>,
     ) -> Self {
-        let kv = Arc::new(MemKV::new());
-        let env = make_env(&kv);
         let ailetos_async_rt =
             tokio::runtime::Runtime::new().expect("failed to create ailetos runtime");
+        Self::new_with_sinks_and_rt(command_sink, notification_sink, ailetos_async_rt)
+    }
+
+    /// Like `new_with_sinks` but accepts a pre-created runtime for ailetos.
+    /// The caller must ensure this runtime is used exclusively for ailetos.
+    pub fn new_with_sinks_and_rt(
+        command_sink: Box<dyn OutputSink>,
+        notification_sink: Arc<dyn OutputSink>,
+        ailetos_async_rt: tokio::runtime::Runtime,
+    ) -> Self {
+        let cli_rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to create cli runtime");
+
+        let kv = Arc::new(MemKV::new());
+        let env = make_env(&kv);
         let (executor, events_rx) = start_executor_with_bridge(ailetos_async_rt.handle().clone(), Arc::clone(&env));
 
         let pending_join: Arc<Mutex<Option<JoinWaiter>>> = Arc::new(Mutex::new(None));
         let (watcher_update_tx, update_rx) =
-            std::sync::mpsc::sync_channel::<WatcherUpdate>(4);
+            tokio::sync::mpsc::channel::<WatcherUpdate>(4);
 
         let notification_sink_clone = Arc::clone(&notification_sink);
         let watcher = start_notification_watcher(
+            ailetos_async_rt.handle(),
             WatcherUpdate {
                 events_rx,
                 env: Arc::clone(&env),
@@ -90,7 +105,7 @@ impl DagShell {
             notification_sink,
         );
 
-        let ctrlc_handler = start_ctrlc_handler(Arc::clone(&pending_join));
+        let ctrlc_handler = start_ctrlc_handler(ailetos_async_rt.handle(), Arc::clone(&pending_join));
 
         Self {
             env,
@@ -105,6 +120,7 @@ impl DagShell {
             _ctrlc_handler: ctrlc_handler,
             executor,
             ailetos_async_rt,
+            cli_rt,
         }
     }
 
@@ -155,6 +171,11 @@ impl DagShell {
         }
 
         Ok(true)
+    }
+
+    pub fn sleep(&self, duration: std::time::Duration) {
+        self.cli_rt
+            .block_on(async move { tokio::time::sleep(duration).await });
     }
 
     fn prepare_exit(&mut self) {
