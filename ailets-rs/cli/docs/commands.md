@@ -54,11 +54,19 @@ kill <node>
 kill -N <node>
 ```
 
-Terminates a running node with the given exit code (default: `EOWNERDEAD` = 130). Works on any running node.
+Only works on `dbg` nodes. Marks the node as killed; the node checks this flag when it wakes from suspension and exits with an error instead of producing output. The `-N` flag is accepted for forward compatibility but the value is currently ignored.
 
-### Removed commands
+### To be documented
 
-- `fg` — removed; use `join <node>` instead
-- `bg` flag on run — replaced by `run --bg`
-
-The concept of a single background job slot is removed. Multiple nodes can run concurrently.
+- `quit` / `exit` / `q`
+- `set`
+- `node`
+- `dep` / `deps`
+- `show`
+- `status`
+- `source` / `load`
+- `reset`
+- `suspend`
+- `resume`
+- `write`
+- `close`
