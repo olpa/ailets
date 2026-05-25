@@ -259,7 +259,7 @@ impl Drop for Reader {
     }
 }
 
-/// Flush behavior for copy_to_writer
+/// Flush behavior for drain_to_writer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FlushMode {
     /// Flush after each write (needed for interactive output like terminals)
@@ -280,7 +280,7 @@ pub enum FlushMode {
 ///
 /// # Errors
 /// Returns an error if reading, writing, flushing, or closing fails.
-pub async fn copy_to_writer<W: std::io::Write>(
+pub async fn drain_to_writer<W: std::io::Write>(
     mut reader: Reader,
     mut writer: W,
     flush_mode: FlushMode,

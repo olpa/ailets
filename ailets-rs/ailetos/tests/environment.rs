@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use actor_runtime::StdHandle;
 use ailetos::dag::NodeState;
-use ailetos::pipe::{copy_to_writer, pipe_path, FlushMode};
+use ailetos::pipe::{drain_to_writer, pipe_path, FlushMode};
 use ailetos::storage::{KVBuffers, MemKV, OpenMode};
 use ailetos::{Environment, Executor};
 use ailetos::traversal::StopConditions;
@@ -45,7 +45,7 @@ async fn two_follows_both_receive_output() {
         let sink = Arc::clone(&received1);
         tokio::spawn(async move {
             if let Ok(reader) = pool.get_or_await_new_reader((cat_node, fd), true, &gen).await {
-                let _ = copy_to_writer(reader, CollectingSink(sink), FlushMode::AfterEachWrite).await;
+                let _ = drain_to_writer(reader, CollectingSink(sink), FlushMode::AfterEachWrite).await;
             }
         })
     };
@@ -56,7 +56,7 @@ async fn two_follows_both_receive_output() {
         let sink = Arc::clone(&received2);
         tokio::spawn(async move {
             if let Ok(reader) = pool.get_or_await_new_reader((cat_node, fd), true, &gen).await {
-                let _ = copy_to_writer(reader, CollectingSink(sink), FlushMode::AfterEachWrite).await;
+                let _ = drain_to_writer(reader, CollectingSink(sink), FlushMode::AfterEachWrite).await;
             }
         })
     };

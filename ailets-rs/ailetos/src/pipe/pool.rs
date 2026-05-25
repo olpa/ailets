@@ -350,7 +350,7 @@ impl PipePool {
         async_runtime.spawn(async move {
             match pool.get_or_await_new_reader(key, true, &idgen).await {
                 Ok(reader) => {
-                    if let Err(e) = super::reader::copy_to_writer(reader, writer, super::reader::FlushMode::AfterEachWrite).await {
+                    if let Err(e) = super::reader::drain_to_writer(reader, writer, super::reader::FlushMode::AfterEachWrite).await {
                         warn!(node = ?node, fd = fd, error = %e, "spawn_reader_to: copy failed");
                     }
                 }
