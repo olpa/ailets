@@ -1,7 +1,7 @@
 use actor_runtime::StdHandle;
 use ailetos::dag::Dag;
 use ailetos::idgen::{Handle, IdGen};
-use ailetos::pipe::{pipe_path, PipePool};
+use ailetos::pipe::{drain_to_writer, pipe_path, FlushMode, PipePool};
 use ailetos::storage::memkv::MemKV;
 use ailetos::storage::KVBuffers;
 use ailetos::{EOWNERDEAD, EPIPE};
@@ -853,6 +853,46 @@ async fn test_mixed_latent_and_realized_pipes() {
 // ============================================================================
 // 11. Real-world Scenarios
 // ============================================================================
+
+#[tokio::test]
+async fn test_fanout_both_readers_receive_full_data() {
+    let (pool, _, id_gen, _dag) = create_test_pool();
+    let actor_handle = Handle::new(1);
+    let std_handle = StdHandle::Stdout;
+
+    let (writer, _) = pool
+        .touch_writer(actor_handle, std_handle as isize, &id_gen)
+        .await
+        .expect("Failed to create writer");
+
+    let reader1 = pool
+        .get_or_await_new_reader((actor_handle, std_handle as isize), false, &id_gen)
+        .await
+        .expect("Failed to create reader1");
+    let reader2 = pool
+        .get_or_await_new_reader((actor_handle, std_handle as isize), false, &id_gen)
+        .await
+        .expect("Failed to create reader2");
+
+    writer.write(b"hello").unwrap();
+    writer.close().unwrap();
+
+    let (r1, r2) = tokio::join!(
+        async {
+            let mut out = Vec::new();
+            drain_to_writer(reader1, &mut out, FlushMode::Buffered).await.unwrap();
+            out
+        },
+        async {
+            let mut out = Vec::new();
+            drain_to_writer(reader2, &mut out, FlushMode::Buffered).await.unwrap();
+            out
+        },
+    );
+
+    assert_eq!(r1, b"hello");
+    assert_eq!(r2, b"hello");
+}
 
 #[tokio::test]
 async fn test_attachment_workflow_simulation() {

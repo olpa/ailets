@@ -96,6 +96,26 @@ fn run_alias_completes() {
 }
 
 #[test]
+fn two_follows_both_receive_output() {
+    let notification_sink = Arc::new(CapturingSink::new());
+    let mut shell = DagShell::new_with_sinks(
+        Box::new(CapturingSink::new()),
+        Arc::clone(&notification_sink) as Arc<dyn OutputSink>,
+    );
+    shell.execute("set v = node value hello").unwrap();
+    shell.execute("set c = node add cat").unwrap();
+    shell.execute("dep $c $v").unwrap();
+    shell.execute("follow $c").unwrap();
+    shell.execute("follow $c").unwrap();
+    shell.execute("run $c").unwrap();
+
+    // Both followers write to the shared notification sink — "hello" must appear twice.
+    let combined = notification_sink.lines().join("");
+    let count = combined.matches("hello").count();
+    assert_eq!(count, 2, "expected 'hello' twice in notification output, got: {combined:?}");
+}
+
+#[test]
 fn background_termination_is_notified() {
     // Value nodes are pre-terminated (no actor runs), so use value → cat so
     // that cat actually spawns and produces a NodeTerminated event.
