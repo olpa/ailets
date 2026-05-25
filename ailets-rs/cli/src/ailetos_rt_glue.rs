@@ -1,10 +1,7 @@
-//! Glue code between synchronous CLI and async ailetos runtime.
+//! Async task factories and executor startup for the CLI.
 //!
-//! This module bridges the synchronous CLI (main thread, rustyline REPL) with
-//! the asynchronous ailetos executor running on a dedicated tokio runtime.
-//! It provides:
-//! - Background tasks (Ctrl+C handler, notification watcher)
-//! - Executor startup and environment setup
+//! Provides functions to start the ailetos executor, the notification watcher,
+//! and the Ctrl+C handler. Callers decide which runtime each task runs on.
 
 use std::sync::{Arc, Mutex};
 
@@ -58,10 +55,10 @@ pub fn make_env(kv: &Arc<MemKV>) -> Arc<Environment> {
 /// Listens for Ctrl+C once at process startup. When Ctrl+C is received,
 /// checks if there's a pending join and notifies it via its ctrlc_tx channel.
 pub fn start_ctrlc_handler(
-    ailetos_async_rt: &tokio::runtime::Handle,
+    rt: &tokio::runtime::Handle,
     pending_join: Arc<Mutex<Option<JoinWaiter>>>,
 ) -> tokio::task::JoinHandle<()> {
-    ailetos_async_rt.spawn(async move {
+    rt.spawn(async move {
         loop {
             if tokio::signal::ctrl_c().await.is_err() {
                 break;
@@ -84,13 +81,13 @@ pub fn start_ctrlc_handler(
 /// so the watcher switches to the new receiver. When `update_tx` drops (on
 /// `DagShell` drop), the watcher exits.
 pub fn start_notification_watcher(
-    ailetos_async_rt: &tokio::runtime::Handle,
+    rt: &tokio::runtime::Handle,
     initial: WatcherUpdate,
     mut update_rx: tokio::sync::mpsc::Receiver<WatcherUpdate>,
     pending_join: Arc<Mutex<Option<JoinWaiter>>>,
     notification_sink: Arc<dyn OutputSink>,
 ) -> tokio::task::JoinHandle<()> {
-    ailetos_async_rt.spawn(async move {
+    rt.spawn(async move {
         let mut env = initial.env;
         let mut events_rx = initial.events_rx;
 
