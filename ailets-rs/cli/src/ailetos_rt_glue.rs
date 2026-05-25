@@ -20,12 +20,6 @@ pub struct JoinWaiter {
     pub ctrlc_tx: tokio::sync::oneshot::Sender<()>,
 }
 
-/// Sent to the watcher task when the executor is replaced (on `reset`).
-pub struct WatcherUpdate {
-    pub events_rx: tokio::sync::mpsc::UnboundedReceiver<ExecutorEvent>,
-    pub env: Arc<Environment>,
-}
-
 // ---------------------------------------------------------------------------
 // Executor startup helpers
 // ---------------------------------------------------------------------------
@@ -50,10 +44,9 @@ pub fn make_env(kv: &Arc<MemKV>) -> Arc<Environment> {
     env
 }
 
-/// Spawn the global Ctrl+C handler task onto `ailetos_async_rt`.
+/// Spawn the global Ctrl+C handler task.
 ///
-/// Listens for Ctrl+C once at process startup. When Ctrl+C is received,
-/// checks if there's a pending join and notifies it via its ctrlc_tx channel.
+/// When Ctrl+C is received, notifies the pending join via its ctrlc_tx channel.
 pub fn start_ctrlc_handler(
     rt: &tokio::runtime::Handle,
     pending_join: Arc<Mutex<Option<JoinWaiter>>>,
@@ -71,72 +64,35 @@ pub fn start_ctrlc_handler(
     })
 }
 
-/// Spawn the notification watcher task onto `ailetos_async_rt`.
+/// Spawn the notification watcher task.
 ///
-/// The watcher owns `events_rx` for the current executor. On each event:
+/// On each event:
 /// - if `pending_join` targets this handle → signal the waiter
 /// - otherwise → print a notification via `notification_sink`
-///
-/// When the executor is replaced (`reset`), `DagShell` sends a `WatcherUpdate`
-/// so the watcher switches to the new receiver. When `update_tx` drops (on
-/// `DagShell` drop), the watcher exits.
 pub fn start_notification_watcher(
     rt: &tokio::runtime::Handle,
-    initial: WatcherUpdate,
-    mut update_rx: tokio::sync::mpsc::Receiver<WatcherUpdate>,
+    mut events_rx: tokio::sync::mpsc::UnboundedReceiver<ExecutorEvent>,
+    env: Arc<Environment>,
     pending_join: Arc<Mutex<Option<JoinWaiter>>>,
     notification_sink: Arc<dyn OutputSink>,
 ) -> tokio::task::JoinHandle<()> {
     rt.spawn(async move {
-        let mut env = initial.env;
-        let mut events_rx = initial.events_rx;
-
-        loop {
-            tokio::select! {
-                biased;
-
-                update = update_rx.recv() => {
-                    match update {
-                        Some(upd) => {
-                            env = upd.env;
-                            events_rx = upd.events_rx;
-                        }
-                        None => break,
-                    }
+        while let Some(ExecutorEvent::NodeTerminated(h)) = events_rx.recv().await {
+            let mut pending = pending_join.lock().unwrap();
+            if pending.as_ref().map(|j| j.target == h).unwrap_or(false) {
+                if let Some(waiter) = pending.take() {
+                    let _ = waiter.ready_tx.send(());
                 }
-
-                event = events_rx.recv() => {
-                    match event {
-                        Some(ExecutorEvent::NodeTerminated(h)) => {
-                            let mut pending = pending_join.lock().unwrap();
-                            if pending.as_ref().map(|j| j.target == h).unwrap_or(false) {
-                                if let Some(waiter) = pending.take() {
-                                    let _ = waiter.ready_tx.send(());
-                                }
-                            } else if pending.is_none() {
-                                let name = {
-                                    let dag = env.dag.read();
-                                    dag.get_node(h)
-                                        .map(|n| format!("{}#{}", n.idname, h.id()))
-                                        .unwrap_or_else(|| format!("node#{}", h.id()))
-                                };
-                                notification_sink.println(&format!("[{name}] done"));
-                            }
-                            // else: foreground join active but not our target — suppress
-                        }
-                        None => {
-                            // Old executor done; wait for the next executor (or drop).
-                            match update_rx.recv().await {
-                                Some(upd) => {
-                                    env = upd.env;
-                                    events_rx = upd.events_rx;
-                                }
-                                None => break,
-                            }
-                        }
-                    }
-                }
+            } else if pending.is_none() {
+                let name = {
+                    let dag = env.dag.read();
+                    dag.get_node(h)
+                        .map(|n| format!("{}#{}", n.idname, h.id()))
+                        .unwrap_or_else(|| format!("node#{}", h.id()))
+                };
+                notification_sink.println(&format!("[{name}] done"));
             }
+            // else: foreground join active but not our target — suppress
         }
     })
 }

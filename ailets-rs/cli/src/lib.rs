@@ -25,7 +25,7 @@ pub use output::{OutputSink, StdoutSink};
 
 pub(crate) use ailetos_rt_glue::{
     make_env, start_ctrlc_handler, start_executor_with_bridge, start_notification_watcher,
-    JoinWaiter, WatcherUpdate,
+    JoinWaiter,
 };
 
 // ---------------------------------------------------------------------------
@@ -40,9 +40,6 @@ pub struct DagShell {
     sink: Box<dyn OutputSink>,
     notification_sink: Arc<dyn OutputSink>,
     pending_join: Arc<Mutex<Option<JoinWaiter>>>,
-    watcher_update_tx: tokio::sync::mpsc::Sender<WatcherUpdate>,
-    // Kept alive until DagShell drops; the drop closes watcher_update_tx
-    // which causes the watcher to exit.
     _watcher: tokio::task::JoinHandle<()>,
     // Global Ctrl+C handler task; kept alive until DagShell drops.
     _ctrlc_handler: tokio::task::JoinHandle<()>,
@@ -90,17 +87,12 @@ impl DagShell {
         let (executor, events_rx) = start_executor_with_bridge(ailetos_async_rt.handle().clone(), Arc::clone(&env));
 
         let pending_join: Arc<Mutex<Option<JoinWaiter>>> = Arc::new(Mutex::new(None));
-        let (watcher_update_tx, update_rx) =
-            tokio::sync::mpsc::channel::<WatcherUpdate>(4);
 
         let notification_sink_clone = Arc::clone(&notification_sink);
         let watcher = start_notification_watcher(
             cli_rt.handle(),
-            WatcherUpdate {
-                events_rx,
-                env: Arc::clone(&env),
-            },
-            update_rx,
+            events_rx,
+            Arc::clone(&env),
             Arc::clone(&pending_join),
             notification_sink,
         );
@@ -115,7 +107,6 @@ impl DagShell {
             sink: command_sink,
             notification_sink: notification_sink_clone,
             pending_join,
-            watcher_update_tx,
             _watcher: watcher,
             _ctrlc_handler: ctrlc_handler,
             executor,
@@ -157,7 +148,6 @@ impl DagShell {
             "cat" => self.cmd_cat(rest)?,
             "status" => self.cmd_status(rest)?,
             "source" | "load" => self.cmd_source(rest)?,
-            "reset" => self.cmd_reset(),
             "suspend" => self.cmd_suspend(rest)?,
             "resume" => self.cmd_resume(rest)?,
             "wait" => self.cmd_wait(rest)?,
@@ -195,8 +185,7 @@ impl Default for DagShell {
 impl Drop for DagShell {
     fn drop(&mut self) {
         self.prepare_exit();
-        // Dropping watcher_update_tx closes the update channel, causing the
-        // watcher thread to exit its loop. executor and ailetos_async_rt then drop
-        // in declaration order, closing the job channel and cancelling tasks.
+        // executor and ailetos_async_rt drop in declaration order, closing the
+        // event channel and causing the watcher task to exit.
     }
 }

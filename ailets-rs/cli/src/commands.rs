@@ -5,13 +5,13 @@ use std::sync::Arc;
 use actor_runtime::StdHandle;
 use ailetos::{
     pipe::pipe_path,
-    DependsOn, For, Handle, KVBuffers, MemKV, NodeState, OpenMode,
+    DependsOn, For, Handle, KVBuffers, NodeState, OpenMode,
     StopConditions, TopologicalOrderIter,
 };
 
 use crate::output::{parse_color, OutputSinkWriter};
 use crate::shell_ui::{format_state, parse_bytes_before_pause, parse_explain, parse_quoted_string, truncate, HELP_TEXT};
-use crate::{dbg_control, shell_input_control, DagShell, JoinWaiter, WatcherUpdate, make_env, start_executor_with_bridge};
+use crate::{dbg_control, shell_input_control, DagShell, JoinWaiter};
 
 impl DagShell {
     pub(crate) fn cmd_help(&self) {
@@ -512,34 +512,6 @@ impl DagShell {
             }
         }
         Ok(())
-    }
-
-    pub(crate) fn cmd_reset(&mut self) {
-        shell_input_control::close_all_shell_inputs();
-        for &handle in &self.handles {
-            self.env.suspension.resume(handle);
-        }
-
-        let new_kv = Arc::new(MemKV::new());
-        let new_env = make_env(&new_kv);
-        let (new_executor, new_events_rx) =
-            start_executor_with_bridge(self.ailetos_async_rt.handle().clone(), Arc::clone(&new_env));
-
-        // Tell the watcher to switch to the new executor's event stream.
-        self.watcher_update_tx
-            .blocking_send(WatcherUpdate {
-                events_rx: new_events_rx,
-                env: Arc::clone(&new_env),
-            })
-            .ok();
-
-        self.executor = new_executor;
-        self.env = new_env;
-        self.kv = new_kv;
-        self.handles.clear();
-        self.vars.clear();
-
-        self.sink.println("DAG cleared.");
     }
 
     pub(crate) fn cmd_status(&self, args: &[&str]) -> Result<(), String> {

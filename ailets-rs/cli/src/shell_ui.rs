@@ -126,7 +126,6 @@ Shell Input:
 
 Session:
   load <file>                         Run script file (alias: source)
-  reset                               Clear all nodes and start fresh
   help                                Show this help
   quit                                Exit
 
