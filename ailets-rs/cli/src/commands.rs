@@ -285,7 +285,7 @@ impl DagShell {
             self.sink.println("Started background run");
         } else {
             self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, false, color);
-            self.join_handle(wait_handle, None)?;
+            self.join_handle(wait_handle)?;
         }
 
         self.sink.println("");
@@ -297,11 +297,7 @@ impl DagShell {
     /// Registers a `JoinWaiter` so the notification watcher signals us instead
     /// of printing a background notification for this particular node. The global
     /// Ctrl+C handler will notify us via ctrlc_rx if Ctrl+C is pressed.
-    fn join_handle(
-        &mut self,
-        target: Handle,
-        timeout: Option<std::time::Duration>,
-    ) -> Result<(), String> {
+    fn join_handle(&mut self, target: Handle) -> Result<(), String> {
         // Bail early if already terminated.
         if matches!(
             self.env.dag.read().get_node(target).map(|n| n.state),
@@ -321,35 +317,18 @@ impl DagShell {
         let sink = &self.sink;
         let pending_join = &self.pending_join;
         self.cli_rt.block_on(async move {
-            let wait = async move {
-                tokio::select! {
-                    _ = ctrlc_rx => {
-                        sink.println("\n^C - Detached (node continues running in ailetos)");
-                        Ok(())
-                    }
-                    result = ready_rx => {
-                        if result.is_err() {
-                            tracing::warn!("ready_rx sender dropped before sending");
-                        }
-                        *pending_join.lock().unwrap() = None;
-                        Ok(())
-                    }
+            tokio::select! {
+                _ = ctrlc_rx => {
+                    sink.println("\n^C - Detached (node continues running in ailetos)");
+                    Ok(())
                 }
-            };
-
-            match timeout {
-                None => wait.await,
-                Some(d) => match tokio::time::timeout(d, wait).await {
-                    Ok(r) => r,
-                    Err(_) => {
-                        *pending_join.lock().unwrap() = None;
-                        Err(format!(
-                            "Timeout: node {} not terminated after {}s",
-                            target.id(),
-                            d.as_secs()
-                        ))
+                result = ready_rx => {
+                    if result.is_err() {
+                        tracing::warn!("ready_rx sender dropped before sending");
                     }
-                },
+                    *pending_join.lock().unwrap() = None;
+                    Ok(())
+                }
             }
         })
     }
@@ -359,7 +338,7 @@ impl DagShell {
         let handle = self
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
-        self.join_handle(handle, None)
+        self.join_handle(handle)
     }
 
     pub(crate) fn cmd_follow(&mut self, args: &[&str]) -> Result<(), String> {
@@ -609,7 +588,7 @@ impl DagShell {
                 let handle = self
                     .parse_handle(handle_str)
                     .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
-                self.join_handle(handle, Some(std::time::Duration::from_secs(5)))
+                self.join_handle(handle)
             }
             other => Err(format!("Unknown wait condition: {other}")),
         }

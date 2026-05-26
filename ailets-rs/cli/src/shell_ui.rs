@@ -120,7 +120,7 @@ Debug:
   suspend <node>                      Suspend a running actor
   resume <node>                       Resume a suspended actor (dbg or general)
   wait suspended <node>               Block until node is suspended (polls 10 ms, 5 s timeout)
-  wait terminated <node>              Block until node is terminated (polls 10 ms, 5 s timeout)
+  wait terminated <node>              Block until node is terminated (Ctrl+C to detach)
 
 Shell Input:
   write <node> <data>                 Write data to a shell_input actor
