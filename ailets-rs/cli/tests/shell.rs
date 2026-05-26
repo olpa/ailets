@@ -1,5 +1,4 @@
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Duration;
 
 use dagsh::{DagShell, OutputSink};
 
@@ -22,11 +21,11 @@ impl CapturingSink {
         self.inner.0.lock().unwrap().clone()
     }
 
-    fn wait_for_line(&self, predicate: impl Fn(&[String]) -> bool, timeout: Duration) -> bool {
+    fn wait_for_line(&self, predicate: impl Fn(&[String]) -> bool, timeout_secs: u64) -> bool {
         let (lock, cvar) = &*self.inner;
         let guard = lock.lock().unwrap();
         let (_guard, timed_out) = cvar
-            .wait_timeout_while(guard, timeout, |lines| !predicate(lines))
+            .wait_timeout_while(guard, std::time::Duration::from_secs(timeout_secs), |lines| !predicate(lines))
             .unwrap();
         !timed_out.timed_out()
     }
@@ -145,7 +144,7 @@ fn background_termination_is_notified() {
     assert!(
         notification_sink.wait_for_line(
             |lines| lines.iter().any(|l| l.contains("done")),
-            Duration::from_secs(5),
+            5,
         ),
         "timeout: no 'done' notification; lines: {:?}",
         notification_sink.lines()
