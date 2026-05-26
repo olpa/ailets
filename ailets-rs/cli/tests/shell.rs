@@ -1,4 +1,5 @@
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
+use std::time::Duration;
 
 use dagsh::{DagShell, OutputSink};
 
@@ -7,41 +8,54 @@ use dagsh::{DagShell, OutputSink};
 
 
 struct CapturingSink {
-    lines: Arc<Mutex<Vec<String>>>,
+    inner: Arc<(Mutex<Vec<String>>, Condvar)>,
 }
 
 impl CapturingSink {
     fn new() -> Self {
         Self {
-            lines: Arc::new(Mutex::new(Vec::new())),
+            inner: Arc::new((Mutex::new(Vec::new()), Condvar::new())),
         }
     }
 
     fn lines(&self) -> Vec<String> {
-        self.lines.lock().unwrap().clone()
+        self.inner.0.lock().unwrap().clone()
+    }
+
+    fn wait_for_line(&self, predicate: impl Fn(&[String]) -> bool, timeout: Duration) -> bool {
+        let (lock, cvar) = &*self.inner;
+        let guard = lock.lock().unwrap();
+        let (_guard, timed_out) = cvar
+            .wait_timeout_while(guard, timeout, |lines| !predicate(lines))
+            .unwrap();
+        !timed_out.timed_out()
     }
 }
 
 impl Clone for CapturingSink {
     fn clone(&self) -> Self {
         Self {
-            lines: Arc::clone(&self.lines),
+            inner: Arc::clone(&self.inner),
         }
     }
 }
 
 impl OutputSink for CapturingSink {
     fn print(&self, text: &str) {
-        let mut lines = self.lines.lock().unwrap();
+        let (lock, cvar) = &*self.inner;
+        let mut lines = lock.lock().unwrap();
         if let Some(last) = lines.last_mut() {
             last.push_str(text);
         } else {
             lines.push(text.to_string());
         }
+        cvar.notify_all();
     }
 
     fn println(&self, line: &str) {
-        self.lines.lock().unwrap().push(line.to_string());
+        let (lock, cvar) = &*self.inner;
+        lock.lock().unwrap().push(line.to_string());
+        cvar.notify_all();
     }
 }
 
@@ -128,19 +142,14 @@ fn background_termination_is_notified() {
     shell.execute("set c = node add cat").unwrap();
     shell.execute("dep $c $v").unwrap();
     shell.execute("run $c --bg").unwrap();
-    // Poll until the notification arrives (up to 5 s).
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        shell.sleep(std::time::Duration::from_millis(50));
-        if notification_sink.lines().iter().any(|l| l.contains("done")) {
-            return;
-        }
-        assert!(
-            std::time::Instant::now() < deadline,
-            "timeout: no 'done' notification; lines: {:?}",
-            notification_sink.lines()
-        );
-    }
+    assert!(
+        notification_sink.wait_for_line(
+            |lines| lines.iter().any(|l| l.contains("done")),
+            Duration::from_secs(5),
+        ),
+        "timeout: no 'done' notification; lines: {:?}",
+        notification_sink.lines()
+    );
 }
 
 #[test]
@@ -195,9 +204,7 @@ fn foreground_run_suppresses_intermediate_notifications() {
     shell.execute("set v = node value hello").unwrap();
     shell.execute("set c = node add cat").unwrap();
     shell.execute("dep $c $v").unwrap();
-    shell.execute("run $c").unwrap(); // foreground
-    // Give the watcher a moment to flush any stray events.
-    shell.sleep(std::time::Duration::from_millis(100));
+    shell.execute("run $c").unwrap(); // foreground — watcher processes all events inside block_on
     assert!(
         notification_sink.lines().is_empty(),
         "unexpected notifications during foreground run: {:?}",

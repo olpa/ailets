@@ -150,7 +150,8 @@ impl DagShell {
         notification_sink: Arc<dyn OutputSink>,
         ailetos_async_rt: tokio::runtime::Runtime,
     ) -> Self {
-        let cli_rt = tokio::runtime::Builder::new_current_thread()
+        let cli_rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
             .enable_all()
             .build()
             .expect("failed to create cli runtime");
