@@ -50,33 +50,49 @@ fn start_executor(
 // ---------------------------------------------------------------------------
 
 struct NotificationWatcher {
-    events_rx: tokio::sync::mpsc::UnboundedReceiver<ExecutorEvent>,
-    env: Arc<Environment>,
-    foreground_join: Arc<AtomicBool>,
-    sink: Arc<dyn OutputSink>,
+    cancel: CancellationToken,
+    task: tokio::task::JoinHandle<()>,
 }
 
 impl NotificationWatcher {
-    async fn run(mut self, cancel: CancellationToken) {
-        loop {
-            tokio::select! {
-                _ = cancel.cancelled() => break,
-                event = self.events_rx.recv() => match event {
-                    Some(ExecutorEvent::NodeTerminated(h)) => {
-                        if !self.foreground_join.load(std::sync::atomic::Ordering::Relaxed) {
-                            let name = {
-                                let dag = self.env.dag.read();
-                                dag.get_node(h)
-                                    .map(|n| format!("{}#{}", n.idname, h.id()))
-                                    .unwrap_or_else(|| format!("node#{}", h.id()))
-                            };
-                            self.sink.println(&format!("[{name}] done"));
-                        }
+    fn spawn(
+        rt: &tokio::runtime::Handle,
+        mut events_rx: tokio::sync::mpsc::UnboundedReceiver<ExecutorEvent>,
+        env: Arc<Environment>,
+        foreground_join: Arc<AtomicBool>,
+        sink: Arc<dyn OutputSink>,
+    ) -> Self {
+        let cancel = CancellationToken::new();
+        let task = rt.spawn({
+            let cancel = cancel.clone();
+            async move {
+                loop {
+                    tokio::select! {
+                        _ = cancel.cancelled() => break,
+                        event = events_rx.recv() => match event {
+                            Some(ExecutorEvent::NodeTerminated(h)) => {
+                                if !foreground_join.load(std::sync::atomic::Ordering::Relaxed) {
+                                    let name = {
+                                        let dag = env.dag.read();
+                                        dag.get_node(h)
+                                            .map(|n| format!("{}#{}", n.idname, h.id()))
+                                            .unwrap_or_else(|| format!("node#{}", h.id()))
+                                    };
+                                    sink.println(&format!("[{name}] done"));
+                                }
+                            }
+                            None => break,
+                        },
                     }
-                    None => break,
-                },
+                }
             }
-        }
+        });
+        Self { cancel, task }
+    }
+
+    fn shutdown(&mut self, rt: &tokio::runtime::Runtime) {
+        self.cancel.cancel();
+        rt.block_on(&mut self.task).ok();
     }
 }
 
@@ -92,8 +108,7 @@ pub struct DagShell {
     pub(crate) sink: Box<dyn OutputSink>,
     pub(crate) notification_sink: Arc<dyn OutputSink>,
     pub(crate) foreground_join: Arc<AtomicBool>,
-    watcher_cancel: CancellationToken,
-    watcher: tokio::task::JoinHandle<()>,
+    watcher: NotificationWatcher,
     // executor drops before ailetos_async_rt (declaration order = drop order).
     pub(crate) executor: Executor,
     pub(crate) ailetos_async_rt: tokio::runtime::Runtime,
@@ -139,17 +154,14 @@ impl DagShell {
         let (executor, events_rx) = start_executor(ailetos_async_rt.handle().clone(), Arc::clone(&env));
 
         let foreground_join = Arc::new(AtomicBool::new(false));
-        let watcher_cancel = CancellationToken::new();
 
         let notification_sink_clone = Arc::clone(&notification_sink);
-        let watcher = cli_rt.handle().spawn(
-            NotificationWatcher {
-                events_rx,
-                env: Arc::clone(&env),
-                foreground_join: Arc::clone(&foreground_join),
-                sink: notification_sink,
-            }
-            .run(watcher_cancel.clone()),
+        let watcher = NotificationWatcher::spawn(
+            cli_rt.handle(),
+            events_rx,
+            Arc::clone(&env),
+            Arc::clone(&foreground_join),
+            notification_sink,
         );
 
         Self {
@@ -160,7 +172,6 @@ impl DagShell {
             sink: command_sink,
             notification_sink: notification_sink_clone,
             foreground_join,
-            watcher_cancel,
             watcher,
             executor,
             ailetos_async_rt,
@@ -221,8 +232,7 @@ impl DagShell {
         for &handle in &self.handles {
             self.env.suspension.resume(handle);
         }
-        self.watcher_cancel.cancel();
-        self.cli_rt.block_on(&mut self.watcher).ok();
+        self.watcher.shutdown(&self.cli_rt);
     }
 }
 
