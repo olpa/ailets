@@ -196,11 +196,6 @@ impl DagShell {
         Ok(true)
     }
 
-    pub fn sleep(&self, duration: std::time::Duration) {
-        self.cli_rt
-            .block_on(async move { tokio::time::sleep(duration).await });
-    }
-
     fn prepare_exit(&mut self) {
         shell_input_control::close_all_shell_inputs();
         for &handle in &self.handles {
