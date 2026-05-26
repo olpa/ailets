@@ -18,6 +18,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
+use tokio_util::sync::CancellationToken;
+
 use ailetos::{Environment, ExecutorEvent, Executor, Handle, KVBuffers, MemKV};
 
 // Re-exports
@@ -43,26 +45,39 @@ fn start_executor(
     (executor, rx)
 }
 
-fn start_notification_watcher(
-    rt: &tokio::runtime::Handle,
-    mut events_rx: tokio::sync::mpsc::UnboundedReceiver<ExecutorEvent>,
+// ---------------------------------------------------------------------------
+// NotificationWatcher
+// ---------------------------------------------------------------------------
+
+struct NotificationWatcher {
+    events_rx: tokio::sync::mpsc::UnboundedReceiver<ExecutorEvent>,
     env: Arc<Environment>,
     foreground_join: Arc<AtomicBool>,
-    notification_sink: Arc<dyn OutputSink>,
-) -> tokio::task::JoinHandle<()> {
-    rt.spawn(async move {
-        while let Some(ExecutorEvent::NodeTerminated(h)) = events_rx.recv().await {
-            if !foreground_join.load(std::sync::atomic::Ordering::Relaxed) {
-                let name = {
-                    let dag = env.dag.read();
-                    dag.get_node(h)
-                        .map(|n| format!("{}#{}", n.idname, h.id()))
-                        .unwrap_or_else(|| format!("node#{}", h.id()))
-                };
-                notification_sink.println(&format!("[{name}] done"));
+    sink: Arc<dyn OutputSink>,
+}
+
+impl NotificationWatcher {
+    async fn run(mut self, cancel: CancellationToken) {
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => break,
+                event = self.events_rx.recv() => match event {
+                    Some(ExecutorEvent::NodeTerminated(h)) => {
+                        if !self.foreground_join.load(std::sync::atomic::Ordering::Relaxed) {
+                            let name = {
+                                let dag = self.env.dag.read();
+                                dag.get_node(h)
+                                    .map(|n| format!("{}#{}", n.idname, h.id()))
+                                    .unwrap_or_else(|| format!("node#{}", h.id()))
+                            };
+                            self.sink.println(&format!("[{name}] done"));
+                        }
+                    }
+                    None => break,
+                },
             }
         }
-    })
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -77,7 +92,8 @@ pub struct DagShell {
     pub(crate) sink: Box<dyn OutputSink>,
     pub(crate) notification_sink: Arc<dyn OutputSink>,
     pub(crate) foreground_join: Arc<AtomicBool>,
-    _watcher: tokio::task::JoinHandle<()>,
+    watcher_cancel: CancellationToken,
+    watcher: tokio::task::JoinHandle<()>,
     // executor drops before ailetos_async_rt (declaration order = drop order).
     pub(crate) executor: Executor,
     pub(crate) ailetos_async_rt: tokio::runtime::Runtime,
@@ -123,14 +139,17 @@ impl DagShell {
         let (executor, events_rx) = start_executor(ailetos_async_rt.handle().clone(), Arc::clone(&env));
 
         let foreground_join = Arc::new(AtomicBool::new(false));
+        let watcher_cancel = CancellationToken::new();
 
         let notification_sink_clone = Arc::clone(&notification_sink);
-        let watcher = start_notification_watcher(
-            cli_rt.handle(),
-            events_rx,
-            Arc::clone(&env),
-            Arc::clone(&foreground_join),
-            notification_sink,
+        let watcher = cli_rt.handle().spawn(
+            NotificationWatcher {
+                events_rx,
+                env: Arc::clone(&env),
+                foreground_join: Arc::clone(&foreground_join),
+                sink: notification_sink,
+            }
+            .run(watcher_cancel.clone()),
         );
 
         Self {
@@ -141,7 +160,8 @@ impl DagShell {
             sink: command_sink,
             notification_sink: notification_sink_clone,
             foreground_join,
-            _watcher: watcher,
+            watcher_cancel,
+            watcher,
             executor,
             ailetos_async_rt,
             cli_rt,
@@ -201,6 +221,8 @@ impl DagShell {
         for &handle in &self.handles {
             self.env.suspension.resume(handle);
         }
+        self.watcher_cancel.cancel();
+        self.cli_rt.block_on(&mut self.watcher).ok();
     }
 }
 
