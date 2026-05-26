@@ -11,7 +11,9 @@ use ailetos::{
 
 use crate::output::{parse_color, OutputSinkWriter};
 use crate::shell_ui::{format_state, parse_bytes_before_pause, parse_explain, parse_quoted_string, truncate, HELP_TEXT};
-use crate::{dbg_control, shell_input_control, DagShell, JoinWaiter};
+use crate::{dbg_control, shell_input_control, DagShell};
+
+const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
 
 impl DagShell {
     pub(crate) fn cmd_help(&self) {
@@ -292,44 +294,30 @@ impl DagShell {
         Ok(())
     }
 
-    /// Wait for `target` to terminate. Ctrl+C detaches; the node keeps running.
-    ///
-    /// Registers a `JoinWaiter` so the notification watcher signals us instead
-    /// of printing a background notification for this particular node. The global
-    /// Ctrl+C handler will notify us via ctrlc_rx if Ctrl+C is pressed.
     fn join_handle(&mut self, target: Handle) -> Result<(), String> {
-        // Bail early if already terminated.
-        if matches!(
-            self.env.dag.read().get_node(target).map(|n| n.state),
-            Some(NodeState::Terminated)
-        ) {
-            return Ok(());
-        }
-
-        let (ready_tx, ready_rx) = tokio::sync::oneshot::channel::<()>();
-        let (ctrlc_tx, ctrlc_rx) = tokio::sync::oneshot::channel::<()>();
-        *self.pending_join.lock().unwrap() = Some(JoinWaiter {
-            target,
-            ready_tx,
-            ctrlc_tx,
-        });
-
+        self.foreground_join.store(true, std::sync::atomic::Ordering::Relaxed);
+        let env = &self.env;
         let sink = &self.sink;
-        let pending_join = &self.pending_join;
+        let foreground_join = &self.foreground_join;
         self.cli_rt.block_on(async move {
             tokio::select! {
-                _ = ctrlc_rx => {
+                _ = tokio::signal::ctrl_c() => {
                     sink.println("\n^C - Detached (node continues running in ailetos)");
-                    Ok(())
                 }
-                result = ready_rx => {
-                    if result.is_err() {
-                        tracing::warn!("ready_rx sender dropped before sending");
+                _ = async {
+                    loop {
+                        if matches!(
+                            env.dag.read().get_node(target).map(|n| n.state),
+                            Some(NodeState::Terminated)
+                        ) {
+                            break;
+                        }
+                        tokio::time::sleep(POLL_INTERVAL).await;
                     }
-                    *pending_join.lock().unwrap() = None;
-                    Ok(())
-                }
+                } => {}
             }
+            foreground_join.store(false, std::sync::atomic::Ordering::Relaxed);
+            Ok(())
         })
     }
 
@@ -563,32 +551,51 @@ impl DagShell {
                 let handle = self
                     .parse_handle(handle_str)
                     .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
-
-                let timeout = std::time::Duration::from_secs(5);
-                let poll_interval = std::time::Duration::from_millis(10);
-                let deadline = std::time::Instant::now() + timeout;
-
-                loop {
-                    if self.env.suspension.is_suspended(handle) {
-                        return Ok(());
+                let env = &self.env;
+                let sink = &self.sink;
+                self.cli_rt.block_on(async move {
+                    tokio::select! {
+                        _ = tokio::signal::ctrl_c() => {
+                            sink.println("\n^C - Detached (node continues running in ailetos)");
+                        }
+                        _ = async {
+                            loop {
+                                if env.suspension.is_suspended(handle) {
+                                    break;
+                                }
+                                tokio::time::sleep(POLL_INTERVAL).await;
+                            }
+                        } => {}
                     }
-                    if std::time::Instant::now() >= deadline {
-                        return Err(format!(
-                            "Timeout: node {} not suspended after {}s",
-                            handle.id(),
-                            timeout.as_secs()
-                        ));
-                    }
-                    self.cli_rt
-                        .block_on(async move { tokio::time::sleep(poll_interval).await });
-                }
+                    Ok(())
+                })
             }
             "terminated" => {
                 let handle_str = args.get(1).ok_or("Usage: wait terminated <node>")?;
                 let handle = self
                     .parse_handle(handle_str)
                     .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
-                self.join_handle(handle)
+                let env = &self.env;
+                let sink = &self.sink;
+                self.cli_rt.block_on(async move {
+                    tokio::select! {
+                        _ = tokio::signal::ctrl_c() => {
+                            sink.println("\n^C - Detached (node continues running in ailetos)");
+                        }
+                        _ = async {
+                            loop {
+                                if matches!(
+                                    env.dag.read().get_node(handle).map(|n| n.state),
+                                    Some(NodeState::Terminated)
+                                ) {
+                                    break;
+                                }
+                                tokio::time::sleep(POLL_INTERVAL).await;
+                            }
+                        } => {}
+                    }
+                    Ok(())
+                })
             }
             other => Err(format!("Unknown wait condition: {other}")),
         }

@@ -119,7 +119,7 @@ Status:
 Debug:
   suspend <node>                      Suspend a running actor
   resume <node>                       Resume a suspended actor (dbg or general)
-  wait suspended <node>               Block until node is suspended (polls 10 ms, 5 s timeout)
+  wait suspended <node>               Block until node is suspended (Ctrl+C to detach)
   wait terminated <node>              Block until node is terminated (Ctrl+C to detach)
 
 Shell Input:

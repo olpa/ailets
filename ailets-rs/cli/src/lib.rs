@@ -2,7 +2,7 @@
 //!
 //! Two dedicated tokio runtimes are owned by `DagShell`:
 //! - `ailetos_async_rt`: runs the ailetos executor exclusively.
-//! - `cli_rt`: runs all CLI-side async work: notification watcher, Ctrl+C handler, join waits, sleeps.
+//! - `cli_rt`: runs all CLI-side async work: notification watcher, join waits, sleeps.
 //! The CLI thread itself stays synchronous and drives async work via `block_on`.
 
 pub(crate) mod dbg_actor;
@@ -15,22 +15,13 @@ mod output;
 pub mod shell_ui;
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 
 use ailetos::{Environment, ExecutorEvent, Executor, Handle, KVBuffers, MemKV};
 
 // Re-exports
 pub use output::{OutputSink, StdoutSink};
-
-// ---------------------------------------------------------------------------
-// Internal types
-// ---------------------------------------------------------------------------
-
-pub(crate) struct JoinWaiter {
-    pub target: Handle,
-    pub ready_tx: tokio::sync::oneshot::Sender<()>,
-    pub ctrlc_tx: tokio::sync::oneshot::Sender<()>,
-}
 
 fn make_env(kv: &Arc<MemKV>) -> Arc<Environment> {
     let env = Arc::new(Environment::new(Arc::clone(kv) as Arc<dyn KVBuffers>));
@@ -52,42 +43,16 @@ fn start_executor(
     (executor, rx)
 }
 
-fn start_ctrlc_handler(
-    rt: &tokio::runtime::Handle,
-    pending_join: Arc<Mutex<Option<JoinWaiter>>>,
-) -> tokio::task::JoinHandle<()> {
-    rt.spawn(async move {
-        loop {
-            if tokio::signal::ctrl_c().await.is_err() {
-                break;
-            }
-            let mut pending = pending_join.lock().unwrap();
-            if let Some(waiter) = pending.take() {
-                if waiter.ctrlc_tx.send(()).is_err() {
-                    tracing::warn!("ctrlc_tx receiver dropped before ctrl+c signal");
-                }
-            }
-        }
-    })
-}
-
 fn start_notification_watcher(
     rt: &tokio::runtime::Handle,
     mut events_rx: tokio::sync::mpsc::UnboundedReceiver<ExecutorEvent>,
     env: Arc<Environment>,
-    pending_join: Arc<Mutex<Option<JoinWaiter>>>,
+    foreground_join: Arc<AtomicBool>,
     notification_sink: Arc<dyn OutputSink>,
 ) -> tokio::task::JoinHandle<()> {
     rt.spawn(async move {
         while let Some(ExecutorEvent::NodeTerminated(h)) = events_rx.recv().await {
-            let mut pending = pending_join.lock().unwrap();
-            if pending.as_ref().map(|j| j.target == h).unwrap_or(false) {
-                if let Some(waiter) = pending.take() {
-                    if waiter.ready_tx.send(()).is_err() {
-                        tracing::warn!("ready_tx receiver dropped before node terminated");
-                    }
-                }
-            } else if pending.is_none() {
+            if !foreground_join.load(std::sync::atomic::Ordering::Relaxed) {
                 let name = {
                     let dag = env.dag.read();
                     dag.get_node(h)
@@ -96,7 +61,6 @@ fn start_notification_watcher(
                 };
                 notification_sink.println(&format!("[{name}] done"));
             }
-            // else: foreground join active but not our target — suppress
         }
     })
 }
@@ -112,10 +76,8 @@ pub struct DagShell {
     pub(crate) vars: HashMap<String, Handle>,
     pub(crate) sink: Box<dyn OutputSink>,
     pub(crate) notification_sink: Arc<dyn OutputSink>,
-    pub(crate) pending_join: Arc<Mutex<Option<JoinWaiter>>>,
+    pub(crate) foreground_join: Arc<AtomicBool>,
     _watcher: tokio::task::JoinHandle<()>,
-    // Global Ctrl+C handler task; kept alive until DagShell drops.
-    _ctrlc_handler: tokio::task::JoinHandle<()>,
     // executor drops before ailetos_async_rt (declaration order = drop order).
     pub(crate) executor: Executor,
     pub(crate) ailetos_async_rt: tokio::runtime::Runtime,
@@ -160,18 +122,16 @@ impl DagShell {
         let env = make_env(&kv);
         let (executor, events_rx) = start_executor(ailetos_async_rt.handle().clone(), Arc::clone(&env));
 
-        let pending_join: Arc<Mutex<Option<JoinWaiter>>> = Arc::new(Mutex::new(None));
+        let foreground_join = Arc::new(AtomicBool::new(false));
 
         let notification_sink_clone = Arc::clone(&notification_sink);
         let watcher = start_notification_watcher(
             cli_rt.handle(),
             events_rx,
             Arc::clone(&env),
-            Arc::clone(&pending_join),
+            Arc::clone(&foreground_join),
             notification_sink,
         );
-
-        let ctrlc_handler = start_ctrlc_handler(cli_rt.handle(), Arc::clone(&pending_join));
 
         Self {
             env,
@@ -180,9 +140,8 @@ impl DagShell {
             vars: HashMap::new(),
             sink: command_sink,
             notification_sink: notification_sink_clone,
-            pending_join,
+            foreground_join,
             _watcher: watcher,
-            _ctrlc_handler: ctrlc_handler,
             executor,
             ailetos_async_rt,
             cli_rt,
