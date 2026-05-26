@@ -328,7 +328,9 @@ impl DagShell {
                         Ok(())
                     }
                     result = ready_rx => {
-                        let _ = result; // oneshot never errors unless sender dropped
+                        if result.is_err() {
+                            tracing::warn!("ready_rx sender dropped before sending");
+                        }
                         *pending_join.lock().unwrap() = None;
                         Ok(())
                     }

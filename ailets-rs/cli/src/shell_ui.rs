@@ -26,7 +26,9 @@ impl ChannelSink {
 
 impl OutputSink for ChannelSink {
     fn print(&self, text: &str) {
-        let _ = self.tx.send(text.to_string());
+        if let Err(e) = self.tx.send(text.to_string()) {
+            tracing::warn!("ChannelSink: receiver dropped: {e}");
+        }
     }
 }
 
@@ -208,7 +210,9 @@ where
             let (tx, rx) = std::sync::mpsc::channel::<String>();
             rt.spawn_blocking(move || {
                 while let Ok(msg) = rx.recv() {
-                    let _ = printer.print(msg);
+                    if let Err(e) = printer.print(msg) {
+                        tracing::warn!("external printer failed: {e}");
+                    }
                 }
             });
             Arc::new(ChannelSink::new(tx))

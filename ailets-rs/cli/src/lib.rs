@@ -63,7 +63,9 @@ fn start_ctrlc_handler(
             }
             let mut pending = pending_join.lock().unwrap();
             if let Some(waiter) = pending.take() {
-                let _ = waiter.ctrlc_tx.send(());
+                if waiter.ctrlc_tx.send(()).is_err() {
+                    tracing::warn!("ctrlc_tx receiver dropped before ctrl+c signal");
+                }
             }
         }
     })
@@ -81,7 +83,9 @@ fn start_notification_watcher(
             let mut pending = pending_join.lock().unwrap();
             if pending.as_ref().map(|j| j.target == h).unwrap_or(false) {
                 if let Some(waiter) = pending.take() {
-                    let _ = waiter.ready_tx.send(());
+                    if waiter.ready_tx.send(()).is_err() {
+                        tracing::warn!("ready_tx receiver dropped before node terminated");
+                    }
                 }
             } else if pending.is_none() {
                 let name = {
