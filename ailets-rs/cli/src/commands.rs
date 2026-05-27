@@ -461,7 +461,7 @@ impl DagShell {
         Ok(())
     }
 
-    pub fn cmd_source(&mut self, args: &[&str]) -> Result<(), String> {
+    pub fn cmd_source(&mut self, args: &[&str]) -> Result<crate::ShellControl, String> {
         let path = args.first().ok_or("Usage: source <file>")?;
         let content =
             std::fs::read_to_string(path).map_err(|e| format!("Failed to read {path}: {e}"))?;
@@ -473,12 +473,12 @@ impl DagShell {
             }
             self.sink.println(&format!("dagsh> {line}"));
             match self.execute(line) {
-                Ok(true) => {}
-                Ok(false) => return Ok(()),
+                Ok(crate::ShellControl::Continue) => {}
+                Ok(crate::ShellControl::Exit) => return Ok(crate::ShellControl::Exit),
                 Err(e) => self.sink.println(&format!("Error: {e}")),
             }
         }
-        Ok(())
+        Ok(crate::ShellControl::Continue)
     }
 
     pub(crate) fn cmd_status(&self, args: &[&str]) -> Result<(), String> {

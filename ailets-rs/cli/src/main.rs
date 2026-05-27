@@ -59,8 +59,8 @@ fn main() {
                 }
                 let _ = rl.add_history_entry(line);
                 match shell.execute(line) {
-                    Ok(true) => {}
-                    Ok(false) => {
+                    Ok(dagsh::ShellControl::Continue) => {}
+                    Ok(dagsh::ShellControl::Exit) => {
                         println!("Goodbye!");
                         break;
                     }

@@ -25,6 +25,12 @@ use ailetos::{Environment, ExecutorEvent, Executor, Handle, KVBuffers, MemKV};
 // Re-exports
 pub use output::{OutputSink, StdoutSink};
 
+/// Outcome of a shell command: whether the REPL loop should continue or exit.
+pub enum ShellControl {
+    Continue,
+    Exit,
+}
+
 fn make_env(kv: &Arc<MemKV>) -> Arc<Environment> {
     let env = Arc::new(Environment::new(Arc::clone(kv) as Arc<dyn KVBuffers>));
     {
@@ -186,17 +192,17 @@ impl DagShell {
         s.parse::<i64>().ok().map(Handle::new)
     }
 
-    pub fn execute(&mut self, line: &str) -> Result<bool, String> {
+    pub fn execute(&mut self, line: &str) -> Result<ShellControl, String> {
         let parts: Vec<&str> = line.split_whitespace().collect();
         let (cmd, rest) = match parts.split_first() {
-            None => return Ok(true),
+            None => return Ok(ShellControl::Continue),
             Some((cmd, rest)) => (*cmd, rest),
         };
 
         match cmd {
             "quit" | "exit" | "q" => {
                 self.prepare_exit();
-                return Ok(false);
+                return Ok(ShellControl::Exit);
             }
             "help" | "?" => self.cmd_help(),
             "set" => self.cmd_set(rest)?,
@@ -211,7 +217,7 @@ impl DagShell {
             "follow" => self.cmd_follow(rest)?,
             "cat" => self.cmd_cat(rest)?,
             "status" => self.cmd_status(rest)?,
-            "source" | "load" => self.cmd_source(rest)?,
+            "source" | "load" => return self.cmd_source(rest),
             "suspend" => self.cmd_suspend(rest)?,
             "resume" => self.cmd_resume(rest)?,
             "wait" => self.cmd_wait(rest)?,
@@ -224,7 +230,7 @@ impl DagShell {
             }
         }
 
-        Ok(true)
+        Ok(ShellControl::Continue)
     }
 
     fn prepare_exit(&mut self) {
