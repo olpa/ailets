@@ -287,9 +287,8 @@ impl DagShell {
         } else {
             self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, false, color);
             self.join_handle(wait_handle)?;
+            self.sink.println("");
         }
-
-        self.sink.println("");
         Ok(())
     }
 
