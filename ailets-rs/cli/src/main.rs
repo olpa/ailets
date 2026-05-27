@@ -80,4 +80,9 @@ fn main() {
             }
         }
     }
+
+    // shell must drop before _printer_rt: dropping shell closes the ChannelSink
+    // sender, letting the spawn_blocking receiver task exit before the runtime shuts down.
+    drop(shell);
+    drop(_printer_rt);
 }
