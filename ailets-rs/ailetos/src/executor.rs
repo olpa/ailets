@@ -425,8 +425,7 @@ async fn run_spawn_loop_jobs(
 ///   the executor to wake up and check for newly ready nodes.
 ///
 /// - `io_bridge`: Handles all I/O operations for actors (stdin/stdout/stderr/files).
-///   Cloned into each `BlockingActorRuntime` so actors can perform I/O. Also
-///   passed to `attachment_manager` for coordinating attachment I/O.
+///   Cloned into each `BlockingActorRuntime` so actors can perform I/O.
 ///
 /// - `lifecycle_tx`: Channel sender for actor lifecycle events (Terminating/Terminated).
 ///   Cloned into each `BlockingActorRuntime`; when an actor shuts down, it sends
@@ -436,19 +435,15 @@ async fn run_spawn_loop_jobs(
 ///   `lifecycle_tx`, updates the DAG state accordingly, and triggers `executor_wakeup`.
 ///   Also emits `ExecutorEvent::NodeTerminated` to external listeners if configured.
 ///
-/// - `attachment_manager`: Manages attachment I/O tasks (e.g., network connections,
-///   file attachments). Provides attachment handles to actors via the `io_bridge`.
-///
 /// # Teardown order is critical:
 ///
 /// 1. Join actor tasks (done by `run_spawn_loop_jobs` before calling `shutdown`) —
 ///    `BlockingActorRuntime::drop` sends lifecycle events and blocks on
 ///    `lifecycle_handler` replies, so `lifecycle_handler` must still be running.
 /// 2. `io_bridge.shutdown()` — flush I/O channels.
-/// 3. `attachment_manager.shutdown()` — wait for attachment tasks.
-/// 4. Drop `lifecycle_tx` — signals `lifecycle_handler` to exit.
-/// 5. Drop `io_bridge` — releases the last Arc so `lifecycle_handler` can finish.
-/// 6. Join `lifecycle_handler`.
+/// 3. Drop `lifecycle_tx` — signals `lifecycle_handler` to exit.
+/// 4. Drop `io_bridge` — releases the last Arc so `lifecycle_handler` can finish.
+/// 5. Join `lifecycle_handler`.
 struct ExecutorInfra {
     async_runtime: tokio::runtime::Handle,
     executor_wakeup: Arc<tokio::sync::Notify>,
