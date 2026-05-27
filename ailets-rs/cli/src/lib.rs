@@ -1,8 +1,10 @@
 //! DAG Shell library - DagShell and OutputSink.
 //!
 //! Two dedicated tokio runtimes are owned by `DagShell`:
+//!
 //! - `ailetos_async_rt`: runs the ailetos executor exclusively.
 //! - `cli_rt`: runs all CLI-side async work: notification watcher, join waits, sleeps.
+//!
 //! The CLI thread itself stays synchronous and drives async work via `block_on`.
 
 pub(crate) mod dbg_actor;

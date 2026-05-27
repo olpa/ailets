@@ -102,13 +102,11 @@ Any scripts using `fg` should replace it with `join <node>`.
 
 ---
 
-#### 2. Hang on exit when an actor is waiting for a pipe from a never-spawned upstream
+#### 2. ~~Hang on exit when an actor is waiting for a pipe from a never-spawned upstream~~ — not reproducible
 
-**File:** `ailetos/src/executor.rs` (`run_spawn_loop_jobs`), `ailetos/src/pipe/pool.rs` (`get_or_await_new_reader`)
+**Investigation result:** When `ailetos_async_rt` drops, Tokio drops all pending async tasks (it does not await them). Dropping an async task drops any oneshot senders it holds; blocking threads waiting on `blocking_recv` for those senders immediately receive `Err(RecvError)` and exit. This means the blocking thread pool drains cleanly without explicit latent-pipe cleanup.
 
-If an actor (`cat`) is spawned and blocks in `IoBridge::read` waiting for a pipe that will only be realized when an upstream actor starts — and that upstream was never submitted — the actor never unblocks. On `quit`, `prepare_exit` resumes suspended handles and closes `shell_input` actors, but does not realize or close the latent pipe. When `ailetos_async_rt` drops, it blocks until all tasks complete. The `cat` task never returns, causing an infinite hang.
-
-**Fix:** On executor shutdown (when `job_tx` closes and the spawn loop exits), close all latent/unrealized pipes in the pool so that blocking readers get an EOF or error and can exit. Alternatively, when `prepare_exit` is called, cancel all pending pipe reads (e.g., via a per-pipe cancellation token).
+A test (`shutdown_does_not_hang_with_latent_follow`) was written to reproduce the hang — a `follow` on a never-submitted node creates a `spawn_reader_to` task waiting on a latent pipe. The test passed in 0 ms, confirming no hang exists in practice.
 
 ---
 
@@ -162,13 +160,16 @@ cargo test                         # run integration tests in cli/tests/shell.rs
 cargo clippy -- -D warnings        # must be clean
 ```
 
-Six integration tests currently pass:
+Nine integration tests currently pass:
 - `execute_routes_output_through_sink` — help output goes through sink
 - `run_completes_on_persistent_executor` — foreground value→cat pipeline terminates
 - `multiple_bg_runs_are_allowed` — two simultaneous background runs succeed
 - `background_termination_is_notified` — bg cat run prints `[cat#N] done` to notification sink
 - `run_alias_completes` — `run <alias>` resolves and completes without hanging
 - `foreground_run_suppresses_intermediate_notifications` — no noise during foreground run
+- `two_follows_both_receive_output` — fan-out: each `follow` gets the full output
+- `one_step_runs_first_pending_actor` — `run --one-step` runs exactly one actor
+- `one_step_advances_past_terminated_nodes` — second `--one-step` skips already-done nodes
 
 ## File map
 

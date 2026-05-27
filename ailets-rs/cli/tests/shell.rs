@@ -83,15 +83,28 @@ fn run_completes_on_persistent_executor() {
 
 #[test]
 fn multiple_bg_runs_are_allowed() {
-    let sink = CapturingSink::new();
-    let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
-    shell.execute("set a = node value alpha").unwrap();
-    shell.execute("run $a --bg").unwrap();
+    let notification_sink = Arc::new(CapturingSink::new());
+    let mut shell = DagShell::new_with_sinks(
+        Box::new(CapturingSink::new()),
+        Arc::clone(&notification_sink) as Arc<dyn OutputSink>,
+    );
+    shell.execute("set v1 = node value alpha").unwrap();
+    shell.execute("set c1 = node add cat").unwrap();
+    shell.execute("dep $c1 $v1").unwrap();
+    shell.execute("run $c1 --bg").unwrap();
     // second background run must not fail with "already running"
-    shell.execute("set b = node value beta").unwrap();
-    shell.execute("run $b --bg").unwrap();
-    let lines = sink.lines();
-    assert_eq!(lines.iter().filter(|l| l.contains("background run")).count(), 2);
+    shell.execute("set v2 = node value beta").unwrap();
+    shell.execute("set c2 = node add cat").unwrap();
+    shell.execute("dep $c2 $v2").unwrap();
+    shell.execute("run $c2 --bg").unwrap();
+    assert!(
+        notification_sink.wait_for_line(
+            |lines| lines.iter().filter(|l| l.contains("done")).count() >= 2,
+            5,
+        ),
+        "timeout: expected 2 'done' notifications; lines: {:?}",
+        notification_sink.lines()
+    );
 }
 
 #[test]
