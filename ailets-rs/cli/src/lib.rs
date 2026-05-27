@@ -116,6 +116,9 @@ pub struct DagShell {
     pub(crate) sink: Box<dyn OutputSink>,
     pub(crate) notification_sink: Arc<dyn OutputSink>,
     pub(crate) foreground_join: Arc<AtomicBool>,
+    // Tracked reader tasks (follow / run --bg). Drained in prepare_exit so the
+    // last bytes written by an actor are never silently dropped on fast exit.
+    pub(crate) reader_tasks: tokio::task::JoinSet<()>,
     watcher: NotificationWatcher,
     // executor drops before ailetos_async_rt (declaration order = drop order).
     pub(crate) executor: Executor,
@@ -180,6 +183,7 @@ impl DagShell {
             sink: command_sink,
             notification_sink: notification_sink_clone,
             foreground_join,
+            reader_tasks: tokio::task::JoinSet::new(),
             watcher,
             executor,
             ailetos_async_rt,
@@ -203,7 +207,6 @@ impl DagShell {
 
         match cmd {
             "quit" | "exit" | "q" => {
-                self.prepare_exit();
                 return Ok(ShellControl::Exit);
             }
             "help" | "?" => self.cmd_help(),
@@ -240,6 +243,12 @@ impl DagShell {
         for &handle in &self.handles {
             self.env.suspension.resume(handle);
         }
+        // Drain reader tasks before dropping the executor: ensures last bytes written
+        // by actors are flushed even in fast-exit scenarios where the runtime would
+        // otherwise drop the tasks before they are scheduled.
+        let rt = &self.ailetos_async_rt;
+        let tasks = &mut self.reader_tasks;
+        rt.block_on(async { while tasks.join_next().await.is_some() {} });
         self.watcher.shutdown(&self.cli_rt);
     }
 }

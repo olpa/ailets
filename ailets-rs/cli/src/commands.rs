@@ -355,12 +355,12 @@ impl DagShell {
         let handle = self.env.resolve(handle);
 
         let writer = OutputSinkWriter::new(Arc::clone(&self.notification_sink), color);
-        self.env.pipe_pool.spawn_reader_to(
-            self.ailetos_async_rt.handle(),
+        let future = self.env.pipe_pool.reader_future(
             &self.env.idgen,
             (handle, StdHandle::Stdout as isize),
             writer,
         );
+        self.reader_tasks.spawn_on(future, self.ailetos_async_rt.handle());
 
         Ok(())
     }
@@ -372,12 +372,12 @@ impl DagShell {
         } else {
             Box::new(std::io::stdout())
         };
-        self.env.pipe_pool.spawn_reader_to(
-            self.ailetos_async_rt.handle(),
+        let future = self.env.pipe_pool.reader_future(
             &self.env.idgen,
             (resolved, StdHandle::Stdout as isize),
             writer,
         );
+        self.reader_tasks.spawn_on(future, self.ailetos_async_rt.handle());
     }
 
     pub(crate) fn attach_stdout_for_run(

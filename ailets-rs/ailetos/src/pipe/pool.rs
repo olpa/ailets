@@ -330,10 +330,45 @@ impl PipePool {
         }
     }
 
+    /// Build a future that copies the pipe at `key` to `writer`.
+    ///
+    /// The returned future can be spawned into a `JoinSet` (for tracked draining on
+    /// shutdown) or directly onto a runtime handle via `spawn_reader_to`.
+    pub fn reader_future<W>(
+        self: &Arc<Self>,
+        idgen: &Arc<IdGen>,
+        key: (Handle, isize),
+        writer: W,
+    ) -> impl std::future::Future<Output = ()> + Send + 'static
+    where
+        W: std::io::Write + Send + 'static,
+    {
+        let pool = Arc::clone(self);
+        let idgen = Arc::clone(idgen);
+        let (node, fd) = key;
+        async move {
+            match pool.get_or_await_new_reader(key, true, &idgen).await {
+                Ok(reader) => {
+                    if let Err(e) = super::reader::drain_to_writer(
+                        reader,
+                        writer,
+                        super::reader::FlushMode::AfterEachWrite,
+                    )
+                    .await
+                    {
+                        warn!(node = ?node, fd = fd, error = %e, "reader: copy failed");
+                    }
+                }
+                Err(PipeError::PipeClosed) => {}
+                Err(e) => warn!(node = ?node, fd = fd, error = %e, "reader: attach failed"),
+            }
+        }
+    }
+
     /// Spawn a task that copies the pipe at `key` to `writer`.
     ///
-    /// Returns a `JoinHandle` the caller should `.await` after the executor shuts down
-    /// to drain the last bytes.
+    /// For callers that need shutdown-safe draining, use `reader_future` and spawn
+    /// into a tracked `JoinSet` instead.
     pub fn spawn_reader_to<W>(
         self: &Arc<Self>,
         async_runtime: &tokio::runtime::Handle,
@@ -344,20 +379,7 @@ impl PipePool {
     where
         W: std::io::Write + Send + 'static,
     {
-        let pool = Arc::clone(self);
-        let idgen = Arc::clone(idgen);
-        let (node, fd) = key;
-        async_runtime.spawn(async move {
-            match pool.get_or_await_new_reader(key, true, &idgen).await {
-                Ok(reader) => {
-                    if let Err(e) = super::reader::drain_to_writer(reader, writer, super::reader::FlushMode::AfterEachWrite).await {
-                        warn!(node = ?node, fd = fd, error = %e, "spawn_reader_to: copy failed");
-                    }
-                }
-                Err(PipeError::PipeClosed) => {}
-                Err(e) => warn!(node = ?node, fd = fd, error = %e, "spawn_reader_to: attach failed"),
-            }
-        })
+        async_runtime.spawn(self.reader_future(idgen, key, writer))
     }
 
     /// Get a writer by key (only if already realized)
