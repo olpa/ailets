@@ -278,7 +278,7 @@ impl Dag {
             " [circular reference]"
         } else if already_printed {
             if ctx.use_colors {
-                " \x1b[36m[↩ shared]\x1b[0m"  // Cyan
+                " \x1b[36m[↩ shared]\x1b[0m" // Cyan
             } else {
                 " [↩ shared]"
             }

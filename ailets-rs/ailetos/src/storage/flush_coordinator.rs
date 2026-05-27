@@ -151,7 +151,11 @@ where
     ///
     /// This runs in a background tokio task and processes requests until
     /// the channel is closed (when all senders are dropped).
-    async fn writer_loop(async_runtime: tokio::runtime::Handle, mut request_rx: mpsc::Receiver<FlushRequest>, flush_fn: Arc<F>) {
+    async fn writer_loop(
+        async_runtime: tokio::runtime::Handle,
+        mut request_rx: mpsc::Receiver<FlushRequest>,
+        flush_fn: Arc<F>,
+    ) {
         debug!("Writer task started");
         trace!("FlushCoordinator::writer_loop: entering request_rx loop");
 
@@ -169,13 +173,14 @@ where
             );
 
             // Perform blocking flush operation
-            let result = async_runtime.spawn_blocking({
-                let path = request.path.clone();
-                let data = request.data.clone();
-                let flush_fn = Arc::clone(&flush_fn);
-                move || flush_fn(path, data)
-            })
-            .await;
+            let result = async_runtime
+                .spawn_blocking({
+                    let path = request.path.clone();
+                    let data = request.data.clone();
+                    let flush_fn = Arc::clone(&flush_fn);
+                    move || flush_fn(path, data)
+                })
+                .await;
 
             // Handle task panic or flush error
             let flush_result = match result {

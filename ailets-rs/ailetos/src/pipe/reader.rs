@@ -259,7 +259,7 @@ impl Drop for Reader {
     }
 }
 
-/// Flush behavior for drain_to_writer
+/// Flush behavior for `drain_to_writer`
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FlushMode {
     /// Flush after each write (needed for interactive output like terminals)
@@ -268,7 +268,7 @@ pub enum FlushMode {
     Buffered,
 }
 
-/// Copy all data from a Reader to a std::io::Write writer.
+/// Copy all data from a Reader to a `std::io::Write` writer.
 ///
 /// Generic utility for forwarding pipe data to any writer (stdout, files, custom sinks, etc.).
 /// Continuously reads from the reader and writes to the writer until EOF.

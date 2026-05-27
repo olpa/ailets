@@ -880,12 +880,16 @@ async fn test_fanout_both_readers_receive_full_data() {
     let (r1, r2) = tokio::join!(
         async {
             let mut out = Vec::new();
-            drain_to_writer(reader1, &mut out, FlushMode::Buffered).await.unwrap();
+            drain_to_writer(reader1, &mut out, FlushMode::Buffered)
+                .await
+                .unwrap();
             out
         },
         async {
             let mut out = Vec::new();
-            drain_to_writer(reader2, &mut out, FlushMode::Buffered).await.unwrap();
+            drain_to_writer(reader2, &mut out, FlushMode::Buffered)
+                .await
+                .unwrap();
             out
         },
     );

@@ -164,38 +164,40 @@ fn spawn_actor_task(
     async_runtime.spawn({
         let async_runtime = async_runtime.clone();
         async move {
-        let blocking_result = async_runtime.spawn_blocking(move || {
-            debug!(node = ?node_handle, name = %idname, "task starting");
+            let blocking_result = async_runtime
+                .spawn_blocking(move || {
+                    debug!(node = ?node_handle, name = %idname, "task starting");
 
-            let mut actor_runtime = actor_runtime;
-            actor_runtime.register_std_fds();
+                    let mut actor_runtime = actor_runtime;
+                    actor_runtime.register_std_fds();
 
-            let result = actor_fn(&actor_runtime);
+                    let result = actor_fn(&actor_runtime);
 
-            match result {
-                Ok(()) => {
-                    debug!(node = ?node_handle, name = %idname, "task completed");
+                    match result {
+                        Ok(()) => {
+                            debug!(node = ?node_handle, name = %idname, "task completed");
+                        }
+                        Err(e) => {
+                            warn!(node = ?node_handle, name = %idname, error = %e, "task error");
+                            actor_runtime.latch_errno(EOWNERDEAD);
+                        }
+                    }
+                    actor_runtime
+                })
+                .await;
+
+            match blocking_result {
+                Ok(mut actor_runtime) => {
+                    if let Err(e) = actor_runtime.shutdown().await {
+                        warn!(node = ?node_handle, error = %e, "actor shutdown error");
+                    }
                 }
                 Err(e) => {
-                    warn!(node = ?node_handle, name = %idname, error = %e, "task error");
-                    actor_runtime.latch_errno(EOWNERDEAD);
+                    warn!(node = ?node_handle, error = %e, "actor blocking task panicked");
                 }
-            }
-            actor_runtime
-        })
-        .await;
-
-        match blocking_result {
-            Ok(mut actor_runtime) => {
-                if let Err(e) = actor_runtime.shutdown().await {
-                    warn!(node = ?node_handle, error = %e, "actor shutdown error");
-                }
-            }
-            Err(e) => {
-                warn!(node = ?node_handle, error = %e, "actor blocking task panicked");
             }
         }
-    }})
+    })
 }
 
 /// Receives actor lifecycle events from the IO bridge, updates DAG state,
@@ -328,17 +330,26 @@ fn spawn_ready_actors(
             Arc::clone(&env.suspension),
             infra.lifecycle_tx.clone(),
         );
-        let task_handle = spawn_actor_task(&infra.async_runtime, node_handle, idname.clone(), actor_fn, actor_runtime);
+        let task_handle = spawn_actor_task(
+            &infra.async_runtime,
+            node_handle,
+            idname.clone(),
+            actor_fn,
+            actor_runtime,
+        );
 
         // Spawn into JoinSet with error handling wrapper.
         // We handle panics here (rather than in run_spawn_loop_jobs) to preserve
         // node_handle context for debugging. JoinError doesn't contain the handle,
         // so moving this to the loop would lose critical diagnostic information.
-        actor_tasks.spawn_on(async move {
-            if let Err(e) = task_handle.await {
-                warn!(error = %e, node = ?node_handle, "actor task panicked");
-            }
-        }, &infra.async_runtime);
+        actor_tasks.spawn_on(
+            async move {
+                if let Err(e) = task_handle.await {
+                    warn!(error = %e, node = ?node_handle, "actor task panicked");
+                }
+            },
+            &infra.async_runtime,
+        );
     }
 
     remaining
@@ -520,7 +531,7 @@ impl Executor {
     /// An `Executor` handle for submitting jobs and controlling execution.
     #[must_use]
     pub fn start(
-        async_runtime: tokio::runtime::Handle,
+        async_runtime: &tokio::runtime::Handle,
         env: Arc<Environment>,
         events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
     ) -> Self {

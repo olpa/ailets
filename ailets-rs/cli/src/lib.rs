@@ -1,4 +1,4 @@
-//! DAG Shell library - DagShell and OutputSink.
+//! DAG Shell library - `DagShell` and `OutputSink`.
 //!
 //! Two dedicated tokio runtimes are owned by `DagShell`:
 //!
@@ -17,12 +17,12 @@ mod output;
 pub mod shell_ui;
 
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 
 use tokio_util::sync::CancellationToken;
 
-use ailetos::{Environment, ExecutorEvent, Executor, Handle, KVBuffers, MemKV};
+use ailetos::{Environment, Executor, ExecutorEvent, Handle, KVBuffers, MemKV};
 
 // Re-exports
 pub use output::{OutputSink, StdoutSink};
@@ -45,9 +45,12 @@ fn make_env(kv: &Arc<MemKV>) -> Arc<Environment> {
 }
 
 fn start_executor(
-    ailetos_async_rt: tokio::runtime::Handle,
+    ailetos_async_rt: &tokio::runtime::Handle,
     env: Arc<Environment>,
-) -> (Executor, tokio::sync::mpsc::UnboundedReceiver<ExecutorEvent>) {
+) -> (
+    Executor,
+    tokio::sync::mpsc::UnboundedReceiver<ExecutorEvent>,
+) {
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorEvent>();
     let executor = Executor::start(ailetos_async_rt, env, Some(tx));
     (executor, rx)
@@ -76,15 +79,14 @@ impl NotificationWatcher {
             async move {
                 loop {
                     tokio::select! {
-                        _ = cancel.cancelled() => break,
+                        () = cancel.cancelled() => break,
                         event = events_rx.recv() => match event {
                             Some(ExecutorEvent::NodeTerminated(h)) => {
                                 if !foreground_join.load(std::sync::atomic::Ordering::Relaxed) {
                                     let name = {
                                         let dag = env.dag.read();
                                         dag.get_node(h)
-                                            .map(|n| format!("{}#{}", n.idname, h.id()))
-                                            .unwrap_or_else(|| format!("node#{}", h.id()))
+                                            .map_or_else(|| format!("node#{}", h.id()), |n| format!("{}#{}", n.idname, h.id()))
                                     };
                                     sink.println(&format!("[{name}] done"));
                                 }
@@ -128,16 +130,22 @@ pub struct DagShell {
 }
 
 impl DagShell {
+    #[must_use]
     pub fn new() -> Self {
         Self::new_with_sinks(Box::new(StdoutSink), Arc::new(StdoutSink))
     }
 
+    #[must_use]
     pub fn new_with_sink(sink: Box<dyn OutputSink>) -> Self {
         Self::new_with_sinks(sink, Arc::new(StdoutSink))
     }
 
     /// Create a shell with separate sinks for synchronous command output and
     /// background notifications (node terminations while at the prompt).
+    ///
+    /// # Panics
+    /// Panics if the tokio runtime cannot be created.
+    #[allow(clippy::expect_used)]
     pub fn new_with_sinks(
         command_sink: Box<dyn OutputSink>,
         notification_sink: Arc<dyn OutputSink>,
@@ -149,6 +157,10 @@ impl DagShell {
 
     /// Like `new_with_sinks` but accepts a pre-created runtime for ailetos.
     /// The caller must ensure this runtime is used exclusively for ailetos.
+    ///
+    /// # Panics
+    /// Panics if the CLI tokio runtime cannot be created.
+    #[allow(clippy::expect_used)]
     pub fn new_with_sinks_and_rt(
         command_sink: Box<dyn OutputSink>,
         notification_sink: Arc<dyn OutputSink>,
@@ -162,7 +174,7 @@ impl DagShell {
 
         let kv = Arc::new(MemKV::new());
         let env = make_env(&kv);
-        let (executor, events_rx) = start_executor(ailetos_async_rt.handle().clone(), Arc::clone(&env));
+        let (executor, events_rx) = start_executor(ailetos_async_rt.handle(), Arc::clone(&env));
 
         let foreground_join = Arc::new(AtomicBool::new(false));
 
@@ -198,6 +210,8 @@ impl DagShell {
         s.parse::<i64>().ok().map(Handle::new)
     }
 
+    /// # Errors
+    /// Returns an error string if the command fails.
     pub fn execute(&mut self, line: &str) -> Result<ShellControl, String> {
         let parts: Vec<&str> = line.split_whitespace().collect();
         let (cmd, rest) = match parts.split_first() {

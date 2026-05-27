@@ -119,7 +119,10 @@ async fn run_writer_task(
                                 std::io::stderr(),
                             );
                         }
-                        StdHandle::Stdin | StdHandle::Stdout | StdHandle::Env | StdHandle::_Count => {}
+                        StdHandle::Stdin
+                        | StdHandle::Stdout
+                        | StdHandle::Env
+                        | StdHandle::_Count => {}
                     }
                 }
             }
@@ -249,7 +252,8 @@ impl IoBridge {
             Arc::clone(&self.env.idgen),
         );
         let (request_tx, request_rx) = mpsc::unbounded_channel::<ReaderCommand>();
-        self.async_runtime.spawn(run_reader_task(node_handle, reader, request_rx));
+        self.async_runtime
+            .spawn(run_reader_task(node_handle, reader, request_rx));
         request_tx
     }
 

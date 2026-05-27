@@ -12,13 +12,14 @@ use crate::OutputSink;
 // ---------------------------------------------------------------------------
 
 /// Sends background notifications through a channel consumed by a thread that
-/// holds the rustyline ExternalPrinter. Printing via ExternalPrinter ensures
+/// holds the rustyline `ExternalPrinter`. Printing via `ExternalPrinter` ensures
 /// notifications never corrupt the current input line.
 pub struct ChannelSink {
     tx: std::sync::mpsc::Sender<String>,
 }
 
 impl ChannelSink {
+    #[must_use]
     pub fn new(tx: std::sync::mpsc::Sender<String>) -> Self {
         Self { tx }
     }
@@ -54,6 +55,8 @@ pub struct CliArgs {
     pub load_script: Option<String>,
 }
 
+/// # Errors
+/// Returns an error string if an unknown option or missing argument is encountered.
 pub fn parse_args(args: &[String]) -> Result<CliArgs, String> {
     let mut load_script: Option<String> = None;
     let mut i = 1;
@@ -161,12 +164,14 @@ pub fn parse_explain(args: &[&str]) -> Option<String> {
     rest.split_whitespace().next().map(str::to_string)
 }
 
+#[must_use]
 pub fn parse_bytes_before_pause(args: &[&str]) -> Option<usize> {
     args.iter()
         .find_map(|a| a.strip_prefix("--bytes-before-pause="))
         .and_then(|s| s.parse().ok())
 }
 
+#[must_use]
 pub fn parse_quoted_string(args: &[&str]) -> String {
     let joined = args.join(" ");
     let value_part = joined.find("--explain=").map_or_else(
@@ -180,6 +185,7 @@ pub fn parse_quoted_string(args: &[&str]) -> String {
 // Formatting helpers
 // ---------------------------------------------------------------------------
 
+#[must_use]
 pub fn format_state(state: NodeState) -> &'static str {
     match state {
         NodeState::NotStarted => "⋯ pending",
@@ -189,6 +195,7 @@ pub fn format_state(state: NodeState) -> &'static str {
     }
 }
 
+#[must_use]
 pub fn truncate(s: &str, max_len: usize) -> String {
     if s.len() <= max_len {
         s.to_string()
@@ -202,8 +209,8 @@ pub fn truncate(s: &str, max_len: usize) -> String {
 // Rustyline notification sink setup
 // ---------------------------------------------------------------------------
 
-/// Creates a notification sink that routes through rustyline's ExternalPrinter,
-/// or falls back to StdoutSink if the printer can't be created.
+/// Creates a notification sink that routes through rustyline's `ExternalPrinter`,
+/// or falls back to `StdoutSink` if the printer can't be created.
 pub fn create_notification_sink<H>(
     rl: &mut rustyline::Editor<(), H>,
     rt: &tokio::runtime::Handle,

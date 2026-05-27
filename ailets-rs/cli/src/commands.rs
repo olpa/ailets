@@ -1,16 +1,17 @@
-//! Command implementations for DagShell.
+//! Command implementations for `DagShell`.
 
 use std::sync::Arc;
 
 use actor_runtime::StdHandle;
 use ailetos::{
-    pipe::pipe_path,
-    DependsOn, For, Handle, KVBuffers, NodeState, OpenMode,
-    StopConditions, TopologicalOrderIter,
+    pipe::pipe_path, DependsOn, For, Handle, KVBuffers, NodeState, OpenMode, StopConditions,
+    TopologicalOrderIter,
 };
 
 use crate::output::{parse_color, OutputSinkWriter};
-use crate::shell_ui::{format_state, parse_bytes_before_pause, parse_explain, parse_quoted_string, truncate, HELP_TEXT};
+use crate::shell_ui::{
+    format_state, parse_bytes_before_pause, parse_explain, parse_quoted_string, truncate, HELP_TEXT,
+};
 use crate::{dbg_control, shell_input_control, DagShell};
 
 const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
@@ -78,7 +79,8 @@ impl DagShell {
 
                 let id = handle.id();
                 let expl = explain.map_or_else(String::new, |e| format!("({e})"));
-                self.sink.println(&format!("Added node {id}: {actor} {expl}"));
+                self.sink
+                    .println(&format!("Added node {id}: {actor} {expl}"));
                 Ok(handle)
             }
             ["add"] => Err("Usage: node add <actor> [--explain=text]".to_string()),
@@ -151,7 +153,8 @@ impl DagShell {
         let deps: Vec<_> = dag.get_direct_dependencies(handle).collect();
         let hid = handle.id();
         if deps.is_empty() {
-            self.sink.println(&format!("Node {hid} has no dependencies"));
+            self.sink
+                .println(&format!("Node {hid} has no dependencies"));
         } else {
             self.sink.println(&format!("Node {hid} depends on:"));
             for dep in deps {
@@ -269,7 +272,10 @@ impl DagShell {
         let wait_handle = if one_step {
             let dag = self.env.dag.read();
             TopologicalOrderIter::new(&dag, handle)
-                .find(|&n| dag.get_node(n).is_some_and(|node| node.state == NodeState::NotStarted))
+                .find(|&n| {
+                    dag.get_node(n)
+                        .is_some_and(|node| node.state == NodeState::NotStarted)
+                })
                 .unwrap_or(handle)
         } else {
             let dag = self.env.dag.read();
@@ -293,7 +299,8 @@ impl DagShell {
     }
 
     fn join_handle(&mut self, target: Handle) -> Result<(), String> {
-        self.foreground_join.store(true, std::sync::atomic::Ordering::Relaxed);
+        self.foreground_join
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         let env = &self.env;
         let sink = &self.sink;
         let foreground_join = &self.foreground_join;
@@ -302,7 +309,7 @@ impl DagShell {
                 _ = tokio::signal::ctrl_c() => {
                     sink.println("\n^C - Detached (node continues running in ailetos)");
                 }
-                _ = async {
+                () = async {
                     loop {
                         if matches!(
                             env.dag.read().get_node(target).map(|n| n.state),
@@ -333,7 +340,9 @@ impl DagShell {
 
         let mut i = 0;
         while i < args.len() {
-            let arg = args[i];
+            let Some(arg) = args.get(i).copied() else {
+                break;
+            };
             if arg == "--color" {
                 i += 1;
                 let name = args.get(i).ok_or("--color requires a color name")?;
@@ -363,7 +372,8 @@ impl DagShell {
             (handle, StdHandle::Stdout as isize),
             writer,
         );
-        self.reader_tasks.spawn_on(future, self.ailetos_async_rt.handle());
+        self.reader_tasks
+            .spawn_on(future, self.ailetos_async_rt.handle());
 
         Ok(())
     }
@@ -374,7 +384,10 @@ impl DagShell {
             return;
         }
         let writer: Box<dyn std::io::Write + Send + Sync> = if bg {
-            Box::new(OutputSinkWriter::new(Arc::clone(&self.notification_sink), color))
+            Box::new(OutputSinkWriter::new(
+                Arc::clone(&self.notification_sink),
+                color,
+            ))
         } else {
             Box::new(std::io::stdout())
         };
@@ -383,7 +396,8 @@ impl DagShell {
             (resolved, StdHandle::Stdout as isize),
             writer,
         );
-        self.reader_tasks.spawn_on(future, self.ailetos_async_rt.handle());
+        self.reader_tasks
+            .spawn_on(future, self.ailetos_async_rt.handle());
     }
 
     fn is_terminated_without_stdout(&self, handle: Handle) -> bool {
@@ -422,8 +436,10 @@ impl DagShell {
         } else if one_step {
             let ready_node = {
                 let dag = self.env.dag.read();
-                TopologicalOrderIter::new(&dag, target)
-                    .find(|&n| dag.get_node(n).is_some_and(|node| node.state == NodeState::NotStarted))
+                TopologicalOrderIter::new(&dag, target).find(|&n| {
+                    dag.get_node(n)
+                        .is_some_and(|node| node.state == NodeState::NotStarted)
+                })
             };
             if let Some(ready_node) = ready_node {
                 self.attach_one_node(ready_node, bg, color);
@@ -473,7 +489,10 @@ impl DagShell {
                     let guard = buffer.lock();
                     Ok(String::from_utf8_lossy(&guard).into_owned())
                 }
-                Err(e) => Err(format!("No output available for node {}: {e:?}", handle.id())),
+                Err(e) => Err(format!(
+                    "No output available for node {}: {e:?}",
+                    handle.id()
+                )),
             }
         });
         match output {
@@ -483,6 +502,8 @@ impl DagShell {
         Ok(())
     }
 
+    /// # Errors
+    /// Returns an error string if the file cannot be read or a command fails.
     pub fn cmd_source(&mut self, args: &[&str]) -> Result<crate::ShellControl, String> {
         let path = args.first().ok_or("Usage: source <file>")?;
         let content =
@@ -549,7 +570,8 @@ impl DagShell {
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
         self.env.suspension.suspend(handle);
-        self.sink.println(&format!("Suspended node {}", handle.id()));
+        self.sink
+            .println(&format!("Suspended node {}", handle.id()));
         Ok(())
     }
 
@@ -578,7 +600,7 @@ impl DagShell {
                         _ = tokio::signal::ctrl_c() => {
                             sink.println("\n^C - Detached (node continues running in ailetos)");
                         }
-                        _ = async {
+                        () = async {
                             loop {
                                 if env.suspension.is_suspended(handle) {
                                     break;
@@ -602,7 +624,7 @@ impl DagShell {
                         _ = tokio::signal::ctrl_c() => {
                             sink.println("\n^C - Detached (node continues running in ailetos)");
                         }
-                        _ = async {
+                        () = async {
                             loop {
                                 if matches!(
                                     env.dag.read().get_node(handle).map(|n| n.state),

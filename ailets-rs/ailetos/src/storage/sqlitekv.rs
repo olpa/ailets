@@ -54,7 +54,10 @@ impl SqliteKV {
     /// # Errors
     ///
     /// Returns error if database cannot be opened or table creation fails.
-    pub fn new<P: AsRef<Path>>(async_runtime: tokio::runtime::Handle, db_path: P) -> Result<Self, rusqlite::Error> {
+    pub fn new<P: AsRef<Path>>(
+        async_runtime: tokio::runtime::Handle,
+        db_path: P,
+    ) -> Result<Self, rusqlite::Error> {
         let conn = Connection::open(db_path)?;
         conn.execute(
             "CREATE TABLE IF NOT EXISTS vfs (

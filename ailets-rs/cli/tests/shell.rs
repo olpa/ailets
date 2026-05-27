@@ -4,8 +4,6 @@ use dagsh::{DagShell, OutputSink};
 
 // shared helper so we can re-use CapturingSink for both command and notification sinks
 
-
-
 struct CapturingSink {
     inner: Arc<(Mutex<Vec<String>>, Condvar)>,
 }
@@ -25,7 +23,11 @@ impl CapturingSink {
         let (lock, cvar) = &*self.inner;
         let guard = lock.lock().unwrap();
         let (_guard, timed_out) = cvar
-            .wait_timeout_while(guard, std::time::Duration::from_secs(timeout_secs), |lines| !predicate(lines))
+            .wait_timeout_while(
+                guard,
+                std::time::Duration::from_secs(timeout_secs),
+                |lines| !predicate(lines),
+            )
             .unwrap();
         !timed_out.timed_out()
     }
@@ -138,7 +140,10 @@ fn two_follows_both_receive_output() {
     // Both followers write to the shared notification sink — "hello" must appear twice.
     let combined = notification_sink.lines().join("");
     let count = combined.matches("hello").count();
-    assert_eq!(count, 2, "expected 'hello' twice in notification output, got: {combined:?}");
+    assert_eq!(
+        count, 2,
+        "expected 'hello' twice in notification output, got: {combined:?}"
+    );
 }
 
 #[test]
@@ -155,10 +160,7 @@ fn background_termination_is_notified() {
     shell.execute("dep $c $v").unwrap();
     shell.execute("run $c --bg").unwrap();
     assert!(
-        notification_sink.wait_for_line(
-            |lines| lines.iter().any(|l| l.contains("done")),
-            5,
-        ),
+        notification_sink.wait_for_line(|lines| lines.iter().any(|l| l.contains("done")), 5,),
         "timeout: no 'done' notification; lines: {:?}",
         notification_sink.lines()
     );
@@ -179,7 +181,9 @@ fn one_step_runs_first_pending_actor() {
     let lines = sink.lines();
     // v1 pre-terminated + cat2 just ran = 2 terminated; cat3 still pending.
     assert!(
-        lines.iter().any(|l| l.contains("1 pending") && l.contains("2 terminated")),
+        lines
+            .iter()
+            .any(|l| l.contains("1 pending") && l.contains("2 terminated")),
         "expected 1 pending, 2 terminated after one step; lines: {lines:?}"
     );
 }
@@ -200,7 +204,9 @@ fn one_step_advances_past_terminated_nodes() {
     let lines = sink.lines();
     // All three nodes terminated after two steps.
     assert!(
-        lines.iter().any(|l| l.contains("0 pending") && l.contains("3 terminated")),
+        lines
+            .iter()
+            .any(|l| l.contains("0 pending") && l.contains("3 terminated")),
         "expected 0 pending, 3 terminated after two steps; lines: {lines:?}"
     );
 }

@@ -80,7 +80,9 @@ async fn main() {
     // Create key-value store
     let _ = std::fs::remove_file("example.db");
     let async_runtime = tokio::runtime::Handle::current();
-    let kv = Arc::new(SqliteKV::new(async_runtime.clone(), "example.db").expect("Failed to create SqliteKV"));
+    let kv = Arc::new(
+        SqliteKV::new(async_runtime.clone(), "example.db").expect("Failed to create SqliteKV"),
+    );
 
     // Create environment
     let env = Environment::new(Arc::clone(&kv) as Arc<dyn KVBuffers>);
@@ -105,7 +107,7 @@ async fn main() {
     use ailetos::{Executor, StopConditions};
     let resolved = env.resolve(end_node);
     let env = Arc::new(env);
-    let executor = Executor::start(async_runtime.clone(), Arc::clone(&env), None);
+    let executor = Executor::start(&async_runtime, Arc::clone(&env), None);
 
     let stdout_task = env.pipe_pool.spawn_reader_to(
         &async_runtime,
