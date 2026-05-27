@@ -284,7 +284,6 @@ impl DagShell {
 
         if bg_flag {
             self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, true, color);
-            self.sink.println("Started background run");
         } else {
             self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, false, color);
             self.join_handle(wait_handle)?;

@@ -30,6 +30,12 @@ impl OutputSink for ChannelSink {
             tracing::warn!("ChannelSink: receiver dropped: {e}");
         }
     }
+
+    fn println(&self, line: &str) {
+        if let Err(e) = self.tx.send(format!("{line}\n")) {
+            tracing::warn!("ChannelSink: receiver dropped: {e}");
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
