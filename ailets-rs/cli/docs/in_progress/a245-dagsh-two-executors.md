@@ -88,7 +88,72 @@ Any scripts using `fg` should replace it with `join <node>`.
 
 ## What still needs to be done
 
-Nothing — all planned work is complete.
+> **Note:** The architecture description above documents the design as it was planned/partially implemented. The final implementation on this branch differs: `AttachmentManager`, `ChannelSink`, `pending_join`, and the OS-thread notification watcher were all replaced. See the actual source in `cli/src/lib.rs` and `cli/src/commands.rs` for the current design (two `tokio::Runtime` fields in `DagShell`: `ailetos_async_rt` and `cli_rt`).
+
+### Known bugs — must fix before merge
+
+#### 1. `quit` inside a sourced script does not propagate exit, leaves shell broken
+
+**File:** `cli/src/commands.rs` (`cmd_source`) and `cli/src/lib.rs` (`execute`)
+
+`execute("quit")` calls `prepare_exit()` (cancels the notification watcher) and returns `Ok(false)`. `cmd_source` catches `Ok(false)` and returns `Ok(())`. The outer `execute()` dispatch arm `"source" | "load" => self.cmd_source(rest)?` receives that `Ok(())`, falls through, and returns `Ok(true)`. The readline loop in `main.rs` continues as if nothing happened — but the notification watcher is now dead, so no `[node] done` lines will ever appear again.
+
+**Fix:** Propagate the `Ok(false)` signal. One option: change `execute()` to return a tri-state (`Continue / Exit / Err`) so `cmd_source` can propagate `Exit` up. Alternatively, change `cmd_source` to return `Ok(false)` when the inner execute returns `Ok(false)`, and update the dispatch arm to `return self.cmd_source(rest)`.
+
+---
+
+#### 2. Hang on exit when an actor is waiting for a pipe from a never-spawned upstream
+
+**File:** `ailetos/src/executor.rs` (`run_spawn_loop_jobs`), `ailetos/src/pipe/pool.rs` (`get_or_await_new_reader`)
+
+If an actor (`cat`) is spawned and blocks in `IoBridge::read` waiting for a pipe that will only be realized when an upstream actor starts — and that upstream was never submitted — the actor never unblocks. On `quit`, `prepare_exit` resumes suspended handles and closes `shell_input` actors, but does not realize or close the latent pipe. When `ailetos_async_rt` drops, it blocks until all tasks complete. The `cat` task never returns, causing an infinite hang.
+
+**Fix:** On executor shutdown (when `job_tx` closes and the spawn loop exits), close all latent/unrealized pipes in the pool so that blocking readers get an EOF or error and can exit. Alternatively, when `prepare_exit` is called, cancel all pending pipe reads (e.g., via a per-pipe cancellation token).
+
+---
+
+### Known issues — should fix soon
+
+#### 3. `spawn_reader_to` JoinHandle is dropped; last bytes may be lost on shutdown
+
+**File:** `cli/src/commands.rs` (`cmd_follow` line ~358, `attach_one_node` line ~375)
+**Pool docstring:** `ailetos/src/pipe/pool.rs` line 335
+
+The docstring on `spawn_reader_to` says: *"Returns a JoinHandle the caller should `.await` after the executor shuts down to drain the last bytes."* Both call sites drop the handle immediately. The task is detached (keeps running), so on a normal exit the data usually drains before `ailetos_async_rt` shuts down. But in a fast-exit scenario (actor finishes just before quit), the runtime may shut down before the task is scheduled, silently truncating output.
+
+**Fix:** Store the `JoinHandle` in `DagShell` (e.g., `Vec<JoinHandle<()>>`) and drain them in `prepare_exit` via `ailetos_async_rt.block_on(join_all(...))` before dropping the executor.
+
+---
+
+#### 4. `--one-step` with all nodes already terminated silently attaches nothing
+
+**File:** `cli/src/commands.rs` (`attach_stdout_for_run` lines ~402–409)
+
+When `--one-step` is used and every node in the DAG is already `Terminated`, `TopologicalOrderIter::find(|n| state == NotStarted)` returns `None` and `attach_one_node` is never called. No reader is spawned. The user gets no output and no error — just an empty line from `cmd_run`'s trailing `self.sink.println("")`.
+
+**Fix:** When `find` returns `None`, either print a message like `"All nodes already completed"` or attach to the terminal node unconditionally so the user can use `cat` as a fallback path.
+
+---
+
+#### 5. `PipeClosed` in `spawn_reader_to` may leave a latent pipe entry unreleased
+
+**File:** `ailetos/src/pipe/pool.rs` (`spawn_reader_to` lines ~354–359)
+
+If `get_or_await_new_reader(allow_latent=true)` returns `Err(PipeClosed)` (writer closed before the reader task was scheduled), the task returns without calling `reader.close()`. If the pool had created a `Latent::Waiting` notifier entry for this key, that entry remains in the writers table indefinitely. Any future `spawn_reader_to` on the same `(handle, fd)` key waits on a notifier that never fires.
+
+**Fix:** In the `Err(PipeClosed)` arm, explicitly remove or close the latent entry for the key, or ensure `get_or_await_new_reader` cleans up the latent entry before returning the error.
+
+---
+
+### Doc / maintenance
+
+#### 6. Stale `attachment_manager` references in `ExecutorInfra` docstring
+
+**File:** `ailetos/src/executor.rs` lines 429, 439, 448
+
+The `ExecutorInfra` struct docstring still lists `attachment_manager` as a field and includes it as step 3 of the teardown sequence. The field and its shutdown step were removed when `attachments.rs` was deleted. A future developer adding a new resource between `io_bridge.shutdown()` and `drop(lifecycle_tx)` will misread the teardown order.
+
+**Fix:** Delete the `attachment_manager` bullet from the field list and renumber the teardown steps to 1–4.
 
 ## How to run tests
 
