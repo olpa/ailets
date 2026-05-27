@@ -354,6 +354,9 @@ impl DagShell {
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
         let handle = self.env.resolve(handle);
 
+        if self.is_terminated_without_stdout(handle) {
+            return Ok(());
+        }
         let writer = OutputSinkWriter::new(Arc::clone(&self.notification_sink), color);
         let future = self.env.pipe_pool.reader_future(
             &self.env.idgen,
@@ -367,6 +370,9 @@ impl DagShell {
 
     pub(crate) fn attach_one_node(&mut self, handle: Handle, bg: bool, color: Option<u8>) {
         let resolved = self.env.resolve(handle);
+        if self.is_terminated_without_stdout(resolved) {
+            return;
+        }
         let writer: Box<dyn std::io::Write + Send + Sync> = if bg {
             Box::new(OutputSinkWriter::new(Arc::clone(&self.notification_sink), color))
         } else {
@@ -378,6 +384,20 @@ impl DagShell {
             writer,
         );
         self.reader_tasks.spawn_on(future, self.ailetos_async_rt.handle());
+    }
+
+    fn is_terminated_without_stdout(&self, handle: Handle) -> bool {
+        let has_stdout = self
+            .env
+            .pipe_pool
+            .get_already_realized_writer((handle, StdHandle::Stdout as isize))
+            .is_some();
+        if has_stdout {
+            return false;
+        }
+        let dag = self.env.dag.read();
+        dag.get_node(handle)
+            .is_some_and(|n| n.state == NodeState::Terminated)
     }
 
     pub(crate) fn attach_stdout_for_run(
