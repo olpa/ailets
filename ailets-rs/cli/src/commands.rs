@@ -407,6 +407,8 @@ impl DagShell {
             };
             if let Some(ready_node) = ready_node {
                 self.attach_one_node(ready_node, bg, color);
+            } else {
+                self.sink.println("All nodes already completed");
             }
         } else {
             self.attach_one_node(target, bg, color);
