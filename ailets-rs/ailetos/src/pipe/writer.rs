@@ -7,7 +7,6 @@ use tracing::{trace, warn};
 
 use crate::errno::{EBADF, ENOSPC, EPIPE};
 use crate::idgen::Handle;
-use crate::notification_queue::NotificationQueueArc;
 use crate::storage::Buffer;
 
 use super::rw_shared::{ReaderCountGuard, ReaderSharedData, SharedBuffer};
@@ -32,24 +31,18 @@ use super::rw_shared::{ReaderCountGuard, ReaderSharedData, SharedBuffer};
 pub struct Writer {
     shared: Arc<Mutex<SharedBuffer>>,
     handle: Handle,
-    queue: NotificationQueueArc,
+    watch_tx: tokio::sync::watch::Sender<()>,
     debug_hint: String,
 }
 
 impl Writer {
     #[must_use]
-    pub fn new(
-        handle: Handle,
-        queue: NotificationQueueArc,
-        debug_hint: &str,
-        buffer: Buffer,
-    ) -> Self {
-        queue.whitelist(handle, &format!("memPipe.writer {debug_hint}"));
-
+    pub fn new(handle: Handle, debug_hint: &str, buffer: Buffer) -> Self {
+        let (watch_tx, _) = tokio::sync::watch::channel(());
         Self {
             shared: Arc::new(Mutex::new(SharedBuffer::new(buffer))),
             handle,
-            queue,
+            watch_tx,
             debug_hint: debug_hint.to_string(),
         }
     }
@@ -72,7 +65,7 @@ impl Writer {
             let mut shared = self.shared.lock();
             shared.errno = errno;
         }
-        self.queue.notify(self.handle, -i64::from(errno));
+        self.watch_tx.send(()).ok();
     }
 
     /// Check if writer is closed
@@ -138,16 +131,8 @@ impl Writer {
             }
         };
 
-        // Notify outside lock
-        match &result {
-            Ok(n) => {
-                #[allow(clippy::cast_possible_wrap)] // byte counts won't exceed i64::MAX
-                self.queue.notify(self.handle, *n as i64);
-            }
-            Err(errno) => {
-                self.queue.notify(self.handle, -i64::from(*errno));
-            }
-        }
+        // Notify outside lock (both data and errors wake waiting readers)
+        self.watch_tx.send(()).ok();
         result
     }
 
@@ -164,9 +149,9 @@ impl Writer {
             }
             shared.closed = true;
         }
-        // Unregister handle from queue
-        // This will notify with -1 and wake all waiters
-        self.queue.unlist(self.handle);
+        // Wake all waiting readers; dropping watch_tx would also work but this
+        // is explicit and consistent with the error/write notification pattern.
+        self.watch_tx.send(()).ok();
         Ok(())
     }
 
@@ -189,7 +174,7 @@ impl Writer {
         let data = ReaderSharedData {
             buffer: Arc::clone(&self.shared),
             writer_handle: self.handle,
-            queue: self.queue.clone(),
+            watch_rx: self.watch_tx.subscribe(),
         };
         let guard = ReaderCountGuard(Arc::clone(&self.shared));
         (data, guard)

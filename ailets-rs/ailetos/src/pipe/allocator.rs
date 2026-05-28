@@ -8,7 +8,6 @@ use tracing::warn;
 
 use crate::errno::EIO;
 use crate::idgen::Handle;
-use crate::notification_queue::NotificationQueueArc;
 use crate::storage::{KVBuffers, KVError, OpenMode};
 
 use super::reader::Reader;
@@ -25,7 +24,6 @@ pub fn pipe_path(actor_handle: Handle, fd: isize) -> String {
 ///
 /// # Parameters
 /// - `kv`: Key-value store for buffer allocation
-/// - `notification_queue`: Queue for pipe data notifications
 /// - `handle`: Handle for the writer
 /// - `path`: Path in KV storage (naming determined by caller)
 ///
@@ -33,12 +31,11 @@ pub fn pipe_path(actor_handle: Handle, fd: isize) -> String {
 /// Returns error if buffer allocation fails
 pub async fn create_writer(
     kv: &dyn KVBuffers,
-    notification_queue: NotificationQueueArc,
     handle: Handle,
     path: &str,
 ) -> Result<Writer, KVError> {
     let buffer = kv.open(path, OpenMode::Write).await?;
-    Ok(Writer::new(handle, notification_queue, path, buffer))
+    Ok(Writer::new(handle, path, buffer))
 }
 
 /// Write data to KV storage as a completed buffer
@@ -144,18 +141,19 @@ pub async fn create_reader_from_completed(
         had_readers: false,
     };
 
-    // Create dummy notification queue - unused since buffer is marked closed
-    // (Reader.should_wait_for_writer() returns WaitAction::Closed, never waits on queue)
-    let notification_queue = NotificationQueueArc::new();
-
     // Create dummy writer handle - unused since buffer is closed
     let writer_handle = Handle::new(-1);
+
+    // Dummy watch channel: the Sender is dropped immediately, but since the buffer
+    // is already marked closed, should_wait_for_writer() always returns Closed and
+    // the watch receiver is never polled.
+    let (_, watch_rx) = tokio::sync::watch::channel(());
 
     // Create ReaderSharedData
     let shared_data = ReaderSharedData {
         buffer: Arc::new(Mutex::new(shared_buffer)),
         writer_handle,
-        queue: notification_queue,
+        watch_rx,
     };
 
     // No guard: this reader has no live writer (KV-backed, closed buffer)

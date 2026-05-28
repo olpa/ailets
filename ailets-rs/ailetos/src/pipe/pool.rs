@@ -26,7 +26,6 @@ use super::pipe_path;
 use super::reader::Reader;
 use super::writer::Writer;
 use crate::idgen::{Handle, IdGen};
-use crate::notification_queue::NotificationQueueArc;
 use crate::storage::KVBuffers;
 
 /// Error type for pipe reader operations
@@ -78,8 +77,6 @@ pub struct PipePool {
     writers: Mutex<Vec<(Handle, isize, WriterState)>>,
     /// Key-value store for pipe buffers
     kv: Arc<dyn KVBuffers>,
-    /// Notification queue for pipe data events
-    notification_queue: NotificationQueueArc,
 }
 
 impl PipePool {
@@ -92,7 +89,6 @@ impl PipePool {
         Self {
             writers: Mutex::new(Vec::new()),
             kv,
-            notification_queue: NotificationQueueArc::new(),
         }
     }
 
@@ -217,13 +213,7 @@ impl PipePool {
         let path = pipe_path(actor_handle, fd);
 
         // Create writer with buffer from KV storage
-        let writer = create_writer(
-            self.kv.as_ref(),
-            self.notification_queue.clone(),
-            writer_handle,
-            &path,
-        )
-        .await?;
+        let writer = create_writer(self.kv.as_ref(), writer_handle, &path).await?;
 
         // Replace state with Realized and notify waiters if needed
         let writer_arc = Arc::new(writer);

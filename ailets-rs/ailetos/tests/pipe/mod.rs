@@ -1,14 +1,12 @@
 use ailetos::idgen::Handle;
-use ailetos::notification_queue::NotificationQueueArc;
 use ailetos::pipe::{Reader, Writer};
 use ailetos::{Buffer, EBADF, EOWNERDEAD, EPIPE};
 
 #[tokio::test]
 async fn test_write_read() {
-    let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
 
-    let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
+    let writer = Writer::new(writer_handle, "test", Buffer::new());
     let (shared_data, guard) = writer.share_with_reader();
     let mut reader = Reader::new(Handle::new(2), shared_data, guard);
     let _reader_handle = *reader.handle();
@@ -22,15 +20,12 @@ async fn test_write_read() {
     let n = reader.read(&mut buf).await;
     assert_eq!(n, Ok(5));
     assert_eq!(&buf[..n.unwrap()], b"Hello");
-
-    // Writer unregisters its handle on drop
 }
 
 #[tokio::test]
 async fn test_multiple_write_read_cycles() {
-    let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
+    let writer = Writer::new(writer_handle, "test", Buffer::new());
 
     let (shared_data, guard) = writer.share_with_reader();
     let mut reader = Reader::new(Handle::new(2), shared_data, guard);
@@ -77,10 +72,9 @@ async fn test_multiple_write_read_cycles() {
 
 #[tokio::test]
 async fn test_multiple_readers() {
-    let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
 
-    let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
+    let writer = Writer::new(writer_handle, "test", Buffer::new());
 
     let (shared_data1, guard1) = writer.share_with_reader();
     let mut reader1 = Reader::new(Handle::new(2), shared_data1, guard1);
@@ -104,128 +98,16 @@ async fn test_multiple_readers() {
     assert_eq!(n2, Ok(9));
     assert_eq!(&buf1[..n1.unwrap()], b"Broadcast");
     assert_eq!(&buf2[..n2.unwrap()], b"Broadcast");
-
-    // Writer unregisters its handle on drop
-}
-
-#[tokio::test]
-async fn test_close_sends_notification() {
-    let queue = NotificationQueueArc::new();
-    let writer_handle = Handle::new(1);
-
-    let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
-
-    // Subscribe to writer's handle to observe notifications
-    let mut subscriber = queue
-        .subscribe(writer_handle, 10, "test_subscriber")
-        .expect("Failed to subscribe");
-
-    // Close the writer
-    writer.close().unwrap();
-
-    // Verify notification was sent with -1
-    let notification = subscriber
-        .recv()
-        .await
-        .expect("Should receive notification");
-    assert_eq!(notification, -1);
-}
-
-#[tokio::test]
-async fn test_close_unlists_handle() {
-    let queue = NotificationQueueArc::new();
-    let writer_handle = Handle::new(1);
-
-    let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
-
-    // Close the writer
-    writer.close().unwrap();
-
-    // Try to subscribe to the handle - should return None because it's unlisted
-    let result = queue.subscribe(writer_handle, 10, "test_subscriber");
-    assert!(result.is_none()); // Should return None for unlisted handle
-}
-
-#[tokio::test]
-async fn test_write_notifies_observers() {
-    let queue = NotificationQueueArc::new();
-    let writer_handle = Handle::new(1);
-
-    let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
-
-    // Subscribe to writer's handle to observe notifications directly
-    let mut subscriber = queue
-        .subscribe(writer_handle, 10, "test_subscriber")
-        .expect("Failed to subscribe");
-
-    // Write non-empty data - this should notify observers
-    let n = writer.write(b"Hello");
-    assert_eq!(n, Ok(5));
-
-    // Verify notification was sent
-    let notification = subscriber
-        .recv()
-        .await
-        .expect("Should receive notification");
-    assert_eq!(notification, 5); // Should notify with the number of bytes written
-}
-
-#[tokio::test]
-async fn test_empty_write_does_not_notify() {
-    let queue = NotificationQueueArc::new();
-    let writer_handle = Handle::new(1);
-
-    let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
-
-    // Subscribe to writer's handle to observe notifications directly
-    let mut subscriber = queue
-        .subscribe(writer_handle, 10, "test_subscriber")
-        .expect("Failed to subscribe");
-
-    // Empty write should succeed and return 0
-    let n = writer.write(b"");
-    assert_eq!(n, Ok(0));
-
-    // Verify NO notification was sent for empty write
-    // Use try_recv which doesn't block - should return Err(Empty)
-    let result = subscriber.try_recv();
-    assert!(result.is_err()); // Should be empty, no notification sent
-
-    // Now write actual data
-    let n = writer.write(b"Hello");
-    assert_eq!(n, Ok(5));
-
-    // Verify notification WAS sent for non-empty write
-    let notification = subscriber
-        .recv()
-        .await
-        .expect("Should receive notification");
-    assert_eq!(notification, 5);
-
-    // Another empty write after real data
-    let n = writer.write(b"");
-    assert_eq!(n, Ok(0));
-
-    // Again, verify NO notification for empty write
-    let result = subscriber.try_recv();
-    assert!(result.is_err());
 }
 
 #[tokio::test]
 async fn test_empty_write_does_not_wake_waiting_reader() {
-    let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
+    let writer = Writer::new(writer_handle, "test", Buffer::new());
 
     let (shared_data, guard) = writer.share_with_reader();
     let mut reader = Reader::new(Handle::new(2), shared_data, guard);
 
-    // Subscribe to writer's handle to observe notifications
-    let mut subscriber = queue
-        .subscribe(writer_handle, 10, "test_subscriber")
-        .expect("Failed to subscribe");
-
-    // Channel to receive read results
     let (tx, mut rx) = tokio::sync::mpsc::channel(1);
 
     // Spawn reader task that will block waiting for data
@@ -239,10 +121,6 @@ async fn test_empty_write_does_not_wake_waiting_reader() {
     let n = writer.write(b"");
     assert_eq!(n, Ok(0));
 
-    // Verify NO notification was sent
-    let result = subscriber.try_recv();
-    assert!(result.is_err(), "Empty write should not send notification");
-
     // Verify reader has not received anything (still waiting)
     let result = rx.try_recv();
     assert!(
@@ -254,13 +132,6 @@ async fn test_empty_write_does_not_wake_waiting_reader() {
     let n = writer.write(b"Hello");
     assert_eq!(n, Ok(5));
 
-    // Verify notification was sent
-    let notification = subscriber
-        .recv()
-        .await
-        .expect("Should receive notification");
-    assert_eq!(notification, 5);
-
     // Reader should wake up and send data
     let (n, buf) = rx.recv().await.expect("Should receive data from reader");
     assert_eq!(n, Ok(5));
@@ -269,10 +140,9 @@ async fn test_empty_write_does_not_wake_waiting_reader() {
 
 #[tokio::test]
 async fn test_empty_write_on_closed_writer() {
-    let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
 
-    let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
+    let writer = Writer::new(writer_handle, "test", Buffer::new());
 
     // Close the writer
     writer.close().unwrap();
@@ -284,10 +154,9 @@ async fn test_empty_write_on_closed_writer() {
 
 #[tokio::test]
 async fn test_empty_write_with_errno() {
-    let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
 
-    let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
+    let writer = Writer::new(writer_handle, "test", Buffer::new());
 
     // Set error
     writer.set_error(42);
@@ -300,9 +169,8 @@ async fn test_empty_write_with_errno() {
 
 #[tokio::test]
 async fn test_reader_dont_read_when_error() {
-    let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
+    let writer = Writer::new(writer_handle, "test", Buffer::new());
 
     let (shared_data, guard) = writer.share_with_reader();
     let mut reader = Reader::new(Handle::new(2), shared_data, guard);
@@ -328,9 +196,8 @@ async fn test_reader_dont_read_when_error() {
 
 #[tokio::test]
 async fn test_reader_get_writer_error() {
-    let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
+    let writer = Writer::new(writer_handle, "test", Buffer::new());
 
     let (shared_data, guard) = writer.share_with_reader();
     let reader = Reader::new(Handle::new(2), shared_data, guard);
@@ -344,9 +211,8 @@ async fn test_reader_get_writer_error() {
 
 #[tokio::test]
 async fn test_reader_read_with_writer_error() {
-    let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
+    let writer = Writer::new(writer_handle, "test", Buffer::new());
 
     let (shared_data, guard) = writer.share_with_reader();
     let mut reader = Reader::new(Handle::new(2), shared_data, guard);
@@ -371,9 +237,8 @@ async fn test_reader_read_with_writer_error() {
 
 #[tokio::test]
 async fn test_reader_drains_buffer_before_error() {
-    let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
+    let writer = Writer::new(writer_handle, "test", Buffer::new());
 
     // Write some data
     assert_eq!(writer.write(b"buffered"), Ok(8));
@@ -399,17 +264,11 @@ async fn test_reader_drains_buffer_before_error() {
 
 #[tokio::test]
 async fn test_writer_error_notifies_reader() {
-    let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
+    let writer = Writer::new(writer_handle, "test", Buffer::new());
 
     let (shared_data, guard) = writer.share_with_reader();
     let mut reader = Reader::new(Handle::new(2), shared_data, guard);
-
-    // Subscribe to writer's handle to observe when notification is sent
-    let mut subscriber = queue
-        .subscribe(writer_handle, 10, "test_subscriber")
-        .expect("Failed to subscribe");
 
     // Spawn reader task that will wait
     let reader_task = tokio::spawn(async move {
@@ -417,15 +276,8 @@ async fn test_writer_error_notifies_reader() {
         reader.read(&mut buf).await
     });
 
-    // Writer sets error - should notify
+    // Writer sets error - should wake the reader
     writer.set_error(55);
-
-    // Verify notification was sent (negative errno)
-    let notification = subscriber
-        .recv()
-        .await
-        .expect("Should receive notification");
-    assert_eq!(notification, -55);
 
     // Reader should wake up with error (Err(EPIPE))
     let result = reader_task.await.unwrap();
@@ -434,9 +286,8 @@ async fn test_writer_error_notifies_reader() {
 
 #[tokio::test]
 async fn test_reader_own_error_takes_precedence() {
-    let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
+    let writer = Writer::new(writer_handle, "test", Buffer::new());
 
     let (shared_data, guard) = writer.share_with_reader();
     let mut reader = Reader::new(Handle::new(2), shared_data, guard);
@@ -460,9 +311,8 @@ async fn test_reader_own_error_takes_precedence() {
 // Writer-to-reader EPIPE transformation: reader always sees EPIPE regardless of writer's errno
 #[tokio::test]
 async fn test_writer_error_transformed_to_epipe() {
-    let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
+    let writer = Writer::new(writer_handle, "test", Buffer::new());
 
     let (shared_data, guard) = writer.share_with_reader();
     let mut reader = Reader::new(Handle::new(2), shared_data, guard);
@@ -485,9 +335,8 @@ async fn test_writer_error_transformed_to_epipe() {
 
 #[tokio::test]
 async fn test_reader_error_checked_before_writer() {
-    let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
+    let writer = Writer::new(writer_handle, "test", Buffer::new());
 
     let (shared_data, guard) = writer.share_with_reader();
     let mut reader = Reader::new(Handle::new(2), shared_data, guard);
@@ -512,9 +361,8 @@ async fn test_reader_error_checked_before_writer() {
 
 #[tokio::test]
 async fn test_multiple_readers_independent_errors() {
-    let queue = NotificationQueueArc::new();
     let writer_handle = Handle::new(1);
-    let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
+    let writer = Writer::new(writer_handle, "test", Buffer::new());
 
     let (shared_data1, guard1) = writer.share_with_reader();
     let mut reader1 = Reader::new(Handle::new(2), shared_data1, guard1);
@@ -533,26 +381,4 @@ async fn test_multiple_readers_independent_errors() {
     let mut buf = [0u8; 10];
     assert_eq!(reader1.read(&mut buf).await, Err(100));
     assert_eq!(reader2.read(&mut buf).await, Err(200));
-}
-
-#[tokio::test]
-async fn test_writer_set_error_notifies() {
-    let queue = NotificationQueueArc::new();
-    let writer_handle = Handle::new(1);
-    let writer = Writer::new(writer_handle, queue.clone(), "test", Buffer::new());
-
-    // Subscribe to writer's handle to observe notifications
-    let mut subscriber = queue
-        .subscribe(writer_handle, 10, "test_subscriber")
-        .expect("Failed to subscribe");
-
-    // Writer sets error and notifies
-    writer.set_error(123);
-
-    // Verify notification was sent (negative errno)
-    let notification = subscriber
-        .recv()
-        .await
-        .expect("Should receive notification");
-    assert_eq!(notification, -123);
 }

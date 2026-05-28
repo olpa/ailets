@@ -4,7 +4,6 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 
 use crate::idgen::Handle;
-use crate::notification_queue::NotificationQueueArc;
 use crate::storage::Buffer;
 
 /// Shared state between Writer and Readers
@@ -37,7 +36,7 @@ impl SharedBuffer {
 pub struct ReaderSharedData {
     pub(crate) buffer: Arc<Mutex<SharedBuffer>>,
     pub(crate) writer_handle: Handle,
-    pub(crate) queue: NotificationQueueArc,
+    pub(crate) watch_rx: tokio::sync::watch::Receiver<()>,
 }
 
 /// Drop guard that decrements `reader_count` when a Reader is closed or dropped.

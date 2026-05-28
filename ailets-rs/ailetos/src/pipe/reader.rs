@@ -7,7 +7,6 @@ use tracing::{error, trace, warn};
 
 use crate::errno::{EBADF, EIO, EPIPE};
 use crate::idgen::Handle;
-use crate::notification_queue::NotificationQueueArc;
 
 use super::rw_shared::{ReaderCountGuard, ReaderSharedData, SharedBuffer};
 
@@ -46,7 +45,7 @@ pub struct Reader {
     own_handle: Handle,
     buffer: Arc<Mutex<SharedBuffer>>,
     writer_handle: Handle,
-    queue: NotificationQueueArc,
+    watch_rx: tokio::sync::watch::Receiver<()>,
     pos: usize,
     own_closed: bool,
     own_errno: i32,
@@ -60,7 +59,7 @@ impl Reader {
             own_handle: handle,
             buffer: shared_data.buffer,
             writer_handle: shared_data.writer_handle,
-            queue: shared_data.queue,
+            watch_rx: shared_data.watch_rx,
             pos: 0,
             own_closed: false,
             own_errno: 0,
@@ -148,20 +147,18 @@ impl Reader {
 
     /// Wait for writer to provide more data
     ///
-    /// See the `crate::notification_queue` documentation for the workflow explanation
-    /// (check (in "read") - lock (here) - check again (here))
-    async fn wait_for_writer(&self) {
-        let queue_lock = self.queue.get_lock();
+    /// Uses `watch::borrow_and_update` to atomically mark the current watch version
+    /// as seen before the re-check, preventing missed notifications (TOCTOU).
+    async fn wait_for_writer(&mut self) {
+        // Mark the current watch version as seen before re-checking state.
+        // If the writer sent a notification between the caller's first check and
+        // here, borrow_and_update sees the updated SharedBuffer and the re-check
+        // below returns DontWait — so we skip the wait entirely.
+        let _ = self.watch_rx.borrow_and_update();
 
-        match self.should_wait_for_writer() {
-            WaitAction::Wait => {
-                self.queue
-                    .wait_async(self.writer_handle, "reader", queue_lock)
-                    .await;
-            }
-            WaitAction::Closed | WaitAction::DontWait | WaitAction::Error => {
-                drop(queue_lock);
-            }
+        if self.should_wait_for_writer() == WaitAction::Wait {
+            // Err means the Sender was dropped (writer closed); treat as wakeup.
+            let _ = self.watch_rx.changed().await;
         }
     }
 

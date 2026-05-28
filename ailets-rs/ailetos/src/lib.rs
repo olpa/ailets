@@ -4,7 +4,6 @@ pub mod environment;
 pub mod errno;
 pub mod executor;
 pub mod idgen;
-pub mod notification_queue;
 pub mod pipe;
 pub mod storage;
 pub mod suspension;
