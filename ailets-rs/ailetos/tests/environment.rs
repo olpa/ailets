@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use actor_runtime::StdHandle;
 use ailetos::dag::NodeState;
 use ailetos::pipe::pipe_path;
 use ailetos::storage::{KVBuffers, MemKV, OpenMode};
