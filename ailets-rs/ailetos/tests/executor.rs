@@ -215,7 +215,7 @@ async fn run_jobs_infinite_processes_job_submitted_after_quiescence() {
 
     let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<ExecutorEvent>();
     let executor = Executor::start(
-        tokio::runtime::Handle::current(),
+        &tokio::runtime::Handle::current(),
         Arc::clone(&env),
         Some(ev_tx),
     );
@@ -278,7 +278,7 @@ async fn run_jobs_processes_job_submitted_while_actor_running() {
 
     let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<ExecutorEvent>();
     let executor = Executor::start(
-        tokio::runtime::Handle::current(),
+        &tokio::runtime::Handle::current(),
         Arc::clone(&env),
         Some(ev_tx),
     );
