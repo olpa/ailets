@@ -99,7 +99,7 @@ impl MergeReader {
         // Try pipe pool first (dependencies always output to stdout, fd=1)
         match self
             .pipe_pool
-            .get_or_await_reader(
+            .get_or_await_new_reader(
                 (dep_handle, actor_runtime::StdHandle::Stdout as isize),
                 allow_latent,
                 &self.id_gen,

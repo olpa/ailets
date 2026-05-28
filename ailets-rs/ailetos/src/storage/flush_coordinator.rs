@@ -123,16 +123,19 @@ where
     ///         .map_err(|e| format!("write error: {e}"))
     /// };
     ///
-    /// let coordinator = FlushCoordinator::new(100, flush_fn);
+    /// let coordinator = FlushCoordinator::new(async_runtime, 100, flush_fn);
     /// ```
-    pub fn new(capacity: usize, flush_fn: F) -> Self {
+    pub fn new(async_runtime: tokio::runtime::Handle, capacity: usize, flush_fn: F) -> Self {
         let (request_tx, request_rx) = mpsc::channel(capacity);
         let flush_fn = Arc::new(flush_fn);
 
         // Spawn writer task
         let writer_flush_fn = Arc::clone(&flush_fn);
-        let writer_task = tokio::spawn(async move {
-            Self::writer_loop(request_rx, writer_flush_fn).await;
+        let writer_task = async_runtime.spawn({
+            let async_runtime = async_runtime.clone();
+            async move {
+                Self::writer_loop(async_runtime, request_rx, writer_flush_fn).await;
+            }
         });
 
         debug!(capacity, "FlushCoordinator created");
@@ -148,7 +151,11 @@ where
     ///
     /// This runs in a background tokio task and processes requests until
     /// the channel is closed (when all senders are dropped).
-    async fn writer_loop(mut request_rx: mpsc::Receiver<FlushRequest>, flush_fn: Arc<F>) {
+    async fn writer_loop(
+        async_runtime: tokio::runtime::Handle,
+        mut request_rx: mpsc::Receiver<FlushRequest>,
+        flush_fn: Arc<F>,
+    ) {
         debug!("Writer task started");
         trace!("FlushCoordinator::writer_loop: entering request_rx loop");
 
@@ -166,13 +173,14 @@ where
             );
 
             // Perform blocking flush operation
-            let result = tokio::task::spawn_blocking({
-                let path = request.path.clone();
-                let data = request.data.clone();
-                let flush_fn = Arc::clone(&flush_fn);
-                move || flush_fn(path, data)
-            })
-            .await;
+            let result = async_runtime
+                .spawn_blocking({
+                    let path = request.path.clone();
+                    let data = request.data.clone();
+                    let flush_fn = Arc::clone(&flush_fn);
+                    move || flush_fn(path, data)
+                })
+                .await;
 
             // Handle task panic or flush error
             let flush_result = match result {

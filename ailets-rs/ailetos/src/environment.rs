@@ -58,7 +58,6 @@ pub struct Environment {
     pub pipe_pool: Arc<PipePool>,
     pub actor_registry: Arc<RwLock<ActorRegistry>>,
     pub suspension: Arc<SuspensionState>,
-    pub(crate) attachment_config: Arc<RwLock<crate::attachments::AttachmentConfig>>,
 }
 
 impl Environment {
@@ -75,24 +74,7 @@ impl Environment {
             pipe_pool,
             actor_registry: Arc::new(RwLock::new(ActorRegistry::new())),
             suspension: Arc::new(SuspensionState::new()),
-            attachment_config: Arc::new(RwLock::new(
-                crate::attachments::AttachmentConfig::default(),
-            )),
         }
-    }
-
-    /// Attach a specific actor's stdout to host stdout
-    ///
-    /// The actor's stdout will be automatically attached to host stdout
-    /// when it writes for the first time.
-    ///
-    /// Note: Actor stderr (Log handle), metrics, and tracing are always attached to
-    /// host stderr for all actors.
-    ///
-    /// # Arguments
-    /// * `actor_handle` - The handle of the actor whose stdout should be attached
-    pub fn attach_stdout(&self, actor_handle: Handle) {
-        self.attachment_config.write().attach_stdout(actor_handle);
     }
 
     /// Add a value node - a node that outputs a constant value

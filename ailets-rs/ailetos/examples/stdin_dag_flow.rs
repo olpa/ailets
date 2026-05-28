@@ -79,7 +79,10 @@ async fn main() {
 
     // Create key-value store
     let _ = std::fs::remove_file("example.db");
-    let kv = Arc::new(SqliteKV::new("example.db").expect("Failed to create SqliteKV"));
+    let async_runtime = tokio::runtime::Handle::current();
+    let kv = Arc::new(
+        SqliteKV::new(async_runtime.clone(), "example.db").expect("Failed to create SqliteKV"),
+    );
 
     // Create environment
     let env = Environment::new(Arc::clone(&kv) as Arc<dyn KVBuffers>);
@@ -100,18 +103,24 @@ async fn main() {
     };
     print!("{tree}");
 
-    // Attach the last actor's stdout to host stdout
-    let resolved = env.resolve(end_node);
-    env.attach_stdout(resolved);
-
     // Run the system
     use ailetos::{Executor, StopConditions};
+    let resolved = env.resolve(end_node);
     let env = Arc::new(env);
-    let executor = Executor::start(Arc::clone(&env), None);
+    let executor = Executor::start(&async_runtime, Arc::clone(&env), None);
+
+    let stdout_task = env.pipe_pool.spawn_reader_to(
+        &async_runtime,
+        &env.idgen,
+        (resolved, StdHandle::Stdout as isize),
+        std::io::stdout(),
+    );
+
     executor
         .submit(end_node, StopConditions::default())
         .expect("executor just started");
     executor.shutdown().await;
+    stdout_task.await.ok();
 
     // Drop environment to release KV reference
     drop(env);

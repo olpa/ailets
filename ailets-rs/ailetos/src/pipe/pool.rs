@@ -96,19 +96,20 @@ impl PipePool {
         }
     }
 
-    /// Get or create a reader for a pipe
+    /// Get or await a pipe, then create a new independent reader for it
     ///
-    /// This method handles pipes in various states:
-    /// - **Realized**: Returns reader immediately
-    /// - **Latent (Waiting)**: Waits for pipe creation if `allow_latent=true`
+    /// This method **always creates a new Reader**, allowing multiple independent readers
+    /// from the same pipe (fan-out). It handles pipes in various states:
+    /// - **Realized**: Creates new reader immediately
+    /// - **Latent (Waiting)**: Waits for pipe creation if `allow_latent=true`, then creates reader
     /// - **Latent (Closed)**: Returns `PipeClosed` error
-    /// - **No entry**: Creates latent pipe if `allow_latent=true`, otherwise returns `WouldBlock`
+    /// - **No entry**: Creates latent pipe if `allow_latent=true`, waits, then creates reader
     ///
     /// # Errors
     ///
     /// - `PipeClosed`: Producer closed latent pipe without creating it
     /// - `WouldBlock`: Pipe doesn't exist yet but `allow_latent=false`
-    pub async fn get_or_await_reader(
+    pub async fn get_or_await_new_reader(
         &self,
         key: (Handle, isize),
         allow_latent: bool,
@@ -327,6 +328,58 @@ impl PipePool {
         } else {
             Err(format!("flush/close failed for {error_count} writers"))
         }
+    }
+
+    /// Build a future that copies the pipe at `key` to `writer`.
+    ///
+    /// The returned future can be spawned into a `JoinSet` (for tracked draining on
+    /// shutdown) or directly onto a runtime handle via `spawn_reader_to`.
+    pub fn reader_future<W>(
+        self: &Arc<Self>,
+        idgen: &Arc<IdGen>,
+        key: (Handle, isize),
+        writer: W,
+    ) -> impl std::future::Future<Output = ()> + Send + 'static
+    where
+        W: std::io::Write + Send + 'static,
+    {
+        let pool = Arc::clone(self);
+        let idgen = Arc::clone(idgen);
+        let (node, fd) = key;
+        async move {
+            match pool.get_or_await_new_reader(key, true, &idgen).await {
+                Ok(reader) => {
+                    if let Err(e) = super::reader::drain_to_writer(
+                        reader,
+                        writer,
+                        super::reader::FlushMode::AfterEachWrite,
+                    )
+                    .await
+                    {
+                        warn!(node = ?node, fd = fd, error = %e, "reader: copy failed");
+                    }
+                }
+                Err(PipeError::PipeClosed) => {}
+                Err(e) => warn!(node = ?node, fd = fd, error = %e, "reader: attach failed"),
+            }
+        }
+    }
+
+    /// Spawn a task that copies the pipe at `key` to `writer`.
+    ///
+    /// For callers that need shutdown-safe draining, use `reader_future` and spawn
+    /// into a tracked `JoinSet` instead.
+    pub fn spawn_reader_to<W>(
+        self: &Arc<Self>,
+        async_runtime: &tokio::runtime::Handle,
+        idgen: &Arc<IdGen>,
+        key: (Handle, isize),
+        writer: W,
+    ) -> tokio::task::JoinHandle<()>
+    where
+        W: std::io::Write + Send + 'static,
+    {
+        async_runtime.spawn(self.reader_future(idgen, key, writer))
     }
 
     /// Get a writer by key (only if already realized)

@@ -706,13 +706,13 @@ fn test_dump_shared_dependency_with_children_shows_reference() {
         output
     );
 
-    // The second occurrence of shared should have a reference marker
-    let shared_count = output.matches("shared").count();
-    assert_eq!(shared_count, 2, "Shared should appear twice");
+    // The node "shared" should appear twice in the tree
+    let shared_node_count = output.matches("shared.").count();
+    assert_eq!(shared_node_count, 2, "Shared node should appear twice");
 
-    // Should contain some kind of reference marker on second occurrence
+    // Should contain reference marker on second occurrence
     assert!(
-        output.contains("[see above]") || output.contains("[already shown]"),
+        output.contains("[↩ shared]"),
         "Should contain reference marker. Output:\n{}",
         output
     );
@@ -748,7 +748,7 @@ fn test_dump_shared_dependency_without_children_shows_node() {
 
     // Should NOT contain reference markers for leaves
     assert!(
-        !output.contains("[see above]"),
+        !output.contains("[↩ shared]"),
         "Should not have reference marker for leaves"
     );
     assert!(

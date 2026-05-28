@@ -84,7 +84,6 @@ use tokio::task::JoinSet;
 use tracing::{debug, warn};
 
 use crate::actor_syscall::ActorLifecycleEvent;
-use crate::attachments::AttachmentManager;
 use crate::dag::{Dag, NodeState};
 use crate::environment::{ActorFn, Environment};
 use crate::errno::EOWNERDEAD;
@@ -155,41 +154,47 @@ pub fn is_ready_to_spawn(node_handle: Handle, dag: &Dag, pipe_pool: &PipePool) -
 
 /// Spawn a task for an actor node
 fn spawn_actor_task(
+    async_runtime: &tokio::runtime::Handle,
     node_handle: Handle,
     idname: String,
     actor_fn: ActorFn,
     actor_runtime: BlockingActorRuntime,
 ) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        let blocking_result = tokio::task::spawn_blocking(move || {
-            debug!(node = ?node_handle, name = %idname, "task starting");
+    let async_runtime = async_runtime.clone();
+    async_runtime.spawn({
+        let async_runtime = async_runtime.clone();
+        async move {
+            let blocking_result = async_runtime
+                .spawn_blocking(move || {
+                    debug!(node = ?node_handle, name = %idname, "task starting");
 
-            let mut actor_runtime = actor_runtime;
-            actor_runtime.register_std_fds();
+                    let mut actor_runtime = actor_runtime;
+                    actor_runtime.register_std_fds();
 
-            let result = actor_fn(&actor_runtime);
+                    let result = actor_fn(&actor_runtime);
 
-            match result {
-                Ok(()) => {
-                    debug!(node = ?node_handle, name = %idname, "task completed");
+                    match result {
+                        Ok(()) => {
+                            debug!(node = ?node_handle, name = %idname, "task completed");
+                        }
+                        Err(e) => {
+                            warn!(node = ?node_handle, name = %idname, error = %e, "task error");
+                            actor_runtime.latch_errno(EOWNERDEAD);
+                        }
+                    }
+                    actor_runtime
+                })
+                .await;
+
+            match blocking_result {
+                Ok(mut actor_runtime) => {
+                    if let Err(e) = actor_runtime.shutdown().await {
+                        warn!(node = ?node_handle, error = %e, "actor shutdown error");
+                    }
                 }
                 Err(e) => {
-                    warn!(node = ?node_handle, name = %idname, error = %e, "task error");
-                    actor_runtime.latch_errno(EOWNERDEAD);
+                    warn!(node = ?node_handle, error = %e, "actor blocking task panicked");
                 }
-            }
-            actor_runtime
-        })
-        .await;
-
-        match blocking_result {
-            Ok(mut actor_runtime) => {
-                if let Err(e) = actor_runtime.shutdown().await {
-                    warn!(node = ?node_handle, error = %e, "actor shutdown error");
-                }
-            }
-            Err(e) => {
-                warn!(node = ?node_handle, error = %e, "actor blocking task panicked");
             }
         }
     })
@@ -325,17 +330,26 @@ fn spawn_ready_actors(
             Arc::clone(&env.suspension),
             infra.lifecycle_tx.clone(),
         );
-        let task_handle = spawn_actor_task(node_handle, idname.clone(), actor_fn, actor_runtime);
+        let task_handle = spawn_actor_task(
+            &infra.async_runtime,
+            node_handle,
+            idname.clone(),
+            actor_fn,
+            actor_runtime,
+        );
 
         // Spawn into JoinSet with error handling wrapper.
         // We handle panics here (rather than in run_spawn_loop_jobs) to preserve
         // node_handle context for debugging. JoinError doesn't contain the handle,
         // so moving this to the loop would lose critical diagnostic information.
-        actor_tasks.spawn(async move {
-            if let Err(e) = task_handle.await {
-                warn!(error = %e, node = ?node_handle, "actor task panicked");
-            }
-        });
+        actor_tasks.spawn_on(
+            async move {
+                if let Err(e) = task_handle.await {
+                    warn!(error = %e, node = ?node_handle, "actor task panicked");
+                }
+            },
+            &infra.async_runtime,
+        );
     }
 
     remaining
@@ -374,15 +388,24 @@ async fn run_spawn_loop_jobs(
                 match result {
                     Some(item) => {
                         let dag = env.dag.read();
-                        pending.extend(
-                            TopologicalOrderIter::with_stop_conditions(
-                                &dag, item.target, item.stop_conditions,
-                            )
-                            .filter(|&n| {
-                                dag.get_node(n)
-                                    .is_some_and(|node| node.state == NodeState::NotStarted)
-                            }),
-                        );
+                        let one_step = item.stop_conditions.one_step;
+                        // Strip one_step from the iterator conditions: the traversal must
+                        // reach all nodes so the NotStarted filter below can skip already-
+                        // terminated ones. The one_step limit is applied via .take(1) after
+                        // filtering, so a second `run --one-step` advances past done nodes.
+                        let topo_conditions = StopConditions { one_step: false, ..item.stop_conditions };
+                        let not_started = TopologicalOrderIter::with_stop_conditions(
+                            &dag, item.target, topo_conditions,
+                        )
+                        .filter(|&n| {
+                            dag.get_node(n)
+                                .is_some_and(|node| node.state == NodeState::NotStarted)
+                        });
+                        if one_step {
+                            pending.extend(not_started.take(1));
+                        } else {
+                            pending.extend(not_started);
+                        }
                     }
                     None => { channel_closed = true; }
                 }
@@ -413,8 +436,7 @@ async fn run_spawn_loop_jobs(
 ///   the executor to wake up and check for newly ready nodes.
 ///
 /// - `io_bridge`: Handles all I/O operations for actors (stdin/stdout/stderr/files).
-///   Cloned into each `BlockingActorRuntime` so actors can perform I/O. Also
-///   passed to `attachment_manager` for coordinating attachment I/O.
+///   Cloned into each `BlockingActorRuntime` so actors can perform I/O.
 ///
 /// - `lifecycle_tx`: Channel sender for actor lifecycle events (Terminating/Terminated).
 ///   Cloned into each `BlockingActorRuntime`; when an actor shuts down, it sends
@@ -424,70 +446,62 @@ async fn run_spawn_loop_jobs(
 ///   `lifecycle_tx`, updates the DAG state accordingly, and triggers `executor_wakeup`.
 ///   Also emits `ExecutorEvent::NodeTerminated` to external listeners if configured.
 ///
-/// - `attachment_manager`: Manages attachment I/O tasks (e.g., network connections,
-///   file attachments). Provides attachment handles to actors via the `io_bridge`.
-///
 /// # Teardown order is critical:
 ///
 /// 1. Join actor tasks (done by `run_spawn_loop_jobs` before calling `shutdown`) —
 ///    `BlockingActorRuntime::drop` sends lifecycle events and blocks on
 ///    `lifecycle_handler` replies, so `lifecycle_handler` must still be running.
 /// 2. `io_bridge.shutdown()` — flush I/O channels.
-/// 3. `attachment_manager.shutdown()` — wait for attachment tasks.
-/// 4. Drop `lifecycle_tx` — signals `lifecycle_handler` to exit.
-/// 5. Drop `io_bridge` — releases the last Arc so `lifecycle_handler` can finish.
-/// 6. Join `lifecycle_handler`.
+/// 3. Drop `lifecycle_tx` — signals `lifecycle_handler` to exit.
+/// 4. Drop `io_bridge` — releases the last Arc so `lifecycle_handler` can finish.
+/// 5. Join `lifecycle_handler`.
 struct ExecutorInfra {
+    async_runtime: tokio::runtime::Handle,
     executor_wakeup: Arc<tokio::sync::Notify>,
     io_bridge: Arc<IoBridge>,
     lifecycle_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
     lifecycle_handler: tokio::task::JoinHandle<()>,
-    attachment_manager: Arc<AttachmentManager>,
 }
 
 impl ExecutorInfra {
     fn new(
+        async_runtime: tokio::runtime::Handle,
         env: &Arc<Environment>,
         events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
     ) -> Self {
         let executor_wakeup = Arc::new(tokio::sync::Notify::new());
         let (lifecycle_tx, lifecycle_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
-        let attachment_manager =
-            Arc::new(AttachmentManager::new(env.attachment_config.read().clone()));
         let io_bridge = Arc::new(IoBridge::new(
+            async_runtime.clone(),
             Arc::clone(env),
-            Arc::clone(&attachment_manager),
             Arc::clone(&executor_wakeup),
         ));
-        let lifecycle_handler = tokio::spawn(lifecycle_event_task(
+        let lifecycle_handler = async_runtime.spawn(lifecycle_event_task(
             Arc::clone(&env.dag),
             Arc::clone(&executor_wakeup),
             lifecycle_rx,
             events_tx,
         ));
         Self {
+            async_runtime,
             executor_wakeup,
             io_bridge,
             lifecycle_tx,
             lifecycle_handler,
-            attachment_manager,
         }
     }
 
     async fn shutdown(self) {
         let Self {
+            async_runtime: _,
             executor_wakeup: _,
             io_bridge,
             lifecycle_tx,
             lifecycle_handler,
-            attachment_manager,
         } = self;
 
         if let Err(e) = io_bridge.shutdown().await {
             warn!(error = %e, "io_bridge shutdown error");
-        }
-        if let Err(e) = attachment_manager.shutdown().await {
-            warn!(error = %e, "attachment manager shutdown error");
         }
         drop(lifecycle_tx);
         drop(io_bridge);
@@ -517,13 +531,14 @@ impl Executor {
     /// An `Executor` handle for submitting jobs and controlling execution.
     #[must_use]
     pub fn start(
+        async_runtime: &tokio::runtime::Handle,
         env: Arc<Environment>,
         events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
     ) -> Self {
         let (job_tx, mut job_rx) = mpsc::unbounded_channel::<JobItem>();
-        let infra = ExecutorInfra::new(&env, events_tx);
+        let infra = ExecutorInfra::new(async_runtime.clone(), &env, events_tx);
 
-        let executor_task = tokio::spawn(async move {
+        let executor_task = async_runtime.spawn(async move {
             run_spawn_loop_jobs(&env, &infra, &mut job_rx).await;
             infra.shutdown().await;
         });

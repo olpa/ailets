@@ -54,7 +54,10 @@ impl SqliteKV {
     /// # Errors
     ///
     /// Returns error if database cannot be opened or table creation fails.
-    pub fn new<P: AsRef<Path>>(db_path: P) -> Result<Self, rusqlite::Error> {
+    pub fn new<P: AsRef<Path>>(
+        async_runtime: tokio::runtime::Handle,
+        db_path: P,
+    ) -> Result<Self, rusqlite::Error> {
         let conn = Connection::open(db_path)?;
         conn.execute(
             "CREATE TABLE IF NOT EXISTS vfs (
@@ -80,7 +83,7 @@ impl SqliteKV {
             });
 
         // Create coordinator with capacity 100
-        let flush_coordinator = FlushCoordinator::new(100, flush_fn);
+        let flush_coordinator = FlushCoordinator::new(async_runtime, 100, flush_fn);
 
         Ok(Self {
             buffers: Arc::new(Mutex::new(HashMap::new())),

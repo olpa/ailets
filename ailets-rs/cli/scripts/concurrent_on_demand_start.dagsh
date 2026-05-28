@@ -31,7 +31,10 @@ show
 
 # Start the scheduler in background. No data has arrived yet — actors have
 # not started (Property 1). Status confirms the not-started count.
-run --bg
+follow $src --color yellow
+follow $dbg1 --color green
+follow $dbg2 --color blue
+run --bg --color red
 status
 
 # Feed "hello world" (11 bytes) in portions to observe state changes.
@@ -52,12 +55,11 @@ resume $dbg1
 status
 show
 
-# Write "lo w" (4 bytes) — flows through dbg1 to dbg2, dbg2 has 4 bytes
+# Write "lo w" (4 bytes) — flows through dbg1 to dbg2, dbg2 has 7 bytes and should suspend on 5th byte
 write $src "lo w"
 status
 show
 
-# Write "o" (1 byte) — dbg2 now has 5B, should suspend
 write $src "o"
 status
 show
@@ -70,10 +72,7 @@ show
 # Write "rld" (3 bytes) and close — flows through to cat
 write $src "rld"
 close $src
-status
-show
-
-fg
 
 # Expected: 4 total, 0 not started, 0 running, 0 suspended, 4 terminated
 status
+show

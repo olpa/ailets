@@ -23,7 +23,6 @@ use tokio::sync::{mpsc, oneshot, Notify};
 use tracing::{debug, warn};
 
 use super::sendable_buffer::{SendableConstPtr, SendableMutPtr};
-use crate::attachments::AttachmentManager;
 use crate::dag::OwnedDependencyIterator;
 use crate::environment::Environment;
 use crate::errno::{EBADF, EIO, EPIPE};
@@ -97,8 +96,8 @@ async fn run_reader_task(
 async fn run_writer_task(
     node_handle: Handle,
     fd: isize,
+    async_runtime: tokio::runtime::Handle,
     env: Arc<Environment>,
-    attachment_manager: Arc<AttachmentManager>,
     executor_wakeup: Arc<Notify>,
     mut request_rx: mpsc::UnboundedReceiver<WriterCommand>,
 ) {
@@ -110,12 +109,22 @@ async fn run_writer_task(
     {
         Ok((writer, is_new)) => {
             if is_new {
-                attachment_manager.on_writer_realized(
-                    node_handle,
-                    fd,
-                    Arc::clone(&env.pipe_pool),
-                    Arc::clone(&env.idgen),
-                );
+                if let Ok(std_handle) = StdHandle::try_from(fd) {
+                    match std_handle {
+                        StdHandle::Log | StdHandle::Metrics | StdHandle::Trace => {
+                            env.pipe_pool.spawn_reader_to(
+                                &async_runtime,
+                                &env.idgen,
+                                (node_handle, fd),
+                                std::io::stderr(),
+                            );
+                        }
+                        StdHandle::Stdin
+                        | StdHandle::Stdout
+                        | StdHandle::Env
+                        | StdHandle::_Count => {}
+                    }
+                }
             }
             writer
         }
@@ -192,10 +201,10 @@ type ChannelEntry = (Handle, isize, FdState);
 /// Held as `Arc<IoBridge>` by each actor's `BlockingActorRuntime` and `ShutdownHandle`.
 /// All methods are safe to call from a blocking thread.
 pub struct IoBridge {
+    async_runtime: tokio::runtime::Handle,
     env: Arc<Environment>,
     /// Open channel endpoints: (`node_handle`, fd, state). Linear search, efficient for small N.
     channel_table: Mutex<Vec<ChannelEntry>>,
-    attachment_manager: Arc<AttachmentManager>,
     /// Notifies the executor when I/O state changes that may affect node readiness.
     /// Use cases:
     /// - a pipe is realized
@@ -206,14 +215,14 @@ pub struct IoBridge {
 impl IoBridge {
     #[must_use]
     pub fn new(
+        async_runtime: tokio::runtime::Handle,
         env: Arc<Environment>,
-        attachment_manager: Arc<AttachmentManager>,
         executor_wakeup: Arc<Notify>,
     ) -> Self {
         Self {
+            async_runtime,
             env,
             channel_table: Mutex::new(Vec::new()),
-            attachment_manager,
             executor_wakeup,
         }
     }
@@ -243,7 +252,8 @@ impl IoBridge {
             Arc::clone(&self.env.idgen),
         );
         let (request_tx, request_rx) = mpsc::unbounded_channel::<ReaderCommand>();
-        tokio::spawn(run_reader_task(node_handle, reader, request_rx));
+        self.async_runtime
+            .spawn(run_reader_task(node_handle, reader, request_rx));
         request_tx
     }
 
@@ -251,14 +261,14 @@ impl IoBridge {
     fn spawn_writer(&self, node_handle: Handle, fd: isize) -> mpsc::UnboundedSender<WriterCommand> {
         debug!(actor = ?node_handle, fd = fd, "spawning writer");
         let (request_tx, request_rx) = mpsc::unbounded_channel::<WriterCommand>();
+        let async_runtime = self.async_runtime.clone();
         let env = Arc::clone(&self.env);
-        let attachment_manager = Arc::clone(&self.attachment_manager);
         let executor_wakeup = Arc::clone(&self.executor_wakeup);
-        tokio::spawn(run_writer_task(
+        self.async_runtime.spawn(run_writer_task(
             node_handle,
             fd,
+            async_runtime,
             env,
-            attachment_manager,
             executor_wakeup,
             request_rx,
         ));
