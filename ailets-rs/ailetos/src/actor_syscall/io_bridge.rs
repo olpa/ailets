@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use actor_runtime::StdHandle;
 use parking_lot::Mutex;
-use tokio::sync::{mpsc, oneshot, Notify};
+use tokio::sync::{mpsc, oneshot, watch};
 use tracing::{debug, warn};
 
 use super::sendable_buffer::{SendableConstPtr, SendableMutPtr};
@@ -98,7 +98,7 @@ async fn run_writer_task(
     fd: isize,
     async_runtime: tokio::runtime::Handle,
     env: Arc<Environment>,
-    executor_wakeup: Arc<Notify>,
+    executor_wakeup: Arc<watch::Sender<()>>,
     mut request_rx: mpsc::UnboundedReceiver<WriterCommand>,
 ) {
     // Create writer at task startup
@@ -159,7 +159,9 @@ async fn run_writer_task(
                 // Wake the executor: the first write realizes the writer in the
                 // pool, potentially unblocking downstream actors whose readiness
                 // check (is_ready_to_spawn) waits for this dep's pipe to appear.
-                executor_wakeup.notify_one();
+                if executor_wakeup.send(()).is_err() {
+                    warn!(node = ?node_handle, fd = fd, "io_bridge writer task: executor wakeup after write failed, no receivers");
+                }
             }
             WriterCommand::Close { response } => {
                 debug!(node = ?node_handle, fd = fd, "writer task: received close command");
@@ -169,7 +171,9 @@ async fn run_writer_task(
                 }
                 // Wake the executor: a closed writer is a state change that
                 // may satisfy spawn readiness for downstream actors.
-                executor_wakeup.notify_one();
+                if executor_wakeup.send(()).is_err() {
+                    warn!(node = ?node_handle, fd = fd, "io_bridge writer task: executor wakeup after close failed, no receivers");
+                }
                 // No break: loop exits naturally when sender is dropped and recv() returns None.
                 // This keeps the bridge mechanical—it forwards commands without special control flow.
             }
@@ -209,7 +213,7 @@ pub struct IoBridge {
     /// Use cases:
     /// - a pipe is realized
     /// - a writer is closed
-    executor_wakeup: Arc<Notify>,
+    executor_wakeup: Arc<watch::Sender<()>>,
 }
 
 impl IoBridge {
@@ -217,7 +221,7 @@ impl IoBridge {
     pub fn new(
         async_runtime: tokio::runtime::Handle,
         env: Arc<Environment>,
-        executor_wakeup: Arc<Notify>,
+        executor_wakeup: Arc<watch::Sender<()>>,
     ) -> Self {
         Self {
             async_runtime,

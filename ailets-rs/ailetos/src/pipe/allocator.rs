@@ -2,17 +2,15 @@
 //!
 //! Standalone functions for allocating pipes with backing storage from KV.
 
-use parking_lot::Mutex;
 use std::sync::Arc;
 use tracing::warn;
 
 use crate::errno::EIO;
 use crate::idgen::Handle;
-use crate::notification_queue::NotificationQueueArc;
 use crate::storage::{KVBuffers, KVError, OpenMode};
 
 use super::reader::Reader;
-use super::rw_shared::{ReaderCountGuard, ReaderSharedData, SharedBuffer};
+use super::rw_shared::{ReaderSharedData, SharedBuffer};
 use super::writer::Writer;
 
 /// Returns the KV path for an actor's pipe: `pipes/actor-{id}-{fd}`
@@ -25,7 +23,6 @@ pub fn pipe_path(actor_handle: Handle, fd: isize) -> String {
 ///
 /// # Parameters
 /// - `kv`: Key-value store for buffer allocation
-/// - `notification_queue`: Queue for pipe data notifications
 /// - `handle`: Handle for the writer
 /// - `path`: Path in KV storage (naming determined by caller)
 ///
@@ -33,12 +30,11 @@ pub fn pipe_path(actor_handle: Handle, fd: isize) -> String {
 /// Returns error if buffer allocation fails
 pub async fn create_writer(
     kv: &dyn KVBuffers,
-    notification_queue: NotificationQueueArc,
     handle: Handle,
     path: &str,
 ) -> Result<Writer, KVError> {
     let buffer = kv.open(path, OpenMode::Write).await?;
-    Ok(Writer::new(handle, notification_queue, path, buffer))
+    Ok(Writer::new(handle, path, buffer))
 }
 
 /// Write data to KV storage as a completed buffer
@@ -136,29 +132,17 @@ pub async fn create_reader_from_completed(
     let kv_buffer = kv.open(path, OpenMode::Read).await?;
 
     // Create a closed SharedBuffer with the KV data
-    let shared_buffer = SharedBuffer {
-        buffer: kv_buffer,
-        errno: 0,
-        closed: true, // Mark as closed since data is complete
-        reader_count: 0,
-        had_readers: false,
-    };
+    let shared_buffer = SharedBuffer::new_closed(kv_buffer);
 
-    // Create dummy notification queue - unused since buffer is marked closed
-    // (Reader.should_wait_for_writer() returns WaitAction::Closed, never waits on queue)
-    let notification_queue = NotificationQueueArc::new();
+    // Dummy watch channel: the Sender is dropped immediately, but since the buffer
+    // is already marked closed, should_wait_for_writer() always returns Closed and
+    // the watch receiver is never polled.
+    let (_, watch_rx) = tokio::sync::watch::channel(());
 
-    // Create dummy writer handle - unused since buffer is closed
-    let writer_handle = Handle::new(-1);
-
-    // Create ReaderSharedData
     let shared_data = ReaderSharedData {
-        buffer: Arc::new(Mutex::new(shared_buffer)),
-        writer_handle,
-        queue: notification_queue,
+        buffer: Arc::new(shared_buffer),
+        watch_rx,
     };
 
-    // No guard: this reader has no live writer (KV-backed, closed buffer)
-    let guard = ReaderCountGuard(Arc::clone(&shared_data.buffer));
-    Ok(Reader::new(reader_handle, shared_data, guard))
+    Ok(Reader::new(reader_handle, shared_data))
 }

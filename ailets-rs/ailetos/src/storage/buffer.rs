@@ -47,24 +47,6 @@ impl AsRef<[u8]> for BufferReadGuard<'_> {
 ///
 /// A thread-safe buffer backed by `Arc<Mutex<Vec<u8>>>`. Multiple clones
 /// share the same underlying data.
-///
-/// # Thread Safety
-///
-/// All operations use internal locking via `parking_lot::Mutex`.
-/// - `append()` locks, writes, and releases
-/// - `lock()` returns a guard that holds the lock until dropped
-///
-/// # Example
-///
-/// ```
-/// use ailetos::storage::Buffer;
-///
-/// let buffer = Buffer::new();
-/// buffer.append(b"hello").unwrap();
-///
-/// let guard = buffer.lock();
-/// assert_eq!(&*guard, b"hello");
-/// ```
 #[derive(Clone)]
 pub struct Buffer(Arc<Mutex<Vec<u8>>>);
 

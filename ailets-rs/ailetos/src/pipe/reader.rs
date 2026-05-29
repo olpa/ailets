@@ -1,18 +1,17 @@
 //! Reader side of the memory pipe
 
-use parking_lot::Mutex;
 use std::fmt;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tracing::{error, trace, warn};
 
 use crate::errno::{EBADF, EIO, EPIPE};
 use crate::idgen::Handle;
-use crate::notification_queue::NotificationQueueArc;
 
-use super::rw_shared::{ReaderCountGuard, ReaderSharedData, SharedBuffer};
+use super::rw_shared::{ReaderSharedData, SharedBuffer};
 
 /// Action to take when checking if reader should wait
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 enum WaitAction {
     /// Reader should wait for more data
     Wait,
@@ -44,27 +43,23 @@ enum WaitAction {
 ///   concurrently without interfering with each other.
 pub struct Reader {
     own_handle: Handle,
-    buffer: Arc<Mutex<SharedBuffer>>,
-    writer_handle: Handle,
-    queue: NotificationQueueArc,
+    buffer: Arc<SharedBuffer>,
+    watch_rx: Option<tokio::sync::watch::Receiver<()>>,
     pos: usize,
     own_closed: bool,
     own_errno: i32,
-    guard: Option<ReaderCountGuard>,
 }
 
 impl Reader {
     #[must_use]
-    pub fn new(handle: Handle, shared_data: ReaderSharedData, guard: ReaderCountGuard) -> Self {
+    pub fn new(handle: Handle, shared_data: ReaderSharedData) -> Self {
         Self {
             own_handle: handle,
             buffer: shared_data.buffer,
-            writer_handle: shared_data.writer_handle,
-            queue: shared_data.queue,
+            watch_rx: Some(shared_data.watch_rx),
             pos: 0,
             own_closed: false,
             own_errno: 0,
-            guard: Some(guard),
         }
     }
 
@@ -84,7 +79,7 @@ impl Reader {
             return Err(EBADF);
         }
         self.own_closed = true;
-        self.guard.take();
+        self.watch_rx.take();
         Ok(())
     }
 
@@ -98,7 +93,7 @@ impl Reader {
         if self.own_errno != 0 {
             return self.own_errno;
         }
-        let writer_errno = self.buffer.lock().errno;
+        let writer_errno = self.buffer.errno.load(Ordering::Acquire);
         if writer_errno != 0 {
             EPIPE
         } else {
@@ -127,8 +122,7 @@ impl Reader {
             return WaitAction::Error;
         }
 
-        let shared = self.buffer.lock();
-        let writer_pos = shared.buffer.len();
+        let writer_pos = self.buffer.buffer.len();
 
         // Priority 2: If data is available, allow reading it
         if self.pos < writer_pos {
@@ -137,31 +131,12 @@ impl Reader {
 
         // Reader is caught up with writer (pos >= writer_pos)
         // Priority 3: Check writer error
-        if shared.errno != 0 {
+        if self.buffer.errno.load(Ordering::Acquire) != 0 {
             WaitAction::Error
-        } else if shared.closed {
+        } else if self.buffer.closed.load(Ordering::Acquire) {
             WaitAction::Closed
         } else {
             WaitAction::Wait
-        }
-    }
-
-    /// Wait for writer to provide more data
-    ///
-    /// See the `crate::notification_queue` documentation for the workflow explanation
-    /// (check (in "read") - lock (here) - check again (here))
-    async fn wait_for_writer(&self) {
-        let queue_lock = self.queue.get_lock();
-
-        match self.should_wait_for_writer() {
-            WaitAction::Wait => {
-                self.queue
-                    .wait_async(self.writer_handle, "reader", queue_lock)
-                    .await;
-            }
-            WaitAction::Closed | WaitAction::DontWait | WaitAction::Error => {
-                drop(queue_lock);
-            }
         }
     }
 
@@ -181,8 +156,14 @@ impl Reader {
         while !self.own_closed {
             match self.should_wait_for_writer() {
                 WaitAction::Wait => {
-                    self.wait_for_writer().await;
-                    continue; // restart the loop. A case of errors will be reported by "should_wait_for_writer"
+                    if let Some(rx) = self.watch_rx.as_mut() {
+                        // Err means the Sender was dropped (writer closed); treat as wakeup.
+                        let _ = rx.changed().await;
+                    } else {
+                        warn!(handle = ?self.own_handle, "watch_rx is None but own_closed is false");
+                        break;
+                    }
+                    continue;
                 }
                 WaitAction::Closed => {
                     return Ok(0);
@@ -196,8 +177,7 @@ impl Reader {
             }
 
             // Read data from buffer
-            let shared = self.buffer.lock();
-            let bufferguard = shared.buffer.lock();
+            let bufferguard = self.buffer.buffer.lock();
             let available = bufferguard.len().saturating_sub(self.pos);
             let to_read = available.min(buf.len());
             let end_pos = self.pos + to_read;
@@ -210,9 +190,7 @@ impl Reader {
                     to_read = to_read,
                     "CRITICAL: destination buffer slice out of bounds"
                 );
-                // Explicit drops: shared borrows self.buffer, set_error needs &mut self
                 drop(bufferguard);
-                drop(shared);
                 self.set_error(EIO);
                 return Err(EIO);
             };
@@ -224,7 +202,6 @@ impl Reader {
                     "CRITICAL: source buffer slice out of bounds"
                 );
                 drop(bufferguard);
-                drop(shared);
                 self.set_error(EIO);
                 return Err(EIO);
             };
@@ -242,8 +219,8 @@ impl fmt::Debug for Reader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Pipe.Reader(handle={:?}, pos={}, closed={}, errno={}, writer_handle={:?})",
-            self.own_handle, self.pos, self.own_closed, self.own_errno, self.writer_handle
+            "Pipe.Reader(handle={:?}, pos={}, closed={}, errno={})",
+            self.own_handle, self.pos, self.own_closed, self.own_errno
         )
     }
 }

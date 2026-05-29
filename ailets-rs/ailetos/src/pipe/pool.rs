@@ -7,8 +7,8 @@
 //!
 //! Actors can start reading from dependencies before those dependencies have created their
 //! output pipes. When a reader requests a non-existent pipe, a **latent writer** placeholder
-//! is created. The reader waits on a `tokio::Notify` until the producer creates the pipe or
-//! terminates.
+//! is created. The reader waits on a `tokio::sync::watch` channel until the producer creates
+//! the pipe or terminates.
 //!
 //! ## KV Storage for Terminated Actors
 //!
@@ -26,7 +26,6 @@ use super::pipe_path;
 use super::reader::Reader;
 use super::writer::Writer;
 use crate::idgen::{Handle, IdGen};
-use crate::notification_queue::NotificationQueueArc;
 use crate::storage::KVBuffers;
 
 /// Error type for pipe reader operations
@@ -66,7 +65,7 @@ enum WriterState {
     /// Latent writer - placeholder waiting for producer to create pipe
     Latent {
         state: LatentState,
-        notify: Arc<tokio::sync::Notify>,
+        notify_tx: Arc<tokio::sync::watch::Sender<()>>,
     },
 }
 
@@ -78,8 +77,6 @@ pub struct PipePool {
     writers: Mutex<Vec<(Handle, isize, WriterState)>>,
     /// Key-value store for pipe buffers
     kv: Arc<dyn KVBuffers>,
-    /// Notification queue for pipe data events
-    notification_queue: NotificationQueueArc,
 }
 
 impl PipePool {
@@ -92,7 +89,6 @@ impl PipePool {
         Self {
             writers: Mutex::new(Vec::new()),
             kv,
-            notification_queue: NotificationQueueArc::new(),
         }
     }
 
@@ -129,9 +125,9 @@ impl PipePool {
                 match existing_state {
                     Some(WriterState::Realized(writer)) => {
                         // Case 1: Writer exists - create reader immediately
-                        let (shared_data, guard) = writer.share_with_reader();
+                        let shared_data = writer.share_with_reader();
                         let reader_handle = Handle::new(id_gen.get_next());
-                        return Ok(Reader::new(reader_handle, shared_data, guard));
+                        return Ok(Reader::new(reader_handle, shared_data));
                     }
                     Some(WriterState::Latent {
                         state: LatentState::Closed,
@@ -142,11 +138,11 @@ impl PipePool {
                     }
                     Some(WriterState::Latent {
                         state: LatentState::Waiting,
-                        notify,
+                        notify_tx,
                     }) => {
                         // Case 3: Latent writer waiting for producer
                         if allow_latent {
-                            Some(Arc::clone(notify))
+                            Some(notify_tx.subscribe())
                         } else {
                             return Err(PipeError::WouldBlock);
                         }
@@ -157,24 +153,26 @@ impl PipePool {
                             return Err(PipeError::WouldBlock);
                         }
                         // Create latent writer
-                        let notify = Arc::new(tokio::sync::Notify::new());
+                        let (notify_tx, notify_rx) = tokio::sync::watch::channel(());
+                        let notify_tx = Arc::new(notify_tx);
                         writers.push((
                             key.0,
                             key.1,
                             WriterState::Latent {
                                 state: LatentState::Waiting,
-                                notify: Arc::clone(&notify),
+                                notify_tx,
                             },
                         ));
                         debug!(key = ?key, "created latent writer");
-                        Some(notify)
+                        Some(notify_rx)
                     }
                 }
             }; // Lock released here
 
             // Wait for notification if needed, then loop back to recheck
-            if let Some(notify) = wait_notify {
-                notify.notified().await;
+            if let Some(mut rx) = wait_notify {
+                // Err means the Sender was dropped; treat as wakeup.
+                let _ = rx.changed().await;
             }
         }
     }
@@ -217,25 +215,19 @@ impl PipePool {
         let path = pipe_path(actor_handle, fd);
 
         // Create writer with buffer from KV storage
-        let writer = create_writer(
-            self.kv.as_ref(),
-            self.notification_queue.clone(),
-            writer_handle,
-            &path,
-        )
-        .await?;
+        let writer = create_writer(self.kv.as_ref(), writer_handle, &path).await?;
 
         // Replace state with Realized and notify waiters if needed
         let writer_arc = Arc::new(writer);
-        let notify_arc = {
+        let notify_tx = {
             let mut writers = self.writers.lock();
 
             // Remove old state and extract notify handle if it was Latent
-            let notify_arc = if let Some(pos) = writers.iter().position(|(h, s, _)| (*h, *s) == key)
+            let notify_tx = if let Some(pos) = writers.iter().position(|(h, s, _)| (*h, *s) == key)
             {
                 let (_, _, old_state) = writers.remove(pos);
                 match old_state {
-                    WriterState::Latent { notify, .. } => Some(notify),
+                    WriterState::Latent { notify_tx, .. } => Some(notify_tx),
                     WriterState::Realized(_) => None,
                 }
             } else {
@@ -246,12 +238,14 @@ impl PipePool {
             writers.push((key.0, key.1, WriterState::Realized(Arc::clone(&writer_arc))));
             debug!(key = ?key, "created writer");
 
-            notify_arc
+            notify_tx
         }; // Lock released here
 
         // Notify waiters outside lock
-        if let Some(notify) = notify_arc {
-            notify.notify_waiters();
+        if let Some(tx) = notify_tx {
+            if tx.send(()).is_err() {
+                warn!(key = ?key, "pool: notify after creating writer failed, no receivers");
+            }
             debug!(key = ?key, "notified waiters after creating writer");
         }
 
@@ -287,10 +281,10 @@ impl PipePool {
                         }
                         WriterState::Latent {
                             state: latent_state,
-                            notify,
+                            notify_tx,
                         } if *latent_state == LatentState::Waiting => {
                             *latent_state = LatentState::Closed;
-                            notifies.push(Arc::clone(notify));
+                            notifies.push(Arc::clone(notify_tx));
                             debug!(key = ?(*h, *s), "closed latent writer on actor shutdown");
                         }
                         WriterState::Latent { .. } => {}
@@ -319,8 +313,10 @@ impl PipePool {
         }
 
         // Notify latent waiters outside lock
-        for notify in notifies {
-            notify.notify_waiters();
+        for tx in notifies {
+            if tx.send(()).is_err() {
+                warn!(actor = ?actor_handle, "pool: notify latent waiter on actor shutdown failed, no receivers");
+            }
         }
 
         if error_count == 0 {
