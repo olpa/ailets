@@ -382,3 +382,17 @@ async fn test_multiple_readers_independent_errors() {
     assert_eq!(reader1.read(&mut buf).await, Err(100));
     assert_eq!(reader2.read(&mut buf).await, Err(200));
 }
+
+#[tokio::test]
+async fn test_write_after_all_readers_dropped_gives_epipe() {
+    let writer = Writer::new(Handle::new(1), "test", Buffer::new());
+
+    let shared_data = writer.share_with_reader();
+    let reader = Reader::new(Handle::new(2), shared_data);
+
+    // Drop the reader so receiver_count == 0
+    drop(reader);
+
+    // Writer should detect no readers and return EPIPE
+    assert_eq!(writer.write(b"data"), Err(EPIPE));
+}
