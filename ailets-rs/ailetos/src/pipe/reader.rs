@@ -156,8 +156,16 @@ impl Reader {
         while !self.own_closed {
             match self.should_wait_for_writer() {
                 WaitAction::Wait => {
-                    // Err means the Sender was dropped (writer closed); treat as wakeup.
-                    let _ = self.watch_rx.as_mut().unwrap().changed().await;
+                    match self.watch_rx.as_mut() {
+                        Some(rx) => {
+                            // Err means the Sender was dropped (writer closed); treat as wakeup.
+                            let _ = rx.changed().await;
+                        }
+                        None => {
+                            warn!(handle = ?self.own_handle, "watch_rx is None but own_closed is false");
+                            break;
+                        }
+                    }
                     continue;
                 }
                 WaitAction::Closed => {

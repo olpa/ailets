@@ -96,6 +96,10 @@ impl Writer {
 
         // Set EPIPE if all readers are gone. compare_exchange ensures only the
         // first writer to notice sets it (errno is monotonic: set once, never cleared).
+        // Note: receiver_count() and compare_exchange are not atomic together — a reader
+        // joining via share_with_reader() between the two could get a spurious EPIPE on
+        // its first read. Acceptable because share_with_reader() is called before the
+        // reader starts consuming, and errno is checked before any data is read.
         if self.shared.had_readers.load(Ordering::Acquire)
             && self.watch_tx.receiver_count() == 0
         {
