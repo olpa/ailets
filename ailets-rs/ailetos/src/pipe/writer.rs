@@ -1,7 +1,7 @@
 //! Writer side of the memory pipe
 
-use parking_lot::Mutex;
 use std::fmt;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tracing::{trace, warn};
 
@@ -29,7 +29,7 @@ use super::rw_shared::{ReaderSharedData, SharedBuffer};
 ///   However, this is not an issue in practice since notifications are sent after
 ///   the lock is released.
 pub struct Writer {
-    shared: Arc<Mutex<SharedBuffer>>,
+    shared: Arc<SharedBuffer>,
     handle: Handle,
     watch_tx: tokio::sync::watch::Sender<()>,
     debug_hint: String,
@@ -44,7 +44,7 @@ impl Writer {
         // Readers call subscribe() when they are created (see create_reader).
         let (watch_tx, _) = tokio::sync::watch::channel(());
         Self {
-            shared: Arc::new(Mutex::new(SharedBuffer::new(buffer))),
+            shared: Arc::new(SharedBuffer::new(buffer)),
             handle,
             watch_tx,
             debug_hint: debug_hint.to_string(),
@@ -54,34 +54,31 @@ impl Writer {
     /// Get the current position (bytes written)
     #[must_use]
     pub fn tell(&self) -> usize {
-        self.shared.lock().buffer.len()
+        self.shared.buffer.len()
     }
 
     /// Get current error state
     #[must_use]
     pub fn get_error(&self) -> i32 {
-        self.shared.lock().errno
+        self.shared.errno.load(Ordering::Acquire)
     }
 
     /// Set error state and notify readers
     pub fn set_error(&self, errno: i32) {
-        {
-            let mut shared = self.shared.lock();
-            shared.errno = errno;
-        }
+        self.shared.errno.store(errno, Ordering::Release);
         self.watch_tx.send(()).ok();
     }
 
     /// Check if writer is closed
     #[must_use]
     pub fn is_closed(&self) -> bool {
-        self.shared.lock().closed
+        self.shared.closed.load(Ordering::Acquire)
     }
 
     /// Get a reference-counted handle to the underlying buffer
     #[must_use]
     pub fn buffer(&self) -> Buffer {
-        self.shared.lock().buffer.clone()
+        self.shared.buffer.clone()
     }
 
     /// Write data to the pipe.
@@ -105,34 +102,38 @@ impl Writer {
     /// # Errors
     /// Returns `EBADF` if closed, current errno if set, or `ENOSPC` if buffer write fails.
     pub fn write(&self, data: &[u8]) -> Result<usize, i32> {
-        let result: Result<usize, i32> = {
-            let mut shared = self.shared.lock();
+        if self.shared.closed.load(Ordering::Acquire) {
+            return Err(EBADF);
+        }
 
-            if shared.closed {
-                return Err(EBADF);
-            }
+        // Set EPIPE if all readers are gone. compare_exchange ensures only the
+        // first writer to notice sets it (errno is monotonic: set once, never cleared).
+        if self.shared.had_readers.load(Ordering::Acquire)
+            && self.watch_tx.receiver_count() == 0
+        {
+            self.shared
+                .errno
+                .compare_exchange(0, EPIPE, Ordering::AcqRel, Ordering::Acquire)
+                .ok();
+        }
 
-            if shared.had_readers && self.watch_tx.receiver_count() == 0 && shared.errno == 0 {
-                shared.errno = EPIPE;
-            }
+        let errno = self.shared.errno.load(Ordering::Acquire);
+        if errno != 0 {
+            return Err(errno);
+        }
 
-            if shared.errno != 0 {
-                return Err(shared.errno);
-            }
+        if data.is_empty() {
+            // IMPORTANT: Return early without notifying observers.
+            // Empty writes should not wake up waiting readers.
+            return Ok(0);
+        }
 
-            if data.is_empty() {
-                // IMPORTANT: Return early without notifying observers.
-                // Empty writes should not wake up waiting readers.
-                return Ok(0);
-            }
-
-            if shared.buffer.append(data).is_ok() {
-                Ok(data.len())
-            } else {
-                // Buffer append failed - treat as ENOSPC
-                shared.errno = ENOSPC;
-                Err(ENOSPC)
-            }
+        let result = if self.shared.buffer.append(data).is_ok() {
+            Ok(data.len())
+        } else {
+            // Buffer append failed - treat as ENOSPC
+            self.shared.errno.store(ENOSPC, Ordering::Release);
+            Err(ENOSPC)
         };
 
         // Notify outside lock (both data and errors wake waiting readers)
@@ -145,13 +146,16 @@ impl Writer {
     /// # Errors
     /// Returns `EBADF` if already closed.
     pub fn close(&self) -> Result<(), i32> {
+        // compare_exchange from false→true is the "set once" close; if it was
+        // already true, someone else closed first.
+        if self
+            .shared
+            .closed
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .is_err()
         {
-            let mut shared = self.shared.lock();
-            if shared.closed {
-                warn!("Writer::close() called on already closed writer: {self:?}");
-                return Err(EBADF);
-            }
-            shared.closed = true;
+            warn!("Writer::close() called on already closed writer: {self:?}");
+            return Err(EBADF);
         }
         // Wake all waiting readers; dropping watch_tx would also work but this
         // is explicit and consistent with the error/write notification pattern.
@@ -168,7 +172,7 @@ impl Writer {
     /// Create shared data for a new reader.
     #[must_use]
     pub fn share_with_reader(&self) -> ReaderSharedData {
-        self.shared.lock().had_readers = true;
+        self.shared.had_readers.store(true, Ordering::Release);
         ReaderSharedData {
             buffer: Arc::clone(&self.shared),
             writer_handle: self.handle,
@@ -179,24 +183,15 @@ impl Writer {
 
 impl fmt::Debug for Writer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Use try_lock to avoid deadlock if called while holding the lock
-        if let Some(shared) = self.shared.try_lock() {
-            write!(
-                f,
-                "Pipe.Writer(handle={:?}, closed={}, tell={}, errno={}, hint={})",
-                self.handle,
-                shared.closed,
-                shared.buffer.len(),
-                shared.errno,
-                self.debug_hint
-            )
-        } else {
-            write!(
-                f,
-                "Pipe.Writer(handle={:?}, <locked>, hint={})",
-                self.handle, self.debug_hint
-            )
-        }
+        write!(
+            f,
+            "Pipe.Writer(handle={:?}, closed={}, tell={}, errno={}, hint={})",
+            self.handle,
+            self.shared.closed.load(Ordering::Acquire),
+            self.shared.buffer.len(),
+            self.shared.errno.load(Ordering::Acquire),
+            self.debug_hint
+        )
     }
 }
 

@@ -2,7 +2,6 @@
 //!
 //! Standalone functions for allocating pipes with backing storage from KV.
 
-use parking_lot::Mutex;
 use std::sync::Arc;
 use tracing::warn;
 
@@ -133,12 +132,7 @@ pub async fn create_reader_from_completed(
     let kv_buffer = kv.open(path, OpenMode::Read).await?;
 
     // Create a closed SharedBuffer with the KV data
-    let shared_buffer = SharedBuffer {
-        buffer: kv_buffer,
-        errno: 0,
-        closed: true, // Mark as closed since data is complete
-        had_readers: false,
-    };
+    let shared_buffer = SharedBuffer::new_closed(kv_buffer);
 
     // Create dummy writer handle - unused since buffer is closed
     let writer_handle = Handle::new(-1);
@@ -150,7 +144,7 @@ pub async fn create_reader_from_completed(
 
     // Create ReaderSharedData
     let shared_data = ReaderSharedData {
-        buffer: Arc::new(Mutex::new(shared_buffer)),
+        buffer: Arc::new(shared_buffer),
         writer_handle,
         watch_rx,
     };

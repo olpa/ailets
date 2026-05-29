@@ -1,7 +1,7 @@
 //! Reader side of the memory pipe
 
-use parking_lot::Mutex;
 use std::fmt;
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use tracing::{error, trace, warn};
 
@@ -43,7 +43,7 @@ enum WaitAction {
 ///   concurrently without interfering with each other.
 pub struct Reader {
     own_handle: Handle,
-    buffer: Arc<Mutex<SharedBuffer>>,
+    buffer: Arc<SharedBuffer>,
     writer_handle: Handle,
     watch_rx: Option<tokio::sync::watch::Receiver<()>>,
     pos: usize,
@@ -95,7 +95,7 @@ impl Reader {
         if self.own_errno != 0 {
             return self.own_errno;
         }
-        let writer_errno = self.buffer.lock().errno;
+        let writer_errno = self.buffer.errno.load(Ordering::Acquire);
         if writer_errno != 0 {
             EPIPE
         } else {
@@ -124,8 +124,7 @@ impl Reader {
             return WaitAction::Error;
         }
 
-        let shared = self.buffer.lock();
-        let writer_pos = shared.buffer.len();
+        let writer_pos = self.buffer.buffer.len();
 
         // Priority 2: If data is available, allow reading it
         if self.pos < writer_pos {
@@ -134,9 +133,9 @@ impl Reader {
 
         // Reader is caught up with writer (pos >= writer_pos)
         // Priority 3: Check writer error
-        if shared.errno != 0 {
+        if self.buffer.errno.load(Ordering::Acquire) != 0 {
             WaitAction::Error
-        } else if shared.closed {
+        } else if self.buffer.closed.load(Ordering::Acquire) {
             WaitAction::Closed
         } else {
             WaitAction::Wait
@@ -175,8 +174,7 @@ impl Reader {
             }
 
             // Read data from buffer
-            let shared = self.buffer.lock();
-            let bufferguard = shared.buffer.lock();
+            let bufferguard = self.buffer.buffer.lock();
             let available = bufferguard.len().saturating_sub(self.pos);
             let to_read = available.min(buf.len());
             let end_pos = self.pos + to_read;
@@ -189,9 +187,7 @@ impl Reader {
                     to_read = to_read,
                     "CRITICAL: destination buffer slice out of bounds"
                 );
-                // Explicit drops: shared borrows self.buffer, set_error needs &mut self
                 drop(bufferguard);
-                drop(shared);
                 self.set_error(EIO);
                 return Err(EIO);
             };
@@ -203,7 +199,6 @@ impl Reader {
                     "CRITICAL: source buffer slice out of bounds"
                 );
                 drop(bufferguard);
-                drop(shared);
                 self.set_error(EIO);
                 return Err(EIO);
             };
