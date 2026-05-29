@@ -51,4 +51,3 @@ pub struct ReaderSharedData {
     pub(crate) buffer: Arc<SharedBuffer>,
     pub(crate) watch_rx: tokio::sync::watch::Receiver<()>,
 }
-

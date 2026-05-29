@@ -100,9 +100,7 @@ impl Writer {
         // joining via share_with_reader() between the two could get a spurious EPIPE on
         // its first read. Acceptable because share_with_reader() is called before the
         // reader starts consuming, and errno is checked before any data is read.
-        if self.shared.had_readers.load(Ordering::Acquire)
-            && self.watch_tx.receiver_count() == 0
-        {
+        if self.shared.had_readers.load(Ordering::Acquire) && self.watch_tx.receiver_count() == 0 {
             self.shared
                 .errno
                 .compare_exchange(0, EPIPE, Ordering::AcqRel, Ordering::Acquire)
