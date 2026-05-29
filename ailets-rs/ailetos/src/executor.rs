@@ -205,7 +205,7 @@ fn spawn_actor_task(
 /// Emits `ExecutorEvent::NodeTerminated` to `events_tx` on each termination.
 async fn lifecycle_event_task(
     dag: Arc<parking_lot::RwLock<Dag>>,
-    executor_wakeup: Arc<tokio::sync::Notify>,
+    executor_wakeup: Arc<tokio::sync::watch::Sender<()>>,
     mut rx: mpsc::UnboundedReceiver<ActorLifecycleEvent>,
     events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
 ) {
@@ -261,7 +261,7 @@ async fn lifecycle_event_task(
                         warn!(node = ?node_handle, "executor events receiver dropped");
                     }
                 }
-                executor_wakeup.notify_one();
+                executor_wakeup.send(()).ok();
             }
         }
     }
@@ -306,7 +306,7 @@ fn spawn_ready_actors(
                 dag.set_exit_code(node_handle, crate::errno::ENOENT);
                 dag.set_state(node_handle, NodeState::Terminated);
             }
-            infra.executor_wakeup.notify_one();
+            infra.executor_wakeup.send(()).ok();
             continue;
         };
 
@@ -373,6 +373,7 @@ async fn run_spawn_loop_jobs(
     let mut actor_tasks = JoinSet::new();
     let mut pending: HashSet<Handle> = HashSet::new();
     let mut channel_closed = false;
+    let mut wakeup_rx = infra.executor_wakeup.subscribe();
 
     loop {
         pending = spawn_ready_actors(pending, env, infra, &mut actor_tasks);
@@ -410,11 +411,12 @@ async fn run_spawn_loop_jobs(
                     None => { channel_closed = true; }
                 }
             }
-            // Wake up when DAG state changes (actor termination, state transitions).
-            // This signals that previously blocked actors may now be ready to spawn.
-            // We ignore the notification value itself - we just need to wake up and
-            // re-check readiness in spawn_ready_actors at the top of the loop.
-            () = infra.executor_wakeup.notified() => {}
+            // Wake up when DAG state changes (actor termination, pipe realization, writer close).
+            // Coalesces multiple rapid wakeups: watch only delivers the latest value, so
+            // concurrent signals don't queue up. We re-check readiness regardless of how
+            // many wakeups arrived.
+            // Err means the Sender was dropped (executor shutting down); treat as wakeup.
+            _ = wakeup_rx.changed() => {}
 
             // Join completed actor tasks to reclaim memory and maintain bounded growth.
             // This branch completes whenever any task finishes, removing it from the set.
@@ -432,8 +434,9 @@ async fn run_spawn_loop_jobs(
 /// # Fields
 ///
 /// - `executor_wakeup`: Signals the executor when DAG state changes occur. The
-///   lifecycle handler calls `notify_one()` after updating node states, causing
-///   the executor to wake up and check for newly ready nodes.
+///   lifecycle handler calls `send(())` after updating node states, causing
+///   the executor to wake up and check for newly ready nodes. Multiple rapid
+///   signals are coalesced — the executor only needs to re-check, not count events.
 ///
 /// - `io_bridge`: Handles all I/O operations for actors (stdin/stdout/stderr/files).
 ///   Cloned into each `BlockingActorRuntime` so actors can perform I/O.
@@ -457,7 +460,7 @@ async fn run_spawn_loop_jobs(
 /// 5. Join `lifecycle_handler`.
 struct ExecutorInfra {
     async_runtime: tokio::runtime::Handle,
-    executor_wakeup: Arc<tokio::sync::Notify>,
+    executor_wakeup: Arc<tokio::sync::watch::Sender<()>>,
     io_bridge: Arc<IoBridge>,
     lifecycle_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
     lifecycle_handler: tokio::task::JoinHandle<()>,
@@ -469,7 +472,8 @@ impl ExecutorInfra {
         env: &Arc<Environment>,
         events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
     ) -> Self {
-        let executor_wakeup = Arc::new(tokio::sync::Notify::new());
+        let (wakeup_tx, _) = tokio::sync::watch::channel(());
+        let executor_wakeup = Arc::new(wakeup_tx);
         let (lifecycle_tx, lifecycle_rx) = mpsc::unbounded_channel::<ActorLifecycleEvent>();
         let io_bridge = Arc::new(IoBridge::new(
             async_runtime.clone(),
