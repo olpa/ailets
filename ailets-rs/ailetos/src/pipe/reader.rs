@@ -8,7 +8,7 @@ use tracing::{error, trace, warn};
 use crate::errno::{EBADF, EIO, EPIPE};
 use crate::idgen::Handle;
 
-use super::rw_shared::{ReaderCountGuard, ReaderSharedData, SharedBuffer};
+use super::rw_shared::{ReaderSharedData, SharedBuffer};
 
 /// Action to take when checking if reader should wait
 #[derive(Debug, Clone, Copy)]
@@ -45,25 +45,23 @@ pub struct Reader {
     own_handle: Handle,
     buffer: Arc<Mutex<SharedBuffer>>,
     writer_handle: Handle,
-    watch_rx: tokio::sync::watch::Receiver<()>,
+    watch_rx: Option<tokio::sync::watch::Receiver<()>>,
     pos: usize,
     own_closed: bool,
     own_errno: i32,
-    guard: Option<ReaderCountGuard>,
 }
 
 impl Reader {
     #[must_use]
-    pub fn new(handle: Handle, shared_data: ReaderSharedData, guard: ReaderCountGuard) -> Self {
+    pub fn new(handle: Handle, shared_data: ReaderSharedData) -> Self {
         Self {
             own_handle: handle,
             buffer: shared_data.buffer,
             writer_handle: shared_data.writer_handle,
-            watch_rx: shared_data.watch_rx,
+            watch_rx: Some(shared_data.watch_rx),
             pos: 0,
             own_closed: false,
             own_errno: 0,
-            guard: Some(guard),
         }
     }
 
@@ -83,7 +81,7 @@ impl Reader {
             return Err(EBADF);
         }
         self.own_closed = true;
-        self.guard.take();
+        self.watch_rx.take();
         Ok(())
     }
 
@@ -162,7 +160,7 @@ impl Reader {
             match self.should_wait_for_writer() {
                 WaitAction::Wait => {
                     // Err means the Sender was dropped (writer closed); treat as wakeup.
-                    let _ = self.watch_rx.changed().await;
+                    let _ = self.watch_rx.as_mut().unwrap().changed().await;
                     continue;
                 }
                 WaitAction::Closed => {

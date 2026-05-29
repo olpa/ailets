@@ -11,8 +11,6 @@ pub(crate) struct SharedBuffer {
     pub(super) buffer: Buffer,
     pub(super) errno: i32,
     pub(super) closed: bool,
-    /// Number of active readers still open.
-    pub(super) reader_count: usize,
     /// True once at least one reader has been created.
     pub(super) had_readers: bool,
 }
@@ -23,7 +21,6 @@ impl SharedBuffer {
             buffer,
             errno: 0,
             closed: false,
-            reader_count: 0,
             had_readers: false,
         }
     }
@@ -39,15 +36,3 @@ pub struct ReaderSharedData {
     pub(crate) watch_rx: tokio::sync::watch::Receiver<()>,
 }
 
-/// Drop guard that decrements `reader_count` when a Reader is closed or dropped.
-/// Created by `Writer::share_with_reader()`; owned exclusively by the Reader.
-pub struct ReaderCountGuard(pub(crate) Arc<Mutex<SharedBuffer>>);
-
-impl Drop for ReaderCountGuard {
-    fn drop(&mut self) {
-        let mut shared = self.0.lock();
-        if shared.reader_count > 0 {
-            shared.reader_count -= 1;
-        }
-    }
-}

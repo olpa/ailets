@@ -125,9 +125,9 @@ impl PipePool {
                 match existing_state {
                     Some(WriterState::Realized(writer)) => {
                         // Case 1: Writer exists - create reader immediately
-                        let (shared_data, guard) = writer.share_with_reader();
+                        let shared_data = writer.share_with_reader();
                         let reader_handle = Handle::new(id_gen.get_next());
-                        return Ok(Reader::new(reader_handle, shared_data, guard));
+                        return Ok(Reader::new(reader_handle, shared_data));
                     }
                     Some(WriterState::Latent {
                         state: LatentState::Closed,

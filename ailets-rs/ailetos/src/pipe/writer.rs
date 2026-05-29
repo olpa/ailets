@@ -9,7 +9,7 @@ use crate::errno::{EBADF, ENOSPC, EPIPE};
 use crate::idgen::Handle;
 use crate::storage::Buffer;
 
-use super::rw_shared::{ReaderCountGuard, ReaderSharedData, SharedBuffer};
+use super::rw_shared::{ReaderSharedData, SharedBuffer};
 
 /// Writer side of the memory pipe
 ///
@@ -38,6 +38,10 @@ pub struct Writer {
 impl Writer {
     #[must_use]
     pub fn new(handle: Handle, debug_hint: &str, buffer: Buffer) -> Self {
+        // The initial receiver from watch::channel() is dropped on purpose.
+        // Unlike mpsc, a watch Sender stays open after all receivers are gone,
+        // and new receivers can join later via watch_tx.subscribe().
+        // Readers call subscribe() when they are created (see create_reader).
         let (watch_tx, _) = tokio::sync::watch::channel(());
         Self {
             shared: Arc::new(Mutex::new(SharedBuffer::new(buffer))),
@@ -108,7 +112,7 @@ impl Writer {
                 return Err(EBADF);
             }
 
-            if shared.had_readers && shared.reader_count == 0 && shared.errno == 0 {
+            if shared.had_readers && self.watch_tx.receiver_count() == 0 && shared.errno == 0 {
                 shared.errno = EPIPE;
             }
 
@@ -161,23 +165,15 @@ impl Writer {
         &self.handle
     }
 
-    /// Create shared data and a drop guard for a new reader.
-    ///
-    /// The caller must pass the `ReaderCountGuard` to the `Reader`. When the guard is
-    /// dropped, `reader_count` is decremented automatically.
+    /// Create shared data for a new reader.
     #[must_use]
-    pub fn share_with_reader(&self) -> (ReaderSharedData, ReaderCountGuard) {
-        let mut shared = self.shared.lock();
-        shared.reader_count += 1;
-        shared.had_readers = true;
-        drop(shared);
-        let data = ReaderSharedData {
+    pub fn share_with_reader(&self) -> ReaderSharedData {
+        self.shared.lock().had_readers = true;
+        ReaderSharedData {
             buffer: Arc::clone(&self.shared),
             writer_handle: self.handle,
             watch_rx: self.watch_tx.subscribe(),
-        };
-        let guard = ReaderCountGuard(Arc::clone(&self.shared));
-        (data, guard)
+        }
     }
 }
 

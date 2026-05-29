@@ -11,7 +11,7 @@ use crate::idgen::Handle;
 use crate::storage::{KVBuffers, KVError, OpenMode};
 
 use super::reader::Reader;
-use super::rw_shared::{ReaderCountGuard, ReaderSharedData, SharedBuffer};
+use super::rw_shared::{ReaderSharedData, SharedBuffer};
 use super::writer::Writer;
 
 /// Returns the KV path for an actor's pipe: `pipes/actor-{id}-{fd}`
@@ -137,7 +137,6 @@ pub async fn create_reader_from_completed(
         buffer: kv_buffer,
         errno: 0,
         closed: true, // Mark as closed since data is complete
-        reader_count: 0,
         had_readers: false,
     };
 
@@ -156,7 +155,5 @@ pub async fn create_reader_from_completed(
         watch_rx,
     };
 
-    // No guard: this reader has no live writer (KV-backed, closed buffer)
-    let guard = ReaderCountGuard(Arc::clone(&shared_data.buffer));
-    Ok(Reader::new(reader_handle, shared_data, guard))
+    Ok(Reader::new(reader_handle, shared_data))
 }
