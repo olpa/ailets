@@ -243,7 +243,9 @@ impl PipePool {
 
         // Notify waiters outside lock
         if let Some(tx) = notify_tx {
-            tx.send(()).ok();
+            if tx.send(()).is_err() {
+                warn!(key = ?key, "pool: notify after creating writer failed, no receivers");
+            }
             debug!(key = ?key, "notified waiters after creating writer");
         }
 
@@ -312,7 +314,9 @@ impl PipePool {
 
         // Notify latent waiters outside lock
         for tx in notifies {
-            tx.send(()).ok();
+            if tx.send(()).is_err() {
+                warn!(actor = ?actor_handle, "pool: notify latent waiter on actor shutdown failed, no receivers");
+            }
         }
 
         if error_count == 0 {

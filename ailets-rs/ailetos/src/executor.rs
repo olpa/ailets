@@ -261,7 +261,9 @@ async fn lifecycle_event_task(
                         warn!(node = ?node_handle, "executor events receiver dropped");
                     }
                 }
-                executor_wakeup.send(()).ok();
+                if executor_wakeup.send(()).is_err() {
+                    warn!(node = ?node_handle, "executor: wakeup after node terminated failed, no receivers");
+                }
             }
         }
     }
@@ -306,7 +308,9 @@ fn spawn_ready_actors(
                 dag.set_exit_code(node_handle, crate::errno::ENOENT);
                 dag.set_state(node_handle, NodeState::Terminated);
             }
-            infra.executor_wakeup.send(()).ok();
+            if infra.executor_wakeup.send(()).is_err() {
+                warn!(node = ?node_handle, name = %idname, "executor: wakeup after unregistered actor failed, no receivers");
+            }
             continue;
         };
 

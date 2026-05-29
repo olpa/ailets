@@ -159,7 +159,9 @@ async fn run_writer_task(
                 // Wake the executor: the first write realizes the writer in the
                 // pool, potentially unblocking downstream actors whose readiness
                 // check (is_ready_to_spawn) waits for this dep's pipe to appear.
-                executor_wakeup.send(()).ok();
+                if executor_wakeup.send(()).is_err() {
+                    warn!(node = ?node_handle, fd = fd, "io_bridge writer task: executor wakeup after write failed, no receivers");
+                }
             }
             WriterCommand::Close { response } => {
                 debug!(node = ?node_handle, fd = fd, "writer task: received close command");
@@ -169,7 +171,9 @@ async fn run_writer_task(
                 }
                 // Wake the executor: a closed writer is a state change that
                 // may satisfy spawn readiness for downstream actors.
-                executor_wakeup.send(()).ok();
+                if executor_wakeup.send(()).is_err() {
+                    warn!(node = ?node_handle, fd = fd, "io_bridge writer task: executor wakeup after close failed, no receivers");
+                }
                 // No break: loop exits naturally when sender is dropped and recv() returns None.
                 // This keeps the bridge mechanical—it forwards commands without special control flow.
             }

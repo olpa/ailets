@@ -54,7 +54,9 @@ impl Writer {
     /// Set error state and notify readers
     pub fn set_error(&self, errno: i32) {
         self.shared.errno.store(errno, Ordering::Release);
-        self.watch_tx.send(()).ok();
+        if self.watch_tx.send(()).is_err() {
+            warn!(handle = ?self.handle, errno, "Writer::set_error: no receivers to notify");
+        }
     }
 
     /// Check if writer is closed
@@ -104,7 +106,7 @@ impl Writer {
             self.shared
                 .errno
                 .compare_exchange(0, EPIPE, Ordering::AcqRel, Ordering::Acquire)
-                .ok();
+                .ok(); // Err means another writer already set errno; that's fine, first writer wins
         }
 
         let errno = self.shared.errno.load(Ordering::Acquire);
@@ -127,7 +129,9 @@ impl Writer {
         };
 
         // Notify outside lock (both data and errors wake waiting readers)
-        self.watch_tx.send(()).ok();
+        if self.watch_tx.send(()).is_err() {
+            warn!(handle = ?self.handle, "Writer::write: no receivers to notify");
+        }
         result
     }
 
@@ -149,7 +153,9 @@ impl Writer {
         }
         // Wake all waiting readers; dropping watch_tx would also work but this
         // is explicit and consistent with the error/write notification pattern.
-        self.watch_tx.send(()).ok();
+        if self.watch_tx.send(()).is_err() {
+            warn!(handle = ?self.handle, "Writer::close: no receivers to notify");
+        }
         Ok(())
     }
 
