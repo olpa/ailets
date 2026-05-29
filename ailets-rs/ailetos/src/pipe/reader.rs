@@ -11,7 +11,7 @@ use crate::idgen::Handle;
 use super::rw_shared::{ReaderCountGuard, ReaderSharedData, SharedBuffer};
 
 /// Action to take when checking if reader should wait
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy)]
 enum WaitAction {
     /// Reader should wait for more data
     Wait,
@@ -145,23 +145,6 @@ impl Reader {
         }
     }
 
-    /// Wait for writer to provide more data
-    ///
-    /// Uses `watch::borrow_and_update` to atomically mark the current watch version
-    /// as seen before the re-check, preventing missed notifications (TOCTOU).
-    async fn wait_for_writer(&mut self) {
-        // Mark the current watch version as seen before re-checking state.
-        // If the writer sent a notification between the caller's first check and
-        // here, borrow_and_update sees the updated SharedBuffer and the re-check
-        // below returns DontWait — so we skip the wait entirely.
-        let _ = self.watch_rx.borrow_and_update();
-
-        if self.should_wait_for_writer() == WaitAction::Wait {
-            // Err means the Sender was dropped (writer closed); treat as wakeup.
-            let _ = self.watch_rx.changed().await;
-        }
-    }
-
     /// Read data from the pipe.
     ///
     /// Reads available data from the buffer. If no data is available,
@@ -178,8 +161,9 @@ impl Reader {
         while !self.own_closed {
             match self.should_wait_for_writer() {
                 WaitAction::Wait => {
-                    self.wait_for_writer().await;
-                    continue; // restart the loop. A case of errors will be reported by "should_wait_for_writer"
+                    // Err means the Sender was dropped (writer closed); treat as wakeup.
+                    let _ = self.watch_rx.changed().await;
+                    continue;
                 }
                 WaitAction::Closed => {
                     return Ok(0);
