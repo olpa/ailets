@@ -134,18 +134,13 @@ pub async fn create_reader_from_completed(
     // Create a closed SharedBuffer with the KV data
     let shared_buffer = SharedBuffer::new_closed(kv_buffer);
 
-    // Create dummy writer handle - unused since buffer is closed
-    let writer_handle = Handle::new(-1);
-
     // Dummy watch channel: the Sender is dropped immediately, but since the buffer
     // is already marked closed, should_wait_for_writer() always returns Closed and
     // the watch receiver is never polled.
     let (_, watch_rx) = tokio::sync::watch::channel(());
 
-    // Create ReaderSharedData
     let shared_data = ReaderSharedData {
         buffer: Arc::new(shared_buffer),
-        writer_handle,
         watch_rx,
     };
 

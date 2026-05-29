@@ -3,7 +3,6 @@
 use std::sync::atomic::{AtomicBool, AtomicI32};
 use std::sync::Arc;
 
-use crate::idgen::Handle;
 use crate::storage::Buffer;
 
 /// Shared state between Writer and Readers.
@@ -50,7 +49,6 @@ impl SharedBuffer {
 #[derive(Clone)]
 pub struct ReaderSharedData {
     pub(crate) buffer: Arc<SharedBuffer>,
-    pub(crate) writer_handle: Handle,
     pub(crate) watch_rx: tokio::sync::watch::Receiver<()>,
 }
 

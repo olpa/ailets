@@ -13,21 +13,9 @@ use super::rw_shared::{ReaderSharedData, SharedBuffer};
 
 /// Writer side of the memory pipe
 ///
-/// Writes append to the shared buffer and notify waiting readers.
-///
-/// # Thread Safety
-///
-/// Writer is thread-safe and can be shared between threads (via Arc or references).
-/// All write operations use interior mutability with `parking_lot::Mutex` protection.
-///
-/// - **Thread-safe**: Multiple threads can call `write()`, `write()`, and other
-///   methods concurrently. The internal Mutex serializes access to shared state.
-/// - **Concurrent writes**: The write lock is released before sending notifications,
-///   allowing high concurrency. Notification happens outside the critical section.
-/// - **NOT reentrant**: Mutex is not reentrant. Calling `write()` from within
-///   another `write()` on the same thread (e.g., from a callback) would deadlock.
-///   However, this is not an issue in practice since notifications are sent after
-///   the lock is released.
+/// Writes append to the shared buffer and notify waiting readers via a
+/// `tokio::sync::watch` channel. Monotonic fields (`errno`, `closed`,
+/// `had_readers`) are atomics; the buffer retains its own internal mutex.
 pub struct Writer {
     shared: Arc<SharedBuffer>,
     handle: Handle,
@@ -175,7 +163,6 @@ impl Writer {
         self.shared.had_readers.store(true, Ordering::Release);
         ReaderSharedData {
             buffer: Arc::clone(&self.shared),
-            writer_handle: self.handle,
             watch_rx: self.watch_tx.subscribe(),
         }
     }

@@ -44,7 +44,6 @@ enum WaitAction {
 pub struct Reader {
     own_handle: Handle,
     buffer: Arc<SharedBuffer>,
-    writer_handle: Handle,
     watch_rx: Option<tokio::sync::watch::Receiver<()>>,
     pos: usize,
     own_closed: bool,
@@ -57,7 +56,6 @@ impl Reader {
         Self {
             own_handle: handle,
             buffer: shared_data.buffer,
-            writer_handle: shared_data.writer_handle,
             watch_rx: Some(shared_data.watch_rx),
             pos: 0,
             own_closed: false,
@@ -216,8 +214,8 @@ impl fmt::Debug for Reader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "Pipe.Reader(handle={:?}, pos={}, closed={}, errno={}, writer_handle={:?})",
-            self.own_handle, self.pos, self.own_closed, self.own_errno, self.writer_handle
+            "Pipe.Reader(handle={:?}, pos={}, closed={}, errno={})",
+            self.own_handle, self.pos, self.own_closed, self.own_errno
         )
     }
 }
