@@ -125,9 +125,7 @@ async fn main() {
         .submit(end_node, StopConditions::default())
         .expect("executor just started");
     executor.shutdown().await;
-    for task in stdout_tasks {
-        task.await.ok();
-    }
+    futures::future::join_all(stdout_tasks).await;
 
     // Drop environment to release KV reference
     drop(env);
