@@ -368,19 +368,20 @@ impl DagShell {
         let handle = self
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
-        let handle = self.env.resolve(handle);
 
-        if self.is_terminated_without_stdout(handle) {
-            return Ok(());
+        for target in self.env.resolve_all(handle) {
+            if self.is_terminated_without_stdout(target) {
+                continue;
+            }
+            let writer = OutputSinkWriter::new(Arc::clone(&self.notification_sink), color);
+            let future = self.env.pipe_pool.reader_future(
+                &self.env.idgen,
+                (target, StdHandle::Stdout as isize),
+                writer,
+            );
+            self.reader_tasks
+                .spawn_on(future, self.ailetos_async_rt.handle());
         }
-        let writer = OutputSinkWriter::new(Arc::clone(&self.notification_sink), color);
-        let future = self.env.pipe_pool.reader_future(
-            &self.env.idgen,
-            (handle, StdHandle::Stdout as isize),
-            writer,
-        );
-        self.reader_tasks
-            .spawn_on(future, self.ailetos_async_rt.handle());
 
         Ok(())
     }
