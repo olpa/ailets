@@ -112,7 +112,7 @@ impl DagShell {
                         .ok_or_else(|| format!("Invalid handle: {target_str}"))?;
                     targets.push(target);
                 }
-                let handle = self.env.add_alias(name.clone(), &targets);
+                let handle = self.env.add_aliases(name.clone(), &targets);
                 self.handles.push(handle);
                 let id = handle.id();
                 let tids: Vec<_> = targets.iter().map(|t| t.id().to_string()).collect();

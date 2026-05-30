@@ -127,9 +127,18 @@ impl Environment {
         handle
     }
 
-    /// Add an alias node pointing to one or more targets
+    /// Add an alias node pointing to a single target.
+    ///
+    /// Calling this multiple times with the same alias name creates separate
+    /// alias nodes; use `resolve_all` to collect all concrete targets.
     #[must_use]
-    pub fn add_alias(&self, alias_name: String, targets: &[Handle]) -> Handle {
+    pub fn add_alias(&self, alias_name: String, target: Handle) -> Handle {
+        self.add_aliases(alias_name, &[target])
+    }
+
+    /// Add an alias node pointing to one or more targets.
+    #[must_use]
+    pub fn add_aliases(&self, alias_name: String, targets: &[Handle]) -> Handle {
         let mut dag = self.dag.write();
         let handle = dag.add_node(alias_name, NodeKind::Alias);
         for &target in targets {

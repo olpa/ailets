@@ -64,7 +64,7 @@ async fn build_flow(env: &Environment) -> Result<Handle, ailetos::KVError> {
     #[allow(clippy::disallowed_names)]
     let baz = env.add_node("cat".to_string(), &[bar], Some("Copy.baz".to_string()));
 
-    Ok(env.add_alias(".end".to_string(), &[baz]))
+    Ok(env.add_alias(".end".to_string(), baz))
 }
 
 #[tokio::main]
