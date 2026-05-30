@@ -262,30 +262,10 @@ impl DagShell {
         } else {
             self.find_default_target()?
         };
-        let handle = self.env.resolve(handle);
-
         let stop_conditions = StopConditions {
             one_step,
             stop_before,
             stop_after,
-        };
-
-        // Determine the node to join on: the last node the executor will actually run,
-        // which may differ from `handle` when stop conditions truncate the traversal.
-        // For one_step, skip already-terminated nodes to match the executor's behaviour.
-        let wait_handle = if one_step {
-            let dag = self.env.dag.read();
-            TopologicalOrderIter::new(&dag, handle)
-                .find(|&n| {
-                    dag.get_node(n)
-                        .is_some_and(|node| node.state == NodeState::NotStarted)
-                })
-                .unwrap_or(handle)
-        } else {
-            let dag = self.env.dag.read();
-            TopologicalOrderIter::with_stop_conditions(&dag, handle, stop_conditions.clone())
-                .last()
-                .unwrap_or(handle)
         };
 
         self.executor
@@ -296,7 +276,9 @@ impl DagShell {
             self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, true, color);
         } else {
             self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, false, color);
-            self.join_handle(wait_handle)?;
+            for target in self.env.resolve_all(handle) {
+                self.join_handle(target)?;
+            }
             self.sink.println("");
         }
         Ok(())
@@ -387,8 +369,7 @@ impl DagShell {
     }
 
     pub(crate) fn attach_one_node(&mut self, handle: Handle, bg: bool, color: Option<u8>) {
-        let resolved = self.env.resolve(handle);
-        if self.is_terminated_without_stdout(resolved) {
+        if self.is_terminated_without_stdout(handle) {
             return;
         }
         let writer: Box<dyn std::io::Write + Send + Sync> = if bg {
@@ -401,7 +382,7 @@ impl DagShell {
         };
         let future = self.env.pipe_pool.reader_future(
             &self.env.idgen,
-            (resolved, StdHandle::Stdout as isize),
+            (handle, StdHandle::Stdout as isize),
             writer,
         );
         self.reader_tasks
@@ -455,7 +436,9 @@ impl DagShell {
                 self.sink.println("All nodes already completed");
             }
         } else {
-            self.attach_one_node(target, bg, color);
+            for concrete in self.env.resolve_all(target) {
+                self.attach_one_node(concrete, bg, color);
+            }
         }
     }
 

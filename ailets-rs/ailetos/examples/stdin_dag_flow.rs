@@ -105,22 +105,29 @@ async fn main() {
 
     // Run the system
     use ailetos::{Executor, StopConditions};
-    let resolved = env.resolve(end_node);
+    let targets = env.resolve_all(end_node);
     let env = Arc::new(env);
     let executor = Executor::start(&async_runtime, Arc::clone(&env), None);
 
-    let stdout_task = env.pipe_pool.spawn_reader_to(
-        &async_runtime,
-        &env.idgen,
-        (resolved, StdHandle::Stdout as isize),
-        std::io::stdout(),
-    );
+    let stdout_tasks: Vec<_> = targets
+        .iter()
+        .map(|&target| {
+            env.pipe_pool.spawn_reader_to(
+                &async_runtime,
+                &env.idgen,
+                (target, StdHandle::Stdout as isize),
+                std::io::stdout(),
+            )
+        })
+        .collect();
 
     executor
         .submit(end_node, StopConditions::default())
         .expect("executor just started");
     executor.shutdown().await;
-    stdout_task.await.ok();
+    for task in stdout_tasks {
+        task.await.ok();
+    }
 
     // Drop environment to release KV reference
     drop(env);

@@ -151,9 +151,4 @@ impl Environment {
         }
     }
 
-    // todo: remove after all call sites are migrated to resolve_all
-    #[must_use]
-    pub fn resolve(&self, handle: Handle) -> Handle {
-        self.resolve_all(handle).into_iter().next().unwrap_or(handle)
-    }
 }
