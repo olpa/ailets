@@ -335,7 +335,10 @@ impl DagShell {
         let handle = self
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
-        self.join_handle(handle)
+        for target in self.env.resolve_all(handle) {
+            self.join_handle(target)?;
+        }
+        Ok(())
     }
 
     pub(crate) fn cmd_follow(&mut self, args: &[&str]) -> Result<(), String> {
