@@ -103,20 +103,24 @@ impl DagShell {
                 Ok(handle)
             }
             ["value"] => Err("Usage: node value <data> [--explain=text]".to_string()),
-            ["alias", name, target_str, ..] => {
+            ["alias", name, rest @ ..] if !rest.is_empty() => {
                 let name = (*name).to_string();
-                let target = self
-                    .parse_handle(target_str)
-                    .ok_or_else(|| format!("Invalid handle: {target_str}"))?;
-                let handle = self.env.add_alias(name.clone(), target);
+                let mut targets = Vec::new();
+                for target_str in rest {
+                    let target = self
+                        .parse_handle(target_str)
+                        .ok_or_else(|| format!("Invalid handle: {target_str}"))?;
+                    targets.push(target);
+                }
+                let handle = self.env.add_alias(name.clone(), &targets);
                 self.handles.push(handle);
                 let id = handle.id();
-                let tid = target.id();
+                let tids: Vec<_> = targets.iter().map(|t| t.id().to_string()).collect();
                 self.sink
-                    .println(&format!("Added alias {id}: {name} -> {tid}"));
+                    .println(&format!("Added alias {id}: {name} -> {}", tids.join(", ")));
                 Ok(handle)
             }
-            ["alias", ..] => Err("Usage: node alias <name> <target>".to_string()),
+            ["alias", ..] => Err("Usage: node alias <name> <target> [<target>...]".to_string()),
             [cmd, ..] => Err(format!("Unknown node subcommand: {cmd}")),
             [] => Err("Usage: node <add|value|alias|list> ...".to_string()),
         }

@@ -127,33 +127,33 @@ impl Environment {
         handle
     }
 
-    /// Add an alias node
+    /// Add an alias node pointing to one or more targets
     #[must_use]
-    pub fn add_alias(&self, alias_name: String, target: Handle) -> Handle {
+    pub fn add_alias(&self, alias_name: String, targets: &[Handle]) -> Handle {
         let mut dag = self.dag.write();
         let handle = dag.add_node(alias_name, NodeKind::Alias);
-        dag.add_dependency(For(handle), DependsOn(target));
+        for &target in targets {
+            dag.add_dependency(For(handle), DependsOn(target));
+        }
         handle
     }
 
-    /// Resolve an alias node to its actual target node
+    /// Resolve a handle to all concrete nodes it refers to.
     ///
-    /// If the handle refers to an alias node, returns the target node.
-    /// If the handle refers to a concrete node, returns the same handle.
-    /// Recursively resolves nested aliases.
+    /// For a concrete node, returns `[handle]`.
+    /// For an alias, recursively expands to all reachable concrete nodes.
+    #[must_use]
+    pub fn resolve_all(&self, handle: Handle) -> Vec<Handle> {
+        let dag = self.dag.read();
+        match dag.get_node(handle).map(|n| &n.kind) {
+            Some(NodeKind::Alias) => dag.resolve_dependencies(handle).collect(),
+            _ => vec![handle],
+        }
+    }
+
+    // todo: remove after all call sites are migrated to resolve_all
     #[must_use]
     pub fn resolve(&self, handle: Handle) -> Handle {
-        let dag = self.dag.read();
-        let Some(node) = dag.get_node(handle) else {
-            return handle;
-        };
-        if !matches!(node.kind, crate::dag::NodeKind::Alias) {
-            return handle;
-        }
-        // Alias node - get its dependency (should be exactly one)
-        let target = dag.get_direct_dependencies(handle).next();
-        drop(dag);
-        // Recursively resolve in case the target is also an alias
-        target.map_or(handle, |t| self.resolve(t))
+        self.resolve_all(handle).into_iter().next().unwrap_or(handle)
     }
 }
