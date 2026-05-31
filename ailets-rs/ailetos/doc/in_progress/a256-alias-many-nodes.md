@@ -344,18 +344,24 @@ Or return `Result<Handle, String>` for library use. The CLI already enforces
 
 ### Fix order
 
-| Priority | Fix | Bugs addressed |
-|----------|-----|----------------|
-| 1 | Fix 1: restore stop-condition join logic | 1, 2, 3 |
-| 2 | Fix 3: resolve aliases in attach_stdout_for_run | 4, 6 |
-| 3 | Fix 2: None-guard in join_handles | 5 |
-| 4 | Fix 4: guard add_aliases empty slice | API hygiene |
+| Priority | Fix | Bugs addressed | Status |
+|----------|-----|----------------|--------|
+| 1 | Fix 1: restore stop-condition join logic | 1, 2, 3 | done |
+| 2 | Fix 3: resolve aliases in attach_stdout_for_run | 4, 6 | done |
+| 3 | Fix 2: None-guard in join_handles | 5 | done |
+| 4 | Fix 4: guard add_aliases empty slice | API hygiene | skipped — empty alias is a harmless no-op; CLI already guards at parse time |
 
-### Tests to add
+### Tests added
 
-- `run --stop-before C` (no explicit target): verify returns without hanging.
-- `run --stop-after B alias` (multi-target alias): verify returns after B, C/D
-  remain NotStarted.
-- `run --one-step alias` (multi-target alias): verify only one node advances.
-- `run --stop-after <alias_handle>`: verify stdout is attached to concrete node(s).
-- `join <nonexistent_id>`: verify returns an error, not a hang.
+- `run_stop_before_does_not_hang` — `run --stop-before C` with no explicit target returns without hanging.
+- `run_stop_after_multialias_does_not_hang` — `run --stop-after B alias` (multi-target alias) returns after B; later nodes stay NotStarted.
+- `run_one_step_multialias_does_not_hang` — `run --one-step alias` (multi-target alias) runs exactly one node.
+- `run_stop_after_alias_handle_does_not_hang` — `run --stop-after <alias>` resolves alias before attaching stdout reader; shell drop does not hang.
+- `join_nonexistent_returns_error` — `join <nonexistent_id>` returns an error instead of hanging.
+
+### Implementation notes
+
+Fix 2 was implemented as a synchronous pre-flight check before the async poll
+loop rather than error detection inside the futures. A handle absent from the DAG
+is a permanent condition, so it can be validated eagerly in sync code; no async
+machinery is needed.
