@@ -427,14 +427,18 @@ impl DagShell {
         color: Option<u8>,
     ) {
         if let Some(stop_after_handle) = stop_after {
-            self.attach_one_node(stop_after_handle, bg, color);
+            for concrete in self.env.resolve_all(stop_after_handle) {
+                self.attach_one_node(concrete, bg, color);
+            }
         } else if let Some(stop_before_handle) = stop_before {
             let deps: Vec<Handle> = {
                 let dag = self.env.dag.read();
                 dag.get_direct_dependencies(stop_before_handle).collect()
             };
             for dep in deps {
-                self.attach_one_node(dep, bg, color);
+                for concrete in self.env.resolve_all(dep) {
+                    self.attach_one_node(concrete, bg, color);
+                }
             }
         } else if one_step {
             let ready_node = {

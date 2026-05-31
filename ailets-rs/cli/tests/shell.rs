@@ -288,6 +288,27 @@ fn run_one_step_multialias_does_not_hang() {
 }
 
 #[test]
+fn run_stop_after_alias_handle_does_not_hang() {
+    // When --stop-after receives an alias handle, attach_stdout_for_run must
+    // resolve it to the concrete node before attaching the stdout reader.
+    // Without resolution the reader waits on the alias node's non-existent
+    // stdout pipe; prepare_exit then hangs draining the stuck reader task.
+    assert_completes_within(
+        || {
+            let sink = CapturingSink::new();
+            let mut shell = DagShell::new_with_sink(Box::new(sink));
+            shell.execute("set v = node value hello").unwrap();
+            shell.execute("set cat = node add cat").unwrap();
+            shell.execute("dep $cat $v").unwrap();
+            shell.execute("set alias = node alias .end $cat").unwrap();
+            shell.execute("run --stop-after $alias $cat").unwrap();
+            // shell drop drains reader_tasks; hangs if reader is on alias's pipe
+        },
+        5,
+    );
+}
+
+#[test]
 fn run_stop_before_does_not_hang() {
     // When no explicit target is given, handle is set to the stop_before node.
     // The executor stops before that node, so it never terminates; join_handles
