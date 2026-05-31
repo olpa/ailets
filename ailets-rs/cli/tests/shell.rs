@@ -268,6 +268,26 @@ fn run_stop_after_multialias_does_not_hang() {
 }
 
 #[test]
+fn run_one_step_multialias_does_not_hang() {
+    // alias resolves to [cat_a, cat_b] where cat_b depends on cat_a.
+    // --one-step runs cat_a only; join_handles must not wait for cat_b.
+    assert_completes_within(
+        || {
+            let sink = CapturingSink::new();
+            let mut shell = DagShell::new_with_sink(Box::new(sink));
+            shell.execute("set v = node value hello").unwrap();
+            shell.execute("set cat_a = node add cat").unwrap();
+            shell.execute("dep $cat_a $v").unwrap();
+            shell.execute("set cat_b = node add cat").unwrap();
+            shell.execute("dep $cat_b $cat_a").unwrap();
+            shell.execute("set alias = node alias .end $cat_a $cat_b").unwrap();
+            shell.execute("run --one-step $alias").unwrap();
+        },
+        3,
+    );
+}
+
+#[test]
 fn run_stop_before_does_not_hang() {
     // When no explicit target is given, handle is set to the stop_before node.
     // The executor stops before that node, so it never terminates; join_handles
