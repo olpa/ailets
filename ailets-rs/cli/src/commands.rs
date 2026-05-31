@@ -276,36 +276,35 @@ impl DagShell {
             self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, true, color);
         } else {
             self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, false, color);
-            for target in self.env.resolve_all(handle) {
-                self.join_handle(target)?;
-            }
+            self.join_handles(self.env.resolve_all(handle))?;
             self.sink.println("");
         }
         Ok(())
     }
 
-    fn join_handle(&mut self, target: Handle) -> Result<(), String> {
+    fn join_handles(&mut self, targets: Vec<Handle>) -> Result<(), String> {
         self.foreground_join
             .store(true, std::sync::atomic::Ordering::Relaxed);
         let env = &self.env;
         let sink = &self.sink;
         let foreground_join = &self.foreground_join;
         self.cli_rt.block_on(async move {
+            let wait_all = futures::future::join_all(targets.into_iter().map(|target| async move {
+                loop {
+                    if matches!(
+                        env.dag.read().get_node(target).map(|n| n.state),
+                        Some(NodeState::Terminated)
+                    ) {
+                        break;
+                    }
+                    tokio::time::sleep(POLL_INTERVAL).await;
+                }
+            }));
             tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
                     sink.println("\n^C - Detached (node continues running in ailetos)");
                 }
-                () = async {
-                    loop {
-                        if matches!(
-                            env.dag.read().get_node(target).map(|n| n.state),
-                            Some(NodeState::Terminated)
-                        ) {
-                            break;
-                        }
-                        tokio::time::sleep(POLL_INTERVAL).await;
-                    }
-                } => {}
+                _ = wait_all => {}
             }
             foreground_join.store(false, std::sync::atomic::Ordering::Relaxed);
             Ok(())
@@ -317,10 +316,7 @@ impl DagShell {
         let handle = self
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
-        for target in self.env.resolve_all(handle) {
-            self.join_handle(target)?;
-        }
-        Ok(())
+        self.join_handles(self.env.resolve_all(handle))
     }
 
     pub(crate) fn cmd_follow(&mut self, args: &[&str]) -> Result<(), String> {
