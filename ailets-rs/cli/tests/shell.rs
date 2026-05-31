@@ -288,6 +288,22 @@ fn run_one_step_multialias_does_not_hang() {
 }
 
 #[test]
+fn join_nonexistent_returns_error() {
+    // parse_handle accepts any i64; resolve_all returns [handle] for unknown
+    // handles; join_handles must return an error rather than poll forever.
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let mut shell = DagShell::new_with_sink(Box::new(CapturingSink::new()));
+        let result = shell.execute("join 99999");
+        let _ = tx.send(result);
+    });
+    let result = rx
+        .recv_timeout(std::time::Duration::from_secs(3))
+        .expect("join on non-existent handle timed out — likely hung");
+    assert!(result.is_err(), "expected error for non-existent handle, got Ok");
+}
+
+#[test]
 fn run_stop_after_alias_handle_does_not_hang() {
     // When --stop-after receives an alias handle, attach_stdout_for_run must
     // resolve it to the concrete node before attaching the stdout reader.

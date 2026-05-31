@@ -301,6 +301,14 @@ impl DagShell {
     }
 
     fn join_handles(&mut self, targets: Vec<Handle>) -> Result<(), String> {
+        {
+            let dag = self.env.dag.read();
+            for &target in &targets {
+                if dag.get_node(target).is_none() {
+                    return Err(format!("handle {} not found in DAG", target.id()));
+                }
+            }
+        }
         self.foreground_join
             .store(true, std::sync::atomic::Ordering::Relaxed);
         let env = &self.env;
