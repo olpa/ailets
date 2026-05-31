@@ -2,6 +2,22 @@ use std::sync::{Arc, Condvar, Mutex};
 
 use dagsh::{DagShell, OutputSink};
 
+/// Run `f` in a background thread; fail if it doesn't finish within `secs` seconds.
+fn assert_completes_within<F>(f: F, secs: u64)
+where
+    F: FnOnce() + Send + 'static,
+{
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        f();
+        let _ = tx.send(());
+    });
+    assert!(
+        rx.recv_timeout(std::time::Duration::from_secs(secs)).is_ok(),
+        "operation timed out after {secs}s — likely hung"
+    );
+}
+
 // shared helper so we can re-use CapturingSink for both command and notification sinks
 
 struct CapturingSink {
@@ -227,5 +243,25 @@ fn foreground_run_suppresses_intermediate_notifications() {
         notification_sink.lines().is_empty(),
         "unexpected notifications during foreground run: {:?}",
         notification_sink.lines()
+    );
+}
+
+#[test]
+fn run_stop_before_does_not_hang() {
+    // When no explicit target is given, handle is set to the stop_before node.
+    // The executor stops before that node, so it never terminates; join_handles
+    // must not wait for it.
+    assert_completes_within(
+        || {
+            let sink = CapturingSink::new();
+            let mut shell = DagShell::new_with_sink(Box::new(sink));
+            shell.execute("set v = node value hello").unwrap();
+            shell.execute("set b = node add cat").unwrap();
+            shell.execute("dep $b $v").unwrap();
+            shell.execute("set c = node add cat").unwrap();
+            shell.execute("dep $c $b").unwrap();
+            shell.execute("run --stop-before $c").unwrap();
+        },
+        3,
     );
 }

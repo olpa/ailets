@@ -269,14 +269,32 @@ impl DagShell {
         };
 
         self.executor
-            .submit(handle, stop_conditions)
+            .submit(handle, stop_conditions.clone())
             .map_err(|_| "Executor has shut down".to_string())?;
 
         if bg_flag {
             self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, true, color);
         } else {
             self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, false, color);
-            self.join_handles(self.env.resolve_all(handle))?;
+            let wait_targets = if one_step {
+                let dag = self.env.dag.read();
+                TopologicalOrderIter::new(&dag, handle)
+                    .find(|&n| {
+                        dag.get_node(n)
+                            .is_some_and(|nd| nd.state == NodeState::NotStarted)
+                    })
+                    .map(|n| vec![n])
+                    .unwrap_or_default()
+            } else if stop_before.is_some() || stop_after.is_some() {
+                let dag = self.env.dag.read();
+                TopologicalOrderIter::with_stop_conditions(&dag, handle, stop_conditions.clone())
+                    .last()
+                    .map(|n| vec![n])
+                    .unwrap_or_default()
+            } else {
+                self.env.resolve_all(handle)
+            };
+            self.join_handles(wait_targets)?;
             self.sink.println("");
         }
         Ok(())
