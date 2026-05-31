@@ -247,6 +247,27 @@ fn foreground_run_suppresses_intermediate_notifications() {
 }
 
 #[test]
+fn run_stop_after_multialias_does_not_hang() {
+    // v → cat_b → cat_c (chain); alias resolves to [cat_b, cat_c].
+    // --stop-after cat_b stops the executor before cat_c runs.
+    // join_handles must not wait for cat_c (which stays NotStarted).
+    assert_completes_within(
+        || {
+            let sink = CapturingSink::new();
+            let mut shell = DagShell::new_with_sink(Box::new(sink));
+            shell.execute("set v = node value hello").unwrap();
+            shell.execute("set cat_b = node add cat").unwrap();
+            shell.execute("dep $cat_b $v").unwrap();
+            shell.execute("set cat_c = node add cat").unwrap();
+            shell.execute("dep $cat_c $cat_b").unwrap();
+            shell.execute("set alias = node alias .end $cat_b $cat_c").unwrap();
+            shell.execute("run --stop-after $cat_b $alias").unwrap();
+        },
+        3,
+    );
+}
+
+#[test]
 fn run_stop_before_does_not_hang() {
     // When no explicit target is given, handle is set to the stop_before node.
     // The executor stops before that node, so it never terminates; join_handles
