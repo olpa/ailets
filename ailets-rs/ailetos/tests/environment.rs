@@ -50,7 +50,7 @@ async fn test_value_node_writes_data_to_kv() {
 }
 
 #[test]
-fn test_add_alias_single_target() {
+fn test_add_alias_same_name_merges() {
     let kv: Arc<dyn KVBuffers> = Arc::new(MemKV::new());
     let env = Environment::new(kv);
 
