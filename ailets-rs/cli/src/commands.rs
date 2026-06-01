@@ -103,20 +103,24 @@ impl DagShell {
                 Ok(handle)
             }
             ["value"] => Err("Usage: node value <data> [--explain=text]".to_string()),
-            ["alias", name, target_str, ..] => {
+            ["alias", name, rest @ ..] if !rest.is_empty() => {
                 let name = (*name).to_string();
-                let target = self
-                    .parse_handle(target_str)
-                    .ok_or_else(|| format!("Invalid handle: {target_str}"))?;
-                let handle = self.env.add_alias(name.clone(), target);
+                let mut targets = Vec::new();
+                for target_str in rest {
+                    let target = self
+                        .parse_handle(target_str)
+                        .ok_or_else(|| format!("Invalid handle: {target_str}"))?;
+                    targets.push(target);
+                }
+                let handle = self.env.add_aliases(name.clone(), &targets);
                 self.handles.push(handle);
                 let id = handle.id();
-                let tid = target.id();
+                let tids: Vec<_> = targets.iter().map(|t| t.id().to_string()).collect();
                 self.sink
-                    .println(&format!("Added alias {id}: {name} -> {tid}"));
+                    .println(&format!("Added alias {id}: {name} -> {}", tids.join(", ")));
                 Ok(handle)
             }
-            ["alias", ..] => Err("Usage: node alias <name> <target>".to_string()),
+            ["alias", ..] => Err("Usage: node alias <name> <target> [<target>...]".to_string()),
             [cmd, ..] => Err(format!("Unknown node subcommand: {cmd}")),
             [] => Err("Usage: node <add|value|alias|list> ...".to_string()),
         }
@@ -258,58 +262,64 @@ impl DagShell {
         } else {
             self.find_default_target()?
         };
-        let handle = self.env.resolve(handle);
-
         let stop_conditions = StopConditions {
             one_step,
             stop_before,
             stop_after,
         };
 
-        // Determine the node to join on: the last node the executor will actually run,
-        // which may differ from `handle` when stop conditions truncate the traversal.
-        // For one_step, skip already-terminated nodes to match the executor's behaviour.
-        let wait_handle = if one_step {
-            let dag = self.env.dag.read();
-            TopologicalOrderIter::new(&dag, handle)
-                .find(|&n| {
-                    dag.get_node(n)
-                        .is_some_and(|node| node.state == NodeState::NotStarted)
-                })
-                .unwrap_or(handle)
-        } else {
-            let dag = self.env.dag.read();
-            TopologicalOrderIter::with_stop_conditions(&dag, handle, stop_conditions.clone())
-                .last()
-                .unwrap_or(handle)
-        };
-
         self.executor
-            .submit(handle, stop_conditions)
+            .submit(handle, stop_conditions.clone())
             .map_err(|_| "Executor has shut down".to_string())?;
 
         if bg_flag {
             self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, true, color);
         } else {
             self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, false, color);
-            self.join_handle(wait_handle)?;
+            // Determine the node to join on: the last node the executor will actually run,
+            // which may differ from `handle` when stop conditions truncate the traversal.
+            // For one_step, skip already-terminated nodes to match the executor's behaviour.
+            let wait_targets = if one_step {
+                let dag = self.env.dag.read();
+                TopologicalOrderIter::new(&dag, handle)
+                    .find(|&n| {
+                        dag.get_node(n)
+                            .is_some_and(|nd| nd.state == NodeState::NotStarted)
+                    })
+                    .map(|n| vec![n])
+                    .unwrap_or_default()
+            } else if stop_before.is_some() || stop_after.is_some() {
+                let dag = self.env.dag.read();
+                TopologicalOrderIter::with_stop_conditions(&dag, handle, stop_conditions.clone())
+                    .last()
+                    .map(|n| vec![n])
+                    .unwrap_or_default()
+            } else {
+                self.env.resolve_all(handle)
+            };
+            self.join_handles(wait_targets)?;
             self.sink.println("");
         }
         Ok(())
     }
 
-    fn join_handle(&mut self, target: Handle) -> Result<(), String> {
+    fn join_handles(&mut self, targets: Vec<Handle>) -> Result<(), String> {
+        {
+            let dag = self.env.dag.read();
+            for &target in &targets {
+                if dag.get_node(target).is_none() {
+                    return Err(format!("handle {} not found in DAG", target.id()));
+                }
+            }
+        }
         self.foreground_join
             .store(true, std::sync::atomic::Ordering::Relaxed);
         let env = &self.env;
         let sink = &self.sink;
         let foreground_join = &self.foreground_join;
         self.cli_rt.block_on(async move {
-            tokio::select! {
-                _ = tokio::signal::ctrl_c() => {
-                    sink.println("\n^C - Detached (node continues running in ailetos)");
-                }
-                () = async {
+            let wait_all =
+                futures::future::join_all(targets.into_iter().map(|target| async move {
                     loop {
                         if matches!(
                             env.dag.read().get_node(target).map(|n| n.state),
@@ -319,7 +329,12 @@ impl DagShell {
                         }
                         tokio::time::sleep(POLL_INTERVAL).await;
                     }
-                } => {}
+                }));
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {
+                    sink.println("\n^C - Detached (node continues running in ailetos)");
+                }
+                _ = wait_all => {}
             }
             foreground_join.store(false, std::sync::atomic::Ordering::Relaxed);
             Ok(())
@@ -331,7 +346,7 @@ impl DagShell {
         let handle = self
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
-        self.join_handle(handle)
+        self.join_handles(self.env.resolve_all(handle))
     }
 
     pub(crate) fn cmd_follow(&mut self, args: &[&str]) -> Result<(), String> {
@@ -361,26 +376,26 @@ impl DagShell {
         let handle = self
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
-        let handle = self.env.resolve(handle);
 
-        if self.is_terminated_without_stdout(handle) {
-            return Ok(());
+        for target in self.env.resolve_all(handle) {
+            if self.is_terminated_without_stdout(target) {
+                continue;
+            }
+            let writer = OutputSinkWriter::new(Arc::clone(&self.notification_sink), color);
+            let future = self.env.pipe_pool.reader_future(
+                &self.env.idgen,
+                (target, StdHandle::Stdout as isize),
+                writer,
+            );
+            self.reader_tasks
+                .spawn_on(future, self.ailetos_async_rt.handle());
         }
-        let writer = OutputSinkWriter::new(Arc::clone(&self.notification_sink), color);
-        let future = self.env.pipe_pool.reader_future(
-            &self.env.idgen,
-            (handle, StdHandle::Stdout as isize),
-            writer,
-        );
-        self.reader_tasks
-            .spawn_on(future, self.ailetos_async_rt.handle());
 
         Ok(())
     }
 
     pub(crate) fn attach_one_node(&mut self, handle: Handle, bg: bool, color: Option<u8>) {
-        let resolved = self.env.resolve(handle);
-        if self.is_terminated_without_stdout(resolved) {
+        if self.is_terminated_without_stdout(handle) {
             return;
         }
         let writer: Box<dyn std::io::Write + Send + Sync> = if bg {
@@ -393,7 +408,7 @@ impl DagShell {
         };
         let future = self.env.pipe_pool.reader_future(
             &self.env.idgen,
-            (resolved, StdHandle::Stdout as isize),
+            (handle, StdHandle::Stdout as isize),
             writer,
         );
         self.reader_tasks
@@ -424,14 +439,18 @@ impl DagShell {
         color: Option<u8>,
     ) {
         if let Some(stop_after_handle) = stop_after {
-            self.attach_one_node(stop_after_handle, bg, color);
+            for concrete in self.env.resolve_all(stop_after_handle) {
+                self.attach_one_node(concrete, bg, color);
+            }
         } else if let Some(stop_before_handle) = stop_before {
             let deps: Vec<Handle> = {
                 let dag = self.env.dag.read();
                 dag.get_direct_dependencies(stop_before_handle).collect()
             };
             for dep in deps {
-                self.attach_one_node(dep, bg, color);
+                for concrete in self.env.resolve_all(dep) {
+                    self.attach_one_node(concrete, bg, color);
+                }
             }
         } else if one_step {
             let ready_node = {
@@ -447,7 +466,9 @@ impl DagShell {
                 self.sink.println("All nodes already completed");
             }
         } else {
-            self.attach_one_node(target, bg, color);
+            for concrete in self.env.resolve_all(target) {
+                self.attach_one_node(concrete, bg, color);
+            }
         }
     }
 

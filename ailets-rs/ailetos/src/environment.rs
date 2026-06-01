@@ -127,33 +127,43 @@ impl Environment {
         handle
     }
 
-    /// Add an alias node
+    /// Add an alias node pointing to a single target.
+    ///
+    /// Calling this multiple times with the same alias name adds targets to
+    /// the same alias node.
     #[must_use]
     pub fn add_alias(&self, alias_name: String, target: Handle) -> Handle {
+        self.add_aliases(alias_name, &[target])
+    }
+
+    /// Add an alias node pointing to one or more targets.
+    ///
+    /// If an alias node with the same name already exists, the targets are
+    /// added to it and its handle is returned.
+    #[must_use]
+    pub fn add_aliases(&self, alias_name: String, targets: &[Handle]) -> Handle {
         let mut dag = self.dag.write();
-        let handle = dag.add_node(alias_name, NodeKind::Alias);
-        dag.add_dependency(For(handle), DependsOn(target));
+        let existing = dag
+            .nodes()
+            .find(|n| n.kind == NodeKind::Alias && n.idname == alias_name)
+            .map(|n| n.pid);
+        let handle = existing.unwrap_or_else(|| dag.add_node(alias_name, NodeKind::Alias));
+        for &target in targets {
+            dag.add_dependency(For(handle), DependsOn(target));
+        }
         handle
     }
 
-    /// Resolve an alias node to its actual target node
+    /// Resolve a handle to all concrete nodes it refers to.
     ///
-    /// If the handle refers to an alias node, returns the target node.
-    /// If the handle refers to a concrete node, returns the same handle.
-    /// Recursively resolves nested aliases.
+    /// For a concrete node, returns `[handle]`.
+    /// For an alias, recursively expands to all reachable concrete nodes.
     #[must_use]
-    pub fn resolve(&self, handle: Handle) -> Handle {
+    pub fn resolve_all(&self, handle: Handle) -> Vec<Handle> {
         let dag = self.dag.read();
-        let Some(node) = dag.get_node(handle) else {
-            return handle;
-        };
-        if !matches!(node.kind, crate::dag::NodeKind::Alias) {
-            return handle;
+        match dag.get_node(handle).map(|n| &n.kind) {
+            Some(NodeKind::Alias) => dag.resolve_dependencies(handle).collect(),
+            Some(NodeKind::Concrete) | None => vec![handle],
         }
-        // Alias node - get its dependency (should be exactly one)
-        let target = dag.get_direct_dependencies(handle).next();
-        drop(dag);
-        // Recursively resolve in case the target is also an alias
-        target.map_or(handle, |t| self.resolve(t))
     }
 }
