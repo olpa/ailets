@@ -16,18 +16,18 @@ Run `scripts/kill_actor.dagsh`, then type `quit`.
 rt.block_on(async { while tasks.join_next().await.is_some() {} });
 ```
 
-When a producer actor is killed, its downstream consumers may have spawned reader tasks via `pool.reader_future(...)` that are blocked inside `get_or_await_new_reader`, waiting on a `tokio::sync::Notify` for a latent pipe that will never be realized. Because `PipePool::flush_close_actor_writers` only closes writers for the *specific* actor that terminated, any latent pipes that were never created (e.g. because the producer was killed before it opened stdout) remain in `LatentState::Waiting` forever.
+When a producer actor is killed, its downstream consumers may have spawned reader tasks via `pool.reader_future(...)` that are blocked inside `get_or_await_new_reader`, waiting on a `tokio::sync::watch` channel for a latent pipe that will never be realized. Because `PipePool::flush_close_actor_writers` only closes writers for the *specific* actor that terminated, any latent pipes that were never created (e.g. because the producer was killed before it opened stdout) remain in `LatentState::Waiting` forever.
 
 `prepare_exit()` never calls anything to drain these leftover latent entries, so the `JoinSet::join_next()` call blocks forever.
 
-## Fix
+## Fix (implemented)
 
-Add a `PipePool::close_all_leftover_writers(errno: i32)` method that marks all remaining `LatentState::Waiting` entries as `LatentState::Closed(errno)` and fires their notifies. Call it from `prepare_exit()` (before the `join_next` drain loop) with `ECANCELED`.
+Added `PipePool::close_all_leftover_writers()` in `ailetos/src/pipe/pool.rs`. It sweeps all entries still in `LatentState::Waiting`, marks them `LatentState::Closed`, and fires their notifiers. Called from `prepare_exit()` in `cli/src/lib.rs` before the `join_next` drain loop.
 
-Additionally, `LatentState::Closed` and `PipeError::PipeClosed` should carry an `i32` errno so callers can distinguish clean shutdown (errno=0) from error-induced closure.
+The `errno` parameter proposed in the original issue was dropped: `LatentState::Closed` and `PipeError::PipeClosed` do not carry errno, as no current caller uses the distinction. A follow-on issue can add it when there is a concrete consumer.
 
-## Files Affected
+## Files Changed
 
-- `ailetos/src/pipe/pool.rs` — add `close_all_leftover_writers`; change `LatentState::Closed` and `PipeError::PipeClosed` to carry errno
-- `ailetos/src/lib.rs` — export `ECANCELED`
-- `cli/src/lib.rs` — call `close_all_leftover_writers(ECANCELED)` in `prepare_exit()`
+- `ailetos/src/pipe/pool.rs` — added `close_all_leftover_writers()`
+- `cli/src/lib.rs` — call `close_all_leftover_writers()` in `prepare_exit()` before the drain loop
+- `ailetos/tests/pipe/pool.rs` — test: latent reader unblocks with `PipeClosed` after the call
