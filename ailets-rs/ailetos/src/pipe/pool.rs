@@ -437,7 +437,7 @@ impl Drop for PipePool {
     fn drop(&mut self) {
         let unclosed_count = self
             .writers
-            .lock()
+            .get_mut()
             .iter()
             .filter(|(_, _, s)| {
                 let is_closed = match s {
