@@ -276,6 +276,9 @@ impl DagShell {
             self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, true, color);
         } else {
             self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, false, color);
+            // Determine the node to join on: the last node the executor will actually run,
+            // which may differ from `handle` when stop conditions truncate the traversal.
+            // For one_step, skip already-terminated nodes to match the executor's behaviour.
             let wait_targets = if one_step {
                 let dag = self.env.dag.read();
                 TopologicalOrderIter::new(&dag, handle)
