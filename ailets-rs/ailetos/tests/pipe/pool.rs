@@ -31,7 +31,7 @@ fn register_actor(dag: &Arc<RwLock<Dag>>, _actor_handle: Handle) -> Handle {
 }
 
 // ============================================================================
-// 1. Basic Writer and Reader Creation
+// Basic Writer and Reader Creation
 // ============================================================================
 
 #[tokio::test]
@@ -126,7 +126,7 @@ async fn test_different_std_handles() {
 }
 
 // ============================================================================
-// 2. Latent Pipe Functionality (Core Feature)
+// Latent Pipe Functionality (Core Feature)
 // ============================================================================
 
 #[tokio::test]
@@ -266,7 +266,7 @@ async fn test_reader_on_latent_pipe_closed_without_realizing() {
 }
 
 // ============================================================================
-// 3. Latent State Transitions
+// Latent State Transitions
 // ============================================================================
 
 #[tokio::test]
@@ -355,7 +355,7 @@ async fn test_latent_to_closed_transition() {
 }
 
 // ============================================================================
-// 4. Write Operations
+// Write Operations
 // ============================================================================
 
 #[tokio::test]
@@ -421,7 +421,7 @@ async fn test_multiple_writes_to_same_pipe() {
 }
 
 // ============================================================================
-// 5. Close Operations
+// Close Operations
 // ============================================================================
 
 #[tokio::test]
@@ -519,11 +519,11 @@ async fn test_multiple_close_calls() {
 }
 
 // ============================================================================
-// 6. Pipe Existence Checks
+// Pipe Existence Checks
 // ============================================================================
 
 // ============================================================================
-// 7. Concurrent Operations
+// Concurrent Operations
 // ============================================================================
 
 #[tokio::test]
@@ -602,7 +602,7 @@ async fn test_concurrent_writers_for_different_handles() {
 }
 
 // ============================================================================
-// 8. Integration with KV Storage
+// Integration with KV Storage
 // ============================================================================
 
 #[tokio::test]
@@ -688,7 +688,7 @@ async fn test_flush_buffer() {
 }
 
 // ============================================================================
-// 9. Error Handling
+// Error Handling
 // ============================================================================
 
 #[tokio::test]
@@ -736,7 +736,7 @@ async fn test_flush_buffer_on_nonexistent_pipe() {
 }
 
 // ============================================================================
-// 10. Edge Cases
+// Edge Cases
 // ============================================================================
 
 #[tokio::test]
@@ -851,7 +851,7 @@ async fn test_mixed_latent_and_realized_pipes() {
 }
 
 // ============================================================================
-// 11. Real-world Scenarios
+// Real-world Scenarios
 // ============================================================================
 
 #[tokio::test]
@@ -1069,7 +1069,7 @@ async fn test_end_to_end_data_flow() {
 // pipe-lifecycle-implementation-guide.md
 // ============================================================================
 
-/// Test 1: Consumer Opens During Shutdown
+/// Consumer Opens During Shutdown
 ///
 /// Verifies that when a consumer attempts to open a pipe while the producer
 /// is shutting down, either:
@@ -1137,7 +1137,7 @@ async fn test_race_consumer_opens_during_shutdown() {
     // No orphaned waiters - test passes if we reach here without timeout
 }
 
-/// Test 2: Concurrent Consumers During Shutdown
+/// Concurrent Consumers During Shutdown
 ///
 /// Verifies that multiple consumers opening pipes concurrently while the
 /// producer shuts down all complete successfully (either getting the pipe
@@ -1216,7 +1216,7 @@ async fn test_race_concurrent_consumers_during_shutdown() {
     }
 }
 
-/// Test 3: Latent Waiters Are Notified on Close
+/// Latent Waiters Are Notified on Close
 ///
 /// Verifies that when an actor exits without creating a pipe, any latent
 /// waiters are properly notified and receive None (EOF) rather than waiting
@@ -1279,7 +1279,7 @@ async fn test_race_latent_waiters_notified_on_close() {
     }
 }
 
-/// Test 4: No Race Between touch_writer and close_actor_writers
+/// No Race Between touch_writer and close_actor_writers
 ///
 /// Verifies that touch_writer and close_actor_writers can be called
 /// concurrently without creating inconsistent state.
@@ -1331,7 +1331,7 @@ async fn test_race_touch_writer_vs_close() {
     // The exact interleaving doesn't matter as long as it's consistent
 }
 
-/// Test 5: Reader Loop-and-Recheck Handles Spurious Wakeups
+/// Reader Loop-and-Recheck Handles Spurious Wakeups
 ///
 /// Verifies that readers correctly loop and recheck state after being
 /// notified, handling cases where the writer might not be available yet.
@@ -1564,7 +1564,7 @@ async fn test_close_actor_writers_with_error_reader_sees_epipe() {
 }
 
 // ============================================================================
-// 12. close_all_leftover_writers
+// close_all_leftover_writers
 // ============================================================================
 
 // Latent pipe that was never realized (e.g. producer killed before opening stdout)
