@@ -1,7 +1,7 @@
 use actor_runtime::StdHandle;
 use ailetos::dag::Dag;
 use ailetos::idgen::{Handle, IdGen};
-use ailetos::pipe::{drain_to_writer, pipe_path, FlushMode, PipeError, PipePool};
+use ailetos::pipe::{drain_to_writer, pipe_path, FlushMode, LatentState, PipeEntryInspection, PipeError, PipePool};
 use ailetos::storage::memkv::MemKV;
 use ailetos::storage::KVBuffers;
 use ailetos::{EOWNERDEAD, EPIPE};
@@ -1587,8 +1587,11 @@ async fn test_close_all_leftover_writers_unblocks_latent_reader() {
             .await
     });
 
-    // Give reader time to register as a latent waiter.
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    // Wait until the reader has registered as a latent waiter.
+    let key = (actor_handle, std_handle as isize);
+    while pool.inspect_entry(key) != Some(PipeEntryInspection::Latent(LatentState::Waiting)) {
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
 
     // flush_close_actor_writers is NOT called here (producer was killed externally).
     // close_all_leftover_writers sweeps all remaining Waiting entries at shutdown.

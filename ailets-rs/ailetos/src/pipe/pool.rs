@@ -48,6 +48,13 @@ impl std::fmt::Display for PipeError {
 
 impl std::error::Error for PipeError {}
 
+/// Inspection snapshot of a single pipe entry, returned by [`PipePool::inspect_entry`]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PipeEntryInspection {
+    Realized { is_closed: bool },
+    Latent(LatentState),
+}
+
 /// State of a latent writer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LatentState {
@@ -430,6 +437,20 @@ impl PipePool {
             Some(WriterState::Realized(writer)) => Some(Arc::clone(writer)),
             _ => None,
         }
+    }
+
+    /// Return an inspection snapshot of the pipe entry for `key`, or `None` if no entry exists.
+    pub fn inspect_entry(&self, key: (Handle, isize)) -> Option<PipeEntryInspection> {
+        self.writers
+            .lock()
+            .iter()
+            .find(|(h, s, _)| (*h, *s) == key)
+            .map(|(_, _, state)| match state {
+                WriterState::Realized(w) => PipeEntryInspection::Realized {
+                    is_closed: w.is_closed(),
+                },
+                WriterState::Latent { state, .. } => PipeEntryInspection::Latent(*state),
+            })
     }
 }
 
