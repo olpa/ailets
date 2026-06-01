@@ -383,7 +383,30 @@ impl PipePool {
     /// Called at shutdown to unblock any reader tasks waiting on pipes that were
     /// never realized (e.g. because their producer was killed before opening stdout).
     pub fn close_all_leftover_writers(&self, _errno: i32) {
-        // todo: implement
+        let notifies = {
+            let mut writers = self.writers.lock();
+            let mut notifies = Vec::new();
+            for (h, s, state) in &mut *writers {
+                if let WriterState::Latent {
+                    state: latent_state,
+                    notify_tx,
+                } = state
+                {
+                    if *latent_state == LatentState::Waiting {
+                        *latent_state = LatentState::Closed;
+                        notifies.push(Arc::clone(notify_tx));
+                        debug!(key = ?(*h, *s), "closed leftover latent writer on shutdown");
+                    }
+                }
+            }
+            notifies
+        };
+
+        for tx in notifies {
+            if tx.send(()).is_err() {
+                warn!("pool: notify leftover latent waiter on shutdown failed, no receivers");
+            }
+        }
     }
 
     /// Get a writer by key (only if already realized)
