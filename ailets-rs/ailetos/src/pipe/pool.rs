@@ -428,3 +428,26 @@ impl PipePool {
         }
     }
 }
+
+impl Drop for PipePool {
+    fn drop(&mut self) {
+        let unclosed_count = self
+            .writers
+            .lock()
+            .iter()
+            .filter(|(_, _, s)| {
+                let is_closed = match s {
+                    WriterState::Realized(w) => w.is_closed(),
+                    WriterState::Latent { state, .. } => *state == LatentState::Closed,
+                };
+                !is_closed
+            })
+            .count();
+        if unclosed_count > 0 {
+            warn!(
+                unclosed_count,
+                "pool dropped with unclosed writers; call flush_close_actor_writers and close_all_leftover_writers before dropping"
+            );
+        }
+    }
+}
