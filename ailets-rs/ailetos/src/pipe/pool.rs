@@ -378,6 +378,14 @@ impl PipePool {
         async_runtime.spawn(self.reader_future(idgen, key, writer))
     }
 
+    /// Close all remaining latent writers still in Waiting state.
+    ///
+    /// Called at shutdown to unblock any reader tasks waiting on pipes that were
+    /// never realized (e.g. because their producer was killed before opening stdout).
+    pub fn close_all_leftover_writers(&self, _errno: i32) {
+        // todo: implement
+    }
+
     /// Get a writer by key (only if already realized)
     ///
     /// Returns an Arc to the writer if it exists and has been realized.

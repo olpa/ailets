@@ -1,7 +1,7 @@
 use actor_runtime::StdHandle;
 use ailetos::dag::Dag;
 use ailetos::idgen::{Handle, IdGen};
-use ailetos::pipe::{drain_to_writer, pipe_path, FlushMode, PipePool};
+use ailetos::pipe::{drain_to_writer, pipe_path, FlushMode, PipeError, PipePool};
 use ailetos::storage::memkv::MemKV;
 use ailetos::storage::KVBuffers;
 use ailetos::{EOWNERDEAD, EPIPE};
@@ -1561,4 +1561,46 @@ async fn test_close_actor_writers_with_error_reader_sees_epipe() {
     let n = reader.read(&mut buf).await;
     assert_eq!(n, Err(EPIPE));
     assert_eq!(reader.get_error(), EPIPE);
+}
+
+// ============================================================================
+// 12. close_all_leftover_writers
+// ============================================================================
+
+// Latent pipe that was never realized (e.g. producer killed before opening stdout)
+// must be unblocked by close_all_leftover_writers at shutdown.
+#[tokio::test]
+async fn test_close_all_leftover_writers_unblocks_latent_reader() {
+    let (pool, _, id_gen, _) = create_test_pool();
+    let actor_handle = Handle::new(1);
+    let std_handle = StdHandle::Stdout;
+
+    let pool = Arc::new(pool);
+    let id_gen = Arc::new(id_gen);
+    let pool_clone = Arc::clone(&pool);
+    let id_gen_clone = Arc::clone(&id_gen);
+
+    // Spawn reader waiting on a latent pipe whose producer is never coming.
+    let reader_task = tokio::spawn(async move {
+        pool_clone
+            .get_or_await_new_reader((actor_handle, std_handle as isize), true, &id_gen_clone)
+            .await
+    });
+
+    // Give reader time to register as a latent waiter.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    // flush_close_actor_writers is NOT called here (producer was killed externally).
+    // close_all_leftover_writers sweeps all remaining Waiting entries at shutdown.
+    pool.close_all_leftover_writers(125); // 125 = ECANCELED
+
+    let result = tokio::time::timeout(Duration::from_secs(1), reader_task)
+        .await
+        .expect("reader task must not time out after close_all_leftover_writers")
+        .expect("reader task must not panic");
+
+    assert!(
+        matches!(result, Err(PipeError::PipeClosed)),
+        "latent reader must receive PipeClosed when close_all_leftover_writers is called"
+    );
 }
