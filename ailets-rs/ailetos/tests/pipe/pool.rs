@@ -1592,7 +1592,7 @@ async fn test_close_all_leftover_writers_unblocks_latent_reader() {
 
     // flush_close_actor_writers is NOT called here (producer was killed externally).
     // close_all_leftover_writers sweeps all remaining Waiting entries at shutdown.
-    pool.close_all_leftover_writers(125); // 125 = ECANCELED
+    pool.close_all_leftover_writers();
 
     let result = tokio::time::timeout(Duration::from_secs(1), reader_task)
         .await
