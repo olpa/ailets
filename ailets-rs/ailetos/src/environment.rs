@@ -129,18 +129,25 @@ impl Environment {
 
     /// Add an alias node pointing to a single target.
     ///
-    /// Calling this multiple times with the same alias name creates separate
-    /// alias nodes; use `resolve_all` to collect all concrete targets.
+    /// Calling this multiple times with the same alias name adds targets to
+    /// the same alias node.
     #[must_use]
     pub fn add_alias(&self, alias_name: String, target: Handle) -> Handle {
         self.add_aliases(alias_name, &[target])
     }
 
     /// Add an alias node pointing to one or more targets.
+    ///
+    /// If an alias node with the same name already exists, the targets are
+    /// added to it and its handle is returned.
     #[must_use]
     pub fn add_aliases(&self, alias_name: String, targets: &[Handle]) -> Handle {
         let mut dag = self.dag.write();
-        let handle = dag.add_node(alias_name, NodeKind::Alias);
+        let existing = dag
+            .nodes()
+            .find(|n| n.kind == NodeKind::Alias && n.idname == alias_name)
+            .map(|n| n.pid);
+        let handle = existing.unwrap_or_else(|| dag.add_node(alias_name, NodeKind::Alias));
         for &target in targets {
             dag.add_dependency(For(handle), DependsOn(target));
         }
@@ -156,7 +163,7 @@ impl Environment {
         let dag = self.dag.read();
         match dag.get_node(handle).map(|n| &n.kind) {
             Some(NodeKind::Alias) => dag.resolve_dependencies(handle).collect(),
-            _ => vec![handle],
+            Some(NodeKind::Concrete) | None => vec![handle],
         }
     }
 }

@@ -60,14 +60,17 @@ fn test_add_alias_single_target() {
     let alias_a = env.add_alias(".end".to_string(), a);
     let alias_b = env.add_alias(".end".to_string(), b);
 
-    assert_eq!(env.resolve_all(alias_a), vec![a]);
-    assert_eq!(env.resolve_all(alias_b), vec![b]);
+    // Same alias name reuses the same node
+    assert_eq!(alias_a, alias_b);
 
-    // Both alias nodes carry the same name but are distinct handles
-    assert_ne!(alias_a, alias_b);
+    // The alias resolves to both targets
+    let mut resolved = env.resolve_all(alias_a);
+    resolved.sort_by_key(|h| h.id());
+    let mut expected = vec![a, b];
+    expected.sort_by_key(|h| h.id());
+    assert_eq!(resolved, expected);
 
-    // Check that alias nodes are recorded as Alias kind
+    // Check that the alias node is recorded as Alias kind
     let dag = env.dag.read();
     assert_eq!(dag.get_node(alias_a).unwrap().kind, NodeKind::Alias);
-    assert_eq!(dag.get_node(alias_b).unwrap().kind, NodeKind::Alias);
 }
