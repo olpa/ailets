@@ -484,6 +484,13 @@ impl IoBridge {
                 failed_count += 1;
             }
         }
+        // Close any latent entries never realized (e.g. actors killed before opening their pipes).
+        // Runs after all actor cleanup so no new entries can appear.
+        let leftover_count = self.env.pipe_pool.close_all_leftover_writers();
+        if leftover_count > 0 {
+            warn!(leftover_count, "shutdown: closed leftover latent writers");
+            failed_count += leftover_count;
+        }
         if failed_count > 0 {
             Err(format!("io cleanup failed for {failed_count} actors"))
         } else {
