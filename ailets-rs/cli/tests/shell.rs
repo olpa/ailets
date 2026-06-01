@@ -13,7 +13,8 @@ where
         let _ = tx.send(());
     });
     assert!(
-        rx.recv_timeout(std::time::Duration::from_secs(secs)).is_ok(),
+        rx.recv_timeout(std::time::Duration::from_secs(secs))
+            .is_ok(),
         "operation timed out after {secs}s — likely hung"
     );
 }
@@ -260,7 +261,9 @@ fn run_stop_after_multialias_does_not_hang() {
             shell.execute("dep $cat_b $v").unwrap();
             shell.execute("set cat_c = node add cat").unwrap();
             shell.execute("dep $cat_c $cat_b").unwrap();
-            shell.execute("set alias = node alias .end $cat_b $cat_c").unwrap();
+            shell
+                .execute("set alias = node alias .end $cat_b $cat_c")
+                .unwrap();
             shell.execute("run --stop-after $cat_b $alias").unwrap();
         },
         3,
@@ -280,7 +283,9 @@ fn run_one_step_multialias_does_not_hang() {
             shell.execute("dep $cat_a $v").unwrap();
             shell.execute("set cat_b = node add cat").unwrap();
             shell.execute("dep $cat_b $cat_a").unwrap();
-            shell.execute("set alias = node alias .end $cat_a $cat_b").unwrap();
+            shell
+                .execute("set alias = node alias .end $cat_a $cat_b")
+                .unwrap();
             shell.execute("run --one-step $alias").unwrap();
         },
         3,
@@ -300,7 +305,10 @@ fn join_nonexistent_returns_error() {
     let result = rx
         .recv_timeout(std::time::Duration::from_secs(3))
         .expect("join on non-existent handle timed out — likely hung");
-    assert!(result.is_err(), "expected error for non-existent handle, got Ok");
+    assert!(
+        result.is_err(),
+        "expected error for non-existent handle, got Ok"
+    );
 }
 
 #[test]

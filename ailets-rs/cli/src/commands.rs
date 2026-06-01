@@ -315,17 +315,18 @@ impl DagShell {
         let sink = &self.sink;
         let foreground_join = &self.foreground_join;
         self.cli_rt.block_on(async move {
-            let wait_all = futures::future::join_all(targets.into_iter().map(|target| async move {
-                loop {
-                    if matches!(
-                        env.dag.read().get_node(target).map(|n| n.state),
-                        Some(NodeState::Terminated)
-                    ) {
-                        break;
+            let wait_all =
+                futures::future::join_all(targets.into_iter().map(|target| async move {
+                    loop {
+                        if matches!(
+                            env.dag.read().get_node(target).map(|n| n.state),
+                            Some(NodeState::Terminated)
+                        ) {
+                            break;
+                        }
+                        tokio::time::sleep(POLL_INTERVAL).await;
                     }
-                    tokio::time::sleep(POLL_INTERVAL).await;
-                }
-            }));
+                }));
             tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
                     sink.println("\n^C - Detached (node continues running in ailetos)");

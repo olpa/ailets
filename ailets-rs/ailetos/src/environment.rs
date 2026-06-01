@@ -159,5 +159,4 @@ impl Environment {
             _ => vec![handle],
         }
     }
-
 }
