@@ -79,32 +79,6 @@ pub struct PipePool {
     kv: Arc<dyn KVBuffers>,
 }
 
-/// Closes all `Latent/Waiting` entries in `writers` where `filter(handle)` is true.
-/// Transitions each to `LatentState::Closed` and returns their notify senders.
-fn collect_latent_close_notifies(
-    writers: &mut [(Handle, isize, WriterState)],
-    filter: impl Fn(Handle) -> bool,
-) -> Vec<Arc<tokio::sync::watch::Sender<()>>> {
-    let mut notifies = Vec::new();
-    for (h, s, state) in writers.iter_mut() {
-        if !filter(*h) {
-            continue;
-        }
-        if let WriterState::Latent {
-            state: latent_state,
-            notify_tx,
-        } = state
-        {
-            if *latent_state == LatentState::Waiting {
-                *latent_state = LatentState::Closed;
-                notifies.push(Arc::clone(notify_tx));
-                debug!(key = ?(*h, *s), "closed latent writer");
-            }
-        }
-    }
-    notifies
-}
-
 impl PipePool {
     /// Create a new empty pipe pool
     ///
@@ -295,20 +269,28 @@ impl PipePool {
         let (writers_to_close, notifies) = {
             let mut writers = self.writers.lock();
 
-            let writers_to_close: Vec<_> = writers
-                .iter()
-                .filter_map(|(h, s, state)| {
-                    if *h == actor_handle {
-                        if let WriterState::Realized(writer) = state {
-                            return Some((*h, *s, Arc::clone(writer)));
-                        }
-                    }
-                    None
-                })
-                .collect();
+            let mut writers_to_close = Vec::new();
+            let mut notifies = Vec::new();
 
-            let notifies =
-                collect_latent_close_notifies(&mut writers, |h| h == actor_handle);
+            // Update states for this actor
+            for (h, s, state) in &mut *writers {
+                if *h == actor_handle {
+                    match state {
+                        WriterState::Realized(writer) => {
+                            writers_to_close.push((*h, *s, Arc::clone(writer)));
+                        }
+                        WriterState::Latent {
+                            state: latent_state,
+                            notify_tx,
+                        } if *latent_state == LatentState::Waiting => {
+                            *latent_state = LatentState::Closed;
+                            notifies.push(Arc::clone(notify_tx));
+                            debug!(key = ?(*h, *s), "closed latent writer on actor shutdown");
+                        }
+                        WriterState::Latent { .. } => {}
+                    }
+                }
+            }
 
             (writers_to_close, notifies)
         }; // Lock released here
@@ -405,7 +387,21 @@ impl PipePool {
     pub fn close_all_leftover_writers(&self) -> usize {
         let notifies = {
             let mut writers = self.writers.lock();
-            collect_latent_close_notifies(&mut writers, |_| true)
+            let mut notifies = Vec::new();
+            for (h, s, state) in &mut *writers {
+                if let WriterState::Latent {
+                    state: latent_state,
+                    notify_tx,
+                } = state
+                {
+                    if *latent_state == LatentState::Waiting {
+                        *latent_state = LatentState::Closed;
+                        notifies.push(Arc::clone(notify_tx));
+                        debug!(key = ?(*h, *s), "closed leftover latent writer on shutdown");
+                    }
+                }
+            }
+            notifies
         };
 
         let count = notifies.len();
