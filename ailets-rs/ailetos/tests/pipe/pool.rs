@@ -1,7 +1,9 @@
 use actor_runtime::StdHandle;
 use ailetos::dag::Dag;
 use ailetos::idgen::{Handle, IdGen};
-use ailetos::pipe::{drain_to_writer, pipe_path, FlushMode, LatentState, PipeEntryInspection, PipeError, PipePool};
+use ailetos::pipe::{
+    drain_to_writer, pipe_path, FlushMode, LatentState, PipeEntryInspection, PipeError, PipePool,
+};
 use ailetos::storage::memkv::MemKV;
 use ailetos::storage::KVBuffers;
 use ailetos::{EOWNERDEAD, EPIPE};
