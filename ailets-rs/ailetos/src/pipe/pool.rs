@@ -449,13 +449,12 @@ impl PipePool {
         }
     }
 
-    /// Return all (fd, inspection) pairs for pipes owned by `actor`.
-    pub fn inspect_entries(&self, actor: Handle) -> Vec<(isize, PipeEntryInspection)> {
+    /// Return all (actor, fd, inspection) triples in the pool.
+    pub fn inspect_entries(&self) -> Vec<(Handle, isize, PipeEntryInspection)> {
         self.writers
             .lock()
             .iter()
-            .filter(|(h, _, _)| *h == actor)
-            .map(|(_, fd, state)| (*fd, Self::inspect_state(state)))
+            .map(|(actor, fd, state)| (*actor, *fd, Self::inspect_state(state)))
             .collect()
     }
 

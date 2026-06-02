@@ -546,15 +546,27 @@ impl DagShell {
         Ok(crate::ShellControl::Continue)
     }
 
-    pub(crate) fn cmd_status(&self, args: &[&str]) -> Result<(), String> {
+    pub(crate) fn cmd_status(&self, args: &[&str]) {
         if args.is_empty() {
-            self.cmd_status_dag()
-        } else {
-            self.cmd_status_node(args)
+            self.cmd_status_dag();
+            return;
+        }
+        let Some(handle_str) = args.first() else {
+            self.sink.println("Usage: status <node>");
+            return;
+        };
+        let Some(handle) = self.parse_handle(handle_str) else {
+            self.sink.println(&format!("Invalid handle: {handle_str}"));
+            return;
+        };
+        if matches!(self.cmd_status_node(handle), Found::No)
+            && matches!(self.cmd_status_writer(handle), Found::No)
+        {
+            self.sink.println(&format!("Handle {} not found", handle.id()));
         }
     }
 
-    fn cmd_status_dag(&self) -> Result<(), String> {
+    fn cmd_status_dag(&self) {
         let dag = self.env.dag.read();
         let mut total = 0;
         let mut running = 0;
@@ -577,19 +589,13 @@ impl DagShell {
             }
         }
         self.sink.println(&format!("Nodes: {total} total, {not_started} pending, {running} running, {suspended} suspended, {terminated} terminated"));
-        Ok(())
     }
 
-    fn cmd_status_node(&self, args: &[&str]) -> Result<(), String> {
-        let handle_str = args.first().ok_or("Usage: status <node>")?;
-        let handle = self
-            .parse_handle(handle_str)
-            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+    fn cmd_status_node(&self, handle: Handle) -> Found {
         let hid = handle.id();
         let dag = self.env.dag.read();
         let Some(node) = dag.get_node(handle) else {
-            self.sink.println(&format!("Node {hid} not found"));
-            return Ok(());
+            return Found::No;
         };
         let state = format_state(node.state);
         let node_line = format!("Node {hid}: {} [{state}]", node.idname);
@@ -622,7 +628,11 @@ impl DagShell {
         }
 
         // out pipes: all pool entries owned by this node, sorted by fd
-        let mut out_pipes = self.env.pipe_pool.inspect_entries(handle);
+        let mut out_pipes: Vec<_> = self.env.pipe_pool.inspect_entries()
+            .into_iter()
+            .filter(|(actor, _, _)| *actor == handle)
+            .map(|(_, fd, insp)| (fd, insp))
+            .collect();
         out_pipes.sort_by_key(|(fd, _)| *fd);
         for (fd, inspection) in &out_pipes {
             self.sink.println(&format!(
@@ -631,7 +641,36 @@ impl DagShell {
                 format_pipe_inspection(Some(inspection)),
             ));
         }
-        Ok(())
+        Found::Yes
+    }
+
+    fn cmd_status_writer(&self, handle: Handle) -> Found {
+        let hid = handle.id();
+        let entry = self
+            .env
+            .pipe_pool
+            .inspect_entries()
+            .into_iter()
+            .find(|(_, _, insp)| matches!(insp, PipeEntryInspection::Realized { handle: h, .. } if *h == handle));
+        let Some((actor, fd, inspection)) = entry else {
+            return Found::No;
+        };
+        self.sink.println(&format!(
+            "Writer {hid}: fd={}  {}",
+            fd,
+            format_pipe_inspection(Some(&inspection)),
+        ));
+        let dag = self.env.dag.read();
+        if let Some(node) = dag.get_node(actor) {
+            self.sink.println(&format!("  source: node {}  {}", actor.id(), node.idname));
+        }
+        let dependents: Vec<_> = dag.get_direct_dependents(actor).collect();
+        for dep in dependents {
+            if let Some(node) = dag.get_node(dep) {
+                self.sink.println(&format!("  target: node {}  {}", dep.id(), node.idname));
+            }
+        }
+        Found::Yes
     }
 
     pub(crate) fn cmd_suspend(&self, args: &[&str]) -> Result<(), String> {
@@ -768,6 +807,11 @@ impl DagShell {
         self.sink.println(&format!("Killed node {}", handle.id()));
         Ok(())
     }
+}
+
+enum Found {
+    Yes,
+    No,
 }
 
 fn format_pipe_inspection(inspection: Option<&PipeEntryInspection>) -> String {

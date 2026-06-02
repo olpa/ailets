@@ -235,7 +235,7 @@ impl DagShell {
             "join" | "await" => self.cmd_join(rest)?,
             "follow" => self.cmd_follow(rest)?,
             "cat" => self.cmd_cat(rest)?,
-            "status" => self.cmd_status(rest)?,
+            "status" => self.cmd_status(rest),
             "source" | "load" => return self.cmd_source(rest),
             "suspend" => self.cmd_suspend(rest)?,
             "resume" => self.cmd_resume(rest)?,
