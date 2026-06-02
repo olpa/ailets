@@ -51,7 +51,7 @@ impl std::error::Error for PipeError {}
 /// Inspection snapshot of a single pipe entry, returned by [`PipePool::inspect_entry`]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PipeEntryInspection {
-    Realized { is_closed: bool },
+    Realized { is_closed: bool, handle: Handle },
     Latent(LatentState),
 }
 
@@ -443,6 +443,7 @@ impl PipePool {
         match state {
             WriterState::Realized(w) => PipeEntryInspection::Realized {
                 is_closed: w.is_closed(),
+                handle: *w.handle(),
             },
             WriterState::Latent { state, .. } => PipeEntryInspection::Latent(*state),
         }

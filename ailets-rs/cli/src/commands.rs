@@ -601,7 +601,7 @@ impl DagShell {
                 .env
                 .pipe_pool
                 .inspect_entry((dep, StdHandle::Stdout as isize));
-            let pipe_info: &str = match &inspection {
+            let pipe_info: String = match &inspection {
                 Some(insp) => format_pipe_inspection(Some(insp)),
                 None => {
                     let kv = Arc::clone(&self.env.kv);
@@ -609,7 +609,7 @@ impl DagShell {
                     let in_kv = self
                         .ailetos_async_rt
                         .block_on(async move { kv.stat(&path).await.is_ok() });
-                    if in_kv { "kv, closed" } else { "not created" }
+                    if in_kv { "kv, closed".to_string() } else { "not created".to_string() }
                 }
             };
             self.sink.println(&format!(
@@ -770,12 +770,16 @@ impl DagShell {
     }
 }
 
-fn format_pipe_inspection(inspection: Option<&PipeEntryInspection>) -> &'static str {
+fn format_pipe_inspection(inspection: Option<&PipeEntryInspection>) -> String {
     match inspection {
-        None => "not created",
-        Some(PipeEntryInspection::Realized { is_closed: true }) => "realized, closed",
-        Some(PipeEntryInspection::Realized { is_closed: false }) => "realized, open",
-        Some(PipeEntryInspection::Latent(LatentState::Waiting)) => "latent, waiting",
-        Some(PipeEntryInspection::Latent(LatentState::Closed)) => "latent, closed",
+        None => "not created".to_string(),
+        Some(PipeEntryInspection::Realized { is_closed: true, handle }) => {
+            format!("realized, closed, writer_handle={}", handle.id())
+        }
+        Some(PipeEntryInspection::Realized { is_closed: false, handle }) => {
+            format!("realized, open, writer_handle={}", handle.id())
+        }
+        Some(PipeEntryInspection::Latent(LatentState::Waiting)) => "latent, waiting".to_string(),
+        Some(PipeEntryInspection::Latent(LatentState::Closed)) => "latent, closed".to_string(),
     }
 }
