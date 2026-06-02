@@ -20,7 +20,7 @@ pub use allocator::{
     write_completed_buffer,
 };
 pub use merge::MergeReader;
-pub use pool::{LatentState, PipeError, PipePool};
+pub use pool::{LatentState, PipeEntryInspection, PipeError, PipePool};
 pub use reader::{drain_to_writer, FlushMode, Reader};
 pub use rw_shared::ReaderSharedData;
 pub use writer::Writer;

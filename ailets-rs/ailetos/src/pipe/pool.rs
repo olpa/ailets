@@ -48,6 +48,13 @@ impl std::fmt::Display for PipeError {
 
 impl std::error::Error for PipeError {}
 
+/// Inspection snapshot of a single pipe entry, returned by [`PipePool::inspect_entry`]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PipeEntryInspection {
+    Realized { is_closed: bool },
+    Latent(LatentState),
+}
+
 /// State of a latent writer
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LatentState {
@@ -378,6 +385,41 @@ impl PipePool {
         async_runtime.spawn(self.reader_future(idgen, key, writer))
     }
 
+    /// Close all remaining latent writers still in Waiting state.
+    ///
+    /// Called at shutdown to unblock reader tasks waiting on pipes that were
+    /// never realized (e.g. because their producer was killed before opening stdout).
+    ///
+    /// Returns the number of leftover entries that were closed.
+    pub fn close_all_leftover_writers(&self) -> usize {
+        let notifies = {
+            let mut writers = self.writers.lock();
+            let mut notifies = Vec::new();
+            for (h, s, state) in &mut *writers {
+                if let WriterState::Latent {
+                    state: latent_state,
+                    notify_tx,
+                } = state
+                {
+                    if *latent_state == LatentState::Waiting {
+                        *latent_state = LatentState::Closed;
+                        notifies.push(Arc::clone(notify_tx));
+                        debug!(key = ?(*h, *s), "closed leftover latent writer on shutdown");
+                    }
+                }
+            }
+            notifies
+        };
+
+        let count = notifies.len();
+        for tx in notifies {
+            if tx.send(()).is_err() {
+                warn!("pool: notify leftover latent waiter on shutdown failed, no receivers");
+            }
+        }
+        count
+    }
+
     /// Get a writer by key (only if already realized)
     ///
     /// Returns an Arc to the writer if it exists and has been realized.
@@ -394,6 +436,43 @@ impl PipePool {
         match existing_state {
             Some(WriterState::Realized(writer)) => Some(Arc::clone(writer)),
             _ => None,
+        }
+    }
+
+    /// Return an inspection snapshot of the pipe entry for `key`, or `None` if no entry exists.
+    pub fn inspect_entry(&self, key: (Handle, isize)) -> Option<PipeEntryInspection> {
+        self.writers
+            .lock()
+            .iter()
+            .find(|(h, s, _)| (*h, *s) == key)
+            .map(|(_, _, state)| match state {
+                WriterState::Realized(w) => PipeEntryInspection::Realized {
+                    is_closed: w.is_closed(),
+                },
+                WriterState::Latent { state, .. } => PipeEntryInspection::Latent(*state),
+            })
+    }
+}
+
+impl Drop for PipePool {
+    fn drop(&mut self) {
+        let unclosed_count = self
+            .writers
+            .get_mut()
+            .iter()
+            .filter(|(_, _, s)| {
+                let is_closed = match s {
+                    WriterState::Realized(w) => w.is_closed(),
+                    WriterState::Latent { state, .. } => *state == LatentState::Closed,
+                };
+                !is_closed
+            })
+            .count();
+        if unclosed_count > 0 {
+            warn!(
+                unclosed_count,
+                "pool dropped with unclosed writers; call flush_close_actor_writers and close_all_leftover_writers before dropping"
+            );
         }
     }
 }
