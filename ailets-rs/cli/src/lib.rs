@@ -257,9 +257,11 @@ impl DagShell {
         for &handle in &self.handles {
             self.env.suspension.resume(handle);
         }
-        // Drain reader tasks before dropping the executor: ensures last bytes written
-        // by actors are flushed even in fast-exit scenarios where the runtime would
-        // otherwise drop the tasks before they are scheduled.
+        // Unblock reader tasks waiting on pipes that will never be realized
+        // (e.g. a node whose dep failed without ever opening stdout).
+        // Must happen before draining reader_tasks to avoid deadlock.
+        self.env.pipe_pool.close_all_leftover_writers();
+        tracing::debug!(count = self.reader_tasks.len(), "prepare_exit: draining reader tasks");
         let rt = &self.ailetos_async_rt;
         let tasks = &mut self.reader_tasks;
         rt.block_on(async { while tasks.join_next().await.is_some() {} });

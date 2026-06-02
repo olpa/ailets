@@ -183,6 +183,7 @@ impl PipePool {
 
             // Wait for notification if needed, then loop back to recheck
             if let Some(mut rx) = wait_notify {
+                debug!(key = ?key, "reader waiting on latent pipe");
                 // Err means the Sender was dropped; treat as wakeup.
                 let _ = rx.changed().await;
             }
