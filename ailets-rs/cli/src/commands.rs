@@ -5,8 +5,7 @@ use std::sync::Arc;
 use actor_runtime::StdHandle;
 use ailetos::{
     pipe::{pipe_path, LatentState, PipeEntryInspection},
-    DependsOn, For, Handle, KVBuffers, NodeState, OpenMode, StopConditions,
-    TopologicalOrderIter,
+    DependsOn, For, Handle, KVBuffers, NodeState, OpenMode, StopConditions, TopologicalOrderIter,
 };
 
 use crate::output::{parse_color, OutputSinkWriter};
@@ -551,7 +550,9 @@ impl DagShell {
             self.cmd_status_dag();
             return;
         }
-        let handle_str = args[0];
+        let [handle_str, ..] = args else {
+            return;
+        };
         let Some(handle) = self.parse_handle(handle_str) else {
             self.sink.println(&format!("Invalid handle: {handle_str}"));
             return;
@@ -559,7 +560,8 @@ impl DagShell {
         if matches!(self.cmd_status_node(handle), Found::No)
             && matches!(self.cmd_status_writer(handle), Found::No)
         {
-            self.sink.println(&format!("Handle {} not found", handle.id()));
+            self.sink
+                .println(&format!("Handle {} not found", handle.id()));
         }
     }
 
@@ -604,15 +606,18 @@ impl DagShell {
                 .env
                 .pipe_pool
                 .inspect_entry((dep, StdHandle::Stdout as isize));
-            let pipe_info: String = match &inspection {
-                Some(insp) => format_pipe_inspection(insp),
-                None => {
-                    let kv = Arc::clone(&self.env.kv);
-                    let path = pipe_path(dep, StdHandle::Stdout as isize);
-                    let in_kv = self
-                        .ailetos_async_rt
-                        .block_on(async move { kv.stat(&path).await.is_ok() });
-                    if in_kv { "kv, closed".to_string() } else { "not created".to_string() }
+            let pipe_info: String = if let Some(insp) = &inspection {
+                format_pipe_inspection(insp)
+            } else {
+                let kv = Arc::clone(&self.env.kv);
+                let path = pipe_path(dep, StdHandle::Stdout as isize);
+                let in_kv = self
+                    .ailetos_async_rt
+                    .block_on(async move { kv.stat(&path).await.is_ok() });
+                if in_kv {
+                    "kv, closed".to_string()
+                } else {
+                    "not created".to_string()
                 }
             };
             self.sink.println(&format!(
@@ -625,7 +630,10 @@ impl DagShell {
         }
 
         // out pipes: all pool entries owned by this node, sorted by fd
-        let mut out_pipes: Vec<_> = self.env.pipe_pool.inspect_entries()
+        let mut out_pipes: Vec<_> = self
+            .env
+            .pipe_pool
+            .inspect_entries()
             .into_iter()
             .filter(|(actor, _, _)| *actor == handle)
             .map(|(_, fd, insp)| (fd, insp))
@@ -659,12 +667,14 @@ impl DagShell {
         ));
         let dag = self.env.dag.read();
         if let Some(node) = dag.get_node(actor) {
-            self.sink.println(&format!("  source: node {}  {}", actor.id(), node.idname));
+            self.sink
+                .println(&format!("  source: node {}  {}", actor.id(), node.idname));
         }
         let dependents: Vec<_> = dag.get_direct_dependents(actor).collect();
         for dep in dependents {
             if let Some(node) = dag.get_node(dep) {
-                self.sink.println(&format!("  target: node {}  {}", dep.id(), node.idname));
+                self.sink
+                    .println(&format!("  target: node {}  {}", dep.id(), node.idname));
             }
         }
         Found::Yes
@@ -813,10 +823,16 @@ enum Found {
 
 fn format_pipe_inspection(inspection: &PipeEntryInspection) -> String {
     match inspection {
-        PipeEntryInspection::Realized { is_closed: true, handle } => {
+        PipeEntryInspection::Realized {
+            is_closed: true,
+            handle,
+        } => {
             format!("realized, closed, writer_handle={}", handle.id())
         }
-        PipeEntryInspection::Realized { is_closed: false, handle } => {
+        PipeEntryInspection::Realized {
+            is_closed: false,
+            handle,
+        } => {
             format!("realized, open, writer_handle={}", handle.id())
         }
         PipeEntryInspection::Latent(LatentState::Waiting) => "latent, waiting".to_string(),

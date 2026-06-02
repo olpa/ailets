@@ -133,7 +133,11 @@ impl PipePool {
                     Some(WriterState::Realized(writer)) => {
                         // Case 1: Writer exists - create reader immediately
                         let shared_data = writer.share_with_reader();
-                        let reader_handle = id_gen.get_next_traced(HandleKind::PipeReader, key.0, Some(writer.handle()));
+                        let reader_handle = id_gen.get_next_traced(
+                            HandleKind::PipeReader,
+                            key.0,
+                            Some(writer.handle()),
+                        );
                         return Ok(Reader::new(reader_handle, shared_data));
                     }
                     Some(WriterState::Latent {

@@ -56,7 +56,12 @@ impl IdGen {
     }
 
     /// Get the next unique ID and log its allocation with kind and optional correlations
-    pub fn get_next_traced(&self, kind: HandleKind, corr1: Handle, corr2: Option<Handle>) -> Handle {
+    pub fn get_next_traced(
+        &self,
+        kind: HandleKind,
+        corr1: Handle,
+        corr2: Option<Handle>,
+    ) -> Handle {
         let handle = Handle::new(self.get_next());
         debug!(?handle, ?kind, ?corr1, ?corr2, "handle allocated");
         handle
