@@ -547,67 +547,78 @@ impl DagShell {
     }
 
     pub(crate) fn cmd_status(&self, args: &[&str]) -> Result<(), String> {
-        let dag = self.env.dag.read();
         if args.is_empty() {
-            let mut total = 0;
-            let mut running = 0;
-            let mut terminated = 0;
-            let mut not_started = 0;
-            let mut suspended = 0;
+            self.cmd_status_dag()
+        } else {
+            self.cmd_status_node(args)
+        }
+    }
 
-            for &handle in &self.handles {
-                if let Some(node) = dag.get_node(handle) {
-                    total += 1;
-                    match node.state {
-                        NodeState::Running => running += 1,
-                        NodeState::Terminated => terminated += 1,
-                        NodeState::NotStarted => not_started += 1,
-                        NodeState::Terminating => {}
-                    }
-                    if self.env.suspension.is_suspended(handle) {
-                        suspended += 1;
-                    }
+    fn cmd_status_dag(&self) -> Result<(), String> {
+        let dag = self.env.dag.read();
+        let mut total = 0;
+        let mut running = 0;
+        let mut terminated = 0;
+        let mut not_started = 0;
+        let mut suspended = 0;
+
+        for &handle in &self.handles {
+            if let Some(node) = dag.get_node(handle) {
+                total += 1;
+                match node.state {
+                    NodeState::Running => running += 1,
+                    NodeState::Terminated => terminated += 1,
+                    NodeState::NotStarted => not_started += 1,
+                    NodeState::Terminating => {}
+                }
+                if self.env.suspension.is_suspended(handle) {
+                    suspended += 1;
                 }
             }
-            self.sink.println(&format!("Nodes: {total} total, {not_started} pending, {running} running, {suspended} suspended, {terminated} terminated"));
-        } else if let Some(handle_str) = args.first() {
-            let handle = self
-                .parse_handle(handle_str)
-                .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
-            let hid = handle.id();
-            let Some(node) = dag.get_node(handle) else {
-                self.sink.println(&format!("Node {hid} not found"));
-                return Ok(());
-            };
-            let state = format_state(node.state);
-            let node_line = format!("Node {hid}: {} [{state}]", node.idname);
-            self.sink.println(&node_line);
+        }
+        self.sink.println(&format!("Nodes: {total} total, {not_started} pending, {running} running, {suspended} suspended, {terminated} terminated"));
+        Ok(())
+    }
 
-            // in pipes: mirrors MergeReader alias resolution via resolve_dependencies
-            for dep in dag.resolve_dependencies(handle) {
-                let inspection = self
-                    .env
-                    .pipe_pool
-                    .inspect_entry((dep, StdHandle::Stdout as isize));
-                self.sink.println(&format!(
-                    "  fd={}  in   actor={}, fd={}  {}",
-                    StdHandle::Stdin as isize,
-                    dep.id(),
-                    StdHandle::Stdout as isize,
-                    format_pipe_inspection(inspection.as_ref()),
-                ));
-            }
+    fn cmd_status_node(&self, args: &[&str]) -> Result<(), String> {
+        let handle_str = args.first().ok_or("Usage: status <node>")?;
+        let handle = self
+            .parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+        let hid = handle.id();
+        let dag = self.env.dag.read();
+        let Some(node) = dag.get_node(handle) else {
+            self.sink.println(&format!("Node {hid} not found"));
+            return Ok(());
+        };
+        let state = format_state(node.state);
+        let node_line = format!("Node {hid}: {} [{state}]", node.idname);
+        self.sink.println(&node_line);
 
-            // out pipes: all pool entries owned by this node, sorted by fd
-            let mut out_pipes = self.env.pipe_pool.inspect_entries(handle);
-            out_pipes.sort_by_key(|(fd, _)| *fd);
-            for (fd, inspection) in &out_pipes {
-                self.sink.println(&format!(
-                    "  fd={}  out  {}",
-                    fd,
-                    format_pipe_inspection(Some(inspection)),
-                ));
-            }
+        // in pipes: mirrors MergeReader alias resolution via resolve_dependencies
+        for dep in dag.resolve_dependencies(handle) {
+            let inspection = self
+                .env
+                .pipe_pool
+                .inspect_entry((dep, StdHandle::Stdout as isize));
+            self.sink.println(&format!(
+                "  fd={}  in   actor={}, fd={}  {}",
+                StdHandle::Stdin as isize,
+                dep.id(),
+                StdHandle::Stdout as isize,
+                format_pipe_inspection(inspection.as_ref()),
+            ));
+        }
+
+        // out pipes: all pool entries owned by this node, sorted by fd
+        let mut out_pipes = self.env.pipe_pool.inspect_entries(handle);
+        out_pipes.sort_by_key(|(fd, _)| *fd);
+        for (fd, inspection) in &out_pipes {
+            self.sink.println(&format!(
+                "  fd={}  out  {}",
+                fd,
+                format_pipe_inspection(Some(inspection)),
+            ));
         }
         Ok(())
     }
