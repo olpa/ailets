@@ -169,11 +169,11 @@ impl KVBuffers for SqliteKV {
         let conn = self.conn.lock();
         let mut stmt = conn
             .prepare("SELECT LENGTH(data) FROM vfs WHERE path = ?")
-            .map_err(|_e| KVError::NotFound(path.to_string()))?;
+            .map_err(|e| KVError::Backend(format!("prepare failed for {path}: {e}")))?;
         let size: Option<i64> = stmt
             .query_row(params![path], |row| row.get(0))
             .optional()
-            .map_err(|_e| KVError::NotFound(path.to_string()))?;
+            .map_err(|e| KVError::Backend(format!("query failed for {path}: {e}")))?;
         size.map(|s| KVStat { size: s as u64 })
             .ok_or_else(|| KVError::NotFound(path.to_string()))
     }

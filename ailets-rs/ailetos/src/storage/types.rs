@@ -23,6 +23,8 @@ pub enum KVError {
     BufferError(super::buffer::BufferError),
     /// Attempted to create a duplicate resource
     AlreadyExists(String),
+    /// Backend-reported error (e.g. DB failure, I/O error)
+    Backend(String),
 }
 
 impl std::fmt::Display for KVError {
@@ -31,6 +33,7 @@ impl std::fmt::Display for KVError {
             Self::NotFound(path) => write!(f, "Path not found: {path}"),
             Self::BufferError(e) => write!(f, "Buffer error: {e}"),
             Self::AlreadyExists(msg) => write!(f, "Already exists: {msg}"),
+            Self::Backend(msg) => write!(f, "Backend error: {msg}"),
         }
     }
 }
