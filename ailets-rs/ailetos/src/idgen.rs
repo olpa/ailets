@@ -4,7 +4,6 @@ use tracing::debug;
 /// Kind of entity a handle identifies, used for tracing handle allocation
 #[derive(Debug, Clone, Copy)]
 pub enum HandleKind {
-    Node,
     PipeWriter,
     PipeReader,
 }
