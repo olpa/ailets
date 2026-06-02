@@ -25,7 +25,7 @@ use super::allocator::{create_writer, flush_and_close_writer};
 use super::pipe_path;
 use super::reader::Reader;
 use super::writer::Writer;
-use crate::idgen::{Handle, IdGen};
+use crate::idgen::{Handle, HandleKind, IdGen};
 use crate::storage::KVBuffers;
 
 /// Error type for pipe reader operations
@@ -133,7 +133,7 @@ impl PipePool {
                     Some(WriterState::Realized(writer)) => {
                         // Case 1: Writer exists - create reader immediately
                         let shared_data = writer.share_with_reader();
-                        let reader_handle = Handle::new(id_gen.get_next());
+                        let reader_handle = id_gen.get_next_traced(HandleKind::PipeReader, key.0, Some(writer.handle()));
                         return Ok(Reader::new(reader_handle, shared_data));
                     }
                     Some(WriterState::Latent {
@@ -218,7 +218,7 @@ impl PipePool {
         }
 
         // Slow path: create writer
-        let writer_handle = Handle::new(id_gen.get_next());
+        let writer_handle = id_gen.get_next_traced(HandleKind::PipeWriter, actor_handle, None);
         let path = pipe_path(actor_handle, fd);
 
         // Create writer with buffer from KV storage
@@ -443,7 +443,7 @@ impl PipePool {
         match state {
             WriterState::Realized(w) => PipeEntryInspection::Realized {
                 is_closed: w.is_closed(),
-                handle: *w.handle(),
+                handle: w.handle(),
             },
             WriterState::Latent { state, .. } => PipeEntryInspection::Latent(*state),
         }

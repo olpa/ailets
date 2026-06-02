@@ -161,8 +161,8 @@ impl Writer {
 
     /// Get the handle for this writer
     #[must_use]
-    pub fn handle(&self) -> &Handle {
-        &self.handle
+    pub fn handle(&self) -> Handle {
+        self.handle
     }
 
     /// Create shared data for a new reader.

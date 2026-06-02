@@ -1,4 +1,13 @@
 use std::sync::atomic::{AtomicI64, Ordering};
+use tracing::debug;
+
+/// Kind of entity a handle identifies, used for tracing handle allocation
+#[derive(Debug, Clone, Copy)]
+pub enum HandleKind {
+    Node,
+    PipeWriter,
+    PipeReader,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Handle {
@@ -45,6 +54,13 @@ impl IdGen {
     /// Get the next unique ID
     pub fn get_next(&self) -> <Handle as HandleType>::Id {
         self.next_id.fetch_add(1, Ordering::Relaxed)
+    }
+
+    /// Get the next unique ID and log its allocation with kind and optional correlations
+    pub fn get_next_traced(&self, kind: HandleKind, corr1: Handle, corr2: Option<Handle>) -> Handle {
+        let handle = Handle::new(self.get_next());
+        debug!(?handle, ?kind, ?corr1, ?corr2, "handle allocated");
+        handle
     }
 }
 
