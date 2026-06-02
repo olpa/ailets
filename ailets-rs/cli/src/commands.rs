@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use actor_runtime::StdHandle;
 use ailetos::{
-    pipe::pipe_path, DependsOn, For, Handle, KVBuffers, NodeState, OpenMode, StopConditions,
+    pipe::{pipe_path, LatentState, PipeEntryInspection},
+    DependsOn, For, Handle, KVBuffers, NodeState, OpenMode, StopConditions,
     TopologicalOrderIter,
 };
 
@@ -574,12 +575,38 @@ impl DagShell {
                 .parse_handle(handle_str)
                 .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
             let hid = handle.id();
-            if let Some(node) = dag.get_node(handle) {
-                let state = format_state(node.state);
-                self.sink
-                    .println(&format!("Node {hid}: {} [{state}]", node.idname));
-            } else {
+            let Some(node) = dag.get_node(handle) else {
                 self.sink.println(&format!("Node {hid} not found"));
+                return Ok(());
+            };
+            let state = format_state(node.state);
+            let node_line = format!("Node {hid}: {} [{state}]", node.idname);
+            self.sink.println(&node_line);
+
+            // in pipes: mirrors MergeReader alias resolution via resolve_dependencies
+            for dep in dag.resolve_dependencies(handle) {
+                let inspection = self
+                    .env
+                    .pipe_pool
+                    .inspect_entry((dep, StdHandle::Stdout as isize));
+                self.sink.println(&format!(
+                    "  fd={}  in   actor={}, fd={}  {}",
+                    StdHandle::Stdin as isize,
+                    dep.id(),
+                    StdHandle::Stdout as isize,
+                    format_pipe_inspection(inspection.as_ref()),
+                ));
+            }
+
+            // out pipes: all pool entries owned by this node, sorted by fd
+            let mut out_pipes = self.env.pipe_pool.inspect_entries(handle);
+            out_pipes.sort_by_key(|(fd, _)| *fd);
+            for (fd, inspection) in &out_pipes {
+                self.sink.println(&format!(
+                    "  fd={}  out  {}",
+                    fd,
+                    format_pipe_inspection(Some(inspection)),
+                ));
             }
         }
         Ok(())
@@ -718,5 +745,15 @@ impl DagShell {
 
         self.sink.println(&format!("Killed node {}", handle.id()));
         Ok(())
+    }
+}
+
+fn format_pipe_inspection(inspection: Option<&PipeEntryInspection>) -> &'static str {
+    match inspection {
+        None => "not created",
+        Some(PipeEntryInspection::Realized { is_closed: true }) => "realized, closed",
+        Some(PipeEntryInspection::Realized { is_closed: false }) => "realized, open",
+        Some(PipeEntryInspection::Latent(LatentState::Waiting)) => "latent, waiting",
+        Some(PipeEntryInspection::Latent(LatentState::Closed)) => "latent, closed",
     }
 }

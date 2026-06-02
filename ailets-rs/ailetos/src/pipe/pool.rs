@@ -439,18 +439,32 @@ impl PipePool {
         }
     }
 
+    fn inspect_state(state: &WriterState) -> PipeEntryInspection {
+        match state {
+            WriterState::Realized(w) => PipeEntryInspection::Realized {
+                is_closed: w.is_closed(),
+            },
+            WriterState::Latent { state, .. } => PipeEntryInspection::Latent(*state),
+        }
+    }
+
+    /// Return all (fd, inspection) pairs for pipes owned by `actor`.
+    pub fn inspect_entries(&self, actor: Handle) -> Vec<(isize, PipeEntryInspection)> {
+        self.writers
+            .lock()
+            .iter()
+            .filter(|(h, _, _)| *h == actor)
+            .map(|(_, fd, state)| (*fd, Self::inspect_state(state)))
+            .collect()
+    }
+
     /// Return an inspection snapshot of the pipe entry for `key`, or `None` if no entry exists.
     pub fn inspect_entry(&self, key: (Handle, isize)) -> Option<PipeEntryInspection> {
         self.writers
             .lock()
             .iter()
             .find(|(h, s, _)| (*h, *s) == key)
-            .map(|(_, _, state)| match state {
-                WriterState::Realized(w) => PipeEntryInspection::Realized {
-                    is_closed: w.is_closed(),
-                },
-                WriterState::Latent { state, .. } => PipeEntryInspection::Latent(*state),
-            })
+            .map(|(_, _, state)| Self::inspect_state(state))
     }
 }
 
