@@ -605,7 +605,7 @@ impl DagShell {
                 .pipe_pool
                 .inspect_entry((dep, StdHandle::Stdout as isize));
             let pipe_info: String = match &inspection {
-                Some(insp) => format_pipe_inspection(Some(insp)),
+                Some(insp) => format_pipe_inspection(insp),
                 None => {
                     let kv = Arc::clone(&self.env.kv);
                     let path = pipe_path(dep, StdHandle::Stdout as isize);
@@ -635,7 +635,7 @@ impl DagShell {
             self.sink.println(&format!(
                 "  fd={}  out  {}",
                 fd,
-                format_pipe_inspection(Some(inspection)),
+                format_pipe_inspection(inspection),
             ));
         }
         Found::Yes
@@ -655,7 +655,7 @@ impl DagShell {
         self.sink.println(&format!(
             "Writer {hid}: fd={}  {}",
             fd,
-            format_pipe_inspection(Some(&inspection)),
+            format_pipe_inspection(&inspection),
         ));
         let dag = self.env.dag.read();
         if let Some(node) = dag.get_node(actor) {
@@ -811,16 +811,15 @@ enum Found {
     No,
 }
 
-fn format_pipe_inspection(inspection: Option<&PipeEntryInspection>) -> String {
+fn format_pipe_inspection(inspection: &PipeEntryInspection) -> String {
     match inspection {
-        None => "not created".to_string(),
-        Some(PipeEntryInspection::Realized { is_closed: true, handle }) => {
+        PipeEntryInspection::Realized { is_closed: true, handle } => {
             format!("realized, closed, writer_handle={}", handle.id())
         }
-        Some(PipeEntryInspection::Realized { is_closed: false, handle }) => {
+        PipeEntryInspection::Realized { is_closed: false, handle } => {
             format!("realized, open, writer_handle={}", handle.id())
         }
-        Some(PipeEntryInspection::Latent(LatentState::Waiting)) => "latent, waiting".to_string(),
-        Some(PipeEntryInspection::Latent(LatentState::Closed)) => "latent, closed".to_string(),
+        PipeEntryInspection::Latent(LatentState::Waiting) => "latent, waiting".to_string(),
+        PipeEntryInspection::Latent(LatentState::Closed) => "latent, closed".to_string(),
     }
 }
