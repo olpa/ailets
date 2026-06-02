@@ -551,10 +551,7 @@ impl DagShell {
             self.cmd_status_dag();
             return;
         }
-        let Some(handle_str) = args.first() else {
-            self.sink.println("Usage: status <node>");
-            return;
-        };
+        let handle_str = args[0];
         let Some(handle) = self.parse_handle(handle_str) else {
             self.sink.println(&format!("Invalid handle: {handle_str}"));
             return;
