@@ -18,7 +18,7 @@
 //! - Multi-threaded usage discussion: <https://github.com/rusqlite/rusqlite/issues/342>
 
 use super::flush_coordinator::FlushCoordinator;
-use crate::{Buffer, KVBuffers, KVError, OpenMode};
+use crate::{Buffer, KVBuffers, KVError, KVStat, OpenMode};
 use async_trait::async_trait;
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
@@ -155,6 +155,27 @@ impl KVBuffers for SqliteKV {
                 }
             }
         }
+    }
+
+    async fn stat(&self, path: &str) -> Result<KVStat, KVError> {
+        let buffers = self.buffers.lock();
+        if let Some(buf) = buffers.get(path) {
+            return Ok(KVStat {
+                size: buf.len() as u64,
+            });
+        }
+        drop(buffers);
+
+        let conn = self.conn.lock();
+        let mut stmt = conn
+            .prepare("SELECT LENGTH(data) FROM vfs WHERE path = ?")
+            .map_err(|_e| KVError::NotFound(path.to_string()))?;
+        let size: Option<i64> = stmt
+            .query_row(params![path], |row| row.get(0))
+            .optional()
+            .map_err(|_e| KVError::NotFound(path.to_string()))?;
+        size.map(|s| KVStat { size: s as u64 })
+            .ok_or_else(|| KVError::NotFound(path.to_string()))
     }
 
     async fn listdir(&self, dir_name: &str) -> Result<Vec<String>, KVError> {

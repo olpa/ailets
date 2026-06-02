@@ -46,4 +46,4 @@ pub use flush_coordinator::{CoordinatorError, FlushCoordinator, FlushFn};
 pub use memkv::MemKV;
 #[cfg(feature = "sqlitekv")]
 pub use sqlitekv::SqliteKV;
-pub use types::{KVBuffers, KVError, OpenMode};
+pub use types::{KVBuffers, KVError, KVStat, OpenMode};

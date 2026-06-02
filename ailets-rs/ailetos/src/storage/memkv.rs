@@ -1,7 +1,7 @@
 //! In-memory implementation of `KVBuffers`
 
 use super::buffer::Buffer;
-use super::types::{KVBuffers, KVError, OpenMode};
+use super::types::{KVBuffers, KVError, KVStat, OpenMode};
 use async_trait::async_trait;
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -54,6 +54,16 @@ impl KVBuffers for MemKV {
                 }
             }
         }
+    }
+
+    async fn stat(&self, path: &str) -> Result<KVStat, KVError> {
+        let buffers = self.buffers.lock();
+        buffers
+            .get(path)
+            .map(|buf| KVStat {
+                size: buf.len() as u64,
+            })
+            .ok_or_else(|| KVError::NotFound(path.to_string()))
     }
 
     async fn listdir(&self, dir_name: &str) -> Result<Vec<String>, KVError> {
