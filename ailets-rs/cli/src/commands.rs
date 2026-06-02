@@ -601,12 +601,23 @@ impl DagShell {
                 .env
                 .pipe_pool
                 .inspect_entry((dep, StdHandle::Stdout as isize));
+            let pipe_info: &str = match &inspection {
+                Some(insp) => format_pipe_inspection(Some(insp)),
+                None => {
+                    let kv = Arc::clone(&self.env.kv);
+                    let path = pipe_path(dep, StdHandle::Stdout as isize);
+                    let in_kv = self
+                        .ailetos_async_rt
+                        .block_on(async move { kv.stat(&path).await.is_ok() });
+                    if in_kv { "kv, closed" } else { "not created" }
+                }
+            };
             self.sink.println(&format!(
                 "  fd={}  in   actor={}, fd={}  {}",
                 StdHandle::Stdin as isize,
                 dep.id(),
                 StdHandle::Stdout as isize,
-                format_pipe_inspection(inspection.as_ref()),
+                pipe_info,
             ));
         }
 
