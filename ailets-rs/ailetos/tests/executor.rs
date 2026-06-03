@@ -315,3 +315,71 @@ async fn run_jobs_processes_job_submitted_while_actor_running() {
     release_tx.send(()).unwrap();
     executor.shutdown().await;
 }
+
+/// A267: Executor hangs when a deep dependency is killed and its dependents
+/// are never unblocked.
+///
+/// Chain: a → b → c → d  (a executes first, d is the target).
+///
+/// Scenario 1: whole chain scheduled; a fails at runtime.  After the run the
+/// DAG state is: a Terminated (error), b/c/d NotStarted — this is the
+/// incremental starting point for scenario 2.
+///
+/// Scenario 2: re-submit d with a already Terminated (failed).  The job
+/// filter skips a but adds b/c/d to pending.  They can never run because
+/// a already failed, so any waiter on NodeTerminated(d) hangs forever.
+#[tokio::test]
+async fn test_kill_deep_dep_does_not_hang() {
+    let kv = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+
+    let a = env.add_node("failing".into(), &[], None);
+    let b = env.add_node("noop".into(), &[a], None);
+    let c = env.add_node("noop".into(), &[b], None);
+    let d = env.add_node("noop".into(), &[c], None);
+
+    env.actor_registry
+        .write()
+        .register("failing", |_| Err("intentional failure".into()));
+    env.actor_registry.write().register("noop", |_| Ok(()));
+
+    // Scenario 1: whole chain scheduled; a fails at runtime.
+    {
+        let executor =
+            Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
+        executor.submit(d, StopConditions::default()).unwrap();
+        executor.shutdown().await;
+    }
+
+    // a is now Terminated (failed); b/c/d are NotStarted (eligible for re-run).
+    assert_eq!(env.dag.read().get_node(a).unwrap().state, NodeState::Terminated);
+    assert_ne!(env.dag.read().get_node(a).unwrap().exit_code, 0);
+    assert_eq!(env.dag.read().get_node(b).unwrap().state, NodeState::NotStarted);
+    assert_eq!(env.dag.read().get_node(c).unwrap().state, NodeState::NotStarted);
+    assert_eq!(env.dag.read().get_node(d).unwrap().state, NodeState::NotStarted);
+
+    // Scenario 2: re-submit d — a is already Terminated (killed), b/c/d are
+    // NotStarted and added to pending, but they can never run.
+    // Hangs here if the executor never cancels the permanently-blocked nodes.
+    {
+        let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<ExecutorEvent>();
+        let executor = Executor::start(
+            &tokio::runtime::Handle::current(),
+            Arc::clone(&env),
+            Some(ev_tx),
+        );
+        executor.submit(d, StopConditions::default()).unwrap();
+
+        loop {
+            match ev_rx.recv().await {
+                Some(ExecutorEvent::NodeTerminated(h)) if h == d => break,
+                Some(_) => continue,
+                None => panic!("executor shut down without terminating d"),
+            }
+        }
+
+        executor.shutdown().await;
+    }
+
+    assert_eq!(env.dag.read().get_node(d).unwrap().state, NodeState::Terminated);
+}
