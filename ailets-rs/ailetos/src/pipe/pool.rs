@@ -247,7 +247,11 @@ impl PipePool {
             };
 
             // Insert Realized state
-            writers.push((actor_handle, fd, WriterState::Realized(Arc::clone(&writer_arc))));
+            writers.push((
+                actor_handle,
+                fd,
+                WriterState::Realized(Arc::clone(&writer_arc)),
+            ));
             debug!(key = ?key, "created writer");
 
             notify_tx
