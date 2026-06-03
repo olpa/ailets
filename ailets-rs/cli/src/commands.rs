@@ -569,10 +569,11 @@ impl DagShell {
 
     fn cmd_status_dag(&self) {
         let dag = self.env.dag.read();
+        let pending_set = self.executor.snapshot_pending();
         let mut total = 0;
         let mut running = 0;
         let mut terminated = 0;
-        let mut not_started = 0;
+        let mut pending = 0;
         let mut suspended = 0;
 
         for &handle in &self.handles {
@@ -581,7 +582,11 @@ impl DagShell {
                 match node.state {
                     NodeState::Running => running += 1,
                     NodeState::Terminated => terminated += 1,
-                    NodeState::NotStarted => not_started += 1,
+                    NodeState::NotStarted => {
+                        if pending_set.contains(&handle) {
+                            pending += 1;
+                        }
+                    }
                     NodeState::Terminating => {}
                 }
                 if self.env.suspension.is_suspended(handle) {
@@ -589,7 +594,7 @@ impl DagShell {
                 }
             }
         }
-        self.sink.println(&format!("Nodes: {total} total, {not_started} pending, {running} running, {suspended} suspended, {terminated} terminated"));
+        self.sink.println(&format!("Nodes: {total} total, {pending} pending, {running} running, {suspended} suspended, {terminated} terminated"));
     }
 
     fn cmd_status_node(&self, handle: Handle) -> Found {
