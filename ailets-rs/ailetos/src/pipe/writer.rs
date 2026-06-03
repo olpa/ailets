@@ -128,9 +128,10 @@ impl Writer {
             Err(ENOSPC)
         };
 
-        // Notify outside lock (both data and errors wake waiting readers)
+        // Notify outside lock (both data and errors wake waiting readers).
+        // send() Err (no receivers) is normal — see close() for explanation.
         if self.watch_tx.send(()).is_err() {
-            warn!(handle = ?self.handle, "Writer::write: no receivers to notify");
+            trace!(handle = ?self.handle, "Writer::write: no receivers to notify");
         }
         result
     }
@@ -153,8 +154,17 @@ impl Writer {
         }
         // Wake all waiting readers; dropping watch_tx would also work but this
         // is explicit and consistent with the error/write notification pattern.
+        //
+        // send() returning Err means no receivers exist right now — this is
+        // expected and not a data-loss bug: the initial receiver is dropped on
+        // purpose (see new()), and downstream actors subscribe via subscribe()
+        // only when they start. Written data is preserved in the shared buffer
+        // regardless of notification delivery, so a late subscriber still reads
+        // everything. The real broken-pipe case (readers that subscribed and
+        // then dropped) is caught earlier by the had_readers + receiver_count()
+        // EPIPE check in write().
         if self.watch_tx.send(()).is_err() {
-            warn!(handle = ?self.handle, "Writer::close: no receivers to notify");
+            trace!(handle = ?self.handle, "Writer::close: no receivers to notify");
         }
         Ok(())
     }
