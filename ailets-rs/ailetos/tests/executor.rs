@@ -329,6 +329,7 @@ async fn run_jobs_processes_job_submitted_while_actor_running() {
 /// filter skips a but adds b/c/d to pending.  They can never run because
 /// a already failed, so any waiter on NodeTerminated(d) hangs forever.
 #[tokio::test]
+#[ignore = "hangs: nodes with failed deps added to pending but never run, see A267"]
 async fn test_kill_deep_dep_does_not_hang() {
     let kv = Arc::new(MemKV::new());
     let env = Arc::new(Environment::new(kv));

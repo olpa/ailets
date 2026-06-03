@@ -79,6 +79,8 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
+use parking_lot::Mutex;
+
 use tokio::sync::mpsc;
 use tokio::task::JoinSet;
 use tracing::{debug, warn};
@@ -373,14 +375,18 @@ async fn run_spawn_loop_jobs(
     env: &Arc<Environment>,
     infra: &ExecutorInfra,
     job_rx: &mut mpsc::UnboundedReceiver<JobItem>,
+    shared_pending: &Mutex<HashSet<Handle>>,
 ) {
     let mut actor_tasks = JoinSet::new();
-    let mut pending: HashSet<Handle> = HashSet::new();
     let mut channel_closed = false;
     let mut wakeup_rx = infra.executor_wakeup.subscribe();
 
     loop {
-        pending = spawn_ready_actors(pending, env, infra, &mut actor_tasks);
+        {
+            let mut pending_locked = shared_pending.lock();
+            let pending = std::mem::take(&mut *pending_locked);
+            *pending_locked = spawn_ready_actors(pending, env, infra, &mut actor_tasks);
+        }
 
         if channel_closed && actor_tasks.is_empty() {
             break;
@@ -407,9 +413,9 @@ async fn run_spawn_loop_jobs(
                                 .is_some_and(|node| node.state == NodeState::NotStarted)
                         });
                         if one_step {
-                            pending.extend(not_started.take(1));
+                            shared_pending.lock().extend(not_started.take(1));
                         } else {
-                            pending.extend(not_started);
+                            shared_pending.lock().extend(not_started);
                         }
                     }
                     None => { channel_closed = true; }
@@ -526,6 +532,7 @@ impl ExecutorInfra {
 pub struct Executor {
     job_tx: mpsc::UnboundedSender<JobItem>,
     executor_task: tokio::task::JoinHandle<()>,
+    pending: Arc<Mutex<HashSet<Handle>>>,
 }
 
 impl Executor {
@@ -545,16 +552,28 @@ impl Executor {
     ) -> Self {
         let (job_tx, mut job_rx) = mpsc::unbounded_channel::<JobItem>();
         let infra = ExecutorInfra::new(async_runtime.clone(), &env, events_tx);
+        let pending = Arc::new(Mutex::new(HashSet::new()));
+        let pending_clone = Arc::clone(&pending);
 
         let executor_task = async_runtime.spawn(async move {
-            run_spawn_loop_jobs(&env, &infra, &mut job_rx).await;
+            run_spawn_loop_jobs(&env, &infra, &mut job_rx, &pending_clone).await;
             infra.shutdown().await;
         });
 
         Self {
             job_tx,
             executor_task,
+            pending,
         }
+    }
+
+    /// Return a snapshot of the nodes currently scheduled for execution.
+    ///
+    /// The snapshot is a point-in-time copy: it may be stale by the time
+    /// the caller uses it, but is consistent and requires no held locks.
+    #[must_use]
+    pub fn snapshot_pending(&self) -> HashSet<Handle> {
+        self.pending.lock().clone()
     }
 
     /// Submit a job (target node) to the executor.

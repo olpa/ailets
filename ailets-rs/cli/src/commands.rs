@@ -186,13 +186,14 @@ impl DagShell {
                 .collect();
 
             let suspension = Some(&*self.env.suspension);
+            let pending = self.executor.snapshot_pending();
             let roots = if terminals.is_empty() {
                 self.handles.clone()
             } else {
                 terminals
             };
             for handle in roots {
-                let tree = dag.dump_colored(handle, suspension);
+                let tree = dag.dump_colored(handle, suspension, Some(&pending));
                 for line in tree.lines() {
                     self.sink.println(line);
                 }
@@ -204,7 +205,8 @@ impl DagShell {
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
         let suspension = Some(&*self.env.suspension);
-        let tree = dag.dump_colored(handle, suspension);
+        let pending = self.executor.snapshot_pending();
+        let tree = dag.dump_colored(handle, suspension, Some(&pending));
         for line in tree.lines() {
             self.sink.println(line);
         }
