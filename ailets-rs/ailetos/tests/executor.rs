@@ -316,6 +316,60 @@ async fn run_jobs_processes_job_submitted_while_actor_running() {
     executor.shutdown().await;
 }
 
+/// A267: When a node fails, its dependents in pending must be removed so the
+/// executor does not retain permanently-blocked nodes at shutdown.
+///
+/// Chain: a → b → c → d (a executes first, d is the target).
+/// a, b, c, d all enter pending when d is submitted. a fails; b/c/d are
+/// permanently blocked (a terminated with non-zero exit code). The executor
+/// must clear b/c/d from pending — not retain them until the next submission.
+#[tokio::test]
+async fn test_failed_node_clears_dependents_from_pending() {
+    let kv = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+
+    let a = env.add_node("failing".into(), &[], None);
+    let b = env.add_node("noop".into(), &[a], None);
+    let c = env.add_node("noop".into(), &[b], None);
+    let d = env.add_node("noop".into(), &[c], None);
+
+    env.actor_registry
+        .write()
+        .register("failing", |_| Err("intentional failure".into()));
+    env.actor_registry.write().register("noop", |_| Ok(()));
+
+    let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<ExecutorEvent>();
+    let executor = Executor::start(
+        &tokio::runtime::Handle::current(),
+        Arc::clone(&env),
+        Some(ev_tx),
+    );
+    executor.submit(d, StopConditions::default()).unwrap();
+
+    loop {
+        match ev_rx.recv().await {
+            Some(ExecutorEvent::NodeTerminated(h)) if h == a => break,
+            Some(_) => continue,
+            None => panic!("executor shut down before a terminated"),
+        }
+    }
+
+    // Yield to the Tokio runtime so the executor's spawn loop can process a's
+    // termination wakeup and update the pending set before we snapshot it.
+    tokio::task::yield_now().await;
+
+    // With the fix, b/c/d are removed from pending when a fails. Without the
+    // fix they remain, leaking permanently-blocked nodes into the next
+    // submission's pending state.
+    let pending = executor.snapshot_pending();
+    executor.shutdown().await;
+
+    assert!(
+        pending.is_empty(),
+        "pending must be empty after a failed: b/c/d are permanently blocked"
+    );
+}
+
 /// A267: Executor hangs when a deep dependency is killed and its dependents
 /// are never unblocked.
 ///
