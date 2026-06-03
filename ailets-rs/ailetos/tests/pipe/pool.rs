@@ -47,7 +47,7 @@ async fn test_create_writer_then_reader() {
         .touch_writer(actor_handle, std_handle as isize, &id_gen)
         .await
         .expect("Failed to create writer");
-    let writer_handle = *writer.handle();
+    let writer_handle = writer.handle();
 
     // Create reader - should succeed immediately since writer exists
     let reader = pool
@@ -55,7 +55,7 @@ async fn test_create_writer_then_reader() {
         .await
         .expect("Reader should be created successfully");
 
-    assert_eq!(*reader.handle(), Handle::new(id_gen.get_next() - 1));
+    assert_eq!(reader.handle(), Handle::new(id_gen.get_next() - 1));
     assert_eq!(writer_handle.id(), 1);
 }
 
@@ -85,9 +85,9 @@ async fn test_multiple_readers_from_same_writer() {
         .expect("Reader 3 should be created");
 
     // Each reader should have a unique handle
-    let h1 = *reader1.handle();
-    let h2 = *reader2.handle();
-    let h3 = *reader3.handle();
+    let h1 = reader1.handle();
+    let h2 = reader2.handle();
+    let h3 = reader3.handle();
 
     assert_ne!(h1, h2);
     assert_ne!(h2, h3);

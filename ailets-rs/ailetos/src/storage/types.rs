@@ -23,6 +23,8 @@ pub enum KVError {
     BufferError(super::buffer::BufferError),
     /// Attempted to create a duplicate resource
     AlreadyExists(String),
+    /// Backend-reported error (e.g. DB failure, I/O error)
+    Backend(String),
 }
 
 impl std::fmt::Display for KVError {
@@ -31,6 +33,7 @@ impl std::fmt::Display for KVError {
             Self::NotFound(path) => write!(f, "Path not found: {path}"),
             Self::BufferError(e) => write!(f, "Buffer error: {e}"),
             Self::AlreadyExists(msg) => write!(f, "Already exists: {msg}"),
+            Self::Backend(msg) => write!(f, "Backend error: {msg}"),
         }
     }
 }
@@ -41,6 +44,12 @@ impl From<super::buffer::BufferError> for KVError {
     fn from(e: super::buffer::BufferError) -> Self {
         Self::BufferError(e)
     }
+}
+
+/// Metadata returned by [`KVBuffers::stat`], analogous to POSIX `struct stat`.
+pub struct KVStat {
+    /// Size of the buffer in bytes.
+    pub size: u64,
 }
 
 /// Trait for key-value buffer storage backends
@@ -55,6 +64,9 @@ pub trait KVBuffers: Send + Sync {
     /// - Write: creates new empty buffer (overwrites if exists)
     /// - Append: gets existing or creates new buffer
     async fn open(&self, path: &str, mode: OpenMode) -> Result<Buffer, KVError>;
+
+    /// Return metadata for the buffer at `path`, or `KVError::NotFound` if it does not exist.
+    async fn stat(&self, path: &str) -> Result<KVStat, KVError>;
 
     /// List paths with given prefix.
     ///

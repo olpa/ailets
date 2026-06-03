@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use actor_runtime::StdHandle;
 use ailetos::{
-    pipe::pipe_path, DependsOn, For, Handle, KVBuffers, NodeState, OpenMode, StopConditions,
-    TopologicalOrderIter,
+    pipe::{pipe_path, LatentState, PipeEntryInspection},
+    DependsOn, For, Handle, KVBuffers, NodeState, OpenMode, StopConditions, TopologicalOrderIter,
 };
 
 use crate::output::{parse_color, OutputSinkWriter};
@@ -545,44 +545,139 @@ impl DagShell {
         Ok(crate::ShellControl::Continue)
     }
 
-    pub(crate) fn cmd_status(&self, args: &[&str]) -> Result<(), String> {
-        let dag = self.env.dag.read();
+    pub(crate) fn cmd_status(&self, args: &[&str]) {
         if args.is_empty() {
-            let mut total = 0;
-            let mut running = 0;
-            let mut terminated = 0;
-            let mut not_started = 0;
-            let mut suspended = 0;
+            self.cmd_status_dag();
+            return;
+        }
+        let [handle_str, ..] = args else {
+            return;
+        };
+        let Some(handle) = self.parse_handle(handle_str) else {
+            self.sink.println(&format!("Invalid handle: {handle_str}"));
+            return;
+        };
+        if matches!(self.cmd_status_node(handle), Found::No)
+            && matches!(self.cmd_status_writer(handle), Found::No)
+        {
+            self.sink
+                .println(&format!("Handle {} not found", handle.id()));
+        }
+    }
 
-            for &handle in &self.handles {
-                if let Some(node) = dag.get_node(handle) {
-                    total += 1;
-                    match node.state {
-                        NodeState::Running => running += 1,
-                        NodeState::Terminated => terminated += 1,
-                        NodeState::NotStarted => not_started += 1,
-                        NodeState::Terminating => {}
-                    }
-                    if self.env.suspension.is_suspended(handle) {
-                        suspended += 1;
-                    }
+    fn cmd_status_dag(&self) {
+        let dag = self.env.dag.read();
+        let mut total = 0;
+        let mut running = 0;
+        let mut terminated = 0;
+        let mut not_started = 0;
+        let mut suspended = 0;
+
+        for &handle in &self.handles {
+            if let Some(node) = dag.get_node(handle) {
+                total += 1;
+                match node.state {
+                    NodeState::Running => running += 1,
+                    NodeState::Terminated => terminated += 1,
+                    NodeState::NotStarted => not_started += 1,
+                    NodeState::Terminating => {}
+                }
+                if self.env.suspension.is_suspended(handle) {
+                    suspended += 1;
                 }
             }
-            self.sink.println(&format!("Nodes: {total} total, {not_started} pending, {running} running, {suspended} suspended, {terminated} terminated"));
-        } else if let Some(handle_str) = args.first() {
-            let handle = self
-                .parse_handle(handle_str)
-                .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
-            let hid = handle.id();
-            if let Some(node) = dag.get_node(handle) {
-                let state = format_state(node.state);
-                self.sink
-                    .println(&format!("Node {hid}: {} [{state}]", node.idname));
+        }
+        self.sink.println(&format!("Nodes: {total} total, {not_started} pending, {running} running, {suspended} suspended, {terminated} terminated"));
+    }
+
+    fn cmd_status_node(&self, handle: Handle) -> Found {
+        let hid = handle.id();
+        let dag = self.env.dag.read();
+        let Some(node) = dag.get_node(handle) else {
+            return Found::No;
+        };
+        let state = format_state(node.state);
+        let node_line = format!("Node {hid}: {} [{state}]", node.idname);
+        self.sink.println(&node_line);
+
+        // in pipes: mirrors MergeReader alias resolution via resolve_dependencies
+        for dep in dag.resolve_dependencies(handle) {
+            let inspection = self
+                .env
+                .pipe_pool
+                .inspect_entry((dep, StdHandle::Stdout as isize));
+            let pipe_info: String = if let Some(insp) = &inspection {
+                format_pipe_inspection(insp)
             } else {
-                self.sink.println(&format!("Node {hid} not found"));
+                let kv = Arc::clone(&self.env.kv);
+                let path = pipe_path(dep, StdHandle::Stdout as isize);
+                let in_kv = self
+                    .ailetos_async_rt
+                    .block_on(async move { kv.stat(&path).await.is_ok() });
+                if in_kv {
+                    "kv, closed".to_string()
+                } else {
+                    "not created".to_string()
+                }
+            };
+            self.sink.println(&format!(
+                "  fd={}  in   actor={}, fd={}  {}",
+                StdHandle::Stdin as isize,
+                dep.id(),
+                StdHandle::Stdout as isize,
+                pipe_info,
+            ));
+        }
+
+        // out pipes: all pool entries owned by this node, sorted by fd
+        let mut out_pipes: Vec<_> = self
+            .env
+            .pipe_pool
+            .inspect_entries()
+            .into_iter()
+            .filter(|(actor, _, _)| *actor == handle)
+            .map(|(_, fd, insp)| (fd, insp))
+            .collect();
+        out_pipes.sort_by_key(|(fd, _)| *fd);
+        for (fd, inspection) in &out_pipes {
+            self.sink.println(&format!(
+                "  fd={}  out  {}",
+                fd,
+                format_pipe_inspection(inspection),
+            ));
+        }
+        Found::Yes
+    }
+
+    fn cmd_status_writer(&self, handle: Handle) -> Found {
+        let hid = handle.id();
+        let entry = self
+            .env
+            .pipe_pool
+            .inspect_entries()
+            .into_iter()
+            .find(|(_, _, insp)| matches!(insp, PipeEntryInspection::Realized { handle: h, .. } if *h == handle));
+        let Some((actor, fd, inspection)) = entry else {
+            return Found::No;
+        };
+        self.sink.println(&format!(
+            "Writer {hid}: fd={}  {}",
+            fd,
+            format_pipe_inspection(&inspection),
+        ));
+        let dag = self.env.dag.read();
+        if let Some(node) = dag.get_node(actor) {
+            self.sink
+                .println(&format!("  source: node {}  {}", actor.id(), node.idname));
+        }
+        let dependents: Vec<_> = dag.get_direct_dependents(actor).collect();
+        for dep in dependents {
+            if let Some(node) = dag.get_node(dep) {
+                self.sink
+                    .println(&format!("  target: node {}  {}", dep.id(), node.idname));
             }
         }
-        Ok(())
+        Found::Yes
     }
 
     pub(crate) fn cmd_suspend(&self, args: &[&str]) -> Result<(), String> {
@@ -718,5 +813,29 @@ impl DagShell {
 
         self.sink.println(&format!("Killed node {}", handle.id()));
         Ok(())
+    }
+}
+
+enum Found {
+    Yes,
+    No,
+}
+
+fn format_pipe_inspection(inspection: &PipeEntryInspection) -> String {
+    match inspection {
+        PipeEntryInspection::Realized {
+            is_closed: true,
+            handle,
+        } => {
+            format!("realized, closed, writer_handle={}", handle.id())
+        }
+        PipeEntryInspection::Realized {
+            is_closed: false,
+            handle,
+        } => {
+            format!("realized, open, writer_handle={}", handle.id())
+        }
+        PipeEntryInspection::Latent(LatentState::Waiting) => "latent, waiting".to_string(),
+        PipeEntryInspection::Latent(LatentState::Closed) => "latent, closed".to_string(),
     }
 }

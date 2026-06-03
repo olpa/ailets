@@ -9,7 +9,7 @@ async fn test_write_read() {
     let writer = Writer::new(writer_handle, "test", Buffer::new());
     let shared_data = writer.share_with_reader();
     let mut reader = Reader::new(Handle::new(2), shared_data);
-    let _reader_handle = *reader.handle();
+    let _reader_handle = reader.handle();
 
     // Write some data
     let n = writer.write(b"Hello");
@@ -78,10 +78,10 @@ async fn test_multiple_readers() {
 
     let shared_data1 = writer.share_with_reader();
     let mut reader1 = Reader::new(Handle::new(2), shared_data1);
-    let _reader1_handle = *reader1.handle();
+    let _reader1_handle = reader1.handle();
     let shared_data2 = writer.share_with_reader();
     let mut reader2 = Reader::new(Handle::new(3), shared_data2);
-    let _reader2_handle = *reader2.handle();
+    let _reader2_handle = reader2.handle();
 
     // Write data
     let n = writer.write(b"Broadcast");

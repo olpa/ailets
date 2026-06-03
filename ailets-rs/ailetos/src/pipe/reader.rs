@@ -65,8 +65,8 @@ impl Reader {
 
     /// Get the reader's handle
     #[must_use]
-    pub fn handle(&self) -> &Handle {
-        &self.own_handle
+    pub fn handle(&self) -> Handle {
+        self.own_handle
     }
 
     /// Close the reader.

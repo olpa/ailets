@@ -21,7 +21,7 @@ pub use storage::{Buffer, BufferError, BufferReadGuard};
 // Re-export KV types for convenience
 #[cfg(feature = "sqlitekv")]
 pub use storage::{CoordinatorError, FlushCoordinator, FlushFn, SqliteKV};
-pub use storage::{KVBuffers, KVError, MemKV, OpenMode};
+pub use storage::{KVBuffers, KVError, KVStat, MemKV, OpenMode};
 
 // Re-export PipePool for convenience
 pub use pipe::PipePool;

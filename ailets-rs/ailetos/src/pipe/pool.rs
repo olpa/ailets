@@ -25,7 +25,7 @@ use super::allocator::{create_writer, flush_and_close_writer};
 use super::pipe_path;
 use super::reader::Reader;
 use super::writer::Writer;
-use crate::idgen::{Handle, IdGen};
+use crate::idgen::{Handle, HandleKind, IdGen};
 use crate::storage::KVBuffers;
 
 /// Error type for pipe reader operations
@@ -51,7 +51,7 @@ impl std::error::Error for PipeError {}
 /// Inspection snapshot of a single pipe entry, returned by [`PipePool::inspect_entry`]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PipeEntryInspection {
-    Realized { is_closed: bool },
+    Realized { is_closed: bool, handle: Handle },
     Latent(LatentState),
 }
 
@@ -118,6 +118,7 @@ impl PipePool {
         allow_latent: bool,
         id_gen: &IdGen,
     ) -> Result<Reader, PipeError> {
+        let (actor_handle, fd) = key;
         loop {
             // Check state under lock and decide action
             let wait_notify = {
@@ -133,7 +134,11 @@ impl PipePool {
                     Some(WriterState::Realized(writer)) => {
                         // Case 1: Writer exists - create reader immediately
                         let shared_data = writer.share_with_reader();
-                        let reader_handle = Handle::new(id_gen.get_next());
+                        let reader_handle = id_gen.get_next_traced(
+                            HandleKind::PipeReader,
+                            actor_handle,
+                            Some(writer.handle()),
+                        );
                         return Ok(Reader::new(reader_handle, shared_data));
                     }
                     Some(WriterState::Latent {
@@ -163,8 +168,8 @@ impl PipePool {
                         let (notify_tx, notify_rx) = tokio::sync::watch::channel(());
                         let notify_tx = Arc::new(notify_tx);
                         writers.push((
-                            key.0,
-                            key.1,
+                            actor_handle,
+                            fd,
                             WriterState::Latent {
                                 state: LatentState::Waiting,
                                 notify_tx,
@@ -218,7 +223,7 @@ impl PipePool {
         }
 
         // Slow path: create writer
-        let writer_handle = Handle::new(id_gen.get_next());
+        let writer_handle = id_gen.get_next_traced(HandleKind::PipeWriter, actor_handle, None);
         let path = pipe_path(actor_handle, fd);
 
         // Create writer with buffer from KV storage
@@ -242,7 +247,11 @@ impl PipePool {
             };
 
             // Insert Realized state
-            writers.push((key.0, key.1, WriterState::Realized(Arc::clone(&writer_arc))));
+            writers.push((
+                actor_handle,
+                fd,
+                WriterState::Realized(Arc::clone(&writer_arc)),
+            ));
             debug!(key = ?key, "created writer");
 
             notify_tx
@@ -439,18 +448,32 @@ impl PipePool {
         }
     }
 
+    fn inspect_state(state: &WriterState) -> PipeEntryInspection {
+        match state {
+            WriterState::Realized(w) => PipeEntryInspection::Realized {
+                is_closed: w.is_closed(),
+                handle: w.handle(),
+            },
+            WriterState::Latent { state, .. } => PipeEntryInspection::Latent(*state),
+        }
+    }
+
+    /// Return all (actor, fd, inspection) triples in the pool.
+    pub fn inspect_entries(&self) -> Vec<(Handle, isize, PipeEntryInspection)> {
+        self.writers
+            .lock()
+            .iter()
+            .map(|(actor, fd, state)| (*actor, *fd, Self::inspect_state(state)))
+            .collect()
+    }
+
     /// Return an inspection snapshot of the pipe entry for `key`, or `None` if no entry exists.
     pub fn inspect_entry(&self, key: (Handle, isize)) -> Option<PipeEntryInspection> {
         self.writers
             .lock()
             .iter()
             .find(|(h, s, _)| (*h, *s) == key)
-            .map(|(_, _, state)| match state {
-                WriterState::Realized(w) => PipeEntryInspection::Realized {
-                    is_closed: w.is_closed(),
-                },
-                WriterState::Latent { state, .. } => PipeEntryInspection::Latent(*state),
-            })
+            .map(|(_, _, state)| Self::inspect_state(state))
     }
 }
 

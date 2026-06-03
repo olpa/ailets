@@ -15,7 +15,7 @@ use super::pool::PipePool;
 use super::reader::Reader;
 use crate::dag::{NodeState, OwnedDependencyIterator};
 use crate::errno::{EBADF, EIO};
-use crate::idgen::IdGen;
+use crate::idgen::{HandleKind, IdGen};
 use crate::storage::KVBuffers;
 
 /// A reader that sequentially reads from multiple dependency inputs.
@@ -132,7 +132,9 @@ impl MergeReader {
 
         // Dependencies always output to stdout (fd=1)
         let path = pipe_path(actor_handle, actor_runtime::StdHandle::Stdout as isize);
-        let reader_handle = crate::idgen::Handle::new(self.id_gen.get_next());
+        let reader_handle = self
+            .id_gen
+            .get_next_traced(HandleKind::PipeReader, actor_handle, None);
 
         create_reader_from_completed(self.kv.as_ref(), reader_handle, &path).await
     }
