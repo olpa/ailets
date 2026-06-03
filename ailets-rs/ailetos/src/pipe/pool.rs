@@ -118,6 +118,7 @@ impl PipePool {
         allow_latent: bool,
         id_gen: &IdGen,
     ) -> Result<Reader, PipeError> {
+        let (actor_handle, fd) = key;
         loop {
             // Check state under lock and decide action
             let wait_notify = {
@@ -135,7 +136,7 @@ impl PipePool {
                         let shared_data = writer.share_with_reader();
                         let reader_handle = id_gen.get_next_traced(
                             HandleKind::PipeReader,
-                            key.0,
+                            actor_handle,
                             Some(writer.handle()),
                         );
                         return Ok(Reader::new(reader_handle, shared_data));
@@ -167,8 +168,8 @@ impl PipePool {
                         let (notify_tx, notify_rx) = tokio::sync::watch::channel(());
                         let notify_tx = Arc::new(notify_tx);
                         writers.push((
-                            key.0,
-                            key.1,
+                            actor_handle,
+                            fd,
                             WriterState::Latent {
                                 state: LatentState::Waiting,
                                 notify_tx,
@@ -246,7 +247,7 @@ impl PipePool {
             };
 
             // Insert Realized state
-            writers.push((key.0, key.1, WriterState::Realized(Arc::clone(&writer_arc))));
+            writers.push((actor_handle, fd, WriterState::Realized(Arc::clone(&writer_arc))));
             debug!(key = ?key, "created writer");
 
             notify_tx
