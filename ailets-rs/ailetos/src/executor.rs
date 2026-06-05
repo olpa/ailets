@@ -101,19 +101,25 @@ pub enum ExecutorEvent {
     NodeTerminated(Handle),
 }
 
+pub enum SpawnReadiness {
+    Ready,
+    Waiting,
+    FailedDependency(Handle),
+}
+
 /// Decide whether a node is ready to be spawned.
 ///
 /// Decision table (iterate concrete deps, first decisive result wins):
 ///
-/// | Dep state                      | Has output | Decision        |
-/// |--------------------------------|------------|-----------------|
-/// | `NotStarted`                   | —          | don't start     |
-/// | Running / Terminating          | yes        | start           |
-/// | Running / Terminating          | no         | don't start     |
-/// | Terminated, `exit_code` != 0   | —          | don't start     |
-/// | Terminated, `exit_code` == 0   | yes        | start           |
-/// | Terminated, `exit_code` == 0   | no         | skip (neutral)  |
-/// | (all deps exhausted)           | —          | start           |
+/// | Dep state                      | Has output | Decision              |
+/// |--------------------------------|------------|-----------------------|
+/// | `NotStarted`                   | —          | `Waiting`             |
+/// | Running / Terminating          | yes        | `Ready`               |
+/// | Running / Terminating          | no         | `Waiting`             |
+/// | Terminated, `exit_code` != 0   | —          | `FailedDependency`    |
+/// | Terminated, `exit_code` == 0   | yes        | `Ready`               |
+/// | Terminated, `exit_code` == 0   | no         | skip (neutral)        |
+/// | (all deps exhausted)           | —          | `Ready`               |
 ///
 /// "Has output" is checked optimistically: a dep has output if its stdout
 /// pipe is realized (writer exists in the pool), regardless of byte count.
@@ -121,7 +127,7 @@ pub enum ExecutorEvent {
 /// Note: Suspension state does not affect spawn readiness. If a dependency
 /// has produced output, downstream actors can start consuming it regardless
 /// of whether the dependency is suspended.
-pub fn is_ready_to_spawn(node_handle: Handle, dag: &Dag, pipe_pool: &PipePool) -> bool {
+pub fn is_ready_to_spawn(node_handle: Handle, dag: &Dag, pipe_pool: &PipePool) -> SpawnReadiness {
     use actor_runtime::StdHandle;
 
     for dep in dag.resolve_dependencies(node_handle) {
@@ -130,28 +136,33 @@ pub fn is_ready_to_spawn(node_handle: Handle, dag: &Dag, pipe_pool: &PipePool) -
         };
 
         match dep_node.state {
-            NodeState::NotStarted => return false,
+            NodeState::NotStarted => return SpawnReadiness::Waiting,
             NodeState::Running | NodeState::Terminating => {
-                return pipe_pool
+                return if pipe_pool
                     .get_already_realized_writer((dep, StdHandle::Stdout as isize))
-                    .is_some();
+                    .is_some()
+                {
+                    SpawnReadiness::Ready
+                } else {
+                    SpawnReadiness::Waiting
+                };
             }
             NodeState::Terminated => {
                 if dep_node.exit_code != 0 {
-                    return false;
+                    return SpawnReadiness::FailedDependency(dep);
                 }
                 if pipe_pool
                     .get_already_realized_writer((dep, StdHandle::Stdout as isize))
                     .is_some()
                 {
-                    return true;
+                    return SpawnReadiness::Ready;
                 }
                 // neutral: clean termination with no output, continue to next dep
             }
         }
     }
 
-    true
+    SpawnReadiness::Ready
 }
 
 /// Spawn a task for an actor node
@@ -286,7 +297,7 @@ fn spawn_ready_actors(
         pending
             .iter()
             .filter_map(|&n| {
-                if is_ready_to_spawn(n, &dag_guard, &env.pipe_pool) {
+                if matches!(is_ready_to_spawn(n, &dag_guard, &env.pipe_pool), SpawnReadiness::Ready) {
                     dag_guard.get_node(n).map(|node| (n, node.idname.clone()))
                 } else {
                     None
