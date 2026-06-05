@@ -684,4 +684,25 @@ mod tests {
             SpawnOutcome::FailedNodeDependency(dep) if dep == failed_producer
         ));
     }
+
+    #[tokio::test]
+    async fn unregistered_actor_is_terminated_with_error() {
+        let kv = Arc::new(MemKV::new());
+        let env = Arc::new(crate::environment::Environment::new(kv));
+
+        let node = env.add_node("not-registered".into(), &[], None);
+
+        let async_runtime = tokio::runtime::Handle::current();
+        let infra = ExecutorInfra::new(async_runtime, &env, None);
+        let mut actor_tasks = JoinSet::new();
+        let pending = HashSet::from([node]);
+
+        spawn_ready_actors(&pending, &env, &infra, &mut actor_tasks);
+        infra.shutdown().await;
+
+        let dag = env.dag.read();
+        let n = dag.get_node(node).unwrap();
+        assert_eq!(n.state, NodeState::Terminated);
+        assert_ne!(n.exit_code, 0);
+    }
 }
