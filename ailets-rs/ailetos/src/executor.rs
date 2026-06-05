@@ -316,19 +316,12 @@ fn spawn_ready_actors(
     for node_handle in to_spawn {
         remaining.remove(&node_handle);
 
-        let idname = {
-            let mut dag = env.dag.write();
-            // Re-check state under the write lock: an actor task running
-            // concurrently may have already advanced this node past NotStarted.
-            let Some(node) = dag.get_node(node_handle) else { continue };
-            if node.state != NodeState::NotStarted { continue }
-            let idname = node.idname.clone();
-            dag.set_state(node_handle, NodeState::Running);
-            idname
-        };
-
-        let Some(actor_fn) = env.actor_registry.read().get(&idname) else {
+        let dag = env.dag.read();
+        let Some(node) = dag.get_node(node_handle) else { continue };
+        let Some(actor_fn) = env.actor_registry.read().get(&node.idname) else {
+            let idname = &node.idname;
             warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
+            drop(dag);
             // Mark as terminated so dependents are not blocked.
             // No lifecycle events needed since the actor was never started.
             {
@@ -337,10 +330,24 @@ fn spawn_ready_actors(
                 dag.set_state(node_handle, NodeState::Terminated);
             }
             if infra.executor_wakeup.send(()).is_err() {
+                let idname = env.dag.read().get_node(node_handle)
+                    .map_or("<unknown>".into(), |n| n.idname.clone());
                 warn!(node = ?node_handle, name = %idname, "executor: wakeup after unregistered actor failed, no receivers");
             }
             continue;
         };
+        let idname = node.idname.clone(); // spawn_actor_task takes ownership of the name
+        drop(dag);
+
+        {
+            let mut dag = env.dag.write();
+            // Re-check state under the write lock: an actor task running
+            // concurrently may have already advanced this node past NotStarted.
+            if dag.get_node(node_handle).is_none_or(|n| n.state != NodeState::NotStarted) {
+                continue;
+            }
+            dag.set_state(node_handle, NodeState::Running);
+        }
 
         debug!(node = ?node_handle, name = %idname, "spawning actor task");
 
