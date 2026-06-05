@@ -282,31 +282,40 @@ async fn lifecycle_event_task(
     }
 }
 
+enum SpawnOutcome {
+    Ok(HashSet<Handle>),
+    FailedNodeDependency(Handle),
+}
+
 /// Spawn one batch of ready nodes from `pending`.
 ///
 /// Spawns actor tasks directly into `actor_tasks` `JoinSet`.
 /// Returns the set of nodes that were not ready to spawn (still pending).
 fn spawn_ready_actors(
-    pending: HashSet<Handle>,
+    pending: &HashSet<Handle>,
     env: &Arc<Environment>,
     infra: &ExecutorInfra,
     actor_tasks: &mut JoinSet<()>,
-) -> HashSet<Handle> {
-    let to_spawn: Vec<(Handle, String)> = {
+) -> SpawnOutcome {
+    let mut to_spawn: Vec<(Handle, String)> = Vec::new();
+    {
         let dag_guard = env.dag.read();
-        pending
-            .iter()
-            .filter_map(|&n| {
-                if matches!(is_ready_to_spawn(n, &dag_guard, &env.pipe_pool), SpawnReadiness::Ready) {
-                    dag_guard.get_node(n).map(|node| (n, node.idname.clone()))
-                } else {
-                    None
+        for &n in pending {
+            match is_ready_to_spawn(n, &dag_guard, &env.pipe_pool) {
+                SpawnReadiness::Ready => {
+                    if let Some(node) = dag_guard.get_node(n) {
+                        to_spawn.push((n, node.idname.clone()));
+                    }
                 }
-            })
-            .collect()
-    };
+                SpawnReadiness::Waiting => {}
+                SpawnReadiness::FailedDependency(dep) => {
+                    return SpawnOutcome::FailedNodeDependency(dep);
+                }
+            }
+        }
+    }
 
-    let mut remaining = pending;
+    let mut remaining: HashSet<Handle> = pending.clone();
 
     for (node_handle, idname) in &to_spawn {
         let node_handle = *node_handle; // Copy the handle for use in the async block
@@ -369,7 +378,7 @@ fn spawn_ready_actors(
         );
     }
 
-    remaining
+    SpawnOutcome::Ok(remaining)
 }
 
 /// A job submitted to the executor, pairing a target node with its stop conditions.
@@ -395,8 +404,10 @@ async fn run_spawn_loop_jobs(
     loop {
         {
             let mut pending_locked = shared_pending.lock();
-            let pending = std::mem::take(&mut *pending_locked);
-            *pending_locked = spawn_ready_actors(pending, env, infra, &mut actor_tasks);
+            match spawn_ready_actors(&*pending_locked, env, infra, &mut actor_tasks) {
+                SpawnOutcome::Ok(remaining) => *pending_locked = remaining,
+                SpawnOutcome::FailedNodeDependency(_) => {} // stub: cleanup not yet wired
+            }
         }
 
         if channel_closed && actor_tasks.is_empty() {
@@ -618,5 +629,41 @@ impl Executor {
         if let Err(e) = self.executor_task.await {
             warn!(error = %e, "executor task panicked");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dag::NodeState;
+    use crate::storage::MemKV;
+
+    #[tokio::test]
+    async fn spawn_ready_actors_detects_failed_dep_via_alias() {
+        let kv = Arc::new(MemKV::new());
+        let env = Arc::new(crate::environment::Environment::new(kv));
+
+        let failed_producer = env.add_node("failed-producer".into(), &[], None);
+        let output_alias = env.add_alias(".output".into(), failed_producer);
+        let blocked_consumer = env.add_node("blocked-consumer".into(), &[output_alias], None);
+
+        {
+            let mut dag = env.dag.write();
+            dag.set_state(failed_producer, NodeState::Terminated);
+            dag.set_exit_code(failed_producer, crate::errno::EOWNERDEAD);
+        }
+
+        let async_runtime = tokio::runtime::Handle::current();
+        let infra = ExecutorInfra::new(async_runtime, &env, None);
+        let mut actor_tasks = JoinSet::new();
+        let pending = HashSet::from([blocked_consumer]);
+
+        let outcome = spawn_ready_actors(&pending, &env, &infra, &mut actor_tasks);
+        infra.shutdown().await;
+
+        assert!(matches!(
+            outcome,
+            SpawnOutcome::FailedNodeDependency(dep) if dep == failed_producer
+        ));
     }
 }
