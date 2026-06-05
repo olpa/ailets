@@ -297,16 +297,12 @@ fn spawn_ready_actors(
     infra: &ExecutorInfra,
     actor_tasks: &mut JoinSet<()>,
 ) -> SpawnOutcome {
-    let mut to_spawn: Vec<(Handle, String)> = Vec::new();
+    let mut to_spawn: Vec<Handle> = Vec::new();
     {
         let dag_guard = env.dag.read();
         for &n in pending {
             match is_ready_to_spawn(n, &dag_guard, &env.pipe_pool) {
-                SpawnReadiness::Ready => {
-                    if let Some(node) = dag_guard.get_node(n) {
-                        to_spawn.push((n, node.idname.clone()));
-                    }
-                }
+                SpawnReadiness::Ready => to_spawn.push(n),
                 SpawnReadiness::Waiting => {}
                 SpawnReadiness::FailedDependency(dep) => {
                     return SpawnOutcome::FailedNodeDependency(dep);
@@ -317,11 +313,21 @@ fn spawn_ready_actors(
 
     let mut remaining: HashSet<Handle> = pending.clone();
 
-    for (node_handle, idname) in &to_spawn {
-        let node_handle = *node_handle; // Copy the handle for use in the async block
+    for node_handle in to_spawn {
         remaining.remove(&node_handle);
 
-        let Some(actor_fn) = env.actor_registry.read().get(idname) else {
+        let idname = {
+            let mut dag = env.dag.write();
+            // Re-check state under the write lock: an actor task running
+            // concurrently may have already advanced this node past NotStarted.
+            let Some(node) = dag.get_node(node_handle) else { continue };
+            if node.state != NodeState::NotStarted { continue }
+            let idname = node.idname.clone();
+            dag.set_state(node_handle, NodeState::Running);
+            idname
+        };
+
+        let Some(actor_fn) = env.actor_registry.read().get(&idname) else {
             warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
             // Mark as terminated so dependents are not blocked.
             // No lifecycle events needed since the actor was never started.
@@ -336,18 +342,6 @@ fn spawn_ready_actors(
             continue;
         };
 
-        {
-            let mut dag = env.dag.write();
-            // Re-check state under the write lock: an actor task running
-            // concurrently may have already advanced this node past NotStarted.
-            if dag
-                .get_node(node_handle)
-                .is_none_or(|n| n.state != NodeState::NotStarted)
-            {
-                continue;
-            }
-            dag.set_state(node_handle, NodeState::Running);
-        }
         debug!(node = ?node_handle, name = %idname, "spawning actor task");
 
         let actor_runtime = BlockingActorRuntime::new(
