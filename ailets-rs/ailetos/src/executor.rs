@@ -381,6 +381,27 @@ fn spawn_ready_actors(
     SpawnOutcome::Ok(remaining)
 }
 
+fn remove_blocked_from_pending(failed_dep: Handle, pending: &mut HashSet<Handle>, dag: &Dag) {
+    use std::collections::VecDeque;
+
+    let mut blocked: HashSet<Handle> = HashSet::from([failed_dep]);
+    let mut queue: VecDeque<Handle> = VecDeque::from([failed_dep]);
+
+    while let Some(current) = queue.pop_front() {
+        let newly_blocked: Vec<Handle> = pending
+            .iter()
+            .filter(|&&n| dag.resolve_dependencies(n).any(|dep| dep == current))
+            .copied()
+            .collect();
+        for n in newly_blocked {
+            pending.remove(&n);
+            if blocked.insert(n) {
+                queue.push_back(n);
+            }
+        }
+    }
+}
+
 /// A job submitted to the executor, pairing a target node with its stop conditions.
 struct JobItem {
     target: Handle,
@@ -406,7 +427,10 @@ async fn run_spawn_loop_jobs(
             let mut pending_locked = shared_pending.lock();
             match spawn_ready_actors(&*pending_locked, env, infra, &mut actor_tasks) {
                 SpawnOutcome::Ok(remaining) => *pending_locked = remaining,
-                SpawnOutcome::FailedNodeDependency(_) => {} // stub: cleanup not yet wired
+                SpawnOutcome::FailedNodeDependency(failed_dep) => {
+                    let dag = env.dag.read();
+                    remove_blocked_from_pending(failed_dep, &mut pending_locked, &dag);
+                }
             }
         }
 
