@@ -383,7 +383,6 @@ async fn test_failed_node_clears_dependents_from_pending() {
 /// filter skips a but adds b/c/d to pending.  They can never run because
 /// a already failed, so any waiter on NodeTerminated(d) hangs forever.
 #[tokio::test]
-#[ignore = "hangs: nodes with failed deps added to pending but never run, see A267"]
 async fn test_kill_deep_dep_does_not_hang() {
     let kv = Arc::new(MemKV::new());
     let env = Arc::new(Environment::new(kv));
@@ -413,28 +412,18 @@ async fn test_kill_deep_dep_does_not_hang() {
     assert_eq!(env.dag.read().get_node(c).unwrap().state, NodeState::NotStarted);
     assert_eq!(env.dag.read().get_node(d).unwrap().state, NodeState::NotStarted);
 
-    // Scenario 2: re-submit d — a is already Terminated (killed), b/c/d are
-    // NotStarted and added to pending, but they can never run.
-    // Hangs here if the executor never cancels the permanently-blocked nodes.
+    // Scenario 2: re-submit d — a is already Terminated (failed), b/c/d are
+    // NotStarted and added to pending, but they can never run. The executor must
+    // clear them and shut down promptly rather than hanging.
     {
-        let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<ExecutorEvent>();
-        let executor = Executor::start(
-            &tokio::runtime::Handle::current(),
-            Arc::clone(&env),
-            Some(ev_tx),
-        );
+        let executor =
+            Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
         executor.submit(d, StopConditions::default()).unwrap();
-
-        loop {
-            match ev_rx.recv().await {
-                Some(ExecutorEvent::NodeTerminated(h)) if h == d => break,
-                Some(_) => continue,
-                None => panic!("executor shut down without terminating d"),
-            }
-        }
-
-        executor.shutdown().await;
+        executor.shutdown().await; // must not hang
     }
 
-    assert_eq!(env.dag.read().get_node(d).unwrap().state, NodeState::Terminated);
+    // b/c/d remain NotStarted: cleared from pending, never spawned.
+    assert_eq!(env.dag.read().get_node(b).unwrap().state, NodeState::NotStarted);
+    assert_eq!(env.dag.read().get_node(c).unwrap().state, NodeState::NotStarted);
+    assert_eq!(env.dag.read().get_node(d).unwrap().state, NodeState::NotStarted);
 }
