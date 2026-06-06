@@ -427,3 +427,34 @@ async fn test_kill_deep_dep_does_not_hang() {
     assert_eq!(env.dag.read().get_node(c).unwrap().state, NodeState::NotStarted);
     assert_eq!(env.dag.read().get_node(d).unwrap().state, NodeState::NotStarted);
 }
+
+/// join() resolves Ok when the target node terminates successfully.
+///
+/// Chain: a → b → c  (a runs first). All three nodes are joined in parallel.
+#[tokio::test]
+async fn join_resolves_ok_on_success() {
+    let kv = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+    env.actor_registry.write().register("noop", |_| Ok(()));
+
+    let a = env.add_node("noop".into(), &[], None);
+    let b = env.add_node("noop".into(), &[a], None);
+    let c = env.add_node("noop".into(), &[b], None);
+
+    let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
+    let rx_a = executor.join(a);
+    let rx_b = executor.join(b);
+    let rx_c = executor.join(c);
+    executor.submit(c, StopConditions::default()).unwrap();
+
+    let (ra, rb, rc) = tokio::join!(
+        async { rx_a.await.expect("join sender dropped unexpectedly") },
+        async { rx_b.await.expect("join sender dropped unexpectedly") },
+        async { rx_c.await.expect("join sender dropped unexpectedly") },
+    );
+    executor.shutdown().await;
+
+    assert!(ra.is_ok(), "join(a) must resolve Ok");
+    assert!(rb.is_ok(), "join(b) must resolve Ok");
+    assert!(rc.is_ok(), "join(c) must resolve Ok");
+}

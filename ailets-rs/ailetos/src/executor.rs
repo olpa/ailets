@@ -81,7 +81,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
 use tracing::{debug, warn};
 
@@ -221,6 +221,7 @@ async fn lifecycle_event_task(
     executor_wakeup: Arc<tokio::sync::watch::Sender<()>>,
     mut rx: mpsc::UnboundedReceiver<ActorLifecycleEvent>,
     events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
+    join_waiters: Arc<Mutex<Vec<(Handle, oneshot::Sender<Result<(), String>>)>>>,
 ) {
     while let Some(event) = rx.recv().await {
         match event {
@@ -272,6 +273,16 @@ async fn lifecycle_event_task(
                 if let Some(ref tx) = events_tx {
                     if tx.send(ExecutorEvent::NodeTerminated(node_handle)).is_err() {
                         warn!(node = ?node_handle, "executor events receiver dropped");
+                    }
+                }
+                let result = if exit_code == 0 { Ok(()) } else { Err(format!("exit code {exit_code}")) };
+                let to_notify: Vec<_> = join_waiters
+                    .lock()
+                    .extract_if(.., |(h, _)| *h == node_handle)
+                    .collect();
+                for (h, tx) in to_notify {
+                    if tx.send(result.clone()).is_err() {
+                        warn!(node = ?h, "join: waiter receiver dropped");
                     }
                 }
                 if executor_wakeup.send(()).is_err() {
@@ -528,6 +539,7 @@ impl ExecutorInfra {
         async_runtime: tokio::runtime::Handle,
         env: &Arc<Environment>,
         events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
+        join_waiters: Arc<Mutex<Vec<(Handle, oneshot::Sender<Result<(), String>>)>>>,
     ) -> Self {
         let (wakeup_tx, _) = tokio::sync::watch::channel(());
         let executor_wakeup = Arc::new(wakeup_tx);
@@ -542,6 +554,7 @@ impl ExecutorInfra {
             Arc::clone(&executor_wakeup),
             lifecycle_rx,
             events_tx,
+            join_waiters,
         ));
         Self {
             async_runtime,
@@ -580,6 +593,7 @@ pub struct Executor {
     job_tx: mpsc::UnboundedSender<JobItem>,
     executor_task: tokio::task::JoinHandle<()>,
     pending: Arc<Mutex<HashSet<Handle>>>,
+    join_waiters: Arc<Mutex<Vec<(Handle, oneshot::Sender<Result<(), String>>)>>>,
 }
 
 impl Executor {
@@ -598,9 +612,12 @@ impl Executor {
         events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
     ) -> Self {
         let (job_tx, mut job_rx) = mpsc::unbounded_channel::<JobItem>();
-        let infra = ExecutorInfra::new(async_runtime.clone(), &env, events_tx);
         let pending = Arc::new(Mutex::new(HashSet::new()));
         let pending_clone = Arc::clone(&pending);
+        let join_waiters: Arc<Mutex<Vec<(Handle, oneshot::Sender<Result<(), String>>)>>> =
+            Arc::new(Mutex::new(Vec::new()));
+        let join_waiters_clone = Arc::clone(&join_waiters);
+        let infra = ExecutorInfra::new(async_runtime.clone(), &env, events_tx, join_waiters_clone);
 
         let executor_task = async_runtime.spawn(async move {
             run_spawn_loop_jobs(&env, &infra, &mut job_rx, &pending_clone).await;
@@ -611,6 +628,7 @@ impl Executor {
             job_tx,
             executor_task,
             pending,
+            join_waiters,
         }
     }
 
@@ -621,6 +639,17 @@ impl Executor {
     #[must_use]
     pub fn snapshot_pending(&self) -> HashSet<Handle> {
         self.pending.lock().clone()
+    }
+
+    /// Wait asynchronously for a node to reach a terminal state.
+    ///
+    /// Returns `Ok(())` when the node terminates successfully, or `Err` if the
+    /// node is removed from pending because a dependency failed.
+    #[must_use]
+    pub fn join(&self, node: Handle) -> oneshot::Receiver<Result<(), String>> {
+        let (tx, rx) = oneshot::channel();
+        self.join_waiters.lock().push((node, tx));
+        rx
     }
 
     /// Submit a job (target node) to the executor.
@@ -679,7 +708,7 @@ mod tests {
         }
 
         let async_runtime = tokio::runtime::Handle::current();
-        let infra = ExecutorInfra::new(async_runtime, &env, None);
+        let infra = ExecutorInfra::new(async_runtime, &env, None, Arc::new(Mutex::new(Vec::new())));
         let mut actor_tasks = JoinSet::new();
         let pending = HashSet::from([blocked_consumer]);
 
@@ -700,7 +729,7 @@ mod tests {
         let node = env.add_node("not-registered".into(), &[], None);
 
         let async_runtime = tokio::runtime::Handle::current();
-        let infra = ExecutorInfra::new(async_runtime, &env, None);
+        let infra = ExecutorInfra::new(async_runtime, &env, None, Arc::new(Mutex::new(Vec::new())));
         let mut actor_tasks = JoinSet::new();
         let pending = HashSet::from([node]);
 
