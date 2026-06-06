@@ -270,18 +270,12 @@ impl DagShell {
             stop_after,
         };
 
-        self.executor
-            .submit(handle, stop_conditions.clone())
-            .map_err(|_| "Executor has shut down".to_string())?;
-
-        if bg_flag {
-            self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, true, color);
-        } else {
-            self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, false, color);
-            // Determine the node to join on: the last node the executor will actually run,
-            // which may differ from `handle` when stop conditions truncate the traversal.
-            // For one_step, skip already-terminated nodes to match the executor's behaviour.
-            let wait_targets = if one_step {
+        // Determine the node to join on before submitting the job.  The
+        // one_step branch looks at NodeState::NotStarted; if we computed this
+        // after submit the executor could race ahead and mark the first node
+        // Running/Terminated, causing find() to land on the wrong node.
+        let wait_targets = if !bg_flag {
+            if one_step {
                 let dag = self.env.dag.read();
                 TopologicalOrderIter::new(&dag, handle)
                     .find(|&n| {
@@ -298,7 +292,19 @@ impl DagShell {
                     .unwrap_or_default()
             } else {
                 self.env.resolve_all(handle)
-            };
+            }
+        } else {
+            vec![]
+        };
+
+        self.executor
+            .submit(handle, stop_conditions.clone())
+            .map_err(|_| "Executor has shut down".to_string())?;
+
+        if bg_flag {
+            self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, true, color);
+        } else {
+            self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, false, color);
             self.join_handles(wait_targets)?;
             self.sink.println("");
         }
@@ -306,40 +312,30 @@ impl DagShell {
     }
 
     fn join_handles(&mut self, targets: Vec<Handle>) -> Result<(), String> {
-        {
-            let dag = self.env.dag.read();
-            for &target in &targets {
-                if dag.get_node(target).is_none() {
-                    return Err(format!("handle {} not found in DAG", target.id()));
-                }
-            }
-        }
+        let targets: Vec<Handle> = targets
+            .into_iter()
+            .flat_map(|t| self.env.resolve_all(t))
+            .collect();
+        let receivers: Vec<_> = targets.iter().map(|&t| self.executor.join(t)).collect();
         self.foreground_join
             .store(true, std::sync::atomic::Ordering::Relaxed);
-        let env = &self.env;
         let sink = &self.sink;
         let foreground_join = &self.foreground_join;
         self.cli_rt.block_on(async move {
-            let wait_all =
-                futures::future::join_all(targets.into_iter().map(|target| async move {
-                    loop {
-                        if matches!(
-                            env.dag.read().get_node(target).map(|n| n.state),
-                            Some(NodeState::Terminated)
-                        ) {
-                            break;
-                        }
-                        tokio::time::sleep(POLL_INTERVAL).await;
-                    }
-                }));
-            tokio::select! {
+            let wait_all = futures::future::join_all(receivers.into_iter().map(|rx| async move {
+                rx.await.map_err(|_| "join sender dropped".to_string())?
+            }));
+            let result = tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
                     sink.println("\n^C - Detached (node continues running in ailetos)");
+                    Ok(())
                 }
-                _ = wait_all => {}
-            }
+                results = wait_all => {
+                    results.into_iter().find(|r| r.is_err()).unwrap_or(Ok(()))
+                }
+            };
             foreground_join.store(false, std::sync::atomic::Ordering::Relaxed);
-            Ok(())
+            result
         })
     }
 
