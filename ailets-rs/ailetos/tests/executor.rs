@@ -464,6 +464,27 @@ async fn join_resolves_err_when_blocked_by_failed_dep() {
     assert!(rc.is_err(), "join(c) must resolve Err: c is blocked by failed a");
 }
 
+/// join() on an unscheduled node resolves Err immediately without hanging.
+#[tokio::test]
+async fn join_resolves_err_for_unscheduled_node() {
+    let kv = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+
+    let node = env.add_node("noop".into(), &[], None);
+
+    let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
+    let join_rx = executor.join(node);
+    // node is never submitted
+
+    let result = tokio::time::timeout(std::time::Duration::from_millis(200), join_rx)
+        .await
+        .expect("join on unscheduled node must not hang")
+        .expect("join sender dropped unexpectedly");
+    executor.shutdown().await;
+
+    assert!(result.is_err(), "join must resolve Err for an unscheduled node");
+}
+
 /// join() resolves Ok when the target node terminates successfully.
 ///
 /// Chain: a → b → c  (a runs first). All three nodes are joined in parallel.
