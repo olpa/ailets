@@ -510,6 +510,14 @@ async fn run_spawn_loop_jobs(
             }
         }
     }
+
+    // Drain any remaining waiters: nodes that were never scheduled or otherwise
+    // never reached a terminal state before the executor shut down.
+    for (h, tx) in join_waiters.lock().drain(..) {
+        if tx.send(Err("executor shut down".into())).is_err() {
+            warn!(node = ?h, "join: waiter receiver dropped at shutdown");
+        }
+    }
 }
 
 /// Shared infrastructure for an executor run.
@@ -607,6 +615,7 @@ impl ExecutorInfra {
 pub struct Executor {
     job_tx: mpsc::UnboundedSender<JobItem>,
     executor_task: tokio::task::JoinHandle<()>,
+    dag: Arc<parking_lot::RwLock<Dag>>,
     pending: Arc<Mutex<HashSet<Handle>>>,
     join_waiters: Arc<Mutex<Vec<(Handle, oneshot::Sender<Result<(), String>>)>>>,
 }
@@ -627,6 +636,7 @@ impl Executor {
         events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
     ) -> Self {
         let (job_tx, mut job_rx) = mpsc::unbounded_channel::<JobItem>();
+        let dag = Arc::clone(&env.dag);
         let pending = Arc::new(Mutex::new(HashSet::new()));
         let pending_clone = Arc::clone(&pending);
         let join_waiters: Arc<Mutex<Vec<(Handle, oneshot::Sender<Result<(), String>>)>>> =
@@ -643,6 +653,7 @@ impl Executor {
         Self {
             job_tx,
             executor_task,
+            dag,
             pending,
             join_waiters,
         }
@@ -664,7 +675,23 @@ impl Executor {
     #[must_use]
     pub fn join(&self, node: Handle) -> oneshot::Receiver<Result<(), String>> {
         let (tx, rx) = oneshot::channel();
-        self.join_waiters.lock().push((node, tx));
+
+        let dag = self.dag.read();
+        let Some(n) = dag.get_node(node) else {
+            let _ = tx.send(Err(format!("node {node:?} not found in DAG")));
+            return rx;
+        };
+
+        match n.state {
+            NodeState::Terminated => {
+                let result = if n.exit_code == 0 { Ok(()) } else { Err(format!("exit code {}", n.exit_code)) };
+                let _ = tx.send(result);
+            }
+            NodeState::NotStarted | NodeState::Running | NodeState::Terminating => {
+                self.join_waiters.lock().push((node, tx));
+            }
+        }
+
         rx
     }
 

@@ -464,7 +464,7 @@ async fn join_resolves_err_when_blocked_by_failed_dep() {
     assert!(rc.is_err(), "join(c) must resolve Err: c is blocked by failed a");
 }
 
-/// join() on an unscheduled node resolves Err immediately without hanging.
+/// join() on an unscheduled node resolves Err when the executor shuts down.
 #[tokio::test]
 async fn join_resolves_err_for_unscheduled_node() {
     let kv = Arc::new(MemKV::new());
@@ -476,11 +476,12 @@ async fn join_resolves_err_for_unscheduled_node() {
     let join_rx = executor.join(node);
     // node is never submitted
 
-    let result = tokio::time::timeout(std::time::Duration::from_millis(200), join_rx)
-        .await
-        .expect("join on unscheduled node must not hang")
-        .expect("join sender dropped unexpectedly");
-    executor.shutdown().await;
+    // Shutdown triggers drain of remaining waiters; await both concurrently so
+    // join_rx is resolved before we try to read it.
+    let (result, ()) = tokio::join!(
+        async { join_rx.await.expect("join sender dropped unexpectedly") },
+        executor.shutdown(),
+    );
 
     assert!(result.is_err(), "join must resolve Err for an unscheduled node");
 }
