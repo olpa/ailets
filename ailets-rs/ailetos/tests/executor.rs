@@ -428,6 +428,42 @@ async fn test_kill_deep_dep_does_not_hang() {
     assert_eq!(env.dag.read().get_node(d).unwrap().state, NodeState::NotStarted);
 }
 
+/// join() resolves Err when the target is blocked by a failed dependency.
+///
+/// Chain: a → b → c  (a fails). join(b) and join(c) must resolve Err, not hang.
+/// join(a) resolves Err because a itself terminated with a non-zero exit code.
+#[tokio::test]
+async fn join_resolves_err_when_blocked_by_failed_dep() {
+    let kv = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+
+    let a = env.add_node("failing".into(), &[], None);
+    let b = env.add_node("noop".into(), &[a], None);
+    let c = env.add_node("noop".into(), &[b], None);
+
+    env.actor_registry
+        .write()
+        .register("failing", |_| Err("intentional failure".into()));
+    env.actor_registry.write().register("noop", |_| Ok(()));
+
+    let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
+    let rx_a = executor.join(a);
+    let rx_b = executor.join(b);
+    let rx_c = executor.join(c);
+    executor.submit(c, StopConditions::default()).unwrap();
+
+    let (ra, rb, rc) = tokio::join!(
+        async { rx_a.await.expect("join sender dropped unexpectedly") },
+        async { rx_b.await.expect("join sender dropped unexpectedly") },
+        async { rx_c.await.expect("join sender dropped unexpectedly") },
+    );
+    executor.shutdown().await;
+
+    assert!(ra.is_err(), "join(a) must resolve Err: a terminated with non-zero exit code");
+    assert!(rb.is_err(), "join(b) must resolve Err: b is blocked by failed a");
+    assert!(rc.is_err(), "join(c) must resolve Err: c is blocked by failed a");
+}
+
 /// join() resolves Ok when the target node terminates successfully.
 ///
 /// Chain: a → b → c  (a runs first). All three nodes are joined in parallel.
