@@ -393,7 +393,12 @@ fn spawn_ready_actors(
     SpawnOutcome::Ok(remaining)
 }
 
-fn remove_blocked_from_pending(failed_dep: Handle, pending: &mut HashSet<Handle>, dag: &Dag) {
+fn remove_blocked_from_pending(
+    failed_dep: Handle,
+    pending: &mut HashSet<Handle>,
+    dag: &Dag,
+    join_waiters: &Mutex<Vec<(Handle, oneshot::Sender<Result<(), String>>)>>,
+) {
     use std::collections::VecDeque;
 
     let mut blocked: HashSet<Handle> = HashSet::from([failed_dep]);
@@ -409,6 +414,15 @@ fn remove_blocked_from_pending(failed_dep: Handle, pending: &mut HashSet<Handle>
             pending.remove(&n);
             if blocked.insert(n) {
                 queue.push_back(n);
+            }
+            let to_notify: Vec<_> = join_waiters
+                .lock()
+                .extract_if(.., |(h, _)| *h == n)
+                .collect();
+            for (h, tx) in to_notify {
+                if tx.send(Err(format!("blocked by failed dependency {failed_dep:?}"))).is_err() {
+                    warn!(node = ?h, "join: waiter receiver dropped");
+                }
             }
         }
     }
@@ -429,6 +443,7 @@ async fn run_spawn_loop_jobs(
     infra: &ExecutorInfra,
     job_rx: &mut mpsc::UnboundedReceiver<JobItem>,
     shared_pending: &Mutex<HashSet<Handle>>,
+    join_waiters: &Mutex<Vec<(Handle, oneshot::Sender<Result<(), String>>)>>,
 ) {
     let mut actor_tasks = JoinSet::new();
     let mut channel_closed = false;
@@ -441,7 +456,7 @@ async fn run_spawn_loop_jobs(
                 SpawnOutcome::Ok(remaining) => *pending_locked = remaining,
                 SpawnOutcome::FailedNodeDependency(failed_dep) => {
                     let dag = env.dag.read();
-                    remove_blocked_from_pending(failed_dep, &mut pending_locked, &dag);
+                    remove_blocked_from_pending(failed_dep, &mut pending_locked, &dag, join_waiters);
                 }
             }
         }
@@ -616,11 +631,12 @@ impl Executor {
         let pending_clone = Arc::clone(&pending);
         let join_waiters: Arc<Mutex<Vec<(Handle, oneshot::Sender<Result<(), String>>)>>> =
             Arc::new(Mutex::new(Vec::new()));
-        let join_waiters_clone = Arc::clone(&join_waiters);
-        let infra = ExecutorInfra::new(async_runtime.clone(), &env, events_tx, join_waiters_clone);
+        let join_waiters_for_lifecycle = Arc::clone(&join_waiters);
+        let join_waiters_for_loop = Arc::clone(&join_waiters);
+        let infra = ExecutorInfra::new(async_runtime.clone(), &env, events_tx, join_waiters_for_lifecycle);
 
         let executor_task = async_runtime.spawn(async move {
-            run_spawn_loop_jobs(&env, &infra, &mut job_rx, &pending_clone).await;
+            run_spawn_loop_jobs(&env, &infra, &mut job_rx, &pending_clone, &join_waiters_for_loop).await;
             infra.shutdown().await;
         });
 
