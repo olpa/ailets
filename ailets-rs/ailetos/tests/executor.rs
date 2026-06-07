@@ -428,6 +428,78 @@ async fn test_kill_deep_dep_does_not_hang() {
     assert_eq!(env.dag.read().get_node(d).unwrap().state, NodeState::NotStarted);
 }
 
+/// A267 follow-up: a `Ready` node landing in the same `pending` batch as a
+/// node blocked by a failed dependency must still be spawned promptly.
+///
+/// DAG: `a` (fails) → `b`; `c` is independent; `d` depends on both `b` and `c`.
+///
+/// Phase 1: run `a` alone so it terminates with a non-zero exit code while
+/// `b`/`c`/`d` stay `NotStarted`.
+///
+/// Phase 2: submit `d`. The traversal adds `b`, `c`, `d` to `pending` in one
+/// batch. `b` is blocked by `a`'s failure; `c` has no dependency on `a` and is
+/// `Ready`. `spawn_ready_actors` must spawn `c` regardless of having also seen
+/// `b`'s `FailedDependency` in the same batch.
+#[tokio::test]
+async fn ready_node_spawns_despite_sibling_failed_dependency() {
+    let kv = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+
+    let a = env.add_node("failing".into(), &[], None);
+    let b = env.add_node("noop".into(), &[a], None);
+    let c = env.add_node("noop".into(), &[], None);
+    let d = env.add_node("noop".into(), &[b, c], None);
+
+    env.actor_registry
+        .write()
+        .register("failing", |_| Err("intentional failure".into()));
+    env.actor_registry.write().register("noop", |_| Ok(()));
+
+    // Phase 1: run `a` alone so it fails while b/c/d stay NotStarted.
+    {
+        let executor =
+            Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
+        executor.submit(a, StopConditions::default()).unwrap();
+        executor.shutdown().await;
+    }
+    assert_eq!(env.dag.read().get_node(a).unwrap().state, NodeState::Terminated);
+    assert_ne!(env.dag.read().get_node(a).unwrap().exit_code, 0);
+    assert_eq!(env.dag.read().get_node(c).unwrap().state, NodeState::NotStarted);
+
+    // Phase 2: submit `d`. b, c, d land in `pending` together: b is blocked by
+    // a's failure, but c must still be spawned and terminate promptly.
+    let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<ExecutorEvent>();
+    let executor = Executor::start(
+        &tokio::runtime::Handle::current(),
+        Arc::clone(&env),
+        Some(ev_tx),
+    );
+    executor.submit(d, StopConditions::default()).unwrap();
+
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            match ev_rx.recv().await {
+                Some(ExecutorEvent::NodeTerminated(h)) if h == c => break,
+                Some(_) => continue,
+                None => panic!("executor shut down before c terminated"),
+            }
+        }
+    })
+    .await;
+
+    assert!(
+        result.is_ok(),
+        "c must be spawned and terminated promptly even though sibling b is \
+         blocked by a's failed dependency a — without the fix, c is dropped \
+         from the spawn batch and sits Ready in `pending` forever"
+    );
+
+    executor.shutdown().await;
+
+    assert_eq!(env.dag.read().get_node(c).unwrap().state, NodeState::Terminated);
+    assert_eq!(env.dag.read().get_node(c).unwrap().exit_code, 0);
+}
+
 /// join() resolves Err when the target is blocked by a failed dependency.
 ///
 /// Chain: a → b → c  (a fails). join(b) and join(c) must resolve Err, not hang.
