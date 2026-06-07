@@ -295,13 +295,19 @@ async fn lifecycle_event_task(
 
 enum SpawnOutcome {
     Ok(HashSet<Handle>),
-    FailedNodeDependency(Handle),
+    FailedNodeDependency(Handle, HashSet<Handle>),
 }
 
-/// Spawn one batch of ready nodes from `pending`.
+/// Classify and spawn one batch of ready nodes from `pending`.
 ///
-/// Spawns actor tasks directly into `actor_tasks` `JoinSet`.
-/// Returns the set of nodes that were not ready to spawn (still pending).
+/// Spawns actor tasks directly into `actor_tasks` `JoinSet`. The whole batch is
+/// always classified and all `Ready` nodes are spawned — a `FailedDependency`
+/// seen for one node must not starve a `Ready` sibling in the same batch.
+///
+/// Returns `Ok(remaining)` with the nodes that are still pending (not spawned),
+/// or `FailedNodeDependency(dep, remaining)` when at least one pending node is
+/// blocked on a failed dependency `dep`, alongside the nodes still pending
+/// after spawning everything that was `Ready`.
 fn spawn_ready_actors(
     pending: &HashSet<Handle>,
     env: &Arc<Environment>,
@@ -309,6 +315,7 @@ fn spawn_ready_actors(
     actor_tasks: &mut JoinSet<()>,
 ) -> SpawnOutcome {
     let mut to_spawn: Vec<Handle> = Vec::new();
+    let mut failed_dependency: Option<Handle> = None;
     {
         let dag_guard = env.dag.read();
         for &n in pending {
@@ -316,7 +323,7 @@ fn spawn_ready_actors(
                 SpawnReadiness::Ready => to_spawn.push(n),
                 SpawnReadiness::Waiting => {}
                 SpawnReadiness::FailedDependency(dep) => {
-                    return SpawnOutcome::FailedNodeDependency(dep);
+                    failed_dependency.get_or_insert(dep);
                 }
             }
         }
@@ -390,7 +397,10 @@ fn spawn_ready_actors(
         );
     }
 
-    SpawnOutcome::Ok(remaining)
+    match failed_dependency {
+        Some(dep) => SpawnOutcome::FailedNodeDependency(dep, remaining),
+        None => SpawnOutcome::Ok(remaining),
+    }
 }
 
 fn remove_blocked_from_pending(
@@ -454,7 +464,8 @@ async fn run_spawn_loop_jobs(
             let mut pending_locked = shared_pending.lock();
             match spawn_ready_actors(&*pending_locked, env, infra, &mut actor_tasks) {
                 SpawnOutcome::Ok(remaining) => *pending_locked = remaining,
-                SpawnOutcome::FailedNodeDependency(failed_dep) => {
+                SpawnOutcome::FailedNodeDependency(failed_dep, remaining) => {
+                    *pending_locked = remaining;
                     let dag = env.dag.read();
                     remove_blocked_from_pending(failed_dep, &mut pending_locked, &dag, join_waiters);
                 }
