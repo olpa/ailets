@@ -304,8 +304,6 @@ impl Dag {
         let state_symbol =
             Self::format_state_symbol(pid, node.state, node.exit_code, ctx.use_colors, ctx.pending);
 
-        let suspended_suffix = if is_suspended { " ⏸ suspended" } else { "" };
-
         let shared_marker = if is_circular {
             " [circular reference]"
         } else if already_printed {
@@ -324,10 +322,14 @@ impl Dag {
             .map(|e| format!(" # {e}"))
             .unwrap_or_default();
 
-        let state_bracket = if state_symbol.is_empty() && suspended_suffix.is_empty() {
+        let bracket_parts: Vec<&str> = [state_symbol.as_str(), if is_suspended { "⏸ suspended" } else { "" }]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect();
+        let state_bracket = if bracket_parts.is_empty() {
             String::new()
         } else {
-            format!(" [{state_symbol}{suspended_suffix}]")
+            format!(" [{}]", bracket_parts.join(" "))
         };
 
         let _ = writeln!(
