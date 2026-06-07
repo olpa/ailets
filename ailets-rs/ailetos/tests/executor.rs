@@ -464,6 +464,54 @@ async fn join_resolves_err_when_blocked_by_failed_dep() {
     assert!(rc.is_err(), "join(c) must resolve Err: c is blocked by failed a");
 }
 
+/// join() resolves Err when the target is blocked by a failed dependency that
+/// is reached through an alias node, not just a direct dependency.
+#[tokio::test]
+async fn join_resolves_err_when_blocked_by_failed_dep_via_alias() {
+    let kv = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+
+    let failed_producer = env.add_node("failing".into(), &[], None);
+    let output_alias = env.add_alias(".output".into(), failed_producer);
+    let blocked_consumer = env.add_node("noop".into(), &[output_alias], None);
+
+    env.actor_registry
+        .write()
+        .register("failing", |_| Err("intentional failure".into()));
+    env.actor_registry.write().register("noop", |_| Ok(()));
+
+    let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
+    let join_rx = executor.join(blocked_consumer);
+    executor.submit(blocked_consumer, StopConditions::default()).unwrap();
+
+    let result = join_rx.await.expect("join sender dropped unexpectedly");
+    executor.shutdown().await;
+
+    assert!(
+        result.is_err(),
+        "join must resolve Err: consumer is blocked by a producer that failed via an alias dependency"
+    );
+}
+
+/// A node whose actor name is not registered must terminate with a non-zero
+/// exit code instead of staying pending forever and blocking dependents.
+#[tokio::test]
+async fn unregistered_actor_terminates_with_nonzero_exit_code() {
+    let kv = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+
+    let node = env.add_node("not-registered".into(), &[], None);
+
+    let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
+    executor.submit(node, StopConditions::default()).unwrap();
+    executor.shutdown().await;
+
+    let dag = env.dag.read();
+    let n = dag.get_node(node).unwrap();
+    assert_eq!(n.state, NodeState::Terminated);
+    assert_ne!(n.exit_code, 0);
+}
+
 /// join() on an unscheduled node resolves Err when the executor shuts down.
 #[tokio::test]
 async fn join_resolves_err_for_unscheduled_node() {
