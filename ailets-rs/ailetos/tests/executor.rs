@@ -468,36 +468,21 @@ async fn ready_node_spawns_despite_sibling_failed_dependency() {
 
     // Phase 2: submit `d`. b, c, d land in `pending` together: b is blocked by
     // a's failure, but c must still be spawned and terminate promptly.
-    let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<ExecutorEvent>();
-    let executor = Executor::start(
-        &tokio::runtime::Handle::current(),
-        Arc::clone(&env),
-        Some(ev_tx),
-    );
+    let executor =
+        Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
+    let rx_c = executor.join(c);
     executor.submit(d, StopConditions::default()).unwrap();
 
-    let result = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        loop {
-            match ev_rx.recv().await {
-                Some(ExecutorEvent::NodeTerminated(h)) if h == c => break,
-                Some(_) => continue,
-                None => panic!("executor shut down before c terminated"),
-            }
-        }
-    })
-    .await;
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), rx_c).await;
 
     assert!(
-        result.is_ok(),
-        "c must be spawned and terminated promptly even though sibling b is \
-         blocked by a's failed dependency a — without the fix, c is dropped \
-         from the spawn batch and sits Ready in `pending` forever"
+        matches!(result, Ok(Ok(Ok(())))),
+        "join(c) must resolve Ok promptly even though sibling b is blocked by \
+         a's failed dependency a — without the fix, c is dropped from the \
+         spawn batch and sits Ready in `pending` forever: {result:?}"
     );
 
     executor.shutdown().await;
-
-    assert_eq!(env.dag.read().get_node(c).unwrap().state, NodeState::Terminated);
-    assert_eq!(env.dag.read().get_node(c).unwrap().exit_code, 0);
 }
 
 /// join() resolves Err when the target is blocked by a failed dependency.
