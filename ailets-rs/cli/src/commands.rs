@@ -274,27 +274,25 @@ impl DagShell {
         // one_step branch looks at NodeState::NotStarted; if we computed this
         // after submit the executor could race ahead and mark the first node
         // Running/Terminated, causing find() to land on the wrong node.
-        let wait_targets = if !bg_flag {
-            if one_step {
-                let dag = self.env.dag.read();
-                TopologicalOrderIter::new(&dag, handle)
-                    .find(|&n| {
-                        dag.get_node(n)
-                            .is_some_and(|nd| nd.state == NodeState::NotStarted)
-                    })
-                    .map(|n| vec![n])
-                    .unwrap_or_default()
-            } else if stop_before.is_some() || stop_after.is_some() {
-                let dag = self.env.dag.read();
-                TopologicalOrderIter::with_stop_conditions(&dag, handle, stop_conditions.clone())
-                    .last()
-                    .map(|n| vec![n])
-                    .unwrap_or_default()
-            } else {
-                self.env.resolve_all(handle)
-            }
-        } else {
+        let wait_targets = if bg_flag {
             vec![]
+        } else if one_step {
+            let dag = self.env.dag.read();
+            TopologicalOrderIter::new(&dag, handle)
+                .find(|&n| {
+                    dag.get_node(n)
+                        .is_some_and(|nd| nd.state == NodeState::NotStarted)
+                })
+                .map(|n| vec![n])
+                .unwrap_or_default()
+        } else if stop_before.is_some() || stop_after.is_some() {
+            let dag = self.env.dag.read();
+            TopologicalOrderIter::with_stop_conditions(&dag, handle, stop_conditions.clone())
+                .last()
+                .map(|n| vec![n])
+                .unwrap_or_default()
+        } else {
+            self.env.resolve_all(handle)
         };
 
         self.executor
@@ -322,16 +320,17 @@ impl DagShell {
         let sink = &self.sink;
         let foreground_join = &self.foreground_join;
         self.cli_rt.block_on(async move {
-            let wait_all = futures::future::join_all(receivers.into_iter().map(|rx| async move {
-                rx.await.map_err(|_| "join sender dropped".to_string())?
-            }));
+            let wait_all =
+                futures::future::join_all(receivers.into_iter().map(|rx| async move {
+                    rx.await.map_err(|_| "join sender dropped".to_string())?
+                }));
             let result = tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
                     sink.println("\n^C - Detached (node continues running in ailetos)");
                     Ok(())
                 }
                 results = wait_all => {
-                    results.into_iter().find(|r| r.is_err()).unwrap_or(Ok(()))
+                    results.into_iter().find(Result::is_err).unwrap_or(Ok(()))
                 }
             };
             foreground_join.store(false, std::sync::atomic::Ordering::Relaxed);

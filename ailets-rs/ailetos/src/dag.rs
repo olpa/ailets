@@ -322,10 +322,13 @@ impl Dag {
             .map(|e| format!(" # {e}"))
             .unwrap_or_default();
 
-        let bracket_parts: Vec<&str> = [state_symbol.as_str(), if is_suspended { "⏸ suspended" } else { "" }]
-            .into_iter()
-            .filter(|s| !s.is_empty())
-            .collect();
+        let bracket_parts: Vec<&str> = [
+            state_symbol.as_str(),
+            if is_suspended { "⏸ suspended" } else { "" },
+        ]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect();
         let state_bracket = if bracket_parts.is_empty() {
             String::new()
         } else {

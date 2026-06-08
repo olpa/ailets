@@ -3,10 +3,10 @@ use std::sync::Arc;
 use actor_runtime::StdHandle;
 use ailetos::dag::{Dag, DependsOn, For, NodeKind, NodeState};
 use ailetos::idgen::IdGen;
-use ailetos::{is_ready_to_spawn, SpawnReadiness};
 use ailetos::pipe::PipePool;
 use ailetos::storage::MemKV;
 use ailetos::EOWNERDEAD;
+use ailetos::{is_ready_to_spawn, SpawnReadiness};
 
 fn make_dag() -> (Dag, Arc<IdGen>) {
     let id_gen = Arc::new(IdGen::new());
@@ -28,7 +28,10 @@ async fn no_deps_is_ready() {
 
     let node = dag.add_node("a".into(), NodeKind::Concrete);
 
-    assert!(matches!(is_ready_to_spawn(node, &dag, &pool), SpawnReadiness::Ready));
+    assert!(matches!(
+        is_ready_to_spawn(node, &dag, &pool),
+        SpawnReadiness::Ready
+    ));
 }
 
 // NotStarted dep blocks spawn
@@ -42,7 +45,10 @@ async fn not_started_dep_blocks() {
     dag.add_dependency(For(node), DependsOn(dep));
     // dep stays NotStarted
 
-    assert!(!matches!(is_ready_to_spawn(node, &dag, &pool), SpawnReadiness::Ready));
+    assert!(!matches!(
+        is_ready_to_spawn(node, &dag, &pool),
+        SpawnReadiness::Ready
+    ));
 }
 
 // Running dep with realized pipe → ready
@@ -59,7 +65,10 @@ async fn running_dep_with_output_is_ready() {
         .await
         .unwrap();
 
-    assert!(matches!(is_ready_to_spawn(node, &dag, &pool), SpawnReadiness::Ready));
+    assert!(matches!(
+        is_ready_to_spawn(node, &dag, &pool),
+        SpawnReadiness::Ready
+    ));
 }
 
 // Terminated dep with no pipe → neutral (skip) → exhausted → ready
@@ -74,7 +83,10 @@ async fn terminated_dep_no_output_skips_to_start() {
     dag.set_state(dep, NodeState::Terminated);
     // no pipe realized
 
-    assert!(matches!(is_ready_to_spawn(node, &dag, &pool), SpawnReadiness::Ready));
+    assert!(matches!(
+        is_ready_to_spawn(node, &dag, &pool),
+        SpawnReadiness::Ready
+    ));
 }
 
 // Running dep without realized pipe → not ready
@@ -89,7 +101,10 @@ async fn running_dep_no_output_yields_not_ready() {
     dag.set_state(dep, NodeState::Running);
     // no pipe realized
 
-    assert!(!matches!(is_ready_to_spawn(node, &dag, &pool), SpawnReadiness::Ready));
+    assert!(!matches!(
+        is_ready_to_spawn(node, &dag, &pool),
+        SpawnReadiness::Ready
+    ));
 }
 
 // Terminated dep with non-zero exit code and no pipe → don't start
@@ -104,7 +119,10 @@ async fn terminated_dep_with_error_no_output_blocks() {
     dag.set_state(dep, NodeState::Terminated);
     dag.set_exit_code(dep, EOWNERDEAD);
 
-    assert!(!matches!(is_ready_to_spawn(node, &dag, &pool), SpawnReadiness::Ready));
+    assert!(!matches!(
+        is_ready_to_spawn(node, &dag, &pool),
+        SpawnReadiness::Ready
+    ));
 }
 
 // Terminated dep with non-zero exit code even with realized pipe → don't start
@@ -122,7 +140,10 @@ async fn terminated_dep_with_error_and_output_blocks() {
         .await
         .unwrap();
 
-    assert!(!matches!(is_ready_to_spawn(node, &dag, &pool), SpawnReadiness::Ready));
+    assert!(!matches!(
+        is_ready_to_spawn(node, &dag, &pool),
+        SpawnReadiness::Ready
+    ));
 }
 
 // Terminated dep via alias → FailedDependency carries the concrete dep handle
@@ -159,5 +180,8 @@ async fn skip_then_not_started_blocks() {
     dag.set_state(dep_terminated, NodeState::Terminated);
     // dep_pending stays NotStarted, no pipes realized
 
-    assert!(!matches!(is_ready_to_spawn(node, &dag, &pool), SpawnReadiness::Ready));
+    assert!(!matches!(
+        is_ready_to_spawn(node, &dag, &pool),
+        SpawnReadiness::Ready
+    ));
 }

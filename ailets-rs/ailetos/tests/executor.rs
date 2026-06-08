@@ -399,33 +399,52 @@ async fn test_kill_deep_dep_does_not_hang() {
 
     // Scenario 1: whole chain scheduled; a fails at runtime.
     {
-        let executor =
-            Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
+        let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
         executor.submit(d, StopConditions::default()).unwrap();
         executor.shutdown().await;
     }
 
     // a is now Terminated (failed); b/c/d are NotStarted (eligible for re-run).
-    assert_eq!(env.dag.read().get_node(a).unwrap().state, NodeState::Terminated);
+    assert_eq!(
+        env.dag.read().get_node(a).unwrap().state,
+        NodeState::Terminated
+    );
     assert_ne!(env.dag.read().get_node(a).unwrap().exit_code, 0);
-    assert_eq!(env.dag.read().get_node(b).unwrap().state, NodeState::NotStarted);
-    assert_eq!(env.dag.read().get_node(c).unwrap().state, NodeState::NotStarted);
-    assert_eq!(env.dag.read().get_node(d).unwrap().state, NodeState::NotStarted);
+    assert_eq!(
+        env.dag.read().get_node(b).unwrap().state,
+        NodeState::NotStarted
+    );
+    assert_eq!(
+        env.dag.read().get_node(c).unwrap().state,
+        NodeState::NotStarted
+    );
+    assert_eq!(
+        env.dag.read().get_node(d).unwrap().state,
+        NodeState::NotStarted
+    );
 
     // Scenario 2: re-submit d — a is already Terminated (failed), b/c/d are
     // NotStarted and added to pending, but they can never run. The executor must
     // clear them and shut down promptly rather than hanging.
     {
-        let executor =
-            Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
+        let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
         executor.submit(d, StopConditions::default()).unwrap();
         executor.shutdown().await; // must not hang
     }
 
     // b/c/d remain NotStarted: cleared from pending, never spawned.
-    assert_eq!(env.dag.read().get_node(b).unwrap().state, NodeState::NotStarted);
-    assert_eq!(env.dag.read().get_node(c).unwrap().state, NodeState::NotStarted);
-    assert_eq!(env.dag.read().get_node(d).unwrap().state, NodeState::NotStarted);
+    assert_eq!(
+        env.dag.read().get_node(b).unwrap().state,
+        NodeState::NotStarted
+    );
+    assert_eq!(
+        env.dag.read().get_node(c).unwrap().state,
+        NodeState::NotStarted
+    );
+    assert_eq!(
+        env.dag.read().get_node(d).unwrap().state,
+        NodeState::NotStarted
+    );
 }
 
 /// A267 follow-up: a `Ready` node landing in the same `pending` batch as a
@@ -457,19 +476,23 @@ async fn ready_node_spawns_despite_sibling_failed_dependency() {
 
     // Phase 1: run `a` alone so it fails while b/c/d stay NotStarted.
     {
-        let executor =
-            Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
+        let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
         executor.submit(a, StopConditions::default()).unwrap();
         executor.shutdown().await;
     }
-    assert_eq!(env.dag.read().get_node(a).unwrap().state, NodeState::Terminated);
+    assert_eq!(
+        env.dag.read().get_node(a).unwrap().state,
+        NodeState::Terminated
+    );
     assert_ne!(env.dag.read().get_node(a).unwrap().exit_code, 0);
-    assert_eq!(env.dag.read().get_node(c).unwrap().state, NodeState::NotStarted);
+    assert_eq!(
+        env.dag.read().get_node(c).unwrap().state,
+        NodeState::NotStarted
+    );
 
     // Phase 2: submit `d`. b, c, d land in `pending` together: b is blocked by
     // a's failure, but c must still be spawned and terminate promptly.
-    let executor =
-        Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
+    let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
     let rx_c = executor.join(c);
     executor.submit(d, StopConditions::default()).unwrap();
 
@@ -516,9 +539,18 @@ async fn join_resolves_err_when_blocked_by_failed_dep() {
     );
     executor.shutdown().await;
 
-    assert!(ra.is_err(), "join(a) must resolve Err: a terminated with non-zero exit code");
-    assert!(rb.is_err(), "join(b) must resolve Err: b is blocked by failed a");
-    assert!(rc.is_err(), "join(c) must resolve Err: c is blocked by failed a");
+    assert!(
+        ra.is_err(),
+        "join(a) must resolve Err: a terminated with non-zero exit code"
+    );
+    assert!(
+        rb.is_err(),
+        "join(b) must resolve Err: b is blocked by failed a"
+    );
+    assert!(
+        rc.is_err(),
+        "join(c) must resolve Err: c is blocked by failed a"
+    );
 }
 
 /// join() resolves Err when the target is blocked by a failed dependency that
@@ -539,7 +571,9 @@ async fn join_resolves_err_when_blocked_by_failed_dep_via_alias() {
 
     let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
     let join_rx = executor.join(blocked_consumer);
-    executor.submit(blocked_consumer, StopConditions::default()).unwrap();
+    executor
+        .submit(blocked_consumer, StopConditions::default())
+        .unwrap();
 
     let result = join_rx.await.expect("join sender dropped unexpectedly");
     executor.shutdown().await;
@@ -588,7 +622,10 @@ async fn join_resolves_err_for_unscheduled_node() {
         executor.shutdown(),
     );
 
-    assert!(result.is_err(), "join must resolve Err for an unscheduled node");
+    assert!(
+        result.is_err(),
+        "join must resolve Err for an unscheduled node"
+    );
 }
 
 /// join() resolves Ok when the target node terminates successfully.

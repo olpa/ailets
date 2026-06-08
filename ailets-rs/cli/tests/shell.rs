@@ -296,7 +296,10 @@ fn join_nonexistent_returns_error() {
     // so join_handles returns without polling.
     let mut shell = DagShell::new_with_sink(Box::new(CapturingSink::new()));
     let result = shell.execute("join 99999");
-    assert!(result.is_err(), "expected error for non-existent handle, got Ok");
+    assert!(
+        result.is_err(),
+        "expected error for non-existent handle, got Ok"
+    );
 }
 
 #[test]

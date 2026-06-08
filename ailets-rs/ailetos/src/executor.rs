@@ -105,6 +105,11 @@ use crate::pipe::PipePool;
 use crate::traversal::{StopConditions, TopologicalOrderIter};
 use crate::{BlockingActorRuntime, IoBridge};
 
+/// Pending `join()` callers, each paired with the node they're waiting on and
+/// a oneshot to deliver the terminal result (`Ok` on success, `Err` with a
+/// reason on failure or removal due to a failed dependency).
+type JoinWaiters = Mutex<Vec<(Handle, oneshot::Sender<Result<(), String>>)>>;
+
 /// Events emitted by the executor to report progress to the caller.
 #[derive(Debug, Clone)]
 pub enum ExecutorEvent {
@@ -232,7 +237,7 @@ async fn lifecycle_event_task(
     executor_wakeup: Arc<tokio::sync::watch::Sender<()>>,
     mut rx: mpsc::UnboundedReceiver<ActorLifecycleEvent>,
     events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
-    join_waiters: Arc<Mutex<Vec<(Handle, oneshot::Sender<Result<(), String>>)>>>,
+    join_waiters: Arc<JoinWaiters>,
 ) {
     while let Some(event) = rx.recv().await {
         match event {
@@ -286,7 +291,11 @@ async fn lifecycle_event_task(
                         warn!(node = ?node_handle, "executor events receiver dropped");
                     }
                 }
-                let result = if exit_code == 0 { Ok(()) } else { Err(format!("exit code {exit_code}")) };
+                let result = if exit_code == 0 {
+                    Ok(())
+                } else {
+                    Err(format!("exit code {exit_code}"))
+                };
                 let to_notify: Vec<_> = join_waiters
                     .lock()
                     .extract_if(.., |(h, _)| *h == node_handle)
@@ -354,7 +363,9 @@ fn spawn_ready_actors(
 
     for node_handle in to_spawn {
         let dag = env.dag.read();
-        let Some(node) = dag.get_node(node_handle) else { continue };
+        let Some(node) = dag.get_node(node_handle) else {
+            continue;
+        };
         let Some(actor_fn) = env.actor_registry.read().get(&node.idname) else {
             let idname = &node.idname;
             warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
@@ -367,7 +378,10 @@ fn spawn_ready_actors(
                 dag.set_state(node_handle, NodeState::Terminated);
             }
             if infra.executor_wakeup.send(()).is_err() {
-                let idname = env.dag.read().get_node(node_handle)
+                let idname = env
+                    .dag
+                    .read()
+                    .get_node(node_handle)
                     .map_or("<unknown>".into(), |n| n.idname.clone());
                 warn!(node = ?node_handle, name = %idname, "executor: wakeup after unregistered actor failed, no receivers");
             }
@@ -380,7 +394,10 @@ fn spawn_ready_actors(
             let mut dag = env.dag.write();
             // Re-check state under the write lock: an actor task running
             // concurrently may have already advanced this node past NotStarted.
-            if dag.get_node(node_handle).is_none_or(|n| n.state != NodeState::NotStarted) {
+            if dag
+                .get_node(node_handle)
+                .is_none_or(|n| n.state != NodeState::NotStarted)
+            {
                 continue;
             }
             dag.set_state(node_handle, NodeState::Running);
@@ -423,7 +440,7 @@ fn remove_blocked_from_pending(
     failed_dep: Handle,
     pending: &mut HashSet<Handle>,
     dag: &Dag,
-    join_waiters: &Mutex<Vec<(Handle, oneshot::Sender<Result<(), String>>)>>,
+    join_waiters: &JoinWaiters,
 ) {
     use std::collections::VecDeque;
 
@@ -446,7 +463,10 @@ fn remove_blocked_from_pending(
                 .extract_if(.., |(h, _)| *h == n)
                 .collect();
             for (h, tx) in to_notify {
-                if tx.send(Err(format!("blocked by failed dependency {failed_dep:?}"))).is_err() {
+                if tx
+                    .send(Err(format!("blocked by failed dependency {failed_dep:?}")))
+                    .is_err()
+                {
                     warn!(node = ?h, "join: waiter receiver dropped");
                 }
             }
@@ -469,7 +489,7 @@ async fn run_spawn_loop_jobs(
     infra: &ExecutorInfra,
     job_rx: &mut mpsc::UnboundedReceiver<JobItem>,
     shared_pending: &Mutex<HashSet<Handle>>,
-    join_waiters: &Mutex<Vec<(Handle, oneshot::Sender<Result<(), String>>)>>,
+    join_waiters: &JoinWaiters,
 ) {
     let mut actor_tasks = JoinSet::new();
     let mut channel_closed = false;
@@ -478,11 +498,16 @@ async fn run_spawn_loop_jobs(
     loop {
         {
             let mut pending_locked = shared_pending.lock();
-            match spawn_ready_actors(&*pending_locked, env, infra, &mut actor_tasks) {
+            match spawn_ready_actors(&pending_locked, env, infra, &mut actor_tasks) {
                 SpawnOutcome::Ok(remaining) => *pending_locked = remaining,
                 SpawnOutcome::FailedNodeDependency(failed_dep) => {
                     let dag = env.dag.read();
-                    remove_blocked_from_pending(failed_dep, &mut pending_locked, &dag, join_waiters);
+                    remove_blocked_from_pending(
+                        failed_dep,
+                        &mut pending_locked,
+                        &dag,
+                        join_waiters,
+                    );
                     // `pending` is guaranteed to have shrunk by at least the
                     // resolved node, so retrying immediately (without waiting
                     // on `select!`) makes progress and is guaranteed to
@@ -593,7 +618,7 @@ impl ExecutorInfra {
         async_runtime: tokio::runtime::Handle,
         env: &Arc<Environment>,
         events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
-        join_waiters: Arc<Mutex<Vec<(Handle, oneshot::Sender<Result<(), String>>)>>>,
+        join_waiters: Arc<JoinWaiters>,
     ) -> Self {
         let (wakeup_tx, _) = tokio::sync::watch::channel(());
         let executor_wakeup = Arc::new(wakeup_tx);
@@ -645,10 +670,10 @@ impl ExecutorInfra {
 /// Use [`Executor::submit()`] to queue jobs while the executor is running.
 pub struct Executor {
     job_tx: mpsc::UnboundedSender<JobItem>,
-    executor_task: tokio::task::JoinHandle<()>,
+    spawn_loop_task: tokio::task::JoinHandle<()>,
     dag: Arc<parking_lot::RwLock<Dag>>,
     pending: Arc<Mutex<HashSet<Handle>>>,
-    join_waiters: Arc<Mutex<Vec<(Handle, oneshot::Sender<Result<(), String>>)>>>,
+    join_waiters: Arc<JoinWaiters>,
 }
 
 impl Executor {
@@ -670,20 +695,31 @@ impl Executor {
         let dag = Arc::clone(&env.dag);
         let pending = Arc::new(Mutex::new(HashSet::new()));
         let pending_clone = Arc::clone(&pending);
-        let join_waiters: Arc<Mutex<Vec<(Handle, oneshot::Sender<Result<(), String>>)>>> =
-            Arc::new(Mutex::new(Vec::new()));
+        let join_waiters: Arc<JoinWaiters> = Arc::new(Mutex::new(Vec::new()));
         let join_waiters_for_lifecycle = Arc::clone(&join_waiters);
         let join_waiters_for_loop = Arc::clone(&join_waiters);
-        let infra = ExecutorInfra::new(async_runtime.clone(), &env, events_tx, join_waiters_for_lifecycle);
+        let infra = ExecutorInfra::new(
+            async_runtime.clone(),
+            &env,
+            events_tx,
+            join_waiters_for_lifecycle,
+        );
 
-        let executor_task = async_runtime.spawn(async move {
-            run_spawn_loop_jobs(&env, &infra, &mut job_rx, &pending_clone, &join_waiters_for_loop).await;
+        let spawn_loop_task = async_runtime.spawn(async move {
+            run_spawn_loop_jobs(
+                &env,
+                &infra,
+                &mut job_rx,
+                &pending_clone,
+                &join_waiters_for_loop,
+            )
+            .await;
             infra.shutdown().await;
         });
 
         Self {
             job_tx,
-            executor_task,
+            spawn_loop_task,
             dag,
             pending,
             join_waiters,
@@ -715,7 +751,11 @@ impl Executor {
 
         match n.state {
             NodeState::Terminated => {
-                let result = if n.exit_code == 0 { Ok(()) } else { Err(format!("exit code {}", n.exit_code)) };
+                let result = if n.exit_code == 0 {
+                    Ok(())
+                } else {
+                    Err(format!("exit code {}", n.exit_code))
+                };
                 let _ = tx.send(result);
             }
             NodeState::NotStarted | NodeState::Running | NodeState::Terminating => {
@@ -754,7 +794,7 @@ impl Executor {
     /// then tears down internal infrastructure in the correct order.
     pub async fn shutdown(self) {
         drop(self.job_tx); // close the channel → signals executor loop to exit
-        if let Err(e) = self.executor_task.await {
+        if let Err(e) = self.spawn_loop_task.await {
             warn!(error = %e, "executor task panicked");
         }
     }
