@@ -295,19 +295,29 @@ async fn lifecycle_event_task(
 
 enum SpawnOutcome {
     Ok(HashSet<Handle>),
-    FailedNodeDependency(Handle, HashSet<Handle>),
+    FailedNodeDependency(Handle),
 }
 
 /// Classify and spawn one batch of ready nodes from `pending`.
 ///
-/// Spawns actor tasks directly into `actor_tasks` `JoinSet`. The whole batch is
-/// always classified and all `Ready` nodes are spawned — a `FailedDependency`
-/// seen for one node must not starve a `Ready` sibling in the same batch.
+/// Spawns actor tasks directly into `actor_tasks` `JoinSet`.
 ///
-/// Returns `Ok(remaining)` with the nodes that are still pending (not spawned),
-/// or `FailedNodeDependency(dep, remaining)` when at least one pending node is
-/// blocked on a failed dependency `dep`, alongside the nodes still pending
-/// after spawning everything that was `Ready`.
+/// `FailedDependency` is an exceptional, unexpected state — an upstream actor
+/// terminated with a failure — not a normal outcome worth optimizing
+/// classification around. As soon as one is found, this function returns
+/// immediately without spawning anything from this pass, leaving `pending`
+/// untouched: the blocked node must stay put for `remove_blocked_from_pending`
+/// to find, remove, and notify its `join()` waiters, and any not-yet-classified
+/// `Ready` nodes simply get reclassified (and spawned) on the caller's retry.
+/// The caller is expected to resolve the reported failure and call this
+/// function again with the same (now-shrunk) pending set, looping until it
+/// returns `Ok` — each retry either finishes the batch or removes at least the
+/// reported node, so the loop is guaranteed to terminate.
+///
+/// Returns `Ok(remaining)` with the nodes still pending (not spawned), or
+/// `FailedNodeDependency(dep)` when a node was found blocked on a failed
+/// dependency `dep` — `pending` itself is unchanged, so the caller simply
+/// reuses it (after resolving `dep`) for the next call.
 fn spawn_ready_actors(
     pending: &HashSet<Handle>,
     env: &Arc<Environment>,
@@ -315,7 +325,6 @@ fn spawn_ready_actors(
     actor_tasks: &mut JoinSet<()>,
 ) -> SpawnOutcome {
     let mut to_spawn: Vec<Handle> = Vec::new();
-    let mut failed_dependency: Option<Handle> = None;
     {
         let dag_guard = env.dag.read();
         for &n in pending {
@@ -323,7 +332,7 @@ fn spawn_ready_actors(
                 SpawnReadiness::Ready => to_spawn.push(n),
                 SpawnReadiness::Waiting => {}
                 SpawnReadiness::FailedDependency(dep) => {
-                    failed_dependency.get_or_insert(dep);
+                    return SpawnOutcome::FailedNodeDependency(dep);
                 }
             }
         }
@@ -397,10 +406,7 @@ fn spawn_ready_actors(
         );
     }
 
-    match failed_dependency {
-        Some(dep) => SpawnOutcome::FailedNodeDependency(dep, remaining),
-        None => SpawnOutcome::Ok(remaining),
-    }
+    SpawnOutcome::Ok(remaining)
 }
 
 fn remove_blocked_from_pending(
@@ -464,10 +470,14 @@ async fn run_spawn_loop_jobs(
             let mut pending_locked = shared_pending.lock();
             match spawn_ready_actors(&*pending_locked, env, infra, &mut actor_tasks) {
                 SpawnOutcome::Ok(remaining) => *pending_locked = remaining,
-                SpawnOutcome::FailedNodeDependency(failed_dep, remaining) => {
-                    *pending_locked = remaining;
+                SpawnOutcome::FailedNodeDependency(failed_dep) => {
                     let dag = env.dag.read();
                     remove_blocked_from_pending(failed_dep, &mut pending_locked, &dag, join_waiters);
+                    // `pending` is guaranteed to have shrunk by at least the
+                    // resolved node, so retrying immediately (without waiting
+                    // on `select!`) makes progress and is guaranteed to
+                    // terminate at `Ok`.
+                    continue;
                 }
             }
         }
