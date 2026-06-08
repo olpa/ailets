@@ -171,6 +171,19 @@ pub fn parse_bytes_before_pause(args: &[&str]) -> Option<usize> {
         .and_then(|s| s.parse().ok())
 }
 
+/// Looks for a heredoc marker token (`<<DELIM`) among whitespace-split
+/// command tokens, e.g. `node value <<EOF --explain="seed"`. Returns its
+/// index and the delimiter name so the caller can collect the heredoc body
+/// and substitute it for the marker before dispatching the command — this is
+/// how dagsh scripts embed multi-line values (e.g. JSONL) on one logical line.
+#[must_use]
+pub fn find_heredoc_marker<'a>(parts: &[&'a str]) -> Option<(usize, &'a str)> {
+    parts.iter().enumerate().find_map(|(i, tok)| {
+        let delim = tok.strip_prefix("<<")?;
+        (!delim.is_empty()).then_some((i, delim))
+    })
+}
+
 #[must_use]
 pub fn parse_quoted_string(args: &[&str]) -> String {
     let joined = args.join(" ");

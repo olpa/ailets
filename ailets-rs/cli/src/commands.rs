@@ -10,7 +10,8 @@ use ailetos::{
 
 use crate::output::{parse_color, OutputSinkWriter};
 use crate::shell_ui::{
-    format_state, parse_bytes_before_pause, parse_explain, parse_quoted_string, truncate, HELP_TEXT,
+    find_heredoc_marker, format_state, parse_bytes_before_pause, parse_explain, parse_quoted_string,
+    truncate, HELP_TEXT,
 };
 use crate::{dbg_control, shell_input_control, DagShell};
 
@@ -527,13 +528,43 @@ impl DagShell {
         let content =
             std::fs::read_to_string(path).map_err(|e| format!("Failed to read {path}: {e}"))?;
 
-        for line in content.lines() {
-            let line = line.trim();
+        let lines: Vec<&str> = content.lines().collect();
+        let mut i = 0;
+        while i < lines.len() {
+            let line = lines[i].trim();
+            i += 1;
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
             self.sink.println(&format!("dagsh> {line}"));
-            match self.execute(line) {
+
+            let mut parts: Vec<&str> = line.split_whitespace().collect();
+            let body;
+            if let Some((idx, delim)) = find_heredoc_marker(&parts) {
+                let mut collected = String::new();
+                let mut closed = false;
+                while i < lines.len() {
+                    let body_line = lines[i];
+                    i += 1;
+                    if body_line.trim() == delim {
+                        closed = true;
+                        break;
+                    }
+                    if !collected.is_empty() {
+                        collected.push('\n');
+                    }
+                    collected.push_str(body_line);
+                }
+                if !closed {
+                    self.sink
+                        .println(&format!("Error: heredoc <<{delim} has no closing line"));
+                    continue;
+                }
+                body = collected;
+                parts[idx] = body.as_str();
+            }
+
+            match self.execute_parts(&parts) {
                 Ok(crate::ShellControl::Continue) => {}
                 Ok(crate::ShellControl::Exit) => return Ok(crate::ShellControl::Exit),
                 Err(e) => self.sink.println(&format!("Error: {e}")),

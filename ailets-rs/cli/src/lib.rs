@@ -219,6 +219,17 @@ impl DagShell {
     /// Returns an error string if the command fails.
     pub fn execute(&mut self, line: &str) -> Result<ShellControl, String> {
         let parts: Vec<&str> = line.split_whitespace().collect();
+        self.execute_parts(&parts)
+    }
+
+    /// Like `execute`, but takes already-tokenized arguments. Used by
+    /// `cmd_source` to run commands whose arguments were assembled from a
+    /// heredoc body (which may contain whitespace `split_whitespace` would
+    /// otherwise break apart).
+    ///
+    /// # Errors
+    /// Returns an error string if the command fails.
+    pub(crate) fn execute_parts(&mut self, parts: &[&str]) -> Result<ShellControl, String> {
         let (cmd, rest) = match parts.split_first() {
             None => return Ok(ShellControl::Continue),
             Some((cmd, rest)) => (*cmd, rest),
