@@ -325,12 +325,15 @@ fn spawn_ready_actors(
     actor_tasks: &mut JoinSet<()>,
 ) -> SpawnOutcome {
     let mut to_spawn: Vec<Handle> = Vec::new();
+    let mut remaining: HashSet<Handle> = HashSet::new();
     {
         let dag_guard = env.dag.read();
         for &n in pending {
             match is_ready_to_spawn(n, &dag_guard, &env.pipe_pool) {
                 SpawnReadiness::Ready => to_spawn.push(n),
-                SpawnReadiness::Waiting => {}
+                SpawnReadiness::Waiting => {
+                    remaining.insert(n);
+                }
                 SpawnReadiness::FailedDependency(dep) => {
                     return SpawnOutcome::FailedNodeDependency(dep);
                 }
@@ -338,11 +341,7 @@ fn spawn_ready_actors(
         }
     }
 
-    let mut remaining: HashSet<Handle> = pending.clone();
-
     for node_handle in to_spawn {
-        remaining.remove(&node_handle);
-
         let dag = env.dag.read();
         let Some(node) = dag.get_node(node_handle) else { continue };
         let Some(actor_fn) = env.actor_registry.read().get(&node.idname) else {
