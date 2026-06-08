@@ -12,6 +12,9 @@
 //!
 //! The main entry point for running actors. Created via [`Executor::start()`], it runs
 //! indefinitely in the background, processing jobs submitted via [`Executor::submit()`].
+//! [`Executor::join()`] lets callers wait asynchronously for a node to reach a terminal
+//! state — `Ok(())` on success, `Err` if the node terminates with a failure or is
+//! removed from `pending` because a dependency failed (see "Communication Channels").
 //! Shutdown via [`Executor::shutdown()`] closes the job channel, waits for all work to
 //! complete, and cleans up resources.
 //!
@@ -59,7 +62,12 @@
 //!
 //! On each iteration, the loop calls [`spawn_ready_actors()`] to check which pending
 //! nodes are now ready to spawn based on dependency state and output availability
-//! (see [`is_ready_to_spawn()`] for the complete readiness algorithm).
+//! (see [`is_ready_to_spawn()`] for the complete readiness algorithm). A node blocked
+//! on a failed dependency is an exceptional condition, not a steady-state outcome:
+//! when classification finds one, `spawn_ready_actors()` returns immediately without
+//! touching the pending set, the loop resolves it via `remove_blocked_from_pending()`
+//! (removing the blocked subtree and notifying its `join()` waiters), and retries
+//! classification — looping until the whole batch is spawned or waiting cleanly.
 //!
 //! The lifecycle handler ([`lifecycle_event_task()`]) receives events from actors,
 //! updates the DAG state, and wakes the executor. Only the `Terminated` transition
@@ -69,6 +77,9 @@
 //!
 //! - Job submission (User → Executor):
 //!   Jobs sent via mpsc channel; closes when all handles dropped
+//! - Join results (Executor → User, via [`Executor::join()`]):
+//!   Per-node oneshot reply, resolved on terminal state, on removal from
+//!   `pending` due to a failed dependency, or drained with `Err` at shutdown
 //! - Lifecycle events (Actors → Executor):
 //!   Two-phase protocol with reply channels for synchronization
 //! - Executor events (Executor → External observers):
