@@ -36,7 +36,7 @@ pub use environment::{ActorFn, ActorRegistry, Environment};
 pub use suspension::SuspensionState;
 
 // Re-export executor
-pub use executor::{is_ready_to_spawn, Executor, ExecutorEvent};
+pub use executor::{is_ready_to_spawn, Executor, ExecutorEvent, SpawnReadiness};
 
 // Re-export traversal types
 pub use traversal::{StopConditions, TopologicalOrderIter};

@@ -186,13 +186,14 @@ impl DagShell {
                 .collect();
 
             let suspension = Some(&*self.env.suspension);
+            let pending = self.executor.snapshot_pending();
             let roots = if terminals.is_empty() {
                 self.handles.clone()
             } else {
                 terminals
             };
             for handle in roots {
-                let tree = dag.dump_colored(handle, suspension);
+                let tree = dag.dump_colored(handle, suspension, Some(&pending));
                 for line in tree.lines() {
                     self.sink.println(line);
                 }
@@ -204,7 +205,8 @@ impl DagShell {
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
         let suspension = Some(&*self.env.suspension);
-        let tree = dag.dump_colored(handle, suspension);
+        let pending = self.executor.snapshot_pending();
+        let tree = dag.dump_colored(handle, suspension, Some(&pending));
         for line in tree.lines() {
             self.sink.println(line);
         }
@@ -268,6 +270,31 @@ impl DagShell {
             stop_after,
         };
 
+        // Determine the node to join on before submitting the job.  The
+        // one_step branch looks at NodeState::NotStarted; if we computed this
+        // after submit the executor could race ahead and mark the first node
+        // Running/Terminated, causing find() to land on the wrong node.
+        let wait_targets = if bg_flag {
+            vec![]
+        } else if one_step {
+            let dag = self.env.dag.read();
+            TopologicalOrderIter::new(&dag, handle)
+                .find(|&n| {
+                    dag.get_node(n)
+                        .is_some_and(|nd| nd.state == NodeState::NotStarted)
+                })
+                .map(|n| vec![n])
+                .unwrap_or_default()
+        } else if stop_before.is_some() || stop_after.is_some() {
+            let dag = self.env.dag.read();
+            TopologicalOrderIter::with_stop_conditions(&dag, handle, stop_conditions.clone())
+                .last()
+                .map(|n| vec![n])
+                .unwrap_or_default()
+        } else {
+            self.env.resolve_all(handle)
+        };
+
         self.executor
             .submit(handle, stop_conditions.clone())
             .map_err(|_| "Executor has shut down".to_string())?;
@@ -276,27 +303,6 @@ impl DagShell {
             self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, true, color);
         } else {
             self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, false, color);
-            // Determine the node to join on: the last node the executor will actually run,
-            // which may differ from `handle` when stop conditions truncate the traversal.
-            // For one_step, skip already-terminated nodes to match the executor's behaviour.
-            let wait_targets = if one_step {
-                let dag = self.env.dag.read();
-                TopologicalOrderIter::new(&dag, handle)
-                    .find(|&n| {
-                        dag.get_node(n)
-                            .is_some_and(|nd| nd.state == NodeState::NotStarted)
-                    })
-                    .map(|n| vec![n])
-                    .unwrap_or_default()
-            } else if stop_before.is_some() || stop_after.is_some() {
-                let dag = self.env.dag.read();
-                TopologicalOrderIter::with_stop_conditions(&dag, handle, stop_conditions.clone())
-                    .last()
-                    .map(|n| vec![n])
-                    .unwrap_or_default()
-            } else {
-                self.env.resolve_all(handle)
-            };
             self.join_handles(wait_targets)?;
             self.sink.println("");
         }
@@ -304,40 +310,31 @@ impl DagShell {
     }
 
     fn join_handles(&mut self, targets: Vec<Handle>) -> Result<(), String> {
-        {
-            let dag = self.env.dag.read();
-            for &target in &targets {
-                if dag.get_node(target).is_none() {
-                    return Err(format!("handle {} not found in DAG", target.id()));
-                }
-            }
-        }
+        let targets: Vec<Handle> = targets
+            .into_iter()
+            .flat_map(|t| self.env.resolve_all(t))
+            .collect();
+        let receivers: Vec<_> = targets.iter().map(|&t| self.executor.join(t)).collect();
         self.foreground_join
             .store(true, std::sync::atomic::Ordering::Relaxed);
-        let env = &self.env;
         let sink = &self.sink;
         let foreground_join = &self.foreground_join;
         self.cli_rt.block_on(async move {
             let wait_all =
-                futures::future::join_all(targets.into_iter().map(|target| async move {
-                    loop {
-                        if matches!(
-                            env.dag.read().get_node(target).map(|n| n.state),
-                            Some(NodeState::Terminated)
-                        ) {
-                            break;
-                        }
-                        tokio::time::sleep(POLL_INTERVAL).await;
-                    }
+                futures::future::join_all(receivers.into_iter().map(|rx| async move {
+                    rx.await.map_err(|_| "join sender dropped".to_string())?
                 }));
-            tokio::select! {
+            let result = tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
                     sink.println("\n^C - Detached (node continues running in ailetos)");
+                    Ok(())
                 }
-                _ = wait_all => {}
-            }
+                results = wait_all => {
+                    results.into_iter().find(Result::is_err).unwrap_or(Ok(()))
+                }
+            };
             foreground_join.store(false, std::sync::atomic::Ordering::Relaxed);
-            Ok(())
+            result
         })
     }
 
@@ -567,10 +564,11 @@ impl DagShell {
 
     fn cmd_status_dag(&self) {
         let dag = self.env.dag.read();
+        let pending_set = self.executor.snapshot_pending();
         let mut total = 0;
         let mut running = 0;
         let mut terminated = 0;
-        let mut not_started = 0;
+        let mut pending = 0;
         let mut suspended = 0;
 
         for &handle in &self.handles {
@@ -579,7 +577,11 @@ impl DagShell {
                 match node.state {
                     NodeState::Running => running += 1,
                     NodeState::Terminated => terminated += 1,
-                    NodeState::NotStarted => not_started += 1,
+                    NodeState::NotStarted => {
+                        if pending_set.contains(&handle) {
+                            pending += 1;
+                        }
+                    }
                     NodeState::Terminating => {}
                 }
                 if self.env.suspension.is_suspended(handle) {
@@ -587,7 +589,7 @@ impl DagShell {
                 }
             }
         }
-        self.sink.println(&format!("Nodes: {total} total, {not_started} pending, {running} running, {suspended} suspended, {terminated} terminated"));
+        self.sink.println(&format!("Nodes: {total} total, {pending} pending, {running} running, {suspended} suspended, {terminated} terminated"));
     }
 
     fn cmd_status_node(&self, handle: Handle) -> Found {

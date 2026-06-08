@@ -53,6 +53,7 @@ pub struct Dag {
 struct DumpContext<'a> {
     use_colors: bool,
     suspension: Option<&'a SuspensionState>,
+    pending: Option<&'a HashSet<Handle>>,
     output: &'a mut String,
     visited: &'a mut HashSet<Handle>,
     printed: &'a mut HashSet<Handle>,
@@ -154,8 +155,13 @@ impl Dag {
     /// If the starting node is an alias, it is skipped and its resolved
     /// dependencies are printed as root nodes instead.
     #[must_use]
-    pub fn dump(&self, pid: Handle, suspension: Option<&SuspensionState>) -> String {
-        self.dump_impl(pid, false, suspension)
+    pub fn dump(
+        &self,
+        pid: Handle,
+        suspension: Option<&SuspensionState>,
+        pending: Option<&HashSet<Handle>>,
+    ) -> String {
+        self.dump_impl(pid, false, suspension, pending)
     }
 
     /// Prints the dependency tree for a given node with ANSI colors
@@ -163,8 +169,13 @@ impl Dag {
     /// If the starting node is an alias, it is skipped and its resolved
     /// dependencies are printed as root nodes instead.
     #[must_use]
-    pub fn dump_colored(&self, pid: Handle, suspension: Option<&SuspensionState>) -> String {
-        self.dump_impl(pid, true, suspension)
+    pub fn dump_colored(
+        &self,
+        pid: Handle,
+        suspension: Option<&SuspensionState>,
+        pending: Option<&HashSet<Handle>>,
+    ) -> String {
+        self.dump_impl(pid, true, suspension, pending)
     }
 
     fn dump_impl(
@@ -172,6 +183,7 @@ impl Dag {
         pid: Handle,
         use_colors: bool,
         suspension: Option<&SuspensionState>,
+        pending: Option<&HashSet<Handle>>,
     ) -> String {
         let mut output = String::new();
         let mut visited = HashSet::new();
@@ -179,6 +191,7 @@ impl Dag {
         let mut ctx = DumpContext {
             use_colors,
             suspension,
+            pending,
             output: &mut output,
             visited: &mut visited,
             printed: &mut printed,
@@ -200,7 +213,13 @@ impl Dag {
         output
     }
 
-    fn format_state_symbol(state: NodeState, exit_code: i32, use_colors: bool) -> String {
+    fn format_state_symbol(
+        pid: Handle,
+        state: NodeState,
+        exit_code: i32,
+        use_colors: bool,
+        pending: Option<&HashSet<Handle>>,
+    ) -> String {
         const GREEN: &str = "\x1b[32m";
         const YELLOW: &str = "\x1b[33m";
         const MAGENTA: &str = "\x1b[35m";
@@ -209,7 +228,13 @@ impl Dag {
 
         if use_colors {
             match state {
-                NodeState::NotStarted => format!("{YELLOW}⋯ pending{RESET}"),
+                NodeState::NotStarted => {
+                    if pending.is_some_and(|p| p.contains(&pid)) {
+                        format!("{YELLOW}⋯ pending{RESET}")
+                    } else {
+                        String::new()
+                    }
+                }
                 NodeState::Running => format!("{MAGENTA}⚙ running{RESET}"),
                 NodeState::Terminating => format!("{MAGENTA}⏳ terminating{RESET}"),
                 NodeState::Terminated => {
@@ -222,7 +247,13 @@ impl Dag {
             }
         } else {
             match state {
-                NodeState::NotStarted => "⋯ pending".to_string(),
+                NodeState::NotStarted => {
+                    if pending.is_some_and(|p| p.contains(&pid)) {
+                        "⋯ pending".to_string()
+                    } else {
+                        String::new()
+                    }
+                }
                 NodeState::Running => "⚙ running".to_string(),
                 NodeState::Terminating => "⏳ terminating".to_string(),
                 NodeState::Terminated => {
@@ -270,9 +301,8 @@ impl Dag {
         let is_suspended = node.state != NodeState::Terminated
             && ctx.suspension.is_some_and(|s| s.is_suspended(pid));
 
-        let state_symbol = Self::format_state_symbol(node.state, node.exit_code, ctx.use_colors);
-
-        let suspended_suffix = if is_suspended { " ⏸ suspended" } else { "" };
+        let state_symbol =
+            Self::format_state_symbol(pid, node.state, node.exit_code, ctx.use_colors, ctx.pending);
 
         let shared_marker = if is_circular {
             " [circular reference]"
@@ -292,9 +322,22 @@ impl Dag {
             .map(|e| format!(" # {e}"))
             .unwrap_or_default();
 
+        let bracket_parts: Vec<&str> = [
+            state_symbol.as_str(),
+            if is_suspended { "⏸ suspended" } else { "" },
+        ]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect();
+        let state_bracket = if bracket_parts.is_empty() {
+            String::new()
+        } else {
+            format!(" [{}]", bracket_parts.join(" "))
+        };
+
         let _ = writeln!(
             ctx.output,
-            "{prefix}{connector}{}.{} [{state_symbol}{suspended_suffix}]{shared_marker}{explain_suffix}",
+            "{prefix}{connector}{}.{}{state_bracket}{shared_marker}{explain_suffix}",
             node.idname,
             node.pid.id()
         );

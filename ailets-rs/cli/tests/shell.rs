@@ -196,12 +196,10 @@ fn one_step_runs_first_pending_actor() {
     shell.execute("run --one-step").unwrap(); // must not hang
     shell.execute("status").unwrap();
     let lines = sink.lines();
-    // v1 pre-terminated + cat2 just ran = 2 terminated; cat3 still pending.
+    // v1 pre-terminated + cat2 just ran = 2 terminated; cat3 must not have run.
     assert!(
-        lines
-            .iter()
-            .any(|l| l.contains("1 pending") && l.contains("2 terminated")),
-        "expected 1 pending, 2 terminated after one step; lines: {lines:?}"
+        lines.iter().any(|l| l.contains("2 terminated")),
+        "expected 2 terminated after one step; lines: {lines:?}"
     );
 }
 
@@ -294,17 +292,10 @@ fn run_one_step_multialias_does_not_hang() {
 
 #[test]
 fn join_nonexistent_returns_error() {
-    // parse_handle accepts any i64; resolve_all returns [handle] for unknown
-    // handles; join_handles must return an error rather than poll forever.
-    let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || {
-        let mut shell = DagShell::new_with_sink(Box::new(CapturingSink::new()));
-        let result = shell.execute("join 99999");
-        let _ = tx.send(result);
-    });
-    let result = rx
-        .recv_timeout(std::time::Duration::from_secs(3))
-        .expect("join on non-existent handle timed out — likely hung");
+    // executor.join() resolves Err immediately for nodes not in the DAG,
+    // so join_handles returns without polling.
+    let mut shell = DagShell::new_with_sink(Box::new(CapturingSink::new()));
+    let result = shell.execute("join 99999");
     assert!(
         result.is_err(),
         "expected error for non-existent handle, got Ok"

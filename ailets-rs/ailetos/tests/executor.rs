@@ -315,3 +315,346 @@ async fn run_jobs_processes_job_submitted_while_actor_running() {
     release_tx.send(()).unwrap();
     executor.shutdown().await;
 }
+
+/// A267: When a node fails, its dependents in pending must be removed so the
+/// executor does not retain permanently-blocked nodes at shutdown.
+///
+/// Chain: a → b → c → d (a executes first, d is the target).
+/// a, b, c, d all enter pending when d is submitted. a fails; b/c/d are
+/// permanently blocked (a terminated with non-zero exit code). The executor
+/// must clear b/c/d from pending — not retain them until the next submission.
+#[tokio::test]
+async fn test_failed_node_clears_dependents_from_pending() {
+    let kv = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+
+    let a = env.add_node("failing".into(), &[], None);
+    let b = env.add_node("noop".into(), &[a], None);
+    let c = env.add_node("noop".into(), &[b], None);
+    let d = env.add_node("noop".into(), &[c], None);
+
+    env.actor_registry
+        .write()
+        .register("failing", |_| Err("intentional failure".into()));
+    env.actor_registry.write().register("noop", |_| Ok(()));
+
+    let (ev_tx, mut ev_rx) = mpsc::unbounded_channel::<ExecutorEvent>();
+    let executor = Executor::start(
+        &tokio::runtime::Handle::current(),
+        Arc::clone(&env),
+        Some(ev_tx),
+    );
+    executor.submit(d, StopConditions::default()).unwrap();
+
+    loop {
+        match ev_rx.recv().await {
+            Some(ExecutorEvent::NodeTerminated(h)) if h == a => break,
+            Some(_) => continue,
+            None => panic!("executor shut down before a terminated"),
+        }
+    }
+
+    // Yield to the Tokio runtime so the executor's spawn loop can process a's
+    // termination wakeup and update the pending set before we snapshot it.
+    tokio::task::yield_now().await;
+
+    // With the fix, b/c/d are removed from pending when a fails. Without the
+    // fix they remain, leaking permanently-blocked nodes into the next
+    // submission's pending state.
+    let pending = executor.snapshot_pending();
+    executor.shutdown().await;
+
+    assert!(
+        pending.is_empty(),
+        "pending must be empty after a failed: b/c/d are permanently blocked"
+    );
+}
+
+/// A267: Executor hangs when a deep dependency is killed and its dependents
+/// are never unblocked.
+///
+/// Chain: a → b → c → d  (a executes first, d is the target).
+///
+/// Scenario 1: whole chain scheduled; a fails at runtime.  After the run the
+/// DAG state is: a Terminated (error), b/c/d NotStarted — this is the
+/// incremental starting point for scenario 2.
+///
+/// Scenario 2: re-submit d with a already Terminated (failed).  The job
+/// filter skips a but adds b/c/d to pending.  They can never run because
+/// a already failed, so any waiter on NodeTerminated(d) hangs forever.
+#[tokio::test]
+async fn test_kill_deep_dep_does_not_hang() {
+    let kv = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+
+    let a = env.add_node("failing".into(), &[], None);
+    let b = env.add_node("noop".into(), &[a], None);
+    let c = env.add_node("noop".into(), &[b], None);
+    let d = env.add_node("noop".into(), &[c], None);
+
+    env.actor_registry
+        .write()
+        .register("failing", |_| Err("intentional failure".into()));
+    env.actor_registry.write().register("noop", |_| Ok(()));
+
+    // Scenario 1: whole chain scheduled; a fails at runtime.
+    {
+        let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
+        executor.submit(d, StopConditions::default()).unwrap();
+        executor.shutdown().await;
+    }
+
+    // a is now Terminated (failed); b/c/d are NotStarted (eligible for re-run).
+    assert_eq!(
+        env.dag.read().get_node(a).unwrap().state,
+        NodeState::Terminated
+    );
+    assert_ne!(env.dag.read().get_node(a).unwrap().exit_code, 0);
+    assert_eq!(
+        env.dag.read().get_node(b).unwrap().state,
+        NodeState::NotStarted
+    );
+    assert_eq!(
+        env.dag.read().get_node(c).unwrap().state,
+        NodeState::NotStarted
+    );
+    assert_eq!(
+        env.dag.read().get_node(d).unwrap().state,
+        NodeState::NotStarted
+    );
+
+    // Scenario 2: re-submit d — a is already Terminated (failed), b/c/d are
+    // NotStarted and added to pending, but they can never run. The executor must
+    // clear them and shut down promptly rather than hanging.
+    {
+        let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
+        executor.submit(d, StopConditions::default()).unwrap();
+        executor.shutdown().await; // must not hang
+    }
+
+    // b/c/d remain NotStarted: cleared from pending, never spawned.
+    assert_eq!(
+        env.dag.read().get_node(b).unwrap().state,
+        NodeState::NotStarted
+    );
+    assert_eq!(
+        env.dag.read().get_node(c).unwrap().state,
+        NodeState::NotStarted
+    );
+    assert_eq!(
+        env.dag.read().get_node(d).unwrap().state,
+        NodeState::NotStarted
+    );
+}
+
+/// A267 follow-up: a `Ready` node landing in the same `pending` batch as a
+/// node blocked by a failed dependency must still be spawned promptly.
+///
+/// DAG: `a` (fails) → `b`; `c` is independent; `d` depends on both `b` and `c`.
+///
+/// Phase 1: run `a` alone so it terminates with a non-zero exit code while
+/// `b`/`c`/`d` stay `NotStarted`.
+///
+/// Phase 2: submit `d`. The traversal adds `b`, `c`, `d` to `pending` in one
+/// batch. `b` is blocked by `a`'s failure; `c` has no dependency on `a` and is
+/// `Ready`. `spawn_ready_actors` must spawn `c` regardless of having also seen
+/// `b`'s `FailedDependency` in the same batch.
+#[tokio::test]
+async fn ready_node_spawns_despite_sibling_failed_dependency() {
+    let kv = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+
+    let a = env.add_node("failing".into(), &[], None);
+    let b = env.add_node("noop".into(), &[a], None);
+    let c = env.add_node("noop".into(), &[], None);
+    let d = env.add_node("noop".into(), &[b, c], None);
+
+    env.actor_registry
+        .write()
+        .register("failing", |_| Err("intentional failure".into()));
+    env.actor_registry.write().register("noop", |_| Ok(()));
+
+    // Phase 1: run `a` alone so it fails while b/c/d stay NotStarted.
+    {
+        let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
+        executor.submit(a, StopConditions::default()).unwrap();
+        executor.shutdown().await;
+    }
+    assert_eq!(
+        env.dag.read().get_node(a).unwrap().state,
+        NodeState::Terminated
+    );
+    assert_ne!(env.dag.read().get_node(a).unwrap().exit_code, 0);
+    assert_eq!(
+        env.dag.read().get_node(c).unwrap().state,
+        NodeState::NotStarted
+    );
+
+    // Phase 2: submit `d`. b, c, d land in `pending` together: b is blocked by
+    // a's failure, but c must still be spawned and terminate promptly.
+    let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
+    let rx_c = executor.join(c);
+    executor.submit(d, StopConditions::default()).unwrap();
+
+    let result = tokio::time::timeout(std::time::Duration::from_secs(5), rx_c).await;
+
+    assert!(
+        matches!(result, Ok(Ok(Ok(())))),
+        "join(c) must resolve Ok promptly even though sibling b is blocked by \
+         a's failed dependency a — without the fix, c is dropped from the \
+         spawn batch and sits Ready in `pending` forever: {result:?}"
+    );
+
+    executor.shutdown().await;
+}
+
+/// join() resolves Err when the target is blocked by a failed dependency.
+///
+/// Chain: a → b → c  (a fails). join(b) and join(c) must resolve Err, not hang.
+/// join(a) resolves Err because a itself terminated with a non-zero exit code.
+#[tokio::test]
+async fn join_resolves_err_when_blocked_by_failed_dep() {
+    let kv = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+
+    let a = env.add_node("failing".into(), &[], None);
+    let b = env.add_node("noop".into(), &[a], None);
+    let c = env.add_node("noop".into(), &[b], None);
+
+    env.actor_registry
+        .write()
+        .register("failing", |_| Err("intentional failure".into()));
+    env.actor_registry.write().register("noop", |_| Ok(()));
+
+    let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
+    let rx_a = executor.join(a);
+    let rx_b = executor.join(b);
+    let rx_c = executor.join(c);
+    executor.submit(c, StopConditions::default()).unwrap();
+
+    let (ra, rb, rc) = tokio::join!(
+        async { rx_a.await.expect("join sender dropped unexpectedly") },
+        async { rx_b.await.expect("join sender dropped unexpectedly") },
+        async { rx_c.await.expect("join sender dropped unexpectedly") },
+    );
+    executor.shutdown().await;
+
+    assert!(
+        ra.is_err(),
+        "join(a) must resolve Err: a terminated with non-zero exit code"
+    );
+    assert!(
+        rb.is_err(),
+        "join(b) must resolve Err: b is blocked by failed a"
+    );
+    assert!(
+        rc.is_err(),
+        "join(c) must resolve Err: c is blocked by failed a"
+    );
+}
+
+/// join() resolves Err when the target is blocked by a failed dependency that
+/// is reached through an alias node, not just a direct dependency.
+#[tokio::test]
+async fn join_resolves_err_when_blocked_by_failed_dep_via_alias() {
+    let kv = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+
+    let failed_producer = env.add_node("failing".into(), &[], None);
+    let output_alias = env.add_alias(".output".into(), failed_producer);
+    let blocked_consumer = env.add_node("noop".into(), &[output_alias], None);
+
+    env.actor_registry
+        .write()
+        .register("failing", |_| Err("intentional failure".into()));
+    env.actor_registry.write().register("noop", |_| Ok(()));
+
+    let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
+    let join_rx = executor.join(blocked_consumer);
+    executor
+        .submit(blocked_consumer, StopConditions::default())
+        .unwrap();
+
+    let result = join_rx.await.expect("join sender dropped unexpectedly");
+    executor.shutdown().await;
+
+    assert!(
+        result.is_err(),
+        "join must resolve Err: consumer is blocked by a producer that failed via an alias dependency"
+    );
+}
+
+/// A node whose actor name is not registered must terminate with a non-zero
+/// exit code instead of staying pending forever and blocking dependents.
+#[tokio::test]
+async fn unregistered_actor_terminates_with_nonzero_exit_code() {
+    let kv = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+
+    let node = env.add_node("not-registered".into(), &[], None);
+
+    let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
+    executor.submit(node, StopConditions::default()).unwrap();
+    executor.shutdown().await;
+
+    let dag = env.dag.read();
+    let n = dag.get_node(node).unwrap();
+    assert_eq!(n.state, NodeState::Terminated);
+    assert_ne!(n.exit_code, 0);
+}
+
+/// join() on an unscheduled node resolves Err when the executor shuts down.
+#[tokio::test]
+async fn join_resolves_err_for_unscheduled_node() {
+    let kv = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+
+    let node = env.add_node("noop".into(), &[], None);
+
+    let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
+    let join_rx = executor.join(node);
+    // node is never submitted
+
+    // Shutdown triggers drain of remaining waiters; await both concurrently so
+    // join_rx is resolved before we try to read it.
+    let (result, ()) = tokio::join!(
+        async { join_rx.await.expect("join sender dropped unexpectedly") },
+        executor.shutdown(),
+    );
+
+    assert!(
+        result.is_err(),
+        "join must resolve Err for an unscheduled node"
+    );
+}
+
+/// join() resolves Ok when the target node terminates successfully.
+///
+/// Chain: a → b → c  (a runs first). All three nodes are joined in parallel.
+#[tokio::test]
+async fn join_resolves_ok_on_success() {
+    let kv = Arc::new(MemKV::new());
+    let env = Arc::new(Environment::new(kv));
+    env.actor_registry.write().register("noop", |_| Ok(()));
+
+    let a = env.add_node("noop".into(), &[], None);
+    let b = env.add_node("noop".into(), &[a], None);
+    let c = env.add_node("noop".into(), &[b], None);
+
+    let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
+    let rx_a = executor.join(a);
+    let rx_b = executor.join(b);
+    let rx_c = executor.join(c);
+    executor.submit(c, StopConditions::default()).unwrap();
+
+    let (ra, rb, rc) = tokio::join!(
+        async { rx_a.await.expect("join sender dropped unexpectedly") },
+        async { rx_b.await.expect("join sender dropped unexpectedly") },
+        async { rx_c.await.expect("join sender dropped unexpectedly") },
+    );
+    executor.shutdown().await;
+
+    assert!(ra.is_ok(), "join(a) must resolve Ok");
+    assert!(rb.is_ok(), "join(b) must resolve Ok");
+    assert!(rc.is_ok(), "join(c) must resolve Ok");
+}

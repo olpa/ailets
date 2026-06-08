@@ -12,6 +12,9 @@
 //!
 //! The main entry point for running actors. Created via [`Executor::start()`], it runs
 //! indefinitely in the background, processing jobs submitted via [`Executor::submit()`].
+//! [`Executor::join()`] lets callers wait asynchronously for a node to reach a terminal
+//! state — `Ok(())` on success, `Err` if the node terminates with a failure or is
+//! removed from `pending` because a dependency failed (see "Communication Channels").
 //! Shutdown via [`Executor::shutdown()`] closes the job channel, waits for all work to
 //! complete, and cleans up resources.
 //!
@@ -59,7 +62,12 @@
 //!
 //! On each iteration, the loop calls [`spawn_ready_actors()`] to check which pending
 //! nodes are now ready to spawn based on dependency state and output availability
-//! (see [`is_ready_to_spawn()`] for the complete readiness algorithm).
+//! (see [`is_ready_to_spawn()`] for the complete readiness algorithm). A node blocked
+//! on a failed dependency is an exceptional condition, not a steady-state outcome:
+//! when classification finds one, `spawn_ready_actors()` returns immediately without
+//! touching the pending set, the loop resolves it via `remove_blocked_from_pending()`
+//! (removing the blocked subtree and notifying its `join()` waiters), and retries
+//! classification — looping until the whole batch is spawned or waiting cleanly.
 //!
 //! The lifecycle handler ([`lifecycle_event_task()`]) receives events from actors,
 //! updates the DAG state, and wakes the executor. Only the `Terminated` transition
@@ -69,6 +77,9 @@
 //!
 //! - Job submission (User → Executor):
 //!   Jobs sent via mpsc channel; closes when all handles dropped
+//! - Join results (Executor → User, via [`Executor::join()`]):
+//!   Per-node oneshot reply, resolved on terminal state, on removal from
+//!   `pending` due to a failed dependency, or drained with `Err` at shutdown
 //! - Lifecycle events (Actors → Executor):
 //!   Two-phase protocol with reply channels for synchronization
 //! - Executor events (Executor → External observers):
@@ -79,7 +90,9 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use tokio::sync::mpsc;
+use parking_lot::Mutex;
+
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinSet;
 use tracing::{debug, warn};
 
@@ -92,6 +105,11 @@ use crate::pipe::PipePool;
 use crate::traversal::{StopConditions, TopologicalOrderIter};
 use crate::{BlockingActorRuntime, IoBridge};
 
+/// Pending `join()` callers, each paired with the node they're waiting on and
+/// a oneshot to deliver the terminal result (`Ok` on success, `Err` with a
+/// reason on failure or removal due to a failed dependency).
+type JoinWaiters = Mutex<Vec<(Handle, oneshot::Sender<Result<(), String>>)>>;
+
 /// Events emitted by the executor to report progress to the caller.
 #[derive(Debug, Clone)]
 pub enum ExecutorEvent {
@@ -99,19 +117,25 @@ pub enum ExecutorEvent {
     NodeTerminated(Handle),
 }
 
+pub enum SpawnReadiness {
+    Ready,
+    Waiting,
+    FailedDependency(Handle),
+}
+
 /// Decide whether a node is ready to be spawned.
 ///
 /// Decision table (iterate concrete deps, first decisive result wins):
 ///
-/// | Dep state                      | Has output | Decision        |
-/// |--------------------------------|------------|-----------------|
-/// | `NotStarted`                   | —          | don't start     |
-/// | Running / Terminating          | yes        | start           |
-/// | Running / Terminating          | no         | don't start     |
-/// | Terminated, `exit_code` != 0   | —          | don't start     |
-/// | Terminated, `exit_code` == 0   | yes        | start           |
-/// | Terminated, `exit_code` == 0   | no         | skip (neutral)  |
-/// | (all deps exhausted)           | —          | start           |
+/// | Dep state                      | Has output | Decision              |
+/// |--------------------------------|------------|-----------------------|
+/// | `NotStarted`                   | —          | `Waiting`             |
+/// | Running / Terminating          | yes        | `Ready`               |
+/// | Running / Terminating          | no         | `Waiting`             |
+/// | Terminated, `exit_code` != 0   | —          | `FailedDependency`    |
+/// | Terminated, `exit_code` == 0   | yes        | `Ready`               |
+/// | Terminated, `exit_code` == 0   | no         | skip (neutral)        |
+/// | (all deps exhausted)           | —          | `Ready`               |
 ///
 /// "Has output" is checked optimistically: a dep has output if its stdout
 /// pipe is realized (writer exists in the pool), regardless of byte count.
@@ -119,7 +143,7 @@ pub enum ExecutorEvent {
 /// Note: Suspension state does not affect spawn readiness. If a dependency
 /// has produced output, downstream actors can start consuming it regardless
 /// of whether the dependency is suspended.
-pub fn is_ready_to_spawn(node_handle: Handle, dag: &Dag, pipe_pool: &PipePool) -> bool {
+pub fn is_ready_to_spawn(node_handle: Handle, dag: &Dag, pipe_pool: &PipePool) -> SpawnReadiness {
     use actor_runtime::StdHandle;
 
     for dep in dag.resolve_dependencies(node_handle) {
@@ -128,28 +152,33 @@ pub fn is_ready_to_spawn(node_handle: Handle, dag: &Dag, pipe_pool: &PipePool) -
         };
 
         match dep_node.state {
-            NodeState::NotStarted => return false,
+            NodeState::NotStarted => return SpawnReadiness::Waiting,
             NodeState::Running | NodeState::Terminating => {
-                return pipe_pool
+                return if pipe_pool
                     .get_already_realized_writer((dep, StdHandle::Stdout as isize))
-                    .is_some();
+                    .is_some()
+                {
+                    SpawnReadiness::Ready
+                } else {
+                    SpawnReadiness::Waiting
+                };
             }
             NodeState::Terminated => {
                 if dep_node.exit_code != 0 {
-                    return false;
+                    return SpawnReadiness::FailedDependency(dep);
                 }
                 if pipe_pool
                     .get_already_realized_writer((dep, StdHandle::Stdout as isize))
                     .is_some()
                 {
-                    return true;
+                    return SpawnReadiness::Ready;
                 }
                 // neutral: clean termination with no output, continue to next dep
             }
         }
     }
 
-    true
+    SpawnReadiness::Ready
 }
 
 /// Spawn a task for an actor node
@@ -208,6 +237,7 @@ async fn lifecycle_event_task(
     executor_wakeup: Arc<tokio::sync::watch::Sender<()>>,
     mut rx: mpsc::UnboundedReceiver<ActorLifecycleEvent>,
     events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
+    join_waiters: Arc<JoinWaiters>,
 ) {
     while let Some(event) = rx.recv().await {
         match event {
@@ -261,6 +291,20 @@ async fn lifecycle_event_task(
                         warn!(node = ?node_handle, "executor events receiver dropped");
                     }
                 }
+                let result = if exit_code == 0 {
+                    Ok(())
+                } else {
+                    Err(format!("exit code {exit_code}"))
+                };
+                let to_notify: Vec<_> = join_waiters
+                    .lock()
+                    .extract_if(.., |(h, _)| *h == node_handle)
+                    .collect();
+                for (h, tx) in to_notify {
+                    if tx.send(result.clone()).is_err() {
+                        warn!(node = ?h, "join: waiter receiver dropped");
+                    }
+                }
                 if executor_wakeup.send(()).is_err() {
                     warn!(node = ?node_handle, "executor: wakeup after node terminated failed, no receivers");
                 }
@@ -269,38 +313,63 @@ async fn lifecycle_event_task(
     }
 }
 
-/// Spawn one batch of ready nodes from `pending`.
+enum SpawnOutcome {
+    Ok(HashSet<Handle>),
+    FailedNodeDependency(Handle),
+}
+
+/// Classify and spawn one batch of ready nodes from `pending`.
 ///
 /// Spawns actor tasks directly into `actor_tasks` `JoinSet`.
-/// Returns the set of nodes that were not ready to spawn (still pending).
+///
+/// `FailedDependency` is an exceptional, unexpected state — an upstream actor
+/// terminated with a failure — not a normal outcome worth optimizing
+/// classification around. As soon as one is found, this function returns
+/// immediately without spawning anything from this pass, leaving `pending`
+/// untouched: the blocked node must stay put for `remove_blocked_from_pending`
+/// to find, remove, and notify its `join()` waiters, and any not-yet-classified
+/// `Ready` nodes simply get reclassified (and spawned) on the caller's retry.
+/// The caller is expected to resolve the reported failure and call this
+/// function again with the same (now-shrunk) pending set, looping until it
+/// returns `Ok` — each retry either finishes the batch or removes at least the
+/// reported node, so the loop is guaranteed to terminate.
+///
+/// Returns `Ok(remaining)` with the nodes still pending (not spawned), or
+/// `FailedNodeDependency(dep)` when a node was found blocked on a failed
+/// dependency `dep` — `pending` itself is unchanged, so the caller simply
+/// reuses it (after resolving `dep`) for the next call.
 fn spawn_ready_actors(
-    pending: HashSet<Handle>,
+    pending: &HashSet<Handle>,
     env: &Arc<Environment>,
     infra: &ExecutorInfra,
     actor_tasks: &mut JoinSet<()>,
-) -> HashSet<Handle> {
-    let to_spawn: Vec<(Handle, String)> = {
+) -> SpawnOutcome {
+    let mut to_spawn: Vec<Handle> = Vec::new();
+    let mut remaining: HashSet<Handle> = HashSet::new();
+    {
         let dag_guard = env.dag.read();
-        pending
-            .iter()
-            .filter_map(|&n| {
-                if is_ready_to_spawn(n, &dag_guard, &env.pipe_pool) {
-                    dag_guard.get_node(n).map(|node| (n, node.idname.clone()))
-                } else {
-                    None
+        for &n in pending {
+            match is_ready_to_spawn(n, &dag_guard, &env.pipe_pool) {
+                SpawnReadiness::Ready => to_spawn.push(n),
+                SpawnReadiness::Waiting => {
+                    remaining.insert(n);
                 }
-            })
-            .collect()
-    };
+                SpawnReadiness::FailedDependency(dep) => {
+                    return SpawnOutcome::FailedNodeDependency(dep);
+                }
+            }
+        }
+    }
 
-    let mut remaining = pending;
-
-    for (node_handle, idname) in &to_spawn {
-        let node_handle = *node_handle; // Copy the handle for use in the async block
-        remaining.remove(&node_handle);
-
-        let Some(actor_fn) = env.actor_registry.read().get(idname) else {
+    for node_handle in to_spawn {
+        let dag = env.dag.read();
+        let Some(node) = dag.get_node(node_handle) else {
+            continue;
+        };
+        let Some(actor_fn) = env.actor_registry.read().get(&node.idname) else {
+            let idname = &node.idname;
             warn!(node = ?node_handle, name = %idname, "actor not registered, skipping");
+            drop(dag);
             // Mark as terminated so dependents are not blocked.
             // No lifecycle events needed since the actor was never started.
             {
@@ -309,10 +378,17 @@ fn spawn_ready_actors(
                 dag.set_state(node_handle, NodeState::Terminated);
             }
             if infra.executor_wakeup.send(()).is_err() {
+                let idname = env
+                    .dag
+                    .read()
+                    .get_node(node_handle)
+                    .map_or("<unknown>".into(), |n| n.idname.clone());
                 warn!(node = ?node_handle, name = %idname, "executor: wakeup after unregistered actor failed, no receivers");
             }
             continue;
         };
+        let idname = node.idname.clone(); // spawn_actor_task takes ownership of the name
+        drop(dag);
 
         {
             let mut dag = env.dag.write();
@@ -326,6 +402,7 @@ fn spawn_ready_actors(
             }
             dag.set_state(node_handle, NodeState::Running);
         }
+
         debug!(node = ?node_handle, name = %idname, "spawning actor task");
 
         let actor_runtime = BlockingActorRuntime::new(
@@ -356,7 +433,45 @@ fn spawn_ready_actors(
         );
     }
 
-    remaining
+    SpawnOutcome::Ok(remaining)
+}
+
+fn remove_blocked_from_pending(
+    failed_dep: Handle,
+    pending: &mut HashSet<Handle>,
+    dag: &Dag,
+    join_waiters: &JoinWaiters,
+) {
+    use std::collections::VecDeque;
+
+    let mut blocked: HashSet<Handle> = HashSet::from([failed_dep]);
+    let mut queue: VecDeque<Handle> = VecDeque::from([failed_dep]);
+
+    while let Some(current) = queue.pop_front() {
+        let newly_blocked: Vec<Handle> = pending
+            .iter()
+            .filter(|&&n| dag.resolve_dependencies(n).any(|dep| dep == current))
+            .copied()
+            .collect();
+        for n in newly_blocked {
+            pending.remove(&n);
+            if blocked.insert(n) {
+                queue.push_back(n);
+            }
+            let to_notify: Vec<_> = join_waiters
+                .lock()
+                .extract_if(.., |(h, _)| *h == n)
+                .collect();
+            for (h, tx) in to_notify {
+                if tx
+                    .send(Err(format!("blocked by failed dependency {failed_dep:?}")))
+                    .is_err()
+                {
+                    warn!(node = ?h, "join: waiter receiver dropped");
+                }
+            }
+        }
+    }
 }
 
 /// A job submitted to the executor, pairing a target node with its stop conditions.
@@ -373,14 +488,34 @@ async fn run_spawn_loop_jobs(
     env: &Arc<Environment>,
     infra: &ExecutorInfra,
     job_rx: &mut mpsc::UnboundedReceiver<JobItem>,
+    shared_pending: &Mutex<HashSet<Handle>>,
+    join_waiters: &JoinWaiters,
 ) {
     let mut actor_tasks = JoinSet::new();
-    let mut pending: HashSet<Handle> = HashSet::new();
     let mut channel_closed = false;
     let mut wakeup_rx = infra.executor_wakeup.subscribe();
 
     loop {
-        pending = spawn_ready_actors(pending, env, infra, &mut actor_tasks);
+        {
+            let mut pending_locked = shared_pending.lock();
+            match spawn_ready_actors(&pending_locked, env, infra, &mut actor_tasks) {
+                SpawnOutcome::Ok(remaining) => *pending_locked = remaining,
+                SpawnOutcome::FailedNodeDependency(failed_dep) => {
+                    let dag = env.dag.read();
+                    remove_blocked_from_pending(
+                        failed_dep,
+                        &mut pending_locked,
+                        &dag,
+                        join_waiters,
+                    );
+                    // `pending` is guaranteed to have shrunk by at least the
+                    // resolved node, so retrying immediately (without waiting
+                    // on `select!`) makes progress and is guaranteed to
+                    // terminate at `Ok`.
+                    continue;
+                }
+            }
+        }
 
         if channel_closed && actor_tasks.is_empty() {
             break;
@@ -407,9 +542,9 @@ async fn run_spawn_loop_jobs(
                                 .is_some_and(|node| node.state == NodeState::NotStarted)
                         });
                         if one_step {
-                            pending.extend(not_started.take(1));
+                            shared_pending.lock().extend(not_started.take(1));
                         } else {
-                            pending.extend(not_started);
+                            shared_pending.lock().extend(not_started);
                         }
                     }
                     None => { channel_closed = true; }
@@ -429,6 +564,14 @@ async fn run_spawn_loop_jobs(
             Some(_) = actor_tasks.join_next() => {
                 // Task completed and removed from the set - nothing to do here.
             }
+        }
+    }
+
+    // Drain any remaining waiters: nodes that were never scheduled or otherwise
+    // never reached a terminal state before the executor shut down.
+    for (h, tx) in join_waiters.lock().drain(..) {
+        if tx.send(Err("executor shut down".into())).is_err() {
+            warn!(node = ?h, "join: waiter receiver dropped at shutdown");
         }
     }
 }
@@ -475,6 +618,7 @@ impl ExecutorInfra {
         async_runtime: tokio::runtime::Handle,
         env: &Arc<Environment>,
         events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
+        join_waiters: Arc<JoinWaiters>,
     ) -> Self {
         let (wakeup_tx, _) = tokio::sync::watch::channel(());
         let executor_wakeup = Arc::new(wakeup_tx);
@@ -489,6 +633,7 @@ impl ExecutorInfra {
             Arc::clone(&executor_wakeup),
             lifecycle_rx,
             events_tx,
+            join_waiters,
         ));
         Self {
             async_runtime,
@@ -525,7 +670,10 @@ impl ExecutorInfra {
 /// Use [`Executor::submit()`] to queue jobs while the executor is running.
 pub struct Executor {
     job_tx: mpsc::UnboundedSender<JobItem>,
-    executor_task: tokio::task::JoinHandle<()>,
+    spawn_loop_task: tokio::task::JoinHandle<()>,
+    dag: Arc<parking_lot::RwLock<Dag>>,
+    pending: Arc<Mutex<HashSet<Handle>>>,
+    join_waiters: Arc<JoinWaiters>,
 }
 
 impl Executor {
@@ -544,17 +692,78 @@ impl Executor {
         events_tx: Option<mpsc::UnboundedSender<ExecutorEvent>>,
     ) -> Self {
         let (job_tx, mut job_rx) = mpsc::unbounded_channel::<JobItem>();
-        let infra = ExecutorInfra::new(async_runtime.clone(), &env, events_tx);
+        let dag = Arc::clone(&env.dag);
+        let pending = Arc::new(Mutex::new(HashSet::new()));
+        let pending_clone = Arc::clone(&pending);
+        let join_waiters: Arc<JoinWaiters> = Arc::new(Mutex::new(Vec::new()));
+        let join_waiters_for_lifecycle = Arc::clone(&join_waiters);
+        let join_waiters_for_loop = Arc::clone(&join_waiters);
+        let infra = ExecutorInfra::new(
+            async_runtime.clone(),
+            &env,
+            events_tx,
+            join_waiters_for_lifecycle,
+        );
 
-        let executor_task = async_runtime.spawn(async move {
-            run_spawn_loop_jobs(&env, &infra, &mut job_rx).await;
+        let spawn_loop_task = async_runtime.spawn(async move {
+            run_spawn_loop_jobs(
+                &env,
+                &infra,
+                &mut job_rx,
+                &pending_clone,
+                &join_waiters_for_loop,
+            )
+            .await;
             infra.shutdown().await;
         });
 
         Self {
             job_tx,
-            executor_task,
+            spawn_loop_task,
+            dag,
+            pending,
+            join_waiters,
         }
+    }
+
+    /// Return a snapshot of the nodes currently scheduled for execution.
+    ///
+    /// The snapshot is a point-in-time copy: it may be stale by the time
+    /// the caller uses it, but is consistent and requires no held locks.
+    #[must_use]
+    pub fn snapshot_pending(&self) -> HashSet<Handle> {
+        self.pending.lock().clone()
+    }
+
+    /// Wait asynchronously for a node to reach a terminal state.
+    ///
+    /// Returns `Ok(())` when the node terminates successfully, or `Err` if the
+    /// node is removed from pending because a dependency failed.
+    #[must_use]
+    pub fn join(&self, node: Handle) -> oneshot::Receiver<Result<(), String>> {
+        let (tx, rx) = oneshot::channel();
+
+        let dag = self.dag.read();
+        let Some(n) = dag.get_node(node) else {
+            let _ = tx.send(Err(format!("node {node:?} not found in DAG")));
+            return rx;
+        };
+
+        match n.state {
+            NodeState::Terminated => {
+                let result = if n.exit_code == 0 {
+                    Ok(())
+                } else {
+                    Err(format!("exit code {}", n.exit_code))
+                };
+                let _ = tx.send(result);
+            }
+            NodeState::NotStarted | NodeState::Running | NodeState::Terminating => {
+                self.join_waiters.lock().push((node, tx));
+            }
+        }
+
+        rx
     }
 
     /// Submit a job (target node) to the executor.
@@ -585,7 +794,7 @@ impl Executor {
     /// then tears down internal infrastructure in the correct order.
     pub async fn shutdown(self) {
         drop(self.job_tx); // close the channel → signals executor loop to exit
-        if let Err(e) = self.executor_task.await {
+        if let Err(e) = self.spawn_loop_task.await {
             warn!(error = %e, "executor task panicked");
         }
     }
