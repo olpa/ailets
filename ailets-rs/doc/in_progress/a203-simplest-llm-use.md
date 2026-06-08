@@ -108,9 +108,25 @@ run $end
 
 ## Step 6 — Verify
 
-- `cargo build` the workspace; fix any trait/lifetime friction surfaced by the new native adapters.
-- Run `dagsh`, `source cli/scripts/hello-llm.dagsh` (or whatever the final script path is), and `run` the terminal alias; confirm the DAG completes and `cat $md` prints a markdown rendering of a canned "hello" assistant response.
-- Add/extend a test (likely an integration test under `cli/tests/`, following existing patterns like `stdin_dag_flow`) that runs the script end-to-end and asserts on the final markdown output, so the pipeline doesn't silently regress.
+- `cargo build` the workspace; fix any trait/lifetime friction surfaced by the new native adapters. ✓ (clean build + clippy across `messages_to_query`, `messages_to_markdown`, `gpt`, `dagsh`)
+- Run `dagsh`, `source cli/scripts/hello-llm.dagsh`, and `run` the terminal alias; confirm the DAG completes and prints a markdown rendering of the canned "hello" assistant response. ✓ — verified manually: `source cli/scripts/hello-llm.dagsh` followed by `run $end` builds the chain `msgs → messages_to_query → query (stub) → gpt.response_to_messages → messages_to_markdown` and prints `Hello! How can I help you today?`. (`run $end` is left commented out in the committed script, matching the convention of other sample scripts like `stdin_dag_flow.dagsh` — the user runs it manually.)
+- ~~Add an integration test~~ — decided not needed for this task; skipped per developer.
+
+# Status
+
+All six steps implemented and verified; see commits tagged `A203` on this branch:
+1. Native `execute` adapters for `messages_to_markdown`/`messages_to_query`, registered in `dagsh`.
+2. `messages_to_query::execute` stubs `EnvOpts` to empty when the `Env` reader is unavailable (in-process `IoBridge` only materializes `Stdin` — see Findings) and warns on the actor's log stream.
+3. `StubDagOps`/`StubWriter` + native `gpt::execute`, registered as `gpt.response_to_messages`.
+4. Stub `query` actor (`cli/src/query_actor.rs`) emitting a fixed canned chat-completion SSE stream.
+5. Heredoc syntax (`<<DELIM ... DELIM`) added to dagsh scripts (`find_heredoc_marker`, `execute_parts`, `cmd_source`) so the JSONL seed value can be embedded on one logical line.
+6. `cli/scripts/hello-llm.dagsh` wires the full chain; verified end-to-end manually.
+
+## Follow-up work (out of scope here, deserves its own task)
+
+- A real, `ailetos::Environment`-backed `DagOpsTrait` implementation, needed once a tool-calling workflow is migrated (replaces `StubDagOps`).
+- A real HTTP-calling "query" actor (auth/secrets, streaming SSE parsing, error handling, retries), replacing the canned stub.
+- `ailetos::actor_syscall::io_bridge::IoBridge` support for materializing non-`Stdin` readers (specifically `Env`), so `messages_to_query` can receive real `EnvOpts` when run natively in `dagsh`.
 
 # Decisions (resolved with the developer)
 
