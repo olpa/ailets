@@ -8,8 +8,8 @@ pub mod handlers;
 pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
-use actor_runtime::{err_to_heap_c_string, FfiActorRuntime, StdHandle};
-use dagops::{DagOps, DagOpsTrait};
+use actor_runtime::{err_to_heap_c_string, ActorRuntime, FfiActorRuntime, StdHandle};
+use dagops::{DagOps, DagOpsTrait, StubDagOps};
 
 use handlers::{
     on_begin_message, on_content, on_end_message, on_function_arguments, on_function_end,
@@ -201,6 +201,22 @@ pub fn _process_gpt<W: embedded_io::Write, D: DagOpsTrait>(
     builder.end().map_err(|e| e.clone())?;
 
     Ok(())
+}
+
+/// Native actor entry point - receives runtime and creates I/O streams
+///
+/// Uses [`StubDagOps`]: the "simplest llm use" workflow has no function/tool
+/// calls, so `_process_gpt`'s response handler never exercises `DagOpsTrait`.
+/// A real, `ailetos::Environment`-backed implementation is follow-up work for
+/// whenever a tool-calling workflow gets migrated.
+///
+/// # Errors
+/// If anything goes wrong.
+pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
+    let reader = AReader::new_from_std(runtime, StdHandle::Stdin);
+    let writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
+
+    _process_gpt(reader, writer, StubDagOps)
 }
 
 /// # Panics

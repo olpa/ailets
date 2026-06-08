@@ -40,6 +40,9 @@ fn make_env(kv: &Arc<MemKV>) -> Arc<Environment> {
         reg.register("cat", cat::execute);
         reg.register("dbg", dbg_actor::execute);
         reg.register("shell_input", shell_input_actor::execute);
+        reg.register("messages_to_query", messages_to_query::execute);
+        reg.register("messages_to_markdown", messages_to_markdown::execute);
+        reg.register("gpt.response_to_messages", gpt::execute);
     }
     env
 }

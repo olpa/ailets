@@ -102,3 +102,64 @@ impl<'a> DagOpsTrait for DagOps<'a> {
             .map_err(|e| actor_io::error_kind_to_str(e).to_string())
     }
 }
+
+/// Writer used by [`StubDagOps`]. Never actually constructed — every
+/// `StubDagOps` method errors before reaching `open_writer_to_pipe` — but
+/// `DagOpsTrait` requires a concrete `Writer` type to exist.
+pub struct StubWriter;
+
+impl embedded_io::ErrorType for StubWriter {
+    type Error = embedded_io::ErrorKind;
+}
+
+impl embedded_io::Write for StubWriter {
+    fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+/// A `DagOpsTrait` implementation for workflows that never exercise DAG
+/// operations (no function/tool calls). Every method errors — if one is ever
+/// called, that's a sign the workflow now needs a real,
+/// `ailetos::Environment`-backed `DagOpsTrait` implementation.
+pub struct StubDagOps;
+
+impl DagOpsTrait for StubDagOps {
+    type Writer = StubWriter;
+
+    fn value_node(&mut self, _value: &[u8], _explain: &str) -> Result<isize, String> {
+        Err("StubDagOps: value_node is not supported".to_string())
+    }
+
+    fn alias(&mut self, _alias: &str, _node_handle: isize) -> Result<isize, String> {
+        Err("StubDagOps: alias is not supported".to_string())
+    }
+
+    fn detach_from_alias(&mut self, _alias: &str) -> Result<(), String> {
+        Err("StubDagOps: detach_from_alias is not supported".to_string())
+    }
+
+    fn instantiate_with_deps(
+        &mut self,
+        _workflow_name: &str,
+        _deps: impl Iterator<Item = (String, isize)>,
+    ) -> Result<isize, String> {
+        Err("StubDagOps: instantiate_with_deps is not supported".to_string())
+    }
+
+    fn open_write_pipe(&mut self, _explain: Option<&str>) -> Result<isize, String> {
+        Err("StubDagOps: open_write_pipe is not supported".to_string())
+    }
+
+    fn alias_fd(&mut self, _alias: &str, _fd: isize) -> Result<isize, String> {
+        Err("StubDagOps: alias_fd is not supported".to_string())
+    }
+
+    fn open_writer_to_pipe(&mut self, _fd: isize) -> Result<Self::Writer, String> {
+        Err("StubDagOps: open_writer_to_pipe is not supported".to_string())
+    }
+}
