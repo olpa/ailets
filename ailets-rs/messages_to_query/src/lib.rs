@@ -20,10 +20,10 @@ const BUFFER_SIZE: u32 = 1024;
 /// If anything goes wrong.
 #[allow(clippy::used_underscore_items)]
 #[allow(clippy::too_many_lines)]
-pub fn _process_messages<W: embedded_io::Write, R: ActorRuntime>(
+pub fn _process_messages<W: embedded_io::Write>(
     mut reader: impl embedded_io::Read,
     writer: W,
-    runtime: &R,
+    runtime: &dyn ActorRuntime,
     env_opts: EnvOpts,
 ) -> Result<(), String> {
     let builder = StructureBuilder::new(writer, runtime, env_opts);
@@ -34,8 +34,8 @@ pub fn _process_messages<W: embedded_io::Write, R: ActorRuntime>(
 
     let find_action = |structural_pseudoname: StructuralPseudoname,
                        context: ContextIter,
-                       _baton: &RefCell<StructureBuilder<W, R>>|
-     -> Option<Action<&RefCell<StructureBuilder<W, R>>, _>> {
+                       _baton: &RefCell<StructureBuilder<W>>|
+     -> Option<Action<&RefCell<StructureBuilder<W>>, _>> {
         // Message boilerplate
         if iter_match(
             || ["role".as_bytes(), "#array".as_bytes()],
@@ -143,8 +143,8 @@ pub fn _process_messages<W: embedded_io::Write, R: ActorRuntime>(
 
     let find_end_action = |structural_pseudoname: StructuralPseudoname,
                            context: ContextIter,
-                           _baton: &RefCell<StructureBuilder<W, R>>|
-     -> Option<EndAction<&RefCell<StructureBuilder<W, R>>>> {
+                           _baton: &RefCell<StructureBuilder<W>>|
+     -> Option<EndAction<&RefCell<StructureBuilder<W>>>> {
         if iter_match(
             || ["#array".as_bytes(), "#top".as_bytes()],
             structural_pseudoname,
@@ -181,6 +181,20 @@ pub fn _process_messages<W: embedded_io::Write, R: ActorRuntime>(
 
     builder_cell.borrow_mut().end()?;
     Ok(())
+}
+
+/// Native actor entry point - receives runtime and creates I/O streams
+///
+/// # Errors
+/// If anything goes wrong.
+pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
+    let reader = AReader::new_from_std(runtime, StdHandle::Stdin);
+    let writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
+
+    let env_reader = AReader::new_from_std(runtime, StdHandle::Env);
+    let env_opts = EnvOpts::envopts_from_reader(env_reader)?;
+
+    _process_messages(reader, writer, runtime, env_opts)
 }
 
 /// # Panics

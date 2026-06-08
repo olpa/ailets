@@ -30,7 +30,7 @@ fn create_empty_env_opts() -> EnvOpts {
     EnvOpts::from_map(HashMap::new())
 }
 
-fn begin_message(builder: &mut StructureBuilder<RcWriter, VfsActorRuntime>, role: &str) {
+fn begin_message(builder: &mut StructureBuilder<RcWriter>, role: &str) {
     builder.begin_item().unwrap();
     builder
         .add_item_attribute(String::from("type"), String::from("ctl"))

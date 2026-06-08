@@ -3,7 +3,7 @@ pub mod handlers;
 mod structure_builder;
 
 use actor_io::{AReader, AWriter};
-use actor_runtime::{err_to_heap_c_string, FfiActorRuntime, StdHandle};
+use actor_runtime::{err_to_heap_c_string, ActorRuntime, FfiActorRuntime, StdHandle};
 use handlers::on_content_text;
 use scan_json::matcher::StructuralPseudoname;
 use scan_json::rjiter::RJiter;
@@ -82,6 +82,16 @@ pub fn _messages_to_markdown<W: embedded_io::Write>(
         .map_err(|e| format!("Failed to finish with newline: {e:?}"))?;
 
     Ok(())
+}
+
+/// Native actor entry point - receives runtime and creates I/O streams
+///
+/// # Errors
+/// If anything goes wrong, including if the `U8Pool` cannot be created.
+pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
+    let reader = AReader::new_from_std(runtime, StdHandle::Stdin);
+    let writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
+    _messages_to_markdown(reader, writer)
 }
 
 /// # Panics
