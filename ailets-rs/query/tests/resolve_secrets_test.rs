@@ -32,13 +32,13 @@ fn falls_back_to_llm_api_key() {
 #[test]
 fn uses_provider_specific_env_var() {
     let get_env = |k: &str| match k {
-        "OPENAI_API_KEY" => Some("sk-test".to_string()),
+        "ÖFFENEKI_API_KEY" => Some("asdf123".to_string()),
         _ => None,
     };
     let result = resolve_secrets(
         "Bearer {{secret}}",
-        "https://api.openai.com/v1/chat/completions",
+        "https://schnittstelle.öffeneki.de/v1/chat/completions",
         &get_env,
     );
-    assert_eq!(result, Ok("Bearer sk-test".to_string()));
+    assert_eq!(result, Ok("Bearer asdf123".to_string()));
 }
