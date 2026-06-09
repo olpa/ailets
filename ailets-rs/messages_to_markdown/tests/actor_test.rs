@@ -1,5 +1,5 @@
 use actor_runtime_mocked::RcWriter;
-use messages_to_markdown::_messages_to_markdown;
+use messages_to_markdown::messages_to_markdown_impl;
 
 #[test]
 fn test_basic_conversion() {
@@ -10,7 +10,7 @@ fn test_basic_conversion() {
     let reader = json_data.as_bytes();
     let writer = RcWriter::new();
 
-    _messages_to_markdown(reader, writer.clone()).unwrap();
+    messages_to_markdown_impl(reader, writer.clone()).unwrap();
 
     assert_eq!(writer.get_output(), "Hello!\n");
 }
@@ -26,7 +26,7 @@ fn test_multiple_content_items() {
     let reader = json_data.as_bytes();
     let writer = RcWriter::new();
 
-    _messages_to_markdown(reader, writer.clone()).unwrap();
+    messages_to_markdown_impl(reader, writer.clone()).unwrap();
 
     assert_eq!(
         writer.get_output(),
@@ -46,7 +46,7 @@ fn test_two_messages() {
     let reader = json_data.as_bytes();
     let writer = RcWriter::new();
 
-    _messages_to_markdown(reader, writer.clone()).unwrap();
+    messages_to_markdown_impl(reader, writer.clone()).unwrap();
 
     assert_eq!(
         writer.get_output(),
@@ -60,7 +60,7 @@ fn test_empty_input() {
     let reader = json_data.as_bytes();
     let writer = RcWriter::new();
 
-    _messages_to_markdown(reader, writer.clone()).unwrap();
+    messages_to_markdown_impl(reader, writer.clone()).unwrap();
 
     assert_eq!(writer.get_output(), "");
 }
@@ -79,7 +79,7 @@ fn test_long_text() {
     let reader = json_data.as_bytes();
     let writer = RcWriter::new();
 
-    _messages_to_markdown(reader, writer.clone()).unwrap();
+    messages_to_markdown_impl(reader, writer.clone()).unwrap();
 
     assert_eq!(writer.get_output(), format!("{}\n", long_text));
 }
@@ -95,7 +95,7 @@ fn test_skip_unknown_key_object() {
     let reader = json_data.as_bytes();
     let writer = RcWriter::new();
 
-    _messages_to_markdown(reader, writer.clone()).unwrap();
+    messages_to_markdown_impl(reader, writer.clone()).unwrap();
 
     assert_eq!(writer.get_output(), "First message\n\nSecond message\n");
 }
@@ -109,7 +109,7 @@ fn test_json_escapes() {
     let reader = json_data.as_bytes();
     let writer = RcWriter::new();
 
-    _messages_to_markdown(reader, writer.clone()).unwrap();
+    messages_to_markdown_impl(reader, writer.clone()).unwrap();
 
     assert_eq!(writer.get_output(), "a\n\"\u{0401}\"\n");
 }
@@ -124,7 +124,7 @@ fn test_error_wrong_type_for_text() {
     let reader = json_data.as_bytes();
     let writer = RcWriter::new();
 
-    let result = _messages_to_markdown(reader, writer.clone());
+    let result = messages_to_markdown_impl(reader, writer.clone());
     assert!(result.is_err());
     let error_msg = result.unwrap_err();
     // Should contain detailed error information about the type mismatch

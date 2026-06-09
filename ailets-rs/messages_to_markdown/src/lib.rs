@@ -20,8 +20,7 @@ const BUFFER_SIZE: u32 = 1024;
 ///
 /// # Errors
 /// If anything goes wrong, including if the `U8Pool` cannot be created.
-#[allow(clippy::used_underscore_items)]
-pub fn _messages_to_markdown<W: embedded_io::Write>(
+pub fn messages_to_markdown_impl<W: embedded_io::Write>(
     mut reader: impl embedded_io::Read,
     writer: W,
 ) -> Result<(), String> {
@@ -91,7 +90,7 @@ pub fn _messages_to_markdown<W: embedded_io::Write>(
 pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
     let reader = AReader::new_from_std(runtime, StdHandle::Stdin);
     let writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
-    _messages_to_markdown(reader, writer)
+    messages_to_markdown_impl(reader, writer)
 }
 
 /// # Panics
@@ -102,8 +101,7 @@ pub extern "C" fn messages_to_markdown() -> *const c_char {
     let reader = AReader::new_from_std(&runtime, StdHandle::Stdin);
     let writer = AWriter::new_from_std(&runtime, StdHandle::Stdout);
 
-    #[allow(clippy::used_underscore_items)]
-    if let Err(e) = _messages_to_markdown(reader, writer) {
+    if let Err(e) = messages_to_markdown_impl(reader, writer) {
         return err_to_heap_c_string(1, &format!("Failed to process messages to markdown: {e}"));
     }
     std::ptr::null()

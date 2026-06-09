@@ -19,9 +19,8 @@ const BUFFER_SIZE: u32 = 1024;
 
 /// # Errors
 /// If anything goes wrong.
-#[allow(clippy::used_underscore_items)]
 #[allow(clippy::too_many_lines)]
-pub fn _process_messages<W: embedded_io::Write>(
+pub fn process_messages_impl<W: embedded_io::Write>(
     mut reader: impl embedded_io::Read,
     writer: W,
     runtime: &dyn ActorRuntime,
@@ -209,7 +208,7 @@ pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
         }
     };
 
-    _process_messages(reader, writer, runtime, env_opts)
+    process_messages_impl(reader, writer, runtime, env_opts)
 }
 
 /// # Panics
@@ -226,8 +225,7 @@ pub extern "C" fn process_messages() -> *const c_char {
         Err(e) => return err_to_heap_c_string(1, &e),
     };
 
-    #[allow(clippy::used_underscore_items)]
-    if let Err(e) = _process_messages(reader, writer, &runtime, env_opts) {
+    if let Err(e) = process_messages_impl(reader, writer, &runtime, env_opts) {
         return err_to_heap_c_string(1, &format!("Messages to query: {e}"));
     }
     std::ptr::null()

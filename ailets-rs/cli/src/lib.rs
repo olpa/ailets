@@ -243,7 +243,11 @@ impl DagShell {
                 return Err(format!("heredoc <<{delim} has no closing line"));
             }
             body = collected;
-            parts[idx] = body.as_str();
+            #[allow(clippy::indexing_slicing)]
+            // idx comes from find_heredoc_marker which scans parts
+            {
+                parts[idx] = body.as_str();
+            }
         }
         self.execute_parts(&parts)
     }
@@ -279,7 +283,11 @@ impl DagShell {
                     continue;
                 }
                 body = collected;
-                parts[idx] = body.as_str();
+                #[allow(clippy::indexing_slicing)]
+                // idx comes from find_heredoc_marker which scans parts
+                {
+                    parts[idx] = body.as_str();
+                }
             }
             match self.execute_parts(&parts) {
                 Ok(ShellControl::Continue) => {}

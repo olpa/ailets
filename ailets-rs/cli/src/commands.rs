@@ -10,8 +10,7 @@ use ailetos::{
 
 use crate::output::{parse_color, OutputSinkWriter};
 use crate::shell_ui::{
-    format_state, parse_bytes_before_pause, parse_explain, parse_quoted_string,
-    truncate, HELP_TEXT,
+    format_state, parse_bytes_before_pause, parse_explain, parse_quoted_string, truncate, HELP_TEXT,
 };
 use crate::{dbg_control, shell_input_control, DagShell};
 

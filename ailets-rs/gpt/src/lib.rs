@@ -28,9 +28,8 @@ const BUFFER_SIZE: u32 = 1024;
 
 /// # Errors
 /// If anything goes wrong.
-#[allow(clippy::used_underscore_items)]
 #[allow(clippy::too_many_lines)]
-pub fn _process_gpt<W: embedded_io::Write, D: DagOpsTrait>(
+pub fn process_gpt_impl<W: embedded_io::Write, D: DagOpsTrait>(
     mut reader: impl embedded_io::Read,
     stdout_writer: W,
     dagops: D,
@@ -206,7 +205,7 @@ pub fn _process_gpt<W: embedded_io::Write, D: DagOpsTrait>(
 /// Native actor entry point - receives runtime and creates I/O streams
 ///
 /// Uses [`StubDagOps`]: the "simplest llm use" workflow has no function/tool
-/// calls, so `_process_gpt`'s response handler never exercises `DagOpsTrait`.
+/// calls, so `process_gpt`'s response handler never exercises `DagOpsTrait`.
 /// A real, `ailetos::Environment`-backed implementation is follow-up work for
 /// whenever a tool-calling workflow gets migrated.
 ///
@@ -216,7 +215,7 @@ pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
     let reader = AReader::new_from_std(runtime, StdHandle::Stdin);
     let writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
 
-    _process_gpt(reader, writer, StubDagOps)
+    process_gpt_impl(reader, writer, StubDagOps)
 }
 
 /// # Panics
@@ -228,8 +227,7 @@ pub extern "C" fn process_gpt() -> *const c_char {
     let writer = AWriter::new_from_std(&runtime, StdHandle::Stdout);
 
     let dagops = DagOps::new(&runtime);
-    #[allow(clippy::used_underscore_items)]
-    if let Err(e) = _process_gpt(reader, writer, dagops) {
+    if let Err(e) = process_gpt_impl(reader, writer, dagops) {
         return err_to_heap_c_string(1, &format!("Failed to process GPT: {e}"));
     }
     std::ptr::null()

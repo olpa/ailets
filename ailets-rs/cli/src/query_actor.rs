@@ -16,9 +16,12 @@ use actor_runtime::{ActorRuntime, StdHandle};
 use std::io::{Read as _, Write as _};
 
 const CANNED_RESPONSE: &str = concat!(
-    r#"data: {"id":"chatcmpl-stub","object":"chat.completion.chunk","created":0,"model":"stub","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}"#, "\n\n",
-    r#"data: {"id":"chatcmpl-stub","object":"chat.completion.chunk","created":0,"model":"stub","choices":[{"index":0,"delta":{"content":"Hello! How can I help you today?"},"finish_reason":null}]}"#, "\n\n",
-    r#"data: {"id":"chatcmpl-stub","object":"chat.completion.chunk","created":0,"model":"stub","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}"#, "\n\n",
+    r#"data: {"id":"chatcmpl-stub","object":"chat.completion.chunk","created":0,"model":"stub","choices":[{"index":0,"delta":{"role":"assistant","content":""},"finish_reason":null}]}"#,
+    "\n\n",
+    r#"data: {"id":"chatcmpl-stub","object":"chat.completion.chunk","created":0,"model":"stub","choices":[{"index":0,"delta":{"content":"Hello! How can I help you today?"},"finish_reason":null}]}"#,
+    "\n\n",
+    r#"data: {"id":"chatcmpl-stub","object":"chat.completion.chunk","created":0,"model":"stub","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}"#,
+    "\n\n",
     "data: [DONE]\n\n",
 );
 
