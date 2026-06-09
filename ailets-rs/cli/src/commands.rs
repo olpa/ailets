@@ -526,20 +526,7 @@ impl DagShell {
         let path = args.first().ok_or("Usage: source <file>")?;
         let content =
             std::fs::read_to_string(path).map_err(|e| format!("Failed to read {path}: {e}"))?;
-
-        for line in content.lines() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            self.sink.println(&format!("dagsh> {line}"));
-            match self.execute(line) {
-                Ok(crate::ShellControl::Continue) => {}
-                Ok(crate::ShellControl::Exit) => return Ok(crate::ShellControl::Exit),
-                Err(e) => self.sink.println(&format!("Error: {e}")),
-            }
-        }
-        Ok(crate::ShellControl::Continue)
+        self.execute_lines(content.lines())
     }
 
     pub(crate) fn cmd_status(&self, args: &[&str]) {

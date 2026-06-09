@@ -34,9 +34,9 @@ const DEFAULT_MODEL: &str = "gpt-4o-mini";
 const DEFAULT_CONTENT_TYPE: &str = "application/json";
 const DEFAULT_AUTHORIZATION: &str = "Bearer {{secret}}";
 
-pub struct StructureBuilder<'a, W: embedded_io::Write, R: actor_runtime::ActorRuntime> {
+pub struct StructureBuilder<'a, W: embedded_io::Write> {
     writer: W,
-    runtime: &'a R,
+    runtime: &'a dyn actor_runtime::ActorRuntime,
     env_opts: EnvOpts,
     divider: Divider,
     item_attr: Option<LinkedHashMap<String, String>>,
@@ -45,8 +45,8 @@ pub struct StructureBuilder<'a, W: embedded_io::Write, R: actor_runtime::ActorRu
     last_error: Option<ActionError>,
 }
 
-impl<'a, W: embedded_io::Write, R: actor_runtime::ActorRuntime> StructureBuilder<'a, W, R> {
-    pub fn new(writer: W, runtime: &'a R, env_opts: EnvOpts) -> Self {
+impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
+    pub fn new(writer: W, runtime: &'a dyn actor_runtime::ActorRuntime, env_opts: EnvOpts) -> Self {
         StructureBuilder {
             runtime,
             writer,

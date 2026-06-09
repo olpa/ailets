@@ -1,5 +1,5 @@
 use actor_runtime_mocked::RcWriter;
-use gpt::_process_gpt;
+use gpt::process_gpt_impl;
 pub mod dagops_mock;
 use dagops_mock::TrackedDagOps;
 
@@ -27,7 +27,7 @@ fn test_basic_processing() {
     let reader = fixture_content.as_bytes();
     let writer = RcWriter::new();
 
-    _process_gpt(reader, writer.clone(), TrackedDagOps::default()).unwrap();
+    process_gpt_impl(reader, writer.clone(), TrackedDagOps::default()).unwrap();
 
     assert_eq!(writer.get_output(), get_expected_basic_message());
 }
@@ -39,7 +39,7 @@ fn test_streaming() {
     let reader = fixture_content.as_bytes();
     let writer = RcWriter::new();
 
-    _process_gpt(reader, writer.clone(), TrackedDagOps::default()).unwrap();
+    process_gpt_impl(reader, writer.clone(), TrackedDagOps::default()).unwrap();
 
     assert_eq!(writer.get_output(), get_expected_basic_message());
 }
@@ -52,7 +52,7 @@ fn funcall_response() {
     let writer = RcWriter::new();
     let dagops = TrackedDagOps::default();
 
-    _process_gpt(reader, writer.clone(), dagops.clone()).unwrap();
+    process_gpt_impl(reader, writer.clone(), dagops.clone()).unwrap();
 
     // Assert stdout is empty since there was no text content
     assert_eq!(writer.get_output(), "");
@@ -99,7 +99,7 @@ fn funcall_streaming() {
     let writer = RcWriter::new();
     let dagops = TrackedDagOps::default();
 
-    _process_gpt(reader, writer.clone(), dagops.clone()).unwrap();
+    process_gpt_impl(reader, writer.clone(), dagops.clone()).unwrap();
 
     // Assert stdout is empty since there was no text content
     assert_eq!(writer.get_output(), "");
@@ -146,7 +146,7 @@ fn delta_index_regress() {
     let writer = RcWriter::new();
     let dagops = TrackedDagOps::default();
 
-    _process_gpt(reader, writer.clone(), dagops.clone()).unwrap();
+    process_gpt_impl(reader, writer.clone(), dagops.clone()).unwrap();
 
     // Assert stdout is empty since there was no text content
     assert_eq!(writer.get_output(), "");
@@ -208,7 +208,7 @@ fn duplicate_tool_call_id_error() {
     let writer = RcWriter::new();
     let dagops = TrackedDagOps::default();
 
-    let result = _process_gpt(reader, writer.clone(), dagops.clone());
+    let result = process_gpt_impl(reader, writer.clone(), dagops.clone());
 
     assert!(result.is_err());
     let error_message = result.unwrap_err().to_string();
@@ -223,7 +223,7 @@ fn nonincremental_index_error() {
     let writer = RcWriter::new();
     let dagops = TrackedDagOps::default();
 
-    let result = _process_gpt(reader, writer.clone(), dagops.clone());
+    let result = process_gpt_impl(reader, writer.clone(), dagops.clone());
 
     assert!(result.is_err());
     let error_message = result.unwrap_err().to_string();
@@ -238,7 +238,7 @@ fn arguments_before_name_retained() {
     let writer = RcWriter::new();
     let dagops = TrackedDagOps::default();
 
-    _process_gpt(reader, writer.clone(), dagops.clone()).unwrap();
+    process_gpt_impl(reader, writer.clone(), dagops.clone()).unwrap();
 
     // Assert stdout is empty since there was no text content
     assert_eq!(writer.get_output(), "");

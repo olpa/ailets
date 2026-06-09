@@ -342,3 +342,17 @@ fn run_stop_before_does_not_hang() {
         3,
     );
 }
+
+#[test]
+fn execute_heredoc_sets_node_value() {
+    let sink = CapturingSink::new();
+    let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
+    shell
+        .execute("set v = node value <<EOF\nhello world\nEOF\nstatus $v")
+        .unwrap();
+    let lines = sink.lines();
+    assert!(
+        lines.iter().any(|l| l.contains("value")),
+        "expected node status output; got: {lines:?}"
+    );
+}
