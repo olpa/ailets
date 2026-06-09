@@ -42,7 +42,7 @@ pub fn resolve_secrets(
     Ok(value.replace("{{secret}}", &secret))
 }
 
-fn perform_request(spec: &serde_json::Value, writer: &mut AWriter) -> Result<(), String> {
+fn perform_request(spec: &serde_json::Value, writer: &mut AWriter, agent: &ureq::Agent) -> Result<(), String> {
     let url = spec["url"].as_str().ok_or("Missing or invalid 'url' field")?;
     let method = spec["method"].as_str().unwrap_or("POST");
     let headers = spec["headers"].as_object().ok_or("Missing 'headers' field")?;
@@ -70,7 +70,7 @@ fn perform_request(spec: &serde_json::Value, writer: &mut AWriter) -> Result<(),
         .map_err(|e| format!("Failed to build HTTP request: {e}"))?;
 
     let response = request
-        .with_default_agent()
+        .with_agent(agent)
         .configure()
         .http_status_as_error(false)
         .run()
@@ -112,6 +112,15 @@ fn perform_request(spec: &serde_json::Value, writer: &mut AWriter) -> Result<(),
 /// Returns an error on I/O failure, invalid spec, secret resolution failure,
 /// or non-2xx HTTP status.
 pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
+    execute_with_agent(runtime, &ureq::Agent::new_with_defaults())
+}
+
+/// Like [`execute`] but uses a caller-supplied agent, enabling transport injection for tests.
+///
+/// # Errors
+/// Returns an error on I/O failure, invalid spec, secret resolution failure,
+/// or non-2xx HTTP status.
+pub fn execute_with_agent(runtime: &dyn ActorRuntime, agent: &ureq::Agent) -> Result<(), String> {
     let mut reader = AReader::new_from_std(runtime, StdHandle::Stdin);
     let mut writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
 
@@ -128,5 +137,5 @@ pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
     let spec: serde_json::Value =
         serde_json::from_slice(&input).map_err(|e| format!("Failed to parse query spec: {e}"))?;
 
-    perform_request(&spec, &mut writer)
+    perform_request(&spec, &mut writer, agent)
 }

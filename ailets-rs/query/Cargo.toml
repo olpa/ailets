@@ -17,3 +17,4 @@ ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
 hamcrest.workspace = true
+actor_runtime_mocked.workspace = true
