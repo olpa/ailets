@@ -1,11 +1,4 @@
-# Minimal "hello world" LLM workflow (migrated from the python
-# `./ailets0.py gpt --prompt "hello!" --dry-run` pipeline):
-#
-#   msgs (seed chat messages)
-#     -> toq (gpt.messages_to_query)
-#       -> q (query, stub canned response)
-#         -> resp (gpt.response_to_messages)
-#           -> md (messages_to_markdown)
+# Minimal "hello world" LLM workflow
 
 set msgs = node value <<EOF --explain="Seed chat messages"
 [{"type": "ctl"}, {"role": "user"}]
