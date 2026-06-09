@@ -21,6 +21,7 @@ cat = { path = "../cat" }
 gpt = { path = "../gpt" }
 messages_to_markdown = { path = "../messages_to_markdown" }
 messages_to_query = { path = "../messages_to_query" }
+query = { path = "../query" }
 embedded-io.workspace = true
 parking_lot.workspace = true
 once_cell = "1.19"

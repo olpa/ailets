@@ -1,0 +1,19 @@
+[package]
+name = "query"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+actor_io.workspace = true
+actor_runtime.workspace = true
+serde_json.workspace = true
+embedded-io.workspace = true
+ureq = { version = "3", default-features = false, features = ["rustls"] }
+
+[dev-dependencies]
+hamcrest.workspace = true
