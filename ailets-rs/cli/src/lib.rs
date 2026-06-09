@@ -27,6 +27,7 @@ use ailetos::{Environment, Executor, ExecutorEvent, Handle, KVBuffers, MemKV};
 
 // Re-exports
 pub use output::{OutputSink, StdoutSink};
+use shell_ui::find_heredoc_marker;
 
 /// Outcome of a shell command: whether the REPL loop should continue or exit.
 pub enum ShellControl {
@@ -217,9 +218,76 @@ impl DagShell {
 
     /// # Errors
     /// Returns an error string if the command fails.
-    pub fn execute(&mut self, line: &str) -> Result<ShellControl, String> {
-        let parts: Vec<&str> = line.split_whitespace().collect();
+    pub fn execute(&mut self, input: &str) -> Result<ShellControl, String> {
+        let mut lines = input.lines().peekable();
+        let line = match lines.next() {
+            None => return Ok(ShellControl::Continue),
+            Some(l) => l.trim(),
+        };
+        let mut parts: Vec<&str> = line.split_whitespace().collect();
+        let body;
+        if let Some((idx, delim)) = find_heredoc_marker(&parts) {
+            let mut collected = String::new();
+            let mut closed = false;
+            for body_line in lines.by_ref() {
+                if body_line.trim() == delim {
+                    closed = true;
+                    break;
+                }
+                if !collected.is_empty() {
+                    collected.push('\n');
+                }
+                collected.push_str(body_line);
+            }
+            if !closed {
+                return Err(format!("heredoc <<{delim} has no closing line"));
+            }
+            body = collected;
+            parts[idx] = body.as_str();
+        }
         self.execute_parts(&parts)
+    }
+
+    pub(crate) fn execute_lines<'a>(
+        &mut self,
+        lines: impl Iterator<Item = &'a str>,
+    ) -> Result<ShellControl, String> {
+        let mut lines = lines.peekable();
+        while let Some(line) = lines.next() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let mut parts: Vec<&str> = line.split_whitespace().collect();
+            let body;
+            if let Some((idx, delim)) = find_heredoc_marker(&parts) {
+                let mut collected = String::new();
+                let mut closed = false;
+                for body_line in lines.by_ref() {
+                    if body_line.trim() == delim {
+                        closed = true;
+                        break;
+                    }
+                    if !collected.is_empty() {
+                        collected.push('\n');
+                    }
+                    collected.push_str(body_line);
+                }
+                if !closed {
+                    self.sink
+                        .println(&format!("Error: heredoc <<{delim} has no closing line"));
+                    continue;
+                }
+                body = collected;
+                parts[idx] = body.as_str();
+            }
+            match self.execute_parts(&parts) {
+                Ok(ShellControl::Continue) => {}
+                Ok(ShellControl::Exit) => return Ok(ShellControl::Exit),
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(ShellControl::Continue)
     }
 
     /// Like `execute`, but takes already-tokenized arguments. Used by
