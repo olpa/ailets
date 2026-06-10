@@ -14,13 +14,18 @@ struct QuerySpec {
 /// Extract the provider name from a URL's domain.
 /// `https://api.openai.com/v1/...` → `"openai"` (second-to-last label).
 /// A bare host like `localhost:8000` → `"localhost"`.
+#[must_use]
 pub fn provider_from_url(url: &str) -> String {
     let rest = url.split("://").nth(1).unwrap_or(url);
     let host = rest.split('/').next().unwrap_or(rest);
     let host = host.split(':').next().unwrap_or(host);
     let labels: Vec<&str> = host.split('.').collect();
     if labels.len() >= 2 {
-        labels[labels.len() - 2].to_string()
+        labels
+            .get(labels.len() - 2)
+            .copied()
+            .unwrap_or("")
+            .to_string()
     } else {
         labels.first().copied().unwrap_or("").to_string()
     }

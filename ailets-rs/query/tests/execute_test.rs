@@ -1,5 +1,7 @@
 use ureq::unversioned::resolver::DefaultResolver;
-use ureq::unversioned::transport::{Buffers, ConnectionDetails, Connector, LazyBuffers, NextTimeout, Transport};
+use ureq::unversioned::transport::{
+    Buffers, ConnectionDetails, Connector, LazyBuffers, NextTimeout, Transport,
+};
 
 #[derive(Debug)]
 struct FakeTransport {
@@ -13,7 +15,11 @@ impl Transport for FakeTransport {
         &mut self.buffers
     }
 
-    fn transmit_output(&mut self, _amount: usize, _timeout: NextTimeout) -> Result<(), ureq::Error> {
+    fn transmit_output(
+        &mut self,
+        _amount: usize,
+        _timeout: NextTimeout,
+    ) -> Result<(), ureq::Error> {
         Ok(())
     }
 
@@ -61,11 +67,12 @@ impl<In: Transport> Connector<In> for FakeConnector {
 
 #[test]
 fn happy_path() {
-    let fake_response =
-        b"HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\nHello, world!".to_vec();
+    let fake_response = b"HTTP/1.1 200 OK\r\nContent-Length: 13\r\n\r\nHello, world!".to_vec();
     let agent = ureq::Agent::with_parts(
         ureq::config::Config::default(),
-        FakeConnector { response: fake_response },
+        FakeConnector {
+            response: fake_response,
+        },
         DefaultResolver::default(),
     );
 
@@ -93,7 +100,9 @@ fn http_error_status() {
         b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\n\r\nAccess denied".to_vec();
     let agent = ureq::Agent::with_parts(
         ureq::config::Config::default(),
-        FakeConnector { response: fake_response },
+        FakeConnector {
+            response: fake_response,
+        },
         DefaultResolver::default(),
     );
 
@@ -111,5 +120,8 @@ fn http_error_status() {
 
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.contains("401"), "error should mention status code, got: {err}");
+    assert!(
+        err.contains("401"),
+        "error should mention status code, got: {err}"
+    );
 }
