@@ -1,0 +1,9 @@
+disallowed-methods = [
+    "std::thread::sleep",
+    "std::thread::sleep_ms",
+    "std::thread::sleep_until",
+    "std::thread::park",
+    "std::thread::park_timeout",
+    "std::thread::park_timeout_ms",
+    "tokio::time::sleep",
+]
