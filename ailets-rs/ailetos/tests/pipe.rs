@@ -1,3 +1,5 @@
+mod helpers;
+
 #[path = "pipe/pool.rs"]
 mod pool;
 

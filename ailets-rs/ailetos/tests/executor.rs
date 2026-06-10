@@ -6,23 +6,8 @@ use ailetos::traversal::{StopConditions, TopologicalOrderIter};
 use ailetos::{Environment, Executor, ExecutorEvent, IdGen};
 use tokio::sync::{mpsc, oneshot};
 
-const POLL_INTERVAL_MS: u64 = 10;
-
-/// Poll until `predicate` holds, checking every 10ms up to `timeout_ms`.
-#[allow(clippy::disallowed_methods)]
-async fn poll_until<F>(mut predicate: F, timeout_ms: u64, msg: &str)
-where
-    F: FnMut() -> bool,
-{
-    let max_iters = timeout_ms / POLL_INTERVAL_MS;
-    for _ in 0..max_iters {
-        if predicate() {
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS)).await;
-    }
-    panic!("timed out after {timeout_ms}ms: {msg}");
-}
+mod helpers;
+use helpers::poll_until;
 
 fn create_linear_dag() -> (Dag, Vec<ailetos::Handle>) {
     // Create a linear DAG: node1 -> node2 -> node3 -> node4

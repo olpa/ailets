@@ -11,48 +11,31 @@ use parking_lot::RwLock;
 use std::sync::Arc;
 use std::time::Duration;
 
-const POLL_INTERVAL_MS: u64 = 10;
-
-/// Poll until `key` appears as a latent waiter in `pool`.
-/// Checks every 10ms, up to `timeout_ms` total.
-#[allow(clippy::disallowed_methods)]
 async fn wait_for_latent(pool: &PipePool, key: (Handle, isize), timeout_ms: u64) {
-    let max_iters = timeout_ms / POLL_INTERVAL_MS;
-    for _ in 0..max_iters {
-        if pool.inspect_entry(key) == Some(PipeEntryInspection::Latent(LatentState::Waiting)) {
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS)).await;
-    }
-    panic!("timed out after {timeout_ms}ms waiting for latent waiter on {key:?}");
+    super::helpers::poll_until(
+        || pool.inspect_entry(key) == Some(PipeEntryInspection::Latent(LatentState::Waiting)),
+        timeout_ms,
+        &format!("waiting for latent waiter on {key:?}"),
+    )
+    .await;
 }
 
-/// Poll until a spawned task has finished (i.e. it started and completed).
-/// Checks every 10ms, up to `timeout_ms` total.
-#[allow(clippy::disallowed_methods)]
 async fn wait_for_task_start<T>(task: &tokio::task::JoinHandle<T>, timeout_ms: u64) {
-    let max_iters = timeout_ms / POLL_INTERVAL_MS;
-    for _ in 0..max_iters {
-        if task.is_finished() {
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS)).await;
-    }
-    panic!("timed out after {timeout_ms}ms waiting for task to start");
+    super::helpers::poll_until(
+        || task.is_finished(),
+        timeout_ms,
+        "waiting for task to start",
+    )
+    .await;
 }
 
-/// Poll until at least one writer entry exists for `actor` in `pool`.
-/// Checks every 10ms, up to `timeout_ms` total.
-#[allow(clippy::disallowed_methods)]
 async fn wait_for_any_writer(pool: &PipePool, actor: Handle, timeout_ms: u64) {
-    let max_iters = timeout_ms / POLL_INTERVAL_MS;
-    for _ in 0..max_iters {
-        if pool.inspect_entries().iter().any(|(h, _, _)| *h == actor) {
-            return;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS)).await;
-    }
-    panic!("timed out after {timeout_ms}ms waiting for any writer for actor {actor:?}");
+    super::helpers::poll_until(
+        || pool.inspect_entries().iter().any(|(h, _, _)| *h == actor),
+        timeout_ms,
+        &format!("waiting for any writer for actor {actor:?}"),
+    )
+    .await;
 }
 
 // Test helper to create a test pool
