@@ -87,3 +87,30 @@ fn happy_path() {
 
     assert_eq!(writer.get_output(), "Hello, world!");
 }
+
+#[test]
+fn http_error_status() {
+    let fake_response =
+        b"HTTP/1.1 401 Unauthorized\r\nContent-Length: 12\r\n\r\nAccess denied".to_vec();
+    let agent = ureq::Agent::with_parts(
+        ureq::config::Config::default(),
+        FakeConnector { response: fake_response },
+        DefaultResolver::default(),
+    );
+
+    let spec = serde_json::json!({
+        "url": "http://127.0.0.1/v1/chat",
+        "method": "POST",
+        "headers": {},
+        "body": {}
+    });
+
+    let reader = spec.to_string();
+    let writer = RcWriter::new();
+
+    let result = query::execute_with_agent(reader.as_bytes(), writer.clone(), &agent);
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.contains("401"), "error should mention status code, got: {err}");
+}
