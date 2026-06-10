@@ -1,5 +1,4 @@
-use actor_runtime::ActorRuntime;
-use actor_runtime_mocked::VfsActorRuntime;
+use actor_runtime_mocked::RcWriter;
 use ureq::unversioned::resolver::DefaultResolver;
 use ureq::unversioned::transport::{Buffers, ConnectionDetails, Connector, LazyBuffers, NextTimeout, Transport};
 
@@ -81,13 +80,10 @@ fn happy_path() {
         "body": { "model": "test-model", "messages": [] }
     });
 
-    let runtime = VfsActorRuntime::new();
-    runtime.add_file("stdin".to_string(), spec.to_string().as_bytes().to_vec());
-    let _ = runtime.open_read("stdin");
-    let _ = runtime.open_write("stdout");
+    let reader = spec.to_string();
+    let writer = RcWriter::new();
 
-    query::execute_with_agent(&runtime, &agent).expect("execute should succeed");
+    query::execute_with_agent(reader.as_bytes(), writer.clone(), &agent).expect("execute should succeed");
 
-    let output = runtime.get_file("stdout").expect("stdout should have content");
-    assert_eq!(output, b"Hello, world!");
+    assert_eq!(writer.get_output(), "Hello, world!");
 }

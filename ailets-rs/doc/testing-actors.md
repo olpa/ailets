@@ -1,12 +1,34 @@
 # Testing actors in ailets-rs
 
+## The split: `execute` vs `execute_impl`
+
+The standard actor structure separates runtime wiring from business logic:
+
+```rust
+// Business logic: takes plain reader/writer, no runtime knowledge
+fn execute_impl(mut reader: impl embedded_io::Read, mut writer: impl embedded_io::Write) -> Result<(), String> {
+    // ...
+}
+
+// Entry point: wires up I/O from runtime, then delegates
+pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
+    let reader = AReader::new_from_std(runtime, StdHandle::Stdin);
+    let writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
+    execute_impl(reader, writer)
+}
+```
+
+The payoff is in tests: `execute_impl` accepts any `embedded_io::Read`/`Write`, so tests pass `&[u8]` and `RcWriter` directly — no runtime setup needed. The `execute` function is thin enough that it doesn't need its own test.
+
+See `cat/src/lib.rs` for a minimal example.
+
 ## Two patterns
 
 Actors expose two kinds of entry points, and the right test approach depends on which one you're working with.
 
 ### Pattern A — injected reader/writer
 
-Most actors expose a `_process_*` / `_actor_name` function that takes explicit reader and writer arguments. These are straightforward to test.
+Actors that follow the split above expose a `execute_impl` / `process_*` function that takes explicit reader and writer arguments. These are straightforward to test.
 
 ```rust
 // reader: any &[u8] (implements embedded_io::Read via the blanket impl)
@@ -14,7 +36,7 @@ Most actors expose a `_process_*` / `_actor_name` function that takes explicit r
 use actor_runtime_mocked::RcWriter;
 
 let writer = RcWriter::new();
-my_crate::_process_foo(input_bytes, writer.clone(), /* other deps */)?;
+my_crate::execute_impl(input_bytes, writer.clone())?;
 assert_eq!(writer.get_output(), "expected output");
 ```
 
@@ -42,8 +64,6 @@ my_crate::execute(&runtime)?;
 let output = runtime.get_file("stdout").unwrap();
 ```
 
-See `query/tests/execute_test.rs` for a full example.
-
 **Gotcha — VFS and newlines:** `VfsActorRuntime::awrite` stops at `'\n'` (the `IO_INTERRUPT` sentinel) and returns. `embedded_io::write_all` retries until all bytes are written, so multi-line output is fine; just be aware if you hit unexpected partial-write behaviour.
 
 ## Mocking external dependencies
@@ -58,9 +78,10 @@ Some actors need additional dependency injection beyond I/O.
 
 ### ureq HTTP mocking
 
-For actors that make HTTP calls, implement `Connector` + `Transport` from `ureq::unversioned::transport` and build an agent in the test:
+For actors that make HTTP calls, implement `Connector` + `Transport` from `ureq::unversioned::transport` and build an agent in the test. The actor exposes `execute_with_agent(reader, writer, agent)` alongside the production `execute(runtime)`:
 
 ```rust
+use actor_runtime_mocked::RcWriter;
 use ureq::unversioned::transport::{Buffers, ConnectionDetails, Connector, LazyBuffers, NextTimeout, Transport};
 use ureq::unversioned::resolver::DefaultResolver;
 
@@ -73,10 +94,10 @@ let agent = ureq::Agent::with_parts(
     FakeConnector { response: b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello".to_vec() },
     DefaultResolver::default(),
 );
-my_crate::execute_with_agent(&runtime, &agent)?;
+let writer = RcWriter::new();
+my_crate::execute_with_agent(input_bytes, writer.clone(), &agent)?;
+assert_eq!(writer.get_output(), "hello");
 ```
-
-The actor must expose an `execute_with_agent(runtime, agent)` variant alongside the production `execute(runtime)`.
 
 ## Dev-dependencies
 
