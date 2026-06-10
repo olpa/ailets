@@ -80,9 +80,11 @@ fn perform_request(spec: &serde_json::Value, writer: &mut impl Write, agent: &ur
     let body = response.into_body();
 
     if !(200..300).contains(&status) {
-        let mut buf = vec![0u8; 1024];
-        let n = body.into_reader().read(&mut buf).unwrap_or(0);
-        buf.truncate(n);
+        let mut buf = Vec::new();
+        body.into_reader()
+            .take(1024)
+            .read_to_end(&mut buf)
+            .unwrap_or(0);
         let text = String::from_utf8_lossy(&buf);
         return Err(format!("HTTP {status} {text}"));
     }
