@@ -2,8 +2,8 @@
 extern crate hamcrest;
 use actor_runtime_mocked::{RcWriter, VfsActorRuntime};
 use hamcrest::prelude::*;
-use messages_to_query::process_messages_impl;
 use messages_to_query::env_opts::EnvOpts;
+use messages_to_query::process_messages_impl;
 use serde_json::Value;
 use std::collections::HashMap;
 

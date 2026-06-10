@@ -745,7 +745,12 @@ impl Executor {
 
         let dag = self.dag.read();
         let Some(n) = dag.get_node(node) else {
-            let _ = tx.send(Err(format!("node {node:?} not found in DAG")));
+            if tx
+                .send(Err(format!("node {node:?} not found in DAG")))
+                .is_err()
+            {
+                warn!(node = ?node, "join: join rx dropped before node-not-found result could be sent");
+            }
             return rx;
         };
 
@@ -756,7 +761,9 @@ impl Executor {
                 } else {
                     Err(format!("exit code {}", n.exit_code))
                 };
-                let _ = tx.send(result);
+                if tx.send(result).is_err() {
+                    warn!(node = ?node, "join: join rx dropped before terminated-node result could be sent");
+                }
             }
             NodeState::NotStarted | NodeState::Running | NodeState::Terminating => {
                 self.join_waiters.lock().push((node, tx));

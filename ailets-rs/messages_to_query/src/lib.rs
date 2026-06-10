@@ -200,10 +200,15 @@ pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
         Ok(opts) => opts,
         Err(e) => {
             let mut log_writer = AWriter::new_from_std(runtime, StdHandle::Log);
-            let _ = log_writer.write_all(
-                format!("warn: stubbing empty env opts ({e}); Env reader is not yet supported by this runtime\n")
-                    .as_bytes(),
-            );
+            if log_writer
+                .write_all(
+                    format!("warn: stubbing empty env opts ({e}); Env reader is not yet supported by this runtime\n")
+                        .as_bytes(),
+                )
+                .is_err()
+            {
+                eprintln!("warn: stubbing empty env opts ({e}); Env reader is not yet supported by this runtime");
+            }
             EnvOpts::from_map(std::collections::HashMap::new())
         }
     };
