@@ -78,7 +78,7 @@ Some actors need additional dependency injection beyond I/O.
 
 ### ureq HTTP mocking
 
-For actors that make HTTP calls, implement `Connector` + `Transport` from `ureq::unversioned::transport` and build an agent in the test. The actor exposes `execute_with_agent(reader, writer, agent)` alongside the production `execute(runtime)`:
+For actors that make HTTP calls, implement `Connector` + `Transport` from `ureq::unversioned::transport` and build an agent in the test. The actor exposes `execute_impl(reader, writer, agent)` alongside the production `execute(runtime)`:
 
 ```rust
 use actor_runtime_mocked::RcWriter;
@@ -95,7 +95,7 @@ let agent = ureq::Agent::with_parts(
     DefaultResolver::default(),
 );
 let writer = RcWriter::new();
-my_crate::execute_with_agent(input_bytes, writer.clone(), &agent)?;
+my_crate::execute_impl(input_bytes, writer.clone(), &agent)?;
 assert_eq!(writer.get_output(), "hello");
 ```
 

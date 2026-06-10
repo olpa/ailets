@@ -82,7 +82,7 @@ fn happy_path() {
     let reader = spec.to_string();
     let mut output = Vec::new();
 
-    query::execute_with_agent(reader.as_bytes(), &mut output, &agent).expect("execute should succeed");
+    query::execute_impl(reader.as_bytes(), &mut output, &agent).expect("execute should succeed");
 
     assert_eq!(String::from_utf8(output).unwrap(), "Hello, world!");
 }
@@ -107,7 +107,7 @@ fn http_error_status() {
     let reader = spec.to_string();
     let mut output = Vec::new();
 
-    let result = query::execute_with_agent(reader.as_bytes(), &mut output, &agent);
+    let result = query::execute_impl(reader.as_bytes(), &mut output, &agent);
 
     assert!(result.is_err());
     let err = result.unwrap_err();

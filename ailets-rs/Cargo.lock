@@ -1015,6 +1015,7 @@ dependencies = [
  "actor_io",
  "actor_runtime",
  "hamcrest",
+ "serde",
  "serde_json",
  "ureq",
 ]
