@@ -1,4 +1,3 @@
-use actor_runtime_mocked::RcWriter;
 use ureq::unversioned::resolver::DefaultResolver;
 use ureq::unversioned::transport::{Buffers, ConnectionDetails, Connector, LazyBuffers, NextTimeout, Transport};
 
@@ -81,11 +80,11 @@ fn happy_path() {
     });
 
     let reader = spec.to_string();
-    let writer = RcWriter::new();
+    let mut output = Vec::new();
 
-    query::execute_with_agent(reader.as_bytes(), writer.clone(), &agent).expect("execute should succeed");
+    query::execute_with_agent(reader.as_bytes(), &mut output, &agent).expect("execute should succeed");
 
-    assert_eq!(writer.get_output(), "Hello, world!");
+    assert_eq!(String::from_utf8(output).unwrap(), "Hello, world!");
 }
 
 #[test]
@@ -106,9 +105,9 @@ fn http_error_status() {
     });
 
     let reader = spec.to_string();
-    let writer = RcWriter::new();
+    let mut output = Vec::new();
 
-    let result = query::execute_with_agent(reader.as_bytes(), writer.clone(), &agent);
+    let result = query::execute_with_agent(reader.as_bytes(), &mut output, &agent);
 
     assert!(result.is_err());
     let err = result.unwrap_err();

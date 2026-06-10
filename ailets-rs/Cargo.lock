@@ -1014,8 +1014,6 @@ version = "0.1.0"
 dependencies = [
  "actor_io",
  "actor_runtime",
- "actor_runtime_mocked",
- "embedded-io",
  "hamcrest",
  "serde_json",
  "ureq",

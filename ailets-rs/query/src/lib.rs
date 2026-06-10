@@ -1,6 +1,6 @@
 use actor_io::{AReader, AWriter};
 use actor_runtime::{ActorRuntime, StdHandle};
-use embedded_io::{Read, Write};
+use std::io::{Read, Write};
 use ureq::RequestExt;
 
 /// Extract the provider name from a URL's domain.
@@ -81,27 +81,14 @@ fn perform_request(spec: &serde_json::Value, writer: &mut impl Write, agent: &ur
 
     if !(200..300).contains(&status) {
         let mut buf = vec![0u8; 1024];
-        let n = {
-            use std::io::Read as _;
-            body.into_reader().read(&mut buf).unwrap_or(0)
-        };
+        let n = body.into_reader().read(&mut buf).unwrap_or(0);
         buf.truncate(n);
         let text = String::from_utf8_lossy(&buf);
         return Err(format!("HTTP {status} {text}"));
     }
 
-    let mut reader = body.into_reader();
-    let mut buf = [0u8; 8192];
-    loop {
-        use std::io::Read as _;
-        match reader.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => writer
-                .write_all(&buf[..n])
-                .map_err(|e| format!("Failed to write response chunk: {e:?}"))?,
-            Err(e) => return Err(format!("Failed to read response body: {e}")),
-        }
-    }
+    std::io::copy(&mut body.into_reader(), writer)
+        .map_err(|e| format!("Failed to stream response body: {e}"))?;
     Ok(())
 }
 
@@ -124,14 +111,7 @@ pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
 /// or non-2xx HTTP status.
 pub fn execute_with_agent(mut reader: impl Read, mut writer: impl Write, agent: &ureq::Agent) -> Result<(), String> {
     let mut input = Vec::new();
-    let mut buf = [0u8; 8192];
-    loop {
-        match reader.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => input.extend_from_slice(&buf[..n]),
-            Err(e) => return Err(format!("Failed to read query spec: {e:?}")),
-        }
-    }
+    reader.read_to_end(&mut input).map_err(|e| format!("Failed to read query spec: {e}"))?;
 
     let spec: serde_json::Value =
         serde_json::from_slice(&input).map_err(|e| format!("Failed to parse query spec: {e}"))?;

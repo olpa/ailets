@@ -9,12 +9,10 @@ license.workspace = true
 crate-type = ["lib"]
 
 [dependencies]
-actor_io.workspace = true
+actor_io = { workspace = true, features = ["std"] }
 actor_runtime.workspace = true
 serde_json.workspace = true
-embedded-io.workspace = true
 ureq = { version = "3", default-features = false, features = ["rustls"] }
 
 [dev-dependencies]
 hamcrest.workspace = true
-actor_runtime_mocked.workspace = true
