@@ -27,6 +27,34 @@ async fn wait_for_latent(pool: &PipePool, key: (Handle, isize), timeout_ms: u64)
     panic!("timed out after {timeout_ms}ms waiting for latent waiter on {key:?}");
 }
 
+/// Poll until a spawned task has finished (i.e. it started and completed).
+/// Checks every 10ms, up to `timeout_ms` total.
+#[allow(clippy::disallowed_methods)]
+async fn wait_for_task_start<T>(task: &tokio::task::JoinHandle<T>, timeout_ms: u64) {
+    let max_iters = timeout_ms / POLL_INTERVAL_MS;
+    for _ in 0..max_iters {
+        if task.is_finished() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS)).await;
+    }
+    panic!("timed out after {timeout_ms}ms waiting for task to start");
+}
+
+/// Poll until at least one writer entry exists for `actor` in `pool`.
+/// Checks every 10ms, up to `timeout_ms` total.
+#[allow(clippy::disallowed_methods)]
+async fn wait_for_any_writer(pool: &PipePool, actor: Handle, timeout_ms: u64) {
+    let max_iters = timeout_ms / POLL_INTERVAL_MS;
+    for _ in 0..max_iters {
+        if pool.inspect_entries().iter().any(|(h, _, _)| *h == actor) {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS)).await;
+    }
+    panic!("timed out after {timeout_ms}ms waiting for any writer for actor {actor:?}");
+}
+
 // Test helper to create a test pool
 fn create_test_pool() -> (PipePool, Arc<MemKV>, Arc<IdGen>, Arc<RwLock<Dag>>) {
     let kv = Arc::new(MemKV::new());
@@ -1116,8 +1144,8 @@ async fn test_race_consumer_opens_during_shutdown() {
             .await
     });
 
-    // Yield to let reader task start before closing
-    tokio::task::yield_now().await;
+    // Poll until reader task has started (realized pipe returns immediately)
+    wait_for_task_start(&reader_task, 5000).await;
 
     // Now close the actor's writers (simulating shutdown)
     pool.flush_close_actor_writers(actor_handle, 0)
@@ -1184,8 +1212,10 @@ async fn test_race_concurrent_consumers_during_shutdown() {
         handles.push(handle);
     }
 
-    // Yield to let consumer tasks start before shutting down
-    tokio::task::yield_now().await;
+    // Poll until all consumer tasks have started (realized pipe returns immediately)
+    for handle in &handles {
+        wait_for_task_start(handle, 5000).await;
+    }
 
     // Shutdown the producer
     pool.flush_close_actor_writers(actor_handle, 0)
@@ -1325,7 +1355,7 @@ async fn test_race_touch_writer_vs_close() {
     // Close task (runs concurrently with writers)
     let pool_clone = Arc::clone(&pool);
     let close_handle = tokio::spawn(async move {
-        tokio::task::yield_now().await;
+        wait_for_any_writer(&pool_clone, actor_handle, 5000).await;
         pool_clone
             .flush_close_actor_writers(actor_handle, 0)
             .await

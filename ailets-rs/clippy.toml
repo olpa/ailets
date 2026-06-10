@@ -6,4 +6,5 @@ disallowed-methods = [
     "std::thread::park_timeout",
     "std::thread::park_timeout_ms",
     "tokio::time::sleep",
+    "tokio::task::yield_now",
 ]

@@ -6,6 +6,24 @@ use ailetos::traversal::{StopConditions, TopologicalOrderIter};
 use ailetos::{Environment, Executor, ExecutorEvent, IdGen};
 use tokio::sync::{mpsc, oneshot};
 
+const POLL_INTERVAL_MS: u64 = 10;
+
+/// Poll until `predicate` holds, checking every 10ms up to `timeout_ms`.
+#[allow(clippy::disallowed_methods)]
+async fn poll_until<F>(mut predicate: F, timeout_ms: u64, msg: &str)
+where
+    F: FnMut() -> bool,
+{
+    let max_iters = timeout_ms / POLL_INTERVAL_MS;
+    for _ in 0..max_iters {
+        if predicate() {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(POLL_INTERVAL_MS)).await;
+    }
+    panic!("timed out after {timeout_ms}ms: {msg}");
+}
+
 fn create_linear_dag() -> (Dag, Vec<ailetos::Handle>) {
     // Create a linear DAG: node1 -> node2 -> node3 -> node4
     let idgen = Arc::new(IdGen::new());
@@ -354,13 +372,10 @@ async fn test_failed_node_clears_dependents_from_pending() {
         }
     }
 
-    // Yield to the Tokio runtime so the executor's spawn loop can process a's
-    // termination wakeup and update the pending set before we snapshot it.
-    tokio::task::yield_now().await;
+    // Wait for the executor's spawn loop to process a's termination wakeup
+    // and remove b/c/d from pending before we snapshot it.
+    poll_until(|| executor.snapshot_pending().is_empty(), 5000, "pending should be empty after a failed").await;
 
-    // With the fix, b/c/d are removed from pending when a fails. Without the
-    // fix they remain, leaking permanently-blocked nodes into the next
-    // submission's pending state.
     let pending = executor.snapshot_pending();
     executor.shutdown().await;
 
