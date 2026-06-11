@@ -362,17 +362,11 @@ async fn test_failed_node_clears_dependents_from_pending() {
     poll_until(
         || executor.snapshot_pending().is_empty(),
         5000,
-        "pending should be empty after a failed",
+        "pending must be empty after a failed: b/c/d are permanently blocked",
     )
     .await;
 
-    let pending = executor.snapshot_pending();
     executor.shutdown().await;
-
-    assert!(
-        pending.is_empty(),
-        "pending must be empty after a failed: b/c/d are permanently blocked"
-    );
 }
 
 /// A267: Executor hangs when a deep dependency is killed and its dependents
