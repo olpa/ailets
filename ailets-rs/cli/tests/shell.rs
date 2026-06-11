@@ -91,8 +91,8 @@ fn run_completes_on_persistent_executor() {
     let sink = CapturingSink::new();
     let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
     // value "hello" → cat (foreground run should block until terminated)
-    shell.execute("set v = node value hello").unwrap();
-    shell.execute("set c = node add cat").unwrap();
+    shell.execute("set v [node value hello]").unwrap();
+    shell.execute("set c [node add cat]").unwrap();
     shell.execute("dep $c $v").unwrap();
     shell.execute("run $c").unwrap();
     shell.execute("status $c").unwrap();
@@ -107,13 +107,13 @@ fn multiple_bg_runs_are_allowed() {
         Box::new(CapturingSink::new()),
         Arc::clone(&notification_sink) as Arc<dyn OutputSink>,
     );
-    shell.execute("set v1 = node value alpha").unwrap();
-    shell.execute("set c1 = node add cat").unwrap();
+    shell.execute("set v1 [node value alpha]").unwrap();
+    shell.execute("set c1 [node add cat]").unwrap();
     shell.execute("dep $c1 $v1").unwrap();
     shell.execute("run $c1 --bg").unwrap();
     // second background run must not fail with "already running"
-    shell.execute("set v2 = node value beta").unwrap();
-    shell.execute("set c2 = node add cat").unwrap();
+    shell.execute("set v2 [node value beta]").unwrap();
+    shell.execute("set c2 [node add cat]").unwrap();
     shell.execute("dep $c2 $v2").unwrap();
     shell.execute("run $c2 --bg").unwrap();
     assert!(
@@ -130,10 +130,10 @@ fn multiple_bg_runs_are_allowed() {
 fn run_alias_completes() {
     let sink = CapturingSink::new();
     let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
-    shell.execute("set v = node value hello").unwrap();
-    shell.execute("set c = node add cat").unwrap();
+    shell.execute("set v [node value hello]").unwrap();
+    shell.execute("set c [node add cat]").unwrap();
     shell.execute("dep $c $v").unwrap();
-    shell.execute("set end = node alias .end $c").unwrap();
+    shell.execute("set end [node alias .end $c]").unwrap();
     shell.execute("run $end").unwrap(); // must not hang
     shell.execute("status $c").unwrap();
     let lines = sink.lines();
@@ -147,8 +147,8 @@ fn two_follows_both_receive_output() {
         Box::new(CapturingSink::new()),
         Arc::clone(&notification_sink) as Arc<dyn OutputSink>,
     );
-    shell.execute("set v = node value hello").unwrap();
-    shell.execute("set c = node add cat").unwrap();
+    shell.execute("set v [node value hello]").unwrap();
+    shell.execute("set c [node add cat]").unwrap();
     shell.execute("dep $c $v").unwrap();
     shell.execute("follow $c").unwrap();
     shell.execute("follow $c").unwrap();
@@ -172,8 +172,8 @@ fn background_termination_is_notified() {
         Box::new(CapturingSink::new()),
         Arc::clone(&notification_sink) as Arc<dyn OutputSink>,
     );
-    shell.execute("set v = node value hello").unwrap();
-    shell.execute("set c = node add cat").unwrap();
+    shell.execute("set v [node value hello]").unwrap();
+    shell.execute("set c [node add cat]").unwrap();
     shell.execute("dep $c $v").unwrap();
     shell.execute("run $c --bg").unwrap();
     assert!(
@@ -188,10 +188,10 @@ fn one_step_runs_first_pending_actor() {
     // v1 → cat2 → cat3: `run --one-step` must return (not hang) and run exactly cat2.
     let sink = CapturingSink::new();
     let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
-    shell.execute("set v1 = node value hello").unwrap();
-    shell.execute("set cat2 = node add cat").unwrap();
+    shell.execute("set v1 [node value hello]").unwrap();
+    shell.execute("set cat2 [node add cat]").unwrap();
     shell.execute("dep $cat2 $v1").unwrap();
-    shell.execute("set cat3 = node add cat").unwrap();
+    shell.execute("set cat3 [node add cat]").unwrap();
     shell.execute("dep $cat3 $cat2").unwrap();
     shell.execute("run --one-step").unwrap(); // must not hang
     shell.execute("status").unwrap();
@@ -208,10 +208,10 @@ fn one_step_advances_past_terminated_nodes() {
     // Second `run --one-step` must skip already-terminated nodes and run cat3.
     let sink = CapturingSink::new();
     let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
-    shell.execute("set v1 = node value hello").unwrap();
-    shell.execute("set cat2 = node add cat").unwrap();
+    shell.execute("set v1 [node value hello]").unwrap();
+    shell.execute("set cat2 [node add cat]").unwrap();
     shell.execute("dep $cat2 $v1").unwrap();
-    shell.execute("set cat3 = node add cat").unwrap();
+    shell.execute("set cat3 [node add cat]").unwrap();
     shell.execute("dep $cat3 $cat2").unwrap();
     shell.execute("run --one-step").unwrap(); // runs cat2
     shell.execute("run --one-step").unwrap(); // must not hang; runs cat3
@@ -234,8 +234,8 @@ fn foreground_run_suppresses_intermediate_notifications() {
         Box::new(CapturingSink::new()),
         Arc::clone(&notification_sink) as Arc<dyn OutputSink>,
     );
-    shell.execute("set v = node value hello").unwrap();
-    shell.execute("set c = node add cat").unwrap();
+    shell.execute("set v [node value hello]").unwrap();
+    shell.execute("set c [node add cat]").unwrap();
     shell.execute("dep $c $v").unwrap();
     shell.execute("run $c").unwrap(); // foreground — watcher processes all events inside block_on
     assert!(
@@ -254,13 +254,13 @@ fn run_stop_after_multialias_does_not_hang() {
         || {
             let sink = CapturingSink::new();
             let mut shell = DagShell::new_with_sink(Box::new(sink));
-            shell.execute("set v = node value hello").unwrap();
-            shell.execute("set cat_b = node add cat").unwrap();
+            shell.execute("set v [node value hello]").unwrap();
+            shell.execute("set cat_b [node add cat]").unwrap();
             shell.execute("dep $cat_b $v").unwrap();
-            shell.execute("set cat_c = node add cat").unwrap();
+            shell.execute("set cat_c [node add cat]").unwrap();
             shell.execute("dep $cat_c $cat_b").unwrap();
             shell
-                .execute("set alias = node alias .end $cat_b $cat_c")
+                .execute("set alias [node alias .end $cat_b $cat_c]")
                 .unwrap();
             shell.execute("run --stop-after $cat_b $alias").unwrap();
         },
@@ -276,13 +276,13 @@ fn run_one_step_multialias_does_not_hang() {
         || {
             let sink = CapturingSink::new();
             let mut shell = DagShell::new_with_sink(Box::new(sink));
-            shell.execute("set v = node value hello").unwrap();
-            shell.execute("set cat_a = node add cat").unwrap();
+            shell.execute("set v [node value hello]").unwrap();
+            shell.execute("set cat_a [node add cat]").unwrap();
             shell.execute("dep $cat_a $v").unwrap();
-            shell.execute("set cat_b = node add cat").unwrap();
+            shell.execute("set cat_b [node add cat]").unwrap();
             shell.execute("dep $cat_b $cat_a").unwrap();
             shell
-                .execute("set alias = node alias .end $cat_a $cat_b")
+                .execute("set alias [node alias .end $cat_a $cat_b]")
                 .unwrap();
             shell.execute("run --one-step $alias").unwrap();
         },
@@ -312,10 +312,10 @@ fn run_stop_after_alias_handle_does_not_hang() {
         || {
             let sink = CapturingSink::new();
             let mut shell = DagShell::new_with_sink(Box::new(sink));
-            shell.execute("set v = node value hello").unwrap();
-            shell.execute("set cat = node add cat").unwrap();
+            shell.execute("set v [node value hello]").unwrap();
+            shell.execute("set cat [node add cat]").unwrap();
             shell.execute("dep $cat $v").unwrap();
-            shell.execute("set alias = node alias .end $cat").unwrap();
+            shell.execute("set alias [node alias .end $cat]").unwrap();
             shell.execute("run --stop-after $alias $cat").unwrap();
             // shell drop drains reader_tasks; hangs if reader is on alias's pipe
         },
@@ -332,10 +332,10 @@ fn run_stop_before_does_not_hang() {
         || {
             let sink = CapturingSink::new();
             let mut shell = DagShell::new_with_sink(Box::new(sink));
-            shell.execute("set v = node value hello").unwrap();
-            shell.execute("set b = node add cat").unwrap();
+            shell.execute("set v [node value hello]").unwrap();
+            shell.execute("set b [node add cat]").unwrap();
             shell.execute("dep $b $v").unwrap();
-            shell.execute("set c = node add cat").unwrap();
+            shell.execute("set c [node add cat]").unwrap();
             shell.execute("dep $c $b").unwrap();
             shell.execute("run --stop-before $c").unwrap();
         },
@@ -344,11 +344,11 @@ fn run_stop_before_does_not_hang() {
 }
 
 #[test]
-fn execute_heredoc_sets_node_value() {
+fn tcl_multiline_value_sets_node() {
     let sink = CapturingSink::new();
     let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
     shell
-        .execute("set v = node value <<EOF\nhello world\nEOF\nstatus $v")
+        .execute("set v [node value {hello world}]\nstatus $v")
         .unwrap();
     let lines = sink.lines();
     assert!(

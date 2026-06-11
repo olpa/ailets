@@ -1,7 +1,7 @@
 //! DAG Shell binary entry point.
 
 use dagsh::shell_ui::{create_notification_sink, parse_args, print_usage};
-use dagsh::DagShell;
+use dagsh::{DagShell, ShellControl};
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
@@ -41,7 +41,7 @@ fn main() {
     let mut shell =
         DagShell::new_with_sinks_and_rt(Box::new(dagsh::StdoutSink), notification_sink, ailetos_rt);
 
-    println!("DAG Shell v0.1");
+    println!("DAG Shell v0.1 (TCL)");
     println!("Type 'help' for available commands.\n");
 
     if let Some(script_path) = cli_args.load_script {
@@ -63,8 +63,8 @@ fn main() {
                     eprintln!("warn: failed to add history entry: {e}");
                 }
                 match shell.execute(line) {
-                    Ok(dagsh::ShellControl::Continue) => {}
-                    Ok(dagsh::ShellControl::Exit) => {
+                    Ok(ShellControl::Continue) => {}
+                    Ok(ShellControl::Exit) => {
                         println!("Goodbye!");
                         break;
                     }

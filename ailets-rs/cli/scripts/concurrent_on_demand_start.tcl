@@ -16,13 +16,11 @@
 #   5. Write "o" (1B)   → dbg2 suspends (collected "lo wo")
 #   6. Resume dbg2      → dbg2 outputs "lo wo"
 #   7. Write "rld", EOF → flows through to cat
-#
-# Each step shows status and topology to observe state changes.
 
-set src  = node add shell_input --explain="Input source"
-set dbg1 = node add dbg --bytes-before-pause=3 --explain="Collects 3 B then pauses"
-set dbg2 = node add dbg --bytes-before-pause=5 --explain="Collects 5 B then pauses"
-set out  = node add cat --explain="Output sink"
+set src  [node add shell_input "--explain=Input source"]
+set dbg1 [node add dbg --bytes-before-pause=3 "--explain=Collects 3 B then pauses"]
+set dbg2 [node add dbg --bytes-before-pause=5 "--explain=Collects 5 B then pauses"]
+set out  [node add cat "--explain=Output sink"]
 dep $dbg1 $src
 dep $dbg2 $dbg1
 dep $out $dbg2

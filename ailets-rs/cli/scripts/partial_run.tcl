@@ -8,15 +8,15 @@
 #   run --stop-after $cat2   # Run value.1, cat.2
 #   run                      # Run remaining nodes
 
-set v1 = node value "hello" --explain="Input"
+set v1 [node value "hello" "--explain=Input"]
 
-set cat2 = node add cat --explain="Step 1"
+set cat2 [node add cat "--explain=Step 1"]
 dep $cat2 $v1
 
-set cat3 = node add cat --explain="Step 2"
+set cat3 [node add cat "--explain=Step 2"]
 dep $cat3 $cat2
 
-set cat4 = node add cat --explain="Step 3"
+set cat4 [node add cat "--explain=Step 3"]
 dep $cat4 $cat3
 
 show

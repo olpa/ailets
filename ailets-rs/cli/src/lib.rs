@@ -1,4 +1,4 @@
-//! DAG Shell library - `DagShell` and `OutputSink`.
+//! DAG Shell library — `DagShell` and `OutputSink`.
 //!
 //! Two dedicated tokio runtimes are owned by `DagShell`:
 //!
@@ -6,6 +6,7 @@
 //! - `cli_rt`: runs all CLI-side async work: notification watcher, join waits, sleeps.
 //!
 //! The CLI thread itself stays synchronous and drives async work via `block_on`.
+//! TCL scripts are parsed and executed by a persistent `molt::Interp` stored in `tcl`.
 
 pub(crate) mod dbg_actor;
 pub(crate) mod dbg_control;
@@ -15,8 +16,8 @@ pub(crate) mod shell_input_control;
 mod commands;
 mod output;
 pub mod shell_ui;
+mod tcl_interp;
 
-use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
@@ -26,7 +27,6 @@ use ailetos::{Environment, Executor, ExecutorEvent, Handle, KVBuffers, MemKV};
 
 // Re-exports
 pub use output::{OutputSink, StdoutSink};
-use shell_ui::find_heredoc_marker;
 
 /// Outcome of a shell command: whether the REPL loop should continue or exit.
 pub enum ShellControl {
@@ -116,21 +116,20 @@ impl NotificationWatcher {
 // ---------------------------------------------------------------------------
 
 pub struct DagShell {
+    // TCL interpreter — taken out of self during execute() to avoid aliasing.
+    // None only while execute() is on the call stack.
+    pub(crate) tcl: Option<molt::Interp>,
     pub(crate) env: Arc<Environment>,
     pub(crate) kv: Arc<MemKV>,
     pub(crate) handles: Vec<Handle>,
-    pub(crate) vars: HashMap<String, Handle>,
     pub(crate) sink: Box<dyn OutputSink>,
     pub(crate) notification_sink: Arc<dyn OutputSink>,
     pub(crate) foreground_join: Arc<AtomicBool>,
-    // Tracked reader tasks (follow / run --bg). Drained in prepare_exit so the
-    // last bytes written by an actor are never silently dropped on fast exit.
     pub(crate) reader_tasks: tokio::task::JoinSet<()>,
     watcher: NotificationWatcher,
     // executor drops before ailetos_async_rt (declaration order = drop order).
     pub(crate) executor: Executor,
     pub(crate) ailetos_async_rt: tokio::runtime::Runtime,
-    // CLI-side async runtime: join waits, sleeps. Independent from ailetos.
     pub(crate) cli_rt: tokio::runtime::Runtime,
 }
 
@@ -146,7 +145,7 @@ impl DagShell {
     }
 
     /// Create a shell with separate sinks for synchronous command output and
-    /// background notifications (node terminations while at the prompt).
+    /// background notifications.
     ///
     /// # Panics
     /// Panics if the tokio runtime cannot be created.
@@ -161,7 +160,6 @@ impl DagShell {
     }
 
     /// Like `new_with_sinks` but accepts a pre-created runtime for ailetos.
-    /// The caller must ensure this runtime is used exclusively for ailetos.
     ///
     /// # Panics
     /// Panics if the CLI tokio runtime cannot be created.
@@ -193,10 +191,10 @@ impl DagShell {
         );
 
         Self {
+            tcl: None,
             env,
             kv,
             handles: Vec::new(),
-            vars: HashMap::new(),
             sink: command_sink,
             notification_sink: notification_sink_clone,
             foreground_join,
@@ -208,139 +206,35 @@ impl DagShell {
         }
     }
 
-    fn parse_handle(&self, s: &str) -> Option<Handle> {
-        if let Some(var_name) = s.strip_prefix('$') {
-            return self.vars.get(var_name).copied();
-        }
+    pub(crate) fn parse_handle(&self, s: &str) -> Option<Handle> {
         s.parse::<i64>().ok().map(Handle::new)
     }
 
-    /// # Errors
-    /// Returns an error string if the command fails.
-    pub fn execute(&mut self, input: &str) -> Result<ShellControl, String> {
-        let mut lines = input.lines().peekable();
-        let line = match lines.next() {
-            None => return Ok(ShellControl::Continue),
-            Some(l) => l.trim(),
-        };
-        let mut parts: Vec<&str> = line.split_whitespace().collect();
-        let body;
-        if let Some((idx, delim)) = find_heredoc_marker(&parts) {
-            let mut collected = String::new();
-            let mut closed = false;
-            for body_line in lines.by_ref() {
-                if body_line.trim() == delim {
-                    closed = true;
-                    break;
-                }
-                if !collected.is_empty() {
-                    collected.push('\n');
-                }
-                collected.push_str(body_line);
-            }
-            if !closed {
-                return Err(format!("heredoc <<{delim} has no closing line"));
-            }
-            body = collected;
-            #[allow(clippy::indexing_slicing)]
-            // idx comes from find_heredoc_marker which scans parts
-            {
-                parts[idx] = body.as_str();
-            }
-        }
-        self.execute_parts(&parts)
-    }
-
-    pub(crate) fn execute_lines<'a>(
-        &mut self,
-        lines: impl Iterator<Item = &'a str>,
-    ) -> Result<ShellControl, String> {
-        let mut lines = lines.peekable();
-        while let Some(line) = lines.next() {
-            let line = line.trim();
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            let mut parts: Vec<&str> = line.split_whitespace().collect();
-            let body;
-            if let Some((idx, delim)) = find_heredoc_marker(&parts) {
-                let mut collected = String::new();
-                let mut closed = false;
-                for body_line in lines.by_ref() {
-                    if body_line.trim() == delim {
-                        closed = true;
-                        break;
-                    }
-                    if !collected.is_empty() {
-                        collected.push('\n');
-                    }
-                    collected.push_str(body_line);
-                }
-                if !closed {
-                    self.sink
-                        .println(&format!("Error: heredoc <<{delim} has no closing line"));
-                    continue;
-                }
-                body = collected;
-                #[allow(clippy::indexing_slicing)]
-                // idx comes from find_heredoc_marker which scans parts
-                {
-                    parts[idx] = body.as_str();
-                }
-            }
-            match self.execute_parts(&parts) {
-                Ok(ShellControl::Continue) => {}
-                Ok(ShellControl::Exit) => return Ok(ShellControl::Exit),
-                Err(e) => return Err(e),
-            }
-        }
-        Ok(ShellControl::Continue)
-    }
-
-    /// Like `execute`, but takes already-tokenized arguments. Used by
-    /// `cmd_source` to run commands whose arguments were assembled from a
-    /// heredoc body (which may contain whitespace `split_whitespace` would
-    /// otherwise break apart).
+    /// Evaluate a TCL script.  Variables set in one call are visible in subsequent calls
+    /// because the `molt::Interp` is persisted in `self.tcl` between invocations.
     ///
     /// # Errors
-    /// Returns an error string if the command fails.
-    pub(crate) fn execute_parts(&mut self, parts: &[&str]) -> Result<ShellControl, String> {
-        let (cmd, rest) = match parts.split_first() {
-            None => return Ok(ShellControl::Continue),
-            Some((cmd, rest)) => (*cmd, rest),
-        };
+    /// Returns a TCL error message if script evaluation fails.
+    pub fn execute(&mut self, script: &str) -> Result<ShellControl, String> {
+        // Take the interpreter out of self so that command handlers can borrow
+        // other fields of self through the thread-local without aliasing self.tcl.
+        let mut tcl = self.tcl.take().unwrap_or_else(tcl_interp::make_interp);
 
-        match cmd {
-            "quit" | "exit" | "q" => {
-                return Ok(ShellControl::Exit);
-            }
-            "help" | "?" => self.cmd_help(),
-            "set" => self.cmd_set(rest)?,
-            "node" => {
-                self.cmd_node(rest)?;
-            }
-            "dep" => self.cmd_dep(rest)?,
-            "deps" => self.cmd_deps(rest)?,
-            "show" => self.cmd_show(rest)?,
-            "run" => self.cmd_run(rest)?,
-            "join" | "await" => self.cmd_join(rest)?,
-            "follow" => self.cmd_follow(rest)?,
-            "cat" => self.cmd_cat(rest)?,
-            "status" => self.cmd_status(rest),
-            "source" | "load" => return self.cmd_source(rest),
-            "suspend" => self.cmd_suspend(rest)?,
-            "resume" => self.cmd_resume(rest)?,
-            "wait" => self.cmd_wait(rest)?,
-            "write" => self.cmd_write(rest)?,
-            "close" => self.cmd_close(rest)?,
-            "kill" => self.cmd_kill(rest)?,
-            _ => {
-                self.sink
-                    .println(&format!("Unknown command: {cmd}. Type 'help' for usage."));
-            }
+        // Safety: see tcl_interp::get_shell safety comment.
+        tcl_interp::set_shell(self as *mut DagShell);
+        let result = tcl.eval(script);
+        tcl_interp::clear_shell();
+
+        self.tcl = Some(tcl);
+
+        if tcl_interp::take_exit_requested() {
+            return Ok(ShellControl::Exit);
         }
 
-        Ok(ShellControl::Continue)
+        match result {
+            Ok(_) => Ok(ShellControl::Continue),
+            Err(e) => Err(e.value().as_str().to_string()),
+        }
     }
 
     fn prepare_exit(&mut self) {
@@ -348,9 +242,6 @@ impl DagShell {
         for &handle in &self.handles {
             self.env.suspension.resume(handle);
         }
-        // Unblock reader tasks waiting on pipes that will never be realized
-        // (e.g. a node whose dep failed without ever opening stdout).
-        // Must happen before draining reader_tasks to avoid deadlock.
         self.env.pipe_pool.close_all_leftover_writers();
         tracing::debug!(
             count = self.reader_tasks.len(),
@@ -372,7 +263,5 @@ impl Default for DagShell {
 impl Drop for DagShell {
     fn drop(&mut self) {
         self.prepare_exit();
-        // executor and ailetos_async_rt drop in declaration order, closing the
-        // event channel and causing the watcher task to exit.
     }
 }

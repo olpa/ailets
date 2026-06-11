@@ -47,7 +47,7 @@ pub fn print_usage() {
     println!("Usage: dagsh [OPTIONS]");
     println!();
     println!("Options:");
-    println!("  -l, --load <file>   Load script file on startup, then continue interactively");
+    println!("  -l, --load <file>   Load TCL script file on startup, then continue interactively");
     println!("  -h, --help          Show this help");
 }
 
@@ -89,13 +89,13 @@ pub fn parse_args(args: &[String]) -> Result<CliArgs, String> {
 // Help text
 // ---------------------------------------------------------------------------
 
-pub const HELP_TEXT: &str = r"DAG Shell Commands:
+pub const HELP_TEXT: &str = r"DAG Shell Commands (TCL syntax):
 
 Node Management:
-  node add <actor> [--explain=text]   Add actor node (actors: cat, dbg, shell_input)
-  node value <data> [--explain=text]  Add value node (constant data)
-  node alias <name> <target>          Add alias node
-  node list                           List all nodes with status
+  set v [node add <actor> [--explain=text]]   Add actor node (actors: cat, dbg, shell_input)
+  set v [node value <data> [--explain=text]]  Add value node (constant data)
+  set v [node alias <name> <target>]          Add alias node
+  node list                                    List all nodes with status
 
 Dependencies:
   dep <node> <dependency>             Add dependency (node depends on dependency)
@@ -136,13 +136,13 @@ Shell Input:
   close <node>                        Close a shell_input actor (send EOF)
 
 Session:
-  load <file>                         Run script file (alias: source)
+  source <file>                       Run TCL script file (alias: load)
   help                                Show this help
-  quit                                Exit
+  quit / exit                         Exit
 
-Variables:
-  set var = node ...                  Assign node to variable
-  dep $foo $bar                       Use $var to reference variables";
+Variables (TCL):
+  set v [node ...]                    Assign node handle to variable
+  dep $foo $bar                       TCL expands $var before the command runs";
 
 // ---------------------------------------------------------------------------
 // Argument parsing helpers
@@ -161,7 +161,9 @@ pub fn parse_explain(args: &[&str]) -> Option<String> {
         }
         return Some(quoted.to_string());
     }
-    rest.split_whitespace().next().map(str::to_string)
+    // Take until the next flag or end of string.
+    let end = rest.find(" --").unwrap_or(rest.len());
+    rest.get(..end).map(str::to_string)
 }
 
 #[must_use]
@@ -169,19 +171,6 @@ pub fn parse_bytes_before_pause(args: &[&str]) -> Option<usize> {
     args.iter()
         .find_map(|a| a.strip_prefix("--bytes-before-pause="))
         .and_then(|s| s.parse().ok())
-}
-
-/// Looks for a heredoc marker token (`<<DELIM`) among whitespace-split
-/// command tokens, e.g. `node value <<EOF --explain="seed"`. Returns its
-/// index and the delimiter name so the caller can collect the heredoc body
-/// and substitute it for the marker before dispatching the command — this is
-/// how dagsh scripts embed multi-line values (e.g. JSONL) on one logical line.
-#[must_use]
-pub fn find_heredoc_marker<'a>(parts: &[&'a str]) -> Option<(usize, &'a str)> {
-    parts.iter().enumerate().find_map(|(i, tok)| {
-        let delim = tok.strip_prefix("<<")?;
-        (!delim.is_empty()).then_some((i, delim))
-    })
 }
 
 #[must_use]

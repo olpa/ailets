@@ -21,26 +21,6 @@ impl DagShell {
         self.sink.println(HELP_TEXT);
     }
 
-    pub(crate) fn cmd_set(&mut self, args: &[&str]) -> Result<(), String> {
-        match args {
-            [var_name, "=", "node", rest @ ..] => {
-                let handle = self.cmd_node_inner(rest)?;
-                self.vars.insert((*var_name).to_string(), handle);
-                Ok(())
-            }
-            _ => Err("Usage: set <var> = node ...".to_string()),
-        }
-    }
-
-    pub(crate) fn cmd_node(&mut self, args: &[&str]) -> Result<(), String> {
-        if args.first() == Some(&"list") {
-            self.cmd_node_list();
-        } else {
-            self.cmd_node_inner(args)?;
-        }
-        Ok(())
-    }
-
     pub(crate) fn cmd_node_list(&self) {
         if self.handles.is_empty() {
             self.sink.println("No nodes");
@@ -526,7 +506,7 @@ impl DagShell {
         let path = args.first().ok_or("Usage: source <file>")?;
         let content =
             std::fs::read_to_string(path).map_err(|e| format!("Failed to read {path}: {e}"))?;
-        self.execute_lines(content.lines())
+        self.execute(&content)
     }
 
     pub(crate) fn cmd_status(&self, args: &[&str]) {
