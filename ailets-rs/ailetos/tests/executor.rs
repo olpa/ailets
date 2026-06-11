@@ -401,10 +401,14 @@ async fn test_kill_deep_dep_does_not_hang() {
     {
         let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
         executor.submit(d, StopConditions::default()).unwrap();
+        //
+        // act+assert: the test would hang here if the bug were present
+        //
         executor.shutdown().await;
     }
 
-    // a is now Terminated (failed); b/c/d are NotStarted (eligible for re-run).
+    // Sanity check that the env is in the expected state for Scenario 2, not the
+    // primary assertion of this test.
     assert_eq!(
         env.dag.read().get_node(a).unwrap().state,
         NodeState::Terminated
@@ -429,7 +433,10 @@ async fn test_kill_deep_dep_does_not_hang() {
     {
         let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
         executor.submit(d, StopConditions::default()).unwrap();
-        executor.shutdown().await; // must not hang
+        //
+        // act+assert: the test would hang here if the bug were present
+        //
+        executor.shutdown().await;
     }
 
     // b/c/d remain NotStarted: cleared from pending, never spawned.
@@ -478,6 +485,9 @@ async fn ready_node_spawns_despite_sibling_failed_dependency() {
     {
         let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
         executor.submit(a, StopConditions::default()).unwrap();
+        //
+        // arrange: shutdown here is setup for Phase 2, not the subject under test
+        //
         executor.shutdown().await;
     }
     assert_eq!(
