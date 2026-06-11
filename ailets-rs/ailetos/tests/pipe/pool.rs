@@ -20,15 +20,6 @@ async fn wait_for_latent(pool: &PipePool, key: (Handle, isize), timeout_ms: u64)
     .await;
 }
 
-async fn wait_for_task_start<T>(task: &tokio::task::JoinHandle<T>, timeout_ms: u64) {
-    super::helpers::poll_until(
-        || task.is_finished(),
-        timeout_ms,
-        "waiting for task to start",
-    )
-    .await;
-}
-
 async fn wait_for_any_writer(pool: &PipePool, actor: Handle, timeout_ms: u64) {
     super::helpers::poll_until(
         || pool.inspect_entries().iter().any(|(h, _, _)| *h == actor),
@@ -1127,9 +1118,6 @@ async fn test_race_consumer_opens_during_shutdown() {
             .await
     });
 
-    // Poll until reader task has started (realized pipe returns immediately)
-    wait_for_task_start(&reader_task, 5000).await;
-
     // Now close the actor's writers (simulating shutdown)
     pool.flush_close_actor_writers(actor_handle, 0)
         .await
@@ -1193,11 +1181,6 @@ async fn test_race_concurrent_consumers_during_shutdown() {
             (i, result)
         });
         handles.push(handle);
-    }
-
-    // Poll until all consumer tasks have started (realized pipe returns immediately)
-    for handle in &handles {
-        wait_for_task_start(handle, 5000).await;
     }
 
     // Shutdown the producer
