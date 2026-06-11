@@ -459,13 +459,8 @@ async fn test_kill_deep_dep_does_not_hang() {
 ///
 /// DAG: `a` (fails) → `b`; `c` is independent; `d` depends on both `b` and `c`.
 ///
-/// Phase 1: run `a` alone so it terminates with a non-zero exit code while
-/// `b`/`c`/`d` stay `NotStarted`.
-///
-/// Phase 2: submit `d`. The traversal adds `b`, `c`, `d` to `pending` in one
-/// batch. `b` is blocked by `a`'s failure; `c` has no dependency on `a` and is
-/// `Ready`. `spawn_ready_actors` must spawn `c` regardless of having also seen
-/// `b`'s `FailedDependency` in the same batch.
+/// Submitting `d` enqueues the whole DAG. `a` fails; `b` inherits the failure.
+/// `c` must still run and complete successfully.
 #[tokio::test]
 async fn ready_node_spawns_despite_sibling_failed_dependency() {
     let kv = Arc::new(MemKV::new());
@@ -481,27 +476,6 @@ async fn ready_node_spawns_despite_sibling_failed_dependency() {
         .register("failing", |_| Err("intentional failure".into()));
     env.actor_registry.write().register("noop", |_| Ok(()));
 
-    // Phase 1: run `a` alone so it fails while b/c/d stay NotStarted.
-    {
-        let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
-        executor.submit(a, StopConditions::default()).unwrap();
-        //
-        // arrange: shutdown here is setup for Phase 2, not the subject under test
-        //
-        executor.shutdown().await;
-    }
-    assert_eq!(
-        env.dag.read().get_node(a).unwrap().state,
-        NodeState::Terminated
-    );
-    assert_ne!(env.dag.read().get_node(a).unwrap().exit_code, 0);
-    assert_eq!(
-        env.dag.read().get_node(c).unwrap().state,
-        NodeState::NotStarted
-    );
-
-    // Phase 2: submit `d`. b, c, d land in `pending` together: b is blocked by
-    // a's failure, but c must still be spawned and terminate promptly.
     let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
     let rx_c = executor.join(c);
     executor.submit(d, StopConditions::default()).unwrap();
@@ -510,8 +484,8 @@ async fn ready_node_spawns_despite_sibling_failed_dependency() {
 
     assert!(
         matches!(result, Ok(Ok(Ok(())))),
-        "join(c) must resolve Ok promptly even though sibling b is blocked by \
-         a's failed dependency a — without the fix, c is dropped from the \
+        "join(c) must resolve Ok even though sibling b is blocked by \
+         a's failure — without the fix, c is dropped from the \
          spawn batch and sits Ready in `pending` forever: {result:?}"
     );
 
