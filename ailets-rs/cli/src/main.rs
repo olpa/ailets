@@ -31,7 +31,9 @@ fn main() {
         eprintln!("Failed to create editor");
         std::process::exit(1);
     };
-    let _ = rl.set_max_history_size(1000);
+    if let Err(e) = rl.set_max_history_size(1000) {
+        eprintln!("warn: failed to set history size: {e}");
+    }
 
     let printer_rt = Runtime::new().expect("failed to create printer runtime");
     let notification_sink = create_notification_sink(&mut rl, printer_rt.handle());
@@ -57,7 +59,9 @@ fn main() {
                 if line.is_empty() {
                     continue;
                 }
-                let _ = rl.add_history_entry(line);
+                if let Err(e) = rl.add_history_entry(line) {
+                    eprintln!("warn: failed to add history entry: {e}");
+                }
                 match shell.execute(line) {
                     Ok(dagsh::ShellControl::Continue) => {}
                     Ok(dagsh::ShellControl::Exit) => {

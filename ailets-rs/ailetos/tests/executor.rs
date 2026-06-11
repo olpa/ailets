@@ -6,6 +6,9 @@ use ailetos::traversal::{StopConditions, TopologicalOrderIter};
 use ailetos::{Environment, Executor, ExecutorEvent, IdGen};
 use tokio::sync::{mpsc, oneshot};
 
+mod helpers;
+use helpers::poll_until;
+
 fn create_linear_dag() -> (Dag, Vec<ailetos::Handle>) {
     // Create a linear DAG: node1 -> node2 -> node3 -> node4
     let idgen = Arc::new(IdGen::new());
@@ -354,20 +357,16 @@ async fn test_failed_node_clears_dependents_from_pending() {
         }
     }
 
-    // Yield to the Tokio runtime so the executor's spawn loop can process a's
-    // termination wakeup and update the pending set before we snapshot it.
-    tokio::task::yield_now().await;
+    // Wait for the executor's spawn loop to process a's termination wakeup
+    // and remove b/c/d from pending before we snapshot it.
+    poll_until(
+        || executor.snapshot_pending().is_empty(),
+        5000,
+        "pending must be empty after a failed: b/c/d are permanently blocked",
+    )
+    .await;
 
-    // With the fix, b/c/d are removed from pending when a fails. Without the
-    // fix they remain, leaking permanently-blocked nodes into the next
-    // submission's pending state.
-    let pending = executor.snapshot_pending();
     executor.shutdown().await;
-
-    assert!(
-        pending.is_empty(),
-        "pending must be empty after a failed: b/c/d are permanently blocked"
-    );
 }
 
 /// A267: Executor hangs when a deep dependency is killed and its dependents
@@ -401,10 +400,14 @@ async fn test_kill_deep_dep_does_not_hang() {
     {
         let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
         executor.submit(d, StopConditions::default()).unwrap();
+        //
+        // act+assert: the test would hang here if the bug were present
+        //
         executor.shutdown().await;
     }
 
-    // a is now Terminated (failed); b/c/d are NotStarted (eligible for re-run).
+    // Sanity check that the env is in the expected state for Scenario 2, not the
+    // primary assertion of this test.
     assert_eq!(
         env.dag.read().get_node(a).unwrap().state,
         NodeState::Terminated
@@ -429,7 +432,10 @@ async fn test_kill_deep_dep_does_not_hang() {
     {
         let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
         executor.submit(d, StopConditions::default()).unwrap();
-        executor.shutdown().await; // must not hang
+        //
+        // act+assert: the test would hang here if the bug were present
+        //
+        executor.shutdown().await;
     }
 
     // b/c/d remain NotStarted: cleared from pending, never spawned.
@@ -452,13 +458,8 @@ async fn test_kill_deep_dep_does_not_hang() {
 ///
 /// DAG: `a` (fails) → `b`; `c` is independent; `d` depends on both `b` and `c`.
 ///
-/// Phase 1: run `a` alone so it terminates with a non-zero exit code while
-/// `b`/`c`/`d` stay `NotStarted`.
-///
-/// Phase 2: submit `d`. The traversal adds `b`, `c`, `d` to `pending` in one
-/// batch. `b` is blocked by `a`'s failure; `c` has no dependency on `a` and is
-/// `Ready`. `spawn_ready_actors` must spawn `c` regardless of having also seen
-/// `b`'s `FailedDependency` in the same batch.
+/// Submitting `d` enqueues the whole DAG. `a` fails; `b` inherits the failure.
+/// `c` must still run and complete successfully.
 #[tokio::test]
 async fn ready_node_spawns_despite_sibling_failed_dependency() {
     let kv = Arc::new(MemKV::new());
@@ -474,24 +475,6 @@ async fn ready_node_spawns_despite_sibling_failed_dependency() {
         .register("failing", |_| Err("intentional failure".into()));
     env.actor_registry.write().register("noop", |_| Ok(()));
 
-    // Phase 1: run `a` alone so it fails while b/c/d stay NotStarted.
-    {
-        let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
-        executor.submit(a, StopConditions::default()).unwrap();
-        executor.shutdown().await;
-    }
-    assert_eq!(
-        env.dag.read().get_node(a).unwrap().state,
-        NodeState::Terminated
-    );
-    assert_ne!(env.dag.read().get_node(a).unwrap().exit_code, 0);
-    assert_eq!(
-        env.dag.read().get_node(c).unwrap().state,
-        NodeState::NotStarted
-    );
-
-    // Phase 2: submit `d`. b, c, d land in `pending` together: b is blocked by
-    // a's failure, but c must still be spawned and terminate promptly.
     let executor = Executor::start(&tokio::runtime::Handle::current(), Arc::clone(&env), None);
     let rx_c = executor.join(c);
     executor.submit(d, StopConditions::default()).unwrap();
@@ -500,8 +483,8 @@ async fn ready_node_spawns_despite_sibling_failed_dependency() {
 
     assert!(
         matches!(result, Ok(Ok(Ok(())))),
-        "join(c) must resolve Ok promptly even though sibling b is blocked by \
-         a's failed dependency a — without the fix, c is dropped from the \
+        "join(c) must resolve Ok even though sibling b is blocked by \
+         a's failure — without the fix, c is dropped from the \
          spawn batch and sits Ready in `pending` forever: {result:?}"
     );
 

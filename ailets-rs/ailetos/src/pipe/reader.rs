@@ -158,7 +158,9 @@ impl Reader {
                 WaitAction::Wait => {
                     if let Some(rx) = self.watch_rx.as_mut() {
                         // Err means the Sender was dropped (writer closed); treat as wakeup.
-                        let _ = rx.changed().await;
+                        if let Err(e) = rx.changed().await {
+                            warn!(handle = ?self.own_handle, error = %e, "reader: watch sender dropped while waiting for writer");
+                        }
                     } else {
                         warn!(handle = ?self.own_handle, "watch_rx is None but own_closed is false");
                         break;

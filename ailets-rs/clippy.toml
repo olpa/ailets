@@ -1,0 +1,10 @@
+disallowed-methods = [
+    { path = "std::thread::sleep", reason = "use poll_until from tests/helpers/mod.rs in tests; use tokio watch/notify channels in production code" },
+    { path = "std::thread::sleep_ms", reason = "use poll_until from tests/helpers/mod.rs in tests; use tokio watch/notify channels in production code" },
+    { path = "std::thread::sleep_until", reason = "use poll_until from tests/helpers/mod.rs in tests; use tokio watch/notify channels in production code" },
+    { path = "std::thread::park", reason = "use tokio watch/notify channels instead of blocking the thread" },
+    { path = "std::thread::park_timeout", reason = "use tokio watch/notify channels instead of blocking the thread" },
+    { path = "std::thread::park_timeout_ms", reason = "use tokio watch/notify channels instead of blocking the thread" },
+    { path = "tokio::time::sleep", reason = "use poll_until from tests/helpers/mod.rs in tests; use tokio watch/notify channels in production code" },
+    { path = "tokio::task::yield_now", reason = "use tokio watch/notify channels or poll_until from tests/helpers/mod.rs instead of yielding" },
+]

@@ -3,6 +3,7 @@ use std::fmt::Write;
 use std::sync::Arc;
 
 use parking_lot::RwLock;
+use tracing::warn;
 
 use crate::idgen::{Handle, IdGen};
 use crate::suspension::SuspensionState;
@@ -277,7 +278,9 @@ impl Dag {
     ) {
         // Get node info
         let Some(node) = self.get_node(pid) else {
-            let _ = writeln!(ctx.output, "{prefix}├── [PID {pid:?} not found]");
+            if let Err(e) = writeln!(ctx.output, "{prefix}├── [PID {pid:?} not found]") {
+                warn!(error = %e, "dag dump: write failed");
+            }
             return;
         };
 
@@ -335,12 +338,14 @@ impl Dag {
             format!(" [{}]", bracket_parts.join(" "))
         };
 
-        let _ = writeln!(
+        if let Err(e) = writeln!(
             ctx.output,
             "{prefix}{connector}{}.{}{state_bracket}{shared_marker}{explain_suffix}",
             node.idname,
             node.pid.id()
-        );
+        ) {
+            warn!(error = %e, "dag dump: write failed");
+        }
 
         // If circular or already printed with deps, stop recursing here
         if is_circular || already_printed {

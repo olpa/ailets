@@ -690,6 +690,7 @@ impl DagShell {
         Ok(())
     }
 
+    #[allow(clippy::disallowed_methods)] // polling loop without a notification channel
     pub(crate) fn cmd_wait(&mut self, args: &[&str]) -> Result<(), String> {
         let condition = args.first().ok_or("Usage: wait <condition> [args]")?;
         match *condition {

@@ -202,8 +202,10 @@ where
                 }
             };
 
-            // Send result back (ignore if receiver dropped - caller gave up waiting)
-            let _ = request.response.send(flush_result);
+            // Send result back (receiver dropped means caller gave up waiting)
+            if request.response.send(flush_result).is_err() {
+                warn!(path = %request.path, "flush_coordinator: response receiver dropped before flush result could be sent");
+            }
         }
 
         trace!("FlushCoordinator::writer_loop: exited request_rx loop");

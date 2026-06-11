@@ -11,6 +11,15 @@ use parking_lot::RwLock;
 use std::sync::Arc;
 use std::time::Duration;
 
+async fn wait_for_latent(pool: &PipePool, key: (Handle, isize), timeout_ms: u64) {
+    super::helpers::poll_until(
+        || pool.inspect_entry(key) == Some(PipeEntryInspection::Latent(LatentState::Waiting)),
+        timeout_ms,
+        &format!("waiting for latent waiter on {key:?}"),
+    )
+    .await;
+}
+
 // Test helper to create a test pool
 fn create_test_pool() -> (PipePool, Arc<MemKV>, Arc<IdGen>, Arc<RwLock<Dag>>) {
     let kv = Arc::new(MemKV::new());
@@ -150,8 +159,7 @@ async fn test_create_reader_with_latent_before_writer() {
             .await
     });
 
-    // Give reader time to start waiting
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    wait_for_latent(&pool_clone, (actor_handle, std_handle as isize), 5000).await;
 
     // Now create the writer - this should notify the waiting reader
     pool_clone
@@ -209,8 +217,7 @@ async fn test_multiple_readers_waiting_on_latent_pipe() {
         reader_tasks.push(task);
     }
 
-    // Give readers time to start waiting
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    wait_for_latent(&pool, (actor_handle, std_handle as isize), 5000).await;
 
     // Create writer - should notify all waiting readers
     pool.touch_writer(actor_handle, std_handle as isize, &id_gen)
@@ -247,8 +254,7 @@ async fn test_reader_on_latent_pipe_closed_without_realizing() {
             .await
     });
 
-    // Give reader time to start waiting
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    wait_for_latent(&pool, (actor_handle, std_handle as isize), 5000).await;
 
     // Close the latent writer without realizing it
     pool.flush_close_actor_writers(actor_handle, 0)
@@ -294,8 +300,7 @@ async fn test_latent_to_realized_transition() {
             .await
     });
 
-    // Give time for latent to be created
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    wait_for_latent(&pool, (actor_handle, std_handle as isize), 5000).await;
 
     // Latent pipe exists, but no writer yet
     assert!(pool
@@ -338,7 +343,7 @@ async fn test_latent_to_closed_transition() {
             .await
     });
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    wait_for_latent(&pool, (actor_handle, std_handle as isize), 5000).await;
 
     // Close without realizing
     pool.flush_close_actor_writers(actor_handle, 0)
@@ -466,7 +471,7 @@ async fn test_close_latent_writer_without_realizing() {
             .await
     });
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    wait_for_latent(&pool, (actor_handle, std_handle as isize), 5000).await;
 
     // Close latent writer (abnormal case - should log warning)
     pool.flush_close_actor_writers(actor_handle, 0)
@@ -552,7 +557,7 @@ async fn test_multiple_readers_waiting_concurrently() {
         tasks.push(task);
     }
 
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    wait_for_latent(&pool, (actor_handle, std_handle as isize), 5000).await;
 
     // Realize the pipe
     pool.touch_writer(actor_handle, std_handle as isize, &id_gen)
@@ -761,8 +766,7 @@ async fn test_reader_waits_indefinitely_until_resolved() {
             .await
     });
 
-    // Wait longer than normal
-    tokio::time::sleep(Duration::from_millis(200)).await;
+    wait_for_latent(&pool, (actor_handle, std_handle as isize), 5000).await;
 
     // Task should still be waiting (not completed)
     assert!(!reader_task.is_finished());
@@ -799,7 +803,7 @@ async fn test_create_latent_then_realize_then_another_reader() {
             .await
     });
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    wait_for_latent(&pool, (actor_handle, std_handle as isize), 5000).await;
 
     // Realize the pipe
     pool.touch_writer(actor_handle, std_handle as isize, &id_gen)
@@ -840,7 +844,7 @@ async fn test_mixed_latent_and_realized_pipes() {
             .await
     });
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    wait_for_latent(&pool, (Handle::new(2), StdHandle::Stdout as isize), 5000).await;
 
     // Get writer for realized pipe should work
     let writer = pool.get_already_realized_writer((Handle::new(1), StdHandle::Stdout as isize));
@@ -933,8 +937,7 @@ async fn test_attachment_workflow_simulation() {
         total_read
     });
 
-    // Give attachment time to start waiting
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    wait_for_latent(&pool, (actor_handle, std_handle as isize), 5000).await;
 
     // Actor starts and writes
     pool.touch_writer(actor_handle, std_handle as isize, &id_gen)
@@ -978,7 +981,7 @@ async fn test_dependency_reading_simulation() {
             .await
     });
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    wait_for_latent(&pool, (actor1, StdHandle::Stdout as isize), 5000).await;
 
     // Actor1 starts and writes
     pool.touch_writer(actor1, StdHandle::Stdout as isize, &id_gen)
@@ -1037,7 +1040,7 @@ async fn test_end_to_end_data_flow() {
         all_data
     });
 
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    wait_for_latent(&pool, (actor_handle, std_handle as isize), 5000).await;
 
     // Realize pipe
     pool.touch_writer(actor_handle, std_handle as isize, &id_gen)
@@ -1106,9 +1109,6 @@ async fn test_race_consumer_opens_during_shutdown() {
             .await
     });
 
-    // Small delay to let reader task start
-    tokio::time::sleep(Duration::from_millis(10)).await;
-
     // Now close the actor's writers (simulating shutdown)
     pool.flush_close_actor_writers(actor_handle, 0)
         .await
@@ -1173,9 +1173,6 @@ async fn test_race_concurrent_consumers_during_shutdown() {
         });
         handles.push(handle);
     }
-
-    // Give readers time to start
-    tokio::time::sleep(Duration::from_millis(50)).await;
 
     // Shutdown the producer
     pool.flush_close_actor_writers(actor_handle, 0)
@@ -1244,8 +1241,7 @@ async fn test_race_latent_waiters_notified_on_close() {
         reader_handles.push(handle);
     }
 
-    // Give readers time to register as latent waiters
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    wait_for_latent(&pool, (actor_handle, std_handle as isize), 5000).await;
 
     // Producer "crashes" without ever creating the writer
     // Just close all its pipes
@@ -1313,10 +1309,9 @@ async fn test_race_touch_writer_vs_close() {
         handles.push(handle);
     }
 
-    // Close task (runs concurrently with writers)
+    // Close task (races freely with all writer tasks)
     let pool_clone = Arc::clone(&pool);
     let close_handle = tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(20)).await;
         pool_clone
             .flush_close_actor_writers(actor_handle, 0)
             .await
@@ -1357,8 +1352,7 @@ async fn test_race_reader_loop_and_recheck() {
             .await
     });
 
-    // Give reader time to register as latent
-    tokio::time::sleep(Duration::from_millis(50)).await;
+    wait_for_latent(&pool, (actor_handle, std_handle as isize), 5000).await;
 
     // Now create the writer (will notify the waiting reader)
     let (writer, _) = pool
@@ -1591,9 +1585,7 @@ async fn test_close_all_leftover_writers_unblocks_latent_reader() {
 
     // Wait until the reader has registered as a latent waiter.
     let key = (actor_handle, std_handle as isize);
-    while pool.inspect_entry(key) != Some(PipeEntryInspection::Latent(LatentState::Waiting)) {
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
+    wait_for_latent(&pool, key, 5000).await;
 
     // flush_close_actor_writers is NOT called here (producer was killed externally).
     // close_all_leftover_writers sweeps all remaining Waiting entries at shutdown.
