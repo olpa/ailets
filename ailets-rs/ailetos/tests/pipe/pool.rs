@@ -20,15 +20,6 @@ async fn wait_for_latent(pool: &PipePool, key: (Handle, isize), timeout_ms: u64)
     .await;
 }
 
-async fn wait_for_any_writer(pool: &PipePool, actor: Handle, timeout_ms: u64) {
-    super::helpers::poll_until(
-        || pool.inspect_entries().iter().any(|(h, _, _)| *h == actor),
-        timeout_ms,
-        &format!("waiting for any writer for actor {actor:?}"),
-    )
-    .await;
-}
-
 // Test helper to create a test pool
 fn create_test_pool() -> (PipePool, Arc<MemKV>, Arc<IdGen>, Arc<RwLock<Dag>>) {
     let kv = Arc::new(MemKV::new());
@@ -1318,10 +1309,9 @@ async fn test_race_touch_writer_vs_close() {
         handles.push(handle);
     }
 
-    // Close task (runs concurrently with writers)
+    // Close task (races freely with all writer tasks)
     let pool_clone = Arc::clone(&pool);
     let close_handle = tokio::spawn(async move {
-        wait_for_any_writer(&pool_clone, actor_handle, 5000).await;
         pool_clone
             .flush_close_actor_writers(actor_handle, 0)
             .await
