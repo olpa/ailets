@@ -749,7 +749,7 @@ impl Executor {
                 .send(Err(format!("node {node:?} not found in DAG")))
                 .is_err()
             {
-                warn!(node = ?node, "join: join rx dropped before node-not-found result could be sent");
+                unreachable!("join rx dropped before node-not-found result could be sent");
             }
             return rx;
         };
@@ -762,7 +762,7 @@ impl Executor {
                     Err(format!("exit code {}", n.exit_code))
                 };
                 if tx.send(result).is_err() {
-                    warn!(node = ?node, "join: join rx dropped before terminated-node result could be sent");
+                    unreachable!("join rx dropped before terminated-node result could be sent");
                 }
             }
             NodeState::NotStarted | NodeState::Running | NodeState::Terminating => {
