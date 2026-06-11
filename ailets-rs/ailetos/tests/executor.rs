@@ -359,7 +359,12 @@ async fn test_failed_node_clears_dependents_from_pending() {
 
     // Wait for the executor's spawn loop to process a's termination wakeup
     // and remove b/c/d from pending before we snapshot it.
-    poll_until(|| executor.snapshot_pending().is_empty(), 5000, "pending should be empty after a failed").await;
+    poll_until(
+        || executor.snapshot_pending().is_empty(),
+        5000,
+        "pending should be empty after a failed",
+    )
+    .await;
 
     let pending = executor.snapshot_pending();
     executor.shutdown().await;
