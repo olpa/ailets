@@ -203,13 +203,6 @@ pub static ENTRY_DEP: CommandMeta = CommandMeta {
     description: "Add dependency (node depends on dependency)",
     detail: None,
 };
-pub static ENTRY_DEPS: CommandMeta = CommandMeta {
-    names: &["deps"],
-    argsig: "node",
-    section: "Dependencies",
-    description: "Show direct dependencies of a node",
-    detail: None,
-};
 impl DagShell {
     pub(crate) fn cmd_dep(&mut self, args: &[&str]) -> Result<(), String> {
         let (node_str, dep_str) = match args {
@@ -232,7 +225,16 @@ impl DagShell {
             .println(&format!("Added dependency: {nid} depends on {did}"));
         Ok(())
     }
+}
 
+pub static ENTRY_DEPS: CommandMeta = CommandMeta {
+    names: &["deps"],
+    argsig: "node",
+    section: "Dependencies",
+    description: "Show direct dependencies of a node",
+    detail: None,
+};
+impl DagShell {
     pub(crate) fn cmd_deps(&self, args: &[&str]) -> Result<(), String> {
         let handle_str = args.first().ok_or("Usage: deps <node>")?;
         let handle = self
@@ -491,20 +493,6 @@ pub static ENTRY_JOIN: CommandMeta = CommandMeta {
     description: "Wait for node to terminate; Ctrl+C to detach",
     detail: None,
 };
-pub static ENTRY_FOLLOW: CommandMeta = CommandMeta {
-    names: &["follow"],
-    argsig: "node ?--color name?",
-    section: "Job Control",
-    description: "Attach node stdout; optional 256-color name or 0-255",
-    detail: None,
-};
-pub static ENTRY_KILL: CommandMeta = CommandMeta {
-    names: &["kill"],
-    argsig: "?-N? node",
-    section: "Job Control",
-    description: "Kill actor with exit code N (default 130)",
-    detail: None,
-};
 impl DagShell {
     pub(crate) fn cmd_join(&mut self, args: &[&str]) -> Result<(), String> {
         let handle_str = args.first().ok_or("Usage: join <node>")?;
@@ -513,7 +501,16 @@ impl DagShell {
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
         self.join_handles(self.env.resolve_all(handle))
     }
+}
 
+pub static ENTRY_FOLLOW: CommandMeta = CommandMeta {
+    names: &["follow"],
+    argsig: "node ?--color name?",
+    section: "Job Control",
+    description: "Attach node stdout; optional 256-color name or 0-255",
+    detail: None,
+};
+impl DagShell {
     pub(crate) fn cmd_follow(&mut self, args: &[&str]) -> Result<(), String> {
         let mut handle_str: Option<&str> = None;
         let mut color: Option<u8> = None;
@@ -636,7 +633,16 @@ impl DagShell {
             }
         }
     }
+}
 
+pub static ENTRY_KILL: CommandMeta = CommandMeta {
+    names: &["kill"],
+    argsig: "?-N? node",
+    section: "Job Control",
+    description: "Kill actor with exit code N (default 130)",
+    detail: None,
+};
+impl DagShell {
     pub(crate) fn cmd_kill(&mut self, args: &[&str]) -> Result<(), String> {
         let handle_str = match args {
             [flag, node] if flag.starts_with('-') => *node,
@@ -864,23 +870,6 @@ pub static ENTRY_SUSPEND: CommandMeta = CommandMeta {
     description: "Suspend a running actor",
     detail: None,
 };
-pub static ENTRY_RESUME: CommandMeta = CommandMeta {
-    names: &["resume"],
-    argsig: "node",
-    section: "Debug",
-    description: "Resume a suspended actor (dbg or general)",
-    detail: None,
-};
-pub static ENTRY_WAIT: CommandMeta = CommandMeta {
-    names: &["wait"],
-    argsig: "condition ?args?",
-    section: "Debug",
-    description: "Block until condition; Ctrl+C to detach",
-    detail: Some(concat!(
-        "    suspended <node>                Block until node is suspended\n",
-        "    terminated <node>               Block until node is terminated",
-    )),
-};
 impl DagShell {
     pub(crate) fn cmd_suspend(&self, args: &[&str]) -> Result<(), String> {
         let handle_str = args.first().ok_or("Usage: suspend <node>")?;
@@ -892,7 +881,16 @@ impl DagShell {
             .println(&format!("Suspended node {}", handle.id()));
         Ok(())
     }
+}
 
+pub static ENTRY_RESUME: CommandMeta = CommandMeta {
+    names: &["resume"],
+    argsig: "node",
+    section: "Debug",
+    description: "Resume a suspended actor (dbg or general)",
+    detail: None,
+};
+impl DagShell {
     pub(crate) fn cmd_resume(&self, args: &[&str]) -> Result<(), String> {
         let handle_str = args.first().ok_or("Usage: resume <node>")?;
         let handle = self
@@ -902,7 +900,19 @@ impl DagShell {
         self.sink.println(&format!("Resumed node {}", handle.id()));
         Ok(())
     }
+}
 
+pub static ENTRY_WAIT: CommandMeta = CommandMeta {
+    names: &["wait"],
+    argsig: "condition ?args?",
+    section: "Debug",
+    description: "Block until condition; Ctrl+C to detach",
+    detail: Some(concat!(
+        "    suspended <node>                Block until node is suspended\n",
+        "    terminated <node>               Block until node is terminated",
+    )),
+};
+impl DagShell {
     #[allow(clippy::disallowed_methods)] // polling loop without a notification channel
     pub(crate) fn cmd_wait(&mut self, args: &[&str]) -> Result<(), String> {
         let condition = args.first().ok_or("Usage: wait <condition> [args]")?;
@@ -974,13 +984,6 @@ pub static ENTRY_WRITE: CommandMeta = CommandMeta {
     description: "Write data to a shell_input actor",
     detail: None,
 };
-pub static ENTRY_CLOSE: CommandMeta = CommandMeta {
-    names: &["close"],
-    argsig: "node",
-    section: "Shell Input",
-    description: "Close a shell_input actor (send EOF)",
-    detail: None,
-};
 impl DagShell {
     pub(crate) fn cmd_write(&self, args: &[&str]) -> Result<(), String> {
         let handle_str = args.first().ok_or("Usage: write <node> <data>")?;
@@ -999,7 +1002,16 @@ impl DagShell {
             Err(e) => Err(format!("Failed to write: {e}")),
         }
     }
+}
 
+pub static ENTRY_CLOSE: CommandMeta = CommandMeta {
+    names: &["close"],
+    argsig: "node",
+    section: "Shell Input",
+    description: "Close a shell_input actor (send EOF)",
+    detail: None,
+};
+impl DagShell {
     pub(crate) fn cmd_close(&self, args: &[&str]) -> Result<(), String> {
         let handle_str = args.first().ok_or("Usage: close <node>")?;
         let handle = self
