@@ -123,11 +123,14 @@ pub struct DagShell {
     pub(crate) sink: Box<dyn OutputSink>,
     pub(crate) notification_sink: Arc<dyn OutputSink>,
     pub(crate) foreground_join: Arc<AtomicBool>,
+    // Tracked reader tasks (follow / run --bg). Drained in prepare_exit so the
+    // last bytes written by an actor are never silently dropped on fast exit.
     pub(crate) reader_tasks: tokio::task::JoinSet<()>,
     watcher: NotificationWatcher,
     // executor drops before ailetos_async_rt (declaration order = drop order).
     pub(crate) executor: Executor,
     pub(crate) ailetos_async_rt: tokio::runtime::Runtime,
+    // CLI-side async runtime: join waits, sleeps. Independent from ailetos.
     pub(crate) cli_rt: tokio::runtime::Runtime,
 }
 
@@ -143,7 +146,7 @@ impl DagShell {
     }
 
     /// Create a shell with separate sinks for synchronous command output and
-    /// background notifications.
+    /// background notifications (node terminations while at the prompt).
     ///
     /// # Panics
     /// Panics if the tokio runtime cannot be created.
@@ -158,6 +161,7 @@ impl DagShell {
     }
 
     /// Like `new_with_sinks` but accepts a pre-created runtime for ailetos.
+    /// The caller must ensure this runtime is used exclusively for ailetos.
     ///
     /// # Panics
     /// Panics if the CLI tokio runtime cannot be created.
@@ -251,6 +255,9 @@ impl DagShell {
         for &handle in &self.handles {
             self.env.suspension.resume(handle);
         }
+        // Unblock reader tasks waiting on pipes that will never be realized
+        // (e.g. a node whose dep failed without ever opening stdout).
+        // Must happen before draining reader_tasks to avoid deadlock.
         self.env.pipe_pool.close_all_leftover_writers();
         tracing::debug!(
             count = self.reader_tasks.len(),
@@ -260,6 +267,8 @@ impl DagShell {
         let tasks = &mut self.reader_tasks;
         rt.block_on(async { while tasks.join_next().await.is_some() {} });
         self.watcher.shutdown(&self.cli_rt);
+        // executor and ailetos_async_rt drop in declaration order, closing the
+        // event channel and causing the watcher task to exit.
     }
 }
 
