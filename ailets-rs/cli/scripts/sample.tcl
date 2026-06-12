@@ -5,19 +5,19 @@
 #                       ├── bar (Copy.bar) ── baz (Copy.baz)
 #   stdin (stdin stub) ── foo (Copy.foo) ──┘
 
-set val [node value "(mee too)" "--explain=Static text"]
-set stdin [node value "Hello from dagsh!" "--explain=Read from stdin"]
+set val [value "(mee too)" "--explain=Static text"]
+set stdin [value "Hello from dagsh!" "--explain=Read from stdin"]
 
-set foo [node add cat "--explain=Copy.foo"]
+set foo [node cat "--explain=Copy.foo"]
 dep $foo $stdin
 
-set bar [node add cat "--explain=Copy.bar"]
+set bar [node cat "--explain=Copy.bar"]
 dep $bar $val
 dep $bar $foo
 
-set baz [node add cat "--explain=Copy.baz"]
+set baz [node cat "--explain=Copy.baz"]
 dep $baz $bar
 
-set end [node alias .end $baz]
+set end [alias .end $baz]
 
 show

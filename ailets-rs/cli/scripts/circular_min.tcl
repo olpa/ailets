@@ -1,8 +1,8 @@
 # Minimal circular dependency example
 # Demonstrates how the DAG dumper handles circular references
 
-set a [node value "aa"]
-set b [node value "bb"]
+set a [value "aa"]
+set b [value "bb"]
 
 dep $b $a
 dep $a $b
