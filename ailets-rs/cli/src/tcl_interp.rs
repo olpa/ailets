@@ -5,40 +5,27 @@ use molt::{molt_ok, types::*, Interp};
 use crate::DagShell;
 
 // ---------------------------------------------------------------------------
-// Thread-locals — active shell pointer and exit signal
+// Context stored inside the molt Interp — no global/thread-local state needed.
 // ---------------------------------------------------------------------------
 
-thread_local! {
-    // raw pointer to DagShell, valid only during DagShell::execute
-    static CURRENT_SHELL: std::cell::Cell<*mut DagShell> =
-        std::cell::Cell::new(std::ptr::null_mut());
-
-    static EXIT_REQUESTED: std::cell::Cell<bool> = std::cell::Cell::new(false);
+pub(crate) struct ShellContext {
+    // Raw pointer to DagShell, valid only while DagShell::execute is on the stack.
+    pub(crate) shell: *mut DagShell,
+    pub(crate) exit_requested: bool,
 }
 
-pub(crate) fn set_shell(shell: *mut DagShell) {
-    CURRENT_SHELL.with(|c| c.set(shell));
-}
+// Safety: ShellContext is only ever accessed from the single CLI thread that
+// owns DagShell. The Interp (and therefore ShellContext) never crosses threads.
+unsafe impl Send for ShellContext {}
 
-pub(crate) fn clear_shell() {
-    CURRENT_SHELL.with(|c| c.set(std::ptr::null_mut()));
-}
-
-pub(crate) fn take_exit_requested() -> bool {
-    EXIT_REQUESTED.with(|c| c.replace(false))
-}
-
-// Safety: called only from command handlers invoked by DagShell::execute,
-// which sets CURRENT_SHELL before calling interp.eval and clears it after.
-// The pointer is valid for the entire duration of the eval call.
-// Command handlers only access DagShell fields other than `tcl` (which was
-// moved out of self before eval), so no aliasing of the same memory occurs.
-fn get_shell<'a>() -> &'a mut DagShell {
-    CURRENT_SHELL.with(|c| {
-        let ptr = c.get();
-        debug_assert!(!ptr.is_null(), "no active DagShell context");
-        unsafe { &mut *ptr }
-    })
+// Safety: shell pointer is set before eval and cleared after; command handlers
+// only run during eval, so the pointer is always valid when dereferenced.
+// Command handlers access DagShell fields other than `tcl` (which was moved out
+// of self before eval), so no aliasing of the same memory occurs.
+fn get_shell<'a>(interp: &mut Interp, ctx: ContextID) -> &'a mut DagShell {
+    let ptr = interp.context::<ShellContext>(ctx).shell;
+    debug_assert!(!ptr.is_null(), "no active DagShell context");
+    unsafe { &mut *ptr }
 }
 
 fn wrap(r: Result<(), String>) -> MoltResult {
@@ -50,40 +37,44 @@ fn wrap(r: Result<(), String>) -> MoltResult {
 // Interpreter factory
 // ---------------------------------------------------------------------------
 
-pub(crate) fn make_interp() -> Interp {
+pub(crate) fn make_interp() -> (Interp, ContextID) {
     let mut interp = Interp::new();
-    interp.add_command("node", tcl_node);
-    interp.add_command("dep", tcl_dep);
-    interp.add_command("deps", tcl_deps);
-    interp.add_command("show", tcl_show);
-    interp.add_command("run", tcl_run);
-    interp.add_command("join", tcl_join);
-    interp.add_command("await", tcl_join);
-    interp.add_command("follow", tcl_follow);
-    interp.add_command("cat", tcl_cat);
-    interp.add_command("status", tcl_status);
-    interp.add_command("source", tcl_source);
-    interp.add_command("load", tcl_source);
-    interp.add_command("suspend", tcl_suspend);
-    interp.add_command("resume", tcl_resume);
-    interp.add_command("wait", tcl_wait);
-    interp.add_command("write", tcl_write);
-    interp.add_command("close", tcl_close);
-    interp.add_command("kill", tcl_kill);
-    interp.add_command("help", tcl_help);
-    interp.add_command("?", tcl_help);
-    interp.add_command("quit", tcl_quit);
-    interp.add_command("exit", tcl_quit);
-    interp.add_command("q", tcl_quit);
-    interp
+    let ctx = interp.save_context(ShellContext {
+        shell: std::ptr::null_mut(),
+        exit_requested: false,
+    });
+    interp.add_context_command("node", tcl_node, ctx);
+    interp.add_context_command("dep", tcl_dep, ctx);
+    interp.add_context_command("deps", tcl_deps, ctx);
+    interp.add_context_command("show", tcl_show, ctx);
+    interp.add_context_command("run", tcl_run, ctx);
+    interp.add_context_command("join", tcl_join, ctx);
+    interp.add_context_command("await", tcl_join, ctx);
+    interp.add_context_command("follow", tcl_follow, ctx);
+    interp.add_context_command("cat", tcl_cat, ctx);
+    interp.add_context_command("status", tcl_status, ctx);
+    interp.add_context_command("source", tcl_source, ctx);
+    interp.add_context_command("load", tcl_source, ctx);
+    interp.add_context_command("suspend", tcl_suspend, ctx);
+    interp.add_context_command("resume", tcl_resume, ctx);
+    interp.add_context_command("wait", tcl_wait, ctx);
+    interp.add_context_command("write", tcl_write, ctx);
+    interp.add_context_command("close", tcl_close, ctx);
+    interp.add_context_command("kill", tcl_kill, ctx);
+    interp.add_context_command("help", tcl_help, ctx);
+    interp.add_context_command("?", tcl_help, ctx);
+    interp.add_context_command("quit", tcl_quit, ctx);
+    interp.add_context_command("exit", tcl_quit, ctx);
+    interp.add_context_command("q", tcl_quit, ctx);
+    (interp, ctx)
 }
 
 // ---------------------------------------------------------------------------
 // Command handlers
 // ---------------------------------------------------------------------------
 
-fn tcl_node(_interp: &mut Interp, _ctx: ContextID, argv: &[Value]) -> MoltResult {
-    let shell = get_shell();
+fn tcl_node(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
+    let shell = get_shell(interp, ctx);
     let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
     if args.first() == Some(&"list") {
         shell.cmd_node_list();
@@ -95,44 +86,44 @@ fn tcl_node(_interp: &mut Interp, _ctx: ContextID, argv: &[Value]) -> MoltResult
     }
 }
 
-fn tcl_dep(_interp: &mut Interp, _ctx: ContextID, argv: &[Value]) -> MoltResult {
+fn tcl_dep(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell().cmd_dep(&args))
+    wrap(get_shell(interp, ctx).cmd_dep(&args))
 }
 
-fn tcl_deps(_interp: &mut Interp, _ctx: ContextID, argv: &[Value]) -> MoltResult {
+fn tcl_deps(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell().cmd_deps(&args))
+    wrap(get_shell(interp, ctx).cmd_deps(&args))
 }
 
-fn tcl_show(_interp: &mut Interp, _ctx: ContextID, argv: &[Value]) -> MoltResult {
+fn tcl_show(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell().cmd_show(&args))
+    wrap(get_shell(interp, ctx).cmd_show(&args))
 }
 
-fn tcl_run(_interp: &mut Interp, _ctx: ContextID, argv: &[Value]) -> MoltResult {
+fn tcl_run(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell().cmd_run(&args))
+    wrap(get_shell(interp, ctx).cmd_run(&args))
 }
 
-fn tcl_join(_interp: &mut Interp, _ctx: ContextID, argv: &[Value]) -> MoltResult {
+fn tcl_join(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell().cmd_join(&args))
+    wrap(get_shell(interp, ctx).cmd_join(&args))
 }
 
-fn tcl_follow(_interp: &mut Interp, _ctx: ContextID, argv: &[Value]) -> MoltResult {
+fn tcl_follow(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell().cmd_follow(&args))
+    wrap(get_shell(interp, ctx).cmd_follow(&args))
 }
 
-fn tcl_cat(_interp: &mut Interp, _ctx: ContextID, argv: &[Value]) -> MoltResult {
+fn tcl_cat(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell().cmd_cat(&args))
+    wrap(get_shell(interp, ctx).cmd_cat(&args))
 }
 
-fn tcl_status(_interp: &mut Interp, _ctx: ContextID, argv: &[Value]) -> MoltResult {
+fn tcl_status(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    get_shell().cmd_status(&args);
+    get_shell(interp, ctx).cmd_status(&args);
     molt_ok!()
 }
 
@@ -146,43 +137,43 @@ fn tcl_source(interp: &mut Interp, _ctx: ContextID, argv: &[Value]) -> MoltResul
     interp.eval(&content)
 }
 
-fn tcl_suspend(_interp: &mut Interp, _ctx: ContextID, argv: &[Value]) -> MoltResult {
+fn tcl_suspend(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell().cmd_suspend(&args))
+    wrap(get_shell(interp, ctx).cmd_suspend(&args))
 }
 
-fn tcl_resume(_interp: &mut Interp, _ctx: ContextID, argv: &[Value]) -> MoltResult {
+fn tcl_resume(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell().cmd_resume(&args))
+    wrap(get_shell(interp, ctx).cmd_resume(&args))
 }
 
-fn tcl_wait(_interp: &mut Interp, _ctx: ContextID, argv: &[Value]) -> MoltResult {
+fn tcl_wait(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell().cmd_wait(&args))
+    wrap(get_shell(interp, ctx).cmd_wait(&args))
 }
 
-fn tcl_write(_interp: &mut Interp, _ctx: ContextID, argv: &[Value]) -> MoltResult {
+fn tcl_write(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell().cmd_write(&args))
+    wrap(get_shell(interp, ctx).cmd_write(&args))
 }
 
-fn tcl_close(_interp: &mut Interp, _ctx: ContextID, argv: &[Value]) -> MoltResult {
+fn tcl_close(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell().cmd_close(&args))
+    wrap(get_shell(interp, ctx).cmd_close(&args))
 }
 
-fn tcl_kill(_interp: &mut Interp, _ctx: ContextID, argv: &[Value]) -> MoltResult {
+fn tcl_kill(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell().cmd_kill(&args))
+    wrap(get_shell(interp, ctx).cmd_kill(&args))
 }
 
-fn tcl_help(_interp: &mut Interp, _ctx: ContextID, _argv: &[Value]) -> MoltResult {
-    get_shell().cmd_help();
+fn tcl_help(interp: &mut Interp, ctx: ContextID, _argv: &[Value]) -> MoltResult {
+    get_shell(interp, ctx).cmd_help();
     molt_ok!()
 }
 
-fn tcl_quit(_interp: &mut Interp, _ctx: ContextID, _argv: &[Value]) -> MoltResult {
-    EXIT_REQUESTED.with(|c| c.set(true));
+fn tcl_quit(interp: &mut Interp, ctx: ContextID, _argv: &[Value]) -> MoltResult {
+    interp.context::<ShellContext>(ctx).exit_requested = true;
     // Return an error to unwind the current script; execute() converts this to ShellControl::Exit.
     Err(Exception::molt_err("exit".into()))
 }

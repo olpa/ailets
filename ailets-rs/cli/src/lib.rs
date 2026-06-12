@@ -116,9 +116,10 @@ impl NotificationWatcher {
 // ---------------------------------------------------------------------------
 
 pub struct DagShell {
-    // TCL interpreter — taken out of self during execute() to avoid aliasing.
-    // None only while execute() is on the call stack.
+    // TCL interpreter and its context ID — taken out of self during execute() to avoid aliasing.
+    // Both are None only before the first execute() call and while execute() is on the stack.
     pub(crate) tcl: Option<molt::Interp>,
+    pub(crate) tcl_ctx: Option<molt::types::ContextID>,
     pub(crate) env: Arc<Environment>,
     pub(crate) kv: Arc<MemKV>,
     pub(crate) handles: Vec<Handle>,
@@ -192,6 +193,7 @@ impl DagShell {
 
         Self {
             tcl: None,
+            tcl_ctx: None,
             env,
             kv,
             handles: Vec::new(),
@@ -217,17 +219,29 @@ impl DagShell {
     /// Returns a TCL error message if script evaluation fails.
     pub fn execute(&mut self, script: &str) -> Result<ShellControl, String> {
         // Take the interpreter out of self so that command handlers can borrow
-        // other fields of self through the thread-local without aliasing self.tcl.
-        let mut tcl = self.tcl.take().unwrap_or_else(tcl_interp::make_interp);
+        // other fields of self via the shell pointer without aliasing self.tcl.
+        let (mut tcl, ctx) = match (self.tcl.take(), self.tcl_ctx) {
+            (Some(interp), Some(ctx)) => (interp, ctx),
+            _ => {
+                let (interp, ctx) = tcl_interp::make_interp();
+                self.tcl_ctx = Some(ctx);
+                (interp, ctx)
+            }
+        };
 
         // Safety: see tcl_interp::get_shell safety comment.
-        tcl_interp::set_shell(self as *mut DagShell);
+        tcl.context::<tcl_interp::ShellContext>(ctx).shell = self as *mut DagShell;
         let result = tcl.eval(script);
-        tcl_interp::clear_shell();
+        tcl.context::<tcl_interp::ShellContext>(ctx).shell = std::ptr::null_mut();
+
+        let exit_requested = std::mem::replace(
+            &mut tcl.context::<tcl_interp::ShellContext>(ctx).exit_requested,
+            false,
+        );
 
         self.tcl = Some(tcl);
 
-        if tcl_interp::take_exit_requested() {
+        if exit_requested {
             return Ok(ShellControl::Exit);
         }
 
