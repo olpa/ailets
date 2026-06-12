@@ -212,14 +212,28 @@ impl DagShell {
     ///
     /// # Errors
     /// Returns a TCL error message if script evaluation fails.
-    pub fn execute(&mut self, tcl: &mut TclShell, script: &str) -> Result<ShellControl, String> {
-        // Safety: see tcl_interp::get_shell safety comment.
-        tcl.interp.context::<tcl_interp::ShellContext>(tcl.ctx).shell = self as *mut DagShell;
-        let result = tcl.interp.eval(script);
-        tcl.interp.context::<tcl_interp::ShellContext>(tcl.ctx).shell = std::ptr::null_mut();
+    pub fn execute(
+        &mut self,
+        interp: &mut molt::Interp,
+        ctx: molt::types::ContextID,
+        script: &str,
+    ) -> Result<ShellControl, String> {
+        // Why a raw pointer: molt's command handlers have a fixed signature
+        // (interp, ctx, argv) with no room for extra parameters.  The only way
+        // to reach DagShell from inside a handler is through the ShellContext
+        // stored in the interpreter.  We can't store a Rust reference there
+        // because `self` is already mutably borrowed for the duration of this
+        // function, and Rust would refuse a second &mut borrow of the same
+        // value.  A raw pointer sidesteps the borrow checker; the pointer is
+        // valid for the entire eval() call because `self` is borrowed for at
+        // least that long, and no handler touches `interp` (the other borrow),
+        // so there is no actual aliasing.
+        interp.context::<tcl_interp::ShellContext>(ctx).shell = self as *mut DagShell;
+        let result = interp.eval(script);
+        interp.context::<tcl_interp::ShellContext>(ctx).shell = std::ptr::null_mut();
 
         let exit_requested = std::mem::replace(
-            &mut tcl.interp.context::<tcl_interp::ShellContext>(tcl.ctx).exit_requested,
+            &mut interp.context::<tcl_interp::ShellContext>(ctx).exit_requested,
             false,
         );
 
@@ -250,19 +264,13 @@ impl DagShell {
     }
 }
 
-/// Bundles a `molt::Interp` with its `ContextID` for the embedded `ShellContext`.
+/// Create a `molt::Interp` pre-loaded with all DAG shell commands.
 ///
-/// Create with `make_tcl()` and pass to `DagShell::execute` on every call.
-/// Reusing the same instance across calls preserves TCL variables between invocations.
-pub struct TclShell {
-    pub(crate) interp: molt::Interp,
-    pub(crate) ctx: molt::types::ContextID,
-}
-
-/// Create a `TclShell` pre-loaded with all DAG shell commands.
-pub fn make_tcl() -> TclShell {
-    let (interp, ctx) = tcl_interp::make_interp();
-    TclShell { interp, ctx }
+/// Returns `(interp, ctx)` where `ctx` is the `ContextID` for the embedded
+/// `ShellContext`.  Pass both to `DagShell::execute` on every call; reusing
+/// the same pair across calls preserves TCL variables between invocations.
+pub fn make_tcl() -> (molt::Interp, molt::types::ContextID) {
+    tcl_interp::make_interp()
 }
 
 impl Default for DagShell {

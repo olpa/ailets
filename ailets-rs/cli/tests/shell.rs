@@ -81,8 +81,8 @@ impl OutputSink for CapturingSink {
 fn execute_routes_output_through_sink() {
     let sink = CapturingSink::new();
     let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
-    let mut tcl = make_tcl();
-    shell.execute(&mut tcl, "help").unwrap();
+    let (mut interp, ctx) = make_tcl();
+    shell.execute(&mut interp, ctx, "help").unwrap();
     let lines = sink.lines();
     assert!(lines.iter().any(|l| l.contains("Node Management")));
 }
@@ -91,13 +91,13 @@ fn execute_routes_output_through_sink() {
 fn run_completes_on_persistent_executor() {
     let sink = CapturingSink::new();
     let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
-    let mut tcl = make_tcl();
+    let (mut interp, ctx) = make_tcl();
     // value "hello" → cat (foreground run should block until terminated)
-    shell.execute(&mut tcl, "set v [node value hello]").unwrap();
-    shell.execute(&mut tcl, "set c [node add cat]").unwrap();
-    shell.execute(&mut tcl, "dep $c $v").unwrap();
-    shell.execute(&mut tcl, "run $c").unwrap();
-    shell.execute(&mut tcl, "status $c").unwrap();
+    shell.execute(&mut interp, ctx, "set v [node value hello]").unwrap();
+    shell.execute(&mut interp, ctx, "set c [node add cat]").unwrap();
+    shell.execute(&mut interp, ctx, "dep $c $v").unwrap();
+    shell.execute(&mut interp, ctx, "run $c").unwrap();
+    shell.execute(&mut interp, ctx, "status $c").unwrap();
     let lines = sink.lines();
     assert!(lines.iter().any(|l| l.contains("built")));
 }
@@ -109,16 +109,16 @@ fn multiple_bg_runs_are_allowed() {
         Box::new(CapturingSink::new()),
         Arc::clone(&notification_sink) as Arc<dyn OutputSink>,
     );
-    let mut tcl = make_tcl();
-    shell.execute(&mut tcl, "set v1 [node value alpha]").unwrap();
-    shell.execute(&mut tcl, "set c1 [node add cat]").unwrap();
-    shell.execute(&mut tcl, "dep $c1 $v1").unwrap();
-    shell.execute(&mut tcl, "run $c1 --bg").unwrap();
+    let (mut interp, ctx) = make_tcl();
+    shell.execute(&mut interp, ctx, "set v1 [node value alpha]").unwrap();
+    shell.execute(&mut interp, ctx, "set c1 [node add cat]").unwrap();
+    shell.execute(&mut interp, ctx, "dep $c1 $v1").unwrap();
+    shell.execute(&mut interp, ctx, "run $c1 --bg").unwrap();
     // second background run must not fail with "already running"
-    shell.execute(&mut tcl, "set v2 [node value beta]").unwrap();
-    shell.execute(&mut tcl, "set c2 [node add cat]").unwrap();
-    shell.execute(&mut tcl, "dep $c2 $v2").unwrap();
-    shell.execute(&mut tcl, "run $c2 --bg").unwrap();
+    shell.execute(&mut interp, ctx, "set v2 [node value beta]").unwrap();
+    shell.execute(&mut interp, ctx, "set c2 [node add cat]").unwrap();
+    shell.execute(&mut interp, ctx, "dep $c2 $v2").unwrap();
+    shell.execute(&mut interp, ctx, "run $c2 --bg").unwrap();
     assert!(
         notification_sink.wait_for_line(
             |lines| lines.iter().filter(|l| l.contains("done")).count() >= 2,
@@ -133,13 +133,13 @@ fn multiple_bg_runs_are_allowed() {
 fn run_alias_completes() {
     let sink = CapturingSink::new();
     let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
-    let mut tcl = make_tcl();
-    shell.execute(&mut tcl, "set v [node value hello]").unwrap();
-    shell.execute(&mut tcl, "set c [node add cat]").unwrap();
-    shell.execute(&mut tcl, "dep $c $v").unwrap();
-    shell.execute(&mut tcl, "set end [node alias .end $c]").unwrap();
-    shell.execute(&mut tcl, "run $end").unwrap(); // must not hang
-    shell.execute(&mut tcl, "status $c").unwrap();
+    let (mut interp, ctx) = make_tcl();
+    shell.execute(&mut interp, ctx, "set v [node value hello]").unwrap();
+    shell.execute(&mut interp, ctx, "set c [node add cat]").unwrap();
+    shell.execute(&mut interp, ctx, "dep $c $v").unwrap();
+    shell.execute(&mut interp, ctx, "set end [node alias .end $c]").unwrap();
+    shell.execute(&mut interp, ctx, "run $end").unwrap(); // must not hang
+    shell.execute(&mut interp, ctx, "status $c").unwrap();
     let lines = sink.lines();
     assert!(lines.iter().any(|l| l.contains("built")));
 }
@@ -151,13 +151,13 @@ fn two_follows_both_receive_output() {
         Box::new(CapturingSink::new()),
         Arc::clone(&notification_sink) as Arc<dyn OutputSink>,
     );
-    let mut tcl = make_tcl();
-    shell.execute(&mut tcl, "set v [node value hello]").unwrap();
-    shell.execute(&mut tcl, "set c [node add cat]").unwrap();
-    shell.execute(&mut tcl, "dep $c $v").unwrap();
-    shell.execute(&mut tcl, "follow $c").unwrap();
-    shell.execute(&mut tcl, "follow $c").unwrap();
-    shell.execute(&mut tcl, "run $c").unwrap();
+    let (mut interp, ctx) = make_tcl();
+    shell.execute(&mut interp, ctx, "set v [node value hello]").unwrap();
+    shell.execute(&mut interp, ctx, "set c [node add cat]").unwrap();
+    shell.execute(&mut interp, ctx, "dep $c $v").unwrap();
+    shell.execute(&mut interp, ctx, "follow $c").unwrap();
+    shell.execute(&mut interp, ctx, "follow $c").unwrap();
+    shell.execute(&mut interp, ctx, "run $c").unwrap();
 
     // Both followers write to the shared notification sink — "hello" must appear twice.
     let combined = notification_sink.lines().join("");
@@ -177,11 +177,11 @@ fn background_termination_is_notified() {
         Box::new(CapturingSink::new()),
         Arc::clone(&notification_sink) as Arc<dyn OutputSink>,
     );
-    let mut tcl = make_tcl();
-    shell.execute(&mut tcl, "set v [node value hello]").unwrap();
-    shell.execute(&mut tcl, "set c [node add cat]").unwrap();
-    shell.execute(&mut tcl, "dep $c $v").unwrap();
-    shell.execute(&mut tcl, "run $c --bg").unwrap();
+    let (mut interp, ctx) = make_tcl();
+    shell.execute(&mut interp, ctx, "set v [node value hello]").unwrap();
+    shell.execute(&mut interp, ctx, "set c [node add cat]").unwrap();
+    shell.execute(&mut interp, ctx, "dep $c $v").unwrap();
+    shell.execute(&mut interp, ctx, "run $c --bg").unwrap();
     assert!(
         notification_sink.wait_for_line(|lines| lines.iter().any(|l| l.contains("done")), 5,),
         "timeout: no 'done' notification; lines: {:?}",
@@ -194,14 +194,14 @@ fn one_step_runs_first_pending_actor() {
     // v1 → cat2 → cat3: `run --one-step` must return (not hang) and run exactly cat2.
     let sink = CapturingSink::new();
     let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
-    let mut tcl = make_tcl();
-    shell.execute(&mut tcl, "set v1 [node value hello]").unwrap();
-    shell.execute(&mut tcl, "set cat2 [node add cat]").unwrap();
-    shell.execute(&mut tcl, "dep $cat2 $v1").unwrap();
-    shell.execute(&mut tcl, "set cat3 [node add cat]").unwrap();
-    shell.execute(&mut tcl, "dep $cat3 $cat2").unwrap();
-    shell.execute(&mut tcl, "run --one-step").unwrap(); // must not hang
-    shell.execute(&mut tcl, "status").unwrap();
+    let (mut interp, ctx) = make_tcl();
+    shell.execute(&mut interp, ctx, "set v1 [node value hello]").unwrap();
+    shell.execute(&mut interp, ctx, "set cat2 [node add cat]").unwrap();
+    shell.execute(&mut interp, ctx, "dep $cat2 $v1").unwrap();
+    shell.execute(&mut interp, ctx, "set cat3 [node add cat]").unwrap();
+    shell.execute(&mut interp, ctx, "dep $cat3 $cat2").unwrap();
+    shell.execute(&mut interp, ctx, "run --one-step").unwrap(); // must not hang
+    shell.execute(&mut interp, ctx, "status").unwrap();
     let lines = sink.lines();
     // v1 pre-terminated + cat2 just ran = 2 terminated; cat3 must not have run.
     assert!(
@@ -215,15 +215,15 @@ fn one_step_advances_past_terminated_nodes() {
     // Second `run --one-step` must skip already-terminated nodes and run cat3.
     let sink = CapturingSink::new();
     let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
-    let mut tcl = make_tcl();
-    shell.execute(&mut tcl, "set v1 [node value hello]").unwrap();
-    shell.execute(&mut tcl, "set cat2 [node add cat]").unwrap();
-    shell.execute(&mut tcl, "dep $cat2 $v1").unwrap();
-    shell.execute(&mut tcl, "set cat3 [node add cat]").unwrap();
-    shell.execute(&mut tcl, "dep $cat3 $cat2").unwrap();
-    shell.execute(&mut tcl, "run --one-step").unwrap(); // runs cat2
-    shell.execute(&mut tcl, "run --one-step").unwrap(); // must not hang; runs cat3
-    shell.execute(&mut tcl, "status").unwrap();
+    let (mut interp, ctx) = make_tcl();
+    shell.execute(&mut interp, ctx, "set v1 [node value hello]").unwrap();
+    shell.execute(&mut interp, ctx, "set cat2 [node add cat]").unwrap();
+    shell.execute(&mut interp, ctx, "dep $cat2 $v1").unwrap();
+    shell.execute(&mut interp, ctx, "set cat3 [node add cat]").unwrap();
+    shell.execute(&mut interp, ctx, "dep $cat3 $cat2").unwrap();
+    shell.execute(&mut interp, ctx, "run --one-step").unwrap(); // runs cat2
+    shell.execute(&mut interp, ctx, "run --one-step").unwrap(); // must not hang; runs cat3
+    shell.execute(&mut interp, ctx, "status").unwrap();
     let lines = sink.lines();
     // All three nodes terminated after two steps.
     assert!(
@@ -242,11 +242,11 @@ fn foreground_run_suppresses_intermediate_notifications() {
         Box::new(CapturingSink::new()),
         Arc::clone(&notification_sink) as Arc<dyn OutputSink>,
     );
-    let mut tcl = make_tcl();
-    shell.execute(&mut tcl, "set v [node value hello]").unwrap();
-    shell.execute(&mut tcl, "set c [node add cat]").unwrap();
-    shell.execute(&mut tcl, "dep $c $v").unwrap();
-    shell.execute(&mut tcl, "run $c").unwrap(); // foreground — watcher processes all events inside block_on
+    let (mut interp, ctx) = make_tcl();
+    shell.execute(&mut interp, ctx, "set v [node value hello]").unwrap();
+    shell.execute(&mut interp, ctx, "set c [node add cat]").unwrap();
+    shell.execute(&mut interp, ctx, "dep $c $v").unwrap();
+    shell.execute(&mut interp, ctx, "run $c").unwrap(); // foreground — watcher processes all events inside block_on
     assert!(
         notification_sink.lines().is_empty(),
         "unexpected notifications during foreground run: {:?}",
@@ -263,16 +263,16 @@ fn run_stop_after_multialias_does_not_hang() {
         || {
             let sink = CapturingSink::new();
             let mut shell = DagShell::new_with_sink(Box::new(sink));
-            let mut tcl = make_tcl();
-            shell.execute(&mut tcl, "set v [node value hello]").unwrap();
-            shell.execute(&mut tcl, "set cat_b [node add cat]").unwrap();
-            shell.execute(&mut tcl, "dep $cat_b $v").unwrap();
-            shell.execute(&mut tcl, "set cat_c [node add cat]").unwrap();
-            shell.execute(&mut tcl, "dep $cat_c $cat_b").unwrap();
+            let (mut interp, ctx) = make_tcl();
+            shell.execute(&mut interp, ctx, "set v [node value hello]").unwrap();
+            shell.execute(&mut interp, ctx, "set cat_b [node add cat]").unwrap();
+            shell.execute(&mut interp, ctx, "dep $cat_b $v").unwrap();
+            shell.execute(&mut interp, ctx, "set cat_c [node add cat]").unwrap();
+            shell.execute(&mut interp, ctx, "dep $cat_c $cat_b").unwrap();
             shell
-                .execute(&mut tcl, "set alias [node alias .end $cat_b $cat_c]")
+                .execute(&mut interp, ctx, "set alias [node alias .end $cat_b $cat_c]")
                 .unwrap();
-            shell.execute(&mut tcl, "run --stop-after $cat_b $alias").unwrap();
+            shell.execute(&mut interp, ctx, "run --stop-after $cat_b $alias").unwrap();
         },
         3,
     );
@@ -286,16 +286,16 @@ fn run_one_step_multialias_does_not_hang() {
         || {
             let sink = CapturingSink::new();
             let mut shell = DagShell::new_with_sink(Box::new(sink));
-            let mut tcl = make_tcl();
-            shell.execute(&mut tcl, "set v [node value hello]").unwrap();
-            shell.execute(&mut tcl, "set cat_a [node add cat]").unwrap();
-            shell.execute(&mut tcl, "dep $cat_a $v").unwrap();
-            shell.execute(&mut tcl, "set cat_b [node add cat]").unwrap();
-            shell.execute(&mut tcl, "dep $cat_b $cat_a").unwrap();
+            let (mut interp, ctx) = make_tcl();
+            shell.execute(&mut interp, ctx, "set v [node value hello]").unwrap();
+            shell.execute(&mut interp, ctx, "set cat_a [node add cat]").unwrap();
+            shell.execute(&mut interp, ctx, "dep $cat_a $v").unwrap();
+            shell.execute(&mut interp, ctx, "set cat_b [node add cat]").unwrap();
+            shell.execute(&mut interp, ctx, "dep $cat_b $cat_a").unwrap();
             shell
-                .execute(&mut tcl, "set alias [node alias .end $cat_a $cat_b]")
+                .execute(&mut interp, ctx, "set alias [node alias .end $cat_a $cat_b]")
                 .unwrap();
-            shell.execute(&mut tcl, "run --one-step $alias").unwrap();
+            shell.execute(&mut interp, ctx, "run --one-step $alias").unwrap();
         },
         3,
     );
@@ -306,8 +306,8 @@ fn join_nonexistent_returns_error() {
     // executor.join() resolves Err immediately for nodes not in the DAG,
     // so join_handles returns without polling.
     let mut shell = DagShell::new_with_sink(Box::new(CapturingSink::new()));
-    let mut tcl = make_tcl();
-    let result = shell.execute(&mut tcl, "join 99999");
+    let (mut interp, ctx) = make_tcl();
+    let result = shell.execute(&mut interp, ctx, "join 99999");
     assert!(
         result.is_err(),
         "expected error for non-existent handle, got Ok"
@@ -324,12 +324,12 @@ fn run_stop_after_alias_handle_does_not_hang() {
         || {
             let sink = CapturingSink::new();
             let mut shell = DagShell::new_with_sink(Box::new(sink));
-            let mut tcl = make_tcl();
-            shell.execute(&mut tcl, "set v [node value hello]").unwrap();
-            shell.execute(&mut tcl, "set cat [node add cat]").unwrap();
-            shell.execute(&mut tcl, "dep $cat $v").unwrap();
-            shell.execute(&mut tcl, "set alias [node alias .end $cat]").unwrap();
-            shell.execute(&mut tcl, "run --stop-after $alias $cat").unwrap();
+            let (mut interp, ctx) = make_tcl();
+            shell.execute(&mut interp, ctx, "set v [node value hello]").unwrap();
+            shell.execute(&mut interp, ctx, "set cat [node add cat]").unwrap();
+            shell.execute(&mut interp, ctx, "dep $cat $v").unwrap();
+            shell.execute(&mut interp, ctx, "set alias [node alias .end $cat]").unwrap();
+            shell.execute(&mut interp, ctx, "run --stop-after $alias $cat").unwrap();
             // shell drop drains reader_tasks; hangs if reader is on alias's pipe
         },
         5,
@@ -345,13 +345,13 @@ fn run_stop_before_does_not_hang() {
         || {
             let sink = CapturingSink::new();
             let mut shell = DagShell::new_with_sink(Box::new(sink));
-            let mut tcl = make_tcl();
-            shell.execute(&mut tcl, "set v [node value hello]").unwrap();
-            shell.execute(&mut tcl, "set b [node add cat]").unwrap();
-            shell.execute(&mut tcl, "dep $b $v").unwrap();
-            shell.execute(&mut tcl, "set c [node add cat]").unwrap();
-            shell.execute(&mut tcl, "dep $c $b").unwrap();
-            shell.execute(&mut tcl, "run --stop-before $c").unwrap();
+            let (mut interp, ctx) = make_tcl();
+            shell.execute(&mut interp, ctx, "set v [node value hello]").unwrap();
+            shell.execute(&mut interp, ctx, "set b [node add cat]").unwrap();
+            shell.execute(&mut interp, ctx, "dep $b $v").unwrap();
+            shell.execute(&mut interp, ctx, "set c [node add cat]").unwrap();
+            shell.execute(&mut interp, ctx, "dep $c $b").unwrap();
+            shell.execute(&mut interp, ctx, "run --stop-before $c").unwrap();
         },
         3,
     );
@@ -361,9 +361,9 @@ fn run_stop_before_does_not_hang() {
 fn tcl_multiline_value_sets_node() {
     let sink = CapturingSink::new();
     let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
-    let mut tcl = make_tcl();
+    let (mut interp, ctx) = make_tcl();
     shell
-        .execute(&mut tcl, "set v [node value {hello world}]\nstatus $v")
+        .execute(&mut interp, ctx, "set v [node value {hello world}]\nstatus $v")
         .unwrap();
     let lines = sink.lines();
     assert!(

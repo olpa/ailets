@@ -23,10 +23,8 @@ pub(crate) struct ShellContext {
 // owns DagShell. The Interp (and therefore ShellContext) never crosses threads.
 unsafe impl Send for ShellContext {}
 
-// Safety: shell pointer is set before eval and cleared after; command handlers
-// only run during eval, so the pointer is always valid when dereferenced.
-// Command handlers access DagShell fields other than `tcl` (which was moved out
-// of self before eval), so no aliasing of the same memory occurs.
+// Safety: see the comment in DagShell::execute that explains why a raw pointer
+// is used and what invariants keep it valid.
 fn get_shell<'a>(interp: &mut Interp, ctx: ContextID) -> &'a mut DagShell {
     let ptr = interp.context::<ShellContext>(ctx).shell;
     debug_assert!(!ptr.is_null(), "no active DagShell context");
