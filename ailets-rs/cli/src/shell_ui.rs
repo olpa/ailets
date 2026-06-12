@@ -105,7 +105,7 @@ impl rustyline::completion::Completer for ShellHelper {
         if before.contains(' ') {
             return Ok((pos, vec![]));
         }
-        let candidates = crate::tcl_interp::COMMANDS
+        let candidates = crate::commands::COMMANDS
             .iter()
             .flat_map(|e| e.names.iter().copied())
             .filter(|name| name.starts_with(before))

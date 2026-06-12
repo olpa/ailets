@@ -2,6 +2,11 @@
 
 use molt::{check_args, molt_ok, types::*, Interp};
 
+use crate::commands::{
+    ENTRY_CAT, ENTRY_CLOSE, ENTRY_DEP, ENTRY_DEPS, ENTRY_FOLLOW, ENTRY_HELP, ENTRY_JOIN,
+    ENTRY_KILL, ENTRY_NODE, ENTRY_QUIT, ENTRY_RESUME, ENTRY_RUN, ENTRY_SHOW, ENTRY_SOURCE,
+    ENTRY_STATUS, ENTRY_SUSPEND, ENTRY_WAIT, ENTRY_WRITE,
+};
 use crate::DagShell;
 
 // ---------------------------------------------------------------------------
@@ -34,239 +39,7 @@ fn wrap(r: Result<(), String>) -> MoltResult {
 }
 
 // ---------------------------------------------------------------------------
-// Command metadata — single source of truth for registration, help, completion
-// ---------------------------------------------------------------------------
-
-pub struct CommandEntry {
-    /// Primary name first; the rest are aliases shown in help and available for completion.
-    pub names: &'static [&'static str],
-    pub handler: CommandFunc,
-    /// Argument signature — what follows the command name (matches check_args argsig).
-    pub argsig: &'static str,
-    pub section: &'static str,
-    pub description: &'static str,
-    /// Optional pre-formatted detail lines (sub-commands or flags), indented 4 spaces,
-    /// descriptions aligned at column 36. No trailing newline on last line.
-    pub detail: Option<&'static str>,
-}
-
-pub static SECTIONS: &[&str] = &[
-    "Node Management",
-    "Dependencies",
-    "Visualization",
-    "Execution",
-    "Job Control",
-    "I/O",
-    "Status",
-    "Debug",
-    "Shell Input",
-    "Session",
-];
-
-pub static COMMANDS: &[CommandEntry] = &[
-    CommandEntry {
-        names: &["node"],
-        handler: tcl_node,
-        argsig: "<add|value|alias|list> ...",
-        section: "Node Management",
-        description: "Manage DAG nodes",
-        detail: Some(concat!(
-            "    add <actor> [--explain=text]    Add actor node (actors: cat, dbg, shell_input)\n",
-            "    value <data> [--explain=text]   Add value node (constant data)\n",
-            "    alias <name> <target> ...       Add alias (one or more targets)\n",
-            "    list                            List all nodes with status",
-        )),
-    },
-    CommandEntry {
-        names: &["dep"],
-        handler: tcl_dep,
-        argsig: "node dependency",
-        section: "Dependencies",
-        description: "Add dependency (node depends on dependency)",
-        detail: None,
-    },
-    CommandEntry {
-        names: &["deps"],
-        handler: tcl_deps,
-        argsig: "node",
-        section: "Dependencies",
-        description: "Show direct dependencies of a node",
-        detail: None,
-    },
-    CommandEntry {
-        names: &["show"],
-        handler: tcl_show,
-        argsig: "?node?",
-        section: "Visualization",
-        description: "Tree view (default: whole DAG)",
-        detail: None,
-    },
-    CommandEntry {
-        names: &["run"],
-        handler: tcl_run,
-        argsig: "?options? ?node?",
-        section: "Execution",
-        description: "Submit run to ailetos; waits by default",
-        detail: Some(concat!(
-            "    --one-step                      Execute only the first ready node\n",
-            "    --stop-before <node>            Stop before executing this node\n",
-            "    --stop-after <node>             Stop after executing this node\n",
-            "    --bg                            Submit and return immediately (background)\n",
-            "    --color <name>                  Colorize output (CSS/X11 name or 0-255; --bg only)",
-        )),
-    },
-    CommandEntry {
-        names: &["join", "await"],
-        handler: tcl_join,
-        argsig: "node",
-        section: "Job Control",
-        description: "Wait for node to terminate; Ctrl+C to detach",
-        detail: None,
-    },
-    CommandEntry {
-        names: &["follow"],
-        handler: tcl_follow,
-        argsig: "node ?--color name?",
-        section: "Job Control",
-        description: "Attach node stdout; optional 256-color name or 0-255",
-        detail: None,
-    },
-    CommandEntry {
-        names: &["kill"],
-        handler: tcl_kill,
-        argsig: "?-N? node",
-        section: "Job Control",
-        description: "Kill actor with exit code N (default 130)",
-        detail: None,
-    },
-    CommandEntry {
-        names: &["cat"],
-        handler: tcl_cat,
-        argsig: "node",
-        section: "I/O",
-        description: "Show output of a node",
-        detail: None,
-    },
-    CommandEntry {
-        names: &["status"],
-        handler: tcl_status,
-        argsig: "?node?",
-        section: "Status",
-        description: "Overall DAG status, or status of a specific node",
-        detail: None,
-    },
-    CommandEntry {
-        names: &["suspend"],
-        handler: tcl_suspend,
-        argsig: "node",
-        section: "Debug",
-        description: "Suspend a running actor",
-        detail: None,
-    },
-    CommandEntry {
-        names: &["resume"],
-        handler: tcl_resume,
-        argsig: "node",
-        section: "Debug",
-        description: "Resume a suspended actor (dbg or general)",
-        detail: None,
-    },
-    CommandEntry {
-        names: &["wait"],
-        handler: tcl_wait,
-        argsig: "condition ?args?",
-        section: "Debug",
-        description: "Block until condition; Ctrl+C to detach",
-        detail: Some(concat!(
-            "    suspended <node>                Block until node is suspended\n",
-            "    terminated <node>               Block until node is terminated",
-        )),
-    },
-    CommandEntry {
-        names: &["write"],
-        handler: tcl_write,
-        argsig: "node ?data?",
-        section: "Shell Input",
-        description: "Write data to a shell_input actor",
-        detail: None,
-    },
-    CommandEntry {
-        names: &["close"],
-        handler: tcl_close,
-        argsig: "node",
-        section: "Shell Input",
-        description: "Close a shell_input actor (send EOF)",
-        detail: None,
-    },
-    CommandEntry {
-        names: &["source", "load"],
-        handler: tcl_source,
-        argsig: "file",
-        section: "Session",
-        description: "Run TCL script file",
-        detail: None,
-    },
-    CommandEntry {
-        names: &["help", "?"],
-        handler: tcl_help,
-        argsig: "",
-        section: "Session",
-        description: "Show this help",
-        detail: None,
-    },
-    CommandEntry {
-        names: &["quit", "exit", "q"],
-        handler: tcl_quit,
-        argsig: "",
-        section: "Session",
-        description: "Exit the shell",
-        detail: None,
-    },
-];
-
-/// Generate the help text from `COMMANDS`, grouped by section.
-pub fn generate_help() -> String {
-    // Column at which descriptions start on main command lines.
-    const DESC_COL: usize = 38;
-
-    let mut out = String::from("DAG Shell Commands (TCL syntax):\n");
-
-    for &section in SECTIONS {
-        out.push('\n');
-        out.push_str(section);
-        out.push_str(":\n");
-
-        for entry in COMMANDS.iter().filter(|e| e.section == section) {
-            let names_display = entry.names.join(" / ");
-            let usage = if entry.argsig.is_empty() {
-                format!("  {names_display}")
-            } else {
-                format!("  {names_display} {}", entry.argsig)
-            };
-            let pad = DESC_COL.saturating_sub(usage.len());
-            out.push_str(&usage);
-            for _ in 0..pad {
-                out.push(' ');
-            }
-            out.push_str(entry.description);
-            out.push('\n');
-
-            if let Some(detail) = entry.detail {
-                out.push_str(detail);
-                out.push('\n');
-            }
-        }
-    }
-
-    out.push_str("\nVariables (TCL):\n");
-    out.push_str("  set v [node ...]                    Assign node handle to variable\n");
-    out.push_str("  dep $foo $bar                       TCL expands $var before the command runs");
-
-    out
-}
-
-// ---------------------------------------------------------------------------
-// Interpreter factory — iterates COMMANDS to register all handlers.
+// Interpreter factory — pairs each CommandMeta with its TCL handler.
 // ---------------------------------------------------------------------------
 
 pub(crate) fn make_interp() -> (Interp, ContextID) {
@@ -275,9 +48,29 @@ pub(crate) fn make_interp() -> (Interp, ContextID) {
         shell: std::ptr::null_mut(),
         exit_requested: false,
     });
-    for entry in COMMANDS {
+    let bindings: &[(&crate::commands::CommandMeta, CommandFunc)] = &[
+        (&ENTRY_NODE, tcl_node),
+        (&ENTRY_DEP, tcl_dep),
+        (&ENTRY_DEPS, tcl_deps),
+        (&ENTRY_SHOW, tcl_show),
+        (&ENTRY_RUN, tcl_run),
+        (&ENTRY_JOIN, tcl_join),
+        (&ENTRY_FOLLOW, tcl_follow),
+        (&ENTRY_KILL, tcl_kill),
+        (&ENTRY_CAT, tcl_cat),
+        (&ENTRY_STATUS, tcl_status),
+        (&ENTRY_SUSPEND, tcl_suspend),
+        (&ENTRY_RESUME, tcl_resume),
+        (&ENTRY_WAIT, tcl_wait),
+        (&ENTRY_WRITE, tcl_write),
+        (&ENTRY_CLOSE, tcl_close),
+        (&ENTRY_SOURCE, tcl_source),
+        (&ENTRY_HELP, tcl_help),
+        (&ENTRY_QUIT, tcl_quit),
+    ];
+    for (entry, handler) in bindings {
         for &name in entry.names {
-            interp.add_context_command(name, entry.handler, ctx);
+            interp.add_context_command(name, *handler, ctx);
         }
     }
     (interp, ctx)
