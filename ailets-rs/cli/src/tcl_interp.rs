@@ -3,9 +3,9 @@
 use molt::{check_args, molt_ok, types::*, Interp};
 
 use crate::commands::{
-    ENTRY_CAT, ENTRY_CLOSE, ENTRY_DEP, ENTRY_DEPS, ENTRY_FOLLOW, ENTRY_HELP, ENTRY_JOIN,
-    ENTRY_KILL, ENTRY_NODE, ENTRY_QUIT, ENTRY_RESUME, ENTRY_RUN, ENTRY_SHOW, ENTRY_SOURCE,
-    ENTRY_STATUS, ENTRY_SUSPEND, ENTRY_WAIT, ENTRY_WRITE,
+    ENTRY_ALIAS, ENTRY_CAT, ENTRY_CLOSE, ENTRY_DEP, ENTRY_DEPS, ENTRY_FOLLOW, ENTRY_HELP,
+    ENTRY_JOIN, ENTRY_KILL, ENTRY_NODE, ENTRY_NODES, ENTRY_QUIT, ENTRY_RESUME, ENTRY_RUN,
+    ENTRY_SHOW, ENTRY_SOURCE, ENTRY_STATUS, ENTRY_SUSPEND, ENTRY_VALUE, ENTRY_WAIT, ENTRY_WRITE,
 };
 use crate::DagShell;
 
@@ -48,6 +48,9 @@ pub fn make_interp() -> (Interp, ContextID) {
     });
     let bindings: &[(&crate::commands::CommandMeta, CommandFunc)] = &[
         (&ENTRY_NODE, tcl_node),
+        (&ENTRY_VALUE, tcl_value),
+        (&ENTRY_ALIAS, tcl_alias),
+        (&ENTRY_NODES, tcl_nodes),
         (&ENTRY_DEP, tcl_dep),
         (&ENTRY_DEPS, tcl_deps),
         (&ENTRY_SHOW, tcl_show),
@@ -79,17 +82,36 @@ pub fn make_interp() -> (Interp, ContextID) {
 // ---------------------------------------------------------------------------
 
 fn tcl_node(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
-    check_args(1, argv, 2, 0, "<add|value|alias|list> ...")?;
-    let shell = get_shell(interp, ctx);
+    check_args(1, argv, 2, 0, "<actor> [--explain=text]")?;
     let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    if args.first() == Some(&"list") {
-        shell.cmd_node_list();
-        return molt_ok!();
-    }
-    match shell.cmd_node_inner(&args) {
+    match get_shell(interp, ctx).cmd_node(&args) {
         Ok(handle) => Ok(Value::from(handle.id().to_string())),
         Err(e) => Err(Exception::molt_err(Value::from(e))),
     }
+}
+
+fn tcl_value(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 2, 0, "<data> [--explain=text]")?;
+    let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
+    match get_shell(interp, ctx).cmd_value(&args) {
+        Ok(handle) => Ok(Value::from(handle.id().to_string())),
+        Err(e) => Err(Exception::molt_err(Value::from(e))),
+    }
+}
+
+fn tcl_alias(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 3, 0, "<name> <target> ...")?;
+    let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
+    match get_shell(interp, ctx).cmd_alias(&args) {
+        Ok(handle) => Ok(Value::from(handle.id().to_string())),
+        Err(e) => Err(Exception::molt_err(Value::from(e))),
+    }
+}
+
+fn tcl_nodes(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 1, 1, "")?;
+    get_shell(interp, ctx).cmd_nodes();
+    molt_ok!()
 }
 
 fn tcl_dep(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {

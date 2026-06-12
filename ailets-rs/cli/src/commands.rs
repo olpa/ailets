@@ -100,18 +100,107 @@ pub static ENTRY_QUIT: CommandMeta = CommandMeta {
 
 pub static ENTRY_NODE: CommandMeta = CommandMeta {
     names: &["node"],
-    argsig: "<add|value|alias|list> ...",
+    argsig: "<actor> [--explain=text]",
     section: "Node Management",
-    description: "Manage DAG nodes",
-    detail: Some(concat!(
-        "    add <actor> [--explain=text]    Add actor node (actors: cat, dbg, shell_input)\n",
-        "    value <data> [--explain=text]   Add value node (constant data)\n",
-        "    alias <name> <target> ...       Add alias (one or more targets)\n",
-        "    list                            List all nodes with status",
-    )),
+    description: "Add actor node (actors: cat, dbg, shell_input)",
+    detail: None,
 };
 impl DagShell {
-    pub(crate) fn cmd_node_list(&self) {
+    pub(crate) fn cmd_node(&mut self, args: &[&str]) -> Result<Handle, String> {
+        let actor = args.first().ok_or("Usage: node <actor> [--explain=text]")?;
+        let actor = (*actor).to_string();
+        let rest = &args[1..];
+        let explain = parse_explain(rest);
+        let handle = self.env.add_node(actor.clone(), &[], explain.clone());
+        self.handles.push(handle);
+
+        if actor == "dbg" {
+            let bytes_before_pause = parse_bytes_before_pause(rest);
+            dbg_control::register_dbg_actor(handle, bytes_before_pause);
+        }
+        if actor == "shell_input" {
+            shell_input_control::register_shell_input_actor(handle);
+        }
+
+        let id = handle.id();
+        let expl = explain.map_or_else(String::new, |e| format!("({e})"));
+        self.sink
+            .println(&format!("Added node {id}: {actor} {expl}"));
+        Ok(handle)
+    }
+}
+
+pub static ENTRY_VALUE: CommandMeta = CommandMeta {
+    names: &["value"],
+    argsig: "<data> [--explain=text]",
+    section: "Node Management",
+    description: "Add value node (constant data)",
+    detail: None,
+};
+impl DagShell {
+    pub(crate) fn cmd_value(&mut self, args: &[&str]) -> Result<Handle, String> {
+        if args.is_empty() {
+            return Err("Usage: value <data> [--explain=text]".to_string());
+        }
+        let data = parse_quoted_string(args);
+        let explain = parse_explain(args);
+        let env = Arc::clone(&self.env);
+        let data_bytes = data.as_bytes().to_vec();
+        let explain_clone = explain.clone();
+        let handle = self
+            .ailetos_async_rt
+            .block_on(async move { env.add_value_node(data_bytes, explain_clone).await })
+            .map_err(|e| format!("Failed to add value node: {e}"))?;
+        self.handles.push(handle);
+        let id = handle.id();
+        let truncated = truncate(&data, 30);
+        let expl = explain.map_or_else(String::new, |e| format!("({e})"));
+        self.sink
+            .println(&format!("Added value node {id}: \"{truncated}\" {expl}"));
+        Ok(handle)
+    }
+}
+
+pub static ENTRY_ALIAS: CommandMeta = CommandMeta {
+    names: &["alias"],
+    argsig: "<name> <target> ...",
+    section: "Node Management",
+    description: "Add alias node (one or more targets)",
+    detail: None,
+};
+impl DagShell {
+    pub(crate) fn cmd_alias(&mut self, args: &[&str]) -> Result<Handle, String> {
+        let (name, targets_strs) = match args {
+            [name, rest @ ..] if !rest.is_empty() => (*name, *&rest),
+            _ => return Err("Usage: alias <name> <target> [<target>...]".to_string()),
+        };
+        let name = name.to_string();
+        let mut targets = Vec::new();
+        for target_str in targets_strs {
+            let target = self
+                .parse_handle(target_str)
+                .ok_or_else(|| format!("Invalid handle: {target_str}"))?;
+            targets.push(target);
+        }
+        let handle = self.env.add_aliases(name.clone(), &targets);
+        self.handles.push(handle);
+        let id = handle.id();
+        let tids: Vec<_> = targets.iter().map(|t| t.id().to_string()).collect();
+        self.sink
+            .println(&format!("Added alias {id}: {name} -> {}", tids.join(", ")));
+        Ok(handle)
+    }
+}
+
+pub static ENTRY_NODES: CommandMeta = CommandMeta {
+    names: &["nodes"],
+    argsig: "",
+    section: "Node Management",
+    description: "List all nodes with status",
+    detail: None,
+};
+impl DagShell {
+    pub(crate) fn cmd_nodes(&self) {
         if self.handles.is_empty() {
             self.sink.println("No nodes");
         } else {
@@ -128,71 +217,6 @@ impl DagShell {
                         .println(&format!("  {pid} {} [{state_str}]{explain}", node.idname));
                 }
             }
-        }
-    }
-
-    pub(crate) fn cmd_node_inner(&mut self, args: &[&str]) -> Result<Handle, String> {
-        match args {
-            ["add", actor, rest @ ..] => {
-                let actor = (*actor).to_string();
-                let explain = parse_explain(rest);
-                let handle = self.env.add_node(actor.clone(), &[], explain.clone());
-                self.handles.push(handle);
-
-                if actor == "dbg" {
-                    let bytes_before_pause = parse_bytes_before_pause(rest);
-                    dbg_control::register_dbg_actor(handle, bytes_before_pause);
-                }
-                if actor == "shell_input" {
-                    shell_input_control::register_shell_input_actor(handle);
-                }
-
-                let id = handle.id();
-                let expl = explain.map_or_else(String::new, |e| format!("({e})"));
-                self.sink
-                    .println(&format!("Added node {id}: {actor} {expl}"));
-                Ok(handle)
-            }
-            ["add"] => Err("Usage: node add <actor> [--explain=text]".to_string()),
-            ["value", rest @ ..] if !rest.is_empty() => {
-                let data = parse_quoted_string(rest);
-                let explain = parse_explain(rest);
-                let env = Arc::clone(&self.env);
-                let data_bytes = data.as_bytes().to_vec();
-                let explain_clone = explain.clone();
-                let handle = self
-                    .ailetos_async_rt
-                    .block_on(async move { env.add_value_node(data_bytes, explain_clone).await })
-                    .map_err(|e| format!("Failed to add value node: {e}"))?;
-                self.handles.push(handle);
-                let id = handle.id();
-                let truncated = truncate(&data, 30);
-                let expl = explain.map_or_else(String::new, |e| format!("({e})"));
-                self.sink
-                    .println(&format!("Added value node {id}: \"{truncated}\" {expl}"));
-                Ok(handle)
-            }
-            ["value"] => Err("Usage: node value <data> [--explain=text]".to_string()),
-            ["alias", name, rest @ ..] if !rest.is_empty() => {
-                let name = (*name).to_string();
-                let mut targets = Vec::new();
-                for target_str in rest {
-                    let target = self
-                        .parse_handle(target_str)
-                        .ok_or_else(|| format!("Invalid handle: {target_str}"))?;
-                    targets.push(target);
-                }
-                let handle = self.env.add_aliases(name.clone(), &targets);
-                self.handles.push(handle);
-                let id = handle.id();
-                let tids: Vec<_> = targets.iter().map(|t| t.id().to_string()).collect();
-                self.sink
-                    .println(&format!("Added alias {id}: {name} -> {}", tids.join(", ")));
-                Ok(handle)
-            }
-            ["alias", ..] => Err("Usage: node alias <name> <target> [<target>...]".to_string()),
-            [cmd, ..] => Err(format!("Unknown node subcommand: {cmd}")),
-            [] => Err("Usage: node <add|value|alias|list> ...".to_string()),
         }
     }
 }
@@ -1043,6 +1067,9 @@ impl DagShell {
 
 pub static COMMANDS: &[&CommandMeta] = &[
     &ENTRY_NODE,
+    &ENTRY_VALUE,
+    &ENTRY_ALIAS,
+    &ENTRY_NODES,
     &ENTRY_DEP,
     &ENTRY_DEPS,
     &ENTRY_SHOW,
