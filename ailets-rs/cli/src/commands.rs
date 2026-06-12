@@ -518,7 +518,7 @@ impl DagShell {
 // ---------------------------------------------------------------------------
 
 pub static ENTRY_JOIN: CommandMeta = CommandMeta {
-    names: &["join", "await"],
+    names: &["join"],
     argsig: "node",
     section: "Job Control",
     description: "Wait for node to terminate; Ctrl+C to detach",
