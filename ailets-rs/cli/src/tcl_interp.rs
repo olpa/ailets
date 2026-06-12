@@ -40,7 +40,7 @@ fn wrap(r: Result<(), String>) -> MoltResult {
 // Interpreter factory — pairs each CommandMeta with its TCL handler.
 // ---------------------------------------------------------------------------
 
-pub(crate) fn make_interp() -> (Interp, ContextID) {
+pub fn make_interp() -> (Interp, ContextID) {
     let mut interp = Interp::new();
     let ctx = interp.save_context(ShellContext {
         shell: std::ptr::null_mut(),

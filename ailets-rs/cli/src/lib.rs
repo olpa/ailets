@@ -263,14 +263,7 @@ impl DagShell {
     }
 }
 
-/// Create a `molt::Interp` pre-loaded with all DAG shell commands.
-///
-/// Returns `(interp, ctx)` where `ctx` is the `ContextID` for the embedded
-/// `ShellContext`.  Pass both to `DagShell::execute` on every call; reusing
-/// the same pair across calls preserves TCL variables between invocations.
-pub fn make_tcl() -> (molt::Interp, molt::types::ContextID) {
-    tcl_interp::make_interp()
-}
+pub use tcl_interp::make_interp;
 
 impl Default for DagShell {
     fn default() -> Self {

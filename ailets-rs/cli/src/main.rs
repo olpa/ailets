@@ -1,7 +1,7 @@
 //! DAG Shell binary entry point.
 
 use dagsh::shell_ui::{create_notification_sink, parse_args, print_usage, ShellHelper};
-use dagsh::{make_tcl, DagShell, ShellControl};
+use dagsh::{make_interp, DagShell, ShellControl};
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
@@ -41,7 +41,7 @@ fn main() {
     let ailetos_rt = Runtime::new().expect("failed to create ailetos runtime");
     let mut shell =
         DagShell::new_with_sinks_and_rt(Box::new(dagsh::StdoutSink), notification_sink, ailetos_rt);
-    let (mut interp, ctx) = make_tcl();
+    let (mut interp, ctx) = make_interp();
 
     println!("DAG Shell v0.1 (TCL)");
     println!("Type 'help' for available commands.\n");
