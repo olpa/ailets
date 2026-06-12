@@ -1,6 +1,6 @@
 //! DAG Shell binary entry point.
 
-use dagsh::shell_ui::{create_notification_sink, parse_args, print_usage};
+use dagsh::shell_ui::{create_notification_sink, parse_args, print_usage, ShellHelper};
 use dagsh::{DagShell, ShellControl};
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
@@ -27,10 +27,11 @@ fn main() {
         }
     };
 
-    let Ok(mut rl) = Editor::<(), rustyline::history::DefaultHistory>::new() else {
+    let Ok(mut rl) = Editor::<ShellHelper, rustyline::history::DefaultHistory>::new() else {
         eprintln!("Failed to create editor");
         std::process::exit(1);
     };
+    rl.set_helper(Some(ShellHelper));
     if let Err(e) = rl.set_max_history_size(1000) {
         eprintln!("warn: failed to set history size: {e}");
     }
