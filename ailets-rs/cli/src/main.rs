@@ -1,7 +1,7 @@
 //! DAG Shell binary entry point.
 
 use dagsh::shell_ui::{create_notification_sink, parse_args, print_usage, ShellHelper};
-use dagsh::{DagShell, ShellControl};
+use dagsh::{make_tcl, DagShell, ShellControl};
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
@@ -41,13 +41,14 @@ fn main() {
     let ailetos_rt = Runtime::new().expect("failed to create ailetos runtime");
     let mut shell =
         DagShell::new_with_sinks_and_rt(Box::new(dagsh::StdoutSink), notification_sink, ailetos_rt);
+    let mut tcl = make_tcl();
 
     println!("DAG Shell v0.1 (TCL)");
     println!("Type 'help' for available commands.\n");
 
     if let Some(script_path) = cli_args.load_script {
         println!("Loading {script_path}...\n");
-        if let Err(e) = shell.cmd_source(&[&script_path]) {
+        if let Err(e) = shell.cmd_source(&mut tcl, &[&script_path]) {
             println!("Error: {e}");
         }
         println!();
@@ -63,7 +64,7 @@ fn main() {
                 if let Err(e) = rl.add_history_entry(line) {
                     eprintln!("warn: failed to add history entry: {e}");
                 }
-                match shell.execute(line) {
+                match shell.execute(&mut tcl, line) {
                     Ok(ShellControl::Continue) => {}
                     Ok(ShellControl::Exit) => {
                         println!("Goodbye!");

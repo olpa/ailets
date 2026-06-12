@@ -6,7 +6,8 @@
 //! - `cli_rt`: runs all CLI-side async work: notification watcher, join waits, sleeps.
 //!
 //! The CLI thread itself stays synchronous and drives async work via `block_on`.
-//! TCL scripts are parsed and executed by a persistent `molt::Interp` stored in `tcl`.
+//! TCL scripts are parsed and executed by a `molt::Interp` owned by the caller and
+//! passed into `DagShell::execute`.  Create one with `make_tcl()`.
 
 pub(crate) mod dbg_actor;
 pub(crate) mod dbg_control;
@@ -116,10 +117,6 @@ impl NotificationWatcher {
 // ---------------------------------------------------------------------------
 
 pub struct DagShell {
-    // TCL interpreter and its context ID — taken out of self during execute() to avoid aliasing.
-    // Both are None only before the first execute() call and while execute() is on the stack.
-    pub(crate) tcl: Option<molt::Interp>,
-    pub(crate) tcl_ctx: Option<molt::types::ContextID>,
     pub(crate) env: Arc<Environment>,
     pub(crate) kv: Arc<MemKV>,
     pub(crate) handles: Vec<Handle>,
@@ -192,8 +189,6 @@ impl DagShell {
         );
 
         Self {
-            tcl: None,
-            tcl_ctx: None,
             env,
             kv,
             handles: Vec::new(),
@@ -213,33 +208,20 @@ impl DagShell {
     }
 
     /// Evaluate a TCL script.  Variables set in one call are visible in subsequent calls
-    /// because the `molt::Interp` is persisted in `self.tcl` between invocations.
+    /// because the caller owns and reuses the `molt::Interp` across invocations.
     ///
     /// # Errors
     /// Returns a TCL error message if script evaluation fails.
-    pub fn execute(&mut self, script: &str) -> Result<ShellControl, String> {
-        // Take the interpreter out of self so that command handlers can borrow
-        // other fields of self via the shell pointer without aliasing self.tcl.
-        let (mut tcl, ctx) = match (self.tcl.take(), self.tcl_ctx) {
-            (Some(interp), Some(ctx)) => (interp, ctx),
-            _ => {
-                let (interp, ctx) = tcl_interp::make_interp();
-                self.tcl_ctx = Some(ctx);
-                (interp, ctx)
-            }
-        };
-
+    pub fn execute(&mut self, tcl: &mut TclShell, script: &str) -> Result<ShellControl, String> {
         // Safety: see tcl_interp::get_shell safety comment.
-        tcl.context::<tcl_interp::ShellContext>(ctx).shell = self as *mut DagShell;
-        let result = tcl.eval(script);
-        tcl.context::<tcl_interp::ShellContext>(ctx).shell = std::ptr::null_mut();
+        tcl.interp.context::<tcl_interp::ShellContext>(tcl.ctx).shell = self as *mut DagShell;
+        let result = tcl.interp.eval(script);
+        tcl.interp.context::<tcl_interp::ShellContext>(tcl.ctx).shell = std::ptr::null_mut();
 
         let exit_requested = std::mem::replace(
-            &mut tcl.context::<tcl_interp::ShellContext>(ctx).exit_requested,
+            &mut tcl.interp.context::<tcl_interp::ShellContext>(tcl.ctx).exit_requested,
             false,
         );
-
-        self.tcl = Some(tcl);
 
         if exit_requested {
             return Ok(ShellControl::Exit);
@@ -266,6 +248,21 @@ impl DagShell {
         rt.block_on(async { while tasks.join_next().await.is_some() {} });
         self.watcher.shutdown(&self.cli_rt);
     }
+}
+
+/// Bundles a `molt::Interp` with its `ContextID` for the embedded `ShellContext`.
+///
+/// Create with `make_tcl()` and pass to `DagShell::execute` on every call.
+/// Reusing the same instance across calls preserves TCL variables between invocations.
+pub struct TclShell {
+    pub(crate) interp: molt::Interp,
+    pub(crate) ctx: molt::types::ContextID,
+}
+
+/// Create a `TclShell` pre-loaded with all DAG shell commands.
+pub fn make_tcl() -> TclShell {
+    let (interp, ctx) = tcl_interp::make_interp();
+    TclShell { interp, ctx }
 }
 
 impl Default for DagShell {

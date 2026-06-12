@@ -72,11 +72,11 @@ pub static ENTRY_SOURCE: CommandMeta = CommandMeta {
 impl DagShell {
     /// # Errors
     /// Returns an error string if the file cannot be read or a command fails.
-    pub fn cmd_source(&mut self, args: &[&str]) -> Result<crate::ShellControl, String> {
+    pub fn cmd_source(&mut self, tcl: &mut crate::TclShell, args: &[&str]) -> Result<crate::ShellControl, String> {
         let path = args.first().ok_or("Usage: source <file>")?;
         let content =
             std::fs::read_to_string(path).map_err(|e| format!("Failed to read {path}: {e}"))?;
-        self.execute(&content)
+        self.execute(tcl, &content)
     }
 }
 
