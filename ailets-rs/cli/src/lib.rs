@@ -232,10 +232,9 @@ impl DagShell {
         let result = interp.eval(script);
         interp.context::<tcl_interp::ShellContext>(ctx).shell = std::ptr::null_mut();
 
-        let exit_requested = std::mem::replace(
-            &mut interp.context::<tcl_interp::ShellContext>(ctx).exit_requested,
-            false,
-        );
+        let shell_ctx = interp.context::<tcl_interp::ShellContext>(ctx);
+        let exit_requested = shell_ctx.exit_requested;
+        shell_ctx.exit_requested = false;
 
         if exit_requested {
             return Ok(ShellControl::Exit);
