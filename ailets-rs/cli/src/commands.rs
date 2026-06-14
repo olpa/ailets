@@ -256,37 +256,6 @@ impl DagShell {
     }
 }
 
-pub static ENTRY_DEPS: CommandMeta = CommandMeta {
-    names: &["deps"],
-    argsig: "node",
-    section: "Dependencies",
-    description: "Show direct dependencies of a node",
-    detail: None,
-};
-impl DagShell {
-    pub(crate) fn cmd_deps(&self, args: &[&str]) -> Result<(), String> {
-        let handle_str = args.first().ok_or("Usage: deps <node>")?;
-        let handle = self
-            .parse_handle(handle_str)
-            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
-        let dag = self.env.dag.read();
-        let deps: Vec<_> = dag.get_direct_dependencies(handle).collect();
-        let hid = handle.id();
-        if deps.is_empty() {
-            self.sink
-                .println(&format!("Node {hid} has no dependencies"));
-        } else {
-            self.sink.println(&format!("Node {hid} depends on:"));
-            for dep in deps {
-                let node = dag.get_node(dep);
-                let name = node.map_or("?", |n| n.idname.as_str());
-                let did = dep.id();
-                self.sink.println(&format!("  {did} ({name})"));
-            }
-        }
-        Ok(())
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Visualization
@@ -1071,7 +1040,6 @@ pub static COMMANDS: &[&CommandMeta] = &[
     &ENTRY_ALIAS,
     &ENTRY_NODES,
     &ENTRY_DEP,
-    &ENTRY_DEPS,
     &ENTRY_SHOW,
     &ENTRY_RUN,
     &ENTRY_JOIN,

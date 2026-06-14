@@ -3,7 +3,7 @@
 use molt::{check_args, molt_ok, types::*, Interp};
 
 use crate::commands::{
-    ENTRY_ALIAS, ENTRY_CAT, ENTRY_CLOSE, ENTRY_DEP, ENTRY_DEPS, ENTRY_FOLLOW, ENTRY_HELP,
+    ENTRY_ALIAS, ENTRY_CAT, ENTRY_CLOSE, ENTRY_DEP, ENTRY_FOLLOW, ENTRY_HELP,
     ENTRY_JOIN, ENTRY_KILL, ENTRY_NODE, ENTRY_NODES, ENTRY_QUIT, ENTRY_RESUME, ENTRY_RUN,
     ENTRY_SHOW, ENTRY_SOURCE, ENTRY_STATUS, ENTRY_SUSPEND, ENTRY_VALUE, ENTRY_WAIT, ENTRY_WRITE,
 };
@@ -52,7 +52,6 @@ pub fn make_interp() -> (Interp, ContextID) {
         (&ENTRY_ALIAS, tcl_alias),
         (&ENTRY_NODES, tcl_nodes),
         (&ENTRY_DEP, tcl_dep),
-        (&ENTRY_DEPS, tcl_deps),
         (&ENTRY_SHOW, tcl_show),
         (&ENTRY_RUN, tcl_run),
         (&ENTRY_JOIN, tcl_join),
@@ -118,12 +117,6 @@ fn tcl_dep(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 3, 3, "node dependency")?;
     let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
     wrap(get_shell(interp, ctx).cmd_dep(&args))
-}
-
-fn tcl_deps(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
-    check_args(1, argv, 2, 2, "node")?;
-    let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell(interp, ctx).cmd_deps(&args))
 }
 
 fn tcl_show(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
