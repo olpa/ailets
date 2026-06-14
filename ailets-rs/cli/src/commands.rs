@@ -437,10 +437,6 @@ impl DagShell {
     }
 
     fn join_handles(&mut self, targets: Vec<Handle>) -> Result<(), String> {
-        let targets: Vec<Handle> = targets
-            .into_iter()
-            .flat_map(|t| self.env.resolve_all(t))
-            .collect();
         let receivers: Vec<_> = targets.iter().map(|&t| self.executor.join(t)).collect();
         let sink = &self.sink;
         let foreground_join = &self.foreground_join;

@@ -7,7 +7,7 @@
 //!
 //! The CLI thread itself stays synchronous and drives async work via `block_on`.
 //! TCL scripts are parsed and executed by a `molt::Interp` owned by the caller and
-//! passed into `DagShell::execute`.  Create one with `make_tcl()`.
+//! passed into `DagShell::execute`.  Create one with `make_interp()`.
 
 pub(crate) mod dbg_actor;
 pub(crate) mod dbg_control;
@@ -241,8 +241,12 @@ impl DagShell {
         // least that long, and no handler touches `interp` (the other borrow),
         // so there is no actual aliasing.
         interp.context::<tcl_interp::ShellContext>(ctx).shell = self as *mut DagShell;
-        let result = interp.eval(script);
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| interp.eval(script)));
         interp.context::<tcl_interp::ShellContext>(ctx).shell = std::ptr::null_mut();
+        let result = match result {
+            Ok(r) => r,
+            Err(payload) => std::panic::resume_unwind(payload),
+        };
 
         let shell_ctx = interp.context::<tcl_interp::ShellContext>(ctx);
         let exit_requested = shell_ctx.exit_requested;

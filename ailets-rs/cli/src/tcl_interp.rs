@@ -209,6 +209,7 @@ fn tcl_help(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
 fn tcl_quit(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 1, 1, "")?;
     interp.context::<ShellContext>(ctx).exit_requested = true;
-    // Return an error to unwind the current script; execute() converts this to ShellControl::Exit.
+    // Raise an error to unwind the running script. exit_requested is a side-channel
+    // that TCL `catch` cannot reach, so `quit` always exits even inside `catch { quit }`.
     Err(Exception::molt_err("exit".into()))
 }
