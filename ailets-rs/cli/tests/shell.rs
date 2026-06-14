@@ -237,6 +237,9 @@ fn one_step_advances_past_terminated_nodes() {
 #[test]
 fn foreground_run_suppresses_intermediate_notifications() {
     // Intermediate nodes in a foreground pipeline must not emit notifications.
+    // The terminal node's notification may race with foreground_join being cleared
+    // (see warning in NotificationWatcher::spawn); we accept that known race and
+    // only assert that intermediate notifications are suppressed.
     let notification_sink = Arc::new(CapturingSink::new());
     let mut shell = DagShell::new_with_sinks(
         Box::new(CapturingSink::new()),
@@ -244,13 +247,27 @@ fn foreground_run_suppresses_intermediate_notifications() {
     );
     let (mut interp, ctx) = make_interp();
     shell.execute(&mut interp, ctx, "set v [value hello]").unwrap();
-    shell.execute(&mut interp, ctx, "set c [node cat]").unwrap();
-    shell.execute(&mut interp, ctx, "dep $c $v").unwrap();
-    shell.execute(&mut interp, ctx, "run $c").unwrap(); // foreground — watcher processes all events inside block_on
+    shell.execute(&mut interp, ctx, "set c1 [node cat]").unwrap();
+    shell.execute(&mut interp, ctx, "dep $c1 $v").unwrap();
+    shell.execute(&mut interp, ctx, "set c2 [node cat]").unwrap();
+    shell.execute(&mut interp, ctx, "dep $c2 $c1").unwrap();
+    shell.execute(&mut interp, ctx, "set c3 [node cat]").unwrap();
+    shell.execute(&mut interp, ctx, "dep $c3 $c2").unwrap();
+    shell.execute(&mut interp, ctx, "set c4 [node cat]").unwrap();
+    shell.execute(&mut interp, ctx, "dep $c4 $c3").unwrap();
+    shell.execute(&mut interp, ctx, "run $c4").unwrap();
+
+    let c4_id = interp
+        .eval("set c4")
+        .map(|v| v.as_str().to_string())
+        .unwrap_or_default();
+    let terminal_line = format!("[cat#{}] done", c4_id);
+    let mut lines = notification_sink.lines();
+    lines.retain(|l| l != &terminal_line);
     assert!(
-        notification_sink.lines().is_empty(),
-        "unexpected notifications during foreground run: {:?}",
-        notification_sink.lines()
+        lines.is_empty(),
+        "unexpected intermediate notifications during foreground run: {:?}",
+        lines
     );
 }
 

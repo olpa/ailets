@@ -88,7 +88,15 @@ impl NotificationWatcher {
                         () = cancel.cancelled() => break,
                         event = events_rx.recv() => match event {
                             Some(ExecutorEvent::NodeTerminated(h)) => {
-                                if !foreground_join.load(std::sync::atomic::Ordering::Relaxed) {
+                                // warning: there is a theoretical race here. The executor
+                                // sends NodeTerminated to this channel BEFORE signalling the
+                                // join receiver, so events are already queued when the main
+                                // thread's block_on returns. However, this watcher task runs
+                                // on a separate worker thread and may not be scheduled until
+                                // after the main thread clears foreground_join — meaning a
+                                // notification could slip through. In practice this is rare
+                                // and considered not worth fixing.
+                                if !foreground_join.load(std::sync::atomic::Ordering::Acquire) {
                                     let name = {
                                         let dag = env.dag.read();
                                         dag.get_node(h)

@@ -414,6 +414,14 @@ impl DagShell {
             self.env.resolve_all(handle)
         };
 
+        // For foreground runs, raise the flag BEFORE submit so no NodeTerminated
+        // event can reach the watcher while the flag is still false. The Release
+        // store pairs with the Acquire load in the watcher task.
+        if !bg_flag {
+            self.foreground_join
+                .store(true, std::sync::atomic::Ordering::Release);
+        }
+
         self.executor
             .submit(handle, stop_conditions.clone())
             .map_err(|_| "Executor has shut down".to_string())?;
@@ -434,8 +442,6 @@ impl DagShell {
             .flat_map(|t| self.env.resolve_all(t))
             .collect();
         let receivers: Vec<_> = targets.iter().map(|&t| self.executor.join(t)).collect();
-        self.foreground_join
-            .store(true, std::sync::atomic::Ordering::Relaxed);
         let sink = &self.sink;
         let foreground_join = &self.foreground_join;
         self.cli_rt.block_on(async move {
@@ -452,7 +458,7 @@ impl DagShell {
                     results.into_iter().find(Result::is_err).unwrap_or(Ok(()))
                 }
             };
-            foreground_join.store(false, std::sync::atomic::Ordering::Relaxed);
+            foreground_join.store(false, std::sync::atomic::Ordering::Release);
             result
         })
     }
