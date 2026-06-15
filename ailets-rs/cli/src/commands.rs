@@ -669,16 +669,11 @@ pub static ENTRY_CAT: CommandMeta = CommandMeta {
 };
 impl DagShell {
     fn parse_stream(s: &str) -> Result<StdHandle, String> {
-        let handle = if let Ok(h) = StdHandle::try_from(s) {
-            h
-        } else {
-            let fd: isize = s.parse().map_err(|_| format!("Unknown stream: {s}"))?;
-            StdHandle::try_from(fd).map_err(|_| format!("Unknown stream: {s}"))?
-        };
-        if handle == StdHandle::Stdin {
-            return Err("stdin is not a readable output stream".to_string());
+        if let Ok(h) = StdHandle::try_from(s) {
+            return Ok(h);
         }
-        Ok(handle)
+        let fd: isize = s.parse().map_err(|_| format!("Unknown stream: {s}"))?;
+        StdHandle::try_from(fd).map_err(|_| format!("Unknown stream: {s}"))
     }
 
     pub(crate) fn cmd_cat(&self, args: &[&str]) -> Result<(), String> {
@@ -692,6 +687,8 @@ impl DagShell {
             .parse_handle(node_str)
             .ok_or_else(|| format!("Invalid handle: {node_str}"))?;
 
+        let node_state = self.env.dag.read().get_node(handle).map(|n| n.state);
+
         let kv = Arc::clone(&self.kv);
         let output = self.ailetos_async_rt.block_on(async move {
             let path = pipe_path(handle, stream as isize);
@@ -700,10 +697,17 @@ impl DagShell {
                     let guard = buffer.lock();
                     Ok(String::from_utf8_lossy(&guard).into_owned())
                 }
-                Err(e) => Err(format!(
-                    "No output available for node {}: {e:?}",
-                    handle.id()
-                )),
+                Err(_) => Err(match node_state {
+                    Some(NodeState::NotStarted) => {
+                        format!("Node {} was never executed", handle.id())
+                    }
+                    Some(NodeState::Running | NodeState::Terminating) => {
+                        format!("Node {} is still running", handle.id())
+                    }
+                    Some(NodeState::Terminated) | None => {
+                        format!("No output on stream {stream:?} for node {}", handle.id())
+                    }
+                }),
             }
         });
         match output {

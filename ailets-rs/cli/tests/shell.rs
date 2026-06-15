@@ -501,5 +501,5 @@ fn cat_stream_by_name_and_fd() {
     shell.execute(&mut interp, ctx, "cat $v:stderr").unwrap();
     shell.execute(&mut interp, ctx, "cat $v:2").unwrap();
     let lines = sink.lines();
-    assert_eq!(lines.iter().filter(|l| l.contains("No output available")).count(), 2);
+    assert_eq!(lines.iter().filter(|l| l.contains("No output on stream")).count(), 2);
 }
