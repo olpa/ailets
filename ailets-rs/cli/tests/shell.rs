@@ -491,3 +491,15 @@ fn parse_handle_unique_name() {
     shell.execute(&mut interp, ctx, "status cat").unwrap();
     assert!(sink.lines().iter().any(|l| l.contains("Invalid handle: cat")));
 }
+
+#[test]
+fn cat_stream_by_name_and_fd() {
+    let sink = CapturingSink::new();
+    let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
+    let (mut interp, ctx) = make_interp();
+    shell.execute(&mut interp, ctx, "set v [value hello]").unwrap();
+    shell.execute(&mut interp, ctx, "cat $v:stderr").unwrap();
+    shell.execute(&mut interp, ctx, "cat $v:2").unwrap();
+    let lines = sink.lines();
+    assert_eq!(lines.iter().filter(|l| l.contains("No output available")).count(), 2);
+}

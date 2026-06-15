@@ -662,20 +662,42 @@ impl DagShell {
 
 pub static ENTRY_CAT: CommandMeta = CommandMeta {
     names: &["cat"],
-    argsig: "node",
+    argsig: "node[:stream]",
     section: "I/O",
-    description: "Show output of a node",
+    description: "Show output of a node (default stream: stdout)",
     detail: None,
 };
 impl DagShell {
+    fn parse_stream(s: &str) -> Result<isize, String> {
+        match s {
+            "stdin" => Ok(StdHandle::Stdin as isize),
+            "stdout" => Ok(StdHandle::Stdout as isize),
+            "stderr" | "log" => Ok(StdHandle::Log as isize),
+            "env" => Ok(StdHandle::Env as isize),
+            "metrics" => Ok(StdHandle::Metrics as isize),
+            "trace" => Ok(StdHandle::Trace as isize),
+            _ => s
+                .parse::<isize>()
+                .ok()
+                .filter(|&fd| fd >= 0 && fd < StdHandle::_Count as isize)
+                .ok_or_else(|| format!("Unknown stream: {s}")),
+        }
+    }
+
     pub(crate) fn cmd_cat(&self, args: &[&str]) -> Result<(), String> {
-        let handle_str = args.first().ok_or("Usage: cat <node>")?;
-        let handle = self.parse_handle(handle_str)
-            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+        let arg = args.first().ok_or("Usage: cat <node>[:<stream>]")?;
+        let (node_str, fd) = if let Some((node_part, stream_part)) = arg.split_once(':') {
+            (node_part, Self::parse_stream(stream_part)?)
+        } else {
+            (*arg, StdHandle::Stdout as isize)
+        };
+        let handle = self
+            .parse_handle(node_str)
+            .ok_or_else(|| format!("Invalid handle: {node_str}"))?;
 
         let kv = Arc::clone(&self.kv);
         let output = self.ailetos_async_rt.block_on(async move {
-            let path = pipe_path(handle, StdHandle::Stdout as isize);
+            let path = pipe_path(handle, fd);
             match kv.open(&path, OpenMode::Read).await {
                 Ok(buffer) => {
                     let guard = buffer.lock();
