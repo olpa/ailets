@@ -60,10 +60,7 @@ pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
 #[no_mangle]
 pub extern "C" fn execute_wasm() -> *const c_char {
     let runtime = FfiActorRuntime::new();
-    let reader = AReader::new_from_std(&runtime, StdHandle::Stdin);
-    let writer = AWriter::new_from_std(&runtime, StdHandle::Stdout);
-
-    match execute_impl(reader, writer) {
+    match execute(&runtime) {
         Ok(()) => std::ptr::null(),
         Err(e) => err_to_heap_c_string(-1, &e),
     }
