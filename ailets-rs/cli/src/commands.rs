@@ -668,28 +668,25 @@ pub static ENTRY_CAT: CommandMeta = CommandMeta {
     detail: None,
 };
 impl DagShell {
-    fn parse_stream(s: &str) -> Result<isize, String> {
-        match s {
-            "stdin" => Ok(StdHandle::Stdin as isize),
-            "stdout" => Ok(StdHandle::Stdout as isize),
-            "stderr" | "log" => Ok(StdHandle::Log as isize),
-            "env" => Ok(StdHandle::Env as isize),
-            "metrics" => Ok(StdHandle::Metrics as isize),
-            "trace" => Ok(StdHandle::Trace as isize),
-            _ => s
-                .parse::<isize>()
-                .ok()
-                .filter(|&fd| fd >= 0 && fd < StdHandle::_Count as isize)
-                .ok_or_else(|| format!("Unknown stream: {s}")),
+    fn parse_stream(s: &str) -> Result<StdHandle, String> {
+        let handle = if let Ok(h) = StdHandle::try_from(s) {
+            h
+        } else {
+            let fd: isize = s.parse().map_err(|_| format!("Unknown stream: {s}"))?;
+            StdHandle::try_from(fd).map_err(|_| format!("Unknown stream: {s}"))?
+        };
+        if handle == StdHandle::Stdin {
+            return Err("stdin is not a readable output stream".to_string());
         }
+        Ok(handle)
     }
 
     pub(crate) fn cmd_cat(&self, args: &[&str]) -> Result<(), String> {
         let arg = args.first().ok_or("Usage: cat <node>[:<stream>]")?;
-        let (node_str, fd) = if let Some((node_part, stream_part)) = arg.split_once(':') {
+        let (node_str, stream) = if let Some((node_part, stream_part)) = arg.split_once(':') {
             (node_part, Self::parse_stream(stream_part)?)
         } else {
-            (*arg, StdHandle::Stdout as isize)
+            (*arg, StdHandle::Stdout)
         };
         let handle = self
             .parse_handle(node_str)
@@ -697,7 +694,7 @@ impl DagShell {
 
         let kv = Arc::clone(&self.kv);
         let output = self.ailetos_async_rt.block_on(async move {
-            let path = pipe_path(handle, fd);
+            let path = pipe_path(handle, stream as isize);
             match kv.open(&path, OpenMode::Read).await {
                 Ok(buffer) => {
                     let guard = buffer.lock();
