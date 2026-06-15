@@ -460,3 +460,34 @@ fn tcl_multiline_value_sets_node() {
         "expected node status output; got: {lines:?}"
     );
 }
+
+#[test]
+fn parse_handle_name_dot_n() {
+    let sink = CapturingSink::new();
+    let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
+    let (mut interp, ctx) = make_interp();
+    // node cat gets id 1; cat.1 must resolve, wrong.1 must not
+    shell.execute(&mut interp, ctx, "set id [node cat]").unwrap();
+    shell
+        .execute(&mut interp, ctx, "status cat.$id")
+        .unwrap();
+    assert!(sink.lines().iter().any(|l| l.contains("cat")));
+    shell
+        .execute(&mut interp, ctx, "status wrong.$id")
+        .unwrap();
+    assert!(sink.lines().iter().any(|l| l.contains("Invalid handle: wrong.")));
+}
+
+#[test]
+fn parse_handle_unique_name() {
+    let sink = CapturingSink::new();
+    let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
+    let (mut interp, ctx) = make_interp();
+    // single cat resolves; adding a second makes it ambiguous
+    shell.execute(&mut interp, ctx, "node cat").unwrap();
+    shell.execute(&mut interp, ctx, "status cat").unwrap();
+    assert!(sink.lines().iter().any(|l| l.contains("cat")));
+    shell.execute(&mut interp, ctx, "node cat").unwrap();
+    shell.execute(&mut interp, ctx, "status cat").unwrap();
+    assert!(sink.lines().iter().any(|l| l.contains("Invalid handle: cat")));
+}
