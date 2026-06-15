@@ -215,7 +215,7 @@ impl DagShell {
         }
     }
 
-    pub(crate) fn parse_handle(&self, s: &str) -> Option<Handle> {
+    pub(crate) fn parse_handle(s: &str) -> Option<Handle> {
         s.parse::<i64>().ok().map(Handle::new)
     }
 
@@ -240,7 +240,8 @@ impl DagShell {
         // valid for the entire eval() call because `self` is borrowed for at
         // least that long, and no handler touches `interp` (the other borrow),
         // so there is no actual aliasing.
-        interp.context::<tcl_interp::ShellContext>(ctx).shell = self as *mut DagShell;
+        interp.context::<tcl_interp::ShellContext>(ctx).shell =
+            std::ptr::from_mut::<DagShell>(self);
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| interp.eval(script)));
         interp.context::<tcl_interp::ShellContext>(ctx).shell = std::ptr::null_mut();
         let result = match result {

@@ -1,11 +1,15 @@
 //! Molt (TCL) integration — register DAG shell commands with a molt `Interp`.
 
-use molt::{check_args, molt_ok, types::*, Interp};
+use molt::{
+    check_args, molt_ok,
+    types::{CommandFunc, ContextID, Exception, MoltResult, Value},
+    Interp,
+};
 
 use crate::commands::{
-    ENTRY_ALIAS, ENTRY_CAT, ENTRY_CLOSE, ENTRY_DEP, ENTRY_FOLLOW, ENTRY_HELP,
-    ENTRY_JOIN, ENTRY_KILL, ENTRY_NODE, ENTRY_NODES, ENTRY_QUIT, ENTRY_RESUME, ENTRY_RUN,
-    ENTRY_SHOW, ENTRY_SOURCE, ENTRY_STATUS, ENTRY_SUSPEND, ENTRY_VALUE, ENTRY_WAIT, ENTRY_WRITE,
+    ENTRY_ALIAS, ENTRY_CAT, ENTRY_CLOSE, ENTRY_DEP, ENTRY_FOLLOW, ENTRY_HELP, ENTRY_JOIN,
+    ENTRY_KILL, ENTRY_NODE, ENTRY_NODES, ENTRY_QUIT, ENTRY_RESUME, ENTRY_RUN, ENTRY_SHOW,
+    ENTRY_SOURCE, ENTRY_STATUS, ENTRY_SUSPEND, ENTRY_VALUE, ENTRY_WAIT, ENTRY_WRITE,
 };
 use crate::DagShell;
 
@@ -32,7 +36,7 @@ fn get_shell<'a>(interp: &mut Interp, ctx: ContextID) -> &'a mut DagShell {
 }
 
 fn wrap(r: Result<(), String>) -> MoltResult {
-    r.map(|_| Value::empty())
+    r.map(|()| Value::empty())
         .map_err(|e| Exception::molt_err(Value::from(e)))
 }
 
@@ -40,6 +44,7 @@ fn wrap(r: Result<(), String>) -> MoltResult {
 // Interpreter factory — pairs each CommandMeta with its TCL handler.
 // ---------------------------------------------------------------------------
 
+#[must_use]
 pub fn make_interp() -> (Interp, ContextID) {
     let mut interp = Interp::new();
     let ctx = interp.save_context(ShellContext {
@@ -82,8 +87,13 @@ pub fn make_interp() -> (Interp, ContextID) {
 
 fn tcl_node(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 0, "<actor> [--explain=text]")?;
-    let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    match get_shell(interp, ctx).cmd_node(&args) {
+    let tail: Vec<&str> = argv
+        .get(1..)
+        .unwrap_or_default()
+        .iter()
+        .map(Value::as_str)
+        .collect();
+    match get_shell(interp, ctx).cmd_node(&tail) {
         Ok(handle) => Ok(Value::from(handle.id().to_string())),
         Err(e) => Err(Exception::molt_err(Value::from(e))),
     }
@@ -91,8 +101,13 @@ fn tcl_node(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
 
 fn tcl_value(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 0, "<data> [--explain=text]")?;
-    let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    match get_shell(interp, ctx).cmd_value(&args) {
+    let tail: Vec<&str> = argv
+        .get(1..)
+        .unwrap_or_default()
+        .iter()
+        .map(Value::as_str)
+        .collect();
+    match get_shell(interp, ctx).cmd_value(&tail) {
         Ok(handle) => Ok(Value::from(handle.id().to_string())),
         Err(e) => Err(Exception::molt_err(Value::from(e))),
     }
@@ -100,8 +115,13 @@ fn tcl_value(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult 
 
 fn tcl_alias(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 3, 0, "<name> <target> ...")?;
-    let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    match get_shell(interp, ctx).cmd_alias(&args) {
+    let tail: Vec<&str> = argv
+        .get(1..)
+        .unwrap_or_default()
+        .iter()
+        .map(Value::as_str)
+        .collect();
+    match get_shell(interp, ctx).cmd_alias(&tail) {
         Ok(handle) => Ok(Value::from(handle.id().to_string())),
         Err(e) => Err(Exception::molt_err(Value::from(e))),
     }
@@ -115,89 +135,154 @@ fn tcl_nodes(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult 
 
 fn tcl_dep(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 3, 3, "node dependency")?;
-    let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell(interp, ctx).cmd_dep(&args))
+    let tail: Vec<&str> = argv
+        .get(1..)
+        .unwrap_or_default()
+        .iter()
+        .map(Value::as_str)
+        .collect();
+    wrap(get_shell(interp, ctx).cmd_dep(&tail))
 }
 
 fn tcl_show(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 1, 2, "?node?")?;
-    let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell(interp, ctx).cmd_show(&args))
+    let tail: Vec<&str> = argv
+        .get(1..)
+        .unwrap_or_default()
+        .iter()
+        .map(Value::as_str)
+        .collect();
+    wrap(get_shell(interp, ctx).cmd_show(&tail))
 }
 
 fn tcl_run(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 1, 0, "?options? ?node?")?;
-    let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell(interp, ctx).cmd_run(&args))
+    let tail: Vec<&str> = argv
+        .get(1..)
+        .unwrap_or_default()
+        .iter()
+        .map(Value::as_str)
+        .collect();
+    wrap(get_shell(interp, ctx).cmd_run(&tail))
 }
 
 fn tcl_join(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 2, "node")?;
-    let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell(interp, ctx).cmd_join(&args))
+    let tail: Vec<&str> = argv
+        .get(1..)
+        .unwrap_or_default()
+        .iter()
+        .map(Value::as_str)
+        .collect();
+    wrap(get_shell(interp, ctx).cmd_join(&tail))
 }
 
 fn tcl_follow(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 0, "node ?--color name?")?;
-    let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell(interp, ctx).cmd_follow(&args))
+    let tail: Vec<&str> = argv
+        .get(1..)
+        .unwrap_or_default()
+        .iter()
+        .map(Value::as_str)
+        .collect();
+    wrap(get_shell(interp, ctx).cmd_follow(&tail))
 }
 
 fn tcl_cat(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 2, "node")?;
-    let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell(interp, ctx).cmd_cat(&args))
+    let tail: Vec<&str> = argv
+        .get(1..)
+        .unwrap_or_default()
+        .iter()
+        .map(Value::as_str)
+        .collect();
+    wrap(get_shell(interp, ctx).cmd_cat(&tail))
 }
 
 fn tcl_status(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 1, 2, "?node?")?;
-    let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    get_shell(interp, ctx).cmd_status(&args);
+    let tail: Vec<&str> = argv
+        .get(1..)
+        .unwrap_or_default()
+        .iter()
+        .map(Value::as_str)
+        .collect();
+    get_shell(interp, ctx).cmd_status(&tail);
     molt_ok!()
 }
 
 // Recursive eval of a file; interp is already borrowed by the caller's eval.
 fn tcl_source(interp: &mut Interp, _ctx: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 2, "file")?;
-    let content = std::fs::read_to_string(argv[1].as_str())
+    let content = std::fs::read_to_string(argv.get(1).map_or("", Value::as_str))
         .map_err(|e| Exception::molt_err(Value::from(e.to_string())))?;
     interp.eval(&content)
 }
 
 fn tcl_suspend(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 2, "node")?;
-    let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell(interp, ctx).cmd_suspend(&args))
+    let tail: Vec<&str> = argv
+        .get(1..)
+        .unwrap_or_default()
+        .iter()
+        .map(Value::as_str)
+        .collect();
+    wrap(get_shell(interp, ctx).cmd_suspend(&tail))
 }
 
 fn tcl_resume(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 2, "node")?;
-    let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell(interp, ctx).cmd_resume(&args))
+    let tail: Vec<&str> = argv
+        .get(1..)
+        .unwrap_or_default()
+        .iter()
+        .map(Value::as_str)
+        .collect();
+    wrap(get_shell(interp, ctx).cmd_resume(&tail))
 }
 
 fn tcl_wait(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 0, "condition ?args?")?;
-    let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell(interp, ctx).cmd_wait(&args))
+    let tail: Vec<&str> = argv
+        .get(1..)
+        .unwrap_or_default()
+        .iter()
+        .map(Value::as_str)
+        .collect();
+    wrap(get_shell(interp, ctx).cmd_wait(&tail))
 }
 
 fn tcl_write(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 0, "node ?data?")?;
-    let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell(interp, ctx).cmd_write(&args))
+    let tail: Vec<&str> = argv
+        .get(1..)
+        .unwrap_or_default()
+        .iter()
+        .map(Value::as_str)
+        .collect();
+    wrap(get_shell(interp, ctx).cmd_write(&tail))
 }
 
 fn tcl_close(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 2, "node")?;
-    let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell(interp, ctx).cmd_close(&args))
+    let tail: Vec<&str> = argv
+        .get(1..)
+        .unwrap_or_default()
+        .iter()
+        .map(Value::as_str)
+        .collect();
+    wrap(get_shell(interp, ctx).cmd_close(&tail))
 }
 
 fn tcl_kill(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 2, 3, "?-N? node")?;
-    let args: Vec<&str> = argv[1..].iter().map(|v| v.as_str()).collect();
-    wrap(get_shell(interp, ctx).cmd_kill(&args))
+    let tail: Vec<&str> = argv
+        .get(1..)
+        .unwrap_or_default()
+        .iter()
+        .map(Value::as_str)
+        .collect();
+    wrap(get_shell(interp, ctx).cmd_kill(&tail))
 }
 
 fn tcl_help(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
