@@ -3,6 +3,7 @@ pub mod handlers;
 mod structure_builder;
 
 use actor_io::{AReader, AWriter};
+use embedded_io::Write as _;
 use actor_runtime::{err_to_heap_c_string, ActorRuntime, FfiActorRuntime, StdHandle};
 use handlers::on_content_text;
 use scan_json::matcher::StructuralPseudoname;
@@ -90,7 +91,12 @@ pub fn messages_to_markdown_impl<W: embedded_io::Write>(
 pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
     let reader = AReader::new_from_std(runtime, StdHandle::Stdin);
     let writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
-    messages_to_markdown_impl(reader, writer)
+    let result = messages_to_markdown_impl(reader, writer);
+    if let Err(ref e) = result {
+        let mut log = AWriter::new_from_std(runtime, StdHandle::Log);
+        if log.write_all(format!("{e}\n").as_bytes()).is_err() {}
+    }
+    result
 }
 
 /// # Panics

@@ -48,7 +48,12 @@ fn execute_impl<'a>(mut reader: AReader<'a>, mut writer: AWriter<'a>) -> Result<
 pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
     let reader = AReader::new_from_std(runtime, StdHandle::Stdin);
     let writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
-    execute_impl(reader, writer)
+    let result = execute_impl(reader, writer);
+    if let Err(ref e) = result {
+        let mut log = AWriter::new_from_std(runtime, StdHandle::Log);
+        if log.write_all(format!("{e}\n").as_bytes()).is_err() {}
+    }
+    result
 }
 
 /// WASM FFI wrapper

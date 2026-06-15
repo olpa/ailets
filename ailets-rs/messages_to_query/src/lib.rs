@@ -213,7 +213,12 @@ pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
         }
     };
 
-    process_messages_impl(reader, writer, runtime, env_opts)
+    let result = process_messages_impl(reader, writer, runtime, env_opts);
+    if let Err(ref e) = result {
+        let mut log = AWriter::new_from_std(runtime, StdHandle::Log);
+        if log.write_all(format!("{e}\n").as_bytes()).is_err() {}
+    }
+    result
 }
 
 /// # Panics
