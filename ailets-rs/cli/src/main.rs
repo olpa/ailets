@@ -1,7 +1,7 @@
 //! DAG Shell binary entry point.
 
-use dagsh::shell_ui::{create_notification_sink, parse_args, print_usage};
-use dagsh::DagShell;
+use dagsh::shell_ui::{create_notification_sink, parse_args, print_usage, ShellHelper};
+use dagsh::{make_interp, DagShell, ShellControl};
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
 use rustyline::Editor;
@@ -27,10 +27,11 @@ fn main() {
         }
     };
 
-    let Ok(mut rl) = Editor::<(), rustyline::history::DefaultHistory>::new() else {
+    let Ok(mut rl) = Editor::<ShellHelper, rustyline::history::DefaultHistory>::new() else {
         eprintln!("Failed to create editor");
         std::process::exit(1);
     };
+    rl.set_helper(Some(ShellHelper));
     if let Err(e) = rl.set_max_history_size(1000) {
         eprintln!("warn: failed to set history size: {e}");
     }
@@ -40,13 +41,14 @@ fn main() {
     let ailetos_rt = Runtime::new().expect("failed to create ailetos runtime");
     let mut shell =
         DagShell::new_with_sinks_and_rt(Box::new(dagsh::StdoutSink), notification_sink, ailetos_rt);
+    let (mut interp, ctx) = make_interp();
 
-    println!("DAG Shell v0.1");
+    println!("DAG Shell v0.1 (TCL)");
     println!("Type 'help' for available commands.\n");
 
     if let Some(script_path) = cli_args.load_script {
         println!("Loading {script_path}...\n");
-        if let Err(e) = shell.cmd_source(&[&script_path]) {
+        if let Err(e) = shell.cmd_source(&mut interp, ctx, &[&script_path]) {
             println!("Error: {e}");
         }
         println!();
@@ -62,9 +64,9 @@ fn main() {
                 if let Err(e) = rl.add_history_entry(line) {
                     eprintln!("warn: failed to add history entry: {e}");
                 }
-                match shell.execute(line) {
-                    Ok(dagsh::ShellControl::Continue) => {}
-                    Ok(dagsh::ShellControl::Exit) => {
+                match shell.execute(&mut interp, ctx, line) {
+                    Ok(ShellControl::Continue) => {}
+                    Ok(ShellControl::Exit) => {
                         println!("Goodbye!");
                         break;
                     }

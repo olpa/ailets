@@ -47,7 +47,7 @@ pub fn print_usage() {
     println!("Usage: dagsh [OPTIONS]");
     println!();
     println!("Options:");
-    println!("  -l, --load <file>   Load script file on startup, then continue interactively");
+    println!("  -l, --load <file>   Load TCL script file on startup, then continue interactively");
     println!("  -h, --help          Show this help");
 }
 
@@ -86,63 +86,47 @@ pub fn parse_args(args: &[String]) -> Result<CliArgs, String> {
 }
 
 // ---------------------------------------------------------------------------
-// Help text
+// Rustyline helper — tab completion
 // ---------------------------------------------------------------------------
 
-pub const HELP_TEXT: &str = r"DAG Shell Commands:
+pub struct ShellHelper;
 
-Node Management:
-  node add <actor> [--explain=text]   Add actor node (actors: cat, dbg, shell_input)
-  node value <data> [--explain=text]  Add value node (constant data)
-  node alias <name> <target>          Add alias node
-  node list                           List all nodes with status
+impl rustyline::completion::Completer for ShellHelper {
+    type Candidate = rustyline::completion::Pair;
 
-Dependencies:
-  dep <node> <dependency>             Add dependency (node depends on dependency)
-  deps <node>                         Show direct dependencies
+    fn complete(
+        &self,
+        line: &str,
+        pos: usize,
+        _ctx: &rustyline::Context<'_>,
+    ) -> rustyline::Result<(usize, Vec<Self::Candidate>)> {
+        let before = &line[..pos];
+        // Only complete the first word (the command name).
+        if before.contains(' ') {
+            return Ok((pos, vec![]));
+        }
+        let candidates = crate::commands::COMMANDS
+            .iter()
+            .flat_map(|e| e.names.iter().copied())
+            .filter(|name| name.starts_with(before))
+            .map(|name| rustyline::completion::Pair {
+                display: name.to_string(),
+                replacement: name.to_string(),
+            })
+            .collect();
+        Ok((0, candidates))
+    }
+}
 
-Visualization:
-  show [node]                         Tree view (default: whole DAG)
+impl rustyline::hint::Hinter for ShellHelper {
+    type Hint = String;
+}
 
-Execution:
-  run [node] [options]                Submit run to ailetos; waits by default
-    --one-step                        Execute only the first ready node
-    --stop-before <node>              Stop before executing this node
-    --stop-after <node>               Stop after executing this node
-    --bg                              Submit and return immediately (background)
-    --color <name>                    Colorize output (CSS/X11 name or 0-255; --bg only)
+impl rustyline::highlight::Highlighter for ShellHelper {}
 
-Job Control:
-  join <node>                         Wait for node to terminate; Ctrl+C to detach
-  await <node>                        Synonym for join
-  follow <node> [--color <name>]      Attach node stdout; optional 256-color name or 0-255
-  kill [-N] <node>                    Kill actor with exit code N (default 130)
+impl rustyline::validate::Validator for ShellHelper {}
 
-I/O:
-  cat <node>                          Show output of a node
-
-Status:
-  status                              Overall DAG status
-  status <node>                       Node status
-
-Debug:
-  suspend <node>                      Suspend a running actor
-  resume <node>                       Resume a suspended actor (dbg or general)
-  wait suspended <node>               Block until node is suspended (Ctrl+C to detach)
-  wait terminated <node>              Block until node is terminated (Ctrl+C to detach)
-
-Shell Input:
-  write <node> <data>                 Write data to a shell_input actor
-  close <node>                        Close a shell_input actor (send EOF)
-
-Session:
-  load <file>                         Run script file (alias: source)
-  help                                Show this help
-  quit                                Exit
-
-Variables:
-  set var = node ...                  Assign node to variable
-  dep $foo $bar                       Use $var to reference variables";
+impl rustyline::Helper for ShellHelper {}
 
 // ---------------------------------------------------------------------------
 // Argument parsing helpers
@@ -161,7 +145,9 @@ pub fn parse_explain(args: &[&str]) -> Option<String> {
         }
         return Some(quoted.to_string());
     }
-    rest.split_whitespace().next().map(str::to_string)
+    // Take until the next flag or end of string.
+    let end = rest.find(" --").unwrap_or(rest.len());
+    rest.get(..end).map(str::to_string)
 }
 
 #[must_use]
@@ -169,19 +155,6 @@ pub fn parse_bytes_before_pause(args: &[&str]) -> Option<usize> {
     args.iter()
         .find_map(|a| a.strip_prefix("--bytes-before-pause="))
         .and_then(|s| s.parse().ok())
-}
-
-/// Looks for a heredoc marker token (`<<DELIM`) among whitespace-split
-/// command tokens, e.g. `node value <<EOF --explain="seed"`. Returns its
-/// index and the delimiter name so the caller can collect the heredoc body
-/// and substitute it for the marker before dispatching the command — this is
-/// how dagsh scripts embed multi-line values (e.g. JSONL) on one logical line.
-#[must_use]
-pub fn find_heredoc_marker<'a>(parts: &[&'a str]) -> Option<(usize, &'a str)> {
-    parts.iter().enumerate().find_map(|(i, tok)| {
-        let delim = tok.strip_prefix("<<")?;
-        (!delim.is_empty()).then_some((i, delim))
-    })
 }
 
 #[must_use]
@@ -225,7 +198,7 @@ pub fn truncate(s: &str, max_len: usize) -> String {
 /// Creates a notification sink that routes through rustyline's `ExternalPrinter`,
 /// or falls back to `StdoutSink` if the printer can't be created.
 pub fn create_notification_sink<H>(
-    rl: &mut rustyline::Editor<(), H>,
+    rl: &mut rustyline::Editor<ShellHelper, H>,
     rt: &tokio::runtime::Handle,
 ) -> Arc<dyn OutputSink>
 where

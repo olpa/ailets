@@ -7,9 +7,9 @@
 # The dbg actor collects 3 bytes then suspends. We kill it while suspended
 # and verify the node transitions to terminated.
 
-set src  = node add shell_input --explain="Input source"
-set dbg1 = node add dbg --bytes-before-pause=3 --explain="Collects 3 B then pauses"
-set out  = node add cat --explain="Output sink"
+set src  [node shell_input "--explain=Input source"]
+set dbg1 [node dbg --bytes-before-pause=3 "--explain=Collects 3 B then pauses"]
+set out  [node cat "--explain=Output sink"]
 dep $dbg1 $src
 dep $out $dbg1
 

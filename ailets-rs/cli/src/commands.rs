@@ -10,38 +10,196 @@ use ailetos::{
 
 use crate::output::{parse_color, OutputSinkWriter};
 use crate::shell_ui::{
-    format_state, parse_bytes_before_pause, parse_explain, parse_quoted_string, truncate, HELP_TEXT,
+    format_state, parse_bytes_before_pause, parse_explain, parse_quoted_string, truncate,
 };
 use crate::{dbg_control, shell_input_control, DagShell};
 
 const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(10);
 
+// ---------------------------------------------------------------------------
+// Command metadata — descriptions live adjacent to their implementations.
+// ---------------------------------------------------------------------------
+
+pub struct CommandMeta {
+    /// Primary name first; the rest are aliases shown in help and for completion.
+    pub names: &'static [&'static str],
+    /// Argument signature — what follows the command name (matches `check_args` argsig).
+    pub argsig: &'static str,
+    pub section: &'static str,
+    pub description: &'static str,
+    /// Optional pre-formatted detail lines (sub-commands or flags), indented 4 spaces,
+    /// descriptions aligned at column 36. No trailing newline on last line.
+    pub detail: Option<&'static str>,
+}
+
+pub static SECTIONS: &[&str] = &[
+    "Node Management",
+    "Dependencies",
+    "Visualization",
+    "Execution",
+    "Job Control",
+    "I/O",
+    "Status",
+    "Debug",
+    "Shell Input",
+    "Session",
+];
+
+// ---------------------------------------------------------------------------
+// Session — help and source/load
+// ---------------------------------------------------------------------------
+
+pub static ENTRY_HELP: CommandMeta = CommandMeta {
+    names: &["help", "?"],
+    argsig: "",
+    section: "Session",
+    description: "Show this help",
+    detail: None,
+};
 impl DagShell {
     pub(crate) fn cmd_help(&self) {
-        self.sink.println(HELP_TEXT);
+        self.sink.println(&generate_help());
     }
+}
 
-    pub(crate) fn cmd_set(&mut self, args: &[&str]) -> Result<(), String> {
-        match args {
-            [var_name, "=", "node", rest @ ..] => {
-                let handle = self.cmd_node_inner(rest)?;
-                self.vars.insert((*var_name).to_string(), handle);
-                Ok(())
-            }
-            _ => Err("Usage: set <var> = node ...".to_string()),
+pub static ENTRY_SOURCE: CommandMeta = CommandMeta {
+    names: &["source", "load"],
+    argsig: "file",
+    section: "Session",
+    description: "Run TCL script file",
+    detail: None,
+};
+impl DagShell {
+    /// # Errors
+    /// Returns an error string if the file cannot be read or a command fails.
+    pub fn cmd_source(
+        &mut self,
+        interp: &mut molt::Interp,
+        ctx: molt::types::ContextID,
+        args: &[&str],
+    ) -> Result<crate::ShellControl, String> {
+        let path = args.first().ok_or("Usage: source <file>")?;
+        let content =
+            std::fs::read_to_string(path).map_err(|e| format!("Failed to read {path}: {e}"))?;
+        self.execute(interp, ctx, &content)
+    }
+}
+
+pub static ENTRY_QUIT: CommandMeta = CommandMeta {
+    names: &["quit", "exit", "q"],
+    argsig: "",
+    section: "Session",
+    description: "Exit the shell",
+    detail: None,
+};
+// quit has no cmd_ implementation — it is handled entirely in tcl_interp.rs.
+
+// ---------------------------------------------------------------------------
+// Node Management
+// ---------------------------------------------------------------------------
+
+pub static ENTRY_NODE: CommandMeta = CommandMeta {
+    names: &["node"],
+    argsig: "<actor> [--explain=text]",
+    section: "Node Management",
+    description: "Add actor node (actors: cat, dbg, shell_input)",
+    detail: None,
+};
+impl DagShell {
+    pub(crate) fn cmd_node(&mut self, args: &[&str]) -> Result<Handle, String> {
+        let actor = args.first().ok_or("Usage: node <actor> [--explain=text]")?;
+        let actor = (*actor).to_string();
+        let rest = args.get(1..).unwrap_or_default();
+        let explain = parse_explain(rest);
+        let handle = self.env.add_node(actor.clone(), &[], explain.clone());
+        self.handles.push(handle);
+
+        if actor == "dbg" {
+            let bytes_before_pause = parse_bytes_before_pause(rest);
+            dbg_control::register_dbg_actor(handle, bytes_before_pause);
         }
-    }
-
-    pub(crate) fn cmd_node(&mut self, args: &[&str]) -> Result<(), String> {
-        if args.first() == Some(&"list") {
-            self.cmd_node_list();
-        } else {
-            self.cmd_node_inner(args)?;
+        if actor == "shell_input" {
+            shell_input_control::register_shell_input_actor(handle);
         }
-        Ok(())
-    }
 
-    pub(crate) fn cmd_node_list(&self) {
+        let id = handle.id();
+        let expl = explain.map_or_else(String::new, |e| format!("({e})"));
+        self.sink
+            .println(&format!("Added node {id}: {actor} {expl}"));
+        Ok(handle)
+    }
+}
+
+pub static ENTRY_VALUE: CommandMeta = CommandMeta {
+    names: &["value"],
+    argsig: "<data> [--explain=text]",
+    section: "Node Management",
+    description: "Add value node (constant data)",
+    detail: None,
+};
+impl DagShell {
+    pub(crate) fn cmd_value(&mut self, args: &[&str]) -> Result<Handle, String> {
+        if args.is_empty() {
+            return Err("Usage: value <data> [--explain=text]".to_string());
+        }
+        let data = parse_quoted_string(args);
+        let explain = parse_explain(args);
+        let env = Arc::clone(&self.env);
+        let data_bytes = data.as_bytes().to_vec();
+        let explain_clone = explain.clone();
+        let handle = self
+            .ailetos_async_rt
+            .block_on(async move { env.add_value_node(data_bytes, explain_clone).await })
+            .map_err(|e| format!("Failed to add value node: {e}"))?;
+        self.handles.push(handle);
+        let id = handle.id();
+        let truncated = truncate(&data, 30);
+        let expl = explain.map_or_else(String::new, |e| format!("({e})"));
+        self.sink
+            .println(&format!("Added value node {id}: \"{truncated}\" {expl}"));
+        Ok(handle)
+    }
+}
+
+pub static ENTRY_ALIAS: CommandMeta = CommandMeta {
+    names: &["alias"],
+    argsig: "<name> <target> ...",
+    section: "Node Management",
+    description: "Add alias node (one or more targets)",
+    detail: None,
+};
+impl DagShell {
+    pub(crate) fn cmd_alias(&mut self, args: &[&str]) -> Result<Handle, String> {
+        let (name, targets_strs) = match args {
+            [name, rest @ ..] if !rest.is_empty() => (*name, rest),
+            _ => return Err("Usage: alias <name> <target> [<target>...]".to_string()),
+        };
+        let name = name.to_string();
+        let mut targets = Vec::new();
+        for target_str in targets_strs {
+            let target = Self::parse_handle(target_str)
+                .ok_or_else(|| format!("Invalid handle: {target_str}"))?;
+            targets.push(target);
+        }
+        let handle = self.env.add_aliases(name.clone(), &targets);
+        self.handles.push(handle);
+        let id = handle.id();
+        let tids: Vec<_> = targets.iter().map(|t| t.id().to_string()).collect();
+        self.sink
+            .println(&format!("Added alias {id}: {name} -> {}", tids.join(", ")));
+        Ok(handle)
+    }
+}
+
+pub static ENTRY_NODES: CommandMeta = CommandMeta {
+    names: &["nodes"],
+    argsig: "",
+    section: "Node Management",
+    description: "List all nodes with status",
+    detail: None,
+};
+impl DagShell {
+    pub(crate) fn cmd_nodes(&self) {
         if self.handles.is_empty() {
             self.sink.println("No nodes");
         } else {
@@ -60,83 +218,29 @@ impl DagShell {
             }
         }
     }
+}
 
-    pub(crate) fn cmd_node_inner(&mut self, args: &[&str]) -> Result<Handle, String> {
-        match args {
-            ["add", actor, rest @ ..] => {
-                let actor = (*actor).to_string();
-                let explain = parse_explain(rest);
-                let handle = self.env.add_node(actor.clone(), &[], explain.clone());
-                self.handles.push(handle);
+// ---------------------------------------------------------------------------
+// Dependencies
+// ---------------------------------------------------------------------------
 
-                if actor == "dbg" {
-                    let bytes_before_pause = parse_bytes_before_pause(rest);
-                    dbg_control::register_dbg_actor(handle, bytes_before_pause);
-                }
-                if actor == "shell_input" {
-                    shell_input_control::register_shell_input_actor(handle);
-                }
-
-                let id = handle.id();
-                let expl = explain.map_or_else(String::new, |e| format!("({e})"));
-                self.sink
-                    .println(&format!("Added node {id}: {actor} {expl}"));
-                Ok(handle)
-            }
-            ["add"] => Err("Usage: node add <actor> [--explain=text]".to_string()),
-            ["value", rest @ ..] if !rest.is_empty() => {
-                let data = parse_quoted_string(rest);
-                let explain = parse_explain(rest);
-                let env = Arc::clone(&self.env);
-                let data_bytes = data.as_bytes().to_vec();
-                let explain_clone = explain.clone();
-                let handle = self
-                    .ailetos_async_rt
-                    .block_on(async move { env.add_value_node(data_bytes, explain_clone).await })
-                    .map_err(|e| format!("Failed to add value node: {e}"))?;
-                self.handles.push(handle);
-                let id = handle.id();
-                let truncated = truncate(&data, 30);
-                let expl = explain.map_or_else(String::new, |e| format!("({e})"));
-                self.sink
-                    .println(&format!("Added value node {id}: \"{truncated}\" {expl}"));
-                Ok(handle)
-            }
-            ["value"] => Err("Usage: node value <data> [--explain=text]".to_string()),
-            ["alias", name, rest @ ..] if !rest.is_empty() => {
-                let name = (*name).to_string();
-                let mut targets = Vec::new();
-                for target_str in rest {
-                    let target = self
-                        .parse_handle(target_str)
-                        .ok_or_else(|| format!("Invalid handle: {target_str}"))?;
-                    targets.push(target);
-                }
-                let handle = self.env.add_aliases(name.clone(), &targets);
-                self.handles.push(handle);
-                let id = handle.id();
-                let tids: Vec<_> = targets.iter().map(|t| t.id().to_string()).collect();
-                self.sink
-                    .println(&format!("Added alias {id}: {name} -> {}", tids.join(", ")));
-                Ok(handle)
-            }
-            ["alias", ..] => Err("Usage: node alias <name> <target> [<target>...]".to_string()),
-            [cmd, ..] => Err(format!("Unknown node subcommand: {cmd}")),
-            [] => Err("Usage: node <add|value|alias|list> ...".to_string()),
-        }
-    }
-
+pub static ENTRY_DEP: CommandMeta = CommandMeta {
+    names: &["dep"],
+    argsig: "node dependency",
+    section: "Dependencies",
+    description: "Add dependency (node depends on dependency)",
+    detail: None,
+};
+impl DagShell {
     pub(crate) fn cmd_dep(&mut self, args: &[&str]) -> Result<(), String> {
         let (node_str, dep_str) = match args {
             [n, d, ..] => (*n, *d),
             _ => return Err("Usage: dep <node> <dependency>".to_string()),
         };
-        let node = self
-            .parse_handle(node_str)
-            .ok_or_else(|| format!("Invalid handle: {node_str}"))?;
-        let dep = self
-            .parse_handle(dep_str)
-            .ok_or_else(|| format!("Invalid handle: {dep_str}"))?;
+        let node =
+            Self::parse_handle(node_str).ok_or_else(|| format!("Invalid handle: {node_str}"))?;
+        let dep =
+            Self::parse_handle(dep_str).ok_or_else(|| format!("Invalid handle: {dep_str}"))?;
         self.env
             .dag
             .write()
@@ -147,31 +251,25 @@ impl DagShell {
             .println(&format!("Added dependency: {nid} depends on {did}"));
         Ok(())
     }
+}
 
-    pub(crate) fn cmd_deps(&self, args: &[&str]) -> Result<(), String> {
-        let handle_str = args.first().ok_or("Usage: deps <node>")?;
-        let handle = self
-            .parse_handle(handle_str)
-            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
-        let dag = self.env.dag.read();
-        let deps: Vec<_> = dag.get_direct_dependencies(handle).collect();
-        let hid = handle.id();
-        if deps.is_empty() {
-            self.sink
-                .println(&format!("Node {hid} has no dependencies"));
-        } else {
-            self.sink.println(&format!("Node {hid} depends on:"));
-            for dep in deps {
-                let node = dag.get_node(dep);
-                let name = node.map_or("?", |n| n.idname.as_str());
-                let did = dep.id();
-                self.sink.println(&format!("  {did} ({name})"));
-            }
-        }
-        Ok(())
-    }
+// ---------------------------------------------------------------------------
+// Visualization
+// ---------------------------------------------------------------------------
 
+pub static ENTRY_SHOW: CommandMeta = CommandMeta {
+    names: &["show"],
+    argsig: "?node?",
+    section: "Visualization",
+    description: "Tree view (default: whole DAG)",
+    detail: None,
+};
+impl DagShell {
     pub(crate) fn cmd_show(&self, args: &[&str]) -> Result<(), String> {
+        // snapshot_pending() before dag.read() to avoid lock-order deadlock:
+        // executor holds pending.lock() then acquires dag.write(); we must not
+        // hold dag.read() while waiting for pending.lock().
+        let pending = self.executor.snapshot_pending();
         let dag = self.env.dag.read();
         if args.is_empty() {
             if self.handles.is_empty() {
@@ -186,7 +284,6 @@ impl DagShell {
                 .collect();
 
             let suspension = Some(&*self.env.suspension);
-            let pending = self.executor.snapshot_pending();
             let roots = if terminals.is_empty() {
                 self.handles.clone()
             } else {
@@ -201,18 +298,35 @@ impl DagShell {
             return Ok(());
         }
         let handle_str = args.first().ok_or("Usage: show <node>")?;
-        let handle = self
-            .parse_handle(handle_str)
+        let handle = Self::parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
         let suspension = Some(&*self.env.suspension);
-        let pending = self.executor.snapshot_pending();
         let tree = dag.dump_colored(handle, suspension, Some(&pending));
         for line in tree.lines() {
             self.sink.println(line);
         }
         Ok(())
     }
+}
 
+// ---------------------------------------------------------------------------
+// Execution
+// ---------------------------------------------------------------------------
+
+pub static ENTRY_RUN: CommandMeta = CommandMeta {
+    names: &["run"],
+    argsig: "?options? ?node?",
+    section: "Execution",
+    description: "Submit run to ailetos; waits by default",
+    detail: Some(concat!(
+        "    --one-step                      Execute only the first ready node\n",
+        "    --stop-before <node>            Stop before executing this node\n",
+        "    --stop-after <node>             Stop after executing this node\n",
+        "    --bg                            Submit and return immediately (background)\n",
+        "    --color <name>                  Colorize output (CSS/X11 name or 0-255; --bg only)",
+    )),
+};
+impl DagShell {
     pub(crate) fn cmd_run(&mut self, args: &[&str]) -> Result<(), String> {
         let mut one_step = false;
         let mut stop_before: Option<Handle> = None;
@@ -235,18 +349,14 @@ impl DagShell {
                 &"--stop-before" => {
                     i += 1;
                     let h = args.get(i).ok_or("--stop-before requires a node")?;
-                    stop_before = Some(
-                        self.parse_handle(h)
-                            .ok_or_else(|| format!("Invalid handle: {h}"))?,
-                    );
+                    stop_before =
+                        Some(Self::parse_handle(h).ok_or_else(|| format!("Invalid handle: {h}"))?);
                 }
                 &"--stop-after" => {
                     i += 1;
                     let h = args.get(i).ok_or("--stop-after requires a node")?;
-                    stop_after = Some(
-                        self.parse_handle(h)
-                            .ok_or_else(|| format!("Invalid handle: {h}"))?,
-                    );
+                    stop_after =
+                        Some(Self::parse_handle(h).ok_or_else(|| format!("Invalid handle: {h}"))?);
                 }
                 arg if !arg.starts_with("--") => {
                     target_arg = Some(arg);
@@ -257,8 +367,7 @@ impl DagShell {
         }
 
         let handle = if let Some(h) = target_arg {
-            self.parse_handle(h)
-                .ok_or_else(|| format!("Invalid handle: {h}"))?
+            Self::parse_handle(h).ok_or_else(|| format!("Invalid handle: {h}"))?
         } else if let Some(sb) = stop_before {
             sb
         } else {
@@ -295,6 +404,14 @@ impl DagShell {
             self.env.resolve_all(handle)
         };
 
+        // For foreground runs, raise the flag BEFORE submit so no NodeTerminated
+        // event can reach the watcher while the flag is still false. The Release
+        // store pairs with the Acquire load in the watcher task.
+        if !bg_flag {
+            self.foreground_join
+                .store(true, std::sync::atomic::Ordering::Release);
+        }
+
         self.executor
             .submit(handle, stop_conditions.clone())
             .map_err(|_| "Executor has shut down".to_string())?;
@@ -303,20 +420,14 @@ impl DagShell {
             self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, true, color);
         } else {
             self.attach_stdout_for_run(handle, one_step, stop_before, stop_after, false, color);
-            self.join_handles(wait_targets)?;
+            self.join_handles(&wait_targets)?;
             self.sink.println("");
         }
         Ok(())
     }
 
-    fn join_handles(&mut self, targets: Vec<Handle>) -> Result<(), String> {
-        let targets: Vec<Handle> = targets
-            .into_iter()
-            .flat_map(|t| self.env.resolve_all(t))
-            .collect();
+    fn join_handles(&mut self, targets: &[Handle]) -> Result<(), String> {
         let receivers: Vec<_> = targets.iter().map(|&t| self.executor.join(t)).collect();
-        self.foreground_join
-            .store(true, std::sync::atomic::Ordering::Relaxed);
         let sink = &self.sink;
         let foreground_join = &self.foreground_join;
         self.cli_rt.block_on(async move {
@@ -333,19 +444,65 @@ impl DagShell {
                     results.into_iter().find(Result::is_err).unwrap_or(Ok(()))
                 }
             };
-            foreground_join.store(false, std::sync::atomic::Ordering::Relaxed);
+            foreground_join.store(false, std::sync::atomic::Ordering::Release);
             result
         })
     }
 
+    pub(crate) fn find_default_target(&self) -> Result<Handle, String> {
+        if self.handles.is_empty() {
+            return Err("No nodes to run".to_string());
+        }
+        let dag = self.env.dag.read();
+        let terminals: Vec<Handle> = self
+            .handles
+            .iter()
+            .filter(|&&h| dag.get_direct_dependents(h).next().is_none())
+            .copied()
+            .collect();
+        match terminals.as_slice() {
+            [] => Err("No terminal nodes found (circular dependencies?)".to_string()),
+            [single] => Ok(*single),
+            _ => {
+                let ids: Vec<_> = terminals.iter().map(|h| h.id().to_string()).collect();
+                Err(format!(
+                    "Multiple terminal nodes: {}. Specify target explicitly.",
+                    ids.join(", ")
+                ))
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Job Control
+// ---------------------------------------------------------------------------
+
+pub static ENTRY_JOIN: CommandMeta = CommandMeta {
+    names: &["join"],
+    argsig: "node",
+    section: "Job Control",
+    description: "Wait for node to terminate; Ctrl+C to detach",
+    detail: None,
+};
+impl DagShell {
     pub(crate) fn cmd_join(&mut self, args: &[&str]) -> Result<(), String> {
         let handle_str = args.first().ok_or("Usage: join <node>")?;
-        let handle = self
-            .parse_handle(handle_str)
+        let handle = Self::parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
-        self.join_handles(self.env.resolve_all(handle))
+        let handles = self.env.resolve_all(handle);
+        self.join_handles(&handles)
     }
+}
 
+pub static ENTRY_FOLLOW: CommandMeta = CommandMeta {
+    names: &["follow"],
+    argsig: "node ?--color name?",
+    section: "Job Control",
+    description: "Attach node stdout; optional 256-color name or 0-255",
+    detail: None,
+};
+impl DagShell {
     pub(crate) fn cmd_follow(&mut self, args: &[&str]) -> Result<(), String> {
         let mut handle_str: Option<&str> = None;
         let mut color: Option<u8> = None;
@@ -370,8 +527,7 @@ impl DagShell {
         }
 
         let handle_str = handle_str.ok_or("Usage: follow <node> [--color <name>]")?;
-        let handle = self
-            .parse_handle(handle_str)
+        let handle = Self::parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
         for target in self.env.resolve_all(handle) {
@@ -468,35 +624,53 @@ impl DagShell {
             }
         }
     }
+}
 
-    pub(crate) fn find_default_target(&self) -> Result<Handle, String> {
-        if self.handles.is_empty() {
-            return Err("No nodes to run".to_string());
+pub static ENTRY_KILL: CommandMeta = CommandMeta {
+    names: &["kill"],
+    argsig: "?-N? node",
+    section: "Job Control",
+    description: "Kill actor with exit code N (default 130)",
+    detail: None,
+};
+impl DagShell {
+    pub(crate) fn cmd_kill(&mut self, args: &[&str]) -> Result<(), String> {
+        let handle_str = match args {
+            [flag, node] if flag.starts_with('-') => *node,
+            [node] => *node,
+            _ => return Err("Usage: kill [-N] <node>".to_string()),
+        };
+
+        let handle = Self::parse_handle(handle_str)
+            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+
+        if !dbg_control::is_dbg_node(handle) {
+            return Err("kill is only supported for dbg nodes".to_string());
         }
-        let dag = self.env.dag.read();
-        let terminals: Vec<Handle> = self
-            .handles
-            .iter()
-            .filter(|&&h| dag.get_direct_dependents(h).next().is_none())
-            .copied()
-            .collect();
-        match terminals.as_slice() {
-            [] => Err("No terminal nodes found (circular dependencies?)".to_string()),
-            [single] => Ok(*single),
-            _ => {
-                let ids: Vec<_> = terminals.iter().map(|h| h.id().to_string()).collect();
-                Err(format!(
-                    "Multiple terminal nodes: {}. Specify target explicitly.",
-                    ids.join(", ")
-                ))
-            }
-        }
+
+        dbg_control::kill_dbg_actor(handle);
+        self.env.suspension.resume(handle);
+
+        self.sink.println(&format!("Killed node {}", handle.id()));
+        Ok(())
     }
+}
 
+// ---------------------------------------------------------------------------
+// I/O
+// ---------------------------------------------------------------------------
+
+pub static ENTRY_CAT: CommandMeta = CommandMeta {
+    names: &["cat"],
+    argsig: "node",
+    section: "I/O",
+    description: "Show output of a node",
+    detail: None,
+};
+impl DagShell {
     pub(crate) fn cmd_cat(&self, args: &[&str]) -> Result<(), String> {
         let handle_str = args.first().ok_or("Usage: cat <node>")?;
-        let handle = self
-            .parse_handle(handle_str)
+        let handle = Self::parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
         let kv = Arc::clone(&self.kv);
@@ -519,16 +693,20 @@ impl DagShell {
         }
         Ok(())
     }
+}
 
-    /// # Errors
-    /// Returns an error string if the file cannot be read or a command fails.
-    pub fn cmd_source(&mut self, args: &[&str]) -> Result<crate::ShellControl, String> {
-        let path = args.first().ok_or("Usage: source <file>")?;
-        let content =
-            std::fs::read_to_string(path).map_err(|e| format!("Failed to read {path}: {e}"))?;
-        self.execute_lines(content.lines())
-    }
+// ---------------------------------------------------------------------------
+// Status
+// ---------------------------------------------------------------------------
 
+pub static ENTRY_STATUS: CommandMeta = CommandMeta {
+    names: &["status"],
+    argsig: "?node?",
+    section: "Status",
+    description: "Overall DAG status, or status of a specific node",
+    detail: None,
+};
+impl DagShell {
     pub(crate) fn cmd_status(&self, args: &[&str]) {
         if args.is_empty() {
             self.cmd_status_dag();
@@ -537,7 +715,7 @@ impl DagShell {
         let [handle_str, ..] = args else {
             return;
         };
-        let Some(handle) = self.parse_handle(handle_str) else {
+        let Some(handle) = Self::parse_handle(handle_str) else {
             self.sink.println(&format!("Invalid handle: {handle_str}"));
             return;
         };
@@ -550,8 +728,9 @@ impl DagShell {
     }
 
     fn cmd_status_dag(&self) {
-        let dag = self.env.dag.read();
+        // snapshot_pending() before dag.read() — see cmd_show for the rationale.
         let pending_set = self.executor.snapshot_pending();
+        let dag = self.env.dag.read();
         let mut total = 0;
         let mut running = 0;
         let mut terminated = 0;
@@ -668,36 +847,67 @@ impl DagShell {
         }
         Found::Yes
     }
+}
 
+// ---------------------------------------------------------------------------
+// Debug
+// ---------------------------------------------------------------------------
+
+pub static ENTRY_SUSPEND: CommandMeta = CommandMeta {
+    names: &["suspend"],
+    argsig: "node",
+    section: "Debug",
+    description: "Suspend a running actor",
+    detail: None,
+};
+impl DagShell {
     pub(crate) fn cmd_suspend(&self, args: &[&str]) -> Result<(), String> {
         let handle_str = args.first().ok_or("Usage: suspend <node>")?;
-        let handle = self
-            .parse_handle(handle_str)
+        let handle = Self::parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
         self.env.suspension.suspend(handle);
         self.sink
             .println(&format!("Suspended node {}", handle.id()));
         Ok(())
     }
+}
 
+pub static ENTRY_RESUME: CommandMeta = CommandMeta {
+    names: &["resume"],
+    argsig: "node",
+    section: "Debug",
+    description: "Resume a suspended actor (dbg or general)",
+    detail: None,
+};
+impl DagShell {
     pub(crate) fn cmd_resume(&self, args: &[&str]) -> Result<(), String> {
         let handle_str = args.first().ok_or("Usage: resume <node>")?;
-        let handle = self
-            .parse_handle(handle_str)
+        let handle = Self::parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
         self.env.suspension.resume(handle);
         self.sink.println(&format!("Resumed node {}", handle.id()));
         Ok(())
     }
+}
 
+pub static ENTRY_WAIT: CommandMeta = CommandMeta {
+    names: &["wait"],
+    argsig: "condition ?args?",
+    section: "Debug",
+    description: "Block until condition; Ctrl+C to detach",
+    detail: Some(concat!(
+        "    suspended <node>                Block until node is suspended\n",
+        "    terminated <node>               Block until node is terminated",
+    )),
+};
+impl DagShell {
     #[allow(clippy::disallowed_methods)] // polling loop without a notification channel
     pub(crate) fn cmd_wait(&mut self, args: &[&str]) -> Result<(), String> {
         let condition = args.first().ok_or("Usage: wait <condition> [args]")?;
         match *condition {
             "suspended" => {
                 let handle_str = args.get(1).ok_or("Usage: wait suspended <node>")?;
-                let handle = self
-                    .parse_handle(handle_str)
+                let handle = Self::parse_handle(handle_str)
                     .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
                 let env = &self.env;
                 let sink = &self.sink;
@@ -720,8 +930,7 @@ impl DagShell {
             }
             "terminated" => {
                 let handle_str = args.get(1).ok_or("Usage: wait terminated <node>")?;
-                let handle = self
-                    .parse_handle(handle_str)
+                let handle = Self::parse_handle(handle_str)
                     .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
                 let env = &self.env;
                 let sink = &self.sink;
@@ -748,11 +957,23 @@ impl DagShell {
             other => Err(format!("Unknown wait condition: {other}")),
         }
     }
+}
 
+// ---------------------------------------------------------------------------
+// Shell Input
+// ---------------------------------------------------------------------------
+
+pub static ENTRY_WRITE: CommandMeta = CommandMeta {
+    names: &["write"],
+    argsig: "node ?data?",
+    section: "Shell Input",
+    description: "Write data to a shell_input actor",
+    detail: None,
+};
+impl DagShell {
     pub(crate) fn cmd_write(&self, args: &[&str]) -> Result<(), String> {
         let handle_str = args.first().ok_or("Usage: write <node> <data>")?;
-        let handle = self
-            .parse_handle(handle_str)
+        let handle = Self::parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
         let data = parse_quoted_string(args.get(1..).unwrap_or(&[]));
@@ -766,11 +987,19 @@ impl DagShell {
             Err(e) => Err(format!("Failed to write: {e}")),
         }
     }
+}
 
+pub static ENTRY_CLOSE: CommandMeta = CommandMeta {
+    names: &["close"],
+    argsig: "node",
+    section: "Shell Input",
+    description: "Close a shell_input actor (send EOF)",
+    detail: None,
+};
+impl DagShell {
     pub(crate) fn cmd_close(&self, args: &[&str]) -> Result<(), String> {
         let handle_str = args.first().ok_or("Usage: close <node>")?;
-        let handle = self
-            .parse_handle(handle_str)
+        let handle = Self::parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
         match shell_input_control::close_shell_input(handle) {
@@ -782,29 +1011,77 @@ impl DagShell {
             Err(e) => Err(format!("Failed to close: {e}")),
         }
     }
-
-    pub(crate) fn cmd_kill(&mut self, args: &[&str]) -> Result<(), String> {
-        let handle_str = match args {
-            [flag, node] if flag.starts_with('-') => *node,
-            [node] => *node,
-            _ => return Err("Usage: kill [-N] <node>".to_string()),
-        };
-
-        let handle = self
-            .parse_handle(handle_str)
-            .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
-
-        if !dbg_control::is_dbg_node(handle) {
-            return Err("kill is only supported for dbg nodes".to_string());
-        }
-
-        dbg_control::kill_dbg_actor(handle);
-        self.env.suspension.resume(handle);
-
-        self.sink.println(&format!("Killed node {}", handle.id()));
-        Ok(())
-    }
 }
+
+// ---------------------------------------------------------------------------
+// Command registry and help generation
+// ---------------------------------------------------------------------------
+
+pub static COMMANDS: &[&CommandMeta] = &[
+    &ENTRY_NODE,
+    &ENTRY_VALUE,
+    &ENTRY_ALIAS,
+    &ENTRY_NODES,
+    &ENTRY_DEP,
+    &ENTRY_SHOW,
+    &ENTRY_RUN,
+    &ENTRY_JOIN,
+    &ENTRY_FOLLOW,
+    &ENTRY_KILL,
+    &ENTRY_CAT,
+    &ENTRY_STATUS,
+    &ENTRY_SUSPEND,
+    &ENTRY_RESUME,
+    &ENTRY_WAIT,
+    &ENTRY_WRITE,
+    &ENTRY_CLOSE,
+    &ENTRY_SOURCE,
+    &ENTRY_HELP,
+    &ENTRY_QUIT,
+];
+
+pub fn generate_help() -> String {
+    const DESC_COL: usize = 38;
+
+    let mut out = String::from("DAG Shell Commands (TCL syntax):\n");
+
+    for &section in SECTIONS {
+        out.push('\n');
+        out.push_str(section);
+        out.push_str(":\n");
+
+        for entry in COMMANDS.iter().filter(|e| e.section == section) {
+            let names_display = entry.names.join(" / ");
+            let usage = if entry.argsig.is_empty() {
+                format!("  {names_display}")
+            } else {
+                format!("  {names_display} {}", entry.argsig)
+            };
+            let pad = DESC_COL.saturating_sub(usage.len());
+            out.push_str(&usage);
+            for _ in 0..pad {
+                out.push(' ');
+            }
+            out.push_str(entry.description);
+            out.push('\n');
+
+            if let Some(detail) = entry.detail {
+                out.push_str(detail);
+                out.push('\n');
+            }
+        }
+    }
+
+    out.push_str("\nVariables (TCL):\n");
+    out.push_str("  set v [node ...]                    Assign node handle to variable\n");
+    out.push_str("  dep $foo $bar                       TCL expands $var before the command runs");
+
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Private helpers
+// ---------------------------------------------------------------------------
 
 enum Found {
     Yes,
