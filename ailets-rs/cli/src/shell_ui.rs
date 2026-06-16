@@ -86,6 +86,97 @@ pub fn parse_args(args: &[String]) -> Result<CliArgs, String> {
 }
 
 // ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(v: &[&str]) -> Vec<String> {
+        std::iter::once("dagsh")
+            .chain(v.iter().copied())
+            .map(str::to_string)
+            .collect()
+    }
+
+    // test 1: plain text arg → PromptArg::Text with correct string
+    #[test]
+    fn test_plain_text_arg() {
+        let result = parse_args(&args(&["hello"])).unwrap();
+        assert_eq!(result.prompt_items, vec![PromptArg::Text("hello".to_string())]);
+    }
+
+    // test 2: @file.txt → PromptArg::File with path "file.txt" (prefix stripped)
+    #[test]
+    fn test_at_file_arg() {
+        let result = parse_args(&args(&["@notes.txt"])).unwrap();
+        assert_eq!(
+            result.prompt_items,
+            vec![PromptArg::File {
+                path: "notes.txt".to_string(),
+                attrs: vec![]
+            }]
+        );
+    }
+
+    // test 3: - and @- both → PromptArg::Stdin
+    #[test]
+    fn test_stdin_dash() {
+        let result = parse_args(&args(&["-"])).unwrap();
+        assert_eq!(result.prompt_items, vec![PromptArg::Stdin]);
+    }
+
+    #[test]
+    fn test_stdin_at_dash() {
+        let result = parse_args(&args(&["@-"])).unwrap();
+        assert_eq!(result.prompt_items, vec![PromptArg::Stdin]);
+    }
+
+    // test 4: --system-prompt "S" → PromptArg::SystemPrompt("S")
+    #[test]
+    fn test_system_prompt() {
+        let result = parse_args(&args(&["--system-prompt", "Be concise"])).unwrap();
+        assert_eq!(
+            result.prompt_items,
+            vec![PromptArg::SystemPrompt("Be concise".to_string())]
+        );
+    }
+
+    // test 5: mixed args preserve order: --system-prompt "S" "hello" @f.txt → [SystemPrompt, Text, File]
+    #[test]
+    fn test_mixed_order_preserved() {
+        let result = parse_args(&args(&["--system-prompt", "S", "hello", "@f.txt"])).unwrap();
+        assert_eq!(
+            result.prompt_items,
+            vec![
+                PromptArg::SystemPrompt("S".to_string()),
+                PromptArg::Text("hello".to_string()),
+                PromptArg::File {
+                    path: "f.txt".to_string(),
+                    attrs: vec![]
+                },
+            ]
+        );
+    }
+
+    // test 6: --system-prompt with no following value → error
+    #[test]
+    fn test_system_prompt_missing_value() {
+        let result = parse_args(&args(&["--system-prompt"]));
+        assert!(result.is_err());
+    }
+
+    // test 7: -l script.tcl coexists with prompt args
+    #[test]
+    fn test_load_script_coexists_with_prompt_items() {
+        let result = parse_args(&args(&["-l", "run.tcl", "hello"])).unwrap();
+        assert_eq!(result.load_script, Some("run.tcl".to_string()));
+        assert_eq!(result.prompt_items, vec![PromptArg::Text("hello".to_string())]);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Rustyline helper — tab completion
 // ---------------------------------------------------------------------------
 
