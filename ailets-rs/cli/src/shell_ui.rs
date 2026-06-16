@@ -44,21 +44,37 @@ impl OutputSink for ChannelSink {
 // ---------------------------------------------------------------------------
 
 pub fn print_usage() {
-    println!("Usage: dagsh [OPTIONS]");
+    println!("Usage: dagsh [OPTIONS] [PROMPT_ITEMS...]");
     println!();
     println!("Options:");
-    println!("  -l, --load <file>   Load TCL script file on startup, then continue interactively");
-    println!("  -h, --help          Show this help");
+    println!("  -l, --load <file>          Load TCL script file on startup");
+    println!("  --system-prompt <text>     Add a system prompt item");
+    println!("  -h, --help                 Show this help");
+    println!();
+    println!("Prompt items (positional):");
+    println!("  \"text\"                     Plain text prompt");
+    println!("  @path                      Read file as prompt content");
+    println!("  - or @-                    Read stdin as prompt content");
+}
+
+#[derive(Debug, PartialEq)]
+pub enum PromptArg {
+    SystemPrompt(String),
+    Text(String),
+    File { path: String, attrs: Vec<(String, String)> },
+    Stdin,
 }
 
 pub struct CliArgs {
     pub load_script: Option<String>,
+    pub prompt_items: Vec<PromptArg>,
 }
 
 /// # Errors
 /// Returns an error string if an unknown option or missing argument is encountered.
 pub fn parse_args(args: &[String]) -> Result<CliArgs, String> {
     let mut load_script: Option<String> = None;
+    let mut prompt_items: Vec<PromptArg> = Vec::new();
     let mut i = 1;
     while i < args.len() {
         let Some(arg) = args.get(i) else { break };
@@ -74,15 +90,37 @@ pub fn parse_args(args: &[String]) -> Result<CliArgs, String> {
                 load_script = Some(path.clone());
                 i += 2;
             }
+            "--system-prompt" => {
+                let Some(text) = args.get(i + 1) else {
+                    return Err("--system-prompt requires a text argument".to_string());
+                };
+                prompt_items.push(PromptArg::SystemPrompt(text.clone()));
+                i += 2;
+            }
+            "-" => {
+                prompt_items.push(PromptArg::Stdin);
+                i += 1;
+            }
             a if a.starts_with('-') => {
                 return Err(format!("Unknown option: {a}"));
             }
+            "@-" => {
+                prompt_items.push(PromptArg::Stdin);
+                i += 1;
+            }
+            a if a.starts_with('@') => {
+                // extension point: @{...} attr-override block would be parsed here
+                let path = a[1..].to_string();
+                prompt_items.push(PromptArg::File { path, attrs: vec![] });
+                i += 1;
+            }
             a => {
-                return Err(format!("Unexpected argument: {a}"));
+                prompt_items.push(PromptArg::Text(a.to_string()));
+                i += 1;
             }
         }
     }
-    Ok(CliArgs { load_script })
+    Ok(CliArgs { load_script, prompt_items })
 }
 
 // ---------------------------------------------------------------------------
