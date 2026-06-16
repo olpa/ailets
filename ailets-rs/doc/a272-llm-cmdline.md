@@ -30,17 +30,21 @@ cat README.md | dagsh --system-prompt "Answer in French" @notes.txt "Compare" -l
 
 For each invocation, the CLI creates value nodes and aliases them all as `input`. The `messages_to_query` actor accumulates all `input` aliases in order.
 
-The full node sequence created (full `ContentItem` JSON in each `value` node):
+The full node sequence created (full `ContentItem` JSON in each `value` node), in the order arguments are given:
 
 ```
-value [{"type":"ctl"},{"role":"system"}]          → alias input  (only if --system-prompt)
-value [{"type":"text"},{"text":"<system text>"}]  → alias input  (only if --system-prompt)
-value [{"type":"ctl"},{"role":"user"}]             → alias input  (always, before first positional)
-value <item 1>                                     → alias input
-value <item 2>                                     → alias input
-...
-value <stdin item>                                 → alias input  (appended last, if stdin used)
+# Example: dagsh --system-prompt "Be concise" "Hello" --system-prompt "Also be formal" @note.txt
+value [{"type":"ctl"},{"role":"system"}]                → alias input
+value [{"type":"text"},{"text":"Be concise"}]           → alias input
+value [{"type":"ctl"},{"role":"user"}]                  → alias input  (auto-inserted before first non-system item)
+value [{"type":"text"},{"text":"Hello"}]                → alias input
+value [{"type":"ctl"},{"role":"system"}]                → alias input
+value [{"type":"text"},{"text":"Also be formal"}]       → alias input
+value <content of note.txt>                             → alias input
+value <stdin node>                                      → alias input  (appended last, if TTY check triggered)
 ```
+
+The ctl(user) node is auto-inserted once, immediately before the first non-`SystemPrompt` item.
 
 ## Argument Parsing
 
@@ -95,12 +99,12 @@ Extend `CliArgs`:
 
 ```rust
 pub struct CliArgs {
-    pub load_script: Option<String>,       // existing
-    pub prompt_items: Vec<PromptArg>,      // new
-    pub system_prompt: Option<String>,     // new
+    pub load_script: Option<String>,   // existing
+    pub prompt_items: Vec<PromptArg>,  // new; system and user items interleaved in order given
 }
 
 pub enum PromptArg {
+    SystemPrompt(String),
     Text(String),
     File { path: String, attrs: Vec<(String, String)> },
     Stdin,
@@ -108,7 +112,7 @@ pub enum PromptArg {
 ```
 
 Extend `parse_args`:
-- `--system-prompt TEXT`: consume next arg as value
+- `--system-prompt TEXT`: consume next arg as value → `PromptArg::SystemPrompt`
 - `-` → `PromptArg::Stdin`
 - `@-` → `PromptArg::Stdin`
 - `@path` or `@{...}path` → `PromptArg::File`
@@ -118,7 +122,7 @@ Update `print_usage` to document the new flags.
 
 ### `src/main.rs`
 
-After `parse_args`, if `prompt_items` is non-empty or `system_prompt` is set:
+After `parse_args`, if `prompt_items` is non-empty:
 
 1. Check for implicit stdin (TTY check); if triggered, append `PromptArg::Stdin`
 2. Build the sequence of `value` TCL commands and execute them via `shell.execute`
