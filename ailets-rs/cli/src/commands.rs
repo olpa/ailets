@@ -680,21 +680,22 @@ pub static ENTRY_CAT: CommandMeta = CommandMeta {
     detail: None,
 };
 impl DagShell {
-    fn parse_stream(s: &str) -> Result<StdHandle, String> {
+    fn parse_stream(s: &str) -> Result<isize, String> {
         if let Ok(h) = StdHandle::try_from(s) {
-            return Ok(h);
+            return Ok(h as isize);
         }
-        let fd: isize = s.parse().map_err(|_| format!("Unknown stream: {s}"))?;
-        StdHandle::try_from(fd).map_err(|()| format!("Unknown stream: {s}"))
+        s.parse().map_err(|_| format!("Unknown stream: {s}"))
     }
 
     pub(crate) fn cmd_cat(&self, args: &[&str]) -> Result<(), String> {
         let arg = args.first().ok_or("Usage: cat <node>[:<stream>]")?;
-        let (node_str, stream) = if let Some((node_part, stream_part)) = arg.split_once(':') {
+        let (node_str, stream_fd) = if let Some((node_part, stream_part)) = arg.split_once(':') {
             (node_part, Self::parse_stream(stream_part)?)
         } else {
-            (*arg, StdHandle::Stdout)
+            (*arg, StdHandle::Stdout as isize)
         };
+        let stream_name = StdHandle::try_from(stream_fd)
+            .map_or_else(|()| format!("fd={stream_fd}"), |h| format!("{h:?}"));
         let handle = self
             .parse_handle(node_str)
             .ok_or_else(|| format!("Invalid handle: {node_str}"))?;
@@ -703,7 +704,7 @@ impl DagShell {
 
         let kv = Arc::clone(&self.kv);
         let output = self.ailetos_async_rt.block_on(async move {
-            let path = pipe_path(handle, stream as isize);
+            let path = pipe_path(handle, stream_fd);
             match kv.open(&path, OpenMode::Read).await {
                 Ok(buffer) => {
                     let guard = buffer.lock();
@@ -714,10 +715,10 @@ impl DagShell {
                         format!("Node {} was never executed", handle.id())
                     }
                     Some(NodeState::Running | NodeState::Terminating) => {
-                        format!("Node {} is running but hasn't created stream {stream:?} yet", handle.id())
+                        format!("Node {} is running but hasn't created stream {stream_name} yet", handle.id())
                     }
                     Some(NodeState::Terminated) | None => {
-                        format!("No output on stream {stream:?} for node {}", handle.id())
+                        format!("No output on stream {stream_name} for node {}", handle.id())
                     }
                 }),
             }
