@@ -167,7 +167,10 @@ fn inject_tool_calls_to_tools() {
     //
     let (handle_tool_1, tool_workflow_1, deps_tool_1) =
         tracked_dagops.parse_workflow(&workflows[0]);
-    assert_that!(tool_workflow_1, is(equal_to(".tool.get_weather".to_string())));
+    assert_that!(
+        tool_workflow_1,
+        is(equal_to(".tool.get_weather".to_string()))
+    );
     assert_that!(
         deps_tool_1,
         is(equal_to(HashMap::from([(
@@ -178,7 +181,10 @@ fn inject_tool_calls_to_tools() {
 
     let (handle_tool_2, tool_workflow_2, deps_tool_2) =
         tracked_dagops.parse_workflow(&workflows[2]);
-    assert_that!(tool_workflow_2, is(equal_to(".tool.get_forecast".to_string())));
+    assert_that!(
+        tool_workflow_2,
+        is(equal_to(".tool.get_forecast".to_string()))
+    );
     assert_that!(
         deps_tool_2,
         is(equal_to(HashMap::from([(

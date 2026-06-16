@@ -1155,7 +1155,8 @@ fn mix_toolspec_and_other_content() {
     let expected_message2 = r#"{"role":"user",
 "content":[
 {"type":"text","text":"Some text content"}
-]}"#.to_string();
+]}"#
+    .to_string();
     let expected_tools2 = format!(
         r#"[{{"type":"function","function":{}}}]"#,
         toolspec2_content
@@ -1163,7 +1164,8 @@ fn mix_toolspec_and_other_content() {
     let expected_message3 = r#"{"role":"user",
 "tool_calls":[
 {"type":"function","function":{"name":"get_weather","arguments":"{\"location\":\"London\"}"}}
-]}"#.to_string();
+]}"#
+    .to_string();
 
     // Concatenate all parts to build the expected output
     let expected_final = format!(

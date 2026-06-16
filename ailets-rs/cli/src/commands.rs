@@ -715,7 +715,10 @@ impl DagShell {
                         format!("Node {} was never executed", handle.id())
                     }
                     Some(NodeState::Running | NodeState::Terminating) => {
-                        format!("Node {} is running but hasn't created stream {stream_name} yet", handle.id())
+                        format!(
+                            "Node {} is running but hasn't created stream {stream_name} yet",
+                            handle.id()
+                        )
                     }
                     Some(NodeState::Terminated) | None => {
                         format!("No output on stream {stream_name} for node {}", handle.id())
