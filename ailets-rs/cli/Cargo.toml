@@ -32,3 +32,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rustyline = "15"
 futures = "0.3"
 molt = "0.3.1"
+
+[dev-dependencies]
+tempfile = "3"

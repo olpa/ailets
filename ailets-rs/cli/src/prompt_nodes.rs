@@ -71,12 +71,27 @@ pub fn register_prompt_inputs(
                     add_value_alias(env, rt, CTL_USER_JSON.to_vec())?;
                     user_ctl_inserted = true;
                 }
-                let json = crate::shell_ui::file_to_content_item(path, attrs)?;
+                let json = file_to_content_item(path, attrs, env, rt)?;
                 add_value_alias(env, rt, json.into_bytes())?;
             }
         }
     }
     Ok(stdin_consumed)
+}
+
+/// Reads a file and returns a `ContentItem` JSON string for use in a value node.
+///
+/// For image files, stores the raw bytes in KV and embeds the key in the JSON.
+///
+/// # Errors
+/// Returns an error for unknown file extensions (without explicit attrs).
+pub fn file_to_content_item(
+    _path: &str,
+    _attrs: &[(String, String)],
+    _env: &Arc<Environment>,
+    _rt: &tokio::runtime::Handle,
+) -> Result<String, String> {
+    Err("file_to_content_item not yet implemented".to_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -239,5 +254,78 @@ mod tests {
             r#"[{"type":"text"},{"text":"Hello"}]"#
         );
         assert_eq!(deps[2], stdin_node);
+    }
+
+    // test 11: text extension (.txt, .md) → [{"type":"text"},{"text":"..."}]
+    #[test]
+    fn test_file_text_extension() {
+        let (env, rt) = make_env();
+        let dir = tempfile::tempdir().unwrap();
+
+        let txt_path = dir.path().join("note.txt");
+        std::fs::write(&txt_path, "hello world").unwrap();
+        let json =
+            file_to_content_item(txt_path.to_str().unwrap(), &[], &env, rt.handle()).unwrap();
+        assert_eq!(json, r#"[{"type":"text"},{"text":"hello world"}]"#);
+
+        let md_path = dir.path().join("readme.md");
+        std::fs::write(&md_path, "# Title").unwrap();
+        let json =
+            file_to_content_item(md_path.to_str().unwrap(), &[], &env, rt.handle()).unwrap();
+        assert_eq!(json, r##"[{"type":"text"},{"text":"# Title"}]"##);
+    }
+
+    // test 12: image extension (.png, .jpg) →
+    //   [{"type":"image","content_type":"image/png"},{"image_key":"<key>"}]
+    //   and raw bytes stored in KV at that key
+    #[test]
+    fn test_file_image_extension() {
+        let (env, rt) = make_env();
+        let dir = tempfile::tempdir().unwrap();
+
+        let png_bytes: &[u8] = b"\x89PNG\r\n\x1a\n";
+        let png_path = dir.path().join("photo.png");
+        std::fs::write(&png_path, png_bytes).unwrap();
+
+        let json =
+            file_to_content_item(png_path.to_str().unwrap(), &[], &env, rt.handle()).unwrap();
+
+        // JSON must contain type:image and content_type
+        assert!(json.contains(r#""type":"image""#), "json={json}");
+        assert!(json.contains(r#""content_type":"image/png""#), "json={json}");
+
+        // Extract image_key and verify bytes are stored in KV
+        let image_key = {
+            let start = json.find(r#""image_key":""#).expect("image_key not found")
+                + r#""image_key":""#.len();
+            let end = json[start..].find('"').unwrap() + start;
+            json[start..end].to_string()
+        };
+        assert!(!image_key.is_empty());
+
+        let stored = rt.block_on(async {
+            let kv = Arc::clone(&env.kv);
+            let buf = kv.open(&image_key, OpenMode::Read).await.unwrap();
+            let data = buf.lock().to_vec();
+            data
+        });
+        assert_eq!(stored, png_bytes);
+    }
+
+    // test 13: unknown extension without attrs → descriptive error
+    #[test]
+    fn test_file_unknown_extension_error() {
+        let (env, rt) = make_env();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("data.bin");
+        std::fs::write(&path, b"some bytes").unwrap();
+
+        let result = file_to_content_item(path.to_str().unwrap(), &[], &env, rt.handle());
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains(".bin") || msg.contains("unknown") || msg.contains("extension"),
+            "error should mention extension or 'unknown': {msg}"
+        );
     }
 }
