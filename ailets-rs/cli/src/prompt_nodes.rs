@@ -1,4 +1,4 @@
-//! Build DAG nodes and aliases from parsed prompt items.
+//! Build DAG nodes and aliases from parsed prompt items, and session dispatch.
 
 use std::sync::Arc;
 
@@ -138,6 +138,38 @@ pub fn file_to_content_item(
     }
 
     Err(format!("unknown file extension '.{ext}' for '{path}'; cannot determine content type"))
+}
+
+// ---------------------------------------------------------------------------
+// Session dispatch
+// ---------------------------------------------------------------------------
+
+/// What the shell should do after processing prompt items.
+#[derive(Debug, PartialEq)]
+pub enum SessionMode {
+    /// No prompt items: open interactive REPL (existing behaviour).
+    Interactive,
+    /// No prompt items + `-l` script: run script then keep REPL open.
+    LoadThenInteractive,
+    /// Prompt items created, stdin not consumed: open REPL (nodes already wired).
+    PromptThenInteractive,
+    /// Prompt items + `-l` script (stdin not consumed): run script then exit.
+    PromptLoadThenExit,
+    /// Prompt items + stdin consumed (no `-l`): exit after nodes are created.
+    PromptThenExit,
+    /// Prompt items + stdin consumed + `-l` script: run script then exit.
+    PromptLoadStdinThenExit,
+}
+
+/// Decide the post-prompt session behaviour from the three boolean inputs.
+/// Stub — always returns `Interactive`.
+#[must_use]
+pub fn decide_session(
+    _has_prompt_items: bool,
+    _stdin_consumed: bool,
+    _has_load_script: bool,
+) -> SessionMode {
+    SessionMode::Interactive
 }
 
 // ---------------------------------------------------------------------------
@@ -372,6 +404,53 @@ mod tests {
         assert!(
             msg.contains(".bin") || msg.contains("unknown") || msg.contains("extension"),
             "error should mention extension or 'unknown': {msg}"
+        );
+    }
+
+    // Session dispatch — 6 rows from the spec table
+
+    #[test]
+    fn test_session_no_items_no_script() {
+        assert_eq!(decide_session(false, false, false), SessionMode::Interactive);
+    }
+
+    #[test]
+    fn test_session_no_items_with_script() {
+        assert_eq!(
+            decide_session(false, false, true),
+            SessionMode::LoadThenInteractive
+        );
+    }
+
+    #[test]
+    fn test_session_items_no_stdin_no_script() {
+        assert_eq!(
+            decide_session(true, false, false),
+            SessionMode::PromptThenInteractive
+        );
+    }
+
+    #[test]
+    fn test_session_items_no_stdin_with_script() {
+        assert_eq!(
+            decide_session(true, false, true),
+            SessionMode::PromptLoadThenExit
+        );
+    }
+
+    #[test]
+    fn test_session_items_stdin_no_script() {
+        assert_eq!(
+            decide_session(true, true, false),
+            SessionMode::PromptThenExit
+        );
+    }
+
+    #[test]
+    fn test_session_items_stdin_with_script() {
+        assert_eq!(
+            decide_session(true, true, true),
+            SessionMode::PromptLoadStdinThenExit
         );
     }
 }
