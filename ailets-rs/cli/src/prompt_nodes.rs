@@ -79,6 +79,21 @@ pub fn register_prompt_inputs(
     Ok(stdin_consumed)
 }
 
+const TEXT_EXTENSIONS: &[&str] = &["txt", "md", "rs", "py", "js", "ts", "json", "toml", "yaml", "yml", "html", "css", "sh"];
+const IMAGE_EXTENSIONS: &[(&str, &str)] = &[
+    ("png", "image/png"),
+    ("jpg", "image/jpeg"),
+    ("jpeg", "image/jpeg"),
+    ("gif", "image/gif"),
+    ("webp", "image/webp"),
+];
+
+fn extension_of(path: &str) -> Option<&str> {
+    std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+}
+
 /// Reads a file and returns a `ContentItem` JSON string for use in a value node.
 ///
 /// For image files, stores the raw bytes in KV and embeds the key in the JSON.
@@ -86,12 +101,43 @@ pub fn register_prompt_inputs(
 /// # Errors
 /// Returns an error for unknown file extensions (without explicit attrs).
 pub fn file_to_content_item(
-    _path: &str,
+    path: &str,
     _attrs: &[(String, String)],
-    _env: &Arc<Environment>,
-    _rt: &tokio::runtime::Handle,
+    env: &Arc<Environment>,
+    rt: &tokio::runtime::Handle,
 ) -> Result<String, String> {
-    Err("file_to_content_item not yet implemented".to_string())
+    let ext = extension_of(path)
+        .ok_or_else(|| format!("cannot determine file type: no extension on '{path}'"))?
+        .to_lowercase();
+
+    if TEXT_EXTENSIONS.contains(&ext.as_str()) {
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| format!("failed to read '{path}': {e}"))?;
+        // escape backslash and double-quote for JSON
+        let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");
+        return Ok(format!(r#"[{{"type":"text"}},{{"text":"{escaped}"}}]"#));
+    }
+
+    if let Some(&(_, content_type)) = IMAGE_EXTENSIONS.iter().find(|(e, _)| *e == ext.as_str()) {
+        let bytes = std::fs::read(path)
+            .map_err(|e| format!("failed to read '{path}': {e}"))?;
+        let image_key = format!("media/{}", env.idgen.get_next());
+        let key_clone = image_key.clone();
+        let kv = Arc::clone(&env.kv);
+        rt.block_on(async move {
+            use ailetos::{OpenMode, KVBuffers};
+            let buf = kv.open(&key_clone, OpenMode::Write).await
+                .map_err(|e| format!("kv write failed: {e}"))?;
+            buf.append(&bytes)
+                .map_err(|e| format!("kv append failed: {e}"))?;
+            Ok::<(), String>(())
+        })?;
+        return Ok(format!(
+            r#"[{{"type":"image","content_type":"{content_type}"}},{{"image_key":"{image_key}"}}]"#
+        ));
+    }
+
+    Err(format!("unknown file extension '.{ext}' for '{path}'; cannot determine content type"))
 }
 
 // ---------------------------------------------------------------------------
