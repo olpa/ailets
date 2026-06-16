@@ -18,7 +18,7 @@ fn add_value_alias(
     let handle = rt
         .block_on(async move { env_clone.add_value_node(data, None).await })
         .map_err(|e| format!("failed to add value node: {e}"))?;
-    env.add_alias("input".to_string(), handle);
+    let _alias = env.add_alias("input".to_string(), handle);
     Ok(())
 }
 
@@ -63,7 +63,7 @@ pub fn register_prompt_inputs(
                 }
                 let handle = stdin_handle
                     .ok_or_else(|| "Stdin item present but no stdin_handle provided".to_string())?;
-                env.add_alias("input".to_string(), handle);
+                let _alias = env.add_alias("input".to_string(), handle);
                 stdin_consumed = true;
             }
             PromptArg::File { path, attrs } => {
@@ -125,7 +125,7 @@ pub fn file_to_content_item(
         let key_clone = image_key.clone();
         let kv = Arc::clone(&env.kv);
         rt.block_on(async move {
-            use ailetos::{OpenMode, KVBuffers};
+            use ailetos::OpenMode;
             let buf = kv.open(&key_clone, OpenMode::Write).await
                 .map_err(|e| format!("kv write failed: {e}"))?;
             buf.append(&bytes)
@@ -162,14 +162,20 @@ pub enum SessionMode {
 }
 
 /// Decide the post-prompt session behaviour from the three boolean inputs.
-/// Stub — always returns `Interactive`.
 #[must_use]
 pub fn decide_session(
-    _has_prompt_items: bool,
-    _stdin_consumed: bool,
-    _has_load_script: bool,
+    has_prompt_items: bool,
+    stdin_consumed: bool,
+    has_load_script: bool,
 ) -> SessionMode {
-    SessionMode::Interactive
+    match (has_prompt_items, stdin_consumed, has_load_script) {
+        (false, _, false) => SessionMode::Interactive,
+        (false, _, true) => SessionMode::LoadThenInteractive,
+        (true, false, false) => SessionMode::PromptThenInteractive,
+        (true, false, true) => SessionMode::PromptLoadThenExit,
+        (true, true, false) => SessionMode::PromptThenExit,
+        (true, true, true) => SessionMode::PromptLoadStdinThenExit,
+    }
 }
 
 // ---------------------------------------------------------------------------

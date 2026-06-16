@@ -1,6 +1,9 @@
 //! DAG Shell binary entry point.
 
-use dagsh::shell_ui::{create_notification_sink, parse_args, print_usage, ShellHelper};
+use std::io::IsTerminal as _;
+
+use dagsh::prompt_nodes::{decide_session, SessionMode};
+use dagsh::shell_ui::{create_notification_sink, parse_args, print_usage, PromptArg, ShellHelper};
 use dagsh::{make_interp, DagShell, ShellControl};
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
@@ -18,7 +21,7 @@ fn main() {
 
     let args: Vec<String> = std::env::args().collect();
 
-    let cli_args = match parse_args(&args) {
+    let mut cli_args = match parse_args(&args) {
         Ok(args) => args,
         Err(e) => {
             eprintln!("Error: {e}");
@@ -46,14 +49,62 @@ fn main() {
     println!("DAG Shell v0.1 (TCL)");
     println!("Type 'help' for available commands.\n");
 
-    if let Some(script_path) = cli_args.load_script {
-        println!("Loading {script_path}...\n");
-        if let Err(e) = shell.cmd_source(&mut interp, ctx, &[&script_path]) {
-            println!("Error: {e}");
+    // Implicit stdin: if stdin is not a TTY and there are prompt items, append Stdin.
+    let has_prompt_items = !cli_args.prompt_items.is_empty();
+    if has_prompt_items && !std::io::stdin().is_terminal() {
+        let already_explicit = cli_args
+            .prompt_items
+            .iter()
+            .any(|a| matches!(a, PromptArg::Stdin));
+        if !already_explicit {
+            cli_args.prompt_items.push(PromptArg::Stdin);
         }
-        println!();
     }
 
+    // Create nodes and aliases for prompt items.
+    let stdin_consumed = if has_prompt_items {
+        match shell.register_prompt_inputs(&cli_args.prompt_items) {
+            Ok(consumed) => consumed,
+            Err(e) => {
+                eprintln!("Error building prompt nodes: {e}");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        false
+    };
+
+    let mode = decide_session(has_prompt_items, stdin_consumed, cli_args.load_script.is_some());
+
+    // Run load script if requested.
+    if matches!(
+        mode,
+        SessionMode::LoadThenInteractive
+            | SessionMode::PromptLoadThenExit
+            | SessionMode::PromptLoadStdinThenExit
+    ) {
+        if let Some(ref script_path) = cli_args.load_script {
+            println!("Loading {script_path}...\n");
+            if let Err(e) = shell.cmd_source(&mut interp, ctx, &[script_path.as_str()]) {
+                println!("Error: {e}");
+            }
+            println!();
+        }
+    }
+
+    // Exit without interactive shell when stdin consumed or script-only run.
+    if matches!(
+        mode,
+        SessionMode::PromptThenExit
+            | SessionMode::PromptLoadThenExit
+            | SessionMode::PromptLoadStdinThenExit
+    ) {
+        drop(shell);
+        drop(printer_rt);
+        return;
+    }
+
+    // Interactive REPL.
     loop {
         match rl.readline("dagsh> ") {
             Ok(line) => {
@@ -87,7 +138,7 @@ fn main() {
         }
     }
 
-    // shell must drop before _printer_rt: dropping shell closes the ChannelSink
+    // shell must drop before printer_rt: dropping shell closes the ChannelSink
     // sender, letting the spawn_blocking receiver task exit before the runtime shuts down.
     drop(shell);
     drop(printer_rt);

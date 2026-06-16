@@ -278,6 +278,32 @@ impl DagShell {
         }
     }
 
+    /// Register prompt items as DAG nodes, creating a stdin actor if needed.
+    ///
+    /// Returns `true` if stdin was consumed by any `PromptArg::Stdin` item.
+    ///
+    /// # Errors
+    /// Returns an error if a file cannot be read or its type cannot be determined.
+    pub fn register_prompt_inputs(
+        &mut self,
+        items: &[shell_ui::PromptArg],
+    ) -> Result<bool, String> {
+        let needs_stdin = items.iter().any(|a| matches!(a, shell_ui::PromptArg::Stdin));
+        let stdin_handle = if needs_stdin {
+            let handle = self.env.add_node("shell_input".to_string(), &[], None);
+            shell_input_control::register_shell_input_actor(handle);
+            Some(handle)
+        } else {
+            None
+        };
+        prompt_nodes::register_prompt_inputs(
+            &self.env,
+            self.ailetos_async_rt.handle(),
+            items,
+            stdin_handle,
+        )
+    }
+
     fn prepare_exit(&mut self) {
         shell_input_control::close_all_shell_inputs();
         for &handle in &self.handles {
