@@ -124,6 +124,73 @@ pub fn parse_args(args: &[String]) -> Result<CliArgs, String> {
 }
 
 // ---------------------------------------------------------------------------
+// Prompt → TCL command sequence
+// ---------------------------------------------------------------------------
+
+const CTL_USER_JSON: &str = r#"[{"type":"ctl"},{"role":"user"}]"#;
+const CTL_SYSTEM_JSON: &str = r#"[{"type":"ctl"},{"role":"system"}]"#;
+
+fn tcl_value_alias(json: &str) -> String {
+    format!("alias input [value {{{json}}}]")
+}
+
+/// Converts a list of prompt items into TCL commands that create value nodes
+/// and alias them as `input`.
+///
+/// A ctl(user) node is auto-inserted once immediately before the first
+/// non-`SystemPrompt` item. Stdin items produce a reference to a
+/// pre-created stdin actor held in the TCL variable `$_dagsh_stdin`.
+///
+/// # Errors
+/// Returns an error if a `File` item cannot be read or its type is unknown.
+pub fn build_prompt_commands(items: &[PromptArg]) -> Result<Vec<String>, String> {
+    let mut cmds: Vec<String> = Vec::new();
+    let mut user_ctl_inserted = false;
+
+    for item in items {
+        match item {
+            PromptArg::SystemPrompt(text) => {
+                cmds.push(tcl_value_alias(CTL_SYSTEM_JSON));
+                let json = format!(r#"[{{"type":"text"}},{{"text":"{text}"}}]"#);
+                cmds.push(tcl_value_alias(&json));
+            }
+            PromptArg::Text(text) => {
+                if !user_ctl_inserted {
+                    cmds.push(tcl_value_alias(CTL_USER_JSON));
+                    user_ctl_inserted = true;
+                }
+                let json = format!(r#"[{{"type":"text"}},{{"text":"{text}"}}]"#);
+                cmds.push(tcl_value_alias(&json));
+            }
+            PromptArg::Stdin => {
+                if !user_ctl_inserted {
+                    cmds.push(tcl_value_alias(CTL_USER_JSON));
+                    user_ctl_inserted = true;
+                }
+                cmds.push("alias input $_dagsh_stdin".to_string());
+            }
+            PromptArg::File { path, attrs } => {
+                if !user_ctl_inserted {
+                    cmds.push(tcl_value_alias(CTL_USER_JSON));
+                    user_ctl_inserted = true;
+                }
+                let json = file_to_content_item(path, attrs)?;
+                cmds.push(tcl_value_alias(&json));
+            }
+        }
+    }
+    Ok(cmds)
+}
+
+/// Reads a file and returns a `ContentItem` JSON string for use in a value node.
+///
+/// # Errors
+/// Returns an error for unknown file extensions (without explicit attrs).
+pub fn file_to_content_item(path: &str, _attrs: &[(String, String)]) -> Result<String, String> {
+    Err(format!("file_to_content_item not yet implemented for: {path}"))
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

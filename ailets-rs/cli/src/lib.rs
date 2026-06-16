@@ -16,6 +16,7 @@ pub(crate) mod shell_input_control;
 
 mod commands;
 mod output;
+pub mod prompt_nodes;
 pub mod shell_ui;
 mod tcl_interp;
 
