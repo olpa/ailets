@@ -95,7 +95,7 @@ fn inject_tool_calls_to_tools() {
     );
     let expected_tool_input1 = json!({"city": "London"});
     let value_tool_input1 = serde_json::from_str(&value_tool_input1)
-        .expect(&format!("Failed to parse JSON: {value_tool_input1}"));
+        .unwrap_or_else(|_| panic!("Failed to parse JSON: {value_tool_input1}"));
     assert_that!(value_tool_input1, is(equal_to(expected_tool_input1)));
 
     let (handle_toolspec_input1, explain_toolspec_input1, value_toolspec_input1) =
@@ -114,7 +114,7 @@ fn inject_tool_calls_to_tools() {
         }]
     );
     let value_toolspec_input1 = serde_json::from_str(&value_toolspec_input1)
-        .expect(&format!("Failed to parse JSON: {value_toolspec_input1}"));
+        .unwrap_or_else(|_| panic!("Failed to parse JSON: {value_toolspec_input1}"));
     assert_that!(
         value_toolspec_input1,
         is(equal_to(expected_toolspec_input1))
@@ -131,7 +131,7 @@ fn inject_tool_calls_to_tools() {
     );
     let expected_tool_input2 = json!({"days": 5});
     let value_tool_input2 = serde_json::from_str(&value_tool_input2)
-        .expect(&format!("Failed to parse JSON: {value_tool_input2}"));
+        .unwrap_or_else(|_| panic!("Failed to parse JSON: {value_tool_input2}"));
     assert_that!(value_tool_input2, is(equal_to(expected_tool_input2)));
 
     let (handle_toolspec_input2, explain_toolspec_input2, value_toolspec_input2) =
@@ -150,7 +150,7 @@ fn inject_tool_calls_to_tools() {
         }]
     );
     let value_toolspec_input2 = serde_json::from_str(&value_toolspec_input2)
-        .expect(&format!("Failed to parse JSON: {value_toolspec_input2}"));
+        .unwrap_or_else(|_| panic!("Failed to parse JSON: {value_toolspec_input2}"));
     assert_that!(
         value_toolspec_input2,
         is(equal_to(expected_toolspec_input2))
@@ -167,7 +167,10 @@ fn inject_tool_calls_to_tools() {
     //
     let (handle_tool_1, tool_workflow_1, deps_tool_1) =
         tracked_dagops.parse_workflow(&workflows[0]);
-    assert_that!(tool_workflow_1, is(equal_to(format!(".tool.get_weather"))));
+    assert_that!(
+        tool_workflow_1,
+        is(equal_to(".tool.get_weather".to_string()))
+    );
     assert_that!(
         deps_tool_1,
         is(equal_to(HashMap::from([(
@@ -178,7 +181,10 @@ fn inject_tool_calls_to_tools() {
 
     let (handle_tool_2, tool_workflow_2, deps_tool_2) =
         tracked_dagops.parse_workflow(&workflows[2]);
-    assert_that!(tool_workflow_2, is(equal_to(format!(".tool.get_forecast"))));
+    assert_that!(
+        tool_workflow_2,
+        is(equal_to(".tool.get_forecast".to_string()))
+    );
     assert_that!(
         deps_tool_2,
         is(equal_to(HashMap::from([(
@@ -194,7 +200,7 @@ fn inject_tool_calls_to_tools() {
         tracked_dagops.parse_workflow(&workflows[1]);
     assert_that!(
         aftercall_workflow_1,
-        is(equal_to(format!(".toolcall_to_messages")))
+        is(equal_to(".toolcall_to_messages".to_string()))
     );
     assert_that!(
         deps_aftercall_1,
@@ -208,7 +214,7 @@ fn inject_tool_calls_to_tools() {
         tracked_dagops.parse_workflow(&workflows[3]);
     assert_that!(
         aftercall_workflow_2,
-        is(equal_to(format!(".toolcall_to_messages")))
+        is(equal_to(".toolcall_to_messages".to_string()))
     );
     assert_that!(
         deps_aftercall_2,
@@ -340,9 +346,8 @@ fn multiple_arguments_chunks() {
     // Assert: tool input contains complete arguments
     //
     let (_, _, tool_input_value) = tracked_dagops.parse_value_node(&value_nodes[0]);
-    let tool_input_json: serde_json::Value = serde_json::from_str(&tool_input_value).expect(
-        &format!("Failed to parse tool input JSON: {tool_input_value}"),
-    );
+    let tool_input_json: serde_json::Value = serde_json::from_str(&tool_input_value)
+        .unwrap_or_else(|_| panic!("Failed to parse tool input JSON: {tool_input_value}"));
     let expected_input_json: serde_json::Value =
         serde_json::from_str(expected_complete_args).expect("Failed to parse expected input JSON");
     assert_that!(tool_input_json, is(equal_to(expected_input_json)));
@@ -351,9 +356,8 @@ fn multiple_arguments_chunks() {
     // Assert: tool spec contains complete arguments
     //
     let (_, _, tool_spec_value) = tracked_dagops.parse_value_node(&value_nodes[1]);
-    let tool_spec_json: serde_json::Value = serde_json::from_str(&tool_spec_value).expect(
-        &format!("Failed to parse tool spec JSON: {tool_spec_value}"),
-    );
+    let tool_spec_json: serde_json::Value = serde_json::from_str(&tool_spec_value)
+        .unwrap_or_else(|_| panic!("Failed to parse tool spec JSON: {tool_spec_value}"));
 
     let expected_tool_spec = serde_json::json!([
         {

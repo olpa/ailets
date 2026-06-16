@@ -506,7 +506,7 @@ fn image_key_with_adversarial_content_type() {
     // Only escape enough to have a valid json
     let expected_image_item = format!(
         r#"{{"type":"image_url","image_url":{{"url":"data:\"\"image/png\u0000\\/\"';{}{};base64,aGVsbG8="}}}}"#,
-        '\u{202E}' as char, '\u{2028}' as char
+        '\u{202E}', '\u{2028}'
     );
     assert_that!(
         writer.get_output(),
@@ -812,13 +812,13 @@ fn happy_path_toolspecs() {
     }"#;
 
     let data1 = get_user_name_fn.as_bytes();
-    let mut cursor1 = data1.as_ref();
+    let mut cursor1 = data1;
     let mut buffer1 = [0u8; 1024];
     let rjiter1 = scan_json::RJiter::new(&mut cursor1, &mut buffer1);
     let mut rjiter1 = rjiter1;
 
     let data2 = another_function_fn.as_bytes();
-    let mut cursor2 = data2.as_ref();
+    let mut cursor2 = data2;
     let mut buffer2 = [0u8; 1024];
     let rjiter2 = scan_json::RJiter::new(&mut cursor2, &mut buffer2);
     let mut rjiter2 = rjiter2;
@@ -869,7 +869,7 @@ fn happy_path_toolspecs() {
     }}]"#
     );
     let expected_item =
-        format!(r#"{{"role":"user",_NL_"content":[{{"type":"text","text":"Hello!"}}]}}"#);
+        r#"{"role":"user",_NL_"content":[{"type":"text","text":"Hello!"}]}"#.to_string();
     let expected = wrap_boilerplate(&expected_item);
     let expected_with_tools = inject_tools(&expected, &expected_tools);
     let expected_json = serde_json::from_str(&expected_with_tools)
@@ -900,7 +900,7 @@ fn toolspec_by_key() {
     );
 
     let data = toolspec_content.as_bytes();
-    let mut cursor = data.as_ref();
+    let mut cursor = data;
     let mut buffer = [0u8; 1024];
     let mut rjiter = scan_json::RJiter::new(&mut cursor, &mut buffer);
 
@@ -998,19 +998,19 @@ fn several_toolspecs_to_one_block() {
     let toolspec3_content = r#"{"name":"tool3","description":"Third tool"}"#;
 
     let data1 = toolspec1_content.as_bytes();
-    let mut cursor1 = data1.as_ref();
+    let mut cursor1 = data1;
     let mut buffer1 = [0u8; 1024];
     let rjiter1 = scan_json::RJiter::new(&mut cursor1, &mut buffer1);
     let mut rjiter1 = rjiter1;
 
     let data2 = toolspec2_content.as_bytes();
-    let mut cursor2 = data2.as_ref();
+    let mut cursor2 = data2;
     let mut buffer2 = [0u8; 1024];
     let rjiter2 = scan_json::RJiter::new(&mut cursor2, &mut buffer2);
     let mut rjiter2 = rjiter2;
 
     let data3 = toolspec3_content.as_bytes();
-    let mut cursor3 = data3.as_ref();
+    let mut cursor3 = data3;
     let mut buffer3 = [0u8; 1024];
     let rjiter3 = scan_json::RJiter::new(&mut cursor3, &mut buffer3);
     let mut rjiter3 = rjiter3;
@@ -1073,13 +1073,13 @@ fn mix_toolspec_and_other_content() {
     let toolspec2_content = r#"{"name":"tool2","description":"Second tool"}"#;
 
     let data1 = toolspec1_content.as_bytes();
-    let mut cursor1 = data1.as_ref();
+    let mut cursor1 = data1;
     let mut buffer1 = [0u8; 1024];
     let rjiter1 = scan_json::RJiter::new(&mut cursor1, &mut buffer1);
     let mut rjiter1 = rjiter1;
 
     let data2 = toolspec2_content.as_bytes();
-    let mut cursor2 = data2.as_ref();
+    let mut cursor2 = data2;
     let mut buffer2 = [0u8; 1024];
     let rjiter2 = scan_json::RJiter::new(&mut cursor2, &mut buffer2);
     let mut rjiter2 = rjiter2;
@@ -1152,22 +1152,20 @@ fn mix_toolspec_and_other_content() {
         r#"[{{"type":"function","function":{}}}]"#,
         toolspec1_content
     );
-    let expected_message2 = format!(
-        r#"{{"role":"user",
+    let expected_message2 = r#"{"role":"user",
 "content":[
-{{"type":"text","text":"Some text content"}}
-]}}"#
-    );
+{"type":"text","text":"Some text content"}
+]}"#
+    .to_string();
     let expected_tools2 = format!(
         r#"[{{"type":"function","function":{}}}]"#,
         toolspec2_content
     );
-    let expected_message3 = format!(
-        r#"{{"role":"user",
+    let expected_message3 = r#"{"role":"user",
 "tool_calls":[
-{{"type":"function","function":{{"name":"get_weather","arguments":"{{\"location\":\"London\"}}"}}}}
-]}}"#
-    );
+{"type":"function","function":{"name":"get_weather","arguments":"{\"location\":\"London\"}"}}
+]}"#
+    .to_string();
 
     // Concatenate all parts to build the expected output
     let expected_final = format!(

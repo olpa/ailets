@@ -26,6 +26,22 @@ pub enum StdHandle {
     _Count,
 }
 
+impl TryFrom<&str> for StdHandle {
+    type Error = ();
+
+    fn try_from(s: &str) -> Result<Self, Self::Error> {
+        match s {
+            "stdin" => Ok(StdHandle::Stdin),
+            "stdout" => Ok(StdHandle::Stdout),
+            "stderr" | "log" => Ok(StdHandle::Log),
+            "env" => Ok(StdHandle::Env),
+            "metrics" => Ok(StdHandle::Metrics),
+            "trace" => Ok(StdHandle::Trace),
+            _ => Err(()),
+        }
+    }
+}
+
 /// Convert file descriptor to `StdHandle`, enabling exhaustive match in consumer code.
 /// This ensures compiler errors when new variants are added.
 impl TryFrom<isize> for StdHandle {

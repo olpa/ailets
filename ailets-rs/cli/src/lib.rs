@@ -215,8 +215,22 @@ impl DagShell {
         }
     }
 
-    pub(crate) fn parse_handle(s: &str) -> Option<Handle> {
-        s.parse::<i64>().ok().map(Handle::new)
+    pub(crate) fn parse_handle(&self, s: &str) -> Option<Handle> {
+        if let Ok(id) = s.parse::<i64>() {
+            return Some(Handle::new(id));
+        }
+        let dag = self.env.dag.read();
+        if let Some((name, n_str)) = s.rsplit_once('.') {
+            let id: i64 = n_str.parse().ok()?;
+            let handle = Handle::new(id);
+            dag.get_node(handle)
+                .filter(|n| n.idname == name)
+                .map(|_| handle)
+        } else {
+            let mut matches = dag.nodes().filter(|n| n.idname == s);
+            let first = matches.next()?;
+            matches.next().is_none().then_some(first.pid)
+        }
     }
 
     /// Evaluate a TCL script.  Variables set in one call are visible in subsequent calls

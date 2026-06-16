@@ -114,7 +114,12 @@ fn perform_request(
 pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
     let reader = AReader::new_from_std(runtime, StdHandle::Stdin);
     let writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
-    execute_impl(reader, writer, &ureq::Agent::new_with_defaults())
+    let result = execute_impl(reader, writer, &ureq::Agent::new_with_defaults());
+    if let Err(ref e) = result {
+        let mut log = AWriter::new_from_std(runtime, StdHandle::Log);
+        if writeln!(log, "{e}").is_err() {}
+    }
+    result
 }
 
 /// Like [`execute`] but uses a caller-supplied agent, enabling transport injection for tests.

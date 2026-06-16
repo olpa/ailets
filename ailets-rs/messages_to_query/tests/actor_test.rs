@@ -37,8 +37,8 @@ fn test_text_items() {
 
     let runtime = VfsActorRuntime::new();
     process_messages_impl(reader, writer.clone(), &runtime, create_empty_env_opts()).unwrap();
-    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
-        .expect("Failed to parse output as JSON");
+    let output_json: Value =
+        serde_json::from_str(writer.get_output().as_str()).expect("Failed to parse output as JSON");
 
     let expected_item1 = r#"{"role":"system","content":[{"type":"text","text":"You are a helpful assistant who answers in Spanish"}]}"#;
     let expected_item2 = r#"{"role":"user","content":[{"type":"text","text":"Hello!"}]}"#;
@@ -62,15 +62,15 @@ fn special_symbols_in_text() {
 
     let runtime = VfsActorRuntime::new();
     process_messages_impl(reader, writer.clone(), &runtime, create_empty_env_opts()).unwrap();
-    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
-        .expect("Failed to parse output as JSON");
+    let output_json: Value =
+        serde_json::from_str(writer.get_output().as_str()).expect("Failed to parse output as JSON");
 
     let expected_item = r#"[{"role":"user","content":[
         {"type":"text","text":"Here's a \"quoted\" string\nwith newline and unicode: \u1F60 🌟"},
         {"type":"text","text":"Tab\there & escaped quotes: \"hello\""},
         {"type":"text","text":"Backslashes \\ and more \\\\ and control chars \u0007"}
     ]}]"#;
-    let expected_json = serde_json::from_str(&wrap_boilerplate(&expected_item))
+    let expected_json = serde_json::from_str(&wrap_boilerplate(expected_item))
         .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
@@ -85,13 +85,13 @@ fn image_url_as_is() {
     let runtime = VfsActorRuntime::new();
     process_messages_impl(reader, writer.clone(), &runtime, create_empty_env_opts()).unwrap();
     let output_json: Value =
-        serde_json::from_str(&writer.get_output().as_str()).unwrap_or_else(|e| {
+        serde_json::from_str(writer.get_output().as_str()).unwrap_or_else(|e| {
             eprintln!("Output: {}", writer.get_output());
             panic!("Failed to parse output as JSON: {}", e);
         });
 
     let expected_item = r#"[{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "https://example.com/image.jpg"}}]}]"#;
-    let expected_json = serde_json::from_str(&wrap_boilerplate(&expected_item))
+    let expected_json = serde_json::from_str(&wrap_boilerplate(expected_item))
         .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
@@ -106,11 +106,11 @@ fn image_as_key() {
     let runtime = VfsActorRuntime::new();
     runtime.add_file(String::from("media/image-as-key-2.png"), b"hello".to_vec());
     process_messages_impl(reader, writer.clone(), &runtime, create_empty_env_opts()).unwrap();
-    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
-        .expect("Failed to parse output as JSON");
+    let output_json: Value =
+        serde_json::from_str(writer.get_output().as_str()).expect("Failed to parse output as JSON");
 
     let expected_item = r#"[{"role": "user", "content": [{"type": "image_url", "image_url": {"url": "data:image/png;base64,aGVsbG8=", "detail": "auto"}}]}]"#;
-    let expected_json = serde_json::from_str(&wrap_boilerplate(&expected_item))
+    let expected_json = serde_json::from_str(&wrap_boilerplate(expected_item))
         .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
@@ -126,8 +126,8 @@ fn mix_text_and_image() {
 
     let runtime = VfsActorRuntime::new();
     process_messages_impl(reader, writer.clone(), &runtime, create_empty_env_opts()).unwrap();
-    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
-        .expect("Failed to parse output as JSON");
+    let output_json: Value =
+        serde_json::from_str(writer.get_output().as_str()).expect("Failed to parse output as JSON");
 
     let text_item1 = r#"{"type":"text","text":"Here's an image:"}"#;
     let image_item = r#"{"type":"image_url","image_url":{"url":"https://example.com/image.jpg"}}"#;
@@ -150,11 +150,11 @@ fn regression_one_item_not_two() {
 
     let runtime = VfsActorRuntime::new();
     process_messages_impl(reader, writer.clone(), &runtime, create_empty_env_opts()).unwrap();
-    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
-        .expect("Failed to parse output as JSON");
+    let output_json: Value =
+        serde_json::from_str(writer.get_output().as_str()).expect("Failed to parse output as JSON");
 
     let expected_item = r#"[{"content":[{"type":"text","text":"Hello!"}],"role":"user"}]"#;
-    let expected_json = serde_json::from_str(&wrap_boilerplate(&expected_item))
+    let expected_json = serde_json::from_str(&wrap_boilerplate(expected_item))
         .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
@@ -169,13 +169,13 @@ fn function_call() {
 
     let runtime = VfsActorRuntime::new();
     process_messages_impl(reader, writer.clone(), &runtime, create_empty_env_opts()).unwrap();
-    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
-        .expect("Failed to parse output as JSON");
+    let output_json: Value =
+        serde_json::from_str(writer.get_output().as_str()).expect("Failed to parse output as JSON");
 
     let expected_item = r#"[{"role":"assistant","tool_calls": [
         {"id":"id123","type":"function","function":{"name":"get_weather","arguments":"{\"location\": \"London\", \"unit\": \"celsius\"}"}}
     ]}]"#;
-    let expected_json = serde_json::from_str(&wrap_boilerplate(&expected_item))
+    let expected_json = serde_json::from_str(&wrap_boilerplate(expected_item))
         .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
@@ -190,14 +190,14 @@ fn special_symbols_in_function_arguments() {
 
     let runtime = VfsActorRuntime::new();
     process_messages_impl(reader, writer.clone(), &runtime, create_empty_env_opts()).unwrap();
-    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
-        .expect("Failed to parse output as JSON");
+    let output_json: Value =
+        serde_json::from_str(writer.get_output().as_str()).expect("Failed to parse output as JSON");
 
     let expected_item = r#"[{"role":"assistant","tool_calls": [
         {"id":"id123","type":"function","function":{"name":"process_text",
           "arguments":"{\"text\": \"Hello\\n\\\"World\\\" 🌟 🎉\u1F60\\\""}}
     ]}]"#;
-    let expected_json = serde_json::from_str(&wrap_boilerplate(&expected_item))
+    let expected_json = serde_json::from_str(&wrap_boilerplate(expected_item))
         .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }
@@ -231,15 +231,15 @@ fn tool_specification() {
 
     let runtime = VfsActorRuntime::new();
     process_messages_impl(reader, writer.clone(), &runtime, create_empty_env_opts()).unwrap();
-    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
-        .expect("Failed to parse output as JSON");
+    let output_json: Value =
+        serde_json::from_str(writer.get_output().as_str()).expect("Failed to parse output as JSON");
 
     let expected_tools = format!(
         r#"[{{"type":"function","function":{}}},{{"type":"function","function":{}}}]"#,
         get_user_name_function, another_function
     );
     let expected_item =
-        format!(r#"[{{"role":"user","content":[{{"type":"text","text":"Hello!"}}]}}]"#);
+        r#"[{"role":"user","content":[{"type":"text","text":"Hello!"}]}]"#.to_string();
     let expected = wrap_boilerplate(&expected_item);
     let expected_with_tools = inject_tools(&expected, &expected_tools);
     let expected_json = serde_json::from_str(&expected_with_tools)
@@ -275,11 +275,11 @@ fn toolspec_by_key() {
     process_messages_impl(reader, writer.clone(), &runtime, create_empty_env_opts()).unwrap();
 
     // Assert
-    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
-        .expect("Failed to parse output as JSON");
+    let output_json: Value =
+        serde_json::from_str(writer.get_output().as_str()).expect("Failed to parse output as JSON");
 
     let expected_tools = format!(r#"[{{"type":"function","function":{}}}]"#, toolspec_content);
-    let expected_item = format!(r#"[{{"role":"user"}}]"#);
+    let expected_item = r#"[{"role":"user"}]"#.to_string();
     let expected = wrap_boilerplate(&expected_item);
     let expected_with_tools = inject_tools(&expected, &expected_tools);
     let expected_json = serde_json::from_str(&expected_with_tools)
@@ -297,14 +297,14 @@ fn tool_role_with_tool_call_id() {
 
     let runtime = VfsActorRuntime::new();
     process_messages_impl(reader, writer.clone(), &runtime, create_empty_env_opts()).unwrap();
-    let output_json: Value = serde_json::from_str(&writer.get_output().as_str())
-        .expect("Failed to parse output as JSON");
+    let output_json: Value =
+        serde_json::from_str(writer.get_output().as_str()).expect("Failed to parse output as JSON");
 
     let expected_item = r#"[{"role":"tool","tool_call_id":"call_hEUJSGdhP42m1HYos3OTEeCS","content":[
         {"type":"text","text":"{}"},
         {"type":"text","text":"{\"get_user_name\": \"olpa\"}"}
     ]}]"#;
-    let expected_json = serde_json::from_str(&wrap_boilerplate(&expected_item))
+    let expected_json = serde_json::from_str(&wrap_boilerplate(expected_item))
         .expect("Failed to parse expected output as JSON");
     assert_that!(output_json, equal_to(expected_json));
 }

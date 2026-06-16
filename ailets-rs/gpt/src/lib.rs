@@ -10,6 +10,7 @@ pub mod structure_builder;
 use actor_io::{AReader, AWriter};
 use actor_runtime::{err_to_heap_c_string, ActorRuntime, FfiActorRuntime, StdHandle};
 use dagops::{DagOps, DagOpsTrait, StubDagOps};
+use embedded_io::Write as _;
 
 use handlers::{
     on_begin_message, on_content, on_end_message, on_function_arguments, on_function_end,
@@ -214,8 +215,12 @@ pub fn process_gpt_impl<W: embedded_io::Write, D: DagOpsTrait>(
 pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
     let reader = AReader::new_from_std(runtime, StdHandle::Stdin);
     let writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
-
-    process_gpt_impl(reader, writer, StubDagOps)
+    let result = process_gpt_impl(reader, writer, StubDagOps);
+    if let Err(ref e) = result {
+        let mut log = AWriter::new_from_std(runtime, StdHandle::Log);
+        if log.write_all(format!("{e}\n").as_bytes()).is_err() {}
+    }
+    result
 }
 
 /// # Panics
