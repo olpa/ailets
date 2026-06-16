@@ -6,6 +6,22 @@ use ailetos::Environment;
 
 use crate::shell_ui::PromptArg;
 
+const CTL_USER_JSON: &[u8] = br#"[{"type":"ctl"},{"role":"user"}]"#;
+const CTL_SYSTEM_JSON: &[u8] = br#"[{"type":"ctl"},{"role":"system"}]"#;
+
+fn add_value_alias(
+    env: &Arc<Environment>,
+    rt: &tokio::runtime::Handle,
+    data: Vec<u8>,
+) -> Result<(), String> {
+    let env_clone = Arc::clone(env);
+    let handle = rt
+        .block_on(async move { env_clone.add_value_node(data, None).await })
+        .map_err(|e| format!("failed to add value node: {e}"))?;
+    env.add_alias("input".to_string(), handle);
+    Ok(())
+}
+
 /// Creates value nodes and `input` aliases for each prompt item.
 ///
 /// A ctl(user) node is auto-inserted once immediately before the first
@@ -17,12 +33,50 @@ use crate::shell_ui::PromptArg;
 /// # Errors
 /// Returns an error if a `File` item cannot be read or its type is unknown.
 pub fn register_prompt_inputs(
-    _env: &Arc<Environment>,
-    _rt: &tokio::runtime::Handle,
-    _items: &[PromptArg],
-    _stdin_handle: Option<ailetos::Handle>,
+    env: &Arc<Environment>,
+    rt: &tokio::runtime::Handle,
+    items: &[PromptArg],
+    stdin_handle: Option<ailetos::Handle>,
 ) -> Result<bool, String> {
-    Err("not yet implemented".to_string())
+    let mut user_ctl_inserted = false;
+    let mut stdin_consumed = false;
+
+    for item in items {
+        match item {
+            PromptArg::SystemPrompt(text) => {
+                add_value_alias(env, rt, CTL_SYSTEM_JSON.to_vec())?;
+                let json = format!(r#"[{{"type":"text"}},{{"text":"{text}"}}]"#);
+                add_value_alias(env, rt, json.into_bytes())?;
+            }
+            PromptArg::Text(text) => {
+                if !user_ctl_inserted {
+                    add_value_alias(env, rt, CTL_USER_JSON.to_vec())?;
+                    user_ctl_inserted = true;
+                }
+                let json = format!(r#"[{{"type":"text"}},{{"text":"{text}"}}]"#);
+                add_value_alias(env, rt, json.into_bytes())?;
+            }
+            PromptArg::Stdin => {
+                if !user_ctl_inserted {
+                    add_value_alias(env, rt, CTL_USER_JSON.to_vec())?;
+                    user_ctl_inserted = true;
+                }
+                let handle = stdin_handle
+                    .ok_or_else(|| "Stdin item present but no stdin_handle provided".to_string())?;
+                env.add_alias("input".to_string(), handle);
+                stdin_consumed = true;
+            }
+            PromptArg::File { path, attrs } => {
+                if !user_ctl_inserted {
+                    add_value_alias(env, rt, CTL_USER_JSON.to_vec())?;
+                    user_ctl_inserted = true;
+                }
+                let json = crate::shell_ui::file_to_content_item(path, attrs)?;
+                add_value_alias(env, rt, json.into_bytes())?;
+            }
+        }
+    }
+    Ok(stdin_consumed)
 }
 
 // ---------------------------------------------------------------------------
@@ -146,7 +200,6 @@ mod tests {
         assert!(consumed, "stdin should be marked consumed");
         let deps = input_alias_deps(&env);
         assert_eq!(deps.len(), 3, "expected ctl(user) + stdin + text");
-        assert_eq!(deps[0], stdin_node, "ctl(user) should come first... wait");
 
         // ctl(user) is first, then stdin at its position, then text
         assert_eq!(
