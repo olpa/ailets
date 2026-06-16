@@ -175,6 +175,30 @@ echo "context" | dagsh "Process this" -l run.tcl
 echo "help" | dagsh
 ```
 
+## Unit Tests
+
+### `parse_args`
+
+1. Plain text arg → `PromptArg::Text` with correct string
+2. `@file.txt` → `PromptArg::File` with path `file.txt` (prefix stripped)
+3. `-` and `@-` both → `PromptArg::Stdin`
+4. `--system-prompt "S"` → `PromptArg::SystemPrompt("S")`
+5. Mixed args preserve order: `--system-prompt "S" "hello" @f.txt` → `[SystemPrompt, Text, File]`
+6. `--system-prompt` with no following value → error
+7. `-l script.tcl` coexists with prompt args: both `load_script` and `prompt_items` populated
+
+### Node sequence expansion
+
+8. ctl(user) auto-inserted once before the first non-`SystemPrompt` item; subsequent user items do not trigger a second ctl(user)
+9. `SystemPrompt` interleaved mid-sequence produces ctl(system)+text nodes at that position, not hoisted to the front
+10. Explicit `-` stays at its position in the sequence; implicit stdin (TTY check) is appended after all items
+
+### File → ContentItem
+
+11. Text extension (`.txt`, `.md`) → `[{"type":"text"},{"text":"..."}]`
+12. Image extension (`.png`, `.jpg`) → `[{"type":"image","content_type":"..."},{"image_key":"..."}]`
+13. Unknown extension without attrs → descriptive error
+
 ---
 
 # Research notes (scratch)
