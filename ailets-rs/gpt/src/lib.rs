@@ -8,9 +8,9 @@ pub mod handlers;
 pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
-use embedded_io::Write as _;
 use actor_runtime::{err_to_heap_c_string, ActorRuntime, FfiActorRuntime, StdHandle};
 use dagops::{DagOps, DagOpsTrait, StubDagOps};
+use embedded_io::Write as _;
 
 use handlers::{
     on_begin_message, on_content, on_end_message, on_function_arguments, on_function_end,

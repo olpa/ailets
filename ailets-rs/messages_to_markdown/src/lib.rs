@@ -3,8 +3,8 @@ pub mod handlers;
 mod structure_builder;
 
 use actor_io::{AReader, AWriter};
-use embedded_io::Write as _;
 use actor_runtime::{err_to_heap_c_string, ActorRuntime, FfiActorRuntime, StdHandle};
+use embedded_io::Write as _;
 use handlers::on_content_text;
 use scan_json::matcher::StructuralPseudoname;
 use scan_json::rjiter::RJiter;

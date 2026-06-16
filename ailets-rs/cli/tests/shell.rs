@@ -467,15 +467,16 @@ fn parse_handle_name_dot_n() {
     let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
     let (mut interp, ctx) = make_interp();
     // node cat gets id 1; cat.1 must resolve, wrong.1 must not
-    shell.execute(&mut interp, ctx, "set id [node cat]").unwrap();
     shell
-        .execute(&mut interp, ctx, "status cat.$id")
+        .execute(&mut interp, ctx, "set id [node cat]")
         .unwrap();
+    shell.execute(&mut interp, ctx, "status cat.$id").unwrap();
     assert!(sink.lines().iter().any(|l| l.contains("cat")));
-    shell
-        .execute(&mut interp, ctx, "status wrong.$id")
-        .unwrap();
-    assert!(sink.lines().iter().any(|l| l.contains("Invalid handle: wrong.")));
+    shell.execute(&mut interp, ctx, "status wrong.$id").unwrap();
+    assert!(sink
+        .lines()
+        .iter()
+        .any(|l| l.contains("Invalid handle: wrong.")));
 }
 
 #[test]
@@ -489,7 +490,10 @@ fn parse_handle_unique_name() {
     assert!(sink.lines().iter().any(|l| l.contains("cat")));
     shell.execute(&mut interp, ctx, "node cat").unwrap();
     shell.execute(&mut interp, ctx, "status cat").unwrap();
-    assert!(sink.lines().iter().any(|l| l.contains("Invalid handle: cat")));
+    assert!(sink
+        .lines()
+        .iter()
+        .any(|l| l.contains("Invalid handle: cat")));
 }
 
 #[test]
@@ -497,9 +501,17 @@ fn cat_stream_by_name_and_fd() {
     let sink = CapturingSink::new();
     let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
     let (mut interp, ctx) = make_interp();
-    shell.execute(&mut interp, ctx, "set v [value hello]").unwrap();
+    shell
+        .execute(&mut interp, ctx, "set v [value hello]")
+        .unwrap();
     shell.execute(&mut interp, ctx, "cat $v:stderr").unwrap();
     shell.execute(&mut interp, ctx, "cat $v:2").unwrap();
     let lines = sink.lines();
-    assert_eq!(lines.iter().filter(|l| l.contains("No output on stream")).count(), 2);
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|l| l.contains("No output on stream"))
+            .count(),
+        2
+    );
 }

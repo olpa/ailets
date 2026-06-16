@@ -177,7 +177,8 @@ impl DagShell {
         let name = name.to_string();
         let mut targets = Vec::new();
         for target_str in targets_strs {
-            let target = self.parse_handle(target_str)
+            let target = self
+                .parse_handle(target_str)
                 .ok_or_else(|| format!("Invalid handle: {target_str}"))?;
             targets.push(target);
         }
@@ -237,10 +238,12 @@ impl DagShell {
             [n, d, ..] => (*n, *d),
             _ => return Err("Usage: dep <node> <dependency>".to_string()),
         };
-        let node =
-            self.parse_handle(node_str).ok_or_else(|| format!("Invalid handle: {node_str}"))?;
-        let dep =
-            self.parse_handle(dep_str).ok_or_else(|| format!("Invalid handle: {dep_str}"))?;
+        let node = self
+            .parse_handle(node_str)
+            .ok_or_else(|| format!("Invalid handle: {node_str}"))?;
+        let dep = self
+            .parse_handle(dep_str)
+            .ok_or_else(|| format!("Invalid handle: {dep_str}"))?;
         self.env
             .dag
             .write()
@@ -298,7 +301,8 @@ impl DagShell {
             return Ok(());
         }
         let handle_str = args.first().ok_or("Usage: show <node>")?;
-        let handle = self.parse_handle(handle_str)
+        let handle = self
+            .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
         let suspension = Some(&*self.env.suspension);
         let tree = dag.dump_colored(handle, suspension, Some(&pending));
@@ -349,14 +353,18 @@ impl DagShell {
                 &"--stop-before" => {
                     i += 1;
                     let h = args.get(i).ok_or("--stop-before requires a node")?;
-                    stop_before =
-                        Some(self.parse_handle(h).ok_or_else(|| format!("Invalid handle: {h}"))?);
+                    stop_before = Some(
+                        self.parse_handle(h)
+                            .ok_or_else(|| format!("Invalid handle: {h}"))?,
+                    );
                 }
                 &"--stop-after" => {
                     i += 1;
                     let h = args.get(i).ok_or("--stop-after requires a node")?;
-                    stop_after =
-                        Some(self.parse_handle(h).ok_or_else(|| format!("Invalid handle: {h}"))?);
+                    stop_after = Some(
+                        self.parse_handle(h)
+                            .ok_or_else(|| format!("Invalid handle: {h}"))?,
+                    );
                 }
                 arg if !arg.starts_with("--") => {
                     target_arg = Some(arg);
@@ -367,7 +375,8 @@ impl DagShell {
         }
 
         let handle = if let Some(h) = target_arg {
-            self.parse_handle(h).ok_or_else(|| format!("Invalid handle: {h}"))?
+            self.parse_handle(h)
+                .ok_or_else(|| format!("Invalid handle: {h}"))?
         } else if let Some(sb) = stop_before {
             sb
         } else {
@@ -488,7 +497,8 @@ pub static ENTRY_JOIN: CommandMeta = CommandMeta {
 impl DagShell {
     pub(crate) fn cmd_join(&mut self, args: &[&str]) -> Result<(), String> {
         let handle_str = args.first().ok_or("Usage: join <node>")?;
-        let handle = self.parse_handle(handle_str)
+        let handle = self
+            .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
         let handles = self.env.resolve_all(handle);
         self.join_handles(&handles)
@@ -527,7 +537,8 @@ impl DagShell {
         }
 
         let handle_str = handle_str.ok_or("Usage: follow <node> [--color <name>]")?;
-        let handle = self.parse_handle(handle_str)
+        let handle = self
+            .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
         for target in self.env.resolve_all(handle) {
@@ -641,7 +652,8 @@ impl DagShell {
             _ => return Err("Usage: kill [-N] <node>".to_string()),
         };
 
-        let handle = self.parse_handle(handle_str)
+        let handle = self
+            .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
         if !dbg_control::is_dbg_node(handle) {
@@ -673,7 +685,7 @@ impl DagShell {
             return Ok(h);
         }
         let fd: isize = s.parse().map_err(|_| format!("Unknown stream: {s}"))?;
-        StdHandle::try_from(fd).map_err(|_| format!("Unknown stream: {s}"))
+        StdHandle::try_from(fd).map_err(|()| format!("Unknown stream: {s}"))
     }
 
     pub(crate) fn cmd_cat(&self, args: &[&str]) -> Result<(), String> {
@@ -702,7 +714,7 @@ impl DagShell {
                         format!("Node {} was never executed", handle.id())
                     }
                     Some(NodeState::Running | NodeState::Terminating) => {
-                        format!("Node {} is still running", handle.id())
+                        format!("Node {} is running but hasn't created stream {stream:?} yet", handle.id())
                     }
                     Some(NodeState::Terminated) | None => {
                         format!("No output on stream {stream:?} for node {}", handle.id())
@@ -886,7 +898,8 @@ pub static ENTRY_SUSPEND: CommandMeta = CommandMeta {
 impl DagShell {
     pub(crate) fn cmd_suspend(&self, args: &[&str]) -> Result<(), String> {
         let handle_str = args.first().ok_or("Usage: suspend <node>")?;
-        let handle = self.parse_handle(handle_str)
+        let handle = self
+            .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
         self.env.suspension.suspend(handle);
         self.sink
@@ -905,7 +918,8 @@ pub static ENTRY_RESUME: CommandMeta = CommandMeta {
 impl DagShell {
     pub(crate) fn cmd_resume(&self, args: &[&str]) -> Result<(), String> {
         let handle_str = args.first().ok_or("Usage: resume <node>")?;
-        let handle = self.parse_handle(handle_str)
+        let handle = self
+            .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
         self.env.suspension.resume(handle);
         self.sink.println(&format!("Resumed node {}", handle.id()));
@@ -930,7 +944,8 @@ impl DagShell {
         match *condition {
             "suspended" => {
                 let handle_str = args.get(1).ok_or("Usage: wait suspended <node>")?;
-                let handle = self.parse_handle(handle_str)
+                let handle = self
+                    .parse_handle(handle_str)
                     .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
                 let env = &self.env;
                 let sink = &self.sink;
@@ -953,7 +968,8 @@ impl DagShell {
             }
             "terminated" => {
                 let handle_str = args.get(1).ok_or("Usage: wait terminated <node>")?;
-                let handle = self.parse_handle(handle_str)
+                let handle = self
+                    .parse_handle(handle_str)
                     .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
                 let env = &self.env;
                 let sink = &self.sink;
@@ -996,7 +1012,8 @@ pub static ENTRY_WRITE: CommandMeta = CommandMeta {
 impl DagShell {
     pub(crate) fn cmd_write(&self, args: &[&str]) -> Result<(), String> {
         let handle_str = args.first().ok_or("Usage: write <node> <data>")?;
-        let handle = self.parse_handle(handle_str)
+        let handle = self
+            .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
         let data = parse_quoted_string(args.get(1..).unwrap_or(&[]));
@@ -1022,7 +1039,8 @@ pub static ENTRY_CLOSE: CommandMeta = CommandMeta {
 impl DagShell {
     pub(crate) fn cmd_close(&self, args: &[&str]) -> Result<(), String> {
         let handle_str = args.first().ok_or("Usage: close <node>")?;
-        let handle = self.parse_handle(handle_str)
+        let handle = self
+            .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
 
         match shell_input_control::close_shell_input(handle) {

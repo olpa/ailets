@@ -229,7 +229,7 @@ impl DagShell {
         } else {
             let mut matches = dag.nodes().filter(|n| n.idname == s);
             let first = matches.next()?;
-            matches.next().is_none().then(|| first.pid)
+            matches.next().is_none().then_some(first.pid)
         }
     }
 
