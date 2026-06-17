@@ -176,8 +176,8 @@ pub enum SessionMode {
     LoadThenInteractive,
     /// Prompt items created, stdin not consumed: open REPL (nodes already wired).
     PromptThenInteractive,
-    /// Prompt items + `-l` script (stdin not consumed): run script then exit.
-    PromptLoadThenExit,
+    /// Prompt items + `-l` script, stdin not consumed: run script then keep REPL open.
+    PromptLoadThenInteractive,
     /// Prompt items + stdin consumed (no `-l`): exit after nodes are created.
     PromptThenExit,
     /// Prompt items + stdin consumed + `-l` script: run script then exit.
@@ -195,7 +195,7 @@ pub fn decide_session(
         (false, _, false) => SessionMode::Interactive,
         (false, _, true) => SessionMode::LoadThenInteractive,
         (true, false, false) => SessionMode::PromptThenInteractive,
-        (true, false, true) => SessionMode::PromptLoadThenExit,
+        (true, false, true) => SessionMode::PromptLoadThenInteractive,
         (true, true, false) => SessionMode::PromptThenExit,
         (true, true, true) => SessionMode::PromptLoadStdinThenExit,
     }
@@ -341,13 +341,12 @@ mod tests {
         );
     }
 
-    // test 10b: implicit stdin (appended by TTY check) ends up last
+    // test 10b: explicit stdin at end (e.g. `dagsh "text" -`) ends up last
     #[test]
-    fn test_implicit_stdin_appended_last() {
+    fn test_explicit_stdin_appended_last() {
         let (env, rt) = make_env();
         let stdin_node = env.add_node("shell_input".to_string(), &[], None);
 
-        // TTY check in main appends Stdin before calling register_prompt_inputs
         let items = vec![
             PromptArg::Text("Hello".to_string()),
             PromptArg::Stdin,
@@ -469,7 +468,7 @@ mod tests {
     fn test_session_items_no_stdin_with_script() {
         assert_eq!(
             decide_session(true, false, true),
-            SessionMode::PromptLoadThenExit
+            SessionMode::PromptLoadThenInteractive
         );
     }
 

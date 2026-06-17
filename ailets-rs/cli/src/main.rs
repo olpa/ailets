@@ -1,9 +1,7 @@
 //! DAG Shell binary entry point.
 
-use std::io::IsTerminal as _;
-
 use dagsh::prompt_nodes::{decide_session, SessionMode};
-use dagsh::shell_ui::{create_notification_sink, parse_args, print_usage, PromptArg, ShellHelper};
+use dagsh::shell_ui::{create_notification_sink, parse_args, print_usage, ShellHelper};
 use dagsh::{make_interp, DagShell, ShellControl};
 use rustyline::config::Configurer;
 use rustyline::error::ReadlineError;
@@ -49,17 +47,8 @@ fn main() {
     println!("DAG Shell v0.1 (TCL)");
     println!("Type 'help' for available commands.\n");
 
-    // Implicit stdin: if stdin is not a TTY and there are prompt items, append Stdin.
+    // Stdin is only treated as data when the user explicitly writes `-` or `@-`.
     let has_prompt_items = !cli_args.prompt_items.is_empty();
-    if has_prompt_items && !std::io::stdin().is_terminal() {
-        let already_explicit = cli_args
-            .prompt_items
-            .iter()
-            .any(|a| matches!(a, PromptArg::Stdin));
-        if !already_explicit {
-            cli_args.prompt_items.push(PromptArg::Stdin);
-        }
-    }
 
     // Create nodes and aliases for prompt items.
     let stdin_consumed = if has_prompt_items {
@@ -80,7 +69,7 @@ fn main() {
     if matches!(
         mode,
         SessionMode::LoadThenInteractive
-            | SessionMode::PromptLoadThenExit
+            | SessionMode::PromptLoadThenInteractive
             | SessionMode::PromptLoadStdinThenExit
     ) {
         if let Some(ref script_path) = cli_args.load_script {
@@ -95,9 +84,7 @@ fn main() {
     // Exit without interactive shell when stdin consumed or script-only run.
     if matches!(
         mode,
-        SessionMode::PromptThenExit
-            | SessionMode::PromptLoadThenExit
-            | SessionMode::PromptLoadStdinThenExit
+        SessionMode::PromptThenExit | SessionMode::PromptLoadStdinThenExit
     ) {
         drop(shell);
         drop(printer_rt);
