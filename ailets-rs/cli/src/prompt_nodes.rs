@@ -38,41 +38,44 @@ pub fn register_prompt_inputs(
     items: &[PromptArg],
     stdin_handle: Option<ailetos::Handle>,
 ) -> Result<bool, String> {
-    let mut user_ctl_inserted = false;
+    let mut last_role: Option<&str> = None;
     let mut stdin_consumed = false;
 
     for item in items {
         match item {
             PromptArg::SystemPrompt(text) => {
-                add_value_alias(env, rt, CTL_SYSTEM_JSON.to_vec())?;
-                let json = format!(r#"[{{"type":"text"}},{{"text":"{text}"}}]"#);
-                add_value_alias(env, rt, json.into_bytes())?;
-            }
-            PromptArg::Text(text) => {
-                if !user_ctl_inserted {
-                    add_value_alias(env, rt, CTL_USER_JSON.to_vec())?;
-                    user_ctl_inserted = true;
+                if last_role != Some("system") {
+                    add_value_alias(env, rt, CTL_SYSTEM_JSON.to_vec())?;
                 }
                 let json = format!(r#"[{{"type":"text"}},{{"text":"{text}"}}]"#);
                 add_value_alias(env, rt, json.into_bytes())?;
+                last_role = Some("system");
+            }
+            PromptArg::Text(text) => {
+                if last_role != Some("user") {
+                    add_value_alias(env, rt, CTL_USER_JSON.to_vec())?;
+                }
+                let json = format!(r#"[{{"type":"text"}},{{"text":"{text}"}}]"#);
+                add_value_alias(env, rt, json.into_bytes())?;
+                last_role = Some("user");
             }
             PromptArg::Stdin => {
-                if !user_ctl_inserted {
+                if last_role != Some("user") {
                     add_value_alias(env, rt, CTL_USER_JSON.to_vec())?;
-                    user_ctl_inserted = true;
                 }
                 let handle = stdin_handle
                     .ok_or_else(|| "Stdin item present but no stdin_handle provided".to_string())?;
                 let _alias = env.add_alias("input".to_string(), handle);
                 stdin_consumed = true;
+                last_role = Some("user");
             }
             PromptArg::File { path, attrs } => {
-                if !user_ctl_inserted {
+                if last_role != Some("user") {
                     add_value_alias(env, rt, CTL_USER_JSON.to_vec())?;
-                    user_ctl_inserted = true;
                 }
                 let json = file_to_content_item(path, attrs, env, rt)?;
                 add_value_alias(env, rt, json.into_bytes())?;
+                last_role = Some("user");
             }
         }
     }
@@ -259,28 +262,34 @@ mod tests {
         register_prompt_inputs(&env, rt.handle(), &items, None).unwrap();
 
         let deps = input_alias_deps(&env);
-        assert_eq!(deps.len(), 5, "expected ctl(user) + text + ctl(system) + text + text");
+        assert_eq!(deps.len(), 6, "expected ctl(user) + Hello + ctl(system) + 'Be formal' + ctl(user) + World");
 
-        assert_eq!(
-            read_node_content(&env, &rt, deps[0]),
-            r#"[{"type":"ctl"},{"role":"user"}]"#
-        );
-        assert_eq!(
-            read_node_content(&env, &rt, deps[1]),
-            r#"[{"type":"text"},{"text":"Hello"}]"#
-        );
-        assert_eq!(
-            read_node_content(&env, &rt, deps[2]),
-            r#"[{"type":"ctl"},{"role":"system"}]"#
-        );
-        assert_eq!(
-            read_node_content(&env, &rt, deps[3]),
-            r#"[{"type":"text"},{"text":"Be formal"}]"#
-        );
-        assert_eq!(
-            read_node_content(&env, &rt, deps[4]),
-            r#"[{"type":"text"},{"text":"World"}]"#
-        );
+        assert_eq!(read_node_content(&env, &rt, deps[0]), r#"[{"type":"ctl"},{"role":"user"}]"#);
+        assert_eq!(read_node_content(&env, &rt, deps[1]), r#"[{"type":"text"},{"text":"Hello"}]"#);
+        assert_eq!(read_node_content(&env, &rt, deps[2]), r#"[{"type":"ctl"},{"role":"system"}]"#);
+        assert_eq!(read_node_content(&env, &rt, deps[3]), r#"[{"type":"text"},{"text":"Be formal"}]"#);
+        assert_eq!(read_node_content(&env, &rt, deps[4]), r#"[{"type":"ctl"},{"role":"user"}]"#);
+        assert_eq!(read_node_content(&env, &rt, deps[5]), r#"[{"type":"text"},{"text":"World"}]"#);
+    }
+
+    // consecutive system prompts share a single ctl(system) node
+    #[test]
+    fn test_consecutive_system_prompts_share_ctl() {
+        let (env, rt) = make_env();
+        let items = vec![
+            PromptArg::SystemPrompt("EE".to_string()),
+            PromptArg::SystemPrompt("FF".to_string()),
+            PromptArg::Text("hello".to_string()),
+        ];
+        register_prompt_inputs(&env, rt.handle(), &items, None).unwrap();
+
+        let deps = input_alias_deps(&env);
+        assert_eq!(deps.len(), 5, "expected ctl(system) + EE + FF + ctl(user) + text");
+        assert_eq!(read_node_content(&env, &rt, deps[0]), r#"[{"type":"ctl"},{"role":"system"}]"#);
+        assert_eq!(read_node_content(&env, &rt, deps[1]), r#"[{"type":"text"},{"text":"EE"}]"#);
+        assert_eq!(read_node_content(&env, &rt, deps[2]), r#"[{"type":"text"},{"text":"FF"}]"#);
+        assert_eq!(read_node_content(&env, &rt, deps[3]), r#"[{"type":"ctl"},{"role":"user"}]"#);
+        assert_eq!(read_node_content(&env, &rt, deps[4]), r#"[{"type":"text"},{"text":"hello"}]"#);
     }
 
     // test 10a: explicit Stdin stays at its position in the sequence
