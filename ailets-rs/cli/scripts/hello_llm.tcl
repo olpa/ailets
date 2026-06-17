@@ -1,8 +1,8 @@
 # Minimal "hello world" LLM workflow.
-# Uses the "input" alias if created by CLI args; otherwise seeds its own message.
+# Uses the "input_doc" alias if created by CLI args; otherwise seeds its own message.
 
-if {[dag exists input]} {
-    set msgs [dag handle input]
+if {[dag exists input_doc]} {
+    set msgs [dag handle input_doc]
 } else {
     set msgs [value {[{"type": "ctl"}, {"role": "user"}]
 [{"type": "text"}, {"text": "hello!"}]} "--explain=Seed chat messages"]
