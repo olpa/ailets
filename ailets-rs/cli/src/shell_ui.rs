@@ -84,7 +84,7 @@ fn parse_at_arg(s: &str) -> Result<(String, Vec<(String, String)>), String> {
     let attr_str = &s[1..close];
     let path = s[close + 1..].to_string();
     let attrs = attr_str
-        .split(',')
+        .split(';')
         .filter(|p| !p.is_empty())
         .map(|pair| {
             let (k, v) = pair
@@ -249,10 +249,10 @@ mod tests {
         );
     }
 
-    // @{type=image,content_type=image/png}photo.dat → two attrs, correct path
+    // @{type=image;content_type=image/png}photo.dat → two attrs, correct path
     #[test]
     fn test_at_arg_with_multiple_attrs() {
-        let result = parse_args(&args(&["@{type=image,content_type=image/png}photo.dat"])).unwrap();
+        let result = parse_args(&args(&["@{type=image;content_type=image/png}photo.dat"])).unwrap();
         assert_eq!(
             result.prompt_items,
             vec![PromptArg::File {
