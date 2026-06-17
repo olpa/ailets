@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use ailetos::{Environment, Handle};
 
+use crate::file_value_actor;
 use crate::file_value_control;
 use crate::shell_ui::PromptArg;
 use crate::to_doc_item_control;
@@ -44,17 +45,41 @@ fn add_raw_then_doc(
 
 /// Creates a `file_value` actor node (with path or `"-"` for stdin in `explain`),
 /// adds it to `"input_raw"`, then wires a `to_doc_item` actor into `"input_doc"`.
-fn add_file_then_doc(env: &Arc<Environment>, file_explain: String, attrs: &[(String, String)]) {
+fn add_file_then_doc(
+    env: &Arc<Environment>,
+    async_runtime: &tokio::runtime::Handle,
+    file_explain: String,
+    attrs: &[(String, String)],
+) {
     let file_handle = env.add_node("file_value".to_string(), &[], Some(file_explain.clone()));
     file_value_control::register(
         file_handle,
-        file_explain,
+        file_explain.clone(),
         attrs.to_vec(),
         Arc::clone(&env.kv),
         Arc::clone(&env.idgen),
+        async_runtime.clone(),
     );
     let _h = env.add_alias("input_raw".to_string(), file_handle);
-    wire_to_doc_item(env, file_handle, attrs);
+    // For extension-detected images, inject type + content_type so to_doc_item
+    // knows to emit an image item rather than text.
+    let augmented;
+    let doc_attrs = if !attrs.iter().any(|(k, _)| k == "type") {
+        if let Some(mime) = file_value_actor::mime_for_path(&file_explain) {
+            augmented = {
+                let mut v = attrs.to_vec();
+                v.push(("type".to_string(), "image".to_string()));
+                v.push(("content_type".to_string(), mime.to_string()));
+                v
+            };
+            augmented.as_slice()
+        } else {
+            attrs
+        }
+    } else {
+        attrs
+    };
+    wire_to_doc_item(env, file_handle, doc_attrs);
 }
 
 /// Creates a `to_doc_item` actor node that depends on `raw_handle`, registers
@@ -125,7 +150,7 @@ pub fn register_prompt_inputs(
                 if last_role != Some("user") {
                     add_ctl_to_input_doc(env, async_runtime, CTL_USER_JSON.to_vec())?;
                 }
-                add_file_then_doc(env, "-".to_string(), &[]);
+                add_file_then_doc(env, async_runtime, "-".to_string(), &[]);
                 stdin_consumed = true;
                 last_role = Some("user");
             }
@@ -133,7 +158,7 @@ pub fn register_prompt_inputs(
                 if last_role != Some("user") {
                     add_ctl_to_input_doc(env, async_runtime, CTL_USER_JSON.to_vec())?;
                 }
-                add_file_then_doc(env, path.clone(), attrs);
+                add_file_then_doc(env, async_runtime, path.clone(), attrs);
                 last_role = Some("user");
             }
         }
@@ -154,8 +179,8 @@ pub enum SessionMode {
     LoadThenInteractive,
     /// Prompt items created, stdin not consumed: open REPL (nodes already wired).
     PromptThenInteractive,
-    /// Prompt items + `-l` script, stdin not consumed: run script then keep REPL open.
-    PromptLoadThenInteractive,
+    /// Prompt items + `-l` script, stdin not consumed: run script then exit.
+    PromptLoadThenExit,
     /// Prompt items + stdin consumed (no `-l`): exit after nodes are created.
     PromptThenExit,
     /// Prompt items + stdin consumed + `-l` script: run script then exit.
@@ -173,7 +198,7 @@ pub fn decide_session(
         (false, _, false) => SessionMode::Interactive,
         (false, _, true) => SessionMode::LoadThenInteractive,
         (true, false, false) => SessionMode::PromptThenInteractive,
-        (true, false, true) => SessionMode::PromptLoadThenInteractive,
+        (true, false, true) => SessionMode::PromptLoadThenExit,
         (true, true, false) => SessionMode::PromptThenExit,
         (true, true, true) => SessionMode::PromptLoadStdinThenExit,
     }
@@ -448,7 +473,7 @@ mod tests {
     fn test_session_items_no_stdin_with_script() {
         assert_eq!(
             decide_session(true, false, true),
-            SessionMode::PromptLoadThenInteractive
+            SessionMode::PromptLoadThenExit
         );
     }
 

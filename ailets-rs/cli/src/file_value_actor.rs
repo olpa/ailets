@@ -50,12 +50,13 @@ pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
             let raw = read_source(&cfg.path)?;
             let image_key = format!("media/{}", cfg.idgen.get_next());
             let kv = cfg.kv;
-            let async_runtime = tokio::runtime::Handle::current();
-            async_runtime
-                .block_on(async move {
-                    use ailetos::OpenMode;
+            let image_key_for_task = image_key.clone();
+            let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
+            cfg.async_runtime.spawn(async move {
+                use ailetos::OpenMode;
+                let result = async {
                     let buf = kv
-                        .open(&image_key, OpenMode::Write)
+                        .open(&image_key_for_task, OpenMode::Write)
                         .await
                         .map_err(|e| format!("file_value: kv open failed: {e}"))?;
                     buf.append(&raw)
@@ -63,11 +64,19 @@ pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
                     kv.flush_buffer(&buf)
                         .await
                         .map_err(|e| format!("file_value: kv flush failed: {e}"))?;
-                    writer
-                        .write_all(image_key.as_bytes())
-                        .map_err(|e| format!("file_value: write error: {e:?}"))?;
                     Ok::<(), String>(())
-                })?;
+                }
+                .await;
+                // receiver dropped only if the blocking thread panicked
+                if tx.send(result).is_err() {
+                    unreachable!("file_value: kv task result receiver dropped");
+                }
+            });
+            rx.blocking_recv()
+                .map_err(|_| "file_value: kv task dropped before completing".to_string())??;
+            writer
+                .write_all(image_key.as_bytes())
+                .map_err(|e| format!("file_value: write error: {e:?}"))?;
         }
     }
 
@@ -83,6 +92,16 @@ enum ContentKind {
 
 fn attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
     attrs.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+}
+
+/// Returns the MIME type for a path whose extension matches a known image
+/// extension, or `None` if the extension is not recognised.
+pub fn mime_for_path(path: &str) -> Option<&'static str> {
+    let ext = extension_of(path).to_lowercase();
+    IMAGE_EXTENSIONS
+        .iter()
+        .find(|(e, _)| *e == ext.as_str())
+        .map(|(_, mime)| *mime)
 }
 
 fn extension_of(path: &str) -> &str {
@@ -140,6 +159,23 @@ fn read_source(path: &str) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mime_for_known_extensions() {
+        assert_eq!(mime_for_path("photo.png"), Some("image/png"));
+        assert_eq!(mime_for_path("photo.jpg"), Some("image/jpeg"));
+        assert_eq!(mime_for_path("photo.jpeg"), Some("image/jpeg"));
+        assert_eq!(mime_for_path("photo.gif"), Some("image/gif"));
+        assert_eq!(mime_for_path("photo.webp"), Some("image/webp"));
+        assert_eq!(mime_for_path("PHOTO.PNG"), Some("image/png"));
+    }
+
+    #[test]
+    fn mime_for_non_image_returns_none() {
+        assert_eq!(mime_for_path("readme.txt"), None);
+        assert_eq!(mime_for_path("data.bin"), None);
+        assert_eq!(mime_for_path("-"), None);
+    }
 
     #[test]
     fn detect_stdin() {

@@ -16,6 +16,7 @@ pub struct FileValueConfig {
     pub attrs: Vec<(String, String)>,
     pub kv: Arc<dyn KVBuffers>,
     pub idgen: Arc<IdGen>,
+    pub async_runtime: tokio::runtime::Handle,
 }
 
 static REGISTRY: LazyLock<Mutex<HashMap<Handle, FileValueConfig>>> =
@@ -28,10 +29,11 @@ pub fn register(
     attrs: Vec<(String, String)>,
     kv: Arc<dyn KVBuffers>,
     idgen: Arc<IdGen>,
+    async_runtime: tokio::runtime::Handle,
 ) {
     REGISTRY.lock().insert(
         handle,
-        FileValueConfig { path, attrs, kv, idgen },
+        FileValueConfig { path, attrs, kv, idgen, async_runtime },
     );
 }
 

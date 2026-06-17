@@ -69,7 +69,7 @@ fn main() {
     if matches!(
         mode,
         SessionMode::LoadThenInteractive
-            | SessionMode::PromptLoadThenInteractive
+            | SessionMode::PromptLoadThenExit
             | SessionMode::PromptLoadStdinThenExit
     ) {
         if let Some(ref script_path) = cli_args.load_script {
@@ -84,7 +84,7 @@ fn main() {
     // Exit without interactive shell when stdin consumed or script-only run.
     if matches!(
         mode,
-        SessionMode::PromptThenExit | SessionMode::PromptLoadStdinThenExit
+        SessionMode::PromptThenExit | SessionMode::PromptLoadThenExit | SessionMode::PromptLoadStdinThenExit
     ) {
         drop(shell);
         drop(printer_rt);
