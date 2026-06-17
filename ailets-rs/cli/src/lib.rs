@@ -15,6 +15,7 @@ pub(crate) mod file_value_actor;
 pub(crate) mod shell_input_actor;
 pub(crate) mod shell_input_control;
 pub(crate) mod to_doc_item_actor;
+pub(crate) mod to_doc_item_control;
 
 mod commands;
 mod output;

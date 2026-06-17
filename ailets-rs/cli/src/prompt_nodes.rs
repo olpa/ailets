@@ -5,6 +5,7 @@ use std::sync::Arc;
 use ailetos::{Environment, Handle};
 
 use crate::shell_ui::PromptArg;
+use crate::to_doc_item_control;
 
 const CTL_USER_JSON: &[u8] = br#"[{"type":"ctl"},{"role":"user"}]"#;
 const CTL_SYSTEM_JSON: &[u8] = br#"[{"type":"ctl"},{"role":"system"}]"#;
@@ -25,46 +26,39 @@ fn add_ctl_to_input_doc(
 }
 
 /// Creates a raw value node from `data`, adds it to `"input_raw"`, then wires
-/// a `to_doc_item` actor (with optional attrs in `explain`) into `"input_doc"`.
+/// a `to_doc_item` actor into `"input_doc"`.
 fn add_raw_then_doc(
     env: &Arc<Environment>,
     async_runtime: &tokio::runtime::Handle,
     data: Vec<u8>,
-    explain: Option<String>,
 ) -> Result<(), String> {
     let env_clone = Arc::clone(env);
     let raw_handle = async_runtime
         .block_on(async move { env_clone.add_value_node(data, None).await })
         .map_err(|e| format!("failed to add raw value node: {e}"))?;
     let _h = env.add_alias("input_raw".to_string(), raw_handle);
-    wire_to_doc_item(env, raw_handle, explain);
+    wire_to_doc_item(env, raw_handle, &[]);
     Ok(())
 }
 
 /// Creates a `file_value` actor node (with path or `"-"` for stdin in `explain`),
 /// adds it to `"input_raw"`, then wires a `to_doc_item` actor into `"input_doc"`.
-fn add_file_then_doc(
-    env: &Arc<Environment>,
-    file_explain: String,
-    attrs_explain: Option<String>,
-) {
-    let file_handle = env.add_node(
-        "file_value".to_string(),
-        &[],
-        Some(file_explain),
-    );
+fn add_file_then_doc(env: &Arc<Environment>, file_explain: String, attrs: &[(String, String)]) {
+    let file_handle = env.add_node("file_value".to_string(), &[], Some(file_explain));
     let _h = env.add_alias("input_raw".to_string(), file_handle);
-    wire_to_doc_item(env, file_handle, attrs_explain);
+    wire_to_doc_item(env, file_handle, attrs);
 }
 
-/// Creates a `to_doc_item` actor node that depends on `raw_handle` and adds
-/// it to the `"input_doc"` alias.
-fn wire_to_doc_item(env: &Arc<Environment>, raw_handle: Handle, explain: Option<String>) {
+/// Creates a `to_doc_item` actor node that depends on `raw_handle`, registers
+/// `attrs` in the control registry, and adds the node to the `"input_doc"` alias.
+fn wire_to_doc_item(env: &Arc<Environment>, raw_handle: Handle, attrs: &[(String, String)]) {
+    let explain = attrs_to_explain(attrs);
     let doc_handle = env.add_node("to_doc_item".to_string(), &[raw_handle], explain);
+    to_doc_item_control::register(doc_handle, attrs.to_vec());
     let _h = env.add_alias("input_doc".to_string(), doc_handle);
 }
 
-/// Serialises `attrs` as `key=value` pairs joined by `\n`.
+/// Serialises `attrs` as `key=value` pairs joined by `\n` for the `explain` field.
 fn attrs_to_explain(attrs: &[(String, String)]) -> Option<String> {
     if attrs.is_empty() {
         return None;
@@ -109,21 +103,21 @@ pub fn register_prompt_inputs(
                 if last_role != Some("system") {
                     add_ctl_to_input_doc(env, async_runtime, CTL_SYSTEM_JSON.to_vec())?;
                 }
-                add_raw_then_doc(env, async_runtime, text.as_bytes().to_vec(), None)?;
+                add_raw_then_doc(env, async_runtime, text.as_bytes().to_vec())?;
                 last_role = Some("system");
             }
             PromptArg::Text(text) => {
                 if last_role != Some("user") {
                     add_ctl_to_input_doc(env, async_runtime, CTL_USER_JSON.to_vec())?;
                 }
-                add_raw_then_doc(env, async_runtime, text.as_bytes().to_vec(), None)?;
+                add_raw_then_doc(env, async_runtime, text.as_bytes().to_vec())?;
                 last_role = Some("user");
             }
             PromptArg::Stdin => {
                 if last_role != Some("user") {
                     add_ctl_to_input_doc(env, async_runtime, CTL_USER_JSON.to_vec())?;
                 }
-                add_file_then_doc(env, "-".to_string(), None);
+                add_file_then_doc(env, "-".to_string(), &[]);
                 stdin_consumed = true;
                 last_role = Some("user");
             }
@@ -131,7 +125,7 @@ pub fn register_prompt_inputs(
                 if last_role != Some("user") {
                     add_ctl_to_input_doc(env, async_runtime, CTL_USER_JSON.to_vec())?;
                 }
-                add_file_then_doc(env, path.clone(), attrs_to_explain(attrs));
+                add_file_then_doc(env, path.clone(), attrs);
                 last_role = Some("user");
             }
         }
