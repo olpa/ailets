@@ -1179,3 +1179,104 @@ fn format_pipe_inspection(inspection: &PipeEntryInspection) -> String {
         PipeEntryInspection::Latent(LatentState::Closed) => "latent, closed".to_string(),
     }
 }
+
+// ---------------------------------------------------------------------------
+// dag — DAG introspection ensemble
+// ---------------------------------------------------------------------------
+
+pub static ENTRY_DAG: CommandMeta = CommandMeta {
+    names: &["dag"],
+    argsig: "exists|handle <name>",
+    section: "Node Management",
+    description: "DAG introspection",
+    detail: Some(
+        "    exists <name>               1 if a node named <name> exists, else 0\n    handle <name>               numeric handle of node named <name>",
+    ),
+};
+
+impl DagShell {
+    /// # Errors
+    /// Returns an error for unknown subcommands or if `handle` is called with a name
+    /// that does not exist.
+    pub(crate) fn cmd_dag(&self, args: &[&str]) -> Result<String, String> {
+        match args {
+            ["exists", name] => {
+                let exists = self.parse_handle(name).is_some();
+                Ok(if exists { "1".to_string() } else { "0".to_string() })
+            }
+            ["handle", name] => {
+                let handle = self
+                    .parse_handle(name)
+                    .ok_or_else(|| format!("no node named '{name}'"))?;
+                Ok(handle.id().to_string())
+            }
+            [sub, ..] => Err(format!(
+                "unknown subcommand '{sub}'; expected 'exists' or 'handle'"
+            )),
+            [] => Err("dag: subcommand required; expected 'exists' or 'handle'".to_string()),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use crate::DagShell;
+
+    fn make_shell() -> DagShell {
+        DagShell::new()
+    }
+
+    // dag exists returns 0 for a nonexistent name
+    #[test]
+    fn test_dag_exists_absent() {
+        let shell = make_shell();
+        assert_eq!(shell.cmd_dag(&["exists", "input"]).unwrap(), "0");
+    }
+
+    // dag exists returns 1 after an alias with that name is created
+    #[test]
+    fn test_dag_exists_present() {
+        let mut shell = make_shell();
+        shell.cmd_value(&["hello"]).unwrap();
+        shell.cmd_alias(&["input", "1"]).unwrap();
+        assert_eq!(shell.cmd_dag(&["exists", "input"]).unwrap(), "1");
+    }
+
+    // dag handle returns the numeric id
+    #[test]
+    fn test_dag_handle_present() {
+        let mut shell = make_shell();
+        let value_handle = shell.cmd_value(&["hello"]).unwrap();
+        let alias_handle = shell.cmd_alias(&["input", "1"]).unwrap();
+        let id = shell.cmd_dag(&["handle", "input"]).unwrap();
+        assert_eq!(id, alias_handle.id().to_string());
+        // value node is also findable by handle number string
+        let val_id = shell.cmd_dag(&["handle", &value_handle.id().to_string()]).unwrap();
+        assert_eq!(val_id, value_handle.id().to_string());
+    }
+
+    // dag handle errors for nonexistent name
+    #[test]
+    fn test_dag_handle_absent() {
+        let shell = make_shell();
+        assert!(shell.cmd_dag(&["handle", "nosuchnode"]).is_err());
+    }
+
+    // unknown subcommand → error
+    #[test]
+    fn test_dag_unknown_subcommand() {
+        let shell = make_shell();
+        assert!(shell.cmd_dag(&["bogus", "x"]).is_err());
+    }
+
+    // missing subcommand → error
+    #[test]
+    fn test_dag_no_subcommand() {
+        let shell = make_shell();
+        assert!(shell.cmd_dag(&[]).is_err());
+    }
+}

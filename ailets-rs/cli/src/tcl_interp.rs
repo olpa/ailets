@@ -7,9 +7,9 @@ use molt::{
 };
 
 use crate::commands::{
-    ENTRY_ALIAS, ENTRY_CAT, ENTRY_CLOSE, ENTRY_DEP, ENTRY_FOLLOW, ENTRY_HELP, ENTRY_JOIN,
-    ENTRY_KILL, ENTRY_NODE, ENTRY_NODES, ENTRY_QUIT, ENTRY_RESUME, ENTRY_RUN, ENTRY_SHOW,
-    ENTRY_SOURCE, ENTRY_STATUS, ENTRY_SUSPEND, ENTRY_VALUE, ENTRY_WAIT, ENTRY_WRITE,
+    ENTRY_ALIAS, ENTRY_CAT, ENTRY_CLOSE, ENTRY_DAG, ENTRY_DEP, ENTRY_FOLLOW, ENTRY_HELP,
+    ENTRY_JOIN, ENTRY_KILL, ENTRY_NODE, ENTRY_NODES, ENTRY_QUIT, ENTRY_RESUME, ENTRY_RUN,
+    ENTRY_SHOW, ENTRY_SOURCE, ENTRY_STATUS, ENTRY_SUSPEND, ENTRY_VALUE, ENTRY_WAIT, ENTRY_WRITE,
 };
 use crate::DagShell;
 
@@ -72,6 +72,7 @@ pub fn make_interp() -> (Interp, ContextID) {
         (&ENTRY_SOURCE, tcl_source),
         (&ENTRY_HELP, tcl_help),
         (&ENTRY_QUIT, tcl_quit),
+        (&ENTRY_DAG, tcl_dag),
     ];
     for (entry, handler) in bindings {
         for &name in entry.names {
@@ -289,6 +290,20 @@ fn tcl_help(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
     check_args(1, argv, 1, 1, "")?;
     get_shell(interp, ctx).cmd_help();
     molt_ok!()
+}
+
+fn tcl_dag(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 3, 3, "exists|handle <name>")?;
+    let tail: Vec<&str> = argv
+        .get(1..)
+        .unwrap_or_default()
+        .iter()
+        .map(Value::as_str)
+        .collect();
+    match get_shell(interp, ctx).cmd_dag(&tail) {
+        Ok(result) => Ok(Value::from(result)),
+        Err(e) => Err(Exception::molt_err(Value::from(e))),
+    }
 }
 
 fn tcl_quit(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
