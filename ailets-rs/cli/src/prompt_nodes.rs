@@ -17,9 +17,10 @@ const CTL_SYSTEM_JSON: &[u8] = br#"[{"type":"ctl"},{"role":"system"}]"#;
 fn add_ctl_to_input_doc(
     env: &Arc<Environment>,
     async_runtime: &tokio::runtime::Handle,
-    data: Vec<u8>,
+    data: &[u8],
 ) -> Result<(), String> {
     let env_clone = Arc::clone(env);
+    let data = data.to_vec();
     let handle = async_runtime
         .block_on(async move { env_clone.add_value_node(data, None).await })
         .map_err(|e| format!("failed to add ctl value node: {e}"))?;
@@ -134,21 +135,21 @@ pub fn register_prompt_inputs(
         match item {
             PromptArg::SystemPrompt(text) => {
                 if last_role != Some("system") {
-                    add_ctl_to_input_doc(env, async_runtime, CTL_SYSTEM_JSON.to_vec())?;
+                    add_ctl_to_input_doc(env, async_runtime, CTL_SYSTEM_JSON)?;
                 }
                 add_raw_then_doc(env, async_runtime, text.as_bytes().to_vec())?;
                 last_role = Some("system");
             }
             PromptArg::Text(text) => {
                 if last_role != Some("user") {
-                    add_ctl_to_input_doc(env, async_runtime, CTL_USER_JSON.to_vec())?;
+                    add_ctl_to_input_doc(env, async_runtime, CTL_USER_JSON)?;
                 }
                 add_raw_then_doc(env, async_runtime, text.as_bytes().to_vec())?;
                 last_role = Some("user");
             }
             PromptArg::Stdin => {
                 if last_role != Some("user") {
-                    add_ctl_to_input_doc(env, async_runtime, CTL_USER_JSON.to_vec())?;
+                    add_ctl_to_input_doc(env, async_runtime, CTL_USER_JSON)?;
                 }
                 add_file_then_doc(env, async_runtime, "-".to_string(), &[]);
                 stdin_consumed = true;
@@ -156,7 +157,7 @@ pub fn register_prompt_inputs(
             }
             PromptArg::File { path, attrs } => {
                 if last_role != Some("user") {
-                    add_ctl_to_input_doc(env, async_runtime, CTL_USER_JSON.to_vec())?;
+                    add_ctl_to_input_doc(env, async_runtime, CTL_USER_JSON)?;
                 }
                 add_file_then_doc(env, async_runtime, path.clone(), attrs);
                 last_role = Some("user");
