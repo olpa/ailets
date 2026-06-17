@@ -208,8 +208,12 @@ impl DagShell {
                 .as_ref()
                 .map_or_else(String::new, |e| format!(" # {e}"));
             let pid = node.pid.id();
-            self.sink
-                .println(&format!("  {pid} {} [{state_str}]{explain}", node.idname));
+            let suffix = if node.kind == NodeKind::Alias {
+                format!(" (alias){explain}")
+            } else {
+                format!(" [{state_str}]{explain}")
+            };
+            self.sink.println(&format!("  {pid} {}{suffix}", node.idname));
         }
         if !found {
             self.sink.println("No nodes");
