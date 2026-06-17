@@ -11,8 +11,10 @@
 
 pub(crate) mod dbg_actor;
 pub(crate) mod dbg_control;
+pub(crate) mod file_value_actor;
 pub(crate) mod shell_input_actor;
 pub(crate) mod shell_input_control;
+pub(crate) mod to_doc_item_actor;
 
 mod commands;
 mod output;
@@ -42,7 +44,9 @@ fn make_env(kv: &Arc<MemKV>) -> Arc<Environment> {
         let mut reg = env.actor_registry.write();
         reg.register("cat", cat::execute);
         reg.register("dbg", dbg_actor::execute);
+        reg.register("file_value", file_value_actor::execute);
         reg.register("shell_input", shell_input_actor::execute);
+        reg.register("to_doc_item", to_doc_item_actor::execute);
         reg.register("query", query::execute);
         reg.register("messages_to_query", messages_to_query::execute);
         reg.register("messages_to_markdown", messages_to_markdown::execute);
@@ -286,20 +290,7 @@ impl DagShell {
         &mut self,
         items: &[shell_ui::PromptArg],
     ) -> Result<bool, String> {
-        let needs_stdin = items.iter().any(|a| matches!(a, shell_ui::PromptArg::Stdin));
-        let stdin_handle = if needs_stdin {
-            let handle = self.env.add_node("shell_input".to_string(), &[], None);
-            shell_input_control::register_shell_input_actor(handle);
-            Some(handle)
-        } else {
-            None
-        };
-        prompt_nodes::register_prompt_inputs(
-            &self.env,
-            self.ailetos_async_rt.handle(),
-            items,
-            stdin_handle,
-        )
+        prompt_nodes::register_prompt_inputs(&self.env, self.ailetos_async_rt.handle(), items)
     }
 
     fn prepare_exit(&mut self) {

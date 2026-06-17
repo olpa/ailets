@@ -2,41 +2,103 @@
 
 use std::sync::Arc;
 
-use ailetos::Environment;
+use ailetos::{Environment, Handle};
 
 use crate::shell_ui::PromptArg;
 
 const CTL_USER_JSON: &[u8] = br#"[{"type":"ctl"},{"role":"user"}]"#;
 const CTL_SYSTEM_JSON: &[u8] = br#"[{"type":"ctl"},{"role":"system"}]"#;
 
-fn add_value_alias(
+/// Creates a value node from `data` and adds it to the `"input_doc"` alias.
+/// Used for CTL role-marker nodes, which are already structured.
+fn add_ctl_to_input_doc(
     env: &Arc<Environment>,
-    rt: &tokio::runtime::Handle,
+    async_runtime: &tokio::runtime::Handle,
     data: Vec<u8>,
 ) -> Result<(), String> {
     let env_clone = Arc::clone(env);
-    let handle = rt
+    let handle = async_runtime
         .block_on(async move { env_clone.add_value_node(data, None).await })
-        .map_err(|e| format!("failed to add value node: {e}"))?;
-    let _alias = env.add_alias("input".to_string(), handle);
+        .map_err(|e| format!("failed to add ctl value node: {e}"))?;
+    let _h = env.add_alias("input_doc".to_string(), handle);
     Ok(())
 }
 
-/// Creates value nodes and `input` aliases for each prompt item.
+/// Creates a raw value node from `data`, adds it to `"input_raw"`, then wires
+/// a `to_doc_item` actor (with optional attrs in `explain`) into `"input_doc"`.
+fn add_raw_then_doc(
+    env: &Arc<Environment>,
+    async_runtime: &tokio::runtime::Handle,
+    data: Vec<u8>,
+    explain: Option<String>,
+) -> Result<(), String> {
+    let env_clone = Arc::clone(env);
+    let raw_handle = async_runtime
+        .block_on(async move { env_clone.add_value_node(data, None).await })
+        .map_err(|e| format!("failed to add raw value node: {e}"))?;
+    let _h = env.add_alias("input_raw".to_string(), raw_handle);
+    wire_to_doc_item(env, raw_handle, explain);
+    Ok(())
+}
+
+/// Creates a `file_value` actor node (with path or `"-"` for stdin in `explain`),
+/// adds it to `"input_raw"`, then wires a `to_doc_item` actor into `"input_doc"`.
+fn add_file_then_doc(
+    env: &Arc<Environment>,
+    file_explain: String,
+    attrs_explain: Option<String>,
+) {
+    let file_handle = env.add_node(
+        "file_value".to_string(),
+        &[],
+        Some(file_explain),
+    );
+    let _h = env.add_alias("input_raw".to_string(), file_handle);
+    wire_to_doc_item(env, file_handle, attrs_explain);
+}
+
+/// Creates a `to_doc_item` actor node that depends on `raw_handle` and adds
+/// it to the `"input_doc"` alias.
+fn wire_to_doc_item(env: &Arc<Environment>, raw_handle: Handle, explain: Option<String>) {
+    let doc_handle = env.add_node("to_doc_item".to_string(), &[raw_handle], explain);
+    let _h = env.add_alias("input_doc".to_string(), doc_handle);
+}
+
+/// Serialises `attrs` as `key=value` pairs joined by `\n`.
+fn attrs_to_explain(attrs: &[(String, String)]) -> Option<String> {
+    if attrs.is_empty() {
+        return None;
+    }
+    Some(
+        attrs
+            .iter()
+            .map(|(k, v)| format!("{k}={v}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+    )
+}
+
+/// Creates `"input_raw"` / `"input_doc"` aliases for each prompt item.
 ///
-/// A ctl(user) node is auto-inserted once immediately before the first
-/// non-`SystemPrompt` item. Stdin items reference the existing `shell_input`
-/// actor node whose handle is passed in `stdin_handle`.
+/// For each content item the pipeline is:
+/// - A raw value node (plain bytes) aliased as `"input_raw"`.
+/// - A `to_doc_item` actor node (which will convert raw → structured) aliased
+///   as `"input_doc"`.
+///
+/// CTL role-marker nodes (ctl/user, ctl/system) are structured from the start
+/// and are aliased directly as `"input_doc"` — they bypass `"input_raw"`.
+///
+/// File and stdin items use a `file_value` actor instead of an inline value
+/// node; the actor node is aliased as `"input_raw"`.
 ///
 /// Returns `true` if stdin was consumed (any `PromptArg::Stdin` was present).
 ///
 /// # Errors
-/// Returns an error if a `File` item cannot be read or its type is unknown.
+/// Returns an error if node creation fails.
 pub fn register_prompt_inputs(
     env: &Arc<Environment>,
-    rt: &tokio::runtime::Handle,
+    async_runtime: &tokio::runtime::Handle,
     items: &[PromptArg],
-    stdin_handle: Option<ailetos::Handle>,
 ) -> Result<bool, String> {
     let mut last_role: Option<&str> = None;
     let mut stdin_consumed = false;
@@ -45,122 +107,36 @@ pub fn register_prompt_inputs(
         match item {
             PromptArg::SystemPrompt(text) => {
                 if last_role != Some("system") {
-                    add_value_alias(env, rt, CTL_SYSTEM_JSON.to_vec())?;
+                    add_ctl_to_input_doc(env, async_runtime, CTL_SYSTEM_JSON.to_vec())?;
                 }
-                let json = format!(r#"[{{"type":"text"}},{{"text":"{text}"}}]"#);
-                add_value_alias(env, rt, json.into_bytes())?;
+                add_raw_then_doc(env, async_runtime, text.as_bytes().to_vec(), None)?;
                 last_role = Some("system");
             }
             PromptArg::Text(text) => {
                 if last_role != Some("user") {
-                    add_value_alias(env, rt, CTL_USER_JSON.to_vec())?;
+                    add_ctl_to_input_doc(env, async_runtime, CTL_USER_JSON.to_vec())?;
                 }
-                let json = format!(r#"[{{"type":"text"}},{{"text":"{text}"}}]"#);
-                add_value_alias(env, rt, json.into_bytes())?;
+                add_raw_then_doc(env, async_runtime, text.as_bytes().to_vec(), None)?;
                 last_role = Some("user");
             }
             PromptArg::Stdin => {
                 if last_role != Some("user") {
-                    add_value_alias(env, rt, CTL_USER_JSON.to_vec())?;
+                    add_ctl_to_input_doc(env, async_runtime, CTL_USER_JSON.to_vec())?;
                 }
-                let handle = stdin_handle
-                    .ok_or_else(|| "Stdin item present but no stdin_handle provided".to_string())?;
-                let _alias = env.add_alias("input".to_string(), handle);
+                add_file_then_doc(env, "-".to_string(), None);
                 stdin_consumed = true;
                 last_role = Some("user");
             }
             PromptArg::File { path, attrs } => {
                 if last_role != Some("user") {
-                    add_value_alias(env, rt, CTL_USER_JSON.to_vec())?;
+                    add_ctl_to_input_doc(env, async_runtime, CTL_USER_JSON.to_vec())?;
                 }
-                let json = file_to_content_item(path, attrs, env, rt)?;
-                add_value_alias(env, rt, json.into_bytes())?;
+                add_file_then_doc(env, path.clone(), attrs_to_explain(attrs));
                 last_role = Some("user");
             }
         }
     }
     Ok(stdin_consumed)
-}
-
-const TEXT_EXTENSIONS: &[&str] = &["txt", "md", "rs", "py", "js", "ts", "json", "toml", "yaml", "yml", "html", "css", "sh"];
-const IMAGE_EXTENSIONS: &[(&str, &str)] = &[
-    ("png", "image/png"),
-    ("jpg", "image/jpeg"),
-    ("jpeg", "image/jpeg"),
-    ("gif", "image/gif"),
-    ("webp", "image/webp"),
-];
-
-fn extension_of(path: &str) -> Option<&str> {
-    std::path::Path::new(path)
-        .extension()
-        .and_then(|e| e.to_str())
-}
-
-/// Reads a file and returns a `ContentItem` JSON string for use in a value node.
-///
-/// For image files, stores the raw bytes in KV and embeds the key in the JSON.
-///
-/// # Errors
-/// Returns an error for unknown file extensions (without explicit attrs).
-pub fn file_to_content_item(
-    path: &str,
-    attrs: &[(String, String)],
-    env: &Arc<Environment>,
-    rt: &tokio::runtime::Handle,
-) -> Result<String, String> {
-    let attr_type = attrs.iter().find(|(k, _)| k == "type").map(|(_, v)| v.as_str());
-    let attr_content_type = attrs.iter().find(|(k, _)| k == "content_type").map(|(_, v)| v.as_str());
-
-    // Extra attrs (not type/content_type) are appended to the first JSON object.
-    let extra: String = attrs
-        .iter()
-        .filter(|(k, _)| k != "type" && k != "content_type")
-        .map(|(k, v)| format!(r#","{k}":"{v}""#))
-        .collect();
-
-    let ext = extension_of(path).unwrap_or("").to_lowercase();
-
-    let is_text = attr_type == Some("text")
-        || (attr_type.is_none() && attr_content_type.is_none() && TEXT_EXTENSIONS.contains(&ext.as_str()));
-
-    if is_text {
-        let text = std::fs::read_to_string(path)
-            .map_err(|e| format!("failed to read '{path}': {e}"))?;
-        let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");
-        return Ok(format!(r#"[{{"type":"text"{extra}}},{{"text":"{escaped}"}}]"#));
-    }
-
-    let image_content_type = attr_content_type
-        .filter(|_| attr_type == Some("image"))
-        .or_else(|| {
-            IMAGE_EXTENSIONS
-                .iter()
-                .find(|(e, _)| *e == ext.as_str())
-                .map(|(_, ct)| *ct)
-        });
-
-    if let Some(content_type) = image_content_type {
-        let bytes = std::fs::read(path)
-            .map_err(|e| format!("failed to read '{path}': {e}"))?;
-        let image_key = format!("media/{}", env.idgen.get_next());
-        let key_clone = image_key.clone();
-        let kv = Arc::clone(&env.kv);
-        rt.block_on(async move {
-            use ailetos::OpenMode;
-            let buf = kv.open(&key_clone, OpenMode::Write).await
-                .map_err(|e| format!("kv write failed: {e}"))?;
-            buf.append(&bytes)
-                .map_err(|e| format!("kv append failed: {e}"))?;
-            Ok::<(), String>(())
-        })?;
-        return Ok(format!(
-            r#"[{{"type":"image","content_type":"{content_type}"{extra}}},{{"image_key":"{image_key}"}}]"#
-        ));
-    }
-
-    let hint = if ext.is_empty() { String::new() } else { format!(" '.{ext}'") };
-    Err(format!("unknown file type{hint} for '{path}'; use @type=text,file=... or @type=image,content_type=...,file=... to override"))
 }
 
 // ---------------------------------------------------------------------------
@@ -209,7 +185,7 @@ pub fn decide_session(
 mod tests {
     use super::*;
     use ailetos::pipe::pipe_path;
-    use ailetos::{Handle, KVBuffers, MemKV, NodeKind, OpenMode};
+    use ailetos::{KVBuffers, MemKV, NodeKind, OpenMode};
 
     fn make_env() -> (Arc<Environment>, tokio::runtime::Runtime) {
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -218,16 +194,16 @@ mod tests {
         (env, rt)
     }
 
-    fn input_alias_deps(env: &Arc<Environment>) -> Vec<Handle> {
+    fn alias_deps(env: &Arc<Environment>, alias: &str) -> Vec<Handle> {
         let dag = env.dag.read();
-        let alias = dag
+        let node = dag
             .nodes()
-            .find(|n| n.kind == NodeKind::Alias && n.idname == "input")
-            .expect("input alias not found");
-        dag.get_direct_dependencies(alias.pid).collect()
+            .find(|n| n.kind == NodeKind::Alias && n.idname == alias)
+            .unwrap_or_else(|| panic!("{alias} alias not found"));
+        dag.get_direct_dependencies(node.pid).collect()
     }
 
-    fn read_node_content(
+    fn read_value_node(
         env: &Arc<Environment>,
         rt: &tokio::runtime::Runtime,
         handle: Handle,
@@ -241,6 +217,21 @@ mod tests {
         })
     }
 
+    fn node_idname(env: &Arc<Environment>, handle: Handle) -> String {
+        env.dag.read().get_node(handle).unwrap().idname.clone()
+    }
+
+    fn node_explain(env: &Arc<Environment>, handle: Handle) -> Option<String> {
+        env.dag.read().get_node(handle).unwrap().explain.clone()
+    }
+
+    fn to_doc_item_dep(env: &Arc<Environment>, handle: Handle) -> Handle {
+        let dag = env.dag.read();
+        let deps: Vec<Handle> = dag.get_direct_dependencies(handle).collect();
+        assert_eq!(deps.len(), 1, "to_doc_item should have exactly one dep");
+        deps[0]
+    }
+
     // test 8: ctl(user) auto-inserted once before first non-SystemPrompt item;
     //         subsequent items do not trigger a second ctl(user)
     #[test]
@@ -250,23 +241,25 @@ mod tests {
             PromptArg::Text("Hello".to_string()),
             PromptArg::Text("World".to_string()),
         ];
-        register_prompt_inputs(&env, rt.handle(), &items, None).unwrap();
+        register_prompt_inputs(&env, rt.handle(), &items).unwrap();
 
-        let deps = input_alias_deps(&env);
-        assert_eq!(deps.len(), 3, "expected ctl(user) + 2 text nodes");
-
+        let doc_deps = alias_deps(&env, "input_doc");
+        assert_eq!(doc_deps.len(), 3, "expected ctl(user) + to_doc_item x2");
         assert_eq!(
-            read_node_content(&env, &rt, deps[0]),
+            read_value_node(&env, &rt, doc_deps[0]),
             r#"[{"type":"ctl"},{"role":"user"}]"#
         );
-        assert_eq!(
-            read_node_content(&env, &rt, deps[1]),
-            r#"[{"type":"text"},{"text":"Hello"}]"#
-        );
-        assert_eq!(
-            read_node_content(&env, &rt, deps[2]),
-            r#"[{"type":"text"},{"text":"World"}]"#
-        );
+        assert_eq!(node_idname(&env, doc_deps[1]), "to_doc_item");
+        assert_eq!(node_idname(&env, doc_deps[2]), "to_doc_item");
+
+        let raw_deps = alias_deps(&env, "input_raw");
+        assert_eq!(raw_deps.len(), 2, "expected two raw value nodes");
+        assert_eq!(read_value_node(&env, &rt, raw_deps[0]), "Hello");
+        assert_eq!(read_value_node(&env, &rt, raw_deps[1]), "World");
+
+        // each to_doc_item depends on its corresponding raw node
+        assert_eq!(to_doc_item_dep(&env, doc_deps[1]), raw_deps[0]);
+        assert_eq!(to_doc_item_dep(&env, doc_deps[2]), raw_deps[1]);
     }
 
     // test 9: SystemPrompt interleaved mid-sequence → ctl(system)+text at that
@@ -279,17 +272,24 @@ mod tests {
             PromptArg::SystemPrompt("Be formal".to_string()),
             PromptArg::Text("World".to_string()),
         ];
-        register_prompt_inputs(&env, rt.handle(), &items, None).unwrap();
+        register_prompt_inputs(&env, rt.handle(), &items).unwrap();
 
-        let deps = input_alias_deps(&env);
-        assert_eq!(deps.len(), 6, "expected ctl(user) + Hello + ctl(system) + 'Be formal' + ctl(user) + World");
+        let doc_deps = alias_deps(&env, "input_doc");
+        // ctl(user) + to_doc_item(Hello) + ctl(system) + to_doc_item(Be formal)
+        // + ctl(user) + to_doc_item(World)
+        assert_eq!(doc_deps.len(), 6);
+        assert_eq!(read_value_node(&env, &rt, doc_deps[0]), r#"[{"type":"ctl"},{"role":"user"}]"#);
+        assert_eq!(node_idname(&env, doc_deps[1]), "to_doc_item");
+        assert_eq!(read_value_node(&env, &rt, doc_deps[2]), r#"[{"type":"ctl"},{"role":"system"}]"#);
+        assert_eq!(node_idname(&env, doc_deps[3]), "to_doc_item");
+        assert_eq!(read_value_node(&env, &rt, doc_deps[4]), r#"[{"type":"ctl"},{"role":"user"}]"#);
+        assert_eq!(node_idname(&env, doc_deps[5]), "to_doc_item");
 
-        assert_eq!(read_node_content(&env, &rt, deps[0]), r#"[{"type":"ctl"},{"role":"user"}]"#);
-        assert_eq!(read_node_content(&env, &rt, deps[1]), r#"[{"type":"text"},{"text":"Hello"}]"#);
-        assert_eq!(read_node_content(&env, &rt, deps[2]), r#"[{"type":"ctl"},{"role":"system"}]"#);
-        assert_eq!(read_node_content(&env, &rt, deps[3]), r#"[{"type":"text"},{"text":"Be formal"}]"#);
-        assert_eq!(read_node_content(&env, &rt, deps[4]), r#"[{"type":"ctl"},{"role":"user"}]"#);
-        assert_eq!(read_node_content(&env, &rt, deps[5]), r#"[{"type":"text"},{"text":"World"}]"#);
+        let raw_deps = alias_deps(&env, "input_raw");
+        assert_eq!(raw_deps.len(), 3);
+        assert_eq!(read_value_node(&env, &rt, raw_deps[0]), "Hello");
+        assert_eq!(read_value_node(&env, &rt, raw_deps[1]), "Be formal");
+        assert_eq!(read_value_node(&env, &rt, raw_deps[2]), "World");
     }
 
     // consecutive system prompts share a single ctl(system) node
@@ -301,144 +301,122 @@ mod tests {
             PromptArg::SystemPrompt("FF".to_string()),
             PromptArg::Text("hello".to_string()),
         ];
-        register_prompt_inputs(&env, rt.handle(), &items, None).unwrap();
+        register_prompt_inputs(&env, rt.handle(), &items).unwrap();
 
-        let deps = input_alias_deps(&env);
-        assert_eq!(deps.len(), 5, "expected ctl(system) + EE + FF + ctl(user) + text");
-        assert_eq!(read_node_content(&env, &rt, deps[0]), r#"[{"type":"ctl"},{"role":"system"}]"#);
-        assert_eq!(read_node_content(&env, &rt, deps[1]), r#"[{"type":"text"},{"text":"EE"}]"#);
-        assert_eq!(read_node_content(&env, &rt, deps[2]), r#"[{"type":"text"},{"text":"FF"}]"#);
-        assert_eq!(read_node_content(&env, &rt, deps[3]), r#"[{"type":"ctl"},{"role":"user"}]"#);
-        assert_eq!(read_node_content(&env, &rt, deps[4]), r#"[{"type":"text"},{"text":"hello"}]"#);
+        let doc_deps = alias_deps(&env, "input_doc");
+        // ctl(system) + to_doc_item(EE) + to_doc_item(FF) + ctl(user) + to_doc_item(hello)
+        assert_eq!(doc_deps.len(), 5);
+        assert_eq!(read_value_node(&env, &rt, doc_deps[0]), r#"[{"type":"ctl"},{"role":"system"}]"#);
+        assert_eq!(node_idname(&env, doc_deps[1]), "to_doc_item");
+        assert_eq!(node_idname(&env, doc_deps[2]), "to_doc_item");
+        assert_eq!(read_value_node(&env, &rt, doc_deps[3]), r#"[{"type":"ctl"},{"role":"user"}]"#);
+        assert_eq!(node_idname(&env, doc_deps[4]), "to_doc_item");
+
+        let raw_deps = alias_deps(&env, "input_raw");
+        assert_eq!(raw_deps.len(), 3);
+        assert_eq!(read_value_node(&env, &rt, raw_deps[0]), "EE");
+        assert_eq!(read_value_node(&env, &rt, raw_deps[1]), "FF");
+        assert_eq!(read_value_node(&env, &rt, raw_deps[2]), "hello");
     }
 
     // test 10a: explicit Stdin stays at its position in the sequence
     #[test]
     fn test_explicit_stdin_stays_at_position() {
         let (env, rt) = make_env();
-        let stdin_node = env.add_node("shell_input".to_string(), &[], None);
-
         let items = vec![
             PromptArg::Stdin,
             PromptArg::Text("Hello".to_string()),
         ];
-        let consumed =
-            register_prompt_inputs(&env, rt.handle(), &items, Some(stdin_node)).unwrap();
+        let consumed = register_prompt_inputs(&env, rt.handle(), &items).unwrap();
 
         assert!(consumed, "stdin should be marked consumed");
-        let deps = input_alias_deps(&env);
-        assert_eq!(deps.len(), 3, "expected ctl(user) + stdin + text");
 
-        // ctl(user) is first, then stdin at its position, then text
-        assert_eq!(
-            read_node_content(&env, &rt, deps[0]),
-            r#"[{"type":"ctl"},{"role":"user"}]"#
-        );
-        assert_eq!(deps[1], stdin_node);
-        assert_eq!(
-            read_node_content(&env, &rt, deps[2]),
-            r#"[{"type":"text"},{"text":"Hello"}]"#
-        );
+        let doc_deps = alias_deps(&env, "input_doc");
+        // ctl(user) + to_doc_item(stdin) + to_doc_item(Hello)
+        assert_eq!(doc_deps.len(), 3);
+        assert_eq!(read_value_node(&env, &rt, doc_deps[0]), r#"[{"type":"ctl"},{"role":"user"}]"#);
+        assert_eq!(node_idname(&env, doc_deps[1]), "to_doc_item");
+        assert_eq!(node_idname(&env, doc_deps[2]), "to_doc_item");
+
+        let raw_deps = alias_deps(&env, "input_raw");
+        // file_value(stdin) + raw_text(Hello)
+        assert_eq!(raw_deps.len(), 2);
+        assert_eq!(node_idname(&env, raw_deps[0]), "file_value");
+        assert_eq!(node_explain(&env, raw_deps[0]).as_deref(), Some("-"));
+        assert_eq!(read_value_node(&env, &rt, raw_deps[1]), "Hello");
+
+        assert_eq!(to_doc_item_dep(&env, doc_deps[1]), raw_deps[0]);
+        assert_eq!(to_doc_item_dep(&env, doc_deps[2]), raw_deps[1]);
     }
 
-    // test 10b: explicit stdin at end (e.g. `dagsh "text" -`) ends up last
+    // test 10b: explicit stdin at end ends up last
     #[test]
     fn test_explicit_stdin_appended_last() {
         let (env, rt) = make_env();
-        let stdin_node = env.add_node("shell_input".to_string(), &[], None);
-
         let items = vec![
             PromptArg::Text("Hello".to_string()),
             PromptArg::Stdin,
         ];
-        let consumed =
-            register_prompt_inputs(&env, rt.handle(), &items, Some(stdin_node)).unwrap();
+        let consumed = register_prompt_inputs(&env, rt.handle(), &items).unwrap();
 
         assert!(consumed);
-        let deps = input_alias_deps(&env);
-        assert_eq!(deps.len(), 3, "expected ctl(user) + text + stdin");
+
+        let doc_deps = alias_deps(&env, "input_doc");
+        assert_eq!(doc_deps.len(), 3);
+        assert_eq!(read_value_node(&env, &rt, doc_deps[0]), r#"[{"type":"ctl"},{"role":"user"}]"#);
+        assert_eq!(node_idname(&env, doc_deps[1]), "to_doc_item");
+        assert_eq!(node_idname(&env, doc_deps[2]), "to_doc_item");
+
+        let raw_deps = alias_deps(&env, "input_raw");
+        assert_eq!(raw_deps.len(), 2);
+        assert_eq!(read_value_node(&env, &rt, raw_deps[0]), "Hello");
+        assert_eq!(node_idname(&env, raw_deps[1]), "file_value");
+        assert_eq!(node_explain(&env, raw_deps[1]).as_deref(), Some("-"));
+    }
+
+    // test 11: file path stored in file_value explain; attrs forwarded to to_doc_item
+    #[test]
+    fn test_file_path_in_explain() {
+        let (env, rt) = make_env();
+        let items = vec![PromptArg::File {
+            path: "/some/photo.png".to_string(),
+            attrs: vec![
+                ("type".to_string(), "image".to_string()),
+                ("content_type".to_string(), "image/png".to_string()),
+            ],
+        }];
+        register_prompt_inputs(&env, rt.handle(), &items).unwrap();
+
+        let raw_deps = alias_deps(&env, "input_raw");
+        assert_eq!(raw_deps.len(), 1);
+        assert_eq!(node_idname(&env, raw_deps[0]), "file_value");
         assert_eq!(
-            read_node_content(&env, &rt, deps[0]),
-            r#"[{"type":"ctl"},{"role":"user"}]"#
+            node_explain(&env, raw_deps[0]).as_deref(),
+            Some("/some/photo.png")
         );
-        assert_eq!(
-            read_node_content(&env, &rt, deps[1]),
-            r#"[{"type":"text"},{"text":"Hello"}]"#
-        );
-        assert_eq!(deps[2], stdin_node);
+
+        let doc_deps = alias_deps(&env, "input_doc");
+        let to_doc = doc_deps.iter().copied().find(|&h| node_idname(&env, h) == "to_doc_item")
+            .expect("to_doc_item not found in input_doc");
+        let explain = node_explain(&env, to_doc).expect("to_doc_item should have explain");
+        assert!(explain.contains("type=image"), "explain={explain}");
+        assert!(explain.contains("content_type=image/png"), "explain={explain}");
     }
 
-    // test 11: text extension (.txt, .md) → [{"type":"text"},{"text":"..."}]
+    // test 12: file with no attrs → to_doc_item has no explain
     #[test]
-    fn test_file_text_extension() {
+    fn test_file_no_attrs_no_explain() {
         let (env, rt) = make_env();
-        let dir = tempfile::tempdir().unwrap();
+        let items = vec![PromptArg::File {
+            path: "note.txt".to_string(),
+            attrs: vec![],
+        }];
+        register_prompt_inputs(&env, rt.handle(), &items).unwrap();
 
-        let txt_path = dir.path().join("note.txt");
-        std::fs::write(&txt_path, "hello world").unwrap();
-        let json =
-            file_to_content_item(txt_path.to_str().unwrap(), &[], &env, rt.handle()).unwrap();
-        assert_eq!(json, r#"[{"type":"text"},{"text":"hello world"}]"#);
-
-        let md_path = dir.path().join("readme.md");
-        std::fs::write(&md_path, "# Title").unwrap();
-        let json =
-            file_to_content_item(md_path.to_str().unwrap(), &[], &env, rt.handle()).unwrap();
-        assert_eq!(json, r##"[{"type":"text"},{"text":"# Title"}]"##);
-    }
-
-    // test 12: image extension (.png, .jpg) →
-    //   [{"type":"image","content_type":"image/png"},{"image_key":"<key>"}]
-    //   and raw bytes stored in KV at that key
-    #[test]
-    fn test_file_image_extension() {
-        let (env, rt) = make_env();
-        let dir = tempfile::tempdir().unwrap();
-
-        let png_bytes: &[u8] = b"\x89PNG\r\n\x1a\n";
-        let png_path = dir.path().join("photo.png");
-        std::fs::write(&png_path, png_bytes).unwrap();
-
-        let json =
-            file_to_content_item(png_path.to_str().unwrap(), &[], &env, rt.handle()).unwrap();
-
-        // JSON must contain type:image and content_type
-        assert!(json.contains(r#""type":"image""#), "json={json}");
-        assert!(json.contains(r#""content_type":"image/png""#), "json={json}");
-
-        // Extract image_key and verify bytes are stored in KV
-        let image_key = {
-            let start = json.find(r#""image_key":""#).expect("image_key not found")
-                + r#""image_key":""#.len();
-            let end = json[start..].find('"').unwrap() + start;
-            json[start..end].to_string()
-        };
-        assert!(!image_key.is_empty());
-
-        let stored = rt.block_on(async {
-            let kv = Arc::clone(&env.kv);
-            let buf = kv.open(&image_key, OpenMode::Read).await.unwrap();
-            let data = buf.lock().to_vec();
-            data
-        });
-        assert_eq!(stored, png_bytes);
-    }
-
-    // test 13: unknown extension without attrs → descriptive error
-    #[test]
-    fn test_file_unknown_extension_error() {
-        let (env, rt) = make_env();
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("data.bin");
-        std::fs::write(&path, b"some bytes").unwrap();
-
-        let result = file_to_content_item(path.to_str().unwrap(), &[], &env, rt.handle());
-        assert!(result.is_err());
-        let msg = result.unwrap_err();
-        assert!(
-            msg.contains(".bin") || msg.contains("unknown") || msg.contains("extension"),
-            "error should mention extension or 'unknown': {msg}"
-        );
+        let doc_deps = alias_deps(&env, "input_doc");
+        let to_doc = doc_deps.iter().copied().find(|&h| node_idname(&env, h) == "to_doc_item")
+            .expect("to_doc_item not found in input_doc");
+        assert_eq!(node_explain(&env, to_doc), None);
     }
 
     // Session dispatch — 6 rows from the spec table
