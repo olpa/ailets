@@ -105,15 +105,19 @@ fn extension_of(path: &str) -> Option<&str> {
 /// Returns an error for unknown file extensions (without explicit attrs).
 pub fn file_to_content_item(
     path: &str,
-    _attrs: &[(String, String)],
+    attrs: &[(String, String)],
     env: &Arc<Environment>,
     rt: &tokio::runtime::Handle,
 ) -> Result<String, String> {
-    let ext = extension_of(path)
-        .ok_or_else(|| format!("cannot determine file type: no extension on '{path}'"))?
-        .to_lowercase();
+    let attr_type = attrs.iter().find(|(k, _)| k == "type").map(|(_, v)| v.as_str());
+    let attr_content_type = attrs.iter().find(|(k, _)| k == "content_type").map(|(_, v)| v.as_str());
 
-    if TEXT_EXTENSIONS.contains(&ext.as_str()) {
+    let ext = extension_of(path).unwrap_or("").to_lowercase();
+
+    let is_text = attr_type == Some("text")
+        || (attr_type.is_none() && attr_content_type.is_none() && TEXT_EXTENSIONS.contains(&ext.as_str()));
+
+    if is_text {
         let text = std::fs::read_to_string(path)
             .map_err(|e| format!("failed to read '{path}': {e}"))?;
         // escape backslash and double-quote for JSON
@@ -121,7 +125,16 @@ pub fn file_to_content_item(
         return Ok(format!(r#"[{{"type":"text"}},{{"text":"{escaped}"}}]"#));
     }
 
-    if let Some(&(_, content_type)) = IMAGE_EXTENSIONS.iter().find(|(e, _)| *e == ext.as_str()) {
+    let image_content_type = attr_content_type
+        .filter(|_| attr_type == Some("image"))
+        .or_else(|| {
+            IMAGE_EXTENSIONS
+                .iter()
+                .find(|(e, _)| *e == ext.as_str())
+                .map(|(_, ct)| *ct)
+        });
+
+    if let Some(content_type) = image_content_type {
         let bytes = std::fs::read(path)
             .map_err(|e| format!("failed to read '{path}': {e}"))?;
         let image_key = format!("media/{}", env.idgen.get_next());
@@ -140,7 +153,8 @@ pub fn file_to_content_item(
         ));
     }
 
-    Err(format!("unknown file extension '.{ext}' for '{path}'; cannot determine content type"))
+    let hint = if ext.is_empty() { String::new() } else { format!(" '.{ext}'") };
+    Err(format!("unknown file type{hint} for '{path}'; use @{{type=text}} or @{{type=image,content_type=...}} to override"))
 }
 
 // ---------------------------------------------------------------------------
