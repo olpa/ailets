@@ -18,6 +18,7 @@ use ailetos::Handle;
 use embedded_io::Write as _;
 use std::io::Read as _;
 
+use crate::attr;
 use crate::to_doc_item_control;
 
 /// # Errors
@@ -41,10 +42,6 @@ pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
         .map_err(|e| format!("to_doc_item: write error: {e:?}"))?;
 
     Ok(())
-}
-
-fn attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
-    attrs.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
 }
 
 /// Build a content-item JSON array from raw bytes and attrs.

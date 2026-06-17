@@ -15,6 +15,7 @@ use ailetos::Handle;
 use embedded_io::Write as _;
 use std::io::Read as _;
 
+use crate::attr;
 use crate::file_value_control;
 
 const TEXT_EXTENSIONS: &[&str] = &[
@@ -88,10 +89,6 @@ enum ContentKind {
     Stdin,
     Text,
     Image,
-}
-
-fn attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
-    attrs.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
 }
 
 /// Returns the MIME type for a path whose extension matches a known image

@@ -34,6 +34,10 @@ use ailetos::{Environment, Executor, ExecutorEvent, Handle, KVBuffers, MemKV};
 // Re-exports
 pub use output::{OutputSink, StdoutSink};
 
+pub(crate) fn attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
+    attrs.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+}
+
 /// Outcome of a shell command: whether the REPL loop should continue or exit.
 pub enum ShellControl {
     Continue,
