@@ -154,7 +154,7 @@ pub fn file_to_content_item(
     }
 
     let hint = if ext.is_empty() { String::new() } else { format!(" '.{ext}'") };
-    Err(format!("unknown file type{hint} for '{path}'; use @{{type=text}} or @{{type=image;content_type=...}} to override"))
+    Err(format!("unknown file type{hint} for '{path}'; use @type=text,file=... or @type=image,content_type=...,file=... to override"))
 }
 
 // ---------------------------------------------------------------------------

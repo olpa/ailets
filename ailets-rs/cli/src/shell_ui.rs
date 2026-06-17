@@ -70,29 +70,27 @@ pub struct CliArgs {
     pub prompt_items: Vec<PromptArg>,
 }
 
-/// # Errors
-/// Returns an error string if an unknown option or missing argument is encountered.
 /// Parses the part of a `@...` arg after the `@` prefix.
-/// Handles `{key=val,key2=val2}path` and plain `path`.
+/// If the string contains `=`, it is treated as a comma-separated `key=value`
+/// list; the required `file=` key provides the path and remaining pairs are attrs.
+/// Otherwise the whole string is the path with no attrs.
 fn parse_at_arg(s: &str) -> Result<(String, Vec<(String, String)>), String> {
-    if !s.starts_with('{') {
+    if !s.contains('=') {
         return Ok((s.to_string(), vec![]));
     }
-    let close = s
-        .find('}')
-        .ok_or_else(|| format!("unclosed '{{' in argument '@{s}'"))?;
-    let attr_str = &s[1..close];
-    let path = s[close + 1..].to_string();
-    let attrs = attr_str
-        .split(';')
-        .filter(|p| !p.is_empty())
-        .map(|pair| {
-            let (k, v) = pair
-                .split_once('=')
-                .ok_or_else(|| format!("invalid attr '{pair}'; expected key=value"))?;
-            Ok((k.to_string(), v.to_string()))
-        })
-        .collect::<Result<Vec<_>, String>>()?;
+    let mut path: Option<String> = None;
+    let mut attrs: Vec<(String, String)> = Vec::new();
+    for pair in s.split(',').filter(|p| !p.is_empty()) {
+        let (k, v) = pair
+            .split_once('=')
+            .ok_or_else(|| format!("invalid attr '{pair}' in '@{s}'; expected key=value"))?;
+        if k == "file" {
+            path = Some(v.to_string());
+        } else {
+            attrs.push((k.to_string(), v.to_string()));
+        }
+    }
+    let path = path.ok_or_else(|| format!("missing required 'file=' key in '@{s}'"))?;
     Ok((path, attrs))
 }
 
@@ -236,23 +234,24 @@ mod tests {
         assert_eq!(result.prompt_items, vec![PromptArg::Text("hello".to_string())]);
     }
 
-    // @{type=text}file.tcl → File with path "file.tcl" and attrs [("type","text")]
+    // @type=text,file=x.tcl → File with path "x.tcl" and attrs [("type","text")]
     #[test]
     fn test_at_arg_with_attrs() {
-        let result = parse_args(&args(&["@{type=text}file.tcl"])).unwrap();
+        let result = parse_args(&args(&["@type=text,file=x.tcl"])).unwrap();
         assert_eq!(
             result.prompt_items,
             vec![PromptArg::File {
-                path: "file.tcl".to_string(),
+                path: "x.tcl".to_string(),
                 attrs: vec![("type".to_string(), "text".to_string())],
             }]
         );
     }
 
-    // @{type=image;content_type=image/png}photo.dat → two attrs, correct path
+    // @type=image,content_type=image/png,file=photo.dat → two attrs, correct path
     #[test]
     fn test_at_arg_with_multiple_attrs() {
-        let result = parse_args(&args(&["@{type=image;content_type=image/png}photo.dat"])).unwrap();
+        let result =
+            parse_args(&args(&["@type=image,content_type=image/png,file=photo.dat"])).unwrap();
         assert_eq!(
             result.prompt_items,
             vec![PromptArg::File {
@@ -265,10 +264,10 @@ mod tests {
         );
     }
 
-    // unclosed { → error
+    // missing file= key → error
     #[test]
-    fn test_at_arg_unclosed_brace() {
-        let result = parse_args(&args(&["@{type=text"]));
+    fn test_at_arg_missing_file_key() {
+        let result = parse_args(&args(&["@type=text"]));
         assert!(result.is_err());
     }
 }

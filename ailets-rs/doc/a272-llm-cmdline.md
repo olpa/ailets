@@ -51,19 +51,22 @@ The ctl(user) node is auto-inserted once, immediately before the first non-`Syst
 ### Positional arguments
 
 - Plain string → `ContentItemText`: `[{"type":"text"},{"text":"..."}]`
-- `@path` or `@{attrs}path` → read file, produce `ContentItem` based on detected or specified type:
+- `@path` → read file, produce `ContentItem` based on type detected from extension:
   - Text extensions (`.txt`, `.md`, `.rs`, `.py`, …) → `ContentItemText`
   - Image extensions (`.png`, `.jpg`, `.gif`, `.webp`, …) → `ContentItemImage` with `image_key` (stored in KV)
+- `@key=value,...,file=path` → read file with explicit attrs overriding extension detection
 - `-` or `@-` → use the stdin node (see below)
 
-### `@{...}` attribute override syntax
+### `@key=value,...,file=path` attribute override syntax
 
-The `{...}` block overrides keys in `[0]` (the attrs dict of the `ContentItem`):
+When the string after `@` contains `=`, it is parsed as a comma-separated list of `key=value` pairs. The `file=` key is required and provides the path; all other pairs become attrs passed to `file_to_content_item`.
 
-- `@{image/png}file.bin` — contains `/` but no `=`: shorthand for `content_type=image/png`
-- `@{content_type=image/png,detail=high}file.bin` — explicit `key=value` pairs, comma-separated
+```bash
+@type=text,file=x.tcl                          # force text interpretation
+@type=image,content_type=image/png,file=x.dat  # force image with explicit MIME type
+```
 
-> **Note:** The exact `@{...}` syntax design is still under discussion. Implement auto-detection from file extension as the baseline. The `@{...}` block is a separate design decision; leave a clearly marked extension point in the parser.
+Commas inside a word are not special to bash, so no quoting is needed.
 
 ### `--system-prompt TEXT`
 
@@ -115,7 +118,7 @@ Extend `parse_args`:
 - `--system-prompt TEXT`: consume next arg as value → `PromptArg::SystemPrompt`
 - `-` → `PromptArg::Stdin`
 - `@-` → `PromptArg::Stdin`
-- `@path` or `@{...}path` → `PromptArg::File`
+- `@path` or `@key=value,...,file=path` → `PromptArg::File`
 - Any other non-flag arg → `PromptArg::Text`
 
 Update `print_usage` to document the new flags.
@@ -128,7 +131,7 @@ After `parse_args`, if `prompt_items` is non-empty:
 2. Build the sequence of `value` TCL commands and execute them via `shell.execute`
 3. Check whether stdin was consumed; if so, suppress the interactive loop
 
-Leave a clearly marked extension point where the `@{...}` attr-override block will be parsed.
+Attr overrides are parsed inline in `parse_at_arg` via the `@key=value,...,file=path` syntax.
 
 ### File reading
 
@@ -186,6 +189,9 @@ echo "help" | dagsh
 5. Mixed args preserve order: `--system-prompt "S" "hello" @f.txt` → `[SystemPrompt, Text, File]`
 6. `--system-prompt` with no following value → error
 7. `-l script.tcl` coexists with prompt args: both `load_script` and `prompt_items` populated
+8a. `@type=text,file=x.tcl` → `PromptArg::File` with path `x.tcl` and attrs `[("type","text")]`
+8b. `@type=image,content_type=image/png,file=photo.dat` → two attrs, path `photo.dat`
+8c. `@type=text` (missing `file=`) → error
 
 ### Node sequence expansion
 
