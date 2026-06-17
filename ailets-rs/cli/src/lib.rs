@@ -9,6 +9,7 @@
 //! TCL scripts are parsed and executed by a `molt::Interp` owned by the caller and
 //! passed into `DagShell::execute`.  Create one with `make_interp()`.
 
+pub(crate) mod actor_registry;
 pub(crate) mod dbg_actor;
 pub(crate) mod dbg_control;
 pub(crate) mod file_value_actor;
