@@ -112,6 +112,13 @@ pub fn file_to_content_item(
     let attr_type = attrs.iter().find(|(k, _)| k == "type").map(|(_, v)| v.as_str());
     let attr_content_type = attrs.iter().find(|(k, _)| k == "content_type").map(|(_, v)| v.as_str());
 
+    // Extra attrs (not type/content_type) are appended to the first JSON object.
+    let extra: String = attrs
+        .iter()
+        .filter(|(k, _)| k != "type" && k != "content_type")
+        .map(|(k, v)| format!(r#","{k}":"{v}""#))
+        .collect();
+
     let ext = extension_of(path).unwrap_or("").to_lowercase();
 
     let is_text = attr_type == Some("text")
@@ -120,9 +127,8 @@ pub fn file_to_content_item(
     if is_text {
         let text = std::fs::read_to_string(path)
             .map_err(|e| format!("failed to read '{path}': {e}"))?;
-        // escape backslash and double-quote for JSON
         let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");
-        return Ok(format!(r#"[{{"type":"text"}},{{"text":"{escaped}"}}]"#));
+        return Ok(format!(r#"[{{"type":"text"{extra}}},{{"text":"{escaped}"}}]"#));
     }
 
     let image_content_type = attr_content_type
@@ -149,7 +155,7 @@ pub fn file_to_content_item(
             Ok::<(), String>(())
         })?;
         return Ok(format!(
-            r#"[{{"type":"image","content_type":"{content_type}"}},{{"image_key":"{image_key}"}}]"#
+            r#"[{{"type":"image","content_type":"{content_type}"{extra}}},{{"image_key":"{image_key}"}}]"#
         ));
     }
 
