@@ -128,7 +128,6 @@ impl NotificationWatcher {
 pub struct DagShell {
     pub(crate) env: Arc<Environment>,
     pub(crate) kv: Arc<MemKV>,
-    pub(crate) handles: Vec<Handle>,
     pub(crate) sink: Box<dyn OutputSink>,
     pub(crate) notification_sink: Arc<dyn OutputSink>,
     pub(crate) foreground_join: Arc<AtomicBool>,
@@ -204,7 +203,6 @@ impl DagShell {
         Self {
             env,
             kv,
-            handles: Vec::new(),
             sink: command_sink,
             notification_sink: notification_sink_clone,
             foreground_join,
@@ -306,7 +304,8 @@ impl DagShell {
 
     fn prepare_exit(&mut self) {
         shell_input_control::close_all_shell_inputs();
-        for &handle in &self.handles {
+        let handles: Vec<Handle> = self.env.dag.read().nodes().map(|n| n.pid).collect();
+        for handle in handles {
             self.env.suspension.resume(handle);
         }
         // Unblock reader tasks waiting on pipes that will never be realized

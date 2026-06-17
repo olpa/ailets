@@ -112,7 +112,6 @@ impl DagShell {
         let rest = args.get(1..).unwrap_or_default();
         let explain = parse_explain(rest);
         let handle = self.env.add_node(actor.clone(), &[], explain.clone());
-        self.handles.push(handle);
 
         if actor == "dbg" {
             let bytes_before_pause = parse_bytes_before_pause(rest);
@@ -151,7 +150,6 @@ impl DagShell {
             .ailetos_async_rt
             .block_on(async move { env.add_value_node(data_bytes, explain_clone).await })
             .map_err(|e| format!("Failed to add value node: {e}"))?;
-        self.handles.push(handle);
         let id = handle.id();
         let truncated = truncate(&data, 30);
         let expl = explain.map_or_else(String::new, |e| format!("({e})"));
@@ -183,7 +181,6 @@ impl DagShell {
             targets.push(target);
         }
         let handle = self.env.add_aliases(name.clone(), &targets);
-        self.handles.push(handle);
         let id = handle.id();
         let tids: Vec<_> = targets.iter().map(|t| t.id().to_string()).collect();
         self.sink
@@ -201,22 +198,21 @@ pub static ENTRY_NODES: CommandMeta = CommandMeta {
 };
 impl DagShell {
     pub(crate) fn cmd_nodes(&self) {
-        if self.handles.is_empty() {
+        let dag = self.env.dag.read();
+        let mut found = false;
+        for node in dag.nodes() {
+            found = true;
+            let state_str = format_state(node.state);
+            let explain = node
+                .explain
+                .as_ref()
+                .map_or_else(String::new, |e| format!(" # {e}"));
+            let pid = node.pid.id();
+            self.sink
+                .println(&format!("  {pid} {} [{state_str}]{explain}", node.idname));
+        }
+        if !found {
             self.sink.println("No nodes");
-        } else {
-            let dag = self.env.dag.read();
-            for &handle in &self.handles {
-                if let Some(node) = dag.get_node(handle) {
-                    let state_str = format_state(node.state);
-                    let explain = node
-                        .explain
-                        .as_ref()
-                        .map_or_else(String::new, |e| format!(" # {e}"));
-                    let pid = node.pid.id();
-                    self.sink
-                        .println(&format!("  {pid} {} [{state_str}]{explain}", node.idname));
-                }
-            }
         }
     }
 }
@@ -275,12 +271,12 @@ impl DagShell {
         let pending = self.executor.snapshot_pending();
         let dag = self.env.dag.read();
         if args.is_empty() {
-            if self.handles.is_empty() {
+            let all_handles: Vec<Handle> = dag.nodes().map(|n| n.pid).collect();
+            if all_handles.is_empty() {
                 self.sink.println("No nodes");
                 return Ok(());
             }
-            let terminals: Vec<Handle> = self
-                .handles
+            let terminals: Vec<Handle> = all_handles
                 .iter()
                 .filter(|&&h| dag.get_direct_dependents(h).next().is_none())
                 .copied()
@@ -288,7 +284,7 @@ impl DagShell {
 
             let suspension = Some(&*self.env.suspension);
             let roots = if terminals.is_empty() {
-                self.handles.clone()
+                all_handles
             } else {
                 terminals
             };
@@ -459,12 +455,12 @@ impl DagShell {
     }
 
     pub(crate) fn find_default_target(&self) -> Result<Handle, String> {
-        if self.handles.is_empty() {
+        let dag = self.env.dag.read();
+        let all_handles: Vec<Handle> = dag.nodes().map(|n| n.pid).collect();
+        if all_handles.is_empty() {
             return Err("No nodes to run".to_string());
         }
-        let dag = self.env.dag.read();
-        let terminals: Vec<Handle> = self
-            .handles
+        let terminals: Vec<Handle> = all_handles
             .iter()
             .filter(|&&h| dag.get_direct_dependents(h).next().is_none())
             .copied()
@@ -776,22 +772,21 @@ impl DagShell {
         let mut pending = 0;
         let mut suspended = 0;
 
-        for &handle in &self.handles {
-            if let Some(node) = dag.get_node(handle) {
-                total += 1;
-                match node.state {
-                    NodeState::Running => running += 1,
-                    NodeState::Terminated => terminated += 1,
-                    NodeState::NotStarted => {
-                        if pending_set.contains(&handle) {
-                            pending += 1;
-                        }
+        for node in dag.nodes() {
+            let handle = node.pid;
+            total += 1;
+            match node.state {
+                NodeState::Running => running += 1,
+                NodeState::Terminated => terminated += 1,
+                NodeState::NotStarted => {
+                    if pending_set.contains(&handle) {
+                        pending += 1;
                     }
-                    NodeState::Terminating => {}
                 }
-                if self.env.suspension.is_suspended(handle) {
-                    suspended += 1;
-                }
+                NodeState::Terminating => {}
+            }
+            if self.env.suspension.is_suspended(handle) {
+                suspended += 1;
             }
         }
         self.sink.println(&format!("Nodes: {total} total, {pending} pending, {running} running, {suspended} suspended, {terminated} terminated"));
