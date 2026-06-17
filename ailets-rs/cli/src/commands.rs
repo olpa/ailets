@@ -5,7 +5,7 @@ use std::sync::Arc;
 use actor_runtime::StdHandle;
 use ailetos::{
     pipe::{pipe_path, LatentState, PipeEntryInspection},
-    DependsOn, For, Handle, KVBuffers, NodeState, OpenMode, StopConditions, TopologicalOrderIter,
+    DependsOn, For, Handle, KVBuffers, NodeKind, NodeState, OpenMode, StopConditions, TopologicalOrderIter,
 };
 
 use crate::output::{parse_color, OutputSinkWriter};
@@ -264,6 +264,23 @@ pub static ENTRY_SHOW: CommandMeta = CommandMeta {
     detail: None,
 };
 impl DagShell {
+    fn format_alias_summary(dag: &ailetos::Dag, handle: Handle) -> Option<String> {
+        let node = dag.get_node(handle).filter(|n| n.kind == NodeKind::Alias)?;
+        let targets: Vec<String> = dag
+            .resolve_dependencies(node.pid)
+            .map(|h| {
+                dag.get_node(h)
+                    .map_or_else(|| format!("#{}", h.id()), |n| format!("{}.{}", n.idname, h.id()))
+            })
+            .collect();
+        Some(format!(
+            "alias {}.{} → {}",
+            node.idname,
+            node.pid.id(),
+            targets.join(", ")
+        ))
+    }
+
     pub(crate) fn cmd_show(&self, args: &[&str]) -> Result<(), String> {
         // snapshot_pending() before dag.read() to avoid lock-order deadlock:
         // executor holds pending.lock() then acquires dag.write(); we must not
@@ -276,6 +293,13 @@ impl DagShell {
                 self.sink.println("No nodes");
                 return Ok(());
             }
+
+            for node in dag.nodes().filter(|n| n.kind == NodeKind::Alias) {
+                if let Some(summary) = Self::format_alias_summary(&dag, node.pid) {
+                    self.sink.println(&summary);
+                }
+            }
+
             let terminals: Vec<Handle> = all_handles
                 .iter()
                 .filter(|&&h| dag.get_direct_dependents(h).next().is_none())
@@ -300,6 +324,9 @@ impl DagShell {
         let handle = self
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+        if let Some(summary) = Self::format_alias_summary(&dag, handle) {
+            self.sink.println(&summary);
+        }
         let suspension = Some(&*self.env.suspension);
         let tree = dag.dump_colored(handle, suspension, Some(&pending));
         for line in tree.lines() {
