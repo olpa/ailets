@@ -696,35 +696,37 @@ impl DagShell {
             .parse_handle(node_str)
             .ok_or_else(|| format!("Invalid handle: {node_str}"))?;
 
-        let node_state = self.env.dag.read().get_node(handle).map(|n| n.state);
-
-        let kv = Arc::clone(&self.kv);
-        let output = self.ailetos_async_rt.block_on(async move {
-            let path = pipe_path(handle, stream_fd);
-            match kv.open(&path, OpenMode::Read).await {
-                Ok(buffer) => {
-                    let guard = buffer.lock();
-                    Ok(String::from_utf8_lossy(&guard).into_owned())
+        for target in self.env.resolve_all(handle) {
+            let node_state = self.env.dag.read().get_node(target).map(|n| n.state);
+            let kv = Arc::clone(&self.kv);
+            let stream_name = stream_name.clone();
+            let output = self.ailetos_async_rt.block_on(async move {
+                let path = pipe_path(target, stream_fd);
+                match kv.open(&path, OpenMode::Read).await {
+                    Ok(buffer) => {
+                        let guard = buffer.lock();
+                        Ok(String::from_utf8_lossy(&guard).into_owned())
+                    }
+                    Err(_) => Err(match node_state {
+                        Some(NodeState::NotStarted) => {
+                            format!("Node {} was never executed", target.id())
+                        }
+                        Some(NodeState::Running | NodeState::Terminating) => {
+                            format!(
+                                "Node {} is running but hasn't created stream {stream_name} yet",
+                                target.id()
+                            )
+                        }
+                        Some(NodeState::Terminated) | None => {
+                            format!("No output on stream {stream_name} for node {}", target.id())
+                        }
+                    }),
                 }
-                Err(_) => Err(match node_state {
-                    Some(NodeState::NotStarted) => {
-                        format!("Node {} was never executed", handle.id())
-                    }
-                    Some(NodeState::Running | NodeState::Terminating) => {
-                        format!(
-                            "Node {} is running but hasn't created stream {stream_name} yet",
-                            handle.id()
-                        )
-                    }
-                    Some(NodeState::Terminated) | None => {
-                        format!("No output on stream {stream_name} for node {}", handle.id())
-                    }
-                }),
+            });
+            match output {
+                Ok(text) => self.sink.println(&text),
+                Err(e) => self.sink.println(&e),
             }
-        });
-        match output {
-            Ok(text) => self.sink.println(&text),
-            Err(e) => self.sink.println(&e),
         }
         Ok(())
     }
