@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use ailetos::{Environment, Handle};
 
+use crate::file_value_control;
 use crate::shell_ui::PromptArg;
 use crate::to_doc_item_control;
 
@@ -44,7 +45,14 @@ fn add_raw_then_doc(
 /// Creates a `file_value` actor node (with path or `"-"` for stdin in `explain`),
 /// adds it to `"input_raw"`, then wires a `to_doc_item` actor into `"input_doc"`.
 fn add_file_then_doc(env: &Arc<Environment>, file_explain: String, attrs: &[(String, String)]) {
-    let file_handle = env.add_node("file_value".to_string(), &[], Some(file_explain));
+    let file_handle = env.add_node("file_value".to_string(), &[], Some(file_explain.clone()));
+    file_value_control::register(
+        file_handle,
+        file_explain,
+        attrs.to_vec(),
+        Arc::clone(&env.kv),
+        Arc::clone(&env.idgen),
+    );
     let _h = env.add_alias("input_raw".to_string(), file_handle);
     wire_to_doc_item(env, file_handle, attrs);
 }
