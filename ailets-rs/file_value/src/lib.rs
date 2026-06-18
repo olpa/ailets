@@ -1,6 +1,6 @@
 //! Actor: reads a file or stdin and writes raw bytes (or a KV key for images) to stdout.
 //!
-//! Configuration (path, attrs, KV, IdGen) is retrieved from `control`
+//! Configuration (path, attrs, KV, `IdGen`) is retrieved from `control`
 //! using the actor's node handle.
 //!
 //! Behaviour by content type:
@@ -19,7 +19,10 @@ use embedded_io::Write as _;
 use std::io::Read as _;
 
 fn attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
-    attrs.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+    attrs
+        .iter()
+        .find(|(k, _)| k == key)
+        .map(|(_, v)| v.as_str())
 }
 
 const TEXT_EXTENSIONS: &[&str] = &[
@@ -97,6 +100,7 @@ pub enum ContentKind {
 
 /// Returns the MIME type for a path whose extension matches a known image
 /// extension, or `None` if the extension is not recognised.
+#[must_use]
 pub fn mime_for_path(path: &str) -> Option<&'static str> {
     let ext = extension_of(path).to_lowercase();
     IMAGE_EXTENSIONS
@@ -112,6 +116,8 @@ fn extension_of(path: &str) -> &str {
         .unwrap_or("")
 }
 
+/// # Errors
+/// Returns an error if the `type` attribute has an unrecognised value.
 pub fn detect_kind(path: &str, attrs: &[(String, String)]) -> Result<ContentKind, String> {
     if path == "-" {
         return Ok(ContentKind::Stdin);
@@ -156,4 +162,3 @@ fn read_source(path: &str) -> Result<Vec<u8>, String> {
         std::fs::read(path).map_err(|e| format!("file_value: failed to read '{path}': {e}"))
     }
 }
-

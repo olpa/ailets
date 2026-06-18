@@ -14,7 +14,7 @@ const CTL_SYSTEM_JSON: &[u8] = br#"[{"type":"ctl"},{"role":"system"}]"#;
 /// How stdin is used after `register_prompt_inputs`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StdinUsage {
-    /// Stdin is wired into a DAG file_value actor node.
+    /// Stdin is wired into a DAG `file_value` actor node.
     FileValue,
     /// Stdin is available for the interactive shell.
     DagShell,
@@ -57,13 +57,13 @@ fn add_raw_then_doc(
 fn add_file_then_doc(
     env: &Arc<Environment>,
     async_runtime: &tokio::runtime::Handle,
-    file_explain: String,
+    file_explain: &str,
     attrs: &[(String, String)],
 ) {
-    let file_handle = env.add_node("file_value".to_string(), &[], Some(file_explain.clone()));
+    let file_handle = env.add_node("file_value".to_string(), &[], Some(file_explain.to_string()));
     file_value_control::register(
         file_handle,
-        file_explain.clone(),
+        file_explain.to_string(),
         attrs.to_vec(),
         Arc::clone(&env.kv),
         Arc::clone(&env.idgen),
@@ -73,18 +73,16 @@ fn add_file_then_doc(
     // For extension-detected images, inject type + content_type so to_doc_item
     // knows to emit an image item rather than text.
     let augmented;
-    let doc_attrs = if !attrs.iter().any(|(k, _)| k == "type") {
-        if let Some(mime) = file_value::mime_for_path(&file_explain) {
-            augmented = {
-                let mut v = attrs.to_vec();
-                v.push(("type".to_string(), "image".to_string()));
-                v.push(("content_type".to_string(), mime.to_string()));
-                v
-            };
-            augmented.as_slice()
-        } else {
-            attrs
-        }
+    let doc_attrs = if attrs.iter().any(|(k, _)| k == "type") {
+        attrs
+    } else if let Some(mime) = file_value::mime_for_path(file_explain) {
+        augmented = {
+            let mut v = attrs.to_vec();
+            v.push(("type".to_string(), "image".to_string()));
+            v.push(("content_type".to_string(), mime.to_string()));
+            v
+        };
+        augmented.as_slice()
     } else {
         attrs
     };
@@ -159,7 +157,7 @@ pub fn register_prompt_inputs(
                 if last_role != Some("user") {
                     add_ctl_to_input_doc(env, async_runtime, CTL_USER_JSON)?;
                 }
-                add_file_then_doc(env, async_runtime, "-".to_string(), &[]);
+                add_file_then_doc(env, async_runtime, "-", &[]);
                 stdin_usage = StdinUsage::FileValue;
                 last_role = Some("user");
             }
@@ -167,7 +165,7 @@ pub fn register_prompt_inputs(
                 if last_role != Some("user") {
                     add_ctl_to_input_doc(env, async_runtime, CTL_USER_JSON)?;
                 }
-                add_file_then_doc(env, async_runtime, path.clone(), attrs);
+                add_file_then_doc(env, async_runtime, path, attrs);
                 last_role = Some("user");
             }
         }

@@ -21,11 +21,7 @@ fn alias_deps(env: &Arc<Environment>, alias: &str) -> Vec<Handle> {
     dag.get_direct_dependencies(node.pid).collect()
 }
 
-fn read_value_node(
-    env: &Arc<Environment>,
-    rt: &tokio::runtime::Runtime,
-    handle: Handle,
-) -> String {
+fn read_value_node(env: &Arc<Environment>, rt: &tokio::runtime::Runtime, handle: Handle) -> String {
     let path = pipe_path(handle, actor_runtime::StdHandle::Stdout as isize);
     let kv = Arc::clone(&env.kv);
     rt.block_on(async move {
@@ -96,11 +92,20 @@ fn test_system_prompt_interleaved() {
     // ctl(user) + to_doc_item(Hello) + ctl(system) + to_doc_item(Be formal)
     // + ctl(user) + to_doc_item(World)
     assert_eq!(doc_deps.len(), 6);
-    assert_eq!(read_value_node(&env, &rt, doc_deps[0]), r#"[{"type":"ctl"},{"role":"user"}]"#);
+    assert_eq!(
+        read_value_node(&env, &rt, doc_deps[0]),
+        r#"[{"type":"ctl"},{"role":"user"}]"#
+    );
     assert_eq!(node_idname(&env, doc_deps[1]), "to_doc_item");
-    assert_eq!(read_value_node(&env, &rt, doc_deps[2]), r#"[{"type":"ctl"},{"role":"system"}]"#);
+    assert_eq!(
+        read_value_node(&env, &rt, doc_deps[2]),
+        r#"[{"type":"ctl"},{"role":"system"}]"#
+    );
     assert_eq!(node_idname(&env, doc_deps[3]), "to_doc_item");
-    assert_eq!(read_value_node(&env, &rt, doc_deps[4]), r#"[{"type":"ctl"},{"role":"user"}]"#);
+    assert_eq!(
+        read_value_node(&env, &rt, doc_deps[4]),
+        r#"[{"type":"ctl"},{"role":"user"}]"#
+    );
     assert_eq!(node_idname(&env, doc_deps[5]), "to_doc_item");
 
     let raw_deps = alias_deps(&env, "input_raw");
@@ -124,10 +129,16 @@ fn test_consecutive_system_prompts_share_ctl() {
     let doc_deps = alias_deps(&env, "input_doc");
     // ctl(system) + to_doc_item(EE) + to_doc_item(FF) + ctl(user) + to_doc_item(hello)
     assert_eq!(doc_deps.len(), 5);
-    assert_eq!(read_value_node(&env, &rt, doc_deps[0]), r#"[{"type":"ctl"},{"role":"system"}]"#);
+    assert_eq!(
+        read_value_node(&env, &rt, doc_deps[0]),
+        r#"[{"type":"ctl"},{"role":"system"}]"#
+    );
     assert_eq!(node_idname(&env, doc_deps[1]), "to_doc_item");
     assert_eq!(node_idname(&env, doc_deps[2]), "to_doc_item");
-    assert_eq!(read_value_node(&env, &rt, doc_deps[3]), r#"[{"type":"ctl"},{"role":"user"}]"#);
+    assert_eq!(
+        read_value_node(&env, &rt, doc_deps[3]),
+        r#"[{"type":"ctl"},{"role":"user"}]"#
+    );
     assert_eq!(node_idname(&env, doc_deps[4]), "to_doc_item");
 
     let raw_deps = alias_deps(&env, "input_raw");
@@ -141,18 +152,22 @@ fn test_consecutive_system_prompts_share_ctl() {
 #[test]
 fn test_explicit_stdin_stays_at_position() {
     let (env, rt) = make_env();
-    let items = vec![
-        PromptArg::Stdin,
-        PromptArg::Text("Hello".to_string()),
-    ];
+    let items = vec![PromptArg::Stdin, PromptArg::Text("Hello".to_string())];
     let consumed = register_prompt_inputs(&env, rt.handle(), &items).unwrap();
 
-    assert_eq!(consumed, StdinUsage::FileValue, "stdin should be marked consumed");
+    assert_eq!(
+        consumed,
+        StdinUsage::FileValue,
+        "stdin should be marked consumed"
+    );
 
     let doc_deps = alias_deps(&env, "input_doc");
     // ctl(user) + to_doc_item(stdin) + to_doc_item(Hello)
     assert_eq!(doc_deps.len(), 3);
-    assert_eq!(read_value_node(&env, &rt, doc_deps[0]), r#"[{"type":"ctl"},{"role":"user"}]"#);
+    assert_eq!(
+        read_value_node(&env, &rt, doc_deps[0]),
+        r#"[{"type":"ctl"},{"role":"user"}]"#
+    );
     assert_eq!(node_idname(&env, doc_deps[1]), "to_doc_item");
     assert_eq!(node_idname(&env, doc_deps[2]), "to_doc_item");
 
@@ -166,4 +181,3 @@ fn test_explicit_stdin_stays_at_position() {
     assert_eq!(to_doc_item_dep(&env, doc_deps[1]), raw_deps[0]);
     assert_eq!(to_doc_item_dep(&env, doc_deps[2]), raw_deps[1]);
 }
-

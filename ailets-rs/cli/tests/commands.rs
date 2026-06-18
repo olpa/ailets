@@ -25,7 +25,9 @@ fn test_dag_handle_present() {
     let alias_handle = shell.cmd_alias(&["input", "1"]).unwrap();
     let id = shell.cmd_dag(&["handle", "input"]).unwrap();
     assert_eq!(id, alias_handle.id().to_string());
-    let val_id = shell.cmd_dag(&["handle", &value_handle.id().to_string()]).unwrap();
+    let val_id = shell
+        .cmd_dag(&["handle", &value_handle.id().to_string()])
+        .unwrap();
     assert_eq!(val_id, value_handle.id().to_string());
 }
 

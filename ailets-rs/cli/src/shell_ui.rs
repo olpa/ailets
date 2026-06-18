@@ -61,7 +61,10 @@ pub fn print_usage() {
 pub enum PromptArg {
     SystemPrompt(String),
     Text(String),
-    File { path: String, attrs: Vec<(String, String)> },
+    File {
+        path: String,
+        attrs: Vec<(String, String)>,
+    },
     Stdin,
 }
 
@@ -94,6 +97,8 @@ fn parse_at_arg(s: &str) -> Result<(String, Vec<(String, String)>), String> {
     Ok((path, attrs))
 }
 
+/// # Errors
+/// Returns an error if an argument is malformed (bad `@` syntax, missing value for a flag, etc.).
 pub fn parse_args(args: &[String]) -> Result<CliArgs, String> {
     let mut load_scripts: Vec<String> = Vec::new();
     let mut prompt_items: Vec<PromptArg> = Vec::new();
@@ -141,7 +146,10 @@ pub fn parse_args(args: &[String]) -> Result<CliArgs, String> {
             }
         }
     }
-    Ok(CliArgs { load_scripts, prompt_items })
+    Ok(CliArgs {
+        load_scripts,
+        prompt_items,
+    })
 }
 
 // ---------------------------------------------------------------------------

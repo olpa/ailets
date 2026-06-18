@@ -24,27 +24,48 @@ fn detect_stdin() {
 
 #[test]
 fn detect_text_by_extension() {
-    assert!(matches!(detect_kind("note.txt", &[]).unwrap(), ContentKind::Text));
-    assert!(matches!(detect_kind("readme.md", &[]).unwrap(), ContentKind::Text));
-    assert!(matches!(detect_kind("src.rs", &[]).unwrap(), ContentKind::Text));
+    assert!(matches!(
+        detect_kind("note.txt", &[]).unwrap(),
+        ContentKind::Text
+    ));
+    assert!(matches!(
+        detect_kind("readme.md", &[]).unwrap(),
+        ContentKind::Text
+    ));
+    assert!(matches!(
+        detect_kind("src.rs", &[]).unwrap(),
+        ContentKind::Text
+    ));
 }
 
 #[test]
 fn detect_image_by_extension() {
-    assert!(matches!(detect_kind("photo.png", &[]).unwrap(), ContentKind::Image));
-    assert!(matches!(detect_kind("pic.jpg", &[]).unwrap(), ContentKind::Image));
+    assert!(matches!(
+        detect_kind("photo.png", &[]).unwrap(),
+        ContentKind::Image
+    ));
+    assert!(matches!(
+        detect_kind("pic.jpg", &[]).unwrap(),
+        ContentKind::Image
+    ));
 }
 
 #[test]
 fn detect_text_by_attr() {
     let attrs = vec![("type".to_string(), "text".to_string())];
-    assert!(matches!(detect_kind("data.bin", &attrs).unwrap(), ContentKind::Text));
+    assert!(matches!(
+        detect_kind("data.bin", &attrs).unwrap(),
+        ContentKind::Text
+    ));
 }
 
 #[test]
 fn detect_image_by_attr() {
     let attrs = vec![("type".to_string(), "image".to_string())];
-    assert!(matches!(detect_kind("data.bin", &attrs).unwrap(), ContentKind::Image));
+    assert!(matches!(
+        detect_kind("data.bin", &attrs).unwrap(),
+        ContentKind::Image
+    ));
 }
 
 #[test]
@@ -63,5 +84,8 @@ fn unknown_type_attr_errors() {
 #[test]
 fn attr_overrides_extension() {
     let attrs = vec![("type".to_string(), "text".to_string())];
-    assert!(matches!(detect_kind("data.png", &attrs).unwrap(), ContentKind::Text));
+    assert!(matches!(
+        detect_kind("data.png", &attrs).unwrap(),
+        ContentKind::Text
+    ));
 }

@@ -5,7 +5,8 @@ use std::sync::Arc;
 use actor_runtime::StdHandle;
 use ailetos::{
     pipe::{pipe_path, LatentState, PipeEntryInspection},
-    DependsOn, For, Handle, KVBuffers, NodeKind, NodeState, OpenMode, StopConditions, TopologicalOrderIter,
+    DependsOn, For, Handle, KVBuffers, NodeKind, NodeState, OpenMode, StopConditions,
+    TopologicalOrderIter,
 };
 
 use crate::output::{parse_color, OutputSinkWriter};
@@ -137,6 +138,8 @@ pub static ENTRY_VALUE: CommandMeta = CommandMeta {
     detail: None,
 };
 impl DagShell {
+    /// # Errors
+    /// Returns an error if no data argument is supplied or if adding the value node fails.
     pub fn cmd_value(&mut self, args: &[&str]) -> Result<Handle, String> {
         if args.is_empty() {
             return Err("Usage: value <data> [--explain=text]".to_string());
@@ -167,6 +170,8 @@ pub static ENTRY_ALIAS: CommandMeta = CommandMeta {
     detail: None,
 };
 impl DagShell {
+    /// # Errors
+    /// Returns an error if fewer than two arguments are supplied or a target handle is invalid.
     pub fn cmd_alias(&mut self, args: &[&str]) -> Result<Handle, String> {
         let (name, targets_strs) = match args {
             [name, rest @ ..] if !rest.is_empty() => (*name, rest),
@@ -213,7 +218,8 @@ impl DagShell {
             } else {
                 format!(" [{state_str}]{explain}")
             };
-            self.sink.println(&format!("  {pid} {}{suffix}", node.idname));
+            self.sink
+                .println(&format!("  {pid} {}{suffix}", node.idname));
         }
         if !found {
             self.sink.println("No nodes");
@@ -273,8 +279,10 @@ impl DagShell {
         let targets: Vec<String> = dag
             .resolve_dependencies(node.pid)
             .map(|h| {
-                dag.get_node(h)
-                    .map_or_else(|| format!("#{}", h.id()), |n| format!("{}.{}", n.idname, h.id()))
+                dag.get_node(h).map_or_else(
+                    || format!("#{}", h.id()),
+                    |n| format!("{}.{}", n.idname, h.id()),
+                )
             })
             .collect();
         Some(format!(
@@ -1202,7 +1210,11 @@ impl DagShell {
         match args {
             ["exists", name] => {
                 let exists = self.parse_handle(name).is_some();
-                Ok(if exists { "1".to_string() } else { "0".to_string() })
+                Ok(if exists {
+                    "1".to_string()
+                } else {
+                    "0".to_string()
+                })
             }
             ["handle", name] => {
                 let handle = self
@@ -1221,4 +1233,3 @@ impl DagShell {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
-

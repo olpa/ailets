@@ -11,7 +11,10 @@ fn args(v: &[&str]) -> Vec<String> {
 #[test]
 fn test_plain_text_arg() {
     let result = parse_args(&args(&["hello"])).unwrap();
-    assert_eq!(result.prompt_items, vec![PromptArg::Text("hello".to_string())]);
+    assert_eq!(
+        result.prompt_items,
+        vec![PromptArg::Text("hello".to_string())]
+    );
 }
 
 // test 2: @file.txt → PromptArg::File with path "file.txt" (prefix stripped)
@@ -79,13 +82,19 @@ fn test_system_prompt_missing_value() {
 fn test_load_script_coexists_with_prompt_items() {
     let result = parse_args(&args(&["-l", "run.tcl", "hello"])).unwrap();
     assert_eq!(result.load_scripts, vec!["run.tcl".to_string()]);
-    assert_eq!(result.prompt_items, vec![PromptArg::Text("hello".to_string())]);
+    assert_eq!(
+        result.prompt_items,
+        vec![PromptArg::Text("hello".to_string())]
+    );
 }
 
 #[test]
 fn test_multiple_load_scripts() {
     let result = parse_args(&args(&["--load", "a.tcl", "--load", "b.tcl"])).unwrap();
-    assert_eq!(result.load_scripts, vec!["a.tcl".to_string(), "b.tcl".to_string()]);
+    assert_eq!(
+        result.load_scripts,
+        vec!["a.tcl".to_string(), "b.tcl".to_string()]
+    );
 }
 
 // @type=text,file=x.tcl → File with path "x.tcl" and attrs [("type","text")]
@@ -104,8 +113,10 @@ fn test_at_arg_with_attrs() {
 // @type=image,content_type=image/png,file=photo.dat → two attrs, correct path
 #[test]
 fn test_at_arg_with_multiple_attrs() {
-    let result =
-        parse_args(&args(&["@type=image,content_type=image/png,file=photo.dat"])).unwrap();
+    let result = parse_args(&args(&[
+        "@type=image,content_type=image/png,file=photo.dat",
+    ]))
+    .unwrap();
     assert_eq!(
         result.prompt_items,
         vec![PromptArg::File {

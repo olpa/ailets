@@ -21,7 +21,10 @@ use ailetos::Handle;
 use embedded_io::Write as _;
 
 fn attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
-    attrs.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+    attrs
+        .iter()
+        .find(|(k, _)| k == key)
+        .map(|(_, v)| v.as_str())
 }
 
 /// Returns `(prefix, suffix)` byte strings that wrap the streamed content.
@@ -33,10 +36,12 @@ pub fn build_frame(attrs: &[(String, String)]) -> Result<(Vec<u8>, &'static [u8]
     match item_type {
         "text" => Ok((br#"[{"type":"text"},{"text":""#.to_vec(), br#""}]"#)),
         "image" => {
-            let content_type = attr(attrs, "content_type")
-                .ok_or_else(|| "to_doc_item: image item requires 'content_type' attr".to_string())?;
-            let prefix = format!(r#"[{{"type":"image","content_type":"{content_type}"}},{{"image_key":""#)
-                .into_bytes();
+            let content_type = attr(attrs, "content_type").ok_or_else(|| {
+                "to_doc_item: image item requires 'content_type' attr".to_string()
+            })?;
+            let prefix =
+                format!(r#"[{{"type":"image","content_type":"{content_type}"}},{{"image_key":""#)
+                    .into_bytes();
             Ok((prefix, br#""}]"#))
         }
         other => Err(format!("to_doc_item: unsupported item type '{other}'")),
@@ -58,8 +63,7 @@ pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
         .write_all(&prefix)
         .map_err(|e| format!("to_doc_item: write error: {e:?}"))?;
 
-    std::io::copy(&mut reader, &mut writer)
-        .map_err(|e| format!("to_doc_item: copy error: {e}"))?;
+    std::io::copy(&mut reader, &mut writer).map_err(|e| format!("to_doc_item: copy error: {e}"))?;
 
     writer
         .write_all(suffix)
@@ -67,4 +71,3 @@ pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
 
     Ok(())
 }
-

@@ -1,7 +1,7 @@
 //! Configuration registry for `file_value` actors.
 //!
 //! Stores per-node configuration: the source path (`"-"` for stdin), user
-//! attributes (e.g. `type`, `content_type`), and shared KV + IdGen handles
+//! attributes (e.g. `type`, `content_type`), and shared KV + `IdGen` handles
 //! needed for image storage.
 
 use std::sync::Arc;
@@ -29,7 +29,16 @@ pub fn register(
     idgen: Arc<IdGen>,
     async_runtime: tokio::runtime::Handle,
 ) {
-    REGISTRY.insert(handle, FileValueConfig { path, attrs, kv, idgen, async_runtime });
+    REGISTRY.insert(
+        handle,
+        FileValueConfig {
+            path,
+            attrs,
+            kv,
+            idgen,
+            async_runtime,
+        },
+    );
 }
 
 /// Take the configuration for a `file_value` node. Returns `None` if not registered.

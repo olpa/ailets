@@ -9,7 +9,6 @@
 //! TCL scripts are parsed and executed by a `molt::Interp` owned by the caller and
 //! passed into `DagShell::execute`.  Create one with `make_interp()`.
 
-pub(crate) mod actor_registry;
 pub(crate) mod dbg_actor;
 pub(crate) mod dbg_control;
 pub(crate) mod shell_input_actor;
@@ -30,10 +29,6 @@ use ailetos::{Environment, Executor, ExecutorEvent, Handle, KVBuffers, MemKV};
 
 // Re-exports
 pub use output::{OutputSink, StdoutSink};
-
-pub(crate) fn attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
-    attrs.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
-}
 
 /// Outcome of a shell command: whether the REPL loop should continue or exit.
 pub enum ShellControl {
