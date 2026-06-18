@@ -1,6 +1,5 @@
 //! DAG Shell binary entry point.
 
-use dagsh::prompt_nodes::{decide_session, SessionMode};
 use dagsh::shell_ui::{create_notification_sink, parse_args, print_usage, ShellHelper};
 use dagsh::{make_interp, DagShell, ShellControl};
 use rustyline::config::Configurer;
@@ -48,10 +47,9 @@ fn main() {
     println!("Type 'help' for available commands.\n");
 
     // Stdin is only treated as data when the user explicitly writes `-` or `@-`.
-    let has_prompt_items = !cli_args.prompt_items.is_empty();
-
-    // Create nodes and aliases for prompt items.
-    let stdin_consumed = if has_prompt_items {
+    let stdin_consumed = if cli_args.prompt_items.is_empty() {
+        false
+    } else {
         match shell.register_prompt_inputs(&cli_args.prompt_items) {
             Ok(consumed) => consumed,
             Err(e) => {
@@ -59,33 +57,19 @@ fn main() {
                 std::process::exit(1);
             }
         }
-    } else {
-        false
     };
 
-    let mode = decide_session(has_prompt_items, stdin_consumed, cli_args.load_script.is_some());
-
-    // Run load script if requested.
-    if matches!(
-        mode,
-        SessionMode::LoadThenInteractive
-            | SessionMode::PromptLoadThenInteractive
-            | SessionMode::PromptLoadStdinThenExit
-    ) {
-        if let Some(ref script_path) = cli_args.load_script {
-            println!("Loading {script_path}...\n");
-            if let Err(e) = shell.cmd_source(&mut interp, ctx, &[script_path.as_str()]) {
-                println!("Error: {e}");
-            }
-            println!();
+    // Run all load scripts in order.
+    for script_path in &cli_args.load_scripts {
+        println!("Loading {script_path}...\n");
+        if let Err(e) = shell.cmd_source(&mut interp, ctx, &[script_path.as_str()]) {
+            println!("Error: {e}");
         }
+        println!();
     }
 
-    // Exit without interactive shell when stdin consumed or script-only run.
-    if matches!(
-        mode,
-        SessionMode::PromptThenExit | SessionMode::PromptLoadStdinThenExit
-    ) {
+    // Exit without interactive shell only when stdin was consumed (REPL would block on EOF).
+    if stdin_consumed {
         drop(shell);
         drop(printer_rt);
         return;

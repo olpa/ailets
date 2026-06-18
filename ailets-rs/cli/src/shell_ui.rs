@@ -66,7 +66,7 @@ pub enum PromptArg {
 }
 
 pub struct CliArgs {
-    pub load_script: Option<String>,
+    pub load_scripts: Vec<String>,
     pub prompt_items: Vec<PromptArg>,
 }
 
@@ -95,7 +95,7 @@ fn parse_at_arg(s: &str) -> Result<(String, Vec<(String, String)>), String> {
 }
 
 pub fn parse_args(args: &[String]) -> Result<CliArgs, String> {
-    let mut load_script: Option<String> = None;
+    let mut load_scripts: Vec<String> = Vec::new();
     let mut prompt_items: Vec<PromptArg> = Vec::new();
     let mut i = 1;
     while i < args.len() {
@@ -109,7 +109,7 @@ pub fn parse_args(args: &[String]) -> Result<CliArgs, String> {
                 let Some(path) = args.get(i + 1) else {
                     return Err("--load requires a file argument".to_string());
                 };
-                load_script = Some(path.clone());
+                load_scripts.push(path.clone());
                 i += 2;
             }
             "--system-prompt" => {
@@ -141,7 +141,7 @@ pub fn parse_args(args: &[String]) -> Result<CliArgs, String> {
             }
         }
     }
-    Ok(CliArgs { load_script, prompt_items })
+    Ok(CliArgs { load_scripts, prompt_items })
 }
 
 // ---------------------------------------------------------------------------
@@ -226,12 +226,18 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // test 7: -l script.tcl coexists with prompt args
+    // test 7: -l script.tcl coexists with prompt args; multiple --load flags accumulate
     #[test]
     fn test_load_script_coexists_with_prompt_items() {
         let result = parse_args(&args(&["-l", "run.tcl", "hello"])).unwrap();
-        assert_eq!(result.load_script, Some("run.tcl".to_string()));
+        assert_eq!(result.load_scripts, vec!["run.tcl".to_string()]);
         assert_eq!(result.prompt_items, vec![PromptArg::Text("hello".to_string())]);
+    }
+
+    #[test]
+    fn test_multiple_load_scripts() {
+        let result = parse_args(&args(&["--load", "a.tcl", "--load", "b.tcl"])).unwrap();
+        assert_eq!(result.load_scripts, vec!["a.tcl".to_string(), "b.tcl".to_string()]);
     }
 
     // @type=text,file=x.tcl → File with path "x.tcl" and attrs [("type","text")]

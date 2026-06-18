@@ -168,44 +168,6 @@ pub fn register_prompt_inputs(
 }
 
 // ---------------------------------------------------------------------------
-// Session dispatch
-// ---------------------------------------------------------------------------
-
-/// What the shell should do after processing prompt items.
-#[derive(Debug, PartialEq)]
-pub enum SessionMode {
-    /// No prompt items: open interactive REPL (existing behaviour).
-    Interactive,
-    /// No prompt items + `-l` script: run script then keep REPL open.
-    LoadThenInteractive,
-    /// Prompt items created, stdin not consumed: open REPL (nodes already wired).
-    PromptThenInteractive,
-    /// Prompt items + `-l` script, stdin not consumed: run script then keep REPL open.
-    PromptLoadThenInteractive,
-    /// Prompt items + stdin consumed (no `-l`): exit after nodes are created.
-    PromptThenExit,
-    /// Prompt items + stdin consumed + `-l` script: run script then exit.
-    PromptLoadStdinThenExit,
-}
-
-/// Decide the post-prompt session behaviour from the three boolean inputs.
-#[must_use]
-pub fn decide_session(
-    has_prompt_items: bool,
-    stdin_consumed: bool,
-    has_load_script: bool,
-) -> SessionMode {
-    match (has_prompt_items, stdin_consumed, has_load_script) {
-        (false, _, false) => SessionMode::Interactive,
-        (false, _, true) => SessionMode::LoadThenInteractive,
-        (true, false, false) => SessionMode::PromptThenInteractive,
-        (true, false, true) => SessionMode::PromptLoadThenInteractive,
-        (true, true, false) => SessionMode::PromptThenExit,
-        (true, true, true) => SessionMode::PromptLoadStdinThenExit,
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -447,50 +409,4 @@ mod tests {
         assert_eq!(node_explain(&env, to_doc), None);
     }
 
-    // Session dispatch — 6 rows from the spec table
-
-    #[test]
-    fn test_session_no_items_no_script() {
-        assert_eq!(decide_session(false, false, false), SessionMode::Interactive);
-    }
-
-    #[test]
-    fn test_session_no_items_with_script() {
-        assert_eq!(
-            decide_session(false, false, true),
-            SessionMode::LoadThenInteractive
-        );
-    }
-
-    #[test]
-    fn test_session_items_no_stdin_no_script() {
-        assert_eq!(
-            decide_session(true, false, false),
-            SessionMode::PromptThenInteractive
-        );
-    }
-
-    #[test]
-    fn test_session_items_no_stdin_with_script() {
-        assert_eq!(
-            decide_session(true, false, true),
-            SessionMode::PromptLoadThenInteractive
-        );
-    }
-
-    #[test]
-    fn test_session_items_stdin_no_script() {
-        assert_eq!(
-            decide_session(true, true, false),
-            SessionMode::PromptThenExit
-        );
-    }
-
-    #[test]
-    fn test_session_items_stdin_with_script() {
-        assert_eq!(
-            decide_session(true, true, true),
-            SessionMode::PromptLoadStdinThenExit
-        );
-    }
 }
