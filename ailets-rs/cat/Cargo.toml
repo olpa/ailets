@@ -7,7 +7,7 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-actor_io.workspace = true
+actor_io = { workspace = true, features = ["std"] }
 actor_runtime.workspace = true
 ailetos = { path = "../ailetos" }
 embedded-io.workspace = true
