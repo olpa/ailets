@@ -18,7 +18,7 @@ fn main() {
 
     let args: Vec<String> = std::env::args().collect();
 
-    let mut cli_args = match parse_args(&args) {
+    let cli_args = match parse_args(&args) {
         Ok(args) => args,
         Err(e) => {
             eprintln!("Error: {e}");
@@ -61,11 +61,10 @@ fn main() {
 
     // Run all load scripts in order.
     for script_path in &cli_args.load_scripts {
-        println!("Loading {script_path}...\n");
+        println!("Loading {script_path}...");
         if let Err(e) = shell.cmd_source(&mut interp, ctx, &[script_path.as_str()]) {
             println!("Error: {e}");
         }
-        println!();
     }
 
     // Exit without interactive shell only when stdin was consumed (REPL would block on EOF).
