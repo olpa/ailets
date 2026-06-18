@@ -180,8 +180,8 @@ pub enum SessionMode {
     LoadThenInteractive,
     /// Prompt items created, stdin not consumed: open REPL (nodes already wired).
     PromptThenInteractive,
-    /// Prompt items + `-l` script, stdin not consumed: run script then exit.
-    PromptLoadThenExit,
+    /// Prompt items + `-l` script, stdin not consumed: run script then keep REPL open.
+    PromptLoadThenInteractive,
     /// Prompt items + stdin consumed (no `-l`): exit after nodes are created.
     PromptThenExit,
     /// Prompt items + stdin consumed + `-l` script: run script then exit.
@@ -199,7 +199,7 @@ pub fn decide_session(
         (false, _, false) => SessionMode::Interactive,
         (false, _, true) => SessionMode::LoadThenInteractive,
         (true, false, false) => SessionMode::PromptThenInteractive,
-        (true, false, true) => SessionMode::PromptLoadThenExit,
+        (true, false, true) => SessionMode::PromptLoadThenInteractive,
         (true, true, false) => SessionMode::PromptThenExit,
         (true, true, true) => SessionMode::PromptLoadStdinThenExit,
     }
@@ -474,7 +474,7 @@ mod tests {
     fn test_session_items_no_stdin_with_script() {
         assert_eq!(
             decide_session(true, false, true),
-            SessionMode::PromptLoadThenExit
+            SessionMode::PromptLoadThenInteractive
         );
     }
 
