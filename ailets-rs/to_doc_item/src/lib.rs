@@ -2,7 +2,7 @@
 //!
 //! Reads raw bytes from stdin and writes a JSON content-item array to stdout.
 //! User-specified attributes (e.g. `type`, `content_type`) are passed via the
-//! `to_doc_item_control` registry, which is keyed by node handle. The `explain`
+//! `control` registry, which is keyed by node handle. The `explain`
 //! field on the DAG node carries the same data for human inspection.
 //!
 //! Supported output formats:
@@ -12,20 +12,24 @@
 //!
 //! Note: raw bytes are embedded without JSON escaping. Proper escaping is deferred.
 
+mod actor_registry;
+pub mod control;
+
 use actor_io::{AReader, AWriter};
 use actor_runtime::{ActorRuntime, StdHandle};
 use ailetos::Handle;
 use embedded_io::Write as _;
 use std::io::Read as _;
 
-use crate::attr;
-use crate::to_doc_item_control;
+fn attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
+    attrs.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+}
 
 /// # Errors
 /// Returns an error if I/O fails or if the attrs specify an unsupported type.
 pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
     let my_handle = Handle::new(runtime.node_handle());
-    let attrs = to_doc_item_control::get_attrs(my_handle).unwrap_or_default();
+    let attrs = control::get_attrs(my_handle).unwrap_or_default();
 
     let mut reader = AReader::new_from_std(runtime, StdHandle::Stdin);
     let mut writer = AWriter::new_from_std(runtime, StdHandle::Stdout);

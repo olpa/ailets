@@ -4,10 +4,9 @@ use std::sync::Arc;
 
 use ailetos::{Environment, Handle};
 
-use crate::file_value_actor;
-use crate::file_value_control;
 use crate::shell_ui::PromptArg;
-use crate::to_doc_item_control;
+use file_value::control as file_value_control;
+use to_doc_item::control as to_doc_item_control;
 
 const CTL_USER_JSON: &[u8] = br#"[{"type":"ctl"},{"role":"user"}]"#;
 const CTL_SYSTEM_JSON: &[u8] = br#"[{"type":"ctl"},{"role":"system"}]"#;
@@ -66,7 +65,7 @@ fn add_file_then_doc(
     // knows to emit an image item rather than text.
     let augmented;
     let doc_attrs = if !attrs.iter().any(|(k, _)| k == "type") {
-        if let Some(mime) = file_value_actor::mime_for_path(&file_explain) {
+        if let Some(mime) = file_value::mime_for_path(&file_explain) {
             augmented = {
                 let mut v = attrs.to_vec();
                 v.push(("type".to_string(), "image".to_string()));

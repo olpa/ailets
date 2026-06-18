@@ -18,10 +18,12 @@ ailetos = { path = "../ailetos" }
 actor_io = { workspace = true, features = ["std"] }
 actor_runtime.workspace = true
 cat = { path = "../cat" }
+file_value = { path = "../file_value" }
 gpt = { path = "../gpt" }
 messages_to_markdown = { path = "../messages_to_markdown" }
 messages_to_query = { path = "../messages_to_query" }
 query = { path = "../query" }
+to_doc_item = { path = "../to_doc_item" }
 embedded-io.workspace = true
 parking_lot.workspace = true
 once_cell = "1.19"

@@ -1,6 +1,6 @@
 //! Actor: reads a file or stdin and writes raw bytes (or a KV key for images) to stdout.
 //!
-//! Configuration (path, attrs, KV, IdGen) is retrieved from `file_value_control`
+//! Configuration (path, attrs, KV, IdGen) is retrieved from `control`
 //! using the actor's node handle.
 //!
 //! Behaviour by content type:
@@ -9,14 +9,18 @@
 //!
 //! Type is determined first by the `type` attr, then by file extension.
 
+mod actor_registry;
+pub mod control;
+
 use actor_io::AWriter;
 use actor_runtime::{ActorRuntime, StdHandle};
 use ailetos::Handle;
 use embedded_io::Write as _;
 use std::io::Read as _;
 
-use crate::attr;
-use crate::file_value_control;
+fn attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
+    attrs.iter().find(|(k, _)| k == key).map(|(_, v)| v.as_str())
+}
 
 const TEXT_EXTENSIONS: &[&str] = &[
     "txt", "md", "rs", "py", "js", "ts", "json", "toml", "yaml", "yml", "html", "css", "sh",
@@ -33,7 +37,7 @@ const IMAGE_EXTENSIONS: &[(&str, &str)] = &[
 /// Returns an error if the actor is not registered, I/O fails, or the file type is unknown.
 pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
     let my_handle = Handle::new(runtime.node_handle());
-    let cfg = file_value_control::take(my_handle)
+    let cfg = control::take(my_handle)
         .ok_or_else(|| format!("file_value actor {my_handle:?} not registered"))?;
 
     let mut writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
@@ -219,7 +223,6 @@ mod tests {
 
     #[test]
     fn attr_overrides_extension() {
-        // .png extension → image by default, but explicit type=text overrides
         let attrs = vec![("type".to_string(), "text".to_string())];
         assert!(matches!(detect_kind("data.png", &attrs).unwrap(), ContentKind::Text));
     }
