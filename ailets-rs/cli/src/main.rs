@@ -48,15 +48,11 @@ fn main() {
     println!("Type 'help' for available commands.\n");
 
     // Stdin is only treated as data when the user explicitly writes `-` or `@-`.
-    let stdin_usage = if cli_args.prompt_items.is_empty() {
-        StdinUsage::DagShell
-    } else {
-        match shell.register_prompt_inputs(&cli_args.prompt_items) {
-            Ok(usage) => usage,
-            Err(e) => {
-                eprintln!("Error building prompt nodes: {e}");
-                std::process::exit(1);
-            }
+    let stdin_usage = match shell.register_prompt_inputs(&cli_args.prompt_items) {
+        Ok(usage) => usage,
+        Err(e) => {
+            eprintln!("Error building prompt nodes: {e}");
+            std::process::exit(1);
         }
     };
 
