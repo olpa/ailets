@@ -1,5 +1,6 @@
 //! DAG Shell binary entry point.
 
+use dagsh::prompt_nodes::StdinUsage;
 use dagsh::shell_ui::{create_notification_sink, parse_args, print_usage, ShellHelper};
 use dagsh::{make_interp, DagShell, ShellControl};
 use rustyline::config::Configurer;
@@ -47,11 +48,11 @@ fn main() {
     println!("Type 'help' for available commands.\n");
 
     // Stdin is only treated as data when the user explicitly writes `-` or `@-`.
-    let stdin_consumed = if cli_args.prompt_items.is_empty() {
-        false
+    let stdin_usage = if cli_args.prompt_items.is_empty() {
+        StdinUsage::DagShell
     } else {
         match shell.register_prompt_inputs(&cli_args.prompt_items) {
-            Ok(consumed) => consumed,
+            Ok(usage) => usage,
             Err(e) => {
                 eprintln!("Error building prompt nodes: {e}");
                 std::process::exit(1);
@@ -65,10 +66,11 @@ fn main() {
         if let Err(e) = shell.cmd_source(&mut interp, ctx, &[script_path.as_str()]) {
             println!("Error: {e}");
         }
+        println!();
     }
 
-    // Exit without interactive shell only when stdin was consumed (REPL would block on EOF).
-    if stdin_consumed {
+    // Exit without interactive shell when stdin is wired into a DAG file_value actor.
+    if stdin_usage == StdinUsage::FileValue {
         drop(shell);
         drop(printer_rt);
         return;

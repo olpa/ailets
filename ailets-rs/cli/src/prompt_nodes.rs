@@ -11,6 +11,15 @@ use to_doc_item::control as to_doc_item_control;
 const CTL_USER_JSON: &[u8] = br#"[{"type":"ctl"},{"role":"user"}]"#;
 const CTL_SYSTEM_JSON: &[u8] = br#"[{"type":"ctl"},{"role":"system"}]"#;
 
+/// How stdin is used after `register_prompt_inputs`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StdinUsage {
+    /// Stdin is wired into a DAG file_value actor node.
+    FileValue,
+    /// Stdin is available for the interactive shell.
+    DagShell,
+}
+
 /// Creates a value node from `data` and adds it to the `"input_doc"` alias.
 /// Used for CTL role-marker nodes, which are already structured.
 fn add_ctl_to_input_doc(
@@ -118,7 +127,7 @@ fn attrs_to_explain(attrs: &[(String, String)]) -> Option<String> {
 /// File and stdin items use a `file_value` actor instead of an inline value
 /// node; the actor node is aliased as `"input_raw"`.
 ///
-/// Returns `true` if stdin was consumed (any `PromptArg::Stdin` was present).
+/// Returns `StdinUsage::FileValue` if any `PromptArg::Stdin` was present.
 ///
 /// # Errors
 /// Returns an error if node creation fails.
@@ -126,9 +135,9 @@ pub fn register_prompt_inputs(
     env: &Arc<Environment>,
     async_runtime: &tokio::runtime::Handle,
     items: &[PromptArg],
-) -> Result<bool, String> {
+) -> Result<StdinUsage, String> {
     let mut last_role: Option<&str> = None;
-    let mut stdin_consumed = false;
+    let mut stdin_usage = StdinUsage::DagShell;
 
     for item in items {
         match item {
@@ -151,7 +160,7 @@ pub fn register_prompt_inputs(
                     add_ctl_to_input_doc(env, async_runtime, CTL_USER_JSON)?;
                 }
                 add_file_then_doc(env, async_runtime, "-".to_string(), &[]);
-                stdin_consumed = true;
+                stdin_usage = StdinUsage::FileValue;
                 last_role = Some("user");
             }
             PromptArg::File { path, attrs } => {
@@ -163,7 +172,7 @@ pub fn register_prompt_inputs(
             }
         }
     }
-    Ok(stdin_consumed)
+    Ok(stdin_usage)
 }
 
 // ---------------------------------------------------------------------------
@@ -318,7 +327,7 @@ mod tests {
         ];
         let consumed = register_prompt_inputs(&env, rt.handle(), &items).unwrap();
 
-        assert!(consumed, "stdin should be marked consumed");
+        assert_eq!(consumed, StdinUsage::FileValue, "stdin should be marked consumed");
 
         let doc_deps = alias_deps(&env, "input_doc");
         // ctl(user) + to_doc_item(stdin) + to_doc_item(Hello)
@@ -348,7 +357,7 @@ mod tests {
         ];
         let consumed = register_prompt_inputs(&env, rt.handle(), &items).unwrap();
 
-        assert!(consumed);
+        assert_eq!(consumed, StdinUsage::FileValue);
 
         let doc_deps = alias_deps(&env, "input_doc");
         assert_eq!(doc_deps.len(), 3);

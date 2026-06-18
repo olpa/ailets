@@ -285,14 +285,14 @@ impl DagShell {
 
     /// Register prompt items as DAG nodes, creating a stdin actor if needed.
     ///
-    /// Returns `true` if stdin was consumed by any `PromptArg::Stdin` item.
+    /// Returns `StdinUsage::FileValue` if any `PromptArg::Stdin` item was present.
     ///
     /// # Errors
     /// Returns an error if a file cannot be read or its type cannot be determined.
     pub fn register_prompt_inputs(
         &mut self,
         items: &[shell_ui::PromptArg],
-    ) -> Result<bool, String> {
+    ) -> Result<prompt_nodes::StdinUsage, String> {
         prompt_nodes::register_prompt_inputs(&self.env, self.ailetos_async_rt.handle(), items)
     }
 
