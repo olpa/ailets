@@ -93,4 +93,8 @@ impl ActorRuntime for FfiActorRuntime {
     fn suspend_and_wait(&self) {
         unsafe { suspend_and_wait() }
     }
+
+    fn get_env(&self, _key: &str) -> Option<String> {
+        None
+    }
 }

@@ -336,4 +336,8 @@ impl actor_runtime::ActorRuntime for VfsActorRuntime {
     fn suspend_and_wait(&self) {
         // No-op in mock runtime
     }
+
+    fn get_env(&self, _key: &str) -> Option<String> {
+        None
+    }
 }
