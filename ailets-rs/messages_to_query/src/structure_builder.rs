@@ -30,7 +30,7 @@ pub enum ItemAttrMode {
 }
 
 const DEFAULT_URL: &str = "https://api.openai.com/v1/chat/completions";
-const DEFAULT_MODEL: &str = "gpt-4o-mini";
+const DEFAULT_MODEL: &str = "gpt-5.4-mini";
 const DEFAULT_CONTENT_TYPE: &str = "application/json";
 const DEFAULT_AUTHORIZATION: &str = "Bearer {{secret}}";
 
