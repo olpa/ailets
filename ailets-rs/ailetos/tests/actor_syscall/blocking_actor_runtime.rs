@@ -78,6 +78,7 @@ async fn test_reader_to_actor_epipe_propagation() {
         actor_handle,
         Arc::clone(&bridge),
         Arc::clone(&suspension),
+        Arc::clone(&env.env_service),
         actor_done_tx,
     );
     runtime.register_std_fds();
@@ -119,6 +120,7 @@ async fn test_latch_errno_with_errno() {
         actor_handle,
         Arc::clone(&bridge),
         Arc::clone(&suspension),
+        Arc::clone(&env.env_service),
         actor_done_tx,
     );
     runtime.register_std_fds();
@@ -151,7 +153,7 @@ async fn test_latch_errno_with_eownerdead() {
     let suspension = Arc::new(SuspensionState::new());
 
     let runtime =
-        BlockingActorRuntime::new(actor_handle, Arc::clone(&bridge), suspension, actor_done_tx);
+        BlockingActorRuntime::new(actor_handle, Arc::clone(&bridge), suspension, Arc::clone(&env.env_service), actor_done_tx);
 
     let (tx, rx) = oneshot::channel();
     tokio::task::spawn_blocking(move || {

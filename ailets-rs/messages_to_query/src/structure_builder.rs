@@ -203,11 +203,8 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
     fn write_prologue(&mut self) -> Result<(), String> {
         embedded_io::Write::write_all(&mut self.writer, b"{ \"url\": \"")
             .map_err(|e| format!("{e:?}"))?;
-        let url = self
-            .env_opts
-            .get("http.url")
-            .and_then(|v| v.as_str())
-            .unwrap_or(DEFAULT_URL);
+        let url = self.runtime.get_env("AILETS_LLM_URL")
+            .unwrap_or_else(|| DEFAULT_URL.to_string());
         embedded_io::Write::write_all(&mut self.writer, url.as_bytes())
             .map_err(|e| format!("{e:?}"))?;
         embedded_io::Write::write_all(
@@ -258,11 +255,8 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
         // Write the body
         embedded_io::Write::write_all(&mut self.writer, b"\" },\n\"body\": { \"model\": \"")
             .map_err(|e| format!("{e:?}"))?;
-        let model = self
-            .env_opts
-            .get("llm.model")
-            .and_then(|v| v.as_str())
-            .unwrap_or(DEFAULT_MODEL);
+        let model = self.runtime.get_env("AILETS_MODEL")
+            .unwrap_or_else(|| DEFAULT_MODEL.to_string());
         embedded_io::Write::write_all(&mut self.writer, model.as_bytes())
             .map_err(|e| format!("{e:?}"))?;
         embedded_io::Write::write_all(&mut self.writer, b"\", \"stream\": ")
@@ -274,6 +268,12 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
             .unwrap_or(true);
         embedded_io::Write::write_all(&mut self.writer, stream.to_string().as_bytes())
             .map_err(|e| format!("{e:?}"))?;
+
+        if let Some(thinking) = self.runtime.get_env("AILETS_LLM_THINKING") {
+            let thinking_part = format!(r#", "thinking": "{}""#, thinking);
+            embedded_io::Write::write_all(&mut self.writer, thinking_part.as_bytes())
+                .map_err(|e| format!("{e:?}"))?;
+        }
 
         // Add remaining llm.* parameters
         for (key, value) in &self.env_opts {
