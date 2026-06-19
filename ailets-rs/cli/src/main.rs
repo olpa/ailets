@@ -1,5 +1,6 @@
 //! DAG Shell binary entry point.
 
+use dagsh::prompt_nodes::StdinUsage;
 use dagsh::shell_ui::{create_notification_sink, parse_args, print_usage, ShellHelper};
 use dagsh::{make_interp, DagShell, ShellControl};
 use rustyline::config::Configurer;
@@ -46,14 +47,32 @@ fn main() {
     println!("DAG Shell v0.1 (TCL)");
     println!("Type 'help' for available commands.\n");
 
-    if let Some(script_path) = cli_args.load_script {
-        println!("Loading {script_path}...\n");
-        if let Err(e) = shell.cmd_source(&mut interp, ctx, &[&script_path]) {
+    // Stdin is only treated as data when the user explicitly writes `-` or `@-`.
+    let stdin_usage = match shell.register_prompt_inputs(&cli_args.prompt_items) {
+        Ok(usage) => usage,
+        Err(e) => {
+            eprintln!("Error building prompt nodes: {e}");
+            std::process::exit(1);
+        }
+    };
+
+    // Run all load scripts in order.
+    for script_path in &cli_args.load_scripts {
+        println!("Loading {script_path}...");
+        if let Err(e) = shell.cmd_source(&mut interp, ctx, &[script_path.as_str()]) {
             println!("Error: {e}");
         }
         println!();
     }
 
+    // Exit without interactive shell when stdin is wired into a DAG file_value actor.
+    if stdin_usage == StdinUsage::FileValue {
+        drop(shell);
+        drop(printer_rt);
+        return;
+    }
+
+    // Interactive REPL.
     loop {
         match rl.readline("dagsh> ") {
             Ok(line) => {
@@ -87,7 +106,7 @@ fn main() {
         }
     }
 
-    // shell must drop before _printer_rt: dropping shell closes the ChannelSink
+    // shell must drop before printer_rt: dropping shell closes the ChannelSink
     // sender, letting the spawn_blocking receiver task exit before the runtime shuts down.
     drop(shell);
     drop(printer_rt);

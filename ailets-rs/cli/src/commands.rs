@@ -5,7 +5,8 @@ use std::sync::Arc;
 use actor_runtime::StdHandle;
 use ailetos::{
     pipe::{pipe_path, LatentState, PipeEntryInspection},
-    DependsOn, For, Handle, KVBuffers, NodeState, OpenMode, StopConditions, TopologicalOrderIter,
+    DependsOn, For, Handle, KVBuffers, NodeKind, NodeState, OpenMode, StopConditions,
+    TopologicalOrderIter,
 };
 
 use crate::output::{parse_color, OutputSinkWriter};
@@ -112,7 +113,6 @@ impl DagShell {
         let rest = args.get(1..).unwrap_or_default();
         let explain = parse_explain(rest);
         let handle = self.env.add_node(actor.clone(), &[], explain.clone());
-        self.handles.push(handle);
 
         if actor == "dbg" {
             let bytes_before_pause = parse_bytes_before_pause(rest);
@@ -138,7 +138,9 @@ pub static ENTRY_VALUE: CommandMeta = CommandMeta {
     detail: None,
 };
 impl DagShell {
-    pub(crate) fn cmd_value(&mut self, args: &[&str]) -> Result<Handle, String> {
+    /// # Errors
+    /// Returns an error if no data argument is supplied or if adding the value node fails.
+    pub fn cmd_value(&mut self, args: &[&str]) -> Result<Handle, String> {
         if args.is_empty() {
             return Err("Usage: value <data> [--explain=text]".to_string());
         }
@@ -151,7 +153,6 @@ impl DagShell {
             .ailetos_async_rt
             .block_on(async move { env.add_value_node(data_bytes, explain_clone).await })
             .map_err(|e| format!("Failed to add value node: {e}"))?;
-        self.handles.push(handle);
         let id = handle.id();
         let truncated = truncate(&data, 30);
         let expl = explain.map_or_else(String::new, |e| format!("({e})"));
@@ -169,7 +170,9 @@ pub static ENTRY_ALIAS: CommandMeta = CommandMeta {
     detail: None,
 };
 impl DagShell {
-    pub(crate) fn cmd_alias(&mut self, args: &[&str]) -> Result<Handle, String> {
+    /// # Errors
+    /// Returns an error if fewer than two arguments are supplied or a target handle is invalid.
+    pub fn cmd_alias(&mut self, args: &[&str]) -> Result<Handle, String> {
         let (name, targets_strs) = match args {
             [name, rest @ ..] if !rest.is_empty() => (*name, rest),
             _ => return Err("Usage: alias <name> <target> [<target>...]".to_string()),
@@ -183,7 +186,6 @@ impl DagShell {
             targets.push(target);
         }
         let handle = self.env.add_aliases(name.clone(), &targets);
-        self.handles.push(handle);
         let id = handle.id();
         let tids: Vec<_> = targets.iter().map(|t| t.id().to_string()).collect();
         self.sink
@@ -201,22 +203,26 @@ pub static ENTRY_NODES: CommandMeta = CommandMeta {
 };
 impl DagShell {
     pub(crate) fn cmd_nodes(&self) {
-        if self.handles.is_empty() {
+        let dag = self.env.dag.read();
+        let mut found = false;
+        for node in dag.nodes() {
+            found = true;
+            let state_str = format_state(node.state);
+            let explain = node
+                .explain
+                .as_ref()
+                .map_or_else(String::new, |e| format!(" # {e}"));
+            let pid = node.pid.id();
+            let suffix = if node.kind == NodeKind::Alias {
+                format!(" (alias){explain}")
+            } else {
+                format!(" [{state_str}]{explain}")
+            };
+            self.sink
+                .println(&format!("  {pid} {}{suffix}", node.idname));
+        }
+        if !found {
             self.sink.println("No nodes");
-        } else {
-            let dag = self.env.dag.read();
-            for &handle in &self.handles {
-                if let Some(node) = dag.get_node(handle) {
-                    let state_str = format_state(node.state);
-                    let explain = node
-                        .explain
-                        .as_ref()
-                        .map_or_else(String::new, |e| format!(" # {e}"));
-                    let pid = node.pid.id();
-                    self.sink
-                        .println(&format!("  {pid} {} [{state_str}]{explain}", node.idname));
-                }
-            }
         }
     }
 }
@@ -268,6 +274,25 @@ pub static ENTRY_SHOW: CommandMeta = CommandMeta {
     detail: None,
 };
 impl DagShell {
+    fn format_alias_summary(dag: &ailetos::Dag, handle: Handle) -> Option<String> {
+        let node = dag.get_node(handle).filter(|n| n.kind == NodeKind::Alias)?;
+        let targets: Vec<String> = dag
+            .resolve_dependencies(node.pid)
+            .map(|h| {
+                dag.get_node(h).map_or_else(
+                    || format!("#{}", h.id()),
+                    |n| format!("{}.{}", n.idname, h.id()),
+                )
+            })
+            .collect();
+        Some(format!(
+            "alias {}.{} → {}",
+            node.idname,
+            node.pid.id(),
+            targets.join(", ")
+        ))
+    }
+
     pub(crate) fn cmd_show(&self, args: &[&str]) -> Result<(), String> {
         // snapshot_pending() before dag.read() to avoid lock-order deadlock:
         // executor holds pending.lock() then acquires dag.write(); we must not
@@ -275,12 +300,19 @@ impl DagShell {
         let pending = self.executor.snapshot_pending();
         let dag = self.env.dag.read();
         if args.is_empty() {
-            if self.handles.is_empty() {
+            let all_handles: Vec<Handle> = dag.nodes().map(|n| n.pid).collect();
+            if all_handles.is_empty() {
                 self.sink.println("No nodes");
                 return Ok(());
             }
-            let terminals: Vec<Handle> = self
-                .handles
+
+            for node in dag.nodes().filter(|n| n.kind == NodeKind::Alias) {
+                if let Some(summary) = Self::format_alias_summary(&dag, node.pid) {
+                    self.sink.println(&summary);
+                }
+            }
+
+            let terminals: Vec<Handle> = all_handles
                 .iter()
                 .filter(|&&h| dag.get_direct_dependents(h).next().is_none())
                 .copied()
@@ -288,7 +320,7 @@ impl DagShell {
 
             let suspension = Some(&*self.env.suspension);
             let roots = if terminals.is_empty() {
-                self.handles.clone()
+                all_handles
             } else {
                 terminals
             };
@@ -304,6 +336,9 @@ impl DagShell {
         let handle = self
             .parse_handle(handle_str)
             .ok_or_else(|| format!("Invalid handle: {handle_str}"))?;
+        if let Some(summary) = Self::format_alias_summary(&dag, handle) {
+            self.sink.println(&summary);
+        }
         let suspension = Some(&*self.env.suspension);
         let tree = dag.dump_colored(handle, suspension, Some(&pending));
         for line in tree.lines() {
@@ -459,12 +494,12 @@ impl DagShell {
     }
 
     pub(crate) fn find_default_target(&self) -> Result<Handle, String> {
-        if self.handles.is_empty() {
+        let dag = self.env.dag.read();
+        let all_handles: Vec<Handle> = dag.nodes().map(|n| n.pid).collect();
+        if all_handles.is_empty() {
             return Err("No nodes to run".to_string());
         }
-        let dag = self.env.dag.read();
-        let terminals: Vec<Handle> = self
-            .handles
+        let terminals: Vec<Handle> = all_handles
             .iter()
             .filter(|&&h| dag.get_direct_dependents(h).next().is_none())
             .copied()
@@ -700,35 +735,37 @@ impl DagShell {
             .parse_handle(node_str)
             .ok_or_else(|| format!("Invalid handle: {node_str}"))?;
 
-        let node_state = self.env.dag.read().get_node(handle).map(|n| n.state);
-
-        let kv = Arc::clone(&self.kv);
-        let output = self.ailetos_async_rt.block_on(async move {
-            let path = pipe_path(handle, stream_fd);
-            match kv.open(&path, OpenMode::Read).await {
-                Ok(buffer) => {
-                    let guard = buffer.lock();
-                    Ok(String::from_utf8_lossy(&guard).into_owned())
+        for target in self.env.resolve_all(handle) {
+            let node_state = self.env.dag.read().get_node(target).map(|n| n.state);
+            let kv = Arc::clone(&self.kv);
+            let stream_name = stream_name.clone();
+            let output = self.ailetos_async_rt.block_on(async move {
+                let path = pipe_path(target, stream_fd);
+                match kv.open(&path, OpenMode::Read).await {
+                    Ok(buffer) => {
+                        let guard = buffer.lock();
+                        Ok(String::from_utf8_lossy(&guard).into_owned())
+                    }
+                    Err(_) => Err(match node_state {
+                        Some(NodeState::NotStarted) => {
+                            format!("Node {} was never executed", target.id())
+                        }
+                        Some(NodeState::Running | NodeState::Terminating) => {
+                            format!(
+                                "Node {} is running but hasn't created stream {stream_name} yet",
+                                target.id()
+                            )
+                        }
+                        Some(NodeState::Terminated) | None => {
+                            format!("No output on stream {stream_name} for node {}", target.id())
+                        }
+                    }),
                 }
-                Err(_) => Err(match node_state {
-                    Some(NodeState::NotStarted) => {
-                        format!("Node {} was never executed", handle.id())
-                    }
-                    Some(NodeState::Running | NodeState::Terminating) => {
-                        format!(
-                            "Node {} is running but hasn't created stream {stream_name} yet",
-                            handle.id()
-                        )
-                    }
-                    Some(NodeState::Terminated) | None => {
-                        format!("No output on stream {stream_name} for node {}", handle.id())
-                    }
-                }),
+            });
+            match output {
+                Ok(text) => self.sink.println(&text),
+                Err(e) => self.sink.println(&e),
             }
-        });
-        match output {
-            Ok(text) => self.sink.println(&text),
-            Err(e) => self.sink.println(&e),
         }
         Ok(())
     }
@@ -776,22 +813,21 @@ impl DagShell {
         let mut pending = 0;
         let mut suspended = 0;
 
-        for &handle in &self.handles {
-            if let Some(node) = dag.get_node(handle) {
-                total += 1;
-                match node.state {
-                    NodeState::Running => running += 1,
-                    NodeState::Terminated => terminated += 1,
-                    NodeState::NotStarted => {
-                        if pending_set.contains(&handle) {
-                            pending += 1;
-                        }
+        for node in dag.nodes() {
+            let handle = node.pid;
+            total += 1;
+            match node.state {
+                NodeState::Running => running += 1,
+                NodeState::Terminated => terminated += 1,
+                NodeState::NotStarted => {
+                    if pending_set.contains(&handle) {
+                        pending += 1;
                     }
-                    NodeState::Terminating => {}
                 }
-                if self.env.suspension.is_suspended(handle) {
-                    suspended += 1;
-                }
+                NodeState::Terminating => {}
+            }
+            if self.env.suspension.is_suspended(handle) {
+                suspended += 1;
             }
         }
         self.sink.println(&format!("Nodes: {total} total, {pending} pending, {running} running, {suspended} suspended, {terminated} terminated"));
@@ -1151,3 +1187,49 @@ fn format_pipe_inspection(inspection: &PipeEntryInspection) -> String {
         PipeEntryInspection::Latent(LatentState::Closed) => "latent, closed".to_string(),
     }
 }
+
+// ---------------------------------------------------------------------------
+// dag — DAG introspection ensemble
+// ---------------------------------------------------------------------------
+
+pub static ENTRY_DAG: CommandMeta = CommandMeta {
+    names: &["dag"],
+    argsig: "exists|handle <name>",
+    section: "Node Management",
+    description: "DAG introspection",
+    detail: Some(
+        "    exists <name>               1 if a node named <name> exists, else 0\n    handle <name>               numeric handle of node named <name>",
+    ),
+};
+
+impl DagShell {
+    /// # Errors
+    /// Returns an error for unknown subcommands or if `handle` is called with a name
+    /// that does not exist.
+    pub fn cmd_dag(&self, args: &[&str]) -> Result<String, String> {
+        match args {
+            ["exists", name] => {
+                let exists = self.parse_handle(name).is_some();
+                Ok(if exists {
+                    "1".to_string()
+                } else {
+                    "0".to_string()
+                })
+            }
+            ["handle", name] => {
+                let handle = self
+                    .parse_handle(name)
+                    .ok_or_else(|| format!("no node named '{name}'"))?;
+                Ok(handle.id().to_string())
+            }
+            [sub, ..] => Err(format!(
+                "unknown subcommand '{sub}'; expected 'exists' or 'handle'"
+            )),
+            [] => Err("dag: subcommand required; expected 'exists' or 'handle'".to_string()),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------

@@ -1,0 +1,16 @@
+[package]
+name = "to_doc_item"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+actor_io.workspace = true
+actor_runtime.workspace = true
+ailetos = { path = "../ailetos" }
+embedded-io.workspace = true
+parking_lot.workspace = true

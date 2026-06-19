@@ -44,21 +44,64 @@ impl OutputSink for ChannelSink {
 // ---------------------------------------------------------------------------
 
 pub fn print_usage() {
-    println!("Usage: dagsh [OPTIONS]");
+    println!("Usage: dagsh [OPTIONS] [PROMPT_ITEMS...]");
     println!();
     println!("Options:");
-    println!("  -l, --load <file>   Load TCL script file on startup, then continue interactively");
-    println!("  -h, --help          Show this help");
+    println!("  -l, --load <file>          Load TCL script file on startup");
+    println!("  --system-prompt <text>     Add a system prompt item");
+    println!("  -h, --help                 Show this help");
+    println!();
+    println!("Prompt items (positional):");
+    println!("  \"text\"                     Plain text prompt");
+    println!("  @path                      Read file as prompt content");
+    println!("  - or @-                    Read stdin as prompt content");
+}
+
+#[derive(Debug, PartialEq)]
+pub enum PromptArg {
+    SystemPrompt(String),
+    Text(String),
+    File {
+        path: String,
+        attrs: Vec<(String, String)>,
+    },
+    Stdin,
 }
 
 pub struct CliArgs {
-    pub load_script: Option<String>,
+    pub load_scripts: Vec<String>,
+    pub prompt_items: Vec<PromptArg>,
+}
+
+/// Parses the part of a `@...` arg after the `@` prefix.
+/// If the string contains `=`, it is treated as a comma-separated `key=value`
+/// list; the required `file=` key provides the path and remaining pairs are attrs.
+/// Otherwise the whole string is the path with no attrs.
+fn parse_at_arg(s: &str) -> Result<(String, Vec<(String, String)>), String> {
+    if !s.contains('=') {
+        return Ok((s.to_string(), vec![]));
+    }
+    let mut path: Option<String> = None;
+    let mut attrs: Vec<(String, String)> = Vec::new();
+    for pair in s.split(',').filter(|p| !p.is_empty()) {
+        let (k, v) = pair
+            .split_once('=')
+            .ok_or_else(|| format!("invalid attr '{pair}' in '@{s}'; expected key=value"))?;
+        if k == "file" {
+            path = Some(v.to_string());
+        } else {
+            attrs.push((k.to_string(), v.to_string()));
+        }
+    }
+    let path = path.ok_or_else(|| format!("missing required 'file=' key in '@{s}'"))?;
+    Ok((path, attrs))
 }
 
 /// # Errors
-/// Returns an error string if an unknown option or missing argument is encountered.
+/// Returns an error if an argument is malformed (bad `@` syntax, missing value for a flag, etc.).
 pub fn parse_args(args: &[String]) -> Result<CliArgs, String> {
-    let mut load_script: Option<String> = None;
+    let mut load_scripts: Vec<String> = Vec::new();
+    let mut prompt_items: Vec<PromptArg> = Vec::new();
     let mut i = 1;
     while i < args.len() {
         let Some(arg) = args.get(i) else { break };
@@ -71,19 +114,47 @@ pub fn parse_args(args: &[String]) -> Result<CliArgs, String> {
                 let Some(path) = args.get(i + 1) else {
                     return Err("--load requires a file argument".to_string());
                 };
-                load_script = Some(path.clone());
+                load_scripts.push(path.clone());
                 i += 2;
+            }
+            "--system-prompt" => {
+                let Some(text) = args.get(i + 1) else {
+                    return Err("--system-prompt requires a text argument".to_string());
+                };
+                prompt_items.push(PromptArg::SystemPrompt(text.clone()));
+                i += 2;
+            }
+            "-" => {
+                prompt_items.push(PromptArg::Stdin);
+                i += 1;
             }
             a if a.starts_with('-') => {
                 return Err(format!("Unknown option: {a}"));
             }
+            "@-" => {
+                prompt_items.push(PromptArg::Stdin);
+                i += 1;
+            }
+            a if a.starts_with('@') => {
+                let (path, attrs) = parse_at_arg(&a[1..])?;
+                prompt_items.push(PromptArg::File { path, attrs });
+                i += 1;
+            }
             a => {
-                return Err(format!("Unexpected argument: {a}"));
+                prompt_items.push(PromptArg::Text(a.to_string()));
+                i += 1;
             }
         }
     }
-    Ok(CliArgs { load_script })
+    Ok(CliArgs {
+        load_scripts,
+        prompt_items,
+    })
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Rustyline helper — tab completion

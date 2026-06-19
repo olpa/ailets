@@ -16,6 +16,7 @@ pub(crate) mod shell_input_control;
 
 mod commands;
 mod output;
+pub mod prompt_nodes;
 pub mod shell_ui;
 mod tcl_interp;
 
@@ -41,7 +42,9 @@ fn make_env(kv: &Arc<MemKV>) -> Arc<Environment> {
         let mut reg = env.actor_registry.write();
         reg.register("cat", cat::execute);
         reg.register("dbg", dbg_actor::execute);
+        reg.register("file_value", file_value::execute);
         reg.register("shell_input", shell_input_actor::execute);
+        reg.register("to_doc_item", to_doc_item::execute);
         reg.register("query", query::execute);
         reg.register("messages_to_query", messages_to_query::execute);
         reg.register("messages_to_markdown", messages_to_markdown::execute);
@@ -127,7 +130,6 @@ impl NotificationWatcher {
 pub struct DagShell {
     pub(crate) env: Arc<Environment>,
     pub(crate) kv: Arc<MemKV>,
-    pub(crate) handles: Vec<Handle>,
     pub(crate) sink: Box<dyn OutputSink>,
     pub(crate) notification_sink: Arc<dyn OutputSink>,
     pub(crate) foreground_join: Arc<AtomicBool>,
@@ -203,7 +205,6 @@ impl DagShell {
         Self {
             env,
             kv,
-            handles: Vec::new(),
             sink: command_sink,
             notification_sink: notification_sink_clone,
             foreground_join,
@@ -277,9 +278,23 @@ impl DagShell {
         }
     }
 
+    /// Register prompt items as DAG nodes, creating a stdin actor if needed.
+    ///
+    /// Returns `StdinUsage::FileValue` if any `PromptArg::Stdin` item was present.
+    ///
+    /// # Errors
+    /// Returns an error if a file cannot be read or its type cannot be determined.
+    pub fn register_prompt_inputs(
+        &mut self,
+        items: &[shell_ui::PromptArg],
+    ) -> Result<prompt_nodes::StdinUsage, String> {
+        prompt_nodes::register_prompt_inputs(&self.env, self.ailetos_async_rt.handle(), items)
+    }
+
     fn prepare_exit(&mut self) {
         shell_input_control::close_all_shell_inputs();
-        for &handle in &self.handles {
+        let handles: Vec<Handle> = self.env.dag.read().nodes().map(|n| n.pid).collect();
+        for handle in handles {
             self.env.suspension.resume(handle);
         }
         // Unblock reader tasks waiting on pipes that will never be realized

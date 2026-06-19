@@ -1,34 +1,179 @@
 # dagsh commands
 
+The shell uses TCL syntax. Most of TCL is supported via the [Molt](https://github.com/wduquette/molt) interpreter — variables (`set`, `$var`), `if`, `while`, `proc`, `catch`, string/list/math commands, etc. DAG shell commands are registered as TCL commands, so node handles can be stored in variables and passed as arguments:
+
+```tcl
+set n [node dbg]
+dep $n $other
+run $n
+```
+
+---
+
+## Node Management
+
+### node
+
+```
+node <actor> [--explain=text] [--bytes-before-pause=N]
+```
+
+Add an actor node. Available actors: `cat`, `dbg`, `shell_input`. Returns the numeric node handle.
+
+`--explain=text` attaches a human-readable label shown in `show` and `nodes` output. `--bytes-before-pause=N` is only meaningful for `dbg` nodes and sets how many bytes to emit before the actor pauses.
+
+### value
+
+```
+value <data> [--explain=text]
+```
+
+Add a value node (constant data). The data is stored in the KV store and available as the node's stdout. Returns the numeric node handle.
+
+### alias
+
+```
+alias <name> <target> [<target> ...]
+```
+
+Add an alias node that resolves to one or more target nodes. Aliases are transparent to dependency resolution and DAG traversal. Returns the numeric node handle.
+
+### nodes
+
+```
+nodes
+```
+
+List all nodes with their current state.
+
+### dag
+
+```
+dag exists <name>
+dag handle <name>
+```
+
+DAG introspection. `exists` returns `1` if a node named `<name>` exists, `0` otherwise. `handle` returns the numeric handle for `<name>`, or an error if not found.
+
+---
+
+## Dependencies
+
+### dep
+
+```
+dep <node> <dependency>
+```
+
+Declare that `<node>` depends on `<dependency>`. The executor will not start `<node>` until `<dependency>` has terminated.
+
+---
+
+## Visualization
+
+### show
+
+```
+show
+show <node>
+```
+
+Print a tree view of the DAG. Without an argument, shows the whole DAG rooted at each terminal node. With a node argument, shows the subtree rooted at that node.
+
+---
+
+## Execution
+
 ### run
 
 ```
-run <node>
-run <node> --bg
+run [options] [node]
 ```
 
-`run <node>` submits the DAG execution to the ailetos runtime and then behaves identically to `join <node>` — it waits for the target node to terminate while streaming its output. Ctrl+C returns the user to the prompt; the node keeps running in ailetos.
+Submit the DAG (or a subtree) to the ailetos executor. Without a node argument, targets the single terminal node; if multiple terminal nodes exist you must specify one. Waits for completion and streams output unless `--bg` is given.
 
-`run <node> --bg` submits and returns immediately with no output streaming.
+| Option | Description |
+|--------|-------------|
+| `--bg` | Submit and return immediately; output streams asynchronously to the shell. |
+| `--one-step` | Execute only the first ready node, then stop. |
+| `--stop-before <node>` | Stop execution before `<node>` runs. |
+| `--stop-after <node>` | Stop execution after `<node>` completes. |
+| `--color <name>` | Colorize streaming output. Accepts a CSS/X11 color name or a 0–255 terminal index. Only meaningful with `--bg`. |
 
-Multiple runs can be in flight simultaneously.
+Ctrl+C while waiting returns to the prompt; the run continues in ailetos.
 
-### join / await
+---
+
+## Job Control
+
+### join
 
 ```
 join <node>
-await <node>   # synonym
 ```
 
-Waits for the node to reach `Terminated` state and streams its output while waiting. Ctrl+C returns to the prompt; the node keeps running. `await` is an alias for `join`.
+Wait for the node (and all nodes it depends on) to reach `Terminated` state, streaming their output while waiting. Ctrl+C returns to the prompt; nodes keep running.
 
 ### follow
 
 ```
-follow <node>
+follow <node> [--color <name>]
 ```
 
-Streams output from the node without waiting for termination. Behaves like `tail -f`. Ctrl+C stops following; the node keeps running.
+Attach to the node's stdout and stream output without waiting for termination — like `tail -f`. Ctrl+C stops following; the node keeps running. `--color` accepts a CSS/X11 name or 0–255 index.
+
+### kill
+
+```
+kill [-N] <node>
+```
+
+Only works on `dbg` nodes. Marks the node as killed; the node exits with an error (default exit code 130) instead of producing output when it next wakes. `-N` sets the exit code (currently accepted but the value is ignored).
+
+---
+
+## I/O
+
+### cat
+
+```
+cat <node>[:<stream>]
+```
+
+Print all output the node has produced so far. Non-streaming. The optional `:<stream>` suffix selects a specific stream: `stdout` (default), `stderr`, or a numeric file descriptor (e.g. `cat mynode:2`).
+
+---
+
+## Status
+
+### status
+
+```
+status
+status <node>
+```
+
+Without an argument, prints an aggregate summary: total, pending, running, suspended, and terminated node counts. With a node argument, shows detailed per-node state including pipe information.
+
+---
+
+## Debug
+
+### suspend
+
+```
+suspend <node>
+```
+
+Suspend a running actor. The actor pauses at its next suspension point.
+
+### resume
+
+```
+resume <node>
+```
+
+Resume a suspended actor (works for `dbg` nodes and general actors).
 
 ### wait
 
@@ -37,36 +182,56 @@ wait suspended <node>
 wait terminated <node>
 ```
 
-Scripting barrier: blocks until the node reaches the given state, then returns. Does not stream output. This is the primary synchronization primitive for scripts — it allows waiting for stabilization before proceeding. The `wait suspended` variant has no equivalent in `join` or `follow`.
+Scripting barrier: block until the node reaches the given state, then return. Does not stream output. `wait suspended` has no equivalent in `join` or `follow` and is the primary way to synchronize on a `dbg` pause before inspecting state. Ctrl+C detaches without stopping the node.
 
-### cat
+---
 
-```
-cat <node>
-```
+## Shell Input
 
-Prints all output the node has produced so far. Post-hoc, non-streaming.
-
-### kill
+### write
 
 ```
-kill <node>
-kill -N <node>
+write <node> [data]
 ```
 
-Only works on `dbg` nodes. Marks the node as killed; the node checks this flag when it wakes from suspension and exits with an error instead of producing output. The `-N` flag is accepted for forward compatibility but the value is currently ignored.
+Write data to a `shell_input` actor. If `data` is omitted, writes an empty string.
 
-### To be documented
+### close
 
-- `quit` / `exit` / `q`
-- `set`
-- `node`
-- `dep` / `deps`
-- `show`
-- `status`
-- `source` / `load`
-- `reset`
-- `suspend`
-- `resume`
-- `write`
-- `close`
+```
+close <node>
+```
+
+Close a `shell_input` actor, signalling EOF to whatever is reading from it.
+
+---
+
+## Session
+
+### source / load
+
+```
+source <file>
+load <file>
+```
+
+Read and execute a TCL script file. `load` is an alias for `source`.
+
+### help / ?
+
+```
+help
+?
+```
+
+Print a summary of all commands.
+
+### quit / exit / q
+
+```
+quit
+exit
+q
+```
+
+Exit the shell. All three forms are equivalent.

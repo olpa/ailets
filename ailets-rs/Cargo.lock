@@ -234,6 +234,7 @@ dependencies = [
  "ailetos",
  "cat",
  "embedded-io",
+ "file_value",
  "futures",
  "gpt",
  "messages_to_markdown",
@@ -243,6 +244,7 @@ dependencies = [
  "parking_lot",
  "query",
  "rustyline",
+ "to_doc_item",
  "tokio",
  "tokio-util",
  "tracing",
@@ -330,6 +332,18 @@ dependencies = [
  "cfg-if",
  "rustix",
  "windows-sys 0.59.0",
+]
+
+[[package]]
+name = "file_value"
+version = "0.1.0"
+dependencies = [
+ "actor_io",
+ "actor_runtime",
+ "ailetos",
+ "embedded-io",
+ "parking_lot",
+ "tokio",
 ]
 
 [[package]]
@@ -1437,6 +1451,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f60246a4944f24f6e018aa17cdeffb7818b76356965d03b07d6a9886e8962185"
 dependencies = [
  "cfg-if",
+]
+
+[[package]]
+name = "to_doc_item"
+version = "0.1.0"
+dependencies = [
+ "actor_io",
+ "actor_runtime",
+ "ailetos",
+ "embedded-io",
+ "parking_lot",
 ]
 
 [[package]]
