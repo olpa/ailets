@@ -258,12 +258,20 @@ impl Vfs {
 /// Wrapper around Vfs that implements the `ActorRuntime` trait
 pub struct VfsActorRuntime {
     vfs: Vfs,
+    env_vars: std::sync::RwLock<std::collections::HashMap<String, String>>,
 }
 
 impl VfsActorRuntime {
     #[must_use]
     pub fn new() -> Self {
-        Self { vfs: Vfs::new() }
+        Self {
+            vfs: Vfs::new(),
+            env_vars: std::sync::RwLock::new(std::collections::HashMap::new()),
+        }
+    }
+
+    pub fn set_env(&self, key: impl Into<String>, value: impl Into<String>) {
+        self.env_vars.write().unwrap().insert(key.into(), value.into());
     }
 
     /// Delegate methods to the underlying Vfs for direct access
@@ -337,7 +345,7 @@ impl actor_runtime::ActorRuntime for VfsActorRuntime {
         // No-op in mock runtime
     }
 
-    fn get_env(&self, _key: &str) -> Option<String> {
-        None
+    fn get_env(&self, key: &str) -> Option<String> {
+        self.env_vars.read().unwrap().get(key).cloned()
     }
 }

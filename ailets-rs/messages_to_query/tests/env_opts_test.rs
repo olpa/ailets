@@ -37,6 +37,13 @@ fn test_env_opts_invalid_json() {
 fn _build_with_env_opts(env_opts: EnvOpts) -> String {
     let writer = RcWriter::new();
     let runtime = VfsActorRuntime::new();
+    for (key, value) in env_opts.iter() {
+        if key.starts_with("AILETS_") {
+            if let Some(s) = value.as_str() {
+                runtime.set_env(key, s);
+            }
+        }
+    }
     let mut builder = StructureBuilder::new(writer.clone(), &runtime, env_opts);
     builder.begin_item().unwrap();
     builder
@@ -54,13 +61,28 @@ fn _build_with_env_opts(env_opts: EnvOpts) -> String {
 }
 
 #[test]
-fn override_stream_via_env_opts() {
+fn override_endpoint_model_stream() {
     let mut opts = HashMap::new();
+    opts.insert(
+        "AILETS_LLM_URL".to_string(),
+        serde_json::Value::String(
+            "https://my-custom-fairy-api.example.com/v1/chat/completions".to_string(),
+        ),
+    );
+    opts.insert(
+        "AILETS_MODEL".to_string(),
+        serde_json::Value::String("my-custom-fairy-model".to_string()),
+    );
     opts.insert("llm.stream".to_string(), serde_json::Value::Bool(false));
     let env_opts = EnvOpts::from_map(opts);
 
     let output = _build_with_env_opts(env_opts);
 
+    assert_that!(
+        output.as_str(),
+        matches_regex("my-custom-fairy-api.example.com")
+    );
+    assert_that!(output.as_str(), matches_regex("my-custom-fairy-model"));
     assert_that!(output.as_str(), matches_regex("\"stream\": false"));
 }
 
@@ -159,6 +181,10 @@ fn add_llm_options_of_different_types() {
 #[test]
 fn no_duplicate_model_and_stream() {
     let mut opts = HashMap::new();
+    opts.insert(
+        "AILETS_MODEL".to_string(),
+        serde_json::Value::String("my-model".to_string()),
+    );
     opts.insert("llm.stream".to_string(), serde_json::Value::Bool(false));
     let env_opts = EnvOpts::from_map(opts);
     let output = _build_with_env_opts(env_opts);
@@ -168,6 +194,9 @@ fn no_duplicate_model_and_stream() {
     let stream_count = output.matches("\"stream\"").count();
     assert_that!(model_count, equal_to(1));
     assert_that!(stream_count, equal_to(1));
+
+    // Verify the values are correct
+    assert_that!(output.as_str(), matches_regex("\"model\":\\s*\"my-model\""));
     assert_that!(output.as_str(), matches_regex("\"stream\":\\s*false"));
 }
 
