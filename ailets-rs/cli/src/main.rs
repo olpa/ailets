@@ -1,5 +1,6 @@
 //! DAG Shell binary entry point.
 
+use dagsh::model_aliases::resolve_alias;
 use dagsh::prompt_nodes::StdinUsage;
 use dagsh::shell_ui::{create_notification_sink, parse_args, print_usage, ShellHelper};
 use dagsh::{make_interp, DagShell, ShellControl};
@@ -42,6 +43,32 @@ fn main() {
     let ailetos_rt = Runtime::new().expect("failed to create ailetos runtime");
     let mut shell =
         DagShell::new_with_sinks_and_rt(Box::new(dagsh::StdoutSink), notification_sink, ailetos_rt);
+
+    // Resolve model alias and populate env_service.
+    // Priority for URL: --llm-url flag > alias-derived > AILETS_LLM_URL env var.
+    let model_input = cli_args.model.or_else(|| std::env::var("AILETS_MODEL").ok());
+    let llm_url_env = std::env::var("AILETS_LLM_URL").ok();
+    let llm_thinking = cli_args.llm_thinking.or_else(|| std::env::var("AILETS_LLM_THINKING").ok());
+
+    let (effective_model, alias_url) = match model_input {
+        Some(ref m) => match resolve_alias(m) {
+            Some(r) => (r.model.map(str::to_string).or(model_input.clone()), Some(r.url.to_string())),
+            None => (model_input.clone(), None),
+        },
+        None => (None, None),
+    };
+    let effective_url = cli_args.llm_url.or(alias_url).or(llm_url_env);
+
+    if let Some(m) = effective_model {
+        shell.set_env_var("AILETS_MODEL", &m);
+    }
+    if let Some(u) = effective_url {
+        shell.set_env_var("AILETS_LLM_URL", &u);
+    }
+    if let Some(t) = llm_thinking {
+        shell.set_env_var("AILETS_LLM_THINKING", &t);
+    }
+
     let (mut interp, ctx) = make_interp();
 
     println!("DAG Shell v0.1 (TCL)");

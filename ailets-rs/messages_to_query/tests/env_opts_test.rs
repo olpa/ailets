@@ -54,28 +54,13 @@ fn _build_with_env_opts(env_opts: EnvOpts) -> String {
 }
 
 #[test]
-fn override_endpoint_model_stream() {
+fn override_stream_via_env_opts() {
     let mut opts = HashMap::new();
-    opts.insert(
-        "http.url".to_string(),
-        serde_json::Value::String(
-            "https://my-custom-fairy-api.example.com/v1/chat/completions".to_string(),
-        ),
-    );
-    opts.insert(
-        "llm.model".to_string(),
-        serde_json::Value::String("my-custom-fairy-model".to_string()),
-    );
     opts.insert("llm.stream".to_string(), serde_json::Value::Bool(false));
     let env_opts = EnvOpts::from_map(opts);
 
     let output = _build_with_env_opts(env_opts);
 
-    assert_that!(
-        output.as_str(),
-        matches_regex("my-custom-fairy-api.example.com")
-    );
-    assert_that!(output.as_str(), matches_regex("my-custom-fairy-model"));
     assert_that!(output.as_str(), matches_regex("\"stream\": false"));
 }
 
@@ -174,10 +159,6 @@ fn add_llm_options_of_different_types() {
 #[test]
 fn no_duplicate_model_and_stream() {
     let mut opts = HashMap::new();
-    opts.insert(
-        "llm.model".to_string(),
-        serde_json::Value::String("my-model".to_string()),
-    );
     opts.insert("llm.stream".to_string(), serde_json::Value::Bool(false));
     let env_opts = EnvOpts::from_map(opts);
     let output = _build_with_env_opts(env_opts);
@@ -187,9 +168,6 @@ fn no_duplicate_model_and_stream() {
     let stream_count = output.matches("\"stream\"").count();
     assert_that!(model_count, equal_to(1));
     assert_that!(stream_count, equal_to(1));
-
-    // Verify the values are correct
-    assert_that!(output.as_str(), matches_regex("\"model\":\\s*\"my-model\""));
     assert_that!(output.as_str(), matches_regex("\"stream\":\\s*false"));
 }
 
