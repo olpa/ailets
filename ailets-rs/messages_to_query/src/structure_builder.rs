@@ -265,6 +265,11 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
             .env_opts
             .get("llm.stream")
             .and_then(serde_json::Value::as_bool)
+            .or_else(|| {
+                self.runtime
+                    .get_env("AILETS_LLM_STREAM")
+                    .and_then(|v| v.parse::<bool>().ok())
+            })
             .unwrap_or(true);
         embedded_io::Write::write_all(&mut self.writer, stream.to_string().as_bytes())
             .map_err(|e| format!("{e:?}"))?;

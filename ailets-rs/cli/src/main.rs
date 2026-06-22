@@ -49,6 +49,7 @@ fn main() {
     let model_input = cli_args.model.or_else(|| std::env::var("AILETS_MODEL").ok());
     let llm_url_env = std::env::var("AILETS_LLM_URL").ok();
     let llm_thinking = cli_args.llm_thinking.or_else(|| std::env::var("AILETS_LLM_THINKING").ok());
+    let llm_stream = std::env::var("AILETS_LLM_STREAM").ok();
 
     let (effective_model, alias_url) = match model_input {
         Some(ref m) => match resolve_alias(m) {
@@ -67,6 +68,9 @@ fn main() {
     }
     if let Some(t) = llm_thinking {
         shell.set_env_var("AILETS_LLM_THINKING", &t);
+    }
+    if let Some(s) = llm_stream {
+        shell.set_env_var("AILETS_LLM_STREAM", &s);
     }
 
     let (mut interp, ctx) = make_interp();
