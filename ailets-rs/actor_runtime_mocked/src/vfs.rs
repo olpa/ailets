@@ -271,7 +271,12 @@ impl VfsActorRuntime {
     }
 
     pub fn set_env(&self, key: impl Into<String>, value: impl Into<String>) {
-        self.env_vars.write().unwrap().insert(key.into(), value.into());
+        match self.env_vars.write() {
+            Ok(mut map) => {
+                map.insert(key.into(), value.into());
+            }
+            Err(e) => tracing::warn!("env_vars RwLock poisoned: {e}"),
+        }
     }
 
     /// Delegate methods to the underlying Vfs for direct access
@@ -346,6 +351,12 @@ impl actor_runtime::ActorRuntime for VfsActorRuntime {
     }
 
     fn get_env(&self, key: &str) -> Option<String> {
-        self.env_vars.read().unwrap().get(key).cloned()
+        match self.env_vars.read() {
+            Ok(map) => map.get(key).cloned(),
+            Err(e) => {
+                tracing::warn!("env_vars RwLock poisoned: {e}");
+                None
+            }
+        }
     }
 }

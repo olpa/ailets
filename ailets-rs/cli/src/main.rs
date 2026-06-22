@@ -9,7 +9,7 @@ use rustyline::error::ReadlineError;
 use rustyline::Editor;
 use tokio::runtime::Runtime;
 
-#[allow(clippy::expect_used)]
+#[allow(clippy::expect_used, clippy::too_many_lines)]
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -46,14 +46,21 @@ fn main() {
 
     // Resolve model alias and populate env_service.
     // Priority for URL: --llm-url flag > alias-derived > AILETS_LLM_URL env var.
-    let model_input = cli_args.model.or_else(|| std::env::var("AILETS_MODEL").ok());
+    let model_input = cli_args
+        .model
+        .or_else(|| std::env::var("AILETS_MODEL").ok());
     let llm_url_env = std::env::var("AILETS_LLM_URL").ok();
-    let llm_thinking = cli_args.llm_thinking.or_else(|| std::env::var("AILETS_LLM_THINKING").ok());
+    let llm_thinking = cli_args
+        .llm_thinking
+        .or_else(|| std::env::var("AILETS_LLM_THINKING").ok());
     let llm_stream = std::env::var("AILETS_LLM_STREAM").ok();
 
     let (effective_model, alias_url) = match model_input {
         Some(ref m) => match resolve_alias(m) {
-            Some(r) => (r.model.map(str::to_string).or(model_input.clone()), Some(r.url.to_string())),
+            Some(r) => (
+                r.model.map(str::to_string).or(model_input.clone()),
+                Some(r.url.to_string()),
+            ),
             None => (model_input.clone(), None),
         },
         None => (None, None),

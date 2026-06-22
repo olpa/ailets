@@ -12,8 +12,7 @@ pub struct ResolvedAlias {
 
 const ANTHROPIC_URL: &str = "https://api.anthropic.com/v1/chat/completions";
 const OPENAI_URL: &str = "https://api.openai.com/v1/chat/completions";
-const GOOGLE_URL: &str =
-    "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+const GOOGLE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 const LOCAL_URL: &str = "http://localhost:11434/v1/chat/completions";
 
 /// Resolve a short alias to a model ID and provider URL.
