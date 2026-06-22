@@ -270,7 +270,7 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
             .map_err(|e| format!("{e:?}"))?;
 
         if let Some(thinking) = self.runtime.get_env("AILETS_LLM_THINKING") {
-            let thinking_part = format!(r#", "thinking": "{}""#, thinking);
+            let thinking_part = format!(r#", "reasoning_effort": "{}""#, thinking);
             embedded_io::Write::write_all(&mut self.writer, thinking_part.as_bytes())
                 .map_err(|e| format!("{e:?}"))?;
         }
