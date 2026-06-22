@@ -284,7 +284,7 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
 
         // Add remaining llm.* parameters
         for (key, value) in &self.env_opts {
-            if key.starts_with("llm.") && key != "llm.model" && key != "llm.stream" {
+            if key.starts_with("llm.") && key != "llm.model" && key != "llm.stream" && key != "llm.thinking" {
                 embedded_io::Write::write_all(&mut self.writer, b", ")
                     .map_err(|e| format!("{e:?}"))?;
                 if let Some(param_name) = key.strip_prefix("llm.") {
