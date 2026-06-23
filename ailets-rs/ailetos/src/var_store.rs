@@ -26,12 +26,13 @@ impl VarStore {
     #[must_use]
     pub fn get(&self, pid: u32, key: &str) -> Option<String> {
         let vars = self.vars.read();
-        // per-actor match first
-        if let Some((_, _, v)) = vars.iter().find(|(p, k, _)| *p == Some(pid) && k == key) {
+        // per-actor match first (last set wins)
+        if let Some((_, _, v)) = vars.iter().rev().find(|(p, k, _)| *p == Some(pid) && k == key) {
             return Some(v.clone());
         }
-        // global fallback
+        // global fallback (last set wins)
         vars.iter()
+            .rev()
             .find(|(p, k, _)| p.is_none() && k == key)
             .map(|(_, _, v)| v.clone())
     }
