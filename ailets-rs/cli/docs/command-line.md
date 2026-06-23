@@ -16,6 +16,9 @@ was consumed — see [Session behaviour](#session-behaviour)).
 |------|-------------|
 | `-l <file>`, `--load <file>` | Run a TCL script on startup. May be given more than once; scripts run in order. |
 | `--system-prompt <text>` | Add a system-prompt item at this position in the prompt sequence. |
+| `--model <alias\|id>` | LLM model: a short alias (see below) or a full model ID. |
+| `--llm-url <url>` | LLM endpoint URL. Overrides the URL derived from a model alias. |
+| `--llm-thinking <level>` | Reasoning effort: `off`, `low`, `medium`, `high`. |
 | `-h`, `--help` | Print usage and exit. |
 
 ## Prompt items
@@ -69,6 +72,33 @@ cat README.md | dagsh - "Summarise this"
 cat README.md | dagsh @- "Summarise this"
 ```
 
+### Model aliases
+
+`--model` accepts a short alias or a full model ID. Known aliases:
+
+| Alias | Model ID |
+|-------|----------|
+| `gpt` | `gpt-5.4` |
+| `gpt-mini` | `gpt-5.4-mini` |
+| `fable` | `claude-fable-5` |
+| `opus` | `claude-opus-4-8` |
+| `sonnet` | `claude-sonnet-4-6` |
+| `haiku` | `claude-haiku-4-5` |
+| `gemini` | `gemini-2.5-flash` |
+| `flash` | `gemini-3.5-flash` |
+| `local` | _(user-defined, routes to local Ollama)_ |
+
+A short alias sets both the model ID and the provider URL. Passing `--llm-url` explicitly overrides the URL derived from an alias. A full model ID is passed verbatim; set the URL separately if needed.
+
+### Environment variables
+
+| Variable | Overridden by |
+|----------|--------------|
+| `AILETS_MODEL` | `--model` |
+| `AILETS_LLM_URL` | `--llm-url` (or URL implied by `--model` alias) |
+| `AILETS_LLM_THINKING` | `--llm-thinking` |
+| `AILETS_LLM_STREAM` | _(no CLI flag)_ |
+
 ## System prompt
 
 `--system-prompt <text>` inserts a system-role item at that position. It may
@@ -102,4 +132,7 @@ cat data.txt | dagsh - "Process this" -l pipeline.tcl
 
 # Multiple load scripts
 dagsh -l setup.tcl -l run.tcl
+
+# Model with thinking level
+dagsh --model opus --llm-thinking high @report.md "Summarize"
 ```
