@@ -21,7 +21,7 @@ use super::io_bridge::IoBridge;
 use super::lifecycle_event::ActorLifecycleEvent;
 use super::sendable_buffer::{SendableConstPtr, SendableMutPtr};
 use crate::dag::NodeState;
-use crate::env_service::EnvService;
+use crate::var_store::VarStore;
 use crate::errno::ENOSYS;
 use crate::idgen::Handle;
 use crate::suspension::SuspensionState;
@@ -38,8 +38,8 @@ pub struct BlockingActorRuntime {
     io_bridge: Arc<IoBridge>,
     /// Shared suspension state (owned by Environment)
     suspension: Arc<SuspensionState>,
-    /// Shared internal environment variables (owned by Environment)
-    env_service: Arc<EnvService>,
+    /// Shared variable store (owned by Environment)
+    env_service: Arc<VarStore>,
     /// 0 = clean termination; non-zero = POSIX errno
     exit_code: i32,
     /// Channel to notify executor of lifecycle events (Terminating/Terminated)
@@ -66,7 +66,7 @@ impl BlockingActorRuntime {
         node_handle: Handle,
         io_bridge: Arc<IoBridge>,
         suspension: Arc<SuspensionState>,
-        env_service: Arc<EnvService>,
+        env_service: Arc<VarStore>,
         actor_done_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
     ) -> Self {
         Self {
@@ -236,6 +236,6 @@ impl ActorRuntime for BlockingActorRuntime {
     }
 
     fn get_env(&self, key: &str) -> Option<String> {
-        self.env_service.get(key)
+        self.env_service.get(self.node_handle.id() as u32, key)
     }
 }

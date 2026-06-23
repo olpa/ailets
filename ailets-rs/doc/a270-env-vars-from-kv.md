@@ -23,10 +23,16 @@ a struct that holds a map of values.
 ## Current state
 
 ### `EnvService` → `VarStore` (`ailetos/src/env_service.rs`)
-An in-process `HashMap<String, String>` behind a `RwLock`. The CLI populates
-it via `EnvService::set(key, value)` before launching actors. Actors reach it
+An in-process store behind a `RwLock`. The CLI populates it via
+`EnvService::set(key, value)` before launching actors. Actors reach it
 through `ActorRuntime::get_env`. **`VarStore` is kept** — it is the source
 of truth for CLI-supplied overrides.
+
+`VarStore` supports per-actor variables: each entry carries an optional actor
+id (`Option<u32>`, where `None` means global / pid 0). Storage is a
+`Vec<(Option<u32>, String, String)>` with linear search — the list is short
+(CLI flags only) so a `HashMap` is unnecessary overhead. Lookup checks
+per-actor entries first, then falls back to global entries.
 
 ### `ActorRuntime::get_env` (`actor_runtime/src/runtime_trait.rs:47`)
 A method on the `ActorRuntime` trait:
@@ -56,7 +62,7 @@ let env_opts = EnvOpts::envopts_from_reader(env_reader)?;
 | file | keys read |
 |------|-----------|
 | `messages_to_query/src/structure_builder.rs` | `AILETS_LLM_URL`, `AILETS_MODEL`, `AILETS_LLM_STREAM`, `AILETS_LLM_THINKING` |
-| `cli/src/lib.rs:222` | `env_service.set(key, value)` — the write side |
+| `cli/src/lib.rs:222` | `env_service.set(key, value)` — the write side (becomes `set(None, key, value)`) |
 | `ailetos/tests/actor_syscall/blocking_actor_runtime.rs` | passes `Arc<EnvService>` into `BlockingActorRuntime::new` |
 
 ## Target design
@@ -88,7 +94,8 @@ A new struct that wraps an inner `Arc<dyn KVBuffers>` and implements
 
 For all other paths: delegate to inner KV unchanged.
 
-The CLI continues to call `var_store.set(key, value)` unchanged.
+The CLI calls `var_store.set(None, key, value)` for global variables and
+`var_store.set(Some(pid), key, value)` for per-actor overrides.
 
 ```rust
 // ailetos/src/storage/varkv.rs  (new file)
@@ -136,10 +143,14 @@ elsewhere in `BlockingActorRuntime`.
 
 ### What changes with `VarStore`
 
-`VarStore` (renamed from `EnvService`) is **kept as-is**. The CLI still calls
-`var_store.set(key, value)`. The difference is that `VarStore` is no longer
-handed to `BlockingActorRuntime` directly; instead it lives inside `VarKV` and
-is consulted only when a KV open on an `/env/` path is requested.
+`VarStore` (renamed from `EnvService`) gains per-actor support. The internal
+`HashMap<String, String>` is replaced with a `Vec<(Option<u32>, String, String)>`
+where `None` means global (pid 0) and `Some(pid)` means per-actor. Lookup does
+a linear scan: per-actor match first, then global fallback. The CLI calls
+`var_store.set(None, key, value)` for global vars (same semantics as before).
+`VarStore` is no longer handed to `BlockingActorRuntime` directly; instead it
+lives inside `VarKV` and is consulted only when a KV open on an `/env/` path
+is requested.
 
 ## What to delete
 
@@ -195,7 +206,12 @@ constructor parameter with `kv: &dyn KVBuffers`.
 
 1. **Rename `EnvService` → `VarStore`** (`ailetos/src/env_service.rs` →
    `ailetos/src/var_store.rs`). Update the module declaration in `lib.rs` and
-   all import sites. The struct API (`new`, `set`, `get`) is otherwise unchanged.
+   all import sites. Change internal storage from `HashMap<String, String>` to
+   `Vec<(Option<u32>, String, String)>`. Update `set(key, value)` →
+   `set(pid: Option<u32>, key, value)` and `get(key)` → `get(pid: u32, key)`
+   (linear scan: per-actor match first, then `None`/global fallback). Add a
+   `keys(pid: u32)` method returning the union of per-actor and global keys
+   (needed by `VarKV::listdir`).
 
 2. **Add `VarKV`** (`ailetos/src/storage/varkv.rs`):
    - Implement `KVBuffers` wrapping inner KV.

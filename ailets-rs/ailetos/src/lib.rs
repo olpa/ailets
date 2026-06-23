@@ -1,6 +1,6 @@
 pub mod actor_syscall;
 pub mod dag;
-pub mod env_service;
+pub mod var_store;
 pub mod environment;
 pub mod errno;
 pub mod executor;
@@ -33,8 +33,8 @@ pub use actor_syscall::{ActorLifecycleEvent, BlockingActorRuntime, IoBridge, Sen
 // Re-export environment types
 pub use environment::{ActorFn, ActorRegistry, Environment};
 
-// Re-export env service
-pub use env_service::EnvService;
+// Re-export var store
+pub use var_store::VarStore;
 
 // Re-export suspension types
 pub use suspension::SuspensionState;

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 
 use crate::dag::{Dag, DependsOn, For, NodeKind, NodeState};
-use crate::env_service::EnvService;
+use crate::var_store::VarStore;
 use crate::pipe::PipePool;
 
 /// Type for actor functions
@@ -59,7 +59,7 @@ pub struct Environment {
     pub pipe_pool: Arc<PipePool>,
     pub actor_registry: Arc<RwLock<ActorRegistry>>,
     pub suspension: Arc<SuspensionState>,
-    pub env_service: Arc<EnvService>,
+    pub env_service: Arc<VarStore>,
 }
 
 impl Environment {
@@ -76,7 +76,7 @@ impl Environment {
             pipe_pool,
             actor_registry: Arc::new(RwLock::new(ActorRegistry::new())),
             suspension: Arc::new(SuspensionState::new()),
-            env_service: Arc::new(EnvService::new()),
+            env_service: Arc::new(VarStore::new()),
         }
     }
 
