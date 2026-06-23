@@ -12,3 +12,4 @@ crate-type = ["cdylib", "lib"]
 [dependencies]
 actor_runtime = { path = "../actor_runtime" }
 embedded-io.workspace = true
+tracing = "0.1"

@@ -13,7 +13,7 @@ fn wrap_boilerplate(s: &str) -> String {
     let s1 = r#"{ "url": "https://api.openai.com/v1/chat/completions","#;
     let s2 = r#""method": "POST","#;
     let s3 = r#""headers": { "Content-type": "application/json", "Authorization": "Bearer {{secret}}" },"#;
-    let s4 = r#""body": { "model": "gpt-4o-mini", "stream": true, "messages": ["#;
+    let s4 = r#""body": { "model": "gpt-5.4-mini", "stream": true, "messages": ["#;
     let s_end = "]}}\n";
     let s = s.replace("_NL_", "\n");
     format!("{}\n{}\n{}\n{}{}{}", s1, s2, s3, s4, s, s_end)
@@ -925,7 +925,7 @@ fn toolspec_by_key() {
         r#"{{ "url": "https://api.openai.com/v1/chat/completions",
 "method": "POST",
 "headers": {{ "Content-type": "application/json", "Authorization": "Bearer {{{{secret}}}}" }},
-"body": {{ "model": "gpt-4o-mini", "stream": true,
+"body": {{ "model": "gpt-5.4-mini", "stream": true,
 "tools": {} }}}}
 "#,
         expected_tools
@@ -1055,7 +1055,7 @@ fn several_toolspecs_to_one_block() {
         r#"{{ "url": "https://api.openai.com/v1/chat/completions",
 "method": "POST",
 "headers": {{ "Content-type": "application/json", "Authorization": "Bearer {{{{secret}}}}" }},
-"body": {{ "model": "gpt-4o-mini", "stream": true,
+"body": {{ "model": "gpt-5.4-mini", "stream": true,
 "tools": {} }}}}
 "#,
         expected_tools

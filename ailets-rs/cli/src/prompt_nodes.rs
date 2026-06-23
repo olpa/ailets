@@ -60,7 +60,11 @@ fn add_file_then_doc(
     file_explain: &str,
     attrs: &[(String, String)],
 ) {
-    let file_handle = env.add_node("file_value".to_string(), &[], Some(file_explain.to_string()));
+    let file_handle = env.add_node(
+        "file_value".to_string(),
+        &[],
+        Some(file_explain.to_string()),
+    );
     file_value_control::register(
         file_handle,
         file_explain.to_string(),

@@ -15,6 +15,7 @@ pub(crate) mod shell_input_actor;
 pub(crate) mod shell_input_control;
 
 mod commands;
+pub mod model_aliases;
 mod output;
 pub mod prompt_nodes;
 pub mod shell_ui;
@@ -214,6 +215,11 @@ impl DagShell {
             ailetos_async_rt,
             cli_rt,
         }
+    }
+
+    /// Set an internal environment variable visible to actors via `get_env`.
+    pub fn set_env_var(&self, key: &str, value: &str) {
+        self.env.env_service.set(key, value);
     }
 
     pub(crate) fn parse_handle(&self, s: &str) -> Option<Handle> {

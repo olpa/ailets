@@ -30,7 +30,7 @@ pub enum ItemAttrMode {
 }
 
 const DEFAULT_URL: &str = "https://api.openai.com/v1/chat/completions";
-const DEFAULT_MODEL: &str = "gpt-4o-mini";
+const DEFAULT_MODEL: &str = "gpt-5.4-mini";
 const DEFAULT_CONTENT_TYPE: &str = "application/json";
 const DEFAULT_AUTHORIZATION: &str = "Bearer {{secret}}";
 
@@ -204,10 +204,9 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
         embedded_io::Write::write_all(&mut self.writer, b"{ \"url\": \"")
             .map_err(|e| format!("{e:?}"))?;
         let url = self
-            .env_opts
-            .get("http.url")
-            .and_then(|v| v.as_str())
-            .unwrap_or(DEFAULT_URL);
+            .runtime
+            .get_env("AILETS_LLM_URL")
+            .unwrap_or_else(|| DEFAULT_URL.to_string());
         embedded_io::Write::write_all(&mut self.writer, url.as_bytes())
             .map_err(|e| format!("{e:?}"))?;
         embedded_io::Write::write_all(
@@ -259,10 +258,9 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
         embedded_io::Write::write_all(&mut self.writer, b"\" },\n\"body\": { \"model\": \"")
             .map_err(|e| format!("{e:?}"))?;
         let model = self
-            .env_opts
-            .get("llm.model")
-            .and_then(|v| v.as_str())
-            .unwrap_or(DEFAULT_MODEL);
+            .runtime
+            .get_env("AILETS_MODEL")
+            .unwrap_or_else(|| DEFAULT_MODEL.to_string());
         embedded_io::Write::write_all(&mut self.writer, model.as_bytes())
             .map_err(|e| format!("{e:?}"))?;
         embedded_io::Write::write_all(&mut self.writer, b"\", \"stream\": ")
@@ -271,13 +269,29 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
             .env_opts
             .get("llm.stream")
             .and_then(serde_json::Value::as_bool)
+            .or_else(|| {
+                self.runtime
+                    .get_env("AILETS_LLM_STREAM")
+                    .and_then(|v| v.parse::<bool>().ok())
+            })
             .unwrap_or(true);
         embedded_io::Write::write_all(&mut self.writer, stream.to_string().as_bytes())
             .map_err(|e| format!("{e:?}"))?;
 
+        if let Some(thinking) = self.runtime.get_env("AILETS_LLM_THINKING") {
+            let thinking_json = serde_json::to_string(&thinking).map_err(|e| format!("{e:?}"))?;
+            let thinking_part = format!(r#", "reasoning_effort": {thinking_json}"#);
+            embedded_io::Write::write_all(&mut self.writer, thinking_part.as_bytes())
+                .map_err(|e| format!("{e:?}"))?;
+        }
+
         // Add remaining llm.* parameters
         for (key, value) in &self.env_opts {
-            if key.starts_with("llm.") && key != "llm.model" && key != "llm.stream" {
+            if key.starts_with("llm.")
+                && key != "llm.model"
+                && key != "llm.stream"
+                && key != "llm.thinking"
+            {
                 embedded_io::Write::write_all(&mut self.writer, b", ")
                     .map_err(|e| format!("{e:?}"))?;
                 if let Some(param_name) = key.strip_prefix("llm.") {

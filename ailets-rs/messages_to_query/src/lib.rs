@@ -185,34 +185,12 @@ pub fn process_messages_impl<W: embedded_io::Write>(
 
 /// Native actor entry point - receives runtime and creates I/O streams
 ///
-/// `dagsh`'s in-process runtime cannot yet materialize an `Env` reader (only
-/// `Stdin` is supported), so env opts always come back empty here. Warn on the
-/// actor's log stream so the gap is visible without failing the run.
-///
 /// # Errors
 /// If anything goes wrong.
 pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
     let reader = AReader::new_from_std(runtime, StdHandle::Stdin);
     let writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
-
-    let env_reader = AReader::new_from_std(runtime, StdHandle::Env);
-    let env_opts = match EnvOpts::envopts_from_reader(env_reader) {
-        Ok(opts) => opts,
-        Err(e) => {
-            let mut log_writer = AWriter::new_from_std(runtime, StdHandle::Log);
-            if log_writer
-                .write_all(
-                    format!("warn: stubbing empty env opts ({e}); Env reader is not yet supported by this runtime\n")
-                        .as_bytes(),
-                )
-                .is_err()
-            {
-                eprintln!("warn: stubbing empty env opts ({e}); Env reader is not yet supported by this runtime");
-            }
-            EnvOpts::from_map(std::collections::HashMap::new())
-        }
-    };
-
+    let env_opts = EnvOpts::from_map(std::collections::HashMap::new());
     let result = process_messages_impl(reader, writer, runtime, env_opts);
     if let Err(ref e) = result {
         let mut log = AWriter::new_from_std(runtime, StdHandle::Log);

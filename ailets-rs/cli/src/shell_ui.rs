@@ -49,7 +49,13 @@ pub fn print_usage() {
     println!("Options:");
     println!("  -l, --load <file>          Load TCL script file on startup");
     println!("  --system-prompt <text>     Add a system prompt item");
+    println!("  --model <alias|id>         LLM model alias or full model ID");
+    println!("  --llm-url <url>            LLM endpoint URL (overrides alias default)");
+    println!("  --llm-thinking <level>     Thinking level: off, low, medium, high");
     println!("  -h, --help                 Show this help");
+    println!();
+    println!("Model aliases: gpt, gpt-mini, fable, opus, sonnet, haiku, gemini, flash, local");
+    println!("Env vars: AILETS_MODEL, AILETS_LLM_URL, AILETS_LLM_THINKING");
     println!();
     println!("Prompt items (positional):");
     println!("  \"text\"                     Plain text prompt");
@@ -71,6 +77,12 @@ pub enum PromptArg {
 pub struct CliArgs {
     pub load_scripts: Vec<String>,
     pub prompt_items: Vec<PromptArg>,
+    /// From `--model` flag only (not env var).
+    pub model: Option<String>,
+    /// From `--llm-url` flag only (not env var).
+    pub llm_url: Option<String>,
+    /// From `--llm-thinking` flag only (not env var).
+    pub llm_thinking: Option<String>,
 }
 
 /// Parses the part of a `@...` arg after the `@` prefix.
@@ -102,6 +114,9 @@ fn parse_at_arg(s: &str) -> Result<(String, Vec<(String, String)>), String> {
 pub fn parse_args(args: &[String]) -> Result<CliArgs, String> {
     let mut load_scripts: Vec<String> = Vec::new();
     let mut prompt_items: Vec<PromptArg> = Vec::new();
+    let mut model: Option<String> = None;
+    let mut llm_url: Option<String> = None;
+    let mut llm_thinking: Option<String> = None;
     let mut i = 1;
     while i < args.len() {
         let Some(arg) = args.get(i) else { break };
@@ -122,6 +137,27 @@ pub fn parse_args(args: &[String]) -> Result<CliArgs, String> {
                     return Err("--system-prompt requires a text argument".to_string());
                 };
                 prompt_items.push(PromptArg::SystemPrompt(text.clone()));
+                i += 2;
+            }
+            "--model" => {
+                let Some(val) = args.get(i + 1) else {
+                    return Err("--model requires an argument".to_string());
+                };
+                model = Some(val.clone());
+                i += 2;
+            }
+            "--llm-url" => {
+                let Some(val) = args.get(i + 1) else {
+                    return Err("--llm-url requires an argument".to_string());
+                };
+                llm_url = Some(val.clone());
+                i += 2;
+            }
+            "--llm-thinking" => {
+                let Some(val) = args.get(i + 1) else {
+                    return Err("--llm-thinking requires an argument".to_string());
+                };
+                llm_thinking = Some(val.clone());
                 i += 2;
             }
             "-" => {
@@ -149,6 +185,9 @@ pub fn parse_args(args: &[String]) -> Result<CliArgs, String> {
     Ok(CliArgs {
         load_scripts,
         prompt_items,
+        model,
+        llm_url,
+        llm_thinking,
     })
 }
 

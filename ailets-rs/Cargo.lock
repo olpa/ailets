@@ -26,6 +26,7 @@ version = "0.2.0"
 dependencies = [
  "actor_runtime",
  "embedded-io",
+ "tracing",
 ]
 
 [[package]]
