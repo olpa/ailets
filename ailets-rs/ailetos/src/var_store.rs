@@ -37,6 +37,11 @@ impl VarStore {
             .map(|(_, _, v)| v.clone())
     }
 
+    #[must_use]
+    pub fn getenv(&self, pid: u32, key: &str) -> Option<String> {
+        self.get(pid, key).or_else(|| std::env::var(key).ok())
+    }
+
     /// Return the union of per-actor and global keys for the given pid.
     #[must_use]
     pub fn keys(&self, pid: u32) -> Vec<String> {

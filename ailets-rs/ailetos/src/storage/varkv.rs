@@ -21,8 +21,7 @@ impl VarKV {
         let (pid, key) = parse_env_path(env_path)?;
         let value = self
             .var_store
-            .get(pid, key)
-            .or_else(|| std::env::var(key).ok())
+            .getenv(pid, key)
             .ok_or_else(|| KVError::NotFound(format!("/env/{env_path}")))?;
         let buf = Buffer::new();
         buf.append(value.as_bytes())?;

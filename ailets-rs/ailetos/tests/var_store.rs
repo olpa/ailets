@@ -84,3 +84,30 @@ fn last_set_wins() {
     store.set(Some(5), "KEY", "actor-second");
     assert_eq!(store.get(5, "KEY"), Some("actor-second".to_string()));
 }
+
+#[test]
+fn getenv_returns_varstore_value() {
+    let store = VarStore::new();
+    store.set(Some(7), "MY_KEY", "my-value");
+    assert_eq!(store.getenv(7, "MY_KEY"), Some("my-value".to_string()));
+}
+
+#[test]
+fn getenv_returns_none_when_absent() {
+    let store = VarStore::new();
+    assert_eq!(store.getenv(7, "NO_SUCH_KEY_XYZZY"), None);
+}
+
+#[test]
+fn getenv_falls_back_to_global() {
+    let store = VarStore::new();
+    store.set(None, "GLOBAL_KEY", "global-val");
+    assert_eq!(store.getenv(99, "GLOBAL_KEY"), Some("global-val".to_string()));
+}
+
+#[test]
+fn getenv_falls_back_to_os_env() {
+    std::env::set_var("GETENV_TEST_OS_VAR", "os-val");
+    let store = VarStore::new();
+    assert_eq!(store.getenv(7, "GETENV_TEST_OS_VAR"), Some("os-val".to_string()));
+}

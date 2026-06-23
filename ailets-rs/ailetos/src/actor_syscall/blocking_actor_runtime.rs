@@ -236,6 +236,6 @@ impl ActorRuntime for BlockingActorRuntime {
     }
 
     fn get_env(&self, key: &str) -> Option<String> {
-        self.env_service.get(self.node_handle.id() as u32, key)
+        self.env_service.getenv(self.node_handle.id() as u32, key)
     }
 }
