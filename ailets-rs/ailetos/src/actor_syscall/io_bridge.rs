@@ -121,7 +121,6 @@ async fn run_writer_task(
                         }
                         StdHandle::Stdin
                         | StdHandle::Stdout
-                        | StdHandle::Env
                         | StdHandle::_Count => {}
                     }
                 }

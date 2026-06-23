@@ -171,9 +171,6 @@ impl BlockingActorRuntime {
         // Readers
         self.io_bridge
             .register_std_fd_reader(self.node_handle, StdHandle::Stdin as isize);
-        self.io_bridge
-            .register_std_fd_reader(self.node_handle, StdHandle::Env as isize);
-
         // Writers
         self.io_bridge
             .register_std_fd_writer(self.node_handle, StdHandle::Stdout as isize);

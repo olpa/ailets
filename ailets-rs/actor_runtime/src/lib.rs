@@ -19,9 +19,8 @@ pub enum StdHandle {
     Stdin = 0,
     Stdout = 1,
     Log = 2,
-    Env = 3,
-    Metrics = 4,
-    Trace = 5,
+    Metrics = 3,
+    Trace = 4,
     /// Sentinel value for counting. Must always be last.
     _Count,
 }
@@ -34,7 +33,6 @@ impl TryFrom<&str> for StdHandle {
             "stdin" => Ok(StdHandle::Stdin),
             "stdout" => Ok(StdHandle::Stdout),
             "stderr" | "log" => Ok(StdHandle::Log),
-            "env" => Ok(StdHandle::Env),
             "metrics" => Ok(StdHandle::Metrics),
             "trace" => Ok(StdHandle::Trace),
             _ => Err(()),

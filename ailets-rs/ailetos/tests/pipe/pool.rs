@@ -117,10 +117,6 @@ async fn test_different_std_handles() {
         .await
         .expect("Failed to create log pipe");
 
-    pool.touch_writer(actor_handle, StdHandle::Env as isize, &id_gen)
-        .await
-        .expect("Failed to create env pipe");
-
     // Create readers for each
     let _stdout_reader = pool
         .get_or_await_new_reader((actor_handle, StdHandle::Stdout as isize), false, &id_gen)
@@ -130,10 +126,6 @@ async fn test_different_std_handles() {
         .get_or_await_new_reader((actor_handle, StdHandle::Log as isize), false, &id_gen)
         .await
         .expect("Log reader should be created");
-    let _env_reader = pool
-        .get_or_await_new_reader((actor_handle, StdHandle::Env as isize), false, &id_gen)
-        .await
-        .expect("Env reader should be created");
 }
 
 // ============================================================================
