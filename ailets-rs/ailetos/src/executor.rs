@@ -409,7 +409,6 @@ fn spawn_ready_actors(
             node_handle,
             Arc::clone(&infra.io_bridge),
             Arc::clone(&env.suspension),
-            Arc::clone(&env.env_service),
             infra.lifecycle_tx.clone(),
         );
         let task_handle = spawn_actor_task(
