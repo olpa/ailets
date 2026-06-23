@@ -10,6 +10,7 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 
 use crate::dag::{Dag, DependsOn, For, NodeKind, NodeState};
+use crate::storage::varkv::VarKV;
 use crate::var_store::VarStore;
 use crate::pipe::PipePool;
 
@@ -68,6 +69,8 @@ impl Environment {
         let idgen = Arc::new(IdGen::new());
         let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&idgen))));
 
+        let var_store = Arc::new(VarStore::new());
+        let kv = Arc::new(VarKV::new(kv, Arc::clone(&var_store))) as Arc<dyn KVBuffers>;
         let pipe_pool = Arc::new(PipePool::new(Arc::clone(&kv)));
         Self {
             dag,
@@ -76,7 +79,7 @@ impl Environment {
             pipe_pool,
             actor_registry: Arc::new(RwLock::new(ActorRegistry::new())),
             suspension: Arc::new(SuspensionState::new()),
-            env_service: Arc::new(VarStore::new()),
+            env_service: var_store,
         }
     }
 
