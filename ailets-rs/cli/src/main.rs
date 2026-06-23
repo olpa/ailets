@@ -88,8 +88,7 @@ fn run_repl(
     // before printer_rt drops in main, preserves the required ordering.
 }
 
-#[allow(clippy::expect_used)]
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -117,9 +116,9 @@ fn main() {
         eprintln!("warn: failed to set history size: {e}");
     }
 
-    let printer_rt = Runtime::new().expect("failed to create printer runtime");
+    let printer_rt = Runtime::new()?;
     let notification_sink = create_notification_sink(&mut rl, printer_rt.handle());
-    let ailetos_rt = Runtime::new().expect("failed to create ailetos runtime");
+    let ailetos_rt = Runtime::new()?;
     let mut shell =
         DagShell::new_with_sinks_and_rt(Box::new(dagsh::StdoutSink), notification_sink, ailetos_rt);
 
@@ -164,9 +163,10 @@ fn main() {
     if stdin_usage == StdinUsage::FileValue {
         drop(shell);
         drop(printer_rt);
-        return;
+        return Ok(());
     }
 
     run_repl(&mut rl, shell, &mut interp, ctx);
     // printer_rt drops here, after shell has already dropped inside run_repl.
+    Ok(())
 }
