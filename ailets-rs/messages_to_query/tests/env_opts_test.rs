@@ -40,7 +40,7 @@ fn _build_with_env_opts(env_opts: EnvOpts) -> String {
     for (key, value) in env_opts.iter() {
         if key.starts_with("AILETS_") {
             if let Some(s) = value.as_str() {
-                runtime.set_env(key, s);
+                std::env::set_var(key, s);
             }
         }
     }

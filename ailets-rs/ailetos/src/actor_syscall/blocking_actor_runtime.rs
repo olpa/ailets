@@ -235,7 +235,4 @@ impl ActorRuntime for BlockingActorRuntime {
         self.suspension.self_suspend_and_wait(self.node_handle);
     }
 
-    fn get_env(&self, key: &str) -> Option<String> {
-        self.env_service.getenv(self.node_handle.id() as u32, key)
-    }
 }
