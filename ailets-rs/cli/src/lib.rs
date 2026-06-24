@@ -217,9 +217,9 @@ impl DagShell {
         }
     }
 
-    /// Set an internal environment variable visible to actors via `get_env`.
+    /// Set a variable readable by actors via `/var/` paths.
     pub fn set_env_var(&self, key: &str, value: &str) {
-        self.env.env_service.set(None, key, value);
+        self.env.var_store.set(None, key, value);
     }
 
     pub(crate) fn parse_handle(&self, s: &str) -> Option<Handle> {

@@ -61,7 +61,7 @@ pub struct Environment {
     pub pipe_pool: Arc<PipePool>,
     pub actor_registry: Arc<RwLock<ActorRegistry>>,
     pub suspension: Arc<SuspensionState>,
-    pub env_service: Arc<VarStore>,
+    pub var_store: Arc<VarStore>,
 }
 
 impl Environment {
@@ -80,7 +80,7 @@ impl Environment {
             pipe_pool,
             actor_registry: Arc::new(RwLock::new(ActorRegistry::new())),
             suspension: Arc::new(SuspensionState::new()),
-            env_service: var_store,
+            var_store: var_store,
         }
     }
 
