@@ -70,12 +70,12 @@ impl Environment {
         let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&idgen))));
 
         let var_store = Arc::new(VarStore::new());
-        let kv = Arc::new(VarKV::new(kv, Arc::clone(&var_store))) as Arc<dyn KVBuffers>;
-        let pipe_pool = Arc::new(PipePool::new(Arc::clone(&kv)));
+        let kv_with_vars = Arc::new(VarKV::new(kv, Arc::clone(&var_store))) as Arc<dyn KVBuffers>;
+        let pipe_pool = Arc::new(PipePool::new(Arc::clone(&kv_with_vars)));
         Self {
             dag,
             idgen,
-            kv,
+            kv: kv_with_vars,
             pipe_pool,
             actor_registry: Arc::new(RwLock::new(ActorRegistry::new())),
             suspension: Arc::new(SuspensionState::new()),
