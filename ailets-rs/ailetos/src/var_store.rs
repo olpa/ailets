@@ -48,13 +48,12 @@ impl VarStore {
     #[must_use]
     pub fn keys(&self, pid: u32) -> Vec<Arc<str>> {
         let vars = self.vars.read();
-        let mut keys: Vec<Arc<str>> = vars
-            .iter()
+        let mut seen = std::collections::HashSet::new();
+        vars.iter()
             .filter(|(p, _, _)| p.is_none() || *p == Some(pid))
             .map(|(_, k, _)| Arc::clone(k))
-            .collect();
-        keys.dedup();
-        keys
+            .filter(|k| seen.insert(k.clone()))
+            .collect()
     }
 }
 
