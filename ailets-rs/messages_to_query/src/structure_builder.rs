@@ -45,7 +45,7 @@ pub struct StructureBuilder<'a, W: embedded_io::Write> {
 
 fn read_env_key(runtime: &dyn actor_runtime::ActorRuntime, key: &str) -> Option<String> {
     let pid = runtime.node_handle();
-    let path = format!("/env/{pid}/{key}");
+    let path = format!("/var/{pid}/{key}");
     let fd = runtime.open_read(&path).ok()?;
     let mut buf = Vec::new();
     let mut chunk = [0u8; 256];

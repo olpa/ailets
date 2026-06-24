@@ -4,7 +4,9 @@ use async_trait::async_trait;
 
 use super::buffer::Buffer;
 use super::types::{KVBuffers, KVError, KVStat, OpenMode};
-use super::varkv::{VarKV, ENV_PREFIX};
+use super::varkv::VarKV;
+
+const VAR_PREFIX: &str = "/var";
 
 /// Routes KV paths to the appropriate backend.
 /// Strips the path prefix before dispatching so each backend sees only its own namespace.
@@ -22,22 +24,22 @@ impl RouterKV {
 #[async_trait]
 impl KVBuffers for RouterKV {
     async fn open(&self, path: &str, mode: OpenMode) -> Result<Buffer, KVError> {
-        if let Some(env_path) = path.strip_prefix(ENV_PREFIX) {
-            return self.var_kv.open(env_path, mode).await;
+        if let Some(var_path) = path.strip_prefix(VAR_PREFIX) {
+            return self.var_kv.open(var_path, mode).await;
         }
         self.inner.open(path, mode).await
     }
 
     async fn stat(&self, path: &str) -> Result<KVStat, KVError> {
-        if let Some(env_path) = path.strip_prefix(ENV_PREFIX) {
-            return self.var_kv.stat(env_path).await;
+        if let Some(var_path) = path.strip_prefix(VAR_PREFIX) {
+            return self.var_kv.stat(var_path).await;
         }
         self.inner.stat(path).await
     }
 
     async fn listdir(&self, dir_name: &str) -> Result<Vec<String>, KVError> {
-        if let Some(env_dir) = dir_name.strip_prefix(ENV_PREFIX) {
-            return self.var_kv.listdir(env_dir).await;
+        if let Some(var_dir) = dir_name.strip_prefix(VAR_PREFIX) {
+            return self.var_kv.listdir(var_dir).await;
         }
         self.inner.listdir(dir_name).await
     }

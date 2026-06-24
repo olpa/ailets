@@ -7,10 +7,8 @@ use super::buffer::Buffer;
 use super::types::{KVBuffers, KVError, KVStat, OpenMode};
 use crate::var_store::VarStore;
 
-pub(super) const ENV_PREFIX: &str = "/env/";
-
-/// `KVBuffers` implementation for the env-var namespace.
-/// Receives paths already stripped of the `/env/` prefix by `RouterKV`.
+/// `KVBuffers` implementation for the var namespace.
+/// Receives and returns paths without any routing prefix.
 pub struct VarKV {
     var_store: Arc<VarStore>,
 }
@@ -20,19 +18,19 @@ impl VarKV {
         Self { var_store }
     }
 
-    fn open_env_read(&self, env_path: &str) -> Result<Buffer, KVError> {
-        let (pid, key) = parse_env_path(env_path)?;
+    fn open_impl(&self, path: &str) -> Result<Buffer, KVError> {
+        let (pid, key) = parse_path(path)?;
         let value = self
             .var_store
             .getenv(pid, key)
-            .ok_or_else(|| KVError::NotFound(env_path.to_string()))?;
+            .ok_or_else(|| KVError::NotFound(path.to_string()))?;
         let buf = Buffer::new();
         buf.append(value.as_bytes())?;
         Ok(buf)
     }
 
-    fn listdir_env(&self, env_dir: &str) -> Result<Vec<String>, KVError> {
-        let pid_str = env_dir.trim_end_matches('/');
+    fn listdir_impl(&self, dir: &str) -> Result<Vec<String>, KVError> {
+        let pid_str = dir.trim_matches('/');
         if pid_str.is_empty() || pid_str.contains('/') {
             return Err(KVError::Backend(
                 "VarKV: listdir requires a concrete pid path like N/".to_string(),
@@ -47,26 +45,29 @@ impl VarKV {
         }
         Ok(keys
             .into_iter()
-            .map(|k| format!("{ENV_PREFIX}{pid}/{k}"))
+            .map(|k| format!("/{pid}/{k}"))
             .collect())
     }
 }
 
-fn parse_env_path(env_path: &str) -> Result<(u32, &str), KVError> {
-    let slash = env_path
+fn parse_path(path: &str) -> Result<(u32, &str), KVError> {
+    let rest = path
+        .strip_prefix('/')
+        .ok_or_else(|| KVError::NotFound(path.to_string()))?;
+    let slash = rest
         .find('/')
-        .ok_or_else(|| KVError::NotFound(env_path.to_string()))?;
-    let pid: u32 = env_path[..slash]
+        .ok_or_else(|| KVError::NotFound(path.to_string()))?;
+    let pid: u32 = rest[..slash]
         .parse()
-        .map_err(|_| KVError::NotFound(env_path.to_string()))?;
-    Ok((pid, &env_path[slash + 1..]))
+        .map_err(|_| KVError::NotFound(path.to_string()))?;
+    Ok((pid, &rest[slash + 1..]))
 }
 
 #[async_trait]
 impl KVBuffers for VarKV {
     async fn open(&self, path: &str, mode: OpenMode) -> Result<Buffer, KVError> {
         match mode {
-            OpenMode::Read => self.open_env_read(path),
+            OpenMode::Read => self.open_impl(path),
             OpenMode::Write | OpenMode::Append => {
                 Err(KVError::Backend("VarKV: env vars are read-only".to_string()))
             }
@@ -78,7 +79,7 @@ impl KVBuffers for VarKV {
     }
 
     async fn listdir(&self, dir_name: &str) -> Result<Vec<String>, KVError> {
-        self.listdir_env(dir_name)
+        self.listdir_impl(dir_name)
     }
 
     async fn destroy(&self) -> Result<(), KVError> {

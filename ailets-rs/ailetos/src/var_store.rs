@@ -1,7 +1,7 @@
 //! In-process variable store for actor configuration.
 //!
-//! `VarStore` is owned by `Environment` and consulted by `VarKV` when an
-//! `/env/` path is opened. The CLI populates values via `set` before launching
+//! `VarStore` is owned by `Environment` and consulted by `VarKV` when a
+//! `/var/` path is opened. The CLI populates values via `set` before launching
 //! actors. Supports per-actor overrides: each entry carries an optional actor
 //! id (`None` = global / pid 0).
 
