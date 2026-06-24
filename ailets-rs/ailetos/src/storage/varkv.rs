@@ -33,9 +33,14 @@ impl VarKV {
 
     fn listdir_env(&self, env_dir: &str) -> Result<Vec<String>, KVError> {
         let pid_str = env_dir.trim_end_matches('/');
+        if pid_str.is_empty() || pid_str.contains('/') {
+            return Err(KVError::Backend(
+                "VarKV: listdir requires a concrete pid path like N/".to_string(),
+            ));
+        }
         let pid: u32 = pid_str
             .parse()
-            .map_err(|_| KVError::NotFound(env_dir.to_string()))?;
+            .map_err(|_| KVError::Backend("VarKV: listdir requires a numeric pid".to_string()))?;
         let mut keys: HashSet<String> = self.var_store.keys(pid).iter().map(|k| k.to_string()).collect();
         for (k, _) in std::env::vars() {
             keys.insert(k);
@@ -63,7 +68,7 @@ impl KVBuffers for VarKV {
         match mode {
             OpenMode::Read => self.open_env_read(path),
             OpenMode::Write | OpenMode::Append => {
-                Err(KVError::Backend("env vars are read-only".to_string()))
+                Err(KVError::Backend("VarKV: env vars are read-only".to_string()))
             }
         }
     }

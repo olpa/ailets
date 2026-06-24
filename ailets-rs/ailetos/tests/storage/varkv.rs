@@ -64,6 +64,20 @@ async fn open_env_write_returns_error() {
 }
 
 #[tokio::test]
+async fn listdir_root_is_forbidden() {
+    let kv = make_varkv(Arc::new(VarStore::new()));
+    let result = kv.listdir("").await;
+    assert!(matches!(result, Err(KVError::Backend(_))));
+}
+
+#[tokio::test]
+async fn listdir_subdir_is_forbidden() {
+    let kv = make_varkv(Arc::new(VarStore::new()));
+    let result = kv.listdir("7/sub/").await;
+    assert!(matches!(result, Err(KVError::Backend(_))));
+}
+
+#[tokio::test]
 async fn listdir_env_returns_varstore_keys() {
     let store = Arc::new(VarStore::new());
     store.set(None, "A", "1");
