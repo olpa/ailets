@@ -223,6 +223,11 @@ impl ActorRuntime for BlockingActorRuntime {
         self.node_handle.id()
     }
 
+    fn listdir(&self, dir: &str) -> Result<Vec<String>, i32> {
+        warn!(actor = ?self.node_handle, dir = dir, "listdir: not supported");
+        Err(crate::errno::ENOSYS)
+    }
+
     fn suspend_and_wait(&self) {
         self.suspension.self_suspend_and_wait(self.node_handle);
     }

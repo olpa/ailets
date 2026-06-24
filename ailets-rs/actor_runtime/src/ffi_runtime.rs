@@ -90,6 +90,10 @@ impl ActorRuntime for FfiActorRuntime {
         unsafe { get_node_handle() }
     }
 
+    fn listdir(&self, _dir: &str) -> Result<Vec<String>, i32> {
+        Err(38) // ENOSYS
+    }
+
     fn suspend_and_wait(&self) {
         unsafe { suspend_and_wait() }
     }

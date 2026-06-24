@@ -60,6 +60,17 @@ fn read_env_key(runtime: &dyn actor_runtime::ActorRuntime, key: &str) -> Option<
     String::from_utf8(buf).ok().filter(|s| !s.is_empty())
 }
 
+fn list_var_keys(runtime: &dyn actor_runtime::ActorRuntime) -> Vec<String> {
+    let pid = runtime.node_handle();
+    let dir = format!("/var/{pid}/");
+    runtime
+        .listdir(&dir)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|path| path.strip_prefix(&dir).map(str::to_owned))
+        .collect()
+}
+
 impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
     pub fn new(writer: W, runtime: &'a dyn actor_runtime::ActorRuntime) -> Self {
         StructureBuilder {
@@ -241,6 +252,27 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
         embedded_io::Write::write_all(&mut self.writer, authorization.as_bytes())
             .map_err(|e| format!("{e:?}"))?;
 
+        // Add remaining http.header.* parameters
+        for key in list_var_keys(self.runtime) {
+            if key.starts_with("http.header.")
+                && key != "http.header.Content-type"
+                && key != "http.header.Authorization"
+            {
+                if let Some(header_name) = key.strip_prefix("http.header.") {
+                    if let Some(value) = read_env_key(self.runtime, &key) {
+                        let value_json =
+                            serde_json::to_string(&value).map_err(|e| format!("{e:?}"))?;
+                        let header_part = format!(r#", "{header_name}": {value_json}"#);
+                        embedded_io::Write::write_all(
+                            &mut self.writer,
+                            header_part.as_bytes(),
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                    }
+                }
+            }
+        }
+
         // Write the body
         embedded_io::Write::write_all(&mut self.writer, b"\" },\n\"body\": { \"model\": \"")
             .map_err(|e| format!("{e:?}"))?;
@@ -261,6 +293,28 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
             let thinking_part = format!(r#", "reasoning_effort": {thinking_json}"#);
             embedded_io::Write::write_all(&mut self.writer, thinking_part.as_bytes())
                 .map_err(|e| format!("{e:?}"))?;
+        }
+
+        // Add remaining llm.* parameters
+        for key in list_var_keys(self.runtime) {
+            if key.starts_with("llm.")
+                && key != "llm.model"
+                && key != "llm.stream"
+                && key != "llm.thinking"
+            {
+                if let Some(param_name) = key.strip_prefix("llm.") {
+                    if let Some(value) = read_env_key(self.runtime, &key) {
+                        let value_json =
+                            serde_json::to_string(&value).map_err(|e| format!("{e:?}"))?;
+                        let param_part = format!(r#", "{param_name}": {value_json}"#);
+                        embedded_io::Write::write_all(
+                            &mut self.writer,
+                            param_part.as_bytes(),
+                        )
+                        .map_err(|e| format!("{e:?}"))?;
+                    }
+                }
+            }
         }
 
         Ok(())

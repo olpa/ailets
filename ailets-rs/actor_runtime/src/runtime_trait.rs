@@ -37,6 +37,14 @@ pub trait ActorRuntime {
     /// Get this actor's node handle (identity)
     fn node_handle(&self) -> i64;
 
+    /// List entries under a directory path.
+    ///
+    /// Returns the full paths of all entries whose path begins with `dir`.
+    ///
+    /// # Errors
+    /// Returns errno on failure.
+    fn listdir(&self, dir: &str) -> Result<Vec<String>, i32>;
+
     /// Self-suspend: block until the host calls resume for this actor.
     /// In test/mock environments, this may be a no-op.
     fn suspend_and_wait(&self);

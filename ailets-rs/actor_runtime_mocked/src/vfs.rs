@@ -98,6 +98,18 @@ impl Vfs {
             .ok_or_else(|| format!("File not found: {name}").into())
     }
 
+    /// Returns all file names whose path starts with `dir`.
+    #[allow(clippy::missing_panics_doc)]
+    #[allow(clippy::unwrap_used)]
+    pub fn listdir(&self, dir: &str) -> Result<Vec<String>, i32> {
+        let files = self.files.lock().unwrap();
+        Ok(files
+            .iter()
+            .filter(|f| f.name.starts_with(dir))
+            .map(|f| f.name.clone())
+            .collect())
+    }
+
     /// # Errors
     /// Returns `ENOENT` (2) if file not found.
     #[allow(clippy::missing_panics_doc)]
@@ -333,6 +345,10 @@ impl actor_runtime::ActorRuntime for VfsActorRuntime {
 
     fn node_handle(&self) -> i64 {
         0 // Mock runtime doesn't track node handles
+    }
+
+    fn listdir(&self, dir: &str) -> Result<Vec<String>, i32> {
+        self.vfs.listdir(dir)
     }
 
     fn suspend_and_wait(&self) {
