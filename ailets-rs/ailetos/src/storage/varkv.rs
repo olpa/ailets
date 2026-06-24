@@ -33,7 +33,7 @@ impl VarKV {
         let pid: u32 = pid_str
             .parse()
             .map_err(|_| KVError::NotFound(format!("/env/{env_dir}")))?;
-        let mut keys: HashSet<String> = self.var_store.keys(pid).into_iter().collect();
+        let mut keys: HashSet<String> = self.var_store.keys(pid).iter().map(|k| k.to_string()).collect();
         for (k, _) in std::env::vars() {
             keys.insert(k);
         }
