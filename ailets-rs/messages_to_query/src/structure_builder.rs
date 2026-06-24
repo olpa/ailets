@@ -43,7 +43,7 @@ pub struct StructureBuilder<'a, W: embedded_io::Write> {
     last_error: Option<ActionError>,
 }
 
-fn read_env_key(
+fn read_var(
     runtime: &dyn actor_runtime::ActorRuntime,
     key: &str,
 ) -> Result<Option<String>, String> {
@@ -235,7 +235,7 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
     fn write_prologue(&mut self) -> Result<(), String> {
         embedded_io::Write::write_all(&mut self.writer, b"{ \"url\": \"")
             .map_err(|e| format!("{e:?}"))?;
-        let url = read_env_key(self.runtime, "AILETS_LLM_URL")?
+        let url = read_var(self.runtime, "AILETS_LLM_URL")?
             .unwrap_or_else(|| DEFAULT_URL.to_string());
         embedded_io::Write::write_all(&mut self.writer, url.as_bytes())
             .map_err(|e| format!("{e:?}"))?;
@@ -246,13 +246,13 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
         .map_err(|e| format!("{e:?}"))?;
 
         // Write Content-type header
-        let content_type_owned = read_env_key(self.runtime, "http.header.Content-type")?;
+        let content_type_owned = read_var(self.runtime, "http.header.Content-type")?;
         let content_type = content_type_owned.as_deref().unwrap_or(DEFAULT_CONTENT_TYPE);
         embedded_io::Write::write_all(&mut self.writer, b"\"Content-type\": \"")
             .map_err(|e| format!("{e:?}"))?;
         embedded_io::Write::write_all(&mut self.writer, content_type.as_bytes())
             .map_err(|e| format!("{e:?}"))?;
-        let authorization_owned = read_env_key(self.runtime, "http.header.Authorization")?;
+        let authorization_owned = read_var(self.runtime, "http.header.Authorization")?;
         let authorization = authorization_owned.as_deref().unwrap_or(DEFAULT_AUTHORIZATION);
         embedded_io::Write::write_all(&mut self.writer, b"\", \"Authorization\": \"")
             .map_err(|e| format!("{e:?}"))?;
@@ -266,7 +266,7 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
                 && key != "http.header.Authorization"
             {
                 if let Some(header_name) = key.strip_prefix("http.header.") {
-                    if let Some(value) = read_env_key(self.runtime, &key)? {
+                    if let Some(value) = read_var(self.runtime, &key)? {
                         let value_json =
                             serde_json::to_string(&value).map_err(|e| format!("{e:?}"))?;
                         let header_part = format!(r#", "{header_name}": {value_json}"#);
@@ -283,19 +283,19 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
         // Write the body
         embedded_io::Write::write_all(&mut self.writer, b"\" },\n\"body\": { \"model\": \"")
             .map_err(|e| format!("{e:?}"))?;
-        let model = read_env_key(self.runtime, "AILETS_MODEL")?
+        let model = read_var(self.runtime, "AILETS_MODEL")?
             .unwrap_or_else(|| DEFAULT_MODEL.to_string());
         embedded_io::Write::write_all(&mut self.writer, model.as_bytes())
             .map_err(|e| format!("{e:?}"))?;
         embedded_io::Write::write_all(&mut self.writer, b"\", \"stream\": ")
             .map_err(|e| format!("{e:?}"))?;
-        let stream = read_env_key(self.runtime, "AILETS_LLM_STREAM")?
+        let stream = read_var(self.runtime, "AILETS_LLM_STREAM")?
             .and_then(|v| v.parse::<bool>().ok())
             .unwrap_or(true);
         embedded_io::Write::write_all(&mut self.writer, stream.to_string().as_bytes())
             .map_err(|e| format!("{e:?}"))?;
 
-        if let Some(thinking) = read_env_key(self.runtime, "AILETS_LLM_THINKING")? {
+        if let Some(thinking) = read_var(self.runtime, "AILETS_LLM_THINKING")? {
             let thinking_json = serde_json::to_string(&thinking).map_err(|e| format!("{e:?}"))?;
             let thinking_part = format!(r#", "reasoning_effort": {thinking_json}"#);
             embedded_io::Write::write_all(&mut self.writer, thinking_part.as_bytes())
@@ -310,7 +310,7 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
                 && key != "llm.thinking"
             {
                 if let Some(param_name) = key.strip_prefix("llm.") {
-                    if let Some(value) = read_env_key(self.runtime, &key)? {
+                    if let Some(value) = read_var(self.runtime, &key)? {
                         let value_json =
                             serde_json::to_string(&value).map_err(|e| format!("{e:?}"))?;
                         let param_part = format!(r#", "{param_name}": {value_json}"#);
