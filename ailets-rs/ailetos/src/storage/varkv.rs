@@ -73,8 +73,8 @@ impl KVBuffers for VarKV {
         }
     }
 
-    async fn stat(&self, path: &str) -> Result<KVStat, KVError> {
-        Err(KVError::NotFound(path.to_string()))
+    async fn stat(&self, _path: &str) -> Result<KVStat, KVError> {
+        Err(KVError::Backend("VarKV: stat is not supported".to_string()))
     }
 
     async fn listdir(&self, dir_name: &str) -> Result<Vec<String>, KVError> {
