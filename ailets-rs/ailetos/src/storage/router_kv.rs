@@ -39,7 +39,9 @@ impl KVBuffers for RouterKV {
 
     async fn listdir(&self, dir_name: &str) -> Result<Vec<String>, KVError> {
         if let Some(var_dir) = dir_name.strip_prefix(VAR_PREFIX) {
-            return self.var_kv.listdir(var_dir).await;
+            return self.var_kv.listdir(var_dir).await.map(|entries| {
+                entries.into_iter().map(|e| format!("{VAR_PREFIX}{e}")).collect()
+            });
         }
         self.inner.listdir(dir_name).await
     }
