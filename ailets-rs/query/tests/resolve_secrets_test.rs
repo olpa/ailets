@@ -30,7 +30,7 @@ fn falls_back_to_llm_api_key() {
 }
 
 #[test]
-fn uses_provider_specific_env_var() {
+fn uses_provider_specific_var() {
     let get_var = |k: &str| match k {
         "ÖFFENEKI_API_KEY" => Some("asdf123".to_string()),
         _ => None,

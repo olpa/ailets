@@ -218,7 +218,7 @@ impl DagShell {
     }
 
     /// Set a variable readable by actors via `/var/` paths.
-    pub fn set_env_var(&self, key: &str, value: &str) {
+    pub fn set_var(&self, key: &str, value: &str) {
         self.env.var_store.set(None, key, value);
     }
 

@@ -124,16 +124,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let llm_config = resolve_llm_config(cli_args.model, cli_args.llm_url, cli_args.llm_thinking);
     if let Some(m) = llm_config.model {
-        shell.set_env_var("AILETS_MODEL", &m);
+        shell.set_var("AILETS_MODEL", &m);
     }
     if let Some(u) = llm_config.url {
-        shell.set_env_var("AILETS_LLM_URL", &u);
+        shell.set_var("AILETS_LLM_URL", &u);
     }
     if let Some(t) = llm_config.thinking {
-        shell.set_env_var("AILETS_LLM_THINKING", &t);
+        shell.set_var("AILETS_LLM_THINKING", &t);
     }
     if let Some(s) = llm_config.stream {
-        shell.set_env_var("AILETS_LLM_STREAM", &s);
+        shell.set_var("AILETS_LLM_STREAM", &s);
     }
 
     let (mut interp, ctx) = make_interp();
