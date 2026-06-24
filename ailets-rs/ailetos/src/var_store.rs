@@ -10,7 +10,7 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 
 pub struct VarStore {
-    vars: RwLock<Vec<(Option<u32>, Arc<str>, Arc<str>)>>,
+    vars: RwLock<Vec<(Option<i64>, Arc<str>, Arc<str>)>>,
 }
 
 impl VarStore {
@@ -21,12 +21,12 @@ impl VarStore {
         }
     }
 
-    pub fn set(&self, pid: Option<u32>, key: impl Into<Arc<str>>, value: impl Into<Arc<str>>) {
+    pub fn set(&self, pid: Option<i64>, key: impl Into<Arc<str>>, value: impl Into<Arc<str>>) {
         self.vars.write().push((pid, key.into(), value.into()));
     }
 
     #[must_use]
-    pub fn get(&self, pid: u32, key: &str) -> Option<Arc<str>> {
+    pub fn get(&self, pid: i64, key: &str) -> Option<Arc<str>> {
         let vars = self.vars.read();
         // per-actor match first (last set wins)
         if let Some((_, _, v)) = vars.iter().rev().find(|(p, k, _)| *p == Some(pid) && k.as_ref() == key) {
@@ -40,13 +40,13 @@ impl VarStore {
     }
 
     #[must_use]
-    pub fn getenv(&self, pid: u32, key: &str) -> Option<Arc<str>> {
+    pub fn getenv(&self, pid: i64, key: &str) -> Option<Arc<str>> {
         self.get(pid, key).or_else(|| std::env::var(key).ok().map(Into::into))
     }
 
     /// Return the union of per-actor and global keys for the given pid.
     #[must_use]
-    pub fn keys(&self, pid: u32) -> Vec<Arc<str>> {
+    pub fn keys(&self, pid: i64) -> Vec<Arc<str>> {
         let vars = self.vars.read();
         let mut seen = std::collections::HashSet::new();
         vars.iter()

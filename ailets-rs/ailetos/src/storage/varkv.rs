@@ -36,7 +36,7 @@ impl VarKV {
                 "VarKV: listdir requires a concrete pid path like N/".to_string(),
             ));
         }
-        let pid: u32 = pid_str
+        let pid: i64 = pid_str
             .parse()
             .map_err(|_| KVError::Backend("VarKV: listdir requires a numeric pid".to_string()))?;
         let mut keys: HashSet<String> = self.var_store.keys(pid).iter().map(|k| k.to_string()).collect();
@@ -50,14 +50,14 @@ impl VarKV {
     }
 }
 
-fn parse_path(path: &str) -> Result<(u32, &str), KVError> {
+fn parse_path(path: &str) -> Result<(i64, &str), KVError> {
     let rest = path
         .strip_prefix('/')
         .ok_or_else(|| KVError::NotFound(path.to_string()))?;
     let slash = rest
         .find('/')
         .ok_or_else(|| KVError::NotFound(path.to_string()))?;
-    let pid: u32 = rest[..slash]
+    let pid: i64 = rest[..slash]
         .parse()
         .map_err(|_| KVError::NotFound(path.to_string()))?;
     Ok((pid, &rest[slash + 1..]))
