@@ -7,14 +7,17 @@ use super::buffer::Buffer;
 use super::types::{KVBuffers, KVError, KVStat, OpenMode};
 use crate::var_store::VarStore;
 
+pub(super) const ENV_PREFIX: &str = "/env/";
+
+/// `KVBuffers` implementation for the env-var namespace.
+/// Receives paths already stripped of the `/env/` prefix by `RouterKV`.
 pub struct VarKV {
-    inner: Arc<dyn KVBuffers>,
     var_store: Arc<VarStore>,
 }
 
 impl VarKV {
-    pub fn new(inner: Arc<dyn KVBuffers>, var_store: Arc<VarStore>) -> Self {
-        Self { inner, var_store }
+    pub fn new(var_store: Arc<VarStore>) -> Self {
+        Self { var_store }
     }
 
     fn open_env_read(&self, env_path: &str) -> Result<Buffer, KVError> {
@@ -22,7 +25,7 @@ impl VarKV {
         let value = self
             .var_store
             .getenv(pid, key)
-            .ok_or_else(|| KVError::NotFound(format!("/env/{env_path}")))?;
+            .ok_or_else(|| KVError::NotFound(env_path.to_string()))?;
         let buf = Buffer::new();
         buf.append(value.as_bytes())?;
         Ok(buf)
@@ -32,14 +35,14 @@ impl VarKV {
         let pid_str = env_dir.trim_end_matches('/');
         let pid: u32 = pid_str
             .parse()
-            .map_err(|_| KVError::NotFound(format!("/env/{env_dir}")))?;
+            .map_err(|_| KVError::NotFound(env_dir.to_string()))?;
         let mut keys: HashSet<String> = self.var_store.keys(pid).iter().map(|k| k.to_string()).collect();
         for (k, _) in std::env::vars() {
             keys.insert(k);
         }
         Ok(keys
             .into_iter()
-            .map(|k| format!("/env/{pid}/{k}"))
+            .map(|k| format!("{ENV_PREFIX}{pid}/{k}"))
             .collect())
     }
 }
@@ -47,46 +50,37 @@ impl VarKV {
 fn parse_env_path(env_path: &str) -> Result<(u32, &str), KVError> {
     let slash = env_path
         .find('/')
-        .ok_or_else(|| KVError::NotFound(format!("/env/{env_path}")))?;
+        .ok_or_else(|| KVError::NotFound(env_path.to_string()))?;
     let pid: u32 = env_path[..slash]
         .parse()
-        .map_err(|_| KVError::NotFound(format!("/env/{env_path}")))?;
+        .map_err(|_| KVError::NotFound(env_path.to_string()))?;
     Ok((pid, &env_path[slash + 1..]))
 }
 
 #[async_trait]
 impl KVBuffers for VarKV {
     async fn open(&self, path: &str, mode: OpenMode) -> Result<Buffer, KVError> {
-        if let Some(env_path) = path.strip_prefix("/env/") {
-            return match mode {
-                OpenMode::Read => self.open_env_read(env_path),
-                OpenMode::Write | OpenMode::Append => {
-                    Err(KVError::Backend("env vars are read-only".to_string()))
-                }
-            };
+        match mode {
+            OpenMode::Read => self.open_env_read(path),
+            OpenMode::Write | OpenMode::Append => {
+                Err(KVError::Backend("env vars are read-only".to_string()))
+            }
         }
-        self.inner.open(path, mode).await
     }
 
     async fn stat(&self, path: &str) -> Result<KVStat, KVError> {
-        if path.starts_with("/env/") {
-            return Err(KVError::NotFound(path.to_string()));
-        }
-        self.inner.stat(path).await
+        Err(KVError::NotFound(path.to_string()))
     }
 
     async fn listdir(&self, dir_name: &str) -> Result<Vec<String>, KVError> {
-        if let Some(env_dir) = dir_name.strip_prefix("/env/") {
-            return self.listdir_env(env_dir);
-        }
-        self.inner.listdir(dir_name).await
+        self.listdir_env(dir_name)
     }
 
     async fn destroy(&self) -> Result<(), KVError> {
-        self.inner.destroy().await
+        Ok(())
     }
 
-    async fn flush_buffer(&self, buffer: &Buffer) -> Result<(), KVError> {
-        self.inner.flush_buffer(buffer).await
+    async fn flush_buffer(&self, _buffer: &Buffer) -> Result<(), KVError> {
+        Ok(())
     }
 }

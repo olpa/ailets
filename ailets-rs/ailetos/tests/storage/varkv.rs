@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use ailetos::storage::{KVBuffers, KVError, MemKV, OpenMode};
+use ailetos::storage::{KVBuffers, KVError, OpenMode};
 use ailetos::storage::varkv::VarKV;
 use ailetos::VarStore;
 
 fn make_varkv(var_store: Arc<VarStore>) -> VarKV {
-    VarKV::new(Arc::new(MemKV::new()) as Arc<dyn KVBuffers>, var_store)
+    VarKV::new(var_store)
 }
 
 #[tokio::test]
@@ -14,7 +14,7 @@ async fn open_env_returns_per_actor_value() {
     store.set(Some(7), "KEY", "actor-val");
     let kv = make_varkv(store);
 
-    let buf = kv.open("/env/7/KEY", OpenMode::Read).await.unwrap();
+    let buf = kv.open("7/KEY", OpenMode::Read).await.unwrap();
     assert_eq!(&*buf.lock(), b"actor-val");
 }
 
@@ -24,7 +24,7 @@ async fn open_env_pid0_returns_global_value() {
     store.set(None, "KEY", "global-val");
     let kv = make_varkv(store);
 
-    let buf = kv.open("/env/0/KEY", OpenMode::Read).await.unwrap();
+    let buf = kv.open("0/KEY", OpenMode::Read).await.unwrap();
     assert_eq!(&*buf.lock(), b"global-val");
 }
 
@@ -34,7 +34,7 @@ async fn open_env_falls_back_to_global() {
     store.set(None, "KEY", "global-val");
     let kv = make_varkv(store);
 
-    let buf = kv.open("/env/7/KEY", OpenMode::Read).await.unwrap();
+    let buf = kv.open("7/KEY", OpenMode::Read).await.unwrap();
     assert_eq!(&*buf.lock(), b"global-val");
 }
 
@@ -43,7 +43,7 @@ async fn open_env_falls_back_to_os_env() {
     std::env::set_var("VARKV_TEST_OS_VAR", "os-val");
     let kv = make_varkv(Arc::new(VarStore::new()));
 
-    let buf = kv.open("/env/7/VARKV_TEST_OS_VAR", OpenMode::Read).await.unwrap();
+    let buf = kv.open("7/VARKV_TEST_OS_VAR", OpenMode::Read).await.unwrap();
     assert_eq!(&*buf.lock(), b"os-val");
 }
 
@@ -51,7 +51,7 @@ async fn open_env_falls_back_to_os_env() {
 async fn open_env_returns_not_found_when_absent() {
     let kv = make_varkv(Arc::new(VarStore::new()));
 
-    let result = kv.open("/env/7/NO_SUCH_VAR_XYZZY", OpenMode::Read).await;
+    let result = kv.open("7/NO_SUCH_VAR_XYZZY", OpenMode::Read).await;
     assert!(matches!(result, Err(KVError::NotFound(_))));
 }
 
@@ -59,7 +59,7 @@ async fn open_env_returns_not_found_when_absent() {
 async fn open_env_write_returns_error() {
     let kv = make_varkv(Arc::new(VarStore::new()));
 
-    let result = kv.open("/env/7/KEY", OpenMode::Write).await;
+    let result = kv.open("7/KEY", OpenMode::Write).await;
     assert!(matches!(result, Err(KVError::Backend(_))));
 }
 
@@ -70,7 +70,7 @@ async fn listdir_env_returns_varstore_keys() {
     store.set(Some(7), "B", "2");
     let kv = make_varkv(store);
 
-    let mut keys = kv.listdir("/env/7/").await.unwrap();
+    let mut keys = kv.listdir("7/").await.unwrap();
     keys.sort();
     assert!(keys.contains(&"/env/7/A".to_string()));
     assert!(keys.contains(&"/env/7/B".to_string()));

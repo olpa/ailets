@@ -1,4 +1,10 @@
+use std::sync::Arc;
+
 use ailetos::VarStore;
+
+fn arc(s: &str) -> Arc<str> {
+    Arc::from(s)
+}
 
 #[test]
 fn get_returns_none_for_unknown_key() {
@@ -10,14 +16,14 @@ fn get_returns_none_for_unknown_key() {
 fn get_returns_global_var() {
     let store = VarStore::new();
     store.set(None, "KEY", "value");
-    assert_eq!(store.get(42, "KEY"), Some("value".to_string()));
+    assert_eq!(store.get(42, "KEY"), Some(arc("value")));
 }
 
 #[test]
 fn get_returns_per_actor_var() {
     let store = VarStore::new();
     store.set(Some(7), "KEY", "actor-value");
-    assert_eq!(store.get(7, "KEY"), Some("actor-value".to_string()));
+    assert_eq!(store.get(7, "KEY"), Some(arc("actor-value")));
 }
 
 #[test]
@@ -25,14 +31,14 @@ fn per_actor_takes_priority_over_global() {
     let store = VarStore::new();
     store.set(None, "KEY", "global");
     store.set(Some(7), "KEY", "actor");
-    assert_eq!(store.get(7, "KEY"), Some("actor".to_string()));
+    assert_eq!(store.get(7, "KEY"), Some(arc("actor")));
 }
 
 #[test]
 fn falls_back_to_global_when_no_per_actor_entry() {
     let store = VarStore::new();
     store.set(None, "KEY", "global");
-    assert_eq!(store.get(7, "KEY"), Some("global".to_string()));
+    assert_eq!(store.get(7, "KEY"), Some(arc("global")));
 }
 
 #[test]
@@ -49,7 +55,7 @@ fn keys_returns_global_keys() {
     store.set(None, "B", "2");
     let mut keys = store.keys(42);
     keys.sort();
-    assert_eq!(keys, vec!["A", "B"]);
+    assert_eq!(keys, vec![arc("A"), arc("B")]);
 }
 
 #[test]
@@ -59,7 +65,7 @@ fn keys_returns_per_actor_keys() {
     store.set(Some(7), "Y", "2");
     let mut keys = store.keys(7);
     keys.sort();
-    assert_eq!(keys, vec!["X", "Y"]);
+    assert_eq!(keys, vec![arc("X"), arc("Y")]);
 }
 
 #[test]
@@ -70,7 +76,7 @@ fn keys_returns_union_without_duplicates() {
     store.set(Some(7), "B", "actor");
     let mut keys = store.keys(7);
     keys.sort();
-    assert_eq!(keys, vec!["A", "B"]);
+    assert_eq!(keys, vec![arc("A"), arc("B")]);
 }
 
 #[test]
@@ -78,18 +84,18 @@ fn last_set_wins() {
     let store = VarStore::new();
     store.set(None, "KEY", "first");
     store.set(None, "KEY", "second");
-    assert_eq!(store.get(1, "KEY"), Some("second".to_string()));
+    assert_eq!(store.get(1, "KEY"), Some(arc("second")));
 
     store.set(Some(5), "KEY", "actor-first");
     store.set(Some(5), "KEY", "actor-second");
-    assert_eq!(store.get(5, "KEY"), Some("actor-second".to_string()));
+    assert_eq!(store.get(5, "KEY"), Some(arc("actor-second")));
 }
 
 #[test]
 fn getenv_returns_varstore_value() {
     let store = VarStore::new();
     store.set(Some(7), "MY_KEY", "my-value");
-    assert_eq!(store.getenv(7, "MY_KEY"), Some("my-value".to_string()));
+    assert_eq!(store.getenv(7, "MY_KEY"), Some(arc("my-value")));
 }
 
 #[test]
@@ -102,12 +108,12 @@ fn getenv_returns_none_when_absent() {
 fn getenv_falls_back_to_global() {
     let store = VarStore::new();
     store.set(None, "GLOBAL_KEY", "global-val");
-    assert_eq!(store.getenv(99, "GLOBAL_KEY"), Some("global-val".to_string()));
+    assert_eq!(store.getenv(99, "GLOBAL_KEY"), Some(arc("global-val")));
 }
 
 #[test]
 fn getenv_falls_back_to_os_env() {
     std::env::set_var("GETENV_TEST_OS_VAR", "os-val");
     let store = VarStore::new();
-    assert_eq!(store.getenv(7, "GETENV_TEST_OS_VAR"), Some("os-val".to_string()));
+    assert_eq!(store.getenv(7, "GETENV_TEST_OS_VAR"), Some(arc("os-val")));
 }
