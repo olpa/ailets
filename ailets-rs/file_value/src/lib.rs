@@ -1,22 +1,42 @@
 //! Actor: reads a file or stdin and writes raw bytes (or a KV key for images) to stdout.
 //!
-//! Configuration (path, attrs, KV, `IdGen`) is retrieved from `control`
-//! using the actor's node handle.
+//! Path is read from `/var/{pid}/path`. Attrs are read from the remaining
+//! `/var/{pid}/...` entries. KV writing for images uses `runtime.open_write`.
 //!
 //! Behaviour by content type:
 //!   text / stdin  → raw bytes written directly to stdout
-//!   image         → bytes stored in KV under `media/<id>`; the key written to stdout
+//!   image         → bytes stored in KV under `media/{pid}`; the key written to stdout
 //!
 //! Type is determined first by the `type` attr, then by file extension.
 
-mod actor_registry;
-pub mod control;
-
-use actor_io::AWriter;
+use actor_io::{AReader, AWriter};
 use actor_runtime::{ActorRuntime, StdHandle};
-use ailetos::Handle;
 use embedded_io::Write as _;
 use std::io::Read as _;
+
+fn read_var(runtime: &dyn ActorRuntime, key: &str) -> Result<Option<String>, String> {
+    let pid = runtime.node_handle();
+    let path = format!("/var/{pid}/{key}");
+    let Ok(mut reader) = AReader::new(runtime, &path) else {
+        return Ok(None);
+    };
+    let mut buf = Vec::new();
+    reader
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("read {path}: {e}"))?;
+    Ok(String::from_utf8(buf).ok().filter(|s| !s.is_empty()))
+}
+
+fn list_var_keys(runtime: &dyn ActorRuntime) -> Vec<String> {
+    let pid = runtime.node_handle();
+    let dir = format!("/var/{pid}/");
+    runtime
+        .listdir(&dir)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|p| p.strip_prefix(&dir).map(str::to_owned))
+        .collect()
+}
 
 fn attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
     attrs
@@ -37,51 +57,47 @@ const IMAGE_EXTENSIONS: &[(&str, &str)] = &[
 ];
 
 /// # Errors
-/// Returns an error if the actor is not registered, I/O fails, or the file type is unknown.
+/// Returns an error if I/O fails, the path var is missing, or the file type is unknown.
 pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
-    let my_handle = Handle::new(runtime.node_handle());
-    let cfg = control::take(my_handle)
-        .ok_or_else(|| format!("file_value actor {my_handle:?} not registered"))?;
+    let path = read_var(runtime, "path")?
+        .ok_or_else(|| "file_value: 'path' var not set".to_string())?;
+
+    let attrs: Vec<(String, String)> = list_var_keys(runtime)
+        .into_iter()
+        .filter(|k| k != "path")
+        .filter_map(|k| {
+            let v = read_var(runtime, &k).ok()??;
+            Some((k, v))
+        })
+        .collect();
 
     let mut writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
 
-    let content_kind = detect_kind(&cfg.path, &cfg.attrs)?;
+    let content_kind = detect_kind(&path, &attrs)?;
 
     match content_kind {
         ContentKind::Stdin | ContentKind::Text => {
-            let raw = read_source(&cfg.path)?;
+            let raw = read_source(&path)?;
             writer
                 .write_all(&raw)
                 .map_err(|e| format!("file_value: write error: {e:?}"))?;
         }
         ContentKind::Image => {
-            let raw = read_source(&cfg.path)?;
-            let image_key = format!("media/{}", cfg.idgen.get_next());
-            let kv = cfg.kv;
-            let image_key_for_task = image_key.clone();
-            let (tx, rx) = tokio::sync::oneshot::channel::<Result<(), String>>();
-            cfg.async_runtime.spawn(async move {
-                use ailetos::OpenMode;
-                let result = async {
-                    let buf = kv
-                        .open(&image_key_for_task, OpenMode::Write)
-                        .await
-                        .map_err(|e| format!("file_value: kv open failed: {e}"))?;
-                    buf.append(&raw)
-                        .map_err(|e| format!("file_value: kv append failed: {e}"))?;
-                    kv.flush_buffer(&buf)
-                        .await
-                        .map_err(|e| format!("file_value: kv flush failed: {e}"))?;
-                    Ok::<(), String>(())
-                }
-                .await;
-                // receiver dropped only if the blocking thread panicked
-                if tx.send(result).is_err() {
-                    unreachable!("file_value: kv task result receiver dropped");
-                }
-            });
-            rx.blocking_recv()
-                .map_err(|_| "file_value: kv task dropped before completing".to_string())??;
+            let raw = read_source(&path)?;
+            let image_key = format!("media/{}", runtime.node_handle());
+            let fd = runtime
+                .open_write(&image_key)
+                .map_err(|e| format!("file_value: kv open failed: errno {e}"))?;
+            let mut pos = 0;
+            while pos < raw.len() {
+                let n = runtime
+                    .awrite(fd, &raw[pos..])
+                    .map_err(|e| format!("file_value: kv write failed: errno {e}"))?;
+                pos += n;
+            }
+            runtime
+                .aclose(fd)
+                .map_err(|e| format!("file_value: kv close failed: errno {e}"))?;
             writer
                 .write_all(image_key.as_bytes())
                 .map_err(|e| format!("file_value: write error: {e:?}"))?;

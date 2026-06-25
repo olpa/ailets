@@ -5,7 +5,6 @@ use std::sync::Arc;
 use ailetos::{Environment, Handle};
 
 use crate::shell_ui::PromptArg;
-use file_value::control as file_value_control;
 use to_doc_item::control as to_doc_item_control;
 
 const CTL_USER_JSON: &[u8] = br#"[{"type":"ctl"},{"role":"user"}]"#;
@@ -56,7 +55,6 @@ fn add_raw_then_doc(
 /// adds it to `"input_raw"`, then wires a `to_doc_item` actor into `"input_doc"`.
 fn add_file_then_doc(
     env: &Arc<Environment>,
-    async_runtime: &tokio::runtime::Handle,
     file_explain: &str,
     attrs: &[(String, String)],
 ) {
@@ -65,14 +63,11 @@ fn add_file_then_doc(
         &[],
         Some(file_explain.to_string()),
     );
-    file_value_control::register(
-        file_handle,
-        file_explain.to_string(),
-        attrs.to_vec(),
-        Arc::clone(&env.kv),
-        Arc::clone(&env.idgen),
-        async_runtime.clone(),
-    );
+    let pid = file_handle.id();
+    env.var_store.set(Some(pid), "path", file_explain);
+    for (key, value) in attrs {
+        env.var_store.set(Some(pid), key.as_str(), value.as_str());
+    }
     let _h = env.add_alias("input_raw".to_string(), file_handle);
     // For extension-detected images, inject type + content_type so to_doc_item
     // knows to emit an image item rather than text.
@@ -161,7 +156,7 @@ pub fn register_prompt_inputs(
                 if last_role != Some("user") {
                     add_ctl_to_input_doc(env, async_runtime, CTL_USER_JSON)?;
                 }
-                add_file_then_doc(env, async_runtime, "-", &[]);
+                add_file_then_doc(env, "-", &[]);
                 stdin_usage = StdinUsage::FileValue;
                 last_role = Some("user");
             }
@@ -169,7 +164,7 @@ pub fn register_prompt_inputs(
                 if last_role != Some("user") {
                     add_ctl_to_input_doc(env, async_runtime, CTL_USER_JSON)?;
                 }
-                add_file_then_doc(env, async_runtime, path, attrs);
+                add_file_then_doc(env, path, attrs);
                 last_role = Some("user");
             }
         }

@@ -11,7 +11,4 @@ crate-type = ["lib"]
 [dependencies]
 actor_io = { workspace = true, features = ["std"] }
 actor_runtime.workspace = true
-ailetos = { path = "../ailetos" }
 embedded-io.workspace = true
-parking_lot.workspace = true
-tokio = { version = "1.41", features = ["sync", "rt"] }
