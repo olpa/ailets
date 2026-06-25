@@ -58,21 +58,13 @@ pub fn resolve_secrets(
 fn read_var(runtime: &dyn ActorRuntime, key: &str) -> Result<Option<String>, String> {
     let pid = runtime.node_handle();
     let path = format!("/var/{pid}/{key}");
-    let Ok(fd) = runtime.open_read(&path) else {
+    let Ok(mut reader) = AReader::new(runtime, &path) else {
         return Ok(None);
     };
     let mut buf = Vec::new();
-    let mut chunk = [0u8; 256];
-    loop {
-        match runtime.aread(fd, &mut chunk) {
-            Ok(0) => break,
-            Ok(n) => buf.extend_from_slice(&chunk[..n]),
-            Err(_) => break,
-        }
-    }
-    runtime
-        .aclose(fd)
-        .map_err(|e| format!("aclose {path}: errno {e}"))?;
+    reader
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("read {path}: {e}"))?;
     Ok(String::from_utf8(buf).ok().filter(|s| !s.is_empty()))
 }
 
