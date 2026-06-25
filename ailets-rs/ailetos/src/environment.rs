@@ -10,8 +10,10 @@ use std::sync::Arc;
 use parking_lot::RwLock;
 
 use crate::dag::{Dag, DependsOn, For, NodeKind, NodeState};
-use crate::env_service::EnvService;
 use crate::pipe::PipePool;
+use crate::storage::router_kv::RouterKV;
+use crate::storage::varkv::VarKV;
+use crate::var_store::VarStore;
 
 /// Type for actor functions
 pub type ActorFn = fn(&dyn actor_runtime::ActorRuntime) -> Result<(), String>;
@@ -59,7 +61,7 @@ pub struct Environment {
     pub pipe_pool: Arc<PipePool>,
     pub actor_registry: Arc<RwLock<ActorRegistry>>,
     pub suspension: Arc<SuspensionState>,
-    pub env_service: Arc<EnvService>,
+    pub var_store: Arc<VarStore>,
 }
 
 impl Environment {
@@ -68,15 +70,18 @@ impl Environment {
         let idgen = Arc::new(IdGen::new());
         let dag = Arc::new(RwLock::new(Dag::new(Arc::clone(&idgen))));
 
-        let pipe_pool = Arc::new(PipePool::new(Arc::clone(&kv)));
+        let var_store = Arc::new(VarStore::new());
+        let layered_kv =
+            Arc::new(RouterKV::new(kv, VarKV::new(Arc::clone(&var_store)))) as Arc<dyn KVBuffers>;
+        let pipe_pool = Arc::new(PipePool::new(Arc::clone(&layered_kv)));
         Self {
             dag,
             idgen,
-            kv,
+            kv: layered_kv,
             pipe_pool,
             actor_registry: Arc::new(RwLock::new(ActorRegistry::new())),
             suspension: Arc::new(SuspensionState::new()),
-            env_service: Arc::new(EnvService::new()),
+            var_store,
         }
     }
 

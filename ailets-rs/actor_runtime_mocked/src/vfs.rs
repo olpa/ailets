@@ -98,6 +98,22 @@ impl Vfs {
             .ok_or_else(|| format!("File not found: {name}").into())
     }
 
+    /// Returns all file names whose path starts with `dir`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(i32)` if the internal lock is poisoned.
+    #[allow(clippy::missing_panics_doc)]
+    #[allow(clippy::unwrap_used)]
+    pub fn listdir(&self, dir: &str) -> Result<Vec<String>, i32> {
+        let files = self.files.lock().unwrap();
+        Ok(files
+            .iter()
+            .filter(|f| f.name.starts_with(dir))
+            .map(|f| f.name.clone())
+            .collect())
+    }
+
     /// # Errors
     /// Returns `ENOENT` (2) if file not found.
     #[allow(clippy::missing_panics_doc)]
@@ -258,25 +274,12 @@ impl Vfs {
 /// Wrapper around Vfs that implements the `ActorRuntime` trait
 pub struct VfsActorRuntime {
     vfs: Vfs,
-    env_vars: std::sync::RwLock<std::collections::HashMap<String, String>>,
 }
 
 impl VfsActorRuntime {
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            vfs: Vfs::new(),
-            env_vars: std::sync::RwLock::new(std::collections::HashMap::new()),
-        }
-    }
-
-    pub fn set_env(&self, key: impl Into<String>, value: impl Into<String>) {
-        match self.env_vars.write() {
-            Ok(mut map) => {
-                map.insert(key.into(), value.into());
-            }
-            Err(e) => tracing::warn!("env_vars RwLock poisoned: {e}"),
-        }
+        Self { vfs: Vfs::new() }
     }
 
     /// Delegate methods to the underlying Vfs for direct access
@@ -346,17 +349,11 @@ impl actor_runtime::ActorRuntime for VfsActorRuntime {
         0 // Mock runtime doesn't track node handles
     }
 
-    fn suspend_and_wait(&self) {
-        // No-op in mock runtime
+    fn listdir(&self, dir: &str) -> Result<Vec<String>, i32> {
+        self.vfs.listdir(dir)
     }
 
-    fn get_env(&self, key: &str) -> Option<String> {
-        match self.env_vars.read() {
-            Ok(map) => map.get(key).cloned(),
-            Err(e) => {
-                tracing::warn!("env_vars RwLock poisoned: {e}");
-                None
-            }
-        }
+    fn suspend_and_wait(&self) {
+        // No-op in mock runtime
     }
 }

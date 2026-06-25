@@ -35,35 +35,48 @@ pub fn provider_from_url(url: &str) -> String {
 ///
 /// The key name is derived from the second-to-last domain label of `url`
 /// (e.g. `api.openai.com` → `OPENAI_API_KEY`), with `LLM_API_KEY` as fallback.
-/// `get_env` is injected for testability.
+/// `get_var` is injected for testability.
 ///
 /// # Errors
-/// Returns an error when `{{secret}}` appears but neither env var is set.
+/// Returns an error when `{{secret}}` appears but neither var is set.
 pub fn resolve_secrets(
     value: &str,
     url: &str,
-    get_env: &dyn Fn(&str) -> Option<String>,
+    get_var: &dyn Fn(&str) -> Option<String>,
 ) -> Result<String, String> {
     if !value.contains("{{secret}}") {
         return Ok(value.to_string());
     }
     let provider = provider_from_url(url);
     let envvar = format!("{}_API_KEY", provider.to_uppercase());
-    let secret = get_env(&envvar)
-        .or_else(|| get_env("LLM_API_KEY"))
+    let secret = get_var(&envvar)
+        .or_else(|| get_var("LLM_API_KEY"))
         .ok_or_else(|| format!("Secret not found: {envvar} or LLM_API_KEY"))?;
     Ok(value.replace("{{secret}}", &secret))
+}
+
+fn read_var(runtime: &dyn ActorRuntime, key: &str) -> Result<Option<String>, String> {
+    let pid = runtime.node_handle();
+    let path = format!("/var/{pid}/{key}");
+    let Ok(mut reader) = AReader::new(runtime, &path) else {
+        return Ok(None);
+    };
+    let mut buf = Vec::new();
+    reader
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("read {path}: {e}"))?;
+    Ok(String::from_utf8(buf).ok().filter(|s| !s.is_empty()))
 }
 
 fn perform_request(
     spec: &QuerySpec,
     writer: &mut impl Write,
     agent: &ureq::Agent,
+    get_var: &dyn Fn(&str) -> Option<String>,
 ) -> Result<(), String> {
     let url = &spec.url;
     let method = &spec.method;
     let headers = &spec.headers;
-    let get_env = |k: &str| std::env::var(k).ok();
 
     let method_parsed = ureq::http::Method::from_bytes(method.as_bytes())
         .map_err(|e| format!("Invalid HTTP method '{method}': {e}"))?;
@@ -72,7 +85,7 @@ fn perform_request(
         .uri(url);
     for (key, val) in headers {
         if let Some(v) = val.as_str() {
-            let resolved = resolve_secrets(v, url, &get_env)?;
+            let resolved = resolve_secrets(v, url, get_var)?;
             builder = builder.header(key.as_str(), resolved.as_str());
         }
     }
@@ -114,7 +127,8 @@ fn perform_request(
 pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
     let reader = AReader::new_from_std(runtime, StdHandle::Stdin);
     let writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
-    let result = execute_impl(reader, writer, &ureq::Agent::new_with_defaults());
+    let get_var = |k: &str| read_var(runtime, k).ok().flatten();
+    let result = execute_impl(reader, writer, &ureq::Agent::new_with_defaults(), &get_var);
     if let Err(ref e) = result {
         let mut log = AWriter::new_from_std(runtime, StdHandle::Log);
         if writeln!(log, "{e}").is_err() {}
@@ -131,9 +145,10 @@ pub fn execute_impl(
     reader: impl Read,
     mut writer: impl Write,
     agent: &ureq::Agent,
+    get_var: &dyn Fn(&str) -> Option<String>,
 ) -> Result<(), String> {
     let spec: QuerySpec =
         serde_json::from_reader(reader).map_err(|e| format!("Failed to parse query spec: {e}"))?;
 
-    perform_request(&spec, &mut writer, agent)
+    perform_request(&spec, &mut writer, agent, get_var)
 }

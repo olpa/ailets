@@ -21,7 +21,6 @@ use super::io_bridge::IoBridge;
 use super::lifecycle_event::ActorLifecycleEvent;
 use super::sendable_buffer::{SendableConstPtr, SendableMutPtr};
 use crate::dag::NodeState;
-use crate::env_service::EnvService;
 use crate::errno::ENOSYS;
 use crate::idgen::Handle;
 use crate::suspension::SuspensionState;
@@ -38,8 +37,6 @@ pub struct BlockingActorRuntime {
     io_bridge: Arc<IoBridge>,
     /// Shared suspension state (owned by Environment)
     suspension: Arc<SuspensionState>,
-    /// Shared internal environment variables (owned by Environment)
-    env_service: Arc<EnvService>,
     /// 0 = clean termination; non-zero = POSIX errno
     exit_code: i32,
     /// Channel to notify executor of lifecycle events (Terminating/Terminated)
@@ -66,14 +63,12 @@ impl BlockingActorRuntime {
         node_handle: Handle,
         io_bridge: Arc<IoBridge>,
         suspension: Arc<SuspensionState>,
-        env_service: Arc<EnvService>,
         actor_done_tx: mpsc::UnboundedSender<ActorLifecycleEvent>,
     ) -> Self {
         Self {
             node_handle,
             io_bridge,
             suspension,
-            env_service,
             exit_code: 0,
             actor_done_tx,
             shutdown_called: false,
@@ -176,9 +171,6 @@ impl BlockingActorRuntime {
         // Readers
         self.io_bridge
             .register_std_fd_reader(self.node_handle, StdHandle::Stdin as isize);
-        self.io_bridge
-            .register_std_fd_reader(self.node_handle, StdHandle::Env as isize);
-
         // Writers
         self.io_bridge
             .register_std_fd_writer(self.node_handle, StdHandle::Stdout as isize);
@@ -231,11 +223,12 @@ impl ActorRuntime for BlockingActorRuntime {
         self.node_handle.id()
     }
 
-    fn suspend_and_wait(&self) {
-        self.suspension.self_suspend_and_wait(self.node_handle);
+    fn listdir(&self, dir: &str) -> Result<Vec<String>, i32> {
+        warn!(actor = ?self.node_handle, dir = dir, "listdir: not supported");
+        Err(crate::errno::ENOSYS)
     }
 
-    fn get_env(&self, key: &str) -> Option<String> {
-        self.env_service.get(key)
+    fn suspend_and_wait(&self) {
+        self.suspension.self_suspend_and_wait(self.node_handle);
     }
 }

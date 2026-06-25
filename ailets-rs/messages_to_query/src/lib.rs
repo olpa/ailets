@@ -1,12 +1,10 @@
 pub mod action_error;
-pub mod env_opts;
 mod handlers;
 pub mod structure_builder;
 
 use actor_io::{AReader, AWriter};
 use actor_runtime::{err_to_heap_c_string, ActorRuntime, FfiActorRuntime, StdHandle};
 use embedded_io::Write as _;
-use env_opts::EnvOpts;
 use scan_json::matcher::StructuralPseudoname;
 use scan_json::stack::ContextIter;
 use scan_json::{iter_match, scan, Action, EndAction, Options, RJiter};
@@ -24,9 +22,8 @@ pub fn process_messages_impl<W: embedded_io::Write>(
     mut reader: impl embedded_io::Read,
     writer: W,
     runtime: &dyn ActorRuntime,
-    env_opts: EnvOpts,
 ) -> Result<(), String> {
-    let builder = StructureBuilder::new(writer, runtime, env_opts);
+    let builder = StructureBuilder::new(writer, runtime);
     let builder_cell = RefCell::new(builder);
 
     let mut buffer = vec![0u8; BUFFER_SIZE as usize];
@@ -190,8 +187,7 @@ pub fn process_messages_impl<W: embedded_io::Write>(
 pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
     let reader = AReader::new_from_std(runtime, StdHandle::Stdin);
     let writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
-    let env_opts = EnvOpts::from_map(std::collections::HashMap::new());
-    let result = process_messages_impl(reader, writer, runtime, env_opts);
+    let result = process_messages_impl(reader, writer, runtime);
     if let Err(ref e) = result {
         let mut log = AWriter::new_from_std(runtime, StdHandle::Log);
         if log.write_all(format!("{e}\n").as_bytes()).is_err() {}
@@ -207,13 +203,7 @@ pub extern "C" fn process_messages() -> *const c_char {
     let reader = AReader::new_from_std(&runtime, StdHandle::Stdin);
     let writer = AWriter::new_from_std(&runtime, StdHandle::Stdout);
 
-    let env_reader = AReader::new_from_std(&runtime, StdHandle::Env);
-    let env_opts = match EnvOpts::envopts_from_reader(env_reader) {
-        Ok(opts) => opts,
-        Err(e) => return err_to_heap_c_string(1, &e),
-    };
-
-    if let Err(e) = process_messages_impl(reader, writer, &runtime, env_opts) {
+    if let Err(e) = process_messages_impl(reader, writer, &runtime) {
         return err_to_heap_c_string(1, &format!("Messages to query: {e}"));
     }
     std::ptr::null()
