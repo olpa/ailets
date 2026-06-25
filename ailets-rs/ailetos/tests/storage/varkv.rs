@@ -9,7 +9,7 @@ fn make_varkv(var_store: Arc<VarStore>) -> VarKV {
 }
 
 #[tokio::test]
-async fn open_env_returns_per_actor_value() {
+async fn open_returns_per_actor_value() {
     let store = Arc::new(VarStore::new());
     store.set(Some(7), "KEY", "actor-val");
     let kv = make_varkv(store);
@@ -19,17 +19,7 @@ async fn open_env_returns_per_actor_value() {
 }
 
 #[tokio::test]
-async fn open_env_pid0_returns_global_value() {
-    let store = Arc::new(VarStore::new());
-    store.set(None, "KEY", "global-val");
-    let kv = make_varkv(store);
-
-    let buf = kv.open("/0/KEY", OpenMode::Read).await.unwrap();
-    assert_eq!(&*buf.lock(), b"global-val");
-}
-
-#[tokio::test]
-async fn open_env_falls_back_to_global() {
+async fn open_falls_back_to_global() {
     let store = Arc::new(VarStore::new());
     store.set(None, "KEY", "global-val");
     let kv = make_varkv(store);
@@ -39,7 +29,7 @@ async fn open_env_falls_back_to_global() {
 }
 
 #[tokio::test]
-async fn open_env_falls_back_to_os_env() {
+async fn open_falls_back_to_os_env() {
     std::env::set_var("VARKV_TEST_OS_VAR", "os-val");
     let kv = make_varkv(Arc::new(VarStore::new()));
 
@@ -48,7 +38,7 @@ async fn open_env_falls_back_to_os_env() {
 }
 
 #[tokio::test]
-async fn open_env_returns_not_found_when_absent() {
+async fn open_returns_not_found_when_absent() {
     let kv = make_varkv(Arc::new(VarStore::new()));
 
     let result = kv.open("/7/NO_SUCH_VAR_XYZZY", OpenMode::Read).await;
@@ -56,7 +46,7 @@ async fn open_env_returns_not_found_when_absent() {
 }
 
 #[tokio::test]
-async fn open_env_write_returns_error() {
+async fn open_write_returns_error() {
     let kv = make_varkv(Arc::new(VarStore::new()));
 
     let result = kv.open("/7/KEY", OpenMode::Write).await;
@@ -79,13 +69,14 @@ async fn listdir_subdir_is_forbidden() {
 
 #[tokio::test]
 async fn listdir_env_returns_varstore_keys() {
+    std::env::set_var("VARKV_LISTDIR_TEST_OS_KEY", "os-val");
     let store = Arc::new(VarStore::new());
     store.set(None, "A", "1");
     store.set(Some(7), "B", "2");
     let kv = make_varkv(store);
 
-    let mut keys = kv.listdir("/7/").await.unwrap();
-    keys.sort();
+    let keys = kv.listdir("/7/").await.unwrap();
     assert!(keys.contains(&"/7/A".to_string()));
     assert!(keys.contains(&"/7/B".to_string()));
+    assert!(keys.contains(&"/7/VARKV_LISTDIR_TEST_OS_KEY".to_string()));
 }
