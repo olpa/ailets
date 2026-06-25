@@ -5,7 +5,6 @@ use std::sync::Arc;
 use ailetos::{Environment, Handle};
 
 use crate::shell_ui::PromptArg;
-use to_doc_item::control as to_doc_item_control;
 
 const CTL_USER_JSON: &[u8] = br#"[{"type":"ctl"},{"role":"user"}]"#;
 const CTL_SYSTEM_JSON: &[u8] = br#"[{"type":"ctl"},{"role":"system"}]"#;
@@ -88,12 +87,15 @@ fn add_file_then_doc(
     wire_to_doc_item(env, file_handle, doc_attrs);
 }
 
-/// Creates a `to_doc_item` actor node that depends on `raw_handle`, registers
-/// `attrs` in the control registry, and adds the node to the `"input_doc"` alias.
+/// Creates a `to_doc_item` actor node that depends on `raw_handle`, sets attrs
+/// via var_store, and adds the node to the `"input_doc"` alias.
 fn wire_to_doc_item(env: &Arc<Environment>, raw_handle: Handle, attrs: &[(String, String)]) {
     let explain = attrs_to_explain(attrs);
     let doc_handle = env.add_node("to_doc_item".to_string(), &[raw_handle], explain);
-    to_doc_item_control::register(doc_handle, attrs.to_vec());
+    let pid = doc_handle.id();
+    for (key, value) in attrs {
+        env.var_store.set(Some(pid), key.as_str(), value.as_str());
+    }
     let _h = env.add_alias("input_doc".to_string(), doc_handle);
 }
 

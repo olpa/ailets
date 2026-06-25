@@ -1,9 +1,7 @@
 //! Actor: converts a raw value from `input_raw` into a structured content item.
 //!
 //! Streams raw bytes from stdin, wrapping them in a JSON content-item array on stdout.
-//! User-specified attributes (e.g. `type`, `content_type`) are passed via the
-//! `control` registry, which is keyed by node handle. The `explain`
-//! field on the DAG node carries the same data for human inspection.
+//! Attrs (e.g. `type`, `content_type`) are read from `/var/{pid}/...` entries.
 //!
 //! Supported output formats:
 //!   text  → `[{"type":"text"},{"text":"<content>"}]`
@@ -12,13 +10,34 @@
 //!
 //! Note: raw bytes are embedded without JSON escaping. Proper escaping is deferred.
 
-mod actor_registry;
-pub mod control;
-
 use actor_io::{AReader, AWriter};
 use actor_runtime::{ActorRuntime, StdHandle};
-use ailetos::Handle;
 use embedded_io::Write as _;
+use std::io::Read as _;
+
+fn read_var(runtime: &dyn ActorRuntime, key: &str) -> Result<Option<String>, String> {
+    let pid = runtime.node_handle();
+    let path = format!("/var/{pid}/{key}");
+    let Ok(mut reader) = AReader::new(runtime, &path) else {
+        return Ok(None);
+    };
+    let mut buf = Vec::new();
+    reader
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("read {path}: {e}"))?;
+    Ok(String::from_utf8(buf).ok().filter(|s| !s.is_empty()))
+}
+
+fn list_var_keys(runtime: &dyn ActorRuntime) -> Vec<String> {
+    let pid = runtime.node_handle();
+    let dir = format!("/var/{pid}/");
+    runtime
+        .listdir(&dir)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|p| p.strip_prefix(&dir).map(str::to_owned))
+        .collect()
+}
 
 fn attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
     attrs
@@ -51,8 +70,13 @@ pub fn build_frame(attrs: &[(String, String)]) -> Result<(Vec<u8>, &'static [u8]
 /// # Errors
 /// Returns an error if I/O fails or if the attrs specify an unsupported type.
 pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
-    let my_handle = Handle::new(runtime.node_handle());
-    let attrs = control::get_attrs(my_handle).unwrap_or_default();
+    let attrs: Vec<(String, String)> = list_var_keys(runtime)
+        .into_iter()
+        .filter_map(|k| {
+            let v = read_var(runtime, &k).ok()??;
+            Some((k, v))
+        })
+        .collect();
 
     let mut reader = AReader::new_from_std(runtime, StdHandle::Stdin);
     let mut writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
