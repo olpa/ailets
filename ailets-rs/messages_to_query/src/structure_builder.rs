@@ -239,26 +239,26 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
         .map_err(|e| format!("{e:?}"))?;
 
         // Write Content-type header
-        let content_type_owned = read_var(self.runtime, "http.header.Content-type")?;
+        let content_type_owned = read_var(self.runtime, "AILETS_HTTP_HEADER_CONTENT_TYPE")?;
         let content_type = content_type_owned.as_deref().unwrap_or(DEFAULT_CONTENT_TYPE);
         embedded_io::Write::write_all(&mut self.writer, b"\"Content-type\": \"")
             .map_err(|e| format!("{e:?}"))?;
         embedded_io::Write::write_all(&mut self.writer, content_type.as_bytes())
             .map_err(|e| format!("{e:?}"))?;
-        let authorization_owned = read_var(self.runtime, "http.header.Authorization")?;
+        let authorization_owned = read_var(self.runtime, "AILETS_HTTP_HEADER_AUTHORIZATION")?;
         let authorization = authorization_owned.as_deref().unwrap_or(DEFAULT_AUTHORIZATION);
         embedded_io::Write::write_all(&mut self.writer, b"\", \"Authorization\": \"")
             .map_err(|e| format!("{e:?}"))?;
         embedded_io::Write::write_all(&mut self.writer, authorization.as_bytes())
             .map_err(|e| format!("{e:?}"))?;
 
-        // Add remaining http.header.* parameters
+        // Add remaining AILETS_HTTP_HEADER_* parameters
         for key in list_var_keys(self.runtime) {
-            if key.starts_with("http.header.")
-                && key != "http.header.Content-type"
-                && key != "http.header.Authorization"
+            if key.starts_with("AILETS_HTTP_HEADER_")
+                && key != "AILETS_HTTP_HEADER_CONTENT_TYPE"
+                && key != "AILETS_HTTP_HEADER_AUTHORIZATION"
             {
-                if let Some(header_name) = key.strip_prefix("http.header.") {
+                if let Some(header_name) = key.strip_prefix("AILETS_HTTP_HEADER_") {
                     if let Some(value) = read_var(self.runtime, &key)? {
                         let value_json =
                             serde_json::to_string(&value).map_err(|e| format!("{e:?}"))?;
@@ -295,14 +295,14 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
                 .map_err(|e| format!("{e:?}"))?;
         }
 
-        // Add remaining llm.* parameters
+        // Add remaining AILETS_LLM_* parameters
         for key in list_var_keys(self.runtime) {
-            if key.starts_with("llm.")
-                && key != "llm.model"
-                && key != "llm.stream"
-                && key != "llm.thinking"
+            if key.starts_with("AILETS_LLM_")
+                && key != "AILETS_LLM_MODEL"
+                && key != "AILETS_LLM_STREAM"
+                && key != "AILETS_LLM_THINKING"
             {
-                if let Some(param_name) = key.strip_prefix("llm.") {
+                if let Some(param_name) = key.strip_prefix("AILETS_LLM_") {
                     if let Some(value) = read_var(self.runtime, &key)? {
                         let value_json =
                             serde_json::to_string(&value).map_err(|e| format!("{e:?}"))?;
