@@ -1,4 +1,3 @@
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -7,8 +6,8 @@ use super::buffer::Buffer;
 use super::types::{KVBuffers, KVError, KVStat, OpenMode};
 use crate::var_store::VarStore;
 
-/// `KVBuffers` implementation for the var namespace.
-/// Receives and returns paths without any routing prefix.
+/// Read-only `KVBuffers` backend that exposes `VarStore` variables as paths of the form `/{pid}/{key}`.
+/// Resolution follows the three-tier order defined by `VarStore::getenv`: per-actor, global, OS environment.
 pub struct VarKV {
     var_store: Arc<VarStore>,
 }
@@ -39,11 +38,7 @@ impl VarKV {
         let pid: i64 = pid_str
             .parse()
             .map_err(|_| KVError::Backend("VarKV: listdir requires a numeric pid".to_string()))?;
-        let mut keys: HashSet<String> = self.var_store.keys(pid).iter().map(|k| k.to_string()).collect();
-        for (k, _) in std::env::vars() {
-            keys.insert(k);
-        }
-        Ok(keys
+        Ok(self.var_store.keysenv(pid)
             .into_iter()
             .map(|k| format!("/{pid}/{k}"))
             .collect())

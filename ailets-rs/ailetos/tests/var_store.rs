@@ -117,3 +117,13 @@ fn getenv_falls_back_to_os_env() {
     let store = VarStore::new();
     assert_eq!(store.getenv(7, "GETENV_TEST_OS_VAR"), Some(arc("os-val")));
 }
+
+#[test]
+fn keysenv_includes_os_env_keys() {
+    std::env::set_var("KEYSENV_TEST_OS_KEY", "os-val");
+    let store = VarStore::new();
+    store.set(Some(7), "STORE_KEY", "store-val");
+    let keys = store.keysenv(7);
+    assert!(keys.contains(&arc("STORE_KEY")));
+    assert!(keys.contains(&arc("KEYSENV_TEST_OS_KEY")));
+}
