@@ -11,6 +11,4 @@ crate-type = ["lib"]
 [dependencies]
 actor_io.workspace = true
 actor_runtime.workspace = true
-ailetos = { path = "../ailetos" }
 embedded-io.workspace = true
-parking_lot.workspace = true
