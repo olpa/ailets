@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use ailetos::storage::{KVBuffers, KVError, OpenMode};
 use ailetos::storage::varkv::VarKV;
+use ailetos::storage::{KVBuffers, KVError, OpenMode};
 use ailetos::VarStore;
 
 fn make_varkv(var_store: Arc<VarStore>) -> VarKV {
@@ -33,7 +33,10 @@ async fn open_falls_back_to_os_env() {
     std::env::set_var("VARKV_TEST_OS_VAR", "os-val");
     let kv = make_varkv(Arc::new(VarStore::new()));
 
-    let buf = kv.open("/7/VARKV_TEST_OS_VAR", OpenMode::Read).await.unwrap();
+    let buf = kv
+        .open("/7/VARKV_TEST_OS_VAR", OpenMode::Read)
+        .await
+        .unwrap();
     assert_eq!(&*buf.lock(), b"os-val");
 }
 

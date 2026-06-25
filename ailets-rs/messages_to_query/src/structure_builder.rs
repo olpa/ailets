@@ -228,8 +228,8 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
     fn write_prologue(&mut self) -> Result<(), String> {
         embedded_io::Write::write_all(&mut self.writer, b"{ \"url\": \"")
             .map_err(|e| format!("{e:?}"))?;
-        let url = read_var(self.runtime, "AILETS_LLM_URL")?
-            .unwrap_or_else(|| DEFAULT_URL.to_string());
+        let url =
+            read_var(self.runtime, "AILETS_LLM_URL")?.unwrap_or_else(|| DEFAULT_URL.to_string());
         embedded_io::Write::write_all(&mut self.writer, url.as_bytes())
             .map_err(|e| format!("{e:?}"))?;
         embedded_io::Write::write_all(
@@ -240,13 +240,17 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
 
         // Write Content-type header
         let content_type_owned = read_var(self.runtime, "AILETS_HTTP_HEADER_CONTENT_TYPE")?;
-        let content_type = content_type_owned.as_deref().unwrap_or(DEFAULT_CONTENT_TYPE);
+        let content_type = content_type_owned
+            .as_deref()
+            .unwrap_or(DEFAULT_CONTENT_TYPE);
         embedded_io::Write::write_all(&mut self.writer, b"\"Content-type\": \"")
             .map_err(|e| format!("{e:?}"))?;
         embedded_io::Write::write_all(&mut self.writer, content_type.as_bytes())
             .map_err(|e| format!("{e:?}"))?;
         let authorization_owned = read_var(self.runtime, "AILETS_HTTP_HEADER_AUTHORIZATION")?;
-        let authorization = authorization_owned.as_deref().unwrap_or(DEFAULT_AUTHORIZATION);
+        let authorization = authorization_owned
+            .as_deref()
+            .unwrap_or(DEFAULT_AUTHORIZATION);
         embedded_io::Write::write_all(&mut self.writer, b"\", \"Authorization\": \"")
             .map_err(|e| format!("{e:?}"))?;
         embedded_io::Write::write_all(&mut self.writer, authorization.as_bytes())
@@ -263,11 +267,8 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
                         let value_json =
                             serde_json::to_string(&value).map_err(|e| format!("{e:?}"))?;
                         let header_part = format!(r#", "{header_name}": {value_json}"#);
-                        embedded_io::Write::write_all(
-                            &mut self.writer,
-                            header_part.as_bytes(),
-                        )
-                        .map_err(|e| format!("{e:?}"))?;
+                        embedded_io::Write::write_all(&mut self.writer, header_part.as_bytes())
+                            .map_err(|e| format!("{e:?}"))?;
                     }
                 }
             }
@@ -276,8 +277,8 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
         // Write the body
         embedded_io::Write::write_all(&mut self.writer, b"\" },\n\"body\": { \"model\": \"")
             .map_err(|e| format!("{e:?}"))?;
-        let model = read_var(self.runtime, "AILETS_MODEL")?
-            .unwrap_or_else(|| DEFAULT_MODEL.to_string());
+        let model =
+            read_var(self.runtime, "AILETS_MODEL")?.unwrap_or_else(|| DEFAULT_MODEL.to_string());
         embedded_io::Write::write_all(&mut self.writer, model.as_bytes())
             .map_err(|e| format!("{e:?}"))?;
         embedded_io::Write::write_all(&mut self.writer, b"\", \"stream\": ")
@@ -307,11 +308,8 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
                         let value_json =
                             serde_json::to_string(&value).map_err(|e| format!("{e:?}"))?;
                         let param_part = format!(r#", "{param_name}": {value_json}"#);
-                        embedded_io::Write::write_all(
-                            &mut self.writer,
-                            param_part.as_bytes(),
-                        )
-                        .map_err(|e| format!("{e:?}"))?;
+                        embedded_io::Write::write_all(&mut self.writer, param_part.as_bytes())
+                            .map_err(|e| format!("{e:?}"))?;
                     }
                 }
             }

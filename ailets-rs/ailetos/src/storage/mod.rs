@@ -47,7 +47,7 @@ pub use buffer::{Buffer, BufferError, BufferReadGuard};
 pub use flush_coordinator::{CoordinatorError, FlushCoordinator, FlushFn};
 pub use memkv::MemKV;
 pub use router_kv::RouterKV;
-pub use varkv::VarKV;
 #[cfg(feature = "sqlitekv")]
 pub use sqlitekv::SqliteKV;
 pub use types::{KVBuffers, KVError, KVStat, OpenMode};
+pub use varkv::VarKV;

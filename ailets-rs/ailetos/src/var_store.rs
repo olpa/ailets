@@ -13,8 +13,10 @@ use std::sync::Arc;
 
 use parking_lot::RwLock;
 
+type VarEntry = (Option<i64>, Arc<str>, Arc<str>);
+
 pub struct VarStore {
-    vars: RwLock<Vec<(Option<i64>, Arc<str>, Arc<str>)>>,
+    vars: RwLock<Vec<VarEntry>>,
 }
 
 impl VarStore {
@@ -34,7 +36,11 @@ impl VarStore {
     pub fn get(&self, pid: i64, key: &str) -> Option<Arc<str>> {
         let vars = self.vars.read();
         // per-actor match first (last set wins)
-        if let Some((_, _, v)) = vars.iter().rev().find(|(p, k, _)| *p == Some(pid) && k.as_ref() == key) {
+        if let Some((_, _, v)) = vars
+            .iter()
+            .rev()
+            .find(|(p, k, _)| *p == Some(pid) && k.as_ref() == key)
+        {
             return Some(Arc::clone(v));
         }
         // global fallback (last set wins)
@@ -47,7 +53,8 @@ impl VarStore {
     /// Like `get`, but falls back to the OS environment if the variable is not found in the store.
     #[must_use]
     pub fn getenv(&self, pid: i64, key: &str) -> Option<Arc<str>> {
-        self.get(pid, key).or_else(|| std::env::var(key).ok().map(Into::into))
+        self.get(pid, key)
+            .or_else(|| std::env::var(key).ok().map(Into::into))
     }
 
     /// Return the union of per-actor and global keys for the given pid. Does not include OS environment keys; see `keysenv`.

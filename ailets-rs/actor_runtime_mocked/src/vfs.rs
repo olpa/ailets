@@ -99,6 +99,10 @@ impl Vfs {
     }
 
     /// Returns all file names whose path starts with `dir`.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(i32)` if the internal lock is poisoned.
     #[allow(clippy::missing_panics_doc)]
     #[allow(clippy::unwrap_used)]
     pub fn listdir(&self, dir: &str) -> Result<Vec<String>, i32> {
@@ -275,9 +279,7 @@ pub struct VfsActorRuntime {
 impl VfsActorRuntime {
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            vfs: Vfs::new(),
-        }
+        Self { vfs: Vfs::new() }
     }
 
     /// Delegate methods to the underlying Vfs for direct access
@@ -354,5 +356,4 @@ impl actor_runtime::ActorRuntime for VfsActorRuntime {
     fn suspend_and_wait(&self) {
         // No-op in mock runtime
     }
-
 }

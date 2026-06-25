@@ -38,7 +38,9 @@ impl VarKV {
         let pid: i64 = pid_str
             .parse()
             .map_err(|_| KVError::Backend("VarKV: listdir requires a numeric pid".to_string()))?;
-        Ok(self.var_store.keysenv(pid)
+        Ok(self
+            .var_store
+            .keysenv(pid)
             .into_iter()
             .map(|k| format!("/{pid}/{k}"))
             .collect())
@@ -63,9 +65,9 @@ impl KVBuffers for VarKV {
     async fn open(&self, path: &str, mode: OpenMode) -> Result<Buffer, KVError> {
         match mode {
             OpenMode::Read => self.open_impl(path),
-            OpenMode::Write | OpenMode::Append => {
-                Err(KVError::Backend("VarKV: env vars are read-only".to_string()))
-            }
+            OpenMode::Write | OpenMode::Append => Err(KVError::Backend(
+                "VarKV: env vars are read-only".to_string(),
+            )),
         }
     }
 

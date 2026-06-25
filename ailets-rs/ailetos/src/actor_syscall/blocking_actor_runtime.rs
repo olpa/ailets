@@ -231,5 +231,4 @@ impl ActorRuntime for BlockingActorRuntime {
     fn suspend_and_wait(&self) {
         self.suspension.self_suspend_and_wait(self.node_handle);
     }
-
 }
