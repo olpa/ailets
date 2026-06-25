@@ -1,3 +1,7 @@
+//! `KVBuffers` multiplexer: paths under `/var` are dispatched to `VarKV` (with the
+//! `/var` prefix stripped); all other paths are forwarded to the inner backend unchanged.
+//! `listdir` results from `VarKV` have the `/var` prefix re-added before returning.
+
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -8,8 +12,6 @@ use super::varkv::VarKV;
 
 const VAR_PREFIX: &str = "/var";
 
-/// Routes KV paths to the appropriate backend.
-/// Strips the path prefix before dispatching so each backend sees only its own namespace.
 pub struct RouterKV {
     inner: Arc<dyn KVBuffers>,
     var_kv: VarKV,
