@@ -12,21 +12,17 @@ pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
     let path = read_var(runtime, "path")?
         .ok_or_else(|| "file_value: 'path' var not set".to_string())?;
 
-    let mut src = open_source(&path)?;
+    let mut src: Box<dyn std::io::Read> = if path == "-" {
+        Box::new(std::io::stdin())
+    } else {
+        let f = std::fs::File::open(&path)
+            .map_err(|e| format!("file_value: failed to open '{path}': {e}"))?;
+        Box::new(f)
+    };
     let mut writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
 
     std::io::copy(&mut src, &mut writer)
         .map_err(|e| format!("file_value: copy error: {e}"))?;
 
     Ok(())
-}
-
-fn open_source(path: &str) -> Result<Box<dyn std::io::Read>, String> {
-    if path == "-" {
-        Ok(Box::new(std::io::stdin()))
-    } else {
-        let f = std::fs::File::open(path)
-            .map_err(|e| format!("file_value: failed to open '{path}': {e}"))?;
-        Ok(Box::new(f))
-    }
 }
