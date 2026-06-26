@@ -11,33 +11,9 @@
 //! Note: raw bytes are embedded without JSON escaping. Proper escaping is deferred.
 
 use actor_io::{AReader, AWriter};
+use actor_runtime::var_access::{list_var_keys, read_var};
 use actor_runtime::{ActorRuntime, StdHandle};
 use embedded_io::Write as _;
-use std::io::Read as _;
-
-fn read_var(runtime: &dyn ActorRuntime, key: &str) -> Result<Option<String>, String> {
-    let pid = runtime.node_handle();
-    let path = format!("/var/{pid}/{key}");
-    let Ok(mut reader) = AReader::new(runtime, &path) else {
-        return Ok(None);
-    };
-    let mut buf = Vec::new();
-    reader
-        .read_to_end(&mut buf)
-        .map_err(|e| format!("read {path}: {e}"))?;
-    Ok(String::from_utf8(buf).ok().filter(|s| !s.is_empty()))
-}
-
-fn list_var_keys(runtime: &dyn ActorRuntime) -> Vec<String> {
-    let pid = runtime.node_handle();
-    let dir = format!("/var/{pid}/");
-    runtime
-        .listdir(&dir)
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|p| p.strip_prefix(&dir).map(str::to_owned))
-        .collect()
-}
 
 fn attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
     attrs

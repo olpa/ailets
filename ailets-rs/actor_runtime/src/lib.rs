@@ -4,6 +4,7 @@ mod actor_runtime;
 mod dagops;
 mod ffi_runtime;
 mod runtime_trait;
+pub mod var_access;
 
 pub use actor_runtime::{aclose, aread, awrite, get_errno, open_read, open_write};
 pub use dagops::{

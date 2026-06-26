@@ -1,5 +1,6 @@
 use crate::action_error::ActionError;
 use actor_io::AReader;
+use actor_runtime::var_access::{list_var_keys, read_var};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use linked_hash_map::LinkedHashMap;
@@ -41,34 +42,6 @@ pub struct StructureBuilder<'a, W: embedded_io::Write> {
     item_attr_mode: ItemAttrMode,
     /// Optional extended error message to provide more details than the static `StreamOp::Error`
     last_error: Option<ActionError>,
-}
-
-fn read_var(
-    runtime: &dyn actor_runtime::ActorRuntime,
-    key: &str,
-) -> Result<Option<String>, String> {
-    use std::io::Read as _;
-    let pid = runtime.node_handle();
-    let path = format!("/var/{pid}/{key}");
-    let Ok(mut reader) = AReader::new(runtime, &path) else {
-        return Ok(None);
-    };
-    let mut buf = Vec::new();
-    reader
-        .read_to_end(&mut buf)
-        .map_err(|e| format!("read {path}: {e}"))?;
-    Ok(String::from_utf8(buf).ok().filter(|s| !s.is_empty()))
-}
-
-fn list_var_keys(runtime: &dyn actor_runtime::ActorRuntime) -> Vec<String> {
-    let pid = runtime.node_handle();
-    let dir = format!("/var/{pid}/");
-    runtime
-        .listdir(&dir)
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|path| path.strip_prefix(&dir).map(str::to_owned))
-        .collect()
 }
 
 impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
