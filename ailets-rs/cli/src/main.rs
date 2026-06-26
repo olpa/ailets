@@ -1,7 +1,7 @@
 //! DAG Shell binary entry point.
 
 use dagsh::model_aliases::resolve_alias;
-use dagsh::prompt_nodes::StdinUsage;
+use dagsh::user_input::StdinUsage;
 use dagsh::shell_ui::{create_notification_sink, parse_args, print_usage, ShellHelper};
 use dagsh::{make_interp, DagShell, ShellControl};
 use rustyline::config::Configurer;
