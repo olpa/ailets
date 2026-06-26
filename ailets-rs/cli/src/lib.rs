@@ -17,8 +17,8 @@ pub(crate) mod shell_input_control;
 mod commands;
 pub mod model_aliases;
 mod output;
-pub mod prompt_nodes;
 pub mod shell_ui;
+pub mod user_input;
 mod tcl_interp;
 
 use std::sync::atomic::AtomicBool;
@@ -293,8 +293,8 @@ impl DagShell {
     pub fn register_prompt_inputs(
         &mut self,
         items: &[shell_ui::PromptArg],
-    ) -> Result<prompt_nodes::StdinUsage, String> {
-        prompt_nodes::register_prompt_inputs(&self.env, self.ailetos_async_rt.handle(), items)
+    ) -> Result<user_input::StdinUsage, String> {
+        user_input::register_prompt_inputs(&self.env, self.ailetos_async_rt.handle(), items)
     }
 
     fn prepare_exit(&mut self) {
