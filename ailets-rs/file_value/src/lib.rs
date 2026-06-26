@@ -13,7 +13,6 @@ use actor_io::AWriter;
 use actor_runtime::var_access::{list_var_keys, read_var};
 use actor_runtime::{ActorRuntime, StdHandle};
 use embedded_io::Write as _;
-use std::io::Read as _;
 
 fn attr<'a>(attrs: &'a [(String, String)], key: &str) -> Option<&'a str> {
     attrs
@@ -54,27 +53,18 @@ pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
 
     match content_kind {
         ContentKind::Stdin | ContentKind::Text => {
-            let raw = read_source(&path)?;
-            writer
-                .write_all(&raw)
-                .map_err(|e| format!("file_value: write error: {e:?}"))?;
+            let mut src = open_source(&path)?;
+            std::io::copy(&mut src, &mut writer)
+                .map_err(|e| format!("file_value: copy error: {e}"))?;
         }
         ContentKind::Image => {
-            let raw = read_source(&path)?;
             let image_key = format!("media/{}", runtime.node_handle());
-            let fd = runtime
-                .open_write(&image_key)
-                .map_err(|e| format!("file_value: kv open failed: errno {e}"))?;
-            let mut pos = 0;
-            while pos < raw.len() {
-                let n = runtime
-                    .awrite(fd, &raw[pos..])
-                    .map_err(|e| format!("file_value: kv write failed: errno {e}"))?;
-                pos += n;
-            }
-            runtime
-                .aclose(fd)
-                .map_err(|e| format!("file_value: kv close failed: errno {e}"))?;
+            let mut kv_writer = AWriter::new(runtime, &image_key)
+                .map_err(|e| format!("file_value: kv open failed: {e:?}"))?;
+            let mut src = open_source(&path)?;
+            std::io::copy(&mut src, &mut kv_writer)
+                .map_err(|e| format!("file_value: kv copy error: {e}"))?;
+            drop(kv_writer);
             writer
                 .write_all(image_key.as_bytes())
                 .map_err(|e| format!("file_value: write error: {e:?}"))?;
@@ -144,14 +134,12 @@ pub fn detect_kind(path: &str, attrs: &[(String, String)]) -> Result<ContentKind
     ))
 }
 
-fn read_source(path: &str) -> Result<Vec<u8>, String> {
+fn open_source(path: &str) -> Result<Box<dyn std::io::Read>, String> {
     if path == "-" {
-        let mut buf = Vec::new();
-        std::io::stdin()
-            .read_to_end(&mut buf)
-            .map_err(|e| format!("file_value: stdin read error: {e}"))?;
-        Ok(buf)
+        Ok(Box::new(std::io::stdin()))
     } else {
-        std::fs::read(path).map_err(|e| format!("file_value: failed to read '{path}': {e}"))
+        let f = std::fs::File::open(path)
+            .map_err(|e| format!("file_value: failed to open '{path}': {e}"))?;
+        Ok(Box::new(f))
     }
 }
