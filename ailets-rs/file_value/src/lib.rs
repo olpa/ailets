@@ -63,15 +63,19 @@ pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
                 .and_then(|n| n.to_str())
                 .unwrap_or("image");
             let image_key = format!("/input/{}/{filename}", uuid::Uuid::new_v4());
+            // Write the doc item (key) to stdout before uploading the image data to KV.
+            // This creates a race condition: the next actor may start reading the KV key
+            // before this actor finishes writing the image bytes. See:
+            // https://github.com/olpa/ailets/issues/178
+            writer
+                .write_all(image_key.as_bytes())
+                .map_err(|e| format!("file_value: write error: {e:?}"))?;
+            drop(writer);
             let mut kv_writer = AWriter::new(runtime, &image_key)
                 .map_err(|e| format!("file_value: kv open failed: {e:?}"))?;
             let mut src = open_source(&path)?;
             std::io::copy(&mut src, &mut kv_writer)
                 .map_err(|e| format!("file_value: kv copy error: {e}"))?;
-            drop(kv_writer);
-            writer
-                .write_all(image_key.as_bytes())
-                .map_err(|e| format!("file_value: write error: {e:?}"))?;
         }
     }
 
