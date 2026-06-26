@@ -1,5 +1,5 @@
 use actor_io::{AReader, AWriter};
-use actor_runtime::{ActorRuntime, StdHandle};
+use actor_runtime::{var_access::read_var, ActorRuntime, StdHandle};
 use std::io::{Read, Write};
 use ureq::RequestExt;
 
@@ -53,19 +53,6 @@ pub fn resolve_secrets(
         .or_else(|| get_var("LLM_API_KEY"))
         .ok_or_else(|| format!("Secret not found: {envvar} or LLM_API_KEY"))?;
     Ok(value.replace("{{secret}}", &secret))
-}
-
-fn read_var(runtime: &dyn ActorRuntime, key: &str) -> Result<Option<String>, String> {
-    let pid = runtime.node_handle();
-    let path = format!("/var/{pid}/{key}");
-    let Ok(mut reader) = AReader::new(runtime, &path) else {
-        return Ok(None);
-    };
-    let mut buf = Vec::new();
-    reader
-        .read_to_end(&mut buf)
-        .map_err(|e| format!("read {path}: {e}"))?;
-    Ok(String::from_utf8(buf).ok().filter(|s| !s.is_empty()))
 }
 
 fn perform_request(
