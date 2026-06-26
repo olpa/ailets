@@ -1,5 +1,18 @@
 use crate::runtime_trait::ActorRuntime;
 
+struct RuntimeReader<'a> {
+    runtime: &'a dyn ActorRuntime,
+    fd: isize,
+}
+
+impl std::io::Read for RuntimeReader<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        self.runtime
+            .aread(self.fd, buf)
+            .map_err(std::io::Error::from_raw_os_error)
+    }
+}
+
 /// Read a single actor variable from `/var/{pid}/{key}`.
 ///
 /// Returns `Ok(None)` when the variable is absent or empty.
@@ -13,17 +26,11 @@ pub fn read_var(runtime: &dyn ActorRuntime, key: &str) -> Result<Option<String>,
         Ok(fd) => fd,
         Err(_) => return Ok(None),
     };
+    let mut reader = RuntimeReader { runtime, fd };
     let mut buf = Vec::new();
-    let mut chunk = [0u8; 1024];
-    loop {
-        match runtime.aread(fd, &mut chunk) {
-            Ok(0) => break,
-            Ok(n) => buf.extend_from_slice(&chunk[..n]),
-            Err(e) => {
-                runtime.aclose(fd).ok();
-                return Err(format!("read {path}: errno {e}"));
-            }
-        }
+    if let Err(e) = std::io::copy(&mut reader, &mut buf) {
+        runtime.aclose(fd).ok();
+        return Err(format!("read {path}: {e}"));
     }
     runtime
         .aclose(fd)
