@@ -58,7 +58,11 @@ pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
                 .map_err(|e| format!("file_value: copy error: {e}"))?;
         }
         ContentKind::Image => {
-            let image_key = format!("media/{}", runtime.node_handle());
+            let filename = std::path::Path::new(&path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("image");
+            let image_key = format!("/input/{}/{filename}", uuid::Uuid::new_v4());
             let mut kv_writer = AWriter::new(runtime, &image_key)
                 .map_err(|e| format!("file_value: kv open failed: {e:?}"))?;
             let mut src = open_source(&path)?;

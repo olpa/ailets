@@ -12,3 +12,4 @@ crate-type = ["lib"]
 actor_io = { workspace = true, features = ["std"] }
 actor_runtime = { workspace = true, features = ["std"] }
 embedded-io.workspace = true
+uuid.workspace = true
