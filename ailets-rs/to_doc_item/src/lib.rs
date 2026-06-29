@@ -17,16 +17,12 @@ use actor_runtime::{ActorRuntime, StdHandle};
 
 const PREFIX: &str = "AILETS_DOC_ITEM_";
 
-fn wr<W: embedded_io::Write>(w: &mut W, bytes: &[u8]) -> Result<(), String> {
+fn wr(w: &mut impl std::io::Write, bytes: &[u8]) -> Result<(), String> {
     w.write_all(bytes)
-        .map_err(|e| format!("to_doc_item: write error: {e:?}"))
+        .map_err(|e| format!("to_doc_item: write error: {e}"))
 }
 
-fn write_attr<W: embedded_io::Write>(
-    writer: &mut W,
-    key: &str,
-    value: &str,
-) -> Result<(), String> {
+fn write_attr(writer: &mut impl std::io::Write, key: &str, value: &str) -> Result<(), String> {
     wr(writer, b",\"")?;
     wr(writer, key.as_bytes())?;
     wr(writer, b"\":\"")?;
@@ -34,8 +30,8 @@ fn write_attr<W: embedded_io::Write>(
     wr(writer, b"\"")
 }
 
-fn write_opening<W: embedded_io::Write>(
-    writer: &mut W,
+fn write_opening(
+    writer: &mut impl std::io::Write,
     runtime: &dyn ActorRuntime,
     type_name: &str,
     content_field: &str,
@@ -44,9 +40,7 @@ fn write_opening<W: embedded_io::Write>(
     wr(writer, type_name.as_bytes())?;
     wr(writer, b"\"")?;
     let type_key = format!("{PREFIX}type");
-    for key in list_var_keys(runtime)
-        .filter(|k| k.starts_with(PREFIX) && k != &type_key)
-    {
+    for key in list_var_keys(runtime).filter(|k| k.starts_with(PREFIX) && k != &type_key) {
         if let Some(value) = read_var(runtime, &key)? {
             write_attr(writer, &key[PREFIX.len()..], &value)?;
         }
@@ -64,9 +58,9 @@ fn write_opening<W: embedded_io::Write>(
 ///
 /// # Errors
 /// Returns an error if the `type` attr is unrecognised or a write fails.
-pub fn build_frame<W: embedded_io::Write>(
+fn build_frame(
     runtime: &dyn ActorRuntime,
-    writer: &mut W,
+    writer: &mut impl std::io::Write,
 ) -> Result<(), String> {
     let item_type = read_var(runtime, &format!("{PREFIX}type"))?
         .unwrap_or_else(|| "text".to_string());
@@ -80,14 +74,21 @@ pub fn build_frame<W: embedded_io::Write>(
 
 /// # Errors
 /// Returns an error if I/O fails or if the attrs specify an unsupported type.
+pub fn execute_impl(
+    runtime: &dyn ActorRuntime,
+    mut reader: impl std::io::Read,
+    mut writer: impl std::io::Write,
+) -> Result<(), String> {
+    build_frame(runtime, &mut writer)?;
+    std::io::copy(&mut reader, &mut writer)
+        .map_err(|e| format!("to_doc_item: copy error: {e}"))?;
+    wr(&mut writer, br#""}]"#)
+}
+
+/// # Errors
+/// Returns an error if I/O fails or if the attrs specify an unsupported type.
 pub fn execute(runtime: &dyn ActorRuntime) -> Result<(), String> {
     let mut reader = AReader::new_from_std(runtime, StdHandle::Stdin);
     let mut writer = AWriter::new_from_std(runtime, StdHandle::Stdout);
-
-    build_frame(runtime, &mut writer)?;
-
-    std::io::copy(&mut reader, &mut writer)
-        .map_err(|e| format!("to_doc_item: copy error: {e}"))?;
-
-    wr(&mut writer, br#""}]"#)
+    execute_impl(runtime, &mut reader, &mut writer)
 }
