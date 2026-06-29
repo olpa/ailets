@@ -40,15 +40,14 @@ pub fn read_var(runtime: &dyn ActorRuntime, key: &str) -> Result<Option<String>,
 
 /// List all variable keys registered for this actor under `/var/{pid}/`.
 ///
-/// Returns an empty vec if `listdir` is not supported (e.g. native runtimes).
+/// Returns an empty iterator if `listdir` is not supported (e.g. native runtimes).
 #[must_use]
-pub fn list_var_keys(runtime: &dyn ActorRuntime) -> Vec<String> {
+pub fn list_var_keys(runtime: &dyn ActorRuntime) -> impl Iterator<Item = String> {
     let pid = runtime.node_handle();
     let dir = format!("/var/{pid}/");
     runtime
         .listdir(&dir)
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|p| p.strip_prefix(&dir).map(str::to_owned))
-        .collect()
+        .filter_map(move |p| p.strip_prefix(&dir).map(str::to_owned))
 }

@@ -178,7 +178,8 @@ pub fn wire_to_doc_item(env: &Arc<Environment>, raw_handle: Handle, attrs: &[(St
     let doc_handle = env.add_node("to_doc_item".to_string(), &[raw_handle], explain);
     let pid = doc_handle.id();
     for (key, value) in attrs {
-        env.var_store.set(Some(pid), key.as_str(), value.as_str());
+        let prefixed_key = format!("AILETS_DOC_ITEM_{key}");
+        env.var_store.set(Some(pid), prefixed_key.as_str(), value.as_str());
     }
     let _h = env.add_alias("input_doc".to_string(), doc_handle);
 }
