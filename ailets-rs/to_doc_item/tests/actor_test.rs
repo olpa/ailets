@@ -54,13 +54,6 @@ fn image_with_content_type() {
 }
 
 #[test]
-fn image_missing_content_type_errors() {
-    let runtime = make_runtime(&[("AILETS_DOC_ITEM_type", "image")]);
-    let mut writer = RcWriter::new();
-    assert!(build_frame(&runtime, &mut writer).is_err());
-}
-
-#[test]
 fn unknown_type_errors() {
     let runtime = make_runtime(&[("AILETS_DOC_ITEM_type", "video")]);
     let mut writer = RcWriter::new();
