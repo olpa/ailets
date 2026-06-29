@@ -9,6 +9,9 @@ license.workspace = true
 crate-type = ["lib"]
 
 [dependencies]
-actor_io.workspace = true
+actor_io = { workspace = true, features = ["std"] }
 actor_runtime = { workspace = true, features = ["std"] }
 embedded-io.workspace = true
+
+[dev-dependencies]
+actor_runtime_mocked.workspace = true
