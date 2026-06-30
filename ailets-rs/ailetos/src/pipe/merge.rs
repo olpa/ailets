@@ -78,6 +78,30 @@ impl MergeReader {
         }
     }
 
+    /// Create a `MergeReader` pre-seeded with an already-opened reader.
+    ///
+    /// Used when the caller has already created a `Reader` (e.g. from a KV path opened
+    /// via `open_read`). After the initial reader is exhausted, the dep_iterator is
+    /// consulted for further data; pass `OwnedDependencyIterator::new_empty` if there
+    /// are no follow-on dependencies.
+    #[must_use]
+    pub fn with_initial_reader(
+        reader: Reader,
+        dep_iterator: OwnedDependencyIterator,
+        pipe_pool: Arc<PipePool>,
+        kv: Arc<dyn KVBuffers>,
+        id_gen: Arc<IdGen>,
+    ) -> Self {
+        Self {
+            current_reader: Some(reader),
+            dep_iterator,
+            pipe_pool,
+            kv,
+            id_gen,
+            own_closed: false,
+        }
+    }
+
     /// Create a reader for the next dependency from the iterator.
     ///
     /// Implements pipe-first, KV-fallback strategy:

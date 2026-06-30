@@ -185,8 +185,7 @@ impl BlockingActorRuntime {
 
 impl ActorRuntime for BlockingActorRuntime {
     fn open_read(&self, name: &str) -> Result<isize, i32> {
-        warn!(actor = ?self.node_handle, name = name, "open_read: dynamic fd allocation not supported");
-        Err(ENOSYS)
+        self.io_bridge.open_read(self.node_handle, name)
     }
 
     fn open_write(&self, name: &str) -> Result<isize, i32> {
@@ -224,8 +223,7 @@ impl ActorRuntime for BlockingActorRuntime {
     }
 
     fn listdir(&self, dir: &str) -> Result<Vec<String>, i32> {
-        warn!(actor = ?self.node_handle, dir = dir, "listdir: not supported");
-        Err(crate::errno::ENOSYS)
+        self.io_bridge.listdir(dir)
     }
 
     fn suspend_and_wait(&self) {
