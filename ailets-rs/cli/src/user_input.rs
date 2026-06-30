@@ -105,9 +105,10 @@ pub fn add_ctl_to_input_doc(
     data: &[u8],
 ) -> Result<(), String> {
     let env_clone = Arc::clone(env);
+    let explain = Some(String::from_utf8_lossy(data).into_owned());
     let data = data.to_vec();
     let handle = async_runtime
-        .block_on(async move { env_clone.add_value_node(data, None).await })
+        .block_on(async move { env_clone.add_value_node(data, explain).await })
         .map_err(|e| format!("failed to add ctl value node: {e}"))?;
     let _h = env.add_alias("input_doc".to_string(), handle);
     Ok(())
@@ -135,8 +136,9 @@ pub fn add_raw_then_doc(
     data: Vec<u8>,
 ) -> Result<(), String> {
     let env_clone = Arc::clone(env);
+    let explain = text_explain(&data);
     let raw_handle = async_runtime
-        .block_on(async move { env_clone.add_value_node(data, None).await })
+        .block_on(async move { env_clone.add_value_node(data, explain).await })
         .map_err(|e| format!("failed to add raw value node: {e}"))?;
     let _h = env.add_alias("input_raw".to_string(), raw_handle);
     wire_to_doc_item(env, raw_handle, &[]);
@@ -149,7 +151,7 @@ pub fn add_raw_then_doc(
 /// For image files, `content_type` is injected into the `to_doc_item` attrs so
 /// it can emit the correct image doc-item frame.
 pub fn add_file_then_doc(env: &Arc<Environment>, path: &str, attrs: &[(String, String)]) {
-    let file_handle = env.add_node("file_value".to_string(), &[], Some(path.to_string()));
+    let file_handle = env.add_node("file_value".to_string(), &[], file_explain(path));
     let pid = file_handle.id();
     env.var_store.set(Some(pid), "path", path);
     let _h = env.add_alias("input_raw".to_string(), file_handle);
@@ -174,8 +176,7 @@ pub fn add_file_then_doc(env: &Arc<Environment>, path: &str, attrs: &[(String, S
 /// Creates a `to_doc_item` actor node that depends on `raw_handle`, sets attrs
 /// via var_store, and adds the node to the `"input_doc"` alias.
 pub fn wire_to_doc_item(env: &Arc<Environment>, raw_handle: Handle, attrs: &[(String, String)]) {
-    let explain = attrs_to_explain(attrs);
-    let doc_handle = env.add_node("to_doc_item".to_string(), &[raw_handle], explain);
+    let doc_handle = env.add_node("to_doc_item".to_string(), &[raw_handle], None);
     let pid = doc_handle.id();
     for (key, value) in attrs {
         let prefixed_key = format!("AILETS_DOC_ITEM_{key}");
@@ -184,17 +185,41 @@ pub fn wire_to_doc_item(env: &Arc<Environment>, raw_handle: Handle, attrs: &[(St
     let _h = env.add_alias("input_doc".to_string(), doc_handle);
 }
 
-fn attrs_to_explain(attrs: &[(String, String)]) -> Option<String> {
-    if attrs.is_empty() {
+fn make_safe(s: &str) -> String {
+    s.chars()
+        .filter(|&c| c as u32 >= 32)
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+fn text_explain(data: &[u8]) -> Option<String> {
+    let safe = make_safe(&String::from_utf8_lossy(data));
+    if safe.is_empty() {
         return None;
     }
-    Some(
-        attrs
-            .iter()
-            .map(|(k, v)| format!("{k}={v}"))
-            .collect::<Vec<_>>()
-            .join("\n"),
-    )
+    let chars: Vec<char> = safe.chars().collect();
+    if chars.len() <= 20 {
+        Some(safe)
+    } else {
+        Some(chars[..20].iter().collect::<String>() + "...")
+    }
+}
+
+fn file_explain(path: &str) -> Option<String> {
+    if path == "-" {
+        return Some("stdin".to_string());
+    }
+    let name = std::path::Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(path);
+    let safe = make_safe(name);
+    if safe.is_empty() {
+        None
+    } else {
+        Some(safe)
+    }
 }
 
 // ---------------------------------------------------------------------------
