@@ -8,16 +8,16 @@ if {[dag exists input_doc]} {
 [{"type": "text"}, {"text": "hello!"}]} "--explain=Seed chat messages"]
 }
 
-set toq [node messages_to_query "--explain=gpt.messages_to_query"]
+set toq [node messages_to_query]
 dep $toq $msgs
 
-set q [node query "--explain=HTTP query (stub)"]
+set q [node query]
 dep $q $toq
 
-set resp [node gpt.response_to_messages "--explain=gpt.response_to_messages"]
+set resp [node gpt.response_to_messages]
 dep $resp $q
 
-set md [node messages_to_markdown "--explain=messages_to_markdown"]
+set md [node messages_to_markdown]
 dep $md $resp
 
 set end [alias .end $md]

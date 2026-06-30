@@ -90,6 +90,10 @@ pub struct CliArgs {
 /// list; the required `file=` key provides the path and remaining pairs are attrs.
 /// Otherwise the whole string is the path with no attrs.
 fn parse_at_arg(s: &str) -> Result<(String, Vec<(String, String)>), String> {
+    let s = s
+        .strip_prefix('{')
+        .and_then(|s| s.strip_suffix('}'))
+        .unwrap_or(s);
     if !s.contains('=') {
         return Ok((s.to_string(), vec![]));
     }
