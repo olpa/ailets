@@ -25,9 +25,10 @@ use tracing::{debug, warn};
 use super::sendable_buffer::{SendableConstPtr, SendableMutPtr};
 use crate::dag::OwnedDependencyIterator;
 use crate::environment::Environment;
-use crate::errno::{EBADF, EIO, EPIPE};
-use crate::idgen::Handle;
-use crate::pipe::{flush_and_close_writer, MergeReader};
+use crate::errno::{EBADF, EIO, ENOENT, EPIPE};
+use crate::idgen::{Handle, HandleKind};
+use crate::pipe::{create_reader_from_completed, flush_and_close_writer, MergeReader};
+use crate::storage::KVError;
 
 /// A read request forwarded from `IoBridge` to a reader task.
 pub(crate) struct ReadRequest {
@@ -252,12 +253,6 @@ impl IoBridge {
     /// # Errors
     /// Returns `ENOENT` if path not found, `EIO` if open fails or runtime is gone.
     pub fn open_read(&self, node_handle: Handle, path: &str) -> Result<isize, i32> {
-        use crate::dag::OwnedDependencyIterator;
-        use crate::idgen::HandleKind;
-        use crate::pipe::create_reader_from_completed;
-        use crate::pipe::MergeReader;
-        use crate::storage::KVError;
-
         let (request_tx, request_rx) = mpsc::unbounded_channel::<ReaderCommand>();
         let (open_tx, open_rx) = oneshot::channel::<Result<(), i32>>();
 
@@ -285,16 +280,17 @@ impl IoBridge {
                 }
                 Err(e) => {
                     let errno = match e {
-                        KVError::NotFound(_) => crate::errno::ENOENT,
+                        KVError::NotFound(_) => ENOENT,
                         _ => EIO,
                     };
-                    let _ = open_tx.send(Err(errno));
+                    if open_tx.send(Err(errno)).is_err() {
+                        warn!(actor = ?node_handle, "open_read: reply receiver dropped");
+                    }
                 }
             }
         });
 
-        let open_result = open_rx.blocking_recv().map_err(|_| EIO)?;
-        open_result?;
+        open_rx.blocking_recv().unwrap_or(Err(EIO))?;
 
         let fd = self.alloc_fd(node_handle);
         self.channel_table
@@ -308,21 +304,21 @@ impl IoBridge {
     /// # Errors
     /// Returns `ENOENT` if directory not found, `EIO` if the operation fails.
     pub fn listdir(&self, dir: &str) -> Result<Vec<String>, i32> {
-        use crate::storage::KVError;
-
         let env = Arc::clone(&self.env);
         let dir = dir.to_string();
         let (resp_tx, resp_rx) = oneshot::channel::<Result<Vec<String>, i32>>();
 
         self.async_runtime.spawn(async move {
             let result = env.kv.listdir(&dir).await.map_err(|e| match e {
-                KVError::NotFound(_) => crate::errno::ENOENT,
+                KVError::NotFound(_) => ENOENT,
                 _ => EIO,
             });
-            let _ = resp_tx.send(result);
+            if resp_tx.send(result).is_err() {
+                warn!("listdir: reply receiver dropped");
+            }
         });
 
-        resp_rx.blocking_recv().map_err(|_| EIO)?
+        resp_rx.blocking_recv().unwrap_or(Err(EIO))
     }
 
     /// Register a reader fd. Task is spawned lazily on first use. No duplicate check.
