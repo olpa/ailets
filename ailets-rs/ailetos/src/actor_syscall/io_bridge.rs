@@ -235,13 +235,13 @@ impl IoBridge {
     /// `StdHandle::_Count`.
     fn alloc_fd(&self, node_handle: Handle) -> isize {
         let table = self.channel_table.lock();
-        let max_fd = table
+        let next = table
             .iter()
             .filter(|(h, _, _)| *h == node_handle)
-            .map(|(_, fd, _)| *fd)
+            .map(|(_, fd, _)| fd + 1)
             .max()
-            .unwrap_or(StdHandle::_Count as isize - 1);
-        max_fd + 1
+            .unwrap_or(0);
+        next.max(StdHandle::_Count as isize)
     }
 
     /// Open a KV path for reading and return a dynamically allocated fd.
