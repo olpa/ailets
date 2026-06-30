@@ -228,6 +228,103 @@ impl IoBridge {
         }
     }
 
+    /// Allocate a fresh fd number for `node_handle` above the standard fd range.
+    ///
+    /// Scans the channel table for the highest fd already assigned to this node
+    /// and returns one higher. If the node has no entries yet, returns one above
+    /// `StdHandle::_Count`.
+    fn alloc_fd(&self, node_handle: Handle) -> isize {
+        let table = self.channel_table.lock();
+        let max_fd = table
+            .iter()
+            .filter(|(h, _, _)| *h == node_handle)
+            .map(|(_, fd, _)| *fd)
+            .max()
+            .unwrap_or(StdHandle::_Count as isize - 1);
+        max_fd + 1
+    }
+
+    /// Open a KV path for reading and return a dynamically allocated fd.
+    ///
+    /// Blocks until the path is confirmed to exist; returns `ENOENT` immediately
+    /// if the path is not found. The fd can then be used with `aread` / `aclose`.
+    ///
+    /// # Errors
+    /// Returns `ENOENT` if path not found, `EIO` if open fails or runtime is gone.
+    pub fn open_read(&self, node_handle: Handle, path: &str) -> Result<isize, i32> {
+        use crate::dag::OwnedDependencyIterator;
+        use crate::idgen::HandleKind;
+        use crate::pipe::create_reader_from_completed;
+        use crate::pipe::MergeReader;
+        use crate::storage::KVError;
+
+        let (request_tx, request_rx) = mpsc::unbounded_channel::<ReaderCommand>();
+        let (open_tx, open_rx) = oneshot::channel::<Result<(), i32>>();
+
+        let env = Arc::clone(&self.env);
+        let path = path.to_string();
+
+        self.async_runtime.spawn(async move {
+            let reader_handle =
+                env.idgen
+                    .get_next_traced(HandleKind::PipeReader, node_handle, None);
+            match create_reader_from_completed(env.kv.as_ref(), reader_handle, &path).await {
+                Ok(reader) => {
+                    if open_tx.send(Ok(())).is_err() {
+                        return; // caller abandoned the open
+                    }
+                    let empty_iter = OwnedDependencyIterator::new_empty(Arc::clone(&env.dag));
+                    let merge_reader = MergeReader::with_initial_reader(
+                        reader,
+                        empty_iter,
+                        Arc::clone(&env.pipe_pool),
+                        Arc::clone(&env.kv),
+                        Arc::clone(&env.idgen),
+                    );
+                    run_reader_task(node_handle, merge_reader, request_rx).await;
+                }
+                Err(e) => {
+                    let errno = match e {
+                        KVError::NotFound(_) => crate::errno::ENOENT,
+                        _ => EIO,
+                    };
+                    let _ = open_tx.send(Err(errno));
+                }
+            }
+        });
+
+        let open_result = open_rx.blocking_recv().map_err(|_| EIO)?;
+        open_result?;
+
+        let fd = self.alloc_fd(node_handle);
+        self.channel_table
+            .lock()
+            .push((node_handle, fd, FdState::MaterializedReader { request_tx }));
+        Ok(fd)
+    }
+
+    /// List entries under a KV directory path.
+    ///
+    /// # Errors
+    /// Returns `ENOENT` if directory not found, `EIO` if the operation fails.
+    pub fn listdir(&self, dir: &str) -> Result<Vec<String>, i32> {
+        use crate::storage::KVError;
+
+        let env = Arc::clone(&self.env);
+        let dir = dir.to_string();
+        let (resp_tx, resp_rx) = oneshot::channel::<Result<Vec<String>, i32>>();
+
+        self.async_runtime.spawn(async move {
+            let result = env.kv.listdir(&dir).await.map_err(|e| match e {
+                KVError::NotFound(_) => crate::errno::ENOENT,
+                _ => EIO,
+            });
+            let _ = resp_tx.send(result);
+        });
+
+        resp_rx.blocking_recv().map_err(|_| EIO)?
+    }
+
     /// Register a reader fd. Task is spawned lazily on first use. No duplicate check.
     pub(crate) fn register_std_fd_reader(&self, node_handle: Handle, fd: isize) {
         self.channel_table
