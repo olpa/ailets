@@ -194,6 +194,32 @@ impl DagShell {
     }
 }
 
+pub static ENTRY_PARAM: CommandMeta = CommandMeta {
+    names: &["param"],
+    argsig: "(-g <key> <value> | <node> <key> <value>)",
+    section: "Node Management",
+    description: "Set a parameter globally (-g) or scoped to a node",
+    detail: None,
+};
+impl DagShell {
+    pub(crate) fn cmd_param(&mut self, args: &[&str]) -> Result<(), String> {
+        match args {
+            ["-g", key, value] => {
+                self.env.var_store.set(None, *key, *value);
+                Ok(())
+            }
+            [node, key, value] => {
+                let handle = self
+                    .parse_handle(node)
+                    .ok_or_else(|| format!("Invalid handle: {node}"))?;
+                self.env.var_store.set(Some(handle.id()), *key, *value);
+                Ok(())
+            }
+            _ => Err("Usage: param (-g <key> <value> | <node> <key> <value>)".to_string()),
+        }
+    }
+}
+
 pub static ENTRY_NODES: CommandMeta = CommandMeta {
     names: &["nodes"],
     argsig: "",
@@ -1102,6 +1128,7 @@ pub static COMMANDS: &[&CommandMeta] = &[
     &ENTRY_NODE,
     &ENTRY_VALUE,
     &ENTRY_ALIAS,
+    &ENTRY_PARAM,
     &ENTRY_NODES,
     &ENTRY_DEP,
     &ENTRY_SHOW,
