@@ -325,6 +325,19 @@ impl DagShell {
         // hold dag.read() while waiting for pending.lock().
         let pending = self.executor.snapshot_pending();
         let dag = self.env.dag.read();
+        let var_store = Arc::clone(&self.env.var_store);
+        let extra_info = |handle: Handle| -> Option<String> {
+            let keys = var_store.keys(handle.id());
+            if keys.is_empty() {
+                return None;
+            }
+            let pairs: Vec<String> = keys
+                .iter()
+                .filter_map(|k| var_store.get(handle.id(), k).map(|v| format!("{k}={v}")))
+                .collect();
+            Some(format!("[{}]", pairs.join(" ")))
+        };
+
         if args.is_empty() {
             let all_handles: Vec<Handle> = dag.nodes().map(|n| n.pid).collect();
             if all_handles.is_empty() {
@@ -351,7 +364,7 @@ impl DagShell {
                 terminals
             };
             for handle in roots {
-                let tree = dag.dump_colored(handle, suspension, Some(&pending));
+                let tree = dag.dump_colored_with_params(handle, suspension, Some(&pending), &extra_info);
                 for line in tree.lines() {
                     self.sink.println(line);
                 }
@@ -366,7 +379,7 @@ impl DagShell {
             self.sink.println(&summary);
         }
         let suspension = Some(&*self.env.suspension);
-        let tree = dag.dump_colored(handle, suspension, Some(&pending));
+        let tree = dag.dump_colored_with_params(handle, suspension, Some(&pending), &extra_info);
         for line in tree.lines() {
             self.sink.println(line);
         }

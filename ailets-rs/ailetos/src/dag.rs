@@ -58,6 +58,7 @@ struct DumpContext<'a> {
     output: &'a mut String,
     visited: &'a mut HashSet<Handle>,
     printed: &'a mut HashSet<Handle>,
+    extra_info: Option<&'a dyn Fn(Handle) -> Option<String>>,
 }
 
 impl Dag {
@@ -162,7 +163,7 @@ impl Dag {
         suspension: Option<&SuspensionState>,
         pending: Option<&HashSet<Handle>>,
     ) -> String {
-        self.dump_impl(pid, false, suspension, pending)
+        self.dump_impl(pid, false, suspension, pending, None)
     }
 
     /// Prints the dependency tree for a given node with ANSI colors
@@ -176,7 +177,20 @@ impl Dag {
         suspension: Option<&SuspensionState>,
         pending: Option<&HashSet<Handle>>,
     ) -> String {
-        self.dump_impl(pid, true, suspension, pending)
+        self.dump_impl(pid, true, suspension, pending, None)
+    }
+
+    /// Like `dump_colored`, but calls `extra_info(pid)` for each node and
+    /// appends the returned string as an extra line below the node line.
+    #[must_use]
+    pub fn dump_colored_with_params(
+        &self,
+        pid: Handle,
+        suspension: Option<&SuspensionState>,
+        pending: Option<&HashSet<Handle>>,
+        extra_info: &dyn Fn(Handle) -> Option<String>,
+    ) -> String {
+        self.dump_impl(pid, true, suspension, pending, Some(extra_info))
     }
 
     fn dump_impl(
@@ -185,6 +199,7 @@ impl Dag {
         use_colors: bool,
         suspension: Option<&SuspensionState>,
         pending: Option<&HashSet<Handle>>,
+        extra_info: Option<&dyn Fn(Handle) -> Option<String>>,
     ) -> String {
         let mut output = String::new();
         let mut visited = HashSet::new();
@@ -196,6 +211,7 @@ impl Dag {
             output: &mut output,
             visited: &mut visited,
             printed: &mut printed,
+            extra_info,
         };
 
         // If starting from an alias, skip it and dump its resolved dependencies
@@ -325,9 +341,11 @@ impl Dag {
             .map(|e| format!(" # {e}"))
             .unwrap_or_default();
 
+        let extra = ctx.extra_info.and_then(|f| f(pid)).unwrap_or_default();
         let bracket_parts: Vec<&str> = [
             state_symbol.as_str(),
             if is_suspended { "⏸ suspended" } else { "" },
+            extra.as_str(),
         ]
         .into_iter()
         .filter(|s| !s.is_empty())
