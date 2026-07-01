@@ -27,7 +27,7 @@ use crate::dag::OwnedDependencyIterator;
 use crate::environment::Environment;
 use crate::errno::{EBADF, EIO, ENOENT, EPIPE};
 use crate::idgen::{Handle, HandleKind};
-use crate::pipe::{create_reader_from_completed, flush_and_close_writer, MergeReader};
+use crate::pipe::{create_reader_from_completed, flush_and_close_writer, MergeReader, Reader};
 use crate::storage::KVError;
 
 /// A read request forwarded from `IoBridge` to a reader task.
@@ -58,13 +58,35 @@ pub(crate) enum WriterCommand {
     },
 }
 
-/// Long-lived task that owns a `MergeReader` and services read requests for one channel.
+enum EitherReader {
+    Merge(MergeReader),
+    Single(Reader),
+}
+
+impl EitherReader {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, i32> {
+        match self {
+            Self::Merge(r) => r.read(buf).await,
+            Self::Single(r) => r.read(buf).await,
+        }
+    }
+
+    fn close(&mut self) -> Result<(), i32> {
+        match self {
+            Self::Merge(r) => r.close(),
+            Self::Single(r) => r.close(),
+        }
+    }
+}
+
+/// Long-lived task that owns a reader and services read requests for one channel.
 ///
-/// Spawned by `IoBridge::materialize_stdin`. Exits when its `request_rx` closes —
-/// i.e., when the channel entry is removed from `ChannelTable` on close or shutdown.
+/// Spawned by `IoBridge::materialize_stdin` and `IoBridge::open_read`. Exits when its
+/// `request_rx` closes — i.e., when the channel entry is removed from `ChannelTable`
+/// on close or shutdown.
 async fn run_reader_task(
     node_handle: Handle,
-    mut reader: MergeReader,
+    mut reader: EitherReader,
     mut request_rx: mpsc::UnboundedReceiver<ReaderCommand>,
 ) {
     while let Some(cmd) = request_rx.recv().await {
@@ -268,15 +290,7 @@ impl IoBridge {
                     if open_tx.send(Ok(())).is_err() {
                         return; // caller abandoned the open
                     }
-                    let empty_iter = OwnedDependencyIterator::new_empty(Arc::clone(&env.dag));
-                    let merge_reader = MergeReader::with_initial_reader(
-                        reader,
-                        empty_iter,
-                        Arc::clone(&env.pipe_pool),
-                        Arc::clone(&env.kv),
-                        Arc::clone(&env.idgen),
-                    );
-                    run_reader_task(node_handle, merge_reader, request_rx).await;
+                    run_reader_task(node_handle, EitherReader::Single(reader), request_rx).await;
                 }
                 Err(e) => {
                     let errno = match e {
@@ -347,7 +361,7 @@ impl IoBridge {
         );
         let (request_tx, request_rx) = mpsc::unbounded_channel::<ReaderCommand>();
         self.async_runtime
-            .spawn(run_reader_task(node_handle, reader, request_rx));
+            .spawn(run_reader_task(node_handle, EitherReader::Merge(reader), request_rx));
         request_tx
     }
 
