@@ -364,7 +364,8 @@ impl DagShell {
                 terminals
             };
             for handle in roots {
-                let tree = dag.dump_colored_with_params(handle, suspension, Some(&pending), &extra_info);
+                let tree =
+                    dag.dump_colored_with_params(handle, suspension, Some(&pending), &extra_info);
                 for line in tree.lines() {
                     self.sink.println(line);
                 }
