@@ -54,6 +54,36 @@ fn test_dump_colored_different_states() {
     );
 }
 
+#[test]
+fn test_dump_colored_with_params_shows_params_in_bracket() {
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
+    let node = dag.add_node("file_value".to_string(), NodeKind::Concrete);
+
+    let extra_info = |_: Handle| Some("path=/tmp/foo".to_string());
+    let output = dag.dump_colored_with_params(node, None, None, &extra_info);
+
+    assert!(
+        output.contains("[path=/tmp/foo]"),
+        "params should appear in bracket, got: {output:?}"
+    );
+}
+
+#[test]
+fn test_dump_colored_with_params_no_params_no_bracket() {
+    let idgen = Arc::new(IdGen::new());
+    let mut dag = Dag::new(idgen);
+    let node = dag.add_node("file_value".to_string(), NodeKind::Concrete);
+
+    let extra_info = |_: Handle| None::<String>;
+    let output = dag.dump_colored_with_params(node, None, None, &extra_info);
+
+    assert!(
+        !output.contains('['),
+        "no bracket expected when params are empty, got: {output:?}"
+    );
+}
+
 // --------------------------------------------------------------------
 // Node Creation and Basic Operations
 //

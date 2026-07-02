@@ -80,6 +80,23 @@ fn keys_returns_union_without_duplicates() {
 }
 
 #[test]
+fn own_keys_excludes_global_keys() {
+    let store = VarStore::new();
+    store.set(None, "GLOBAL", "g");
+    store.set(Some(7), "LOCAL", "l");
+    let mut keys = store.own_keys(7);
+    keys.sort();
+    assert_eq!(keys, vec![arc("LOCAL")]);
+}
+
+#[test]
+fn own_keys_returns_empty_for_actor_with_only_global_vars() {
+    let store = VarStore::new();
+    store.set(None, "GLOBAL", "g");
+    assert_eq!(store.own_keys(7), Vec::<Arc<str>>::new());
+}
+
+#[test]
 fn last_set_wins() {
     let store = VarStore::new();
     store.set(None, "KEY", "first");

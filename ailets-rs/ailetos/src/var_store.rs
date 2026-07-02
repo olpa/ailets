@@ -63,6 +63,18 @@ impl VarStore {
         self.keys_impl(pid, false)
     }
 
+    /// Return only the keys set specifically for this pid (`Some(pid)`), excluding global (`None`) entries.
+    #[must_use]
+    pub fn own_keys(&self, pid: i64) -> Vec<Arc<str>> {
+        let vars = self.vars.read();
+        let mut seen = std::collections::HashSet::new();
+        vars.iter()
+            .filter(|(p, _, _)| *p == Some(pid))
+            .map(|(_, k, _)| Arc::clone(k))
+            .filter(|k| seen.insert(k.clone()))
+            .collect()
+    }
+
     /// Like `keys`, but also includes keys from the OS environment.
     #[must_use]
     pub fn keysenv(&self, pid: i64) -> Vec<Arc<str>> {

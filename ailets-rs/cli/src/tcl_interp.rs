@@ -8,8 +8,9 @@ use molt::{
 
 use crate::commands::{
     ENTRY_ALIAS, ENTRY_CAT, ENTRY_CLOSE, ENTRY_DAG, ENTRY_DEP, ENTRY_FOLLOW, ENTRY_HELP,
-    ENTRY_JOIN, ENTRY_KILL, ENTRY_NODE, ENTRY_NODES, ENTRY_QUIT, ENTRY_RESUME, ENTRY_RUN,
-    ENTRY_SHOW, ENTRY_SOURCE, ENTRY_STATUS, ENTRY_SUSPEND, ENTRY_VALUE, ENTRY_WAIT, ENTRY_WRITE,
+    ENTRY_JOIN, ENTRY_KILL, ENTRY_NODE, ENTRY_NODES, ENTRY_PARAM, ENTRY_QUIT, ENTRY_RESUME,
+    ENTRY_RUN, ENTRY_SHOW, ENTRY_SOURCE, ENTRY_STATUS, ENTRY_SUSPEND, ENTRY_VALUE, ENTRY_WAIT,
+    ENTRY_WRITE,
 };
 use crate::DagShell;
 
@@ -55,6 +56,7 @@ pub fn make_interp() -> (Interp, ContextID) {
         (&ENTRY_NODE, tcl_node),
         (&ENTRY_VALUE, tcl_value),
         (&ENTRY_ALIAS, tcl_alias),
+        (&ENTRY_PARAM, tcl_param),
         (&ENTRY_NODES, tcl_nodes),
         (&ENTRY_DEP, tcl_dep),
         (&ENTRY_SHOW, tcl_show),
@@ -126,6 +128,17 @@ fn tcl_alias(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult 
         Ok(handle) => Ok(Value::from(handle.id().to_string())),
         Err(e) => Err(Exception::molt_err(Value::from(e))),
     }
+}
+
+fn tcl_param(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
+    check_args(1, argv, 4, 4, "(-g <key> <value> | <node> <key> <value>)")?;
+    let tail: Vec<&str> = argv
+        .get(1..)
+        .unwrap_or_default()
+        .iter()
+        .map(Value::as_str)
+        .collect();
+    wrap(get_shell(interp, ctx).cmd_param(&tail))
 }
 
 fn tcl_nodes(interp: &mut Interp, ctx: ContextID, argv: &[Value]) -> MoltResult {
