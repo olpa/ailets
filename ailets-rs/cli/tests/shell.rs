@@ -88,6 +88,34 @@ fn execute_routes_output_through_sink() {
 }
 
 #[test]
+fn show_does_not_repeat_global_param_on_unrelated_node() {
+    let sink = CapturingSink::new();
+    let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));
+    let (mut interp, ctx) = make_interp();
+    shell
+        .execute(&mut interp, ctx, "set a [value hello]")
+        .unwrap();
+    shell
+        .execute(&mut interp, ctx, "set b [value world]")
+        .unwrap();
+    shell.execute(&mut interp, ctx, "param -g GLOBAL g").unwrap();
+    shell
+        .execute(&mut interp, ctx, "param $a LOCAL local-only")
+        .unwrap();
+    shell.execute(&mut interp, ctx, "show").unwrap();
+
+    let output = sink.lines().join("\n");
+    assert!(
+        !output.contains("GLOBAL=g"),
+        "global param should not be echoed per-node, got: {output:?}"
+    );
+    assert!(
+        output.contains("LOCAL=local-only"),
+        "per-actor param should still be shown, got: {output:?}"
+    );
+}
+
+#[test]
 fn run_completes_on_persistent_executor() {
     let sink = CapturingSink::new();
     let mut shell = DagShell::new_with_sink(Box::new(sink.clone()));

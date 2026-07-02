@@ -327,7 +327,7 @@ impl DagShell {
         let dag = self.env.dag.read();
         let var_store = Arc::clone(&self.env.var_store);
         let extra_info = |handle: Handle| -> Option<String> {
-            let keys = var_store.keys(handle.id());
+            let keys = var_store.own_keys(handle.id());
             if keys.is_empty() {
                 return None;
             }
@@ -335,6 +335,10 @@ impl DagShell {
                 .iter()
                 .filter_map(|k| var_store.get(handle.id(), k).map(|v| format!("{k}={v}")))
                 .collect();
+            // Deliberately double-bracketed: dag.rs wraps every bracket_parts
+            // entry in an outer `[...]`, so this renders as e.g.
+            // ` [✓ [foo=bar]]`, keeping params visually distinct from the
+            // state/suspended tokens they sit next to.
             Some(format!("[{}]", pairs.join(" ")))
         };
 
