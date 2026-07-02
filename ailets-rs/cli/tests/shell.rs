@@ -98,7 +98,9 @@ fn show_does_not_repeat_global_param_on_unrelated_node() {
     shell
         .execute(&mut interp, ctx, "set b [value world]")
         .unwrap();
-    shell.execute(&mut interp, ctx, "param -g GLOBAL g").unwrap();
+    shell
+        .execute(&mut interp, ctx, "param -g GLOBAL g")
+        .unwrap();
     shell
         .execute(&mut interp, ctx, "param $a LOCAL local-only")
         .unwrap();
