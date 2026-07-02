@@ -462,16 +462,6 @@ impl OwnedDependencyIterator {
             visited: HashSet::new(),
         }
     }
-
-    /// Create an empty iterator that yields no items.
-    #[must_use]
-    pub fn new_empty(dag: Arc<RwLock<Dag>>) -> Self {
-        Self {
-            dag,
-            to_visit: VecDeque::new(),
-            visited: HashSet::new(),
-        }
-    }
 }
 
 impl Iterator for OwnedDependencyIterator {
