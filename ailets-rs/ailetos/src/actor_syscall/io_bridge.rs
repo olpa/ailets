@@ -251,22 +251,6 @@ impl IoBridge {
         }
     }
 
-    /// Allocate a fresh fd number for `node_handle` above the standard fd range.
-    ///
-    /// Scans the channel table for the highest fd already assigned to this node
-    /// and returns one higher. If the node has no entries yet, returns one above
-    /// `StdHandle::_Count`.
-    fn alloc_fd(&self, node_handle: Handle) -> isize {
-        let table = self.channel_table.lock();
-        let next = table
-            .iter()
-            .filter(|(h, _, _)| *h == node_handle)
-            .map(|(_, fd, _)| fd + 1)
-            .max()
-            .unwrap_or(0);
-        next.max(StdHandle::_Count as isize)
-    }
-
     /// Open a KV path for reading and return a dynamically allocated fd.
     ///
     /// Blocks until the path is confirmed to exist; returns `ENOENT` immediately
@@ -306,10 +290,18 @@ impl IoBridge {
 
         open_rx.blocking_recv().unwrap_or(Err(EIO))?;
 
-        let fd = self.alloc_fd(node_handle);
-        self.channel_table
-            .lock()
-            .push((node_handle, fd, FdState::MaterializedReader { request_tx }));
+        // Allocate the fd and insert the entry under one lock acquisition so a
+        // concurrent open_read for the same node_handle can't observe the same
+        // "next fd" before either insertion lands.
+        let mut table = self.channel_table.lock();
+        let fd = table
+            .iter()
+            .filter(|(h, _, _)| *h == node_handle)
+            .map(|(_, fd, _)| fd + 1)
+            .max()
+            .unwrap_or(0)
+            .max(StdHandle::_Count as isize);
+        table.push((node_handle, fd, FdState::MaterializedReader { request_tx }));
         Ok(fd)
     }
 
