@@ -372,8 +372,11 @@ impl IoBridge {
             Arc::clone(&self.env.idgen),
         );
         let (request_tx, request_rx) = mpsc::unbounded_channel::<ReaderCommand>();
-        self.async_runtime
-            .spawn(run_reader_task(node_handle, EitherReader::Merge(reader), request_rx));
+        self.async_runtime.spawn(run_reader_task(
+            node_handle,
+            EitherReader::Merge(reader),
+            request_rx,
+        ));
         request_tx
     }
 
