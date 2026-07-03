@@ -18,7 +18,10 @@ use actor_runtime::{ActorRuntime, StdHandle};
 use actor_vars::{list_var_keys, read_var};
 use tracing::error;
 
-const PREFIX: &str = "AILETS_DOC_ITEM_";
+/// Prefix for `to_doc_item` attr vars, e.g. `/var/{pid}/AILETS_DOC_ITEM_type`.
+///
+/// Shared with the DAG-wiring code (`cli/src/user_input.rs`) that writes these vars.
+pub const PREFIX: &str = "AILETS_DOC_ITEM_";
 
 fn wr(w: &mut impl std::io::Write, bytes: &[u8]) -> Result<(), String> {
     w.write_all(bytes)
