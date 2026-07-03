@@ -25,7 +25,7 @@ use tracing::{debug, warn};
 use super::sendable_buffer::{SendableConstPtr, SendableMutPtr};
 use crate::dag::OwnedDependencyIterator;
 use crate::environment::Environment;
-use crate::errno::{EBADF, EIO, ENOENT, EPIPE};
+use crate::errno::{EBADF, EIO, ENOENT, ENOSYS, EPIPE};
 use crate::idgen::{Handle, HandleKind};
 use crate::pipe::{create_reader_from_completed, flush_and_close_writer, MergeReader, Reader};
 use crate::storage::KVError;
@@ -257,8 +257,18 @@ impl IoBridge {
     /// if the path is not found. The fd can then be used with `aread` / `aclose`.
     ///
     /// # Errors
-    /// Returns `ENOENT` if path not found, `EIO` if open fails or runtime is gone.
+    /// Returns `ENOSYS` if path is not under `/var`, `ENOENT` if path not found,
+    /// `EIO` if open fails or runtime is gone.
     pub fn open_read(&self, node_handle: Handle, path: &str) -> Result<isize, i32> {
+        if !path.starts_with("/var") {
+            warn!(
+                actor = ?node_handle,
+                path = path,
+                "open_read: opening a file from KV is not supported yet, see https://github.com/olpa/ailets/issues/287"
+            );
+            return Err(ENOSYS);
+        }
+
         let (request_tx, request_rx) = mpsc::unbounded_channel::<ReaderCommand>();
         let (open_tx, open_rx) = oneshot::channel::<Result<(), i32>>();
 
@@ -308,8 +318,17 @@ impl IoBridge {
     /// List entries under a KV directory path.
     ///
     /// # Errors
-    /// Returns `ENOENT` if directory not found, `EIO` if the operation fails.
+    /// Returns `ENOSYS` if path is not under `/var`, `ENOENT` if directory not found,
+    /// `EIO` if the operation fails.
     pub fn listdir(&self, dir: &str) -> Result<Vec<String>, i32> {
+        if !dir.starts_with("/var") {
+            warn!(
+                dir = dir,
+                "listdir: listing a directory from KV is not supported yet, see https://github.com/olpa/ailets/issues/287"
+            );
+            return Err(ENOSYS);
+        }
+
         let env = Arc::clone(&self.env);
         let dir = dir.to_string();
         let (resp_tx, resp_rx) = oneshot::channel::<Result<Vec<String>, i32>>();

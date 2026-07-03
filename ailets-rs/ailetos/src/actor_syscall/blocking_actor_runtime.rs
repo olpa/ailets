@@ -189,7 +189,11 @@ impl ActorRuntime for BlockingActorRuntime {
     }
 
     fn open_write(&self, name: &str) -> Result<isize, i32> {
-        warn!(actor = ?self.node_handle, name = name, "open_write: dynamic fd allocation not supported");
+        warn!(
+            actor = ?self.node_handle,
+            name = name,
+            "open_write: opening a file for writing is not supported yet, see https://github.com/olpa/ailets/issues/287"
+        );
         Err(ENOSYS)
     }
 
