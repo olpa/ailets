@@ -1,18 +1,8 @@
-use crate::runtime_trait::ActorRuntime;
+//! Read actor variables from `/var/{pid}/{key}`, written by the host runtime.
+
+use actor_io::AReader;
+use actor_runtime::ActorRuntime;
 use tracing::warn;
-
-struct RuntimeReader<'a> {
-    runtime: &'a dyn ActorRuntime,
-    fd: isize,
-}
-
-impl std::io::Read for RuntimeReader<'_> {
-    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        self.runtime
-            .aread(self.fd, buf)
-            .map_err(std::io::Error::from_raw_os_error)
-    }
-}
 
 // `read_var` is not expected to fail in practice, so callers don't check its error. If it does
 // fail, developers need to notice — hence `warn!`. Normally a library function wouldn't log, but
@@ -26,24 +16,18 @@ impl std::io::Read for RuntimeReader<'_> {
 pub fn read_var(runtime: &dyn ActorRuntime, key: &str) -> Result<Option<String>, String> {
     let pid = runtime.node_handle();
     let path = format!("/var/{pid}/{key}");
-    let fd = match runtime.open_read(&path) {
-        Ok(fd) => fd,
-        Err(2) => return Ok(None), // ENOENT — variable absent
+    let mut reader = match AReader::new(runtime, &path) {
+        Ok(reader) => reader,
+        Err(embedded_io::ErrorKind::NotFound) => return Ok(None),
         Err(e) => {
-            warn!("read_var: open {path}: errno {e}");
-            return Err(format!("errno {e}"));
+            warn!("read_var: open {path}: {e:?}");
+            return Err(format!("{e:?}"));
         }
     };
-    let mut reader = RuntimeReader { runtime, fd };
     let mut buf = Vec::new();
-    if let Err(e) = std::io::copy(&mut reader, &mut buf) {
-        runtime.aclose(fd).ok();
+    if let Err(e) = std::io::Read::read_to_end(&mut reader, &mut buf) {
         warn!("read_var: read {path}: {e}");
         return Err(e.to_string());
-    }
-    if let Err(e) = runtime.aclose(fd) {
-        warn!("read_var: close {path}: errno {e}");
-        return Err(format!("errno {e}"));
     }
     if buf.is_empty() {
         return Ok(None);
@@ -57,7 +41,6 @@ pub fn read_var(runtime: &dyn ActorRuntime, key: &str) -> Result<Option<String>,
 /// List all variable keys registered for this actor under `/var/{pid}/`.
 ///
 /// Returns an empty iterator if `listdir` is not supported (e.g. native runtimes).
-#[must_use]
 pub fn list_var_keys(runtime: &dyn ActorRuntime) -> impl Iterator<Item = String> {
     let pid = runtime.node_handle();
     let dir = format!("/var/{pid}/");

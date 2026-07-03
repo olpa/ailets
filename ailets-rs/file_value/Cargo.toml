@@ -11,3 +11,4 @@ crate-type = ["lib"]
 [dependencies]
 actor_io = { workspace = true, features = ["std"] }
 actor_runtime = { workspace = true, features = ["std"] }
+actor_vars.workspace = true

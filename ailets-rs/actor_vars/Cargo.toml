@@ -1,0 +1,18 @@
+[package]
+name = "actor_vars"
+version = "0.1.0"
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+actor_io = { workspace = true, features = ["std"] }
+actor_runtime.workspace = true
+embedded-io.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+actor_runtime_mocked.workspace = true

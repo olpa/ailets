@@ -14,8 +14,8 @@
 //! Note: raw bytes are embedded without JSON escaping. Proper escaping is deferred.
 
 use actor_io::{AReader, AWriter};
-use actor_runtime::var_access::{list_var_keys, read_var};
 use actor_runtime::{ActorRuntime, StdHandle};
+use actor_vars::{list_var_keys, read_var};
 use tracing::error;
 
 const PREFIX: &str = "AILETS_DOC_ITEM_";

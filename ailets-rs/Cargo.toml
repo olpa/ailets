@@ -1,5 +1,5 @@
 [workspace]
-members = [ "actor_io", "actor_runtime", "actor_runtime_mocked", "ailetos", "cat", "cli", "file_value", "gpt", "messages_to_query", "messages_to_markdown", "query", "to_doc_item" ]
+members = [ "actor_io", "actor_runtime", "actor_runtime_mocked", "actor_vars", "ailetos", "cat", "cli", "file_value", "gpt", "messages_to_query", "messages_to_markdown", "query", "to_doc_item" ]
 resolver = "2"
 
 [workspace.package]
@@ -26,6 +26,7 @@ hamcrest = "0.1.5"
 actor_runtime = { version = "0.3.0", path = "actor_runtime" }
 actor_runtime_mocked = { version = "0.2.0", path = "actor_runtime_mocked" }
 actor_io = { version = "0.2.0", path = "actor_io" }
+actor_vars = { version = "0.1.0", path = "actor_vars" }
 
 [patch.crates-io]
 # scan_json = { path = "../../streaming_json/scan_json" }

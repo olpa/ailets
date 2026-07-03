@@ -31,6 +31,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "actor_vars"
+version = "0.1.0"
+dependencies = [
+ "actor_io",
+ "actor_runtime",
+ "actor_runtime_mocked",
+ "embedded-io",
+ "tracing",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -342,6 +353,7 @@ version = "0.1.0"
 dependencies = [
  "actor_io",
  "actor_runtime",
+ "actor_vars",
 ]
 
 [[package]]
@@ -748,6 +760,7 @@ dependencies = [
  "actor_io",
  "actor_runtime",
  "actor_runtime_mocked",
+ "actor_vars",
  "base64",
  "embedded-io",
  "getrandom 0.3.4",
@@ -1052,6 +1065,7 @@ version = "0.1.0"
 dependencies = [
  "actor_io",
  "actor_runtime",
+ "actor_vars",
  "hamcrest",
  "serde",
  "serde_json",
@@ -1458,6 +1472,7 @@ dependencies = [
  "actor_io",
  "actor_runtime",
  "actor_runtime_mocked",
+ "actor_vars",
  "embedded-io",
  "tracing",
 ]

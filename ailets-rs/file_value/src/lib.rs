@@ -3,8 +3,8 @@
 //! Path is read from `/var/{pid}/path`.
 
 use actor_io::AWriter;
-use actor_runtime::var_access::read_var;
 use actor_runtime::{ActorRuntime, StdHandle};
+use actor_vars::read_var;
 
 /// # Errors
 /// Returns an error if I/O fails or the path var is missing.

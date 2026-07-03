@@ -1,5 +1,6 @@
 use actor_io::{AReader, AWriter};
-use actor_runtime::{var_access::read_var, ActorRuntime, StdHandle};
+use actor_runtime::{ActorRuntime, StdHandle};
+use actor_vars::read_var;
 use std::io::{Read, Write};
 use ureq::RequestExt;
 

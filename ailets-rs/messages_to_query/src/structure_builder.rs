@@ -1,6 +1,6 @@
 use crate::action_error::ActionError;
 use actor_io::AReader;
-use actor_runtime::var_access::{list_var_keys, read_var};
+use actor_vars::{list_var_keys, read_var};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use linked_hash_map::LinkedHashMap;
