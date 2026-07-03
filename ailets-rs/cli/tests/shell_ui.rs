@@ -135,3 +135,23 @@ fn test_at_arg_missing_file_key() {
     let result = parse_args(&args(&["@type=text"]));
     assert!(result.is_err());
 }
+
+// @{file=x.tcl → unmatched '{' → error (not silently parsed as key "{file")
+#[test]
+fn test_at_arg_unmatched_brace() {
+    let result = parse_args(&args(&["@{file=x.tcl"]));
+    assert!(result.is_err());
+}
+
+// @{type=text,file=x.tcl} → braces stripped, parses as if unbraced
+#[test]
+fn test_at_arg_matched_braces() {
+    let result = parse_args(&args(&["@{type=text,file=x.tcl}"])).unwrap();
+    assert_eq!(
+        result.prompt_items,
+        vec![PromptArg::File {
+            path: "x.tcl".to_string(),
+            attrs: vec![("type".to_string(), "text".to_string())],
+        }]
+    );
+}
