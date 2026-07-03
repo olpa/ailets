@@ -199,10 +199,13 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
     //
 
     fn write_prologue(&mut self) -> Result<(), String> {
+        // Config vars are optional and default when absent or unreadable; only I/O
+        // failures on `self.writer` should abort the prologue.
+        let get_var = |key: &str| read_var(self.runtime, key).ok().flatten();
+
         embedded_io::Write::write_all(&mut self.writer, b"{ \"url\": \"")
             .map_err(|e| format!("{e:?}"))?;
-        let url =
-            read_var(self.runtime, "AILETS_LLM_URL")?.unwrap_or_else(|| DEFAULT_URL.to_string());
+        let url = get_var("AILETS_LLM_URL").unwrap_or_else(|| DEFAULT_URL.to_string());
         embedded_io::Write::write_all(&mut self.writer, url.as_bytes())
             .map_err(|e| format!("{e:?}"))?;
         embedded_io::Write::write_all(
@@ -212,7 +215,7 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
         .map_err(|e| format!("{e:?}"))?;
 
         // Write Content-type header
-        let content_type_owned = read_var(self.runtime, "AILETS_HTTP_HEADER_CONTENT_TYPE")?;
+        let content_type_owned = get_var("AILETS_HTTP_HEADER_CONTENT_TYPE");
         let content_type = content_type_owned
             .as_deref()
             .unwrap_or(DEFAULT_CONTENT_TYPE);
@@ -220,7 +223,7 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
             .map_err(|e| format!("{e:?}"))?;
         embedded_io::Write::write_all(&mut self.writer, content_type.as_bytes())
             .map_err(|e| format!("{e:?}"))?;
-        let authorization_owned = read_var(self.runtime, "AILETS_HTTP_HEADER_AUTHORIZATION")?;
+        let authorization_owned = get_var("AILETS_HTTP_HEADER_AUTHORIZATION");
         let authorization = authorization_owned
             .as_deref()
             .unwrap_or(DEFAULT_AUTHORIZATION);
@@ -236,7 +239,7 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
                 && key != "AILETS_HTTP_HEADER_AUTHORIZATION"
             {
                 if let Some(header_name) = key.strip_prefix("AILETS_HTTP_HEADER_") {
-                    if let Some(value) = read_var(self.runtime, &key)? {
+                    if let Some(value) = get_var(&key) {
                         let value_json =
                             serde_json::to_string(&value).map_err(|e| format!("{e:?}"))?;
                         let header_part = format!(r#", "{header_name}": {value_json}"#);
@@ -250,19 +253,18 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
         // Write the body
         embedded_io::Write::write_all(&mut self.writer, b"\" },\n\"body\": { \"model\": \"")
             .map_err(|e| format!("{e:?}"))?;
-        let model =
-            read_var(self.runtime, "AILETS_MODEL")?.unwrap_or_else(|| DEFAULT_MODEL.to_string());
+        let model = get_var("AILETS_MODEL").unwrap_or_else(|| DEFAULT_MODEL.to_string());
         embedded_io::Write::write_all(&mut self.writer, model.as_bytes())
             .map_err(|e| format!("{e:?}"))?;
         embedded_io::Write::write_all(&mut self.writer, b"\", \"stream\": ")
             .map_err(|e| format!("{e:?}"))?;
-        let stream = read_var(self.runtime, "AILETS_LLM_STREAM")?
+        let stream = get_var("AILETS_LLM_STREAM")
             .and_then(|v| v.parse::<bool>().ok())
             .unwrap_or(true);
         embedded_io::Write::write_all(&mut self.writer, stream.to_string().as_bytes())
             .map_err(|e| format!("{e:?}"))?;
 
-        if let Some(thinking) = read_var(self.runtime, "AILETS_LLM_THINKING")? {
+        if let Some(thinking) = get_var("AILETS_LLM_THINKING") {
             let thinking_json = serde_json::to_string(&thinking).map_err(|e| format!("{e:?}"))?;
             let thinking_part = format!(r#", "reasoning_effort": {thinking_json}"#);
             embedded_io::Write::write_all(&mut self.writer, thinking_part.as_bytes())
@@ -277,7 +279,7 @@ impl<'a, W: embedded_io::Write> StructureBuilder<'a, W> {
                 && key != "AILETS_LLM_THINKING"
             {
                 if let Some(param_name) = key.strip_prefix("AILETS_LLM_") {
-                    if let Some(value) = read_var(self.runtime, &key)? {
+                    if let Some(value) = get_var(&key) {
                         let value_json =
                             serde_json::to_string(&value).map_err(|e| format!("{e:?}"))?;
                         let param_part = format!(r#", "{param_name}": {value_json}"#);
