@@ -30,22 +30,6 @@ fn empty_input() {
 }
 
 #[test]
-fn image_with_content_type() {
-    let out = run(
-        &[
-            ("AILETS_DOC_ITEM_type", "image"),
-            ("AILETS_DOC_ITEM_content_type", "image/png"),
-        ],
-        b"media/42",
-    )
-    .unwrap();
-    assert_eq!(
-        out,
-        br#"[{"type":"image","content_type":"image/png"},{"image_key":"media/42"}]"#
-    );
-}
-
-#[test]
 fn unknown_type_errors() {
     assert!(run(&[("AILETS_DOC_ITEM_type", "video")], b"").is_err());
 }
@@ -61,21 +45,4 @@ fn text_extra_attrs_included() {
     )
     .unwrap();
     assert_eq!(out, br#"[{"type":"text","lang":"en"},{"text":"hi"}]"#);
-}
-
-#[test]
-fn image_extra_attrs_included() {
-    let out = run(
-        &[
-            ("AILETS_DOC_ITEM_type", "image"),
-            ("AILETS_DOC_ITEM_content_type", "image/png"),
-            ("AILETS_DOC_ITEM_detail", "high"),
-        ],
-        b"media/42",
-    )
-    .unwrap();
-    assert_eq!(
-        out,
-        br#"[{"type":"image","content_type":"image/png","detail":"high"},{"image_key":"media/42"}]"#
-    );
 }

@@ -6,14 +6,17 @@
 //!
 //! Supported output formats:
 //!   text  → `[{"type":"text"},{"text":"<content>"}]`
-//!   image → `[{"type":"image","content_type":"<ct>"},{"image_key":"<key>"}]`
-//!            (image key is emitted as-is; the raw bytes must already be in KV)
+//!
+//! Images are not currently supported: `file_value` no longer uploads image
+//! bytes to KV, so there is no key to emit for `image_key`. See
+//! <https://github.com/olpa/ailets/issues/19>.
 //!
 //! Note: raw bytes are embedded without JSON escaping. Proper escaping is deferred.
 
 use actor_io::{AReader, AWriter};
 use actor_runtime::var_access::{list_var_keys, read_var};
 use actor_runtime::{ActorRuntime, StdHandle};
+use tracing::error;
 
 const PREFIX: &str = "AILETS_DOC_ITEM_";
 
@@ -67,7 +70,13 @@ fn build_frame(
 
     match item_type.as_str() {
         "text" => write_opening(writer, runtime, &type_key, "text", "text"),
-        "image" => write_opening(writer, runtime, &type_key, "image", "image_key"),
+        "image" => {
+            let msg = "to_doc_item: images are not supported, see \
+                        https://github.com/olpa/ailets/issues/19"
+                .to_string();
+            error!("{msg}");
+            Err(msg)
+        }
         other => Err(format!("to_doc_item: unsupported item type '{other}'")),
     }
 }
