@@ -24,18 +24,12 @@ pub fn read_var(runtime: &dyn ActorRuntime, key: &str) -> Result<Option<String>,
             return Err(format!("{e:?}"));
         }
     };
-    let mut buf = Vec::new();
-    if let Err(e) = std::io::Read::read_to_end(&mut reader, &mut buf) {
+    let mut buf = String::new();
+    if let Err(e) = std::io::Read::read_to_string(&mut reader, &mut buf) {
         warn!("read_var: read {path}: {e}");
         return Err(e.to_string());
     }
-    if buf.is_empty() {
-        return Ok(None);
-    }
-    String::from_utf8(buf).map(Some).map_err(|e| {
-        warn!("read_var: decode {path}: {e}");
-        e.to_string()
-    })
+    Ok(if buf.is_empty() { None } else { Some(buf) })
 }
 
 /// List all variable keys registered for this actor under `/var/{pid}/`.
