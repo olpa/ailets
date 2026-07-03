@@ -150,7 +150,17 @@ pub fn add_raw_then_doc(
 ///
 /// For image files, `content_type` is injected into the `to_doc_item` attrs so
 /// it can emit the correct image doc-item frame.
-pub fn add_file_then_doc(env: &Arc<Environment>, path: &str, attrs: &[(String, String)]) {
+///
+/// # Errors
+/// Returns an error if the file's content kind cannot be determined (see
+/// `detect_kind`).
+pub fn add_file_then_doc(
+    env: &Arc<Environment>,
+    path: &str,
+    attrs: &[(String, String)],
+) -> Result<(), String> {
+    detect_kind(path, attrs)?;
+
     let file_handle = env.add_node("file_value".to_string(), &[], file_explain(path));
     let pid = file_handle.id();
     env.var_store.set(Some(pid), "path", path);
@@ -171,6 +181,7 @@ pub fn add_file_then_doc(env: &Arc<Environment>, path: &str, attrs: &[(String, S
         attrs
     };
     wire_to_doc_item(env, file_handle, doc_attrs);
+    Ok(())
 }
 
 /// Creates a `to_doc_item` actor node that depends on `raw_handle`, sets attrs
@@ -263,7 +274,7 @@ pub fn register_prompt_inputs(
                 if last_role != Some("user") {
                     add_ctl_user(env, async_runtime)?;
                 }
-                add_file_then_doc(env, "-", &[]);
+                add_file_then_doc(env, "-", &[])?;
                 stdin_usage = StdinUsage::FileValue;
                 last_role = Some("user");
             }
@@ -271,7 +282,7 @@ pub fn register_prompt_inputs(
                 if last_role != Some("user") {
                     add_ctl_user(env, async_runtime)?;
                 }
-                add_file_then_doc(env, path, attrs);
+                add_file_then_doc(env, path, attrs)?;
                 last_role = Some("user");
             }
         }
