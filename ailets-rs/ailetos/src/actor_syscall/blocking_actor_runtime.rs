@@ -185,12 +185,15 @@ impl BlockingActorRuntime {
 
 impl ActorRuntime for BlockingActorRuntime {
     fn open_read(&self, name: &str) -> Result<isize, i32> {
-        warn!(actor = ?self.node_handle, name = name, "open_read: dynamic fd allocation not supported");
-        Err(ENOSYS)
+        self.io_bridge.open_read(self.node_handle, name)
     }
 
     fn open_write(&self, name: &str) -> Result<isize, i32> {
-        warn!(actor = ?self.node_handle, name = name, "open_write: dynamic fd allocation not supported");
+        warn!(
+            actor = ?self.node_handle,
+            name = name,
+            "open_write: opening a file for writing is not supported yet, see https://github.com/olpa/ailets/issues/287"
+        );
         Err(ENOSYS)
     }
 
@@ -224,8 +227,7 @@ impl ActorRuntime for BlockingActorRuntime {
     }
 
     fn listdir(&self, dir: &str) -> Result<Vec<String>, i32> {
-        warn!(actor = ?self.node_handle, dir = dir, "listdir: not supported");
-        Err(crate::errno::ENOSYS)
+        self.io_bridge.listdir(dir)
     }
 
     fn suspend_and_wait(&self) {

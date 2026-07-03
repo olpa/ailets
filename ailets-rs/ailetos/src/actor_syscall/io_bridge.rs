@@ -25,9 +25,10 @@ use tracing::{debug, warn};
 use super::sendable_buffer::{SendableConstPtr, SendableMutPtr};
 use crate::dag::OwnedDependencyIterator;
 use crate::environment::Environment;
-use crate::errno::{EBADF, EIO, EPIPE};
-use crate::idgen::Handle;
-use crate::pipe::{flush_and_close_writer, MergeReader};
+use crate::errno::{EBADF, EIO, ENOENT, ENOSYS, EPIPE};
+use crate::idgen::{Handle, HandleKind};
+use crate::pipe::{create_reader_from_completed, flush_and_close_writer, MergeReader, Reader};
+use crate::storage::KVError;
 
 /// A read request forwarded from `IoBridge` to a reader task.
 pub(crate) struct ReadRequest {
@@ -57,13 +58,35 @@ pub(crate) enum WriterCommand {
     },
 }
 
-/// Long-lived task that owns a `MergeReader` and services read requests for one channel.
+enum EitherReader {
+    Merge(MergeReader),
+    Single(Reader),
+}
+
+impl EitherReader {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, i32> {
+        match self {
+            Self::Merge(r) => r.read(buf).await,
+            Self::Single(r) => r.read(buf).await,
+        }
+    }
+
+    fn close(&mut self) -> Result<(), i32> {
+        match self {
+            Self::Merge(r) => r.close(),
+            Self::Single(r) => r.close(),
+        }
+    }
+}
+
+/// Long-lived task that owns a reader and services read requests for one channel.
 ///
-/// Spawned by `IoBridge::materialize_stdin`. Exits when its `request_rx` closes —
-/// i.e., when the channel entry is removed from `ChannelTable` on close or shutdown.
+/// Spawned by `IoBridge::materialize_stdin` and `IoBridge::open_read`. Exits when its
+/// `request_rx` closes — i.e., when the channel entry is removed from `ChannelTable`
+/// on close or shutdown.
 async fn run_reader_task(
     node_handle: Handle,
-    mut reader: MergeReader,
+    mut reader: EitherReader,
     mut request_rx: mpsc::UnboundedReceiver<ReaderCommand>,
 ) {
     while let Some(cmd) = request_rx.recv().await {
@@ -228,6 +251,102 @@ impl IoBridge {
         }
     }
 
+    /// Open a KV path for reading and return a dynamically allocated fd.
+    ///
+    /// Blocks until the path is confirmed to exist; returns `ENOENT` immediately
+    /// if the path is not found. The fd can then be used with `aread` / `aclose`.
+    ///
+    /// # Errors
+    /// Returns `ENOSYS` if path is not under `/var`, `ENOENT` if path not found,
+    /// `EIO` if open fails or runtime is gone.
+    pub fn open_read(&self, node_handle: Handle, path: &str) -> Result<isize, i32> {
+        if !path.starts_with("/var") {
+            warn!(
+                actor = ?node_handle,
+                path = path,
+                "open_read: opening a file from KV is not supported yet, see https://github.com/olpa/ailets/issues/287"
+            );
+            return Err(ENOSYS);
+        }
+
+        let (request_tx, request_rx) = mpsc::unbounded_channel::<ReaderCommand>();
+        let (resp_tx, resp_rx) = oneshot::channel::<Result<(), i32>>();
+
+        let env = Arc::clone(&self.env);
+        let path = path.to_string();
+
+        self.async_runtime.spawn(async move {
+            let reader_handle =
+                env.idgen
+                    .get_next_traced(HandleKind::PipeReader, node_handle, None);
+            match create_reader_from_completed(env.kv.as_ref(), reader_handle, &path).await {
+                Ok(reader) => {
+                    if resp_tx.send(Ok(())).is_err() {
+                        warn!(actor = ?node_handle, "open_read: reply receiver dropped, caller abandoned the open");
+                        return;
+                    }
+                    run_reader_task(node_handle, EitherReader::Single(reader), request_rx).await;
+                }
+                Err(e) => {
+                    let errno = match e {
+                        KVError::NotFound(_) => ENOENT,
+                        _ => EIO,
+                    };
+                    if resp_tx.send(Err(errno)).is_err() {
+                        warn!(actor = ?node_handle, "open_read: reply receiver dropped, caller abandoned the open");
+                    }
+                }
+            }
+        });
+
+        resp_rx.blocking_recv().unwrap_or(Err(EIO))?;
+
+        // Allocate the fd and insert the entry under one lock acquisition so a
+        // concurrent open_read for the same node_handle can't observe the same
+        // "next fd" before either insertion lands.
+        let mut table = self.channel_table.lock();
+        let fd = table
+            .iter()
+            .filter(|(h, _, _)| *h == node_handle)
+            .map(|(_, fd, _)| fd + 1)
+            .max()
+            .unwrap_or(0)
+            .max(StdHandle::_Count as isize);
+        table.push((node_handle, fd, FdState::MaterializedReader { request_tx }));
+        Ok(fd)
+    }
+
+    /// List entries under a KV directory path.
+    ///
+    /// # Errors
+    /// Returns `ENOSYS` if path is not under `/var`, `ENOENT` if directory not found,
+    /// `EIO` if the operation fails.
+    pub fn listdir(&self, dir: &str) -> Result<Vec<String>, i32> {
+        if !dir.starts_with("/var") {
+            warn!(
+                dir = dir,
+                "listdir: listing a directory from KV is not supported yet, see https://github.com/olpa/ailets/issues/287"
+            );
+            return Err(ENOSYS);
+        }
+
+        let env = Arc::clone(&self.env);
+        let dir = dir.to_string();
+        let (resp_tx, resp_rx) = oneshot::channel::<Result<Vec<String>, i32>>();
+
+        self.async_runtime.spawn(async move {
+            let result = env.kv.listdir(&dir).await.map_err(|e| match e {
+                KVError::NotFound(_) => ENOENT,
+                _ => EIO,
+            });
+            if resp_tx.send(result).is_err() {
+                warn!("listdir: reply receiver dropped");
+            }
+        });
+
+        resp_rx.blocking_recv().unwrap_or(Err(EIO))
+    }
+
     /// Register a reader fd. Task is spawned lazily on first use. No duplicate check.
     pub(crate) fn register_std_fd_reader(&self, node_handle: Handle, fd: isize) {
         self.channel_table
@@ -253,8 +372,11 @@ impl IoBridge {
             Arc::clone(&self.env.idgen),
         );
         let (request_tx, request_rx) = mpsc::unbounded_channel::<ReaderCommand>();
-        self.async_runtime
-            .spawn(run_reader_task(node_handle, reader, request_rx));
+        self.async_runtime.spawn(run_reader_task(
+            node_handle,
+            EitherReader::Merge(reader),
+            request_rx,
+        ));
         request_tx
     }
 
