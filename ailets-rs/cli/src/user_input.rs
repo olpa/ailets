@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use ailetos::{Environment, Handle};
 
-use crate::shell_ui::PromptArg;
+use crate::shell_ui::{truncate, PromptArg};
 
 // ---------------------------------------------------------------------------
 // MIME / content-kind helpers
@@ -196,13 +196,9 @@ fn make_safe(s: &str) -> String {
 fn text_explain(data: &[u8]) -> Option<String> {
     let safe = make_safe(&String::from_utf8_lossy(data));
     if safe.is_empty() {
-        return None;
-    }
-    let chars: Vec<char> = safe.chars().collect();
-    if chars.len() <= 20 {
-        Some(safe)
+        None
     } else {
-        Some(chars[..20].iter().collect::<String>() + "...")
+        Some(truncate(&safe, 23))
     }
 }
 

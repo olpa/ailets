@@ -33,14 +33,14 @@ fn write_attr(writer: &mut impl std::io::Write, key: &str, value: &str) -> Resul
 fn write_opening(
     writer: &mut impl std::io::Write,
     runtime: &dyn ActorRuntime,
+    type_key: &str,
     type_name: &str,
     content_field: &str,
 ) -> Result<(), String> {
     wr(writer, b"[{\"type\":\"")?;
     wr(writer, type_name.as_bytes())?;
     wr(writer, b"\"")?;
-    let type_key = format!("{PREFIX}type");
-    for key in list_var_keys(runtime).filter(|k| k.starts_with(PREFIX) && k != &type_key) {
+    for key in list_var_keys(runtime).filter(|k| k.starts_with(PREFIX) && k != type_key) {
         if let Some(value) = read_var(runtime, &key)? {
             write_attr(writer, &key[PREFIX.len()..], &value)?;
         }
@@ -62,12 +62,12 @@ fn build_frame(
     runtime: &dyn ActorRuntime,
     writer: &mut impl std::io::Write,
 ) -> Result<(), String> {
-    let item_type = read_var(runtime, &format!("{PREFIX}type"))?
-        .unwrap_or_else(|| "text".to_string());
+    let type_key = format!("{PREFIX}type");
+    let item_type = read_var(runtime, &type_key)?.unwrap_or_else(|| "text".to_string());
 
     match item_type.as_str() {
-        "text" => write_opening(writer, runtime, "text", "text"),
-        "image" => write_opening(writer, runtime, "image", "image_key"),
+        "text" => write_opening(writer, runtime, &type_key, "text", "text"),
+        "image" => write_opening(writer, runtime, &type_key, "image", "image_key"),
         other => Err(format!("to_doc_item: unsupported item type '{other}'")),
     }
 }
