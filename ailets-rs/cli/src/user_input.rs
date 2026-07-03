@@ -99,6 +99,9 @@ const CTL_USER_JSON: &[u8] = br#"[{"type":"ctl"},{"role":"user"}]"#;
 const CTL_SYSTEM_JSON: &[u8] = br#"[{"type":"ctl"},{"role":"system"}]"#;
 
 /// Creates a value node from `data` and adds it to the `"input_doc"` alias.
+///
+/// # Errors
+/// Returns an error if adding the value node fails.
 pub fn add_ctl_to_input_doc(
     env: &Arc<Environment>,
     async_runtime: &tokio::runtime::Handle,
@@ -114,6 +117,8 @@ pub fn add_ctl_to_input_doc(
     Ok(())
 }
 
+/// # Errors
+/// Returns an error if adding the value node fails.
 pub fn add_ctl_user(
     env: &Arc<Environment>,
     async_runtime: &tokio::runtime::Handle,
@@ -121,6 +126,8 @@ pub fn add_ctl_user(
     add_ctl_to_input_doc(env, async_runtime, CTL_USER_JSON)
 }
 
+/// # Errors
+/// Returns an error if adding the value node fails.
 pub fn add_ctl_system(
     env: &Arc<Environment>,
     async_runtime: &tokio::runtime::Handle,
@@ -130,6 +137,9 @@ pub fn add_ctl_system(
 
 /// Creates a raw value node from `data`, adds it to `"input_raw"`, then wires
 /// a `to_doc_item` actor into `"input_doc"`.
+///
+/// # Errors
+/// Returns an error if adding the value node fails.
 pub fn add_raw_then_doc(
     env: &Arc<Environment>,
     async_runtime: &tokio::runtime::Handle,
@@ -185,13 +195,14 @@ pub fn add_file_then_doc(
 }
 
 /// Creates a `to_doc_item` actor node that depends on `raw_handle`, sets attrs
-/// via var_store, and adds the node to the `"input_doc"` alias.
+/// via `var_store`, and adds the node to the `"input_doc"` alias.
 pub fn wire_to_doc_item(env: &Arc<Environment>, raw_handle: Handle, attrs: &[(String, String)]) {
     let doc_handle = env.add_node("to_doc_item".to_string(), &[raw_handle], None);
     let pid = doc_handle.id();
     for (key, value) in attrs {
         let prefixed_key = format!("{}{key}", to_doc_item::PREFIX);
-        env.var_store.set(Some(pid), prefixed_key.as_str(), value.as_str());
+        env.var_store
+            .set(Some(pid), prefixed_key.as_str(), value.as_str());
     }
     let _h = env.add_alias("input_doc".to_string(), doc_handle);
 }

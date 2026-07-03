@@ -64,10 +64,7 @@ fn write_opening(
 ///
 /// # Errors
 /// Returns an error if the `type` attr is unrecognised or a write fails.
-fn build_frame(
-    runtime: &dyn ActorRuntime,
-    writer: &mut impl std::io::Write,
-) -> Result<(), String> {
+fn build_frame(runtime: &dyn ActorRuntime, writer: &mut impl std::io::Write) -> Result<(), String> {
     let type_key = format!("{PREFIX}type");
     let item_type = read_var(runtime, &type_key)?.unwrap_or_else(|| "text".to_string());
 
@@ -92,8 +89,7 @@ pub fn execute_impl(
     mut writer: impl std::io::Write,
 ) -> Result<(), String> {
     build_frame(runtime, &mut writer)?;
-    std::io::copy(&mut reader, &mut writer)
-        .map_err(|e| format!("to_doc_item: copy error: {e}"))?;
+    std::io::copy(&mut reader, &mut writer).map_err(|e| format!("to_doc_item: copy error: {e}"))?;
     wr(&mut writer, br#""}]"#)
 }
 

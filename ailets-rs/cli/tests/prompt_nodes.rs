@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use ailetos::pipe::pipe_path;
 use ailetos::{Environment, Handle, KVBuffers, MemKV, NodeKind, OpenMode};
-use dagsh::user_input::{register_prompt_inputs, StdinUsage};
 use dagsh::shell_ui::PromptArg;
+use dagsh::user_input::{register_prompt_inputs, StdinUsage};
 
 fn make_env() -> (Arc<Environment>, tokio::runtime::Runtime) {
     let rt = tokio::runtime::Runtime::new().unwrap();

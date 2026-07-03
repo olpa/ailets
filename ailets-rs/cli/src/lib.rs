@@ -18,8 +18,8 @@ mod commands;
 pub mod model_aliases;
 mod output;
 pub mod shell_ui;
-pub mod user_input;
 mod tcl_interp;
+pub mod user_input;
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
