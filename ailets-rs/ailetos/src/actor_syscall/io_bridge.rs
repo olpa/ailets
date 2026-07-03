@@ -270,7 +270,7 @@ impl IoBridge {
         }
 
         let (request_tx, request_rx) = mpsc::unbounded_channel::<ReaderCommand>();
-        let (open_tx, open_rx) = oneshot::channel::<Result<(), i32>>();
+        let (resp_tx, resp_rx) = oneshot::channel::<Result<(), i32>>();
 
         let env = Arc::clone(&self.env);
         let path = path.to_string();
@@ -281,8 +281,9 @@ impl IoBridge {
                     .get_next_traced(HandleKind::PipeReader, node_handle, None);
             match create_reader_from_completed(env.kv.as_ref(), reader_handle, &path).await {
                 Ok(reader) => {
-                    if open_tx.send(Ok(())).is_err() {
-                        return; // caller abandoned the open
+                    if resp_tx.send(Ok(())).is_err() {
+                        warn!(actor = ?node_handle, "open_read: reply receiver dropped, caller abandoned the open");
+                        return;
                     }
                     run_reader_task(node_handle, EitherReader::Single(reader), request_rx).await;
                 }
@@ -291,14 +292,14 @@ impl IoBridge {
                         KVError::NotFound(_) => ENOENT,
                         _ => EIO,
                     };
-                    if open_tx.send(Err(errno)).is_err() {
-                        warn!(actor = ?node_handle, "open_read: reply receiver dropped");
+                    if resp_tx.send(Err(errno)).is_err() {
+                        warn!(actor = ?node_handle, "open_read: reply receiver dropped, caller abandoned the open");
                     }
                 }
             }
         });
 
-        open_rx.blocking_recv().unwrap_or(Err(EIO))?;
+        resp_rx.blocking_recv().unwrap_or(Err(EIO))?;
 
         // Allocate the fd and insert the entry under one lock acquisition so a
         // concurrent open_read for the same node_handle can't observe the same
