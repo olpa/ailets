@@ -12,8 +12,9 @@ crate-type = ["cdylib", "lib"]
 
 [dependencies]
 actor_io = { workspace = true, features = ["std"] }
-actor_runtime.workspace = true
+actor_runtime = { workspace = true, features = ["std"] }
 actor_runtime_mocked.workspace = true
+actor_vars.workspace = true
 serde_json.workspace = true
 getrandom.workspace = true
 serde.workspace = true

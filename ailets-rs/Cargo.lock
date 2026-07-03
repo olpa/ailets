@@ -18,6 +18,7 @@ version = "0.3.0"
 dependencies = [
  "base64",
  "serde_json",
+ "tracing",
 ]
 
 [[package]]
@@ -25,6 +26,17 @@ name = "actor_runtime_mocked"
 version = "0.2.0"
 dependencies = [
  "actor_runtime",
+ "embedded-io",
+ "tracing",
+]
+
+[[package]]
+name = "actor_vars"
+version = "0.1.0"
+dependencies = [
+ "actor_io",
+ "actor_runtime",
+ "actor_runtime_mocked",
  "embedded-io",
  "tracing",
 ]
@@ -341,10 +353,7 @@ version = "0.1.0"
 dependencies = [
  "actor_io",
  "actor_runtime",
- "ailetos",
- "embedded-io",
- "parking_lot",
- "tokio",
+ "actor_vars",
 ]
 
 [[package]]
@@ -751,6 +760,7 @@ dependencies = [
  "actor_io",
  "actor_runtime",
  "actor_runtime_mocked",
+ "actor_vars",
  "base64",
  "embedded-io",
  "getrandom 0.3.4",
@@ -1055,6 +1065,7 @@ version = "0.1.0"
 dependencies = [
  "actor_io",
  "actor_runtime",
+ "actor_vars",
  "hamcrest",
  "serde",
  "serde_json",
@@ -1460,9 +1471,10 @@ version = "0.1.0"
 dependencies = [
  "actor_io",
  "actor_runtime",
- "ailetos",
+ "actor_runtime_mocked",
+ "actor_vars",
  "embedded-io",
- "parking_lot",
+ "tracing",
 ]
 
 [[package]]

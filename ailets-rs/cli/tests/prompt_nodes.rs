@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use ailetos::pipe::pipe_path;
 use ailetos::{Environment, Handle, KVBuffers, MemKV, NodeKind, OpenMode};
-use dagsh::prompt_nodes::{register_prompt_inputs, StdinUsage};
 use dagsh::shell_ui::PromptArg;
+use dagsh::user_input::{register_prompt_inputs, StdinUsage};
 
 fn make_env() -> (Arc<Environment>, tokio::runtime::Runtime) {
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -175,7 +175,7 @@ fn test_explicit_stdin_stays_at_position() {
     // file_value(stdin) + raw_text(Hello)
     assert_eq!(raw_deps.len(), 2);
     assert_eq!(node_idname(&env, raw_deps[0]), "file_value");
-    assert_eq!(node_explain(&env, raw_deps[0]).as_deref(), Some("-"));
+    assert_eq!(node_explain(&env, raw_deps[0]).as_deref(), Some("stdin"));
     assert_eq!(read_value_node(&env, &rt, raw_deps[1]), "Hello");
 
     assert_eq!(to_doc_item_dep(&env, doc_deps[1]), raw_deps[0]);
